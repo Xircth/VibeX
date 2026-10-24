@@ -65,6 +65,8 @@ export type AtReferenceMember = {
   id: string;
   nickname: string;
   detail?: string;
+  /** Bot avatar used to render the member mention chip. */
+  avatar?: { color: string; shape: string; expression: string };
 };
 
 export type AtReferenceSources = {
@@ -258,6 +260,7 @@ export function memberToAtReference(
     tab: 'member',
     label: nickname,
     detail: member.detail,
+    // Trailing space closes the mention so the composer turns it into a chip.
     insertText: `@${nickname}`,
   };
 }

@@ -46,7 +46,7 @@ pub use workflow::{
     PauseWorkflowStepRequest, PublishWorkflowRequest, ResumePausedWorkflowRequest,
     ResumeWorkflowRequest, StartWorkflowRequest, SubmitWorkflowStepInputRequest,
     ValidateWorkflowRequest, WorkflowAgentDispatcher, WorkflowExecutionPort,
-    WorkflowStoreExecutionPort,
+    WorkflowStoreExecutionPort, ensure_member_session_workspace,
 };
 pub use workflows::{
     CompletionPolicy, DebugRunScope, WorkflowDefinition, WorkflowDefinitionSummary,

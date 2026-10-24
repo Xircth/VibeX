@@ -272,6 +272,29 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         }
     }
 
+    async fn resolve_member_session(
+        &self,
+        scope: &DelegationScope,
+        member_id: &str,
+        thread_id: &str,
+    ) -> Result<String, Value> {
+        collaboration::resolve_member_target(
+            &self.pool,
+            scope.parent_conversation_id,
+            member_id,
+            thread_id,
+        )
+        .await
+        .map(|conversation_id| conversation_id.to_string())
+        .map_err(|error| {
+            let mut payload = error.to_json();
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("accepted".to_string(), json!(false));
+            }
+            payload
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn session_send_ex(
         &self,
@@ -679,6 +702,125 @@ async fn collaboration_tool(
                 });
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
+        }
+        "ask_person" | "request_approval" => {
+            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
+                collaboration::CollaborationError::new("not_found", "operation_id is required")
+            })?;
+            let space_id = text("space_id");
+            let (kind, payload) = if name == "ask_person" {
+                (
+                    conversations::collaboration_cards::CardKind::Ask,
+                    json!({
+                        "question": text("question"),
+                        "options": arguments.get("options").cloned().unwrap_or(json!([])),
+                        "to": text("to"),
+                    }),
+                )
+            } else {
+                (
+                    conversations::collaboration_cards::CardKind::Approval,
+                    json!({
+                        "action": text("action"),
+                        "command": text("command"),
+                        "reason": text("reason"),
+                    }),
+                )
+            };
+            let card = conversations::collaboration_cards::post_card(
+                pool,
+                conversations::collaboration_cards::PostCard {
+                    caller_id,
+                    space_id: space_id.clone(),
+                    kind,
+                    payload,
+                    operation_id,
+                },
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(card).unwrap_or(json!({})))
+        }
+        "resolve_card" => {
+            let card_id = text("card_id");
+            let card = conversations::collaboration_cards::resolve_card(
+                pool,
+                &card_id,
+                // MCP calls act as the calling member.
+                conversations::collaboration_cards::CardActor::Member(caller_id),
+                arguments.get("decision").and_then(|v| v.as_str()),
+                arguments.get("answer").and_then(|v| v.as_str()),
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) =
+                    collaboration::space_workspace_id(pool, &card.space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id: card.space_id.clone(),
+                    seq: None,
+                    member_id: card.member_id.clone(),
+                });
+            }
+            Ok(serde_json::to_value(card).unwrap_or(json!({})))
+        }
+        "memory_search" => {
+            let limit = arguments
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8)
+                .clamp(1, 50) as usize;
+            Ok(conversations::member_memory::tool_search(pool, caller_id, &text("query"), limit).await?)
+        }
+        "memory_write" => {
+            let scope = arguments.get("scope").and_then(|v| v.as_str());
+            let fact = conversations::member_memory::tool_write(pool, caller_id, &text("content"), scope).await?;
+            Ok(serde_json::to_value(fact).unwrap_or(json!({})))
+        }
+        "handoff" => {
+            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
+                collaboration::CollaborationError::new("not_found", "operation_id is required")
+            })?;
+            let space_id = text("space_id");
+            let result = collaboration::handoff_with(
+                pool,
+                collaboration::Handoff {
+                    caller_id,
+                    space_id: space_id.clone(),
+                    to: text("to"),
+                    envelope: collaboration::HandoffEnvelope {
+                        done: text("done"),
+                        inputs_constraints: text("inputs_constraints"),
+                        ask: text("ask"),
+                    },
+                    operation_id,
+                },
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(result).unwrap_or(json!({})))
         }
         "post_to_space" => {
             let operation_id = uuid_arg("operation_id").ok_or_else(|| {

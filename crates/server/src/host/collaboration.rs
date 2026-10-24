@@ -11,12 +11,15 @@ use async_trait::async_trait;
 use conversations::collaboration::{
     self, CollaborationSpaceChangedEvent, DeliveryContext, MessageAudience, SaveRole, SaveTeam,
 };
+use conversations::member_memory;
 use plugins::{CollaborationHost, CollaborationHostError};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::host::events::{COLLABORATION_SPACE_CHANGED_EVENT, HostEventBus};
+use crate::host::events::{
+    COLLABORATION_RECEIPTS_CHANGED_EVENT, COLLABORATION_SPACE_CHANGED_EVENT, HostEventBus,
+};
 
 const SESSION_PANEL_ID: &str = "ai-chat";
 
@@ -114,6 +117,30 @@ impl CollaborationHost for HostCollaborationHost {
                 "space.updateScheduledMessage" | "space.update_scheduled_message",
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
+            ("collaboration", "space.submit") => self.submit(&input).await,
+            ("collaboration", "card.list" | "card.list_cards") => self.list_cards(&input).await,
+            ("collaboration", "card.resolve") => self.resolve_card(&input).await,
+            ("collaboration", "member.memory.list" | "member.memory_list") => {
+                self.memory_list(&input).await
+            }
+            ("collaboration", "member.memory.update" | "member.memory_update") => {
+                self.memory_update(&input).await
+            }
+            ("collaboration", "member.memory.delete" | "member.memory_delete") => {
+                self.memory_delete(&input).await
+            }
+            ("collaboration", "member.activity.list" | "member.activity_list") => {
+                self.activity_list(&input).await
+            }
+            ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
+                self.set_write_access(&input).await
+            }
+            ("collaboration", "space.receipts" | "space.listReceipts" | "space.list_receipts") => {
+                self.receipts(&input).await
+            }
+            ("collaboration", "space.wakePreview" | "space.wake_preview") => {
+                self.wake_preview(&input).await
+            }
             ("collaboration", "space.listCollection" | "space.list_collection") => {
                 self.list_collection(&input).await
             }
@@ -657,6 +684,170 @@ impl HostCollaborationHost {
         })
     }
 
+    /// User submit: post into a group thread and return the per-member
+    /// three-state receipts (`queued` / `processing` / `replied`).
+    async fn submit(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        let mut forwarded = input.clone();
+        if let Some(object) = forwarded.as_object_mut() {
+            object.insert("spaceId".to_string(), json!(space_id));
+        }
+        let posted = self.post(&forwarded).await?;
+        let message_id = posted
+            .get("message_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
+            .await
+            .map_err(host_error)?;
+        self.events.emit(
+            COLLABORATION_RECEIPTS_CHANGED_EVENT,
+            json!({ "spaceId": space_id, "messageId": message_id, "receipts": receipts }),
+        );
+        Ok(json!({
+            "messageId": message_id,
+            "seq": posted.get("seq").cloned().unwrap_or(Value::Null),
+            "receipts": receipts,
+            "deliveries": posted.get("receipts").cloned().unwrap_or(Value::Null),
+        }))
+    }
+
+    /// `writeAccess`: `write_isolated` (default) or `write_serialized`.
+    async fn set_write_access(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let raw = required_text(input, &["writeAccess", "write_access"])?;
+        let access = collaboration::MemberWriteAccess::parse(&raw).ok_or_else(|| {
+            CollaborationHostError::new(
+                "conversation_control_failed",
+                "writeAccess must be write_isolated or write_serialized",
+            )
+        })?;
+        collaboration::set_member_write_access(&self.pool, &member_id, access)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "writeAccess": access.as_str() }))
+    }
+
+    async fn list_cards(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id", "spaceId", "space_id"]);
+        let pending_only = input
+            .get("pendingOnly")
+            .or_else(|| input.get("pending_only"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let cards =
+            conversations::collaboration_cards::list_cards(&self.pool, space_id.as_deref(), pending_only)
+                .await
+                .map_err(host_error)?;
+        Ok(json!({ "cards": cards }))
+    }
+
+    async fn resolve_card(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let card_id = required_text(input, &["cardId", "card_id", "id"])?;
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let card = conversations::collaboration_cards::resolve_card(
+            &self.pool,
+            &card_id,
+            // Host/UI calls are always the user (the human owner).
+            conversations::collaboration_cards::CardActor::User,
+            optional_text(input, &["decision"]).as_deref(),
+            optional_text(input, &["answer", "note"]).as_deref(),
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &card.space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id: card.space_id.clone(),
+                    seq: None,
+                    member_id: card.member_id.clone(),
+                },
+            );
+        }
+        Ok(json!({ "card": card }))
+    }
+
+    /// The user's own view of a member's memory: every scope, private included.
+    async fn memory_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let facts = member_memory::list_facts(&self.pool, &member_id, scope.as_ref())
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "facts": facts }))
+    }
+
+    async fn memory_update(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let fact_id = fact_id(input)?;
+        let content = optional_text(input, &["content"]);
+        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let fact = member_memory::update_fact(
+            &self.pool,
+            &member_id,
+            fact_id,
+            content.as_deref(),
+            scope.as_ref(),
+        )
+        .await
+        .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "fact": fact }))
+    }
+
+    async fn memory_delete(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let fact_id = fact_id(input)?;
+        let deleted = member_memory::delete_fact(&self.pool, &member_id, fact_id)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "factId": fact_id, "deleted": deleted }))
+    }
+
+    async fn activity_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let limit = input
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(50)
+            .clamp(1, 500) as usize;
+        let activity = member_memory::list_activity(&self.pool, &member_id, true, limit)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "activity": activity }))
+    }
+
+    async fn receipts(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let message_id = required_text(input, &["messageId", "message_id"])?;
+        let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "messageId": message_id, "receipts": receipts }))
+    }
+
+    async fn wake_preview(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        let preview = collaboration::preview_space_wake(
+            &self.pool,
+            &space_id,
+            None,
+            &text(input, &["content"]),
+            &string_list(input, &["to"]),
+        )
+        .await
+        .map_err(host_error)?;
+        serde_json::to_value(preview).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
     async fn list_collection(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id"])?;
         let limit = input.get("limit").and_then(Value::as_i64);
@@ -916,6 +1107,17 @@ fn text(input: &Value, keys: &[&str]) -> String {
         .to_string()
 }
 
+fn parse_fact_scope(raw: &str) -> Result<member_memory::FactScope, CollaborationHostError> {
+    member_memory::FactScope::parse(raw).map_err(host_error)
+}
+
+fn fact_id(input: &Value) -> Result<i64, CollaborationHostError> {
+    ["factId", "fact_id", "id"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_i64))
+        .ok_or_else(|| CollaborationHostError::new("conversation_control_failed", "factId is required"))
+}
+
 fn optional_text(input: &Value, keys: &[&str]) -> Option<String> {
     let value = text(input, keys);
     (!value.is_empty()).then_some(value)
@@ -1037,6 +1239,142 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn host_member_memory_view_edit_delete_round_trip() {
+        use conversations::member_memory::{self as memory, FactScope, FirstSentencesSummarizer};
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call("host", "collaboration", "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let member = db::models::collaboration_identity::member_id_for_conversation(a);
+        memory::record_activity(&pool, a, Some(Uuid::new_v4()), "修好了分页。", &FirstSentencesSummarizer)
+            .await
+            .unwrap();
+        let global = memory::create_fact(&pool, &member, "统一用 pnpm", &FactScope::Global, None, "agent")
+            .await
+            .unwrap();
+        memory::create_fact(&pool, &member, "用户生日五月一日", &FactScope::Private, None, "agent")
+            .await
+            .unwrap();
+
+        let listed = host
+            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(listed["facts"].as_array().unwrap().len(), 2, "user view includes private");
+        let only_private = host
+            .call("host", "collaboration", "member.memory.list",
+                json!({ "memberId": member, "scope": "private" }))
+            .await
+            .unwrap();
+        assert_eq!(only_private["facts"].as_array().unwrap().len(), 1);
+        let activity = host
+            .call("host", "collaboration", "member.activity.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(activity["activity"][0]["summary"], json!("修好了分页。"));
+
+        let updated = host
+            .call("host", "collaboration", "member.memory.update",
+                json!({ "memberId": member, "factId": global.id, "content": "统一用 pnpm 9", "scope": format!("thread:{space_id}") }))
+            .await
+            .unwrap();
+        assert_eq!(updated["fact"]["content"], json!("统一用 pnpm 9"));
+        assert_eq!(updated["fact"]["scope"], json!(format!("thread:{space_id}")));
+        assert!(host
+            .call("host", "collaboration", "member.memory.update",
+                json!({ "memberId": member, "factId": global.id, "scope": "bogus" }))
+            .await
+            .is_err());
+        let deleted = host
+            .call("host", "collaboration", "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }))
+            .await
+            .unwrap();
+        assert_eq!(deleted["deleted"], json!(true));
+        let again = host
+            .call("host", "collaboration", "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }))
+            .await
+            .unwrap();
+        assert_eq!(again["deleted"], json!(false));
+        let left = host
+            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(left["facts"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn host_cards_ask_and_approval_round_trip() {
+        use conversations::collaboration_cards::{self as cards, CardKind, PostCard};
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call("host", "collaboration", "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let delivery = DeliveryContext::default();
+        let op = Uuid::new_v4();
+        let ask = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
+            payload: json!({ "question": "用哪个分支？", "options": ["main", "dev"] }), operation_id: op }, &delivery)
+            .await
+            .unwrap();
+        let again = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
+            payload: json!({ "question": "用哪个分支？" }), operation_id: op }, &delivery)
+            .await
+            .unwrap();
+        assert_eq!(ask.id, again.id, "idempotent per operation id");
+        let approval = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Approval,
+            payload: json!({ "action": "run", "command": "rm -rf dist", "reason": "clean" }), operation_id: Uuid::new_v4() }, &delivery)
+            .await
+            .unwrap();
+        let pending = host
+            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .await
+            .unwrap();
+        assert_eq!(pending["cards"].as_array().unwrap().len(), 2);
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id })).await.is_err(),
+            "ask needs an answer");
+        let resolved = host
+            .call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "dev" }))
+            .await
+            .unwrap();
+        assert_eq!(resolved["card"]["status"], json!("resolved"));
+        assert!(resolved["card"]["reply_message_id"].is_string() || resolved["card"]["replyMessageId"].is_string());
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "x" })).await.is_err(),
+            "double resolve rejected");
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "maybe" })).await.is_err());
+        host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "deny" }))
+            .await
+            .unwrap();
+        let pending = host
+            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .await
+            .unwrap();
+        assert!(pending["cards"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1252,6 +1590,74 @@ mod tests {
             .unwrap();
         assert_eq!(post_replay["message_id"], posted["message_id"]);
         assert_eq!(post_replay["seq"], posted["seq"]);
+    }
+
+    #[tokio::test]
+    async fn host_list_messages_carries_id_origin_and_in_reply_to() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call(
+            "host",
+            "collaboration",
+            "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }),
+        )
+        .await
+        .unwrap();
+        let first = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({ "spaceId": space_id, "content": "@小A 看下", "to": ["小A"], "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let first_id = first["message_id"].as_str().unwrap().to_string();
+        let second = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({
+                    "spaceId": space_id,
+                    "content": "@小A 补充",
+                    "to": ["小A"],
+                    "inReplyTo": format!("vibex://space-message/{first_id}"),
+                    "operationId": Uuid::new_v4(),
+                }),
+            )
+            .await
+            .unwrap();
+        let listed = host
+            .call(
+                "host",
+                "collaboration",
+                "space.listMessages",
+                json!({ "spaceId": space_id }),
+            )
+            .await
+            .unwrap();
+        let messages = listed["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["id"], json!(first_id));
+        assert_eq!(messages[0]["origin"], json!("user"));
+        assert!(messages[0].get("in_reply_to").is_none());
+        assert_eq!(messages[1]["id"], second["message_id"]);
+        assert_eq!(messages[1]["in_reply_to"], json!(first_id), "URI reduced to bare id");
     }
 
     #[tokio::test]

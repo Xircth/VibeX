@@ -17,6 +17,7 @@ use agents::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use db::models::{
+    collaboration_identity::{self as identity, IdentityError},
     conversation_event::AppendConversationEvent,
     session::{CreateSession, Session},
 };
@@ -153,7 +154,7 @@ impl std::fmt::Display for CollaborationError {
 
 impl std::error::Error for CollaborationError {}
 
-fn db(error: sqlx::Error) -> CollaborationError {
+pub(crate) fn db(error: sqlx::Error) -> CollaborationError {
     CollaborationError::new("conversation_control_failed", error.to_string())
 }
 
@@ -172,7 +173,7 @@ fn stamp(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-fn now_stamp() -> String {
+pub(crate) fn now_stamp() -> String {
     stamp(Utc::now())
 }
 
@@ -1040,6 +1041,16 @@ pub async fn persona_prompt_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<String>, CollaborationError> {
+    persona_prompt_text_for_turn(pool, conversation_id, None).await
+}
+
+/// Persona + member context for a turn whose prompt is `query` (used to
+/// pick relevant long-term memory).
+pub async fn persona_prompt_text_for_turn(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    query: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
     let prompt: Option<String> = sqlx::query_scalar::<_, String>(
         "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
     )
@@ -1048,7 +1059,7 @@ pub async fn persona_prompt_text(
     .await
     .map_err(db)?
     .filter(|value: &String| !value.trim().is_empty());
-    let space_context = member_space_context_text(pool, conversation_id).await?;
+    let space_context = member_space_context_text_for(pool, conversation_id, query).await?;
     match (prompt, space_context) {
         (Some(persona), Some(context)) => Ok(Some(format!("{}\n\n{}", persona.trim(), context))),
         (Some(persona), None) => Ok(Some(persona)),
@@ -1967,7 +1978,16 @@ pub async fn create_collaboration_space(
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    insert_member(pool, &space_id, Some(caller_id), &nickname, "agent", true).await?;
+    insert_member_with(
+        pool,
+        &space_id,
+        Some(caller_id),
+        &nickname,
+        "agent",
+        true,
+        SeatMode::PerThread,
+    )
+    .await?;
     let record = SpaceRecord {
         space_id,
         name,
@@ -2662,6 +2682,9 @@ pub async fn host_move_space_member(
     .execute(pool)
     .await
     .map_err(db)?;
+    // A member may now sit in several spaces (one conversation per thread),
+    // so a move only vacates the source seat. The undecided space is still
+    // exclusive: a member there has no group seat with this conversation.
     if parse_unassigned_space_id(to_space_id).is_none() {
         let unassigned = unassigned_space_id(target.workspace_id);
         sqlx::query(
@@ -2672,29 +2695,19 @@ pub async fn host_move_space_member(
         .execute(pool)
         .await
         .map_err(db)?;
-    } else {
-        sqlx::query(
-            r#"DELETE FROM collaboration_space_members
-               WHERE conversation_id = ?
-                 AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
-        )
-        .bind(conversation_id.to_string())
-        .bind(&to_space.workspace_id)
-        .execute(pool)
-        .await
-        .map_err(db)?;
     }
     let record = if let Ok(existing) = ensure_agent_member(pool, to_space_id, conversation_id).await
     {
         existing
     } else {
-        insert_member(
+        insert_member_with(
             pool,
             to_space_id,
             Some(conversation_id),
             &desired_nickname,
             "agent",
             true,
+            SeatMode::Transfer,
         )
         .await?
     };
@@ -2814,13 +2827,14 @@ pub async fn host_batch_delete_space_items(
                     } else {
                         nickname
                     };
-                    let _ = insert_member(
+                    let _ = insert_member_with(
                         pool,
                         &unassigned_id,
                         Some(conv_id),
                         &safe_nick,
                         "agent",
                         true,
+                        SeatMode::Transfer,
                     )
                     .await;
                 }
@@ -2897,6 +2911,9 @@ pub async fn host_batch_delete_space_items(
         .execute(pool)
         .await
         .map_err(db)?;
+        identity::unbind_conversation(pool, target.conversation_id)
+            .await
+            .map_err(db)?;
         if !archived_conversation_ids.contains(&target.conversation_id) {
             archived_conversation_ids.push(target.conversation_id);
         }
@@ -2990,7 +3007,7 @@ pub async fn add_space_member(
     nickname: &str,
     operation_id: Uuid,
 ) -> Result<MemberRecord, CollaborationError> {
-    ensure_agent_member(pool, space_id, caller_id).await?;
+    caller_seat(pool, space_id, caller_id).await?;
     let space = load_space(pool, space_id).await?;
     let target = live_session(load_session(pool, conversation_id).await?)?;
     if target.workspace_id.to_string() != space.workspace_id {
@@ -3049,7 +3066,7 @@ pub async fn set_space_identity(
             "conversation was not found",
         ));
     }
-    let member = ensure_agent_member(pool, space_id, caller_id)
+    let member = caller_seat(pool, space_id, caller_id)
         .await
         .map_err(|_| CollaborationError::new("not_found", "conversation was not found"))?;
     let nickname = require_name(nickname)?;
@@ -3103,6 +3120,9 @@ pub struct DeliveryReceipt {
     pub conversation_id: Uuid,
     pub nickname: String,
     pub delivered: String,
+    /// Three-state receipt: `queued`, `processing` or `replied`
+    /// (`failed` deliveries keep `queued` here and report `delivered`).
+    pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3155,8 +3175,9 @@ pub async fn post_to_space_delayed_with(
     }
     let (nickname, sender) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, &input.space_id, caller_id).await?;
-            (member.nickname, Some(caller_id))
+            let member = caller_seat(pool, &input.space_id, caller_id).await?;
+            let seat = seat_conversation(&member).unwrap_or(caller_id);
+            (member.nickname, Some(seat))
         }
         None => {
             ensure_user_member(pool, &input.space_id).await?;
@@ -3229,6 +3250,7 @@ pub async fn post_to_space_delayed_with(
                 conversation_id,
                 nickname: target.nickname,
                 delivered: "scheduled".to_string(),
+                state: "queued".to_string(),
                 input_id: None,
                 error_code: None,
             })
@@ -3255,11 +3277,12 @@ pub async fn post_to_space_with(
     }
     let (actor, attributed_to, sender) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, &input.space_id, caller_id).await?;
+            let member = caller_seat(pool, &input.space_id, caller_id).await?;
+            let seat = seat_conversation(&member).unwrap_or(caller_id);
             (
                 member_actor(&input.space_id, &member.nickname),
-                Some(format!("vibex://conversation/{caller_id}")),
-                Some(caller_id),
+                Some(format!("vibex://conversation/{seat}")),
+                Some(seat),
             )
         }
         None => {
@@ -3339,14 +3362,15 @@ pub async fn post_to_space_with(
         .await?;
         sqlx::query(
             r#"INSERT INTO collaboration_space_messages
-               (id, space_id, seq, envelope_json, created_at)
-               VALUES (?, ?, ?, ?, ?)"#,
+               (id, space_id, seq, envelope_json, created_at, origin)
+               VALUES (?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&message_id)
         .bind(&input.space_id)
         .bind(seq)
         .bind(envelope.to_string())
         .bind(&published)
+        .bind(if sender.is_some() { "agent" } else { "user" })
         .execute(&mut *conn)
         .await?;
         for target in &targets {
@@ -3361,6 +3385,33 @@ pub async fn post_to_space_with(
             .bind(&message_id)
             .bind(target_id.to_string())
             .bind(delivery_operation_id(input.operation_id, target_id).to_string())
+            .execute(&mut *conn)
+            .await?;
+        }
+        if let Some(sender) = sender {
+            sqlx::query(
+                r#"UPDATE collaboration_thread_members
+                   SET last_active_at = ?, asleep_since = NULL
+                   WHERE conversation_id = ?"#,
+            )
+            .bind(&published)
+            .bind(sender.to_string())
+            .execute(&mut *conn)
+            .await?;
+            // The member answered in this thread: everything delivered to it
+            // here before this message is now replied.
+            sqlx::query(
+                r#"UPDATE collaboration_space_deliveries
+                   SET receipt_state = 'replied', receipt_updated_at = ?
+                   WHERE conversation_id = ? AND receipt_state != 'replied'
+                     AND space_message_id IN (
+                       SELECT id FROM collaboration_space_messages
+                       WHERE space_id = ? AND seq < ?)"#,
+            )
+            .bind(&published)
+            .bind(sender.to_string())
+            .bind(&input.space_id)
+            .bind(seq)
             .execute(&mut *conn)
             .await?;
         }
@@ -3451,7 +3502,8 @@ async fn deliver_pending(
         &display_text,
     );
     let pending = sqlx::query_as::<_, PendingDelivery>(
-        r#"SELECT conversation_id, operation_id, input_id, status
+        r#"SELECT conversation_id, operation_id, input_id, status, receipt_state, context_from_seq,
+                  wake_deferred_turn_key
            FROM collaboration_space_deliveries
            WHERE space_message_id = ?"#,
     )
@@ -3472,6 +3524,7 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: delivery.status,
+                state: delivery.receipt_state,
                 input_id: delivery
                     .input_id
                     .as_deref()
@@ -3489,6 +3542,7 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: "failed".to_string(),
+                state: delivery.receipt_state.clone(),
                 input_id: None,
                 error_code: Some("not_found".to_string()),
             });
@@ -3500,16 +3554,84 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: "failed".to_string(),
+                state: delivery.receipt_state.clone(),
                 input_id: None,
                 error_code: Some("not_found".to_string()),
             });
             continue;
         }
+        if session_is_asleep(pool, conversation_id).await? {
+            let released = match delivery.wake_deferred_turn_key.as_deref() {
+                // Held earlier over the cap: deliver once the originating
+                // turn has ended ("next turn"), never stall.
+                Some(key) => !wake_turn_in_flight(pool, key).await?,
+                None => false,
+            };
+            if !released {
+                let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
+                if !reserve_wake(
+                    pool,
+                    &turn_key,
+                    conversation_id,
+                    message_id,
+                    wake_cap_per_turn(),
+                )
+                .await?
+                {
+                    // Over the per-turn wake cap: held visibly as
+                    // 'limit_reached' until the originating turn ends.
+                    hold_over_wake_cap(pool, message_id, conversation_id, &turn_key).await?;
+                    receipts.push(DeliveryReceipt {
+                        conversation_id,
+                        nickname,
+                        delivered: "deferred".to_string(),
+                        state: WAKE_LIMIT_REACHED.to_string(),
+                        input_id: None,
+                        error_code: Some("wake_limit_exceeded".to_string()),
+                    });
+                    continue;
+                }
+            }
+        }
+        if !try_acquire_member_write(pool, conversation_id).await? {
+            receipts.push(DeliveryReceipt {
+                conversation_id,
+                nickname,
+                delivered: "deferred".to_string(),
+                state: delivery.receipt_state.clone(),
+                input_id: None,
+                error_code: Some("write_serialized_busy".to_string()),
+            });
+            continue;
+        }
+        let context_from = match delivery.context_from_seq {
+            Some(from) => from,
+            None => {
+                let from = context_window_start(pool, space_id, conversation_id, seq).await?;
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries SET context_from_seq = ?
+                       WHERE space_message_id = ? AND conversation_id = ?"#,
+                )
+                .bind(from)
+                .bind(message_id)
+                .bind(conversation_id.to_string())
+                .execute(pool)
+                .await
+                .map_err(db)?;
+                from
+            }
+        };
+        let missed =
+            missed_group_context(pool, space_id, conversation_id, context_from, seq).await?;
+        let packed = match missed {
+            Some(missed) => format!("{missed}\n\n{attention}"),
+            None => attention.clone(),
+        };
         match deliver_text(
             pool,
             conversation_id,
             operation_id,
-            &attention,
+            &packed,
             Some(display_text.clone()),
             &target,
             json!({
@@ -3522,22 +3644,46 @@ async fn deliver_pending(
         .await
         {
             Ok(receipt) => {
+                let state = if receipt.delivered == "dispatched" {
+                    "processing"
+                } else {
+                    "queued"
+                };
+                // The queue may already have dispatched the input (trigger),
+                // so never move a receipt backwards.
                 sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
-                       SET input_id = ?, status = ?
+                       SET input_id = ?, status = ?, wake_deferred_turn_key = NULL,
+                           receipt_state = CASE
+                             WHEN receipt_state = 'queued' THEN ? ELSE receipt_state END,
+                           receipt_updated_at = ?
                        WHERE space_message_id = ? AND conversation_id = ?"#,
                 )
                 .bind(receipt.input_id.map(|id| id.to_string()))
                 .bind(&receipt.delivered)
+                .bind(state)
+                .bind(now_stamp())
                 .bind(message_id)
                 .bind(conversation_id.to_string())
                 .execute(pool)
+                .await
+                .map_err(db)?;
+                advance_last_seen(pool, space_id, conversation_id, message_id, seq).await?;
+                touch_session_activity(pool, conversation_id).await?;
+                let state: String = sqlx::query_scalar(
+                    r#"SELECT receipt_state FROM collaboration_space_deliveries
+                       WHERE space_message_id = ? AND conversation_id = ?"#,
+                )
+                .bind(message_id)
+                .bind(conversation_id.to_string())
+                .fetch_one(pool)
                 .await
                 .map_err(db)?;
                 receipts.push(DeliveryReceipt {
                     conversation_id,
                     nickname,
                     delivered: receipt.delivered,
+                    state,
                     input_id: receipt.input_id,
                     error_code: None,
                 });
@@ -3550,6 +3696,7 @@ async fn deliver_pending(
                     conversation_id,
                     nickname,
                     delivered: "failed".to_string(),
+                    state: delivery.receipt_state.clone(),
                     input_id: None,
                     error_code: Some(error.code.to_string()),
                 });
@@ -3563,10 +3710,239 @@ async fn deliver_pending(
     })
 }
 
+/// Most recent missed group messages packed verbatim into one delivery;
+/// older missed messages collapse into a one-line summary.
+pub const MISSED_CONTEXT_VERBATIM: usize = 20;
+/// Furthest back (in messages) a missed-context window ever reaches.
+const MISSED_CONTEXT_LIMIT: i64 = 500;
+/// Per-message character cap inside the packed block.
+const MISSED_CONTEXT_MESSAGE_CHARS: usize = 600;
+
+/// Thread binding (`collaboration_thread_members`) of a seat conversation.
+async fn seat_binding(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<identity::ThreadMemberRow>, CollaborationError> {
+    identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)
+}
+
+/// Exclusive lower seq bound of the missed-context window for a delivery of
+/// message `seq`: the member's last seen message in this thread, or (never
+/// seen) the last `MISSED_CONTEXT_LIMIT` messages.
+async fn context_window_start(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    seq: i64,
+) -> Result<i64, CollaborationError> {
+    let last_seen = match seat_binding(pool, conversation_id).await? {
+        Some(binding) => match binding_last_seen_seq(pool, space_id, &binding).await? {
+            Some(seen) => Some(seen),
+            None => None,
+        },
+        None => None,
+    };
+    let floor = (seq - 1 - MISSED_CONTEXT_LIMIT).max(0);
+    Ok(last_seen
+        .map_or(floor, |seen| seen.max(floor))
+        .min(seq - 1)
+        .max(0))
+}
+
+async fn binding_last_seen_seq(
+    pool: &SqlitePool,
+    space_id: &str,
+    binding: &identity::ThreadMemberRow,
+) -> Result<Option<i64>, CollaborationError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT m.seq FROM collaboration_thread_members tm
+           JOIN collaboration_space_messages m
+             ON m.id = tm.last_seen_message_id AND m.space_id = ?
+           WHERE tm.thread_id = ? AND tm.member_id = ?"#,
+    )
+    .bind(space_id)
+    .bind(&binding.thread_id)
+    .bind(&binding.member_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
+/// Group messages in `(from_seq, before_seq)` that this conversation did not
+/// author, rendered as a "while you were away" block. `None` when empty.
+async fn missed_group_context(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    from_seq: i64,
+    before_seq: i64,
+) -> Result<Option<String>, CollaborationError> {
+    if before_seq - from_seq <= 1 {
+        return Ok(None);
+    }
+    let rows = sqlx::query_as::<_, (i64, String)>(
+        r#"SELECT seq, envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND seq > ? AND seq < ?
+           ORDER BY seq DESC LIMIT ?"#,
+    )
+    .bind(space_id)
+    .bind(from_seq)
+    .bind(before_seq)
+    .bind(MISSED_CONTEXT_LIMIT)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let own = format!("vibex://conversation/{conversation_id}");
+    let user_uri = user_actor(space_id);
+    let mut lines = Vec::new();
+    for (seq, raw) in rows {
+        let Ok(envelope) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if envelope.get("attributedTo").and_then(Value::as_str) == Some(own.as_str()) {
+            continue;
+        }
+        let actor = envelope
+            .get("actor")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let who = if actor == user_uri {
+            "User".to_string()
+        } else {
+            actor.rsplit("/member/").next().unwrap_or(actor).to_string()
+        };
+        let content = envelope
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        lines.push((seq, who, content.to_string()));
+    }
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    lines.reverse();
+    let older = lines.len().saturating_sub(MISSED_CONTEXT_VERBATIM);
+    let mut out = Vec::new();
+    if older > 0 {
+        let collapsed = &lines[..older];
+        let mut who: Vec<&str> = Vec::new();
+        for (_, name, _) in collapsed {
+            if !who.contains(&name.as_str()) {
+                who.push(name);
+            }
+        }
+        out.push(format!(
+            "[#{}–#{}] {older} earlier messages from {} (collapsed; use space history to read them)",
+            collapsed[0].0,
+            collapsed[older - 1].0,
+            who.join(", ")
+        ));
+    }
+    for (seq, who, content) in &lines[older..] {
+        let mut content = content.clone();
+        if content.chars().count() > MISSED_CONTEXT_MESSAGE_CHARS {
+            content = content
+                .chars()
+                .take(MISSED_CONTEXT_MESSAGE_CHARS)
+                .collect::<String>()
+                + "…";
+        }
+        out.push(format!("[#{seq}] {who}: {content}"));
+    }
+    Ok(Some(format!(
+        "<missed_group_messages count=\"{}\">\n{}\n</missed_group_messages>",
+        lines.len(),
+        out.join("\n")
+    )))
+}
+
+/// Record that the member behind `conversation_id` has now seen `message_id`
+/// (seq `seq`) in this thread. Never moves backwards.
+async fn advance_last_seen(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    message_id: &str,
+    seq: i64,
+) -> Result<(), CollaborationError> {
+    let Some(binding) = seat_binding(pool, conversation_id).await? else {
+        return Ok(());
+    };
+    let current = binding_last_seen_seq(pool, space_id, &binding).await?;
+    if current.is_some_and(|seen| seen >= seq) {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"UPDATE collaboration_thread_members SET last_seen_message_id = ?
+           WHERE thread_id = ? AND member_id = ?"#,
+    )
+    .bind(message_id)
+    .bind(&binding.thread_id)
+    .bind(&binding.member_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SpaceMessage {
+    /// Stable message id (the target of a later `in_reply_to`).
+    pub id: String,
     pub seq: i64,
     pub envelope: Value,
+    /// `user` or `agent`.
+    pub origin: String,
+    /// Id of the message this one replies to (cross-chat member-to-member
+    /// correlation), lifted from the envelope's `inReplyTo`; a
+    /// `vibex://space-message/<id>` URI is reduced to the bare `<id>` so it
+    /// matches `id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
+    /// Per-recipient three-state receipts (empty for agent audiences).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub receipts: Vec<MessageReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageReceipt {
+    pub conversation_id: String,
+    pub state: String,
+    pub delivered: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Receipts of `message_id`, one per recipient conversation.
+pub async fn list_message_receipts(
+    pool: &SqlitePool,
+    message_id: &str,
+) -> Result<Vec<MessageReceipt>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        r#"SELECT conversation_id,
+                  CASE WHEN receipt_state = 'queued' AND wake_deferred_turn_key IS NOT NULL
+                       THEN 'limit_reached' ELSE receipt_state END,
+                  status, COALESCE(receipt_updated_at, wake_deferred_at)
+           FROM collaboration_space_deliveries WHERE space_message_id = ?
+           ORDER BY conversation_id"#,
+    )
+    .bind(message_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(conversation_id, state, delivered, updated_at)| MessageReceipt {
+                conversation_id,
+                state,
+                delivered,
+                updated_at,
+            },
+        )
+        .collect())
 }
 
 pub async fn list_space_messages(
@@ -3581,8 +3957,8 @@ pub async fn list_space_messages(
         .unwrap_or(SPACE_LIST_DEFAULT)
         .clamp(1, SPACE_LIST_HARD_CAP);
     let since = since_seq.unwrap_or(0);
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        r#"SELECT seq, envelope_json FROM collaboration_space_messages
+    let rows = sqlx::query_as::<_, (i64, String, String, String)>(
+        r#"SELECT seq, envelope_json, origin, id FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ?
            ORDER BY seq ASC LIMIT ?"#,
     )
@@ -3593,9 +3969,15 @@ pub async fn list_space_messages(
     .await
     .map_err(db)?;
     let user_uri = user_actor(space_id);
+    let mut receipts_by_message = std::collections::HashMap::new();
+    if audience == MessageAudience::User {
+        for (_, _, _, id) in &rows {
+            receipts_by_message.insert(id.clone(), list_message_receipts(pool, id).await?);
+        }
+    }
     Ok(rows
         .into_iter()
-        .filter_map(|(seq, raw)| {
+        .filter_map(|(seq, raw, origin, id)| {
             let mut envelope: Value = serde_json::from_str(&raw).ok()?;
             if audience == MessageAudience::Agent {
                 if let Some(to) = envelope.get_mut("to").and_then(Value::as_array_mut) {
@@ -3605,7 +3987,22 @@ pub async fn list_space_messages(
                     envelope["actor"] = json!("user");
                 }
             }
-            Some(SpaceMessage { seq, envelope })
+            let receipts = receipts_by_message.remove(&id).unwrap_or_default();
+            let in_reply_to = envelope
+                .get("inReplyTo")
+                .and_then(Value::as_str)
+                .map(|value| value.trim())
+                .map(|value| value.strip_prefix("vibex://space-message/").unwrap_or(value))
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            Some(SpaceMessage {
+                id,
+                seq,
+                envelope,
+                origin,
+                in_reply_to,
+                receipts,
+            })
         })
         .collect())
 }
@@ -4092,6 +4489,42 @@ pub async fn member_space_context_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<String>, CollaborationError> {
+    member_space_context_text_for(pool, conversation_id, None).await
+}
+
+/// Number of recent activity entries injected at turn start
+/// (`VIBEX_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables).
+pub fn member_activity_limit() -> usize {
+    env_i64("VIBEX_MEMBER_ACTIVITY_LIMIT", crate::member_memory::DEFAULT_ACTIVITY_LIMIT as i64)
+        .max(0) as usize
+}
+
+/// Member identity block plus the member's memory (recent cross-thread
+/// activity and the facts most relevant to `query`, privacy-filtered).
+pub async fn member_space_context_text_for(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    query: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
+    let identity_block = member_identity_context_text(pool, conversation_id).await?;
+    let limit = member_activity_limit();
+    let memory = if limit == 0 {
+        None
+    } else {
+        crate::member_memory::memory_context_text(pool, conversation_id, query, limit).await?
+    };
+    Ok(match (identity_block, memory) {
+        (Some(block), Some(memory)) => Some(format!("{block}\n\n{memory}")),
+        (Some(block), None) => Some(block),
+        (None, Some(memory)) => Some(format!("[协作空间成员身份]\n{memory}")),
+        (None, None) => None,
+    })
+}
+
+async fn member_identity_context_text(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
     let memberships = sqlx::query_as::<_, (String, String)>(
         r#"SELECT space_id, nickname
            FROM collaboration_space_members
@@ -4293,7 +4726,27 @@ pub async fn list_space_members_detailed(
     }))
 }
 
+/// Resolve recipients, then map every agent seat through its member identity
+/// (`resolve_session`) so delivery always lands in the member's conversation
+/// for this space's thread.
 async fn resolve_targets(
+    pool: &SqlitePool,
+    space_id: &str,
+    sender: Option<Uuid>,
+    nicknames: &[String],
+    content: &str,
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    let mut targets = resolve_seat_targets(pool, space_id, sender, nicknames, content).await?;
+    for target in &mut targets {
+        if let Some(conversation_id) = target.conversation_id {
+            target.conversation_id =
+                Some(resolve_seat_target(pool, space_id, conversation_id, &target.nickname).await?);
+        }
+    }
+    Ok(targets)
+}
+
+async fn resolve_seat_targets(
     pool: &SqlitePool,
     space_id: &str,
     sender: Option<Uuid>,
@@ -4397,6 +4850,1119 @@ async fn resolve_targets(
     Ok(targets)
 }
 
+/// Who a draft would wake if posted now. Pure read: resolves recipients the
+/// way `post_to_space` does (explicit `to`, then @-mentions, otherwise every
+/// agent seat except the sender) without creating any session.
+#[derive(Debug, Clone, Serialize)]
+pub struct WakePreview {
+    /// Agent members the post would deliver to.
+    pub will_wake: usize,
+    pub nicknames: Vec<String>,
+    /// True when no explicit recipient or @-mention narrowed the audience.
+    pub broadcast: bool,
+    /// How many of those members' thread sessions are asleep.
+    pub asleep: usize,
+}
+
+pub async fn preview_space_wake(
+    pool: &SqlitePool,
+    space_id: &str,
+    caller_id: Option<Uuid>,
+    content: &str,
+    to: &[String],
+) -> Result<WakePreview, CollaborationError> {
+    load_space_or_unassigned(pool, space_id).await?;
+    let sender = match caller_id {
+        Some(caller_id) => {
+            let member = caller_seat(pool, space_id, caller_id).await?;
+            Some(seat_conversation(&member).unwrap_or(caller_id))
+        }
+        None => None,
+    };
+    let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
+    let mentioned = to.iter().any(|name| !name.trim().is_empty())
+        || members
+            .iter()
+            .any(|member| contains_mention_token(content, &member.nickname));
+    let targets = resolve_seat_targets(pool, space_id, sender, to, content).await?;
+    let mut nicknames = Vec::new();
+    let mut asleep = 0;
+    for target in targets {
+        let Some(conversation_id) = target.conversation_id else {
+            continue;
+        };
+        if session_is_asleep(pool, conversation_id).await? {
+            asleep += 1;
+        }
+        nicknames.push(target.nickname);
+    }
+    Ok(WakePreview {
+        will_wake: nicknames.len(),
+        nicknames,
+        broadcast: !mentioned,
+        asleep,
+    })
+}
+
+/// Whether the thread session behind `conversation_id` is asleep.
+async fn session_is_asleep(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    let asleep: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT asleep_since FROM collaboration_thread_members WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(matches!(asleep, Some(Some(_))))
+}
+
+/// Default idle time before a member's thread session sleeps.
+pub const DEFAULT_IDLE_SLEEP_MINUTES: i64 = 30;
+/// Default cap on sleeping sessions one originating turn may wake.
+pub const DEFAULT_WAKE_CAP_PER_TURN: i64 = 3;
+
+fn env_i64(key: &str, default: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(default)
+}
+
+/// `VIBEX_MEMBER_IDLE_MINUTES` (default 30; 0 disables sleeping).
+pub fn idle_sleep_minutes() -> i64 {
+    env_i64("VIBEX_MEMBER_IDLE_MINUTES", DEFAULT_IDLE_SLEEP_MINUTES)
+}
+
+/// `VIBEX_MEMBER_WAKE_CAP` (default 3) sleeping sessions woken per turn.
+pub fn wake_cap_per_turn() -> i64 {
+    env_i64("VIBEX_MEMBER_WAKE_CAP", DEFAULT_WAKE_CAP_PER_TURN)
+}
+
+/// Mark the thread session behind `conversation_id` active (and awake).
+async fn touch_session_activity(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"UPDATE collaboration_thread_members
+           SET last_active_at = ?, asleep_since = NULL
+           WHERE conversation_id = ?"#,
+    )
+    .bind(now_stamp())
+    .bind(conversation_id.to_string())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Put thread sessions to sleep that have been idle for `idle_minutes`:
+/// no running turn, no queued input, and no activity since the cutoff.
+/// (`sessions.id` / `conversation_inputs.conversation_id` are UUID blobs;
+/// identity tables store hyphenated text, hence the hex comparison.)
+/// Returns how many fell asleep.
+pub async fn sleep_idle_sessions(
+    pool: &SqlitePool,
+    idle_minutes: i64,
+) -> Result<u64, CollaborationError> {
+    if idle_minutes <= 0 {
+        return Ok(0);
+    }
+    let cutoff = stamp(Utc::now() - Duration::minutes(idle_minutes));
+    let result = sqlx::query(
+        r#"UPDATE collaboration_thread_members
+           SET asleep_since = ?
+           WHERE asleep_since IS NULL
+             AND COALESCE(last_active_at, joined_at) < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM sessions s
+               WHERE lower(hex(s.id)) = replace(collaboration_thread_members.conversation_id, '-', '')
+                 AND s.active_turn_id IS NOT NULL)
+             AND NOT EXISTS (
+               SELECT 1 FROM conversation_inputs i
+               WHERE lower(hex(i.conversation_id))
+                       = replace(collaboration_thread_members.conversation_id, '-', '')
+                 AND i.status IN ('queued', 'claimed'))"#,
+    )
+    .bind(now_stamp())
+    .bind(cutoff)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(result.rows_affected())
+}
+
+/// Background sweeper, once a minute: puts idle sessions to sleep
+/// ([`sleep_idle_sessions`]) and retries deferred deliveries
+/// ([`redeliver_deferred`]).
+pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
+    tokio::spawn(async move {
+        loop {
+            let minutes = idle_sleep_minutes();
+            if let Err(error) = sleep_idle_sessions(&pool, minutes).await {
+                tracing::warn!(%error, "idle member session sweep failed");
+            }
+            if let Err(error) = redeliver_deferred(&pool, &delivery).await {
+                tracing::warn!(%error, "deferred delivery sweep failed");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
+}
+
+/// Ledger key of the turn that produced `message_id`: the sender's active
+/// turn when an agent posted mid-turn, otherwise the message itself.
+async fn wake_turn_key(
+    pool: &SqlitePool,
+    message_id: &str,
+    envelope: &Value,
+) -> Result<String, CollaborationError> {
+    let sender = envelope
+        .get("attributedTo")
+        .and_then(Value::as_str)
+        .and_then(|uri| uri.rsplit('/').next())
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    if let Some(sender) = sender {
+        let turn: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+                .bind(sender)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?;
+        if let Some(Some(turn)) = turn {
+            return Ok(format!("turn:{turn}"));
+        }
+    }
+    Ok(format!("message:{message_id}"))
+}
+
+/// Receipt state shown for a delivery held over the per-turn wake cap.
+pub const WAKE_LIMIT_REACHED: &str = "limit_reached";
+
+async fn hold_over_wake_cap(
+    pool: &SqlitePool,
+    message_id: &str,
+    conversation_id: Uuid,
+    turn_key: &str,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"UPDATE collaboration_space_deliveries
+           SET wake_deferred_turn_key = ?, wake_deferred_at = COALESCE(wake_deferred_at, ?)
+           WHERE space_message_id = ? AND conversation_id = ?"#,
+    )
+    .bind(turn_key)
+    .bind(now_stamp())
+    .bind(message_id)
+    .bind(conversation_id.to_string())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Whether the turn behind a wake ledger key is still running. `message:`
+/// keys have no turn: they count as ended, so the next sweep releases them.
+async fn wake_turn_in_flight(
+    pool: &SqlitePool,
+    turn_key: &str,
+) -> Result<bool, CollaborationError> {
+    let Some(turn) = turn_key
+        .strip_prefix("turn:")
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+    else {
+        return Ok(false);
+    };
+    let running: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM sessions WHERE active_turn_id = ? LIMIT 1")
+            .bind(turn)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    Ok(running.is_some())
+}
+
+/// Reserve a wake of sleeping `conversation_id` for `turn_key`. `false` when
+/// the turn already used its cap (nothing recorded). Idempotent per pair.
+async fn reserve_wake(
+    pool: &SqlitePool,
+    turn_key: &str,
+    conversation_id: Uuid,
+    message_id: &str,
+    cap: i64,
+) -> Result<bool, CollaborationError> {
+    let mut tx = pool.begin().await.map_err(db)?;
+    let already: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM collaboration_wake_ledger WHERE turn_key = ? AND conversation_id = ?",
+    )
+    .bind(turn_key)
+    .bind(conversation_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    if already.is_some() {
+        return Ok(true);
+    }
+    let used: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_wake_ledger WHERE turn_key = ?")
+            .bind(turn_key)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+    if used >= cap {
+        return Ok(false);
+    }
+    sqlx::query(
+        r#"INSERT INTO collaboration_wake_ledger
+           (turn_key, conversation_id, space_message_id, created_at) VALUES (?, ?, ?, ?)"#,
+    )
+    .bind(turn_key)
+    .bind(conversation_id.to_string())
+    .bind(message_id)
+    .bind(now_stamp())
+    .execute(&mut *tx)
+    .await
+    .map_err(db)?;
+    tx.commit().await.map_err(db)?;
+    Ok(true)
+}
+
+/// Structured agent-to-agent handoff envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandoffEnvelope {
+    /// What the initiator already finished.
+    pub done: String,
+    /// Inputs, constraints and acceptance criteria the receiver must honour.
+    pub inputs_constraints: String,
+    /// The concrete ask.
+    pub ask: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Handoff {
+    pub caller_id: Uuid,
+    pub space_id: String,
+    /// Receiver nickname in the space.
+    pub to: String,
+    pub envelope: HandoffEnvelope,
+    pub operation_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandoffResult {
+    pub handoff_id: String,
+    /// `accepted`, `rejected` (limit) or `failed` (delivery error).
+    pub status: String,
+    pub depth: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Message the initiator posted back into the thread on failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_message_id: Option<String>,
+}
+
+/// Longest handoff chain A -> B -> C ... (the first handoff has depth 1).
+pub const DEFAULT_HANDOFF_MAX_DEPTH: i64 = 3;
+/// Accepted handoffs one conversation may start within one turn.
+pub const DEFAULT_HANDOFF_MAX_PER_TURN: i64 = 2;
+
+pub fn handoff_max_depth() -> i64 {
+    env_i64("VIBEX_HANDOFF_MAX_DEPTH", DEFAULT_HANDOFF_MAX_DEPTH).max(1)
+}
+
+pub fn handoff_max_per_turn() -> i64 {
+    env_i64("VIBEX_HANDOFF_MAX_PER_TURN", DEFAULT_HANDOFF_MAX_PER_TURN).max(1)
+}
+
+fn render_handoff(envelope: &HandoffEnvelope, depth: i64, handoff_id: &str) -> String {
+    format!(
+        "<handoff id=\"{handoff_id}\" depth=\"{depth}\">\n<done>\n{}\n</done>\n<inputs_constraints>\n{}\n</inputs_constraints>\n<ask>\n{}\n</ask>\n</handoff>",
+        envelope.done.trim(),
+        envelope.inputs_constraints.trim(),
+        envelope.ask.trim()
+    )
+}
+
+#[derive(Debug, FromRow)]
+struct HandoffRow {
+    id: String,
+    status: String,
+    depth: i64,
+    message_id: Option<String>,
+    reason: Option<String>,
+    report_message_id: Option<String>,
+    envelope_json: String,
+    to_nickname: String,
+    space_id: String,
+    from_conversation_id: String,
+}
+
+impl HandoffRow {
+    fn result(&self) -> HandoffResult {
+        HandoffResult {
+            handoff_id: self.id.clone(),
+            status: self.status.clone(),
+            depth: self.depth,
+            message_id: self.message_id.clone(),
+            reason: self.reason.clone(),
+            report_message_id: self.report_message_id.clone(),
+        }
+    }
+}
+
+/// Hand work to another member of the thread with a structured envelope.
+///
+/// Limits: the chain depth (an accepted handoff received by the caller's
+/// seat in this thread is the parent) and the number of accepted handoffs the
+/// caller starts in its current turn. Over-limit attempts are recorded as
+/// `rejected` and returned as `limit_exceeded`. If delivery fails, the
+/// attempt is recorded as `failed` and the initiator posts a failure report
+/// back into the originating thread (to the user).
+pub async fn handoff_with(
+    pool: &SqlitePool,
+    input: Handoff,
+    turn_delivery: &DeliveryContext,
+) -> Result<HandoffResult, CollaborationError> {
+    let handoff_id = input.operation_id.to_string();
+    if let Some(existing) = load_handoff(pool, &handoff_id).await? {
+        let same = existing.space_id == input.space_id
+            && existing.to_nickname == input.to.trim().trim_start_matches('@')
+            && existing.from_conversation_id == input.caller_id.to_string()
+            && serde_json::from_str::<HandoffEnvelope>(&existing.envelope_json).ok()
+                == Some(input.envelope.clone());
+        if !same {
+            return Err(operation_conflict());
+        }
+        return Ok(existing.result());
+    }
+    if input.envelope.ask.trim().is_empty() {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "handoff ask must not be empty",
+        ));
+    }
+    let to = input.to.trim().trim_start_matches('@').trim().to_string();
+    let caller = caller_seat(pool, &input.space_id, input.caller_id).await?;
+    let seat = seat_conversation(&caller).unwrap_or(input.caller_id);
+    let members = list_space_members(pool, &input.space_id, MessageAudience::Agent).await?;
+    let target = members
+        .iter()
+        .find(|member| member.nickname == to)
+        .ok_or_else(|| CollaborationError::new("not_found", "nickname was not found"))?;
+    let target_conversation = seat_conversation(target);
+    if target_conversation == Some(seat) {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "cannot hand off to yourself",
+        ));
+    }
+    let parent = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT id, depth FROM collaboration_handoffs
+           WHERE space_id = ? AND to_conversation_id = ? AND status = 'accepted'
+           ORDER BY created_at DESC, rowid DESC LIMIT 1"#,
+    )
+    .bind(&input.space_id)
+    .bind(seat.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let depth = parent.as_ref().map_or(1, |(_, depth)| depth + 1);
+    let turn: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+            .bind(input.caller_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    let turn_key = match turn.flatten() {
+        Some(turn) => format!("turn:{turn}"),
+        None => format!("operation:{handoff_id}"),
+    };
+    let used: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM collaboration_handoffs
+           WHERE turn_key = ? AND from_conversation_id = ? AND status = 'accepted'"#,
+    )
+    .bind(&turn_key)
+    .bind(input.caller_id.to_string())
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    let rejection = if depth > handoff_max_depth() {
+        Some(format!(
+            "handoff depth {depth} exceeds the limit of {}",
+            handoff_max_depth()
+        ))
+    } else if used >= handoff_max_per_turn() {
+        Some(format!(
+            "this turn already started {used} handoffs (limit {})",
+            handoff_max_per_turn()
+        ))
+    } else {
+        None
+    };
+    let envelope_json = serde_json::to_string(&input.envelope).unwrap_or_default();
+    let status = if rejection.is_some() {
+        "rejected"
+    } else {
+        "accepted"
+    };
+    sqlx::query(
+        r#"INSERT INTO collaboration_handoffs
+           (id, space_id, from_conversation_id, to_nickname, to_conversation_id,
+            parent_handoff_id, depth, turn_key, envelope_json, status, reason, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+    )
+    .bind(&handoff_id)
+    .bind(&input.space_id)
+    .bind(input.caller_id.to_string())
+    .bind(&to)
+    .bind(target_conversation.map(|id| id.to_string()))
+    .bind(parent.as_ref().map(|(id, _)| id.clone()))
+    .bind(depth)
+    .bind(&turn_key)
+    .bind(&envelope_json)
+    .bind(status)
+    .bind(rejection.as_deref())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    if let Some(reason) = rejection {
+        return Err(CollaborationError::new("limit_exceeded", reason));
+    }
+    let content = format!(
+        "@{to} {}",
+        render_handoff(&input.envelope, depth, &handoff_id)
+    );
+    let posted = post_to_space_with(
+        pool,
+        PostToSpace {
+            caller_id: Some(input.caller_id),
+            space_id: input.space_id.clone(),
+            content,
+            summary: Some(format!("handoff → {to}: {}", input.envelope.ask.trim())),
+            to: vec![to.clone()],
+            in_reply_to: None,
+            operation_id: input.operation_id,
+        },
+        turn_delivery,
+    )
+    .await;
+    let failure = match &posted {
+        Err(error) => Some(format!("{}: {}", error.code, error.message)),
+        Ok(result) => result
+            .receipts
+            .iter()
+            .find(|receipt| Some(receipt.conversation_id) == target_conversation)
+            .and_then(|receipt| receipt.error_code.clone())
+            .filter(|code| code != "wake_limit_exceeded")
+            .map(|code| format!("delivery failed: {code}")),
+    };
+    let message_id = posted.as_ref().ok().map(|result| result.message_id.clone());
+    if let Some(reason) = failure {
+        let report_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_OID,
+            format!("handoff-report:{handoff_id}").as_bytes(),
+        );
+        let report = post_to_space_with(
+            pool,
+            PostToSpace {
+                caller_id: Some(input.caller_id),
+                space_id: input.space_id.clone(),
+                content: format!(
+                    "@User 交接给 {to} 失败（{reason}）。待办：{}",
+                    input.envelope.ask.trim()
+                ),
+                summary: Some(format!("handoff to {to} failed")),
+                to: vec!["User".to_string()],
+                in_reply_to: message_id.clone(),
+                operation_id: report_id,
+            },
+            turn_delivery,
+        )
+        .await
+        .ok()
+        .map(|result| result.message_id);
+        sqlx::query(
+            r#"UPDATE collaboration_handoffs
+               SET status = 'failed', reason = ?, message_id = ?, report_message_id = ?
+               WHERE id = ?"#,
+        )
+        .bind(&reason)
+        .bind(&message_id)
+        .bind(&report)
+        .bind(&handoff_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    } else {
+        sqlx::query("UPDATE collaboration_handoffs SET message_id = ? WHERE id = ?")
+            .bind(&message_id)
+            .bind(&handoff_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+    }
+    Ok(load_handoff(pool, &handoff_id)
+        .await?
+        .map(|row| row.result())
+        .unwrap_or(HandoffResult {
+            handoff_id,
+            status: "failed".to_string(),
+            depth,
+            message_id,
+            reason: None,
+            report_message_id: None,
+        }))
+}
+
+pub async fn handoff(
+    pool: &SqlitePool,
+    input: Handoff,
+) -> Result<HandoffResult, CollaborationError> {
+    handoff_with(pool, input, &DeliveryContext::default()).await
+}
+
+async fn load_handoff(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<HandoffRow>, CollaborationError> {
+    sqlx::query_as::<_, HandoffRow>(
+        r#"SELECT id, status, depth, message_id, reason, report_message_id, envelope_json,
+                  to_nickname, space_id, from_conversation_id
+           FROM collaboration_handoffs WHERE id = ?"#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
+/// How several sessions of one member share a repository checkout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberWriteAccess {
+    /// Default: every extra session gets its own worktree workspace.
+    WriteIsolated,
+    /// Sessions share the checkout and take turns (one writer at a time).
+    WriteSerialized,
+}
+
+impl MemberWriteAccess {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WriteIsolated => "write_isolated",
+            Self::WriteSerialized => "write_serialized",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "write_isolated" | "isolated" => Some(Self::WriteIsolated),
+            "write_serialized" | "serialized" => Some(Self::WriteSerialized),
+            _ => None,
+        }
+    }
+}
+
+pub async fn set_member_write_access(
+    pool: &SqlitePool,
+    member_id: &str,
+    access: MemberWriteAccess,
+) -> Result<(), CollaborationError> {
+    let updated = sqlx::query("UPDATE collaboration_members SET write_access = ? WHERE id = ?")
+        .bind(access.as_str())
+        .bind(member_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    if updated.rows_affected() == 0 {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    }
+    Ok(())
+}
+
+/// Repo write plan of one member session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MemberWritePlan {
+    pub member_id: String,
+    pub access: MemberWriteAccess,
+    /// Workspace (repo set) the session belongs to.
+    pub workspace_id: Uuid,
+    /// Other live sessions of the same member in that workspace.
+    pub siblings: Vec<Uuid>,
+    /// The member's earliest session in the workspace keeps the native
+    /// checkout; every other one is isolated under WriteIsolated.
+    pub primary: bool,
+    /// Worktree workspace already provisioned for this session, if any.
+    pub isolated_workspace_id: Option<Uuid>,
+}
+
+impl MemberWritePlan {
+    /// True when this session must get its own worktree before writing.
+    pub fn needs_isolated_workspace(&self) -> bool {
+        self.access == MemberWriteAccess::WriteIsolated
+            && !self.primary
+            && self.isolated_workspace_id.is_none()
+    }
+}
+
+/// Creates the worktree workspace for a WriteIsolated member session.
+/// `Ok(None)` means isolation is not applicable (e.g. no repositories).
+#[async_trait::async_trait]
+pub trait IsolatedWorkspaceProvisioner: Send + Sync {
+    async fn provision(
+        &self,
+        plan: &MemberWritePlan,
+        conversation_id: Uuid,
+        isolated_workspace_id: Uuid,
+    ) -> Result<Option<(Uuid, Value)>, String>;
+}
+
+/// Deterministic id of a member session's worktree workspace.
+pub fn member_worktree_workspace_id(conversation_id: Uuid) -> Uuid {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        format!("vibex-member-worktree:{conversation_id}").as_bytes(),
+    )
+}
+
+/// Workspace a turn of `conversation_id` must *execute* in. Non-primary
+/// member sessions under WriteIsolated get (and keep) their own worktree;
+/// everything else runs in `session_workspace_id`. The session row keeps its
+/// own workspace, which collaboration checks continue to use.
+pub async fn execution_workspace_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    session_workspace_id: Uuid,
+    provisioner: &dyn IsolatedWorkspaceProvisioner,
+) -> Result<Uuid, CollaborationError> {
+    let Some(plan) = plan_member_write(pool, conversation_id).await? else {
+        return Ok(session_workspace_id);
+    };
+    if plan.access != MemberWriteAccess::WriteIsolated || plan.primary {
+        return Ok(session_workspace_id);
+    }
+    if let Some(existing) = plan.isolated_workspace_id {
+        return Ok(existing);
+    }
+    let isolated = member_worktree_workspace_id(conversation_id);
+    match provisioner
+        .provision(&plan, conversation_id, isolated)
+        .await
+        .map_err(|error| CollaborationError::new("workspace_isolation_failed", error))?
+    {
+        Some((workspace_id, evidence)) => {
+            record_member_session_workspace(pool, &plan, conversation_id, workspace_id, &evidence)
+                .await?;
+            Ok(workspace_id)
+        }
+        None => Ok(session_workspace_id),
+    }
+}
+
+/// Plan for `conversation_id`, or `None` when it is not a member session.
+pub async fn plan_member_write(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<MemberWritePlan>, CollaborationError> {
+    let Some(binding) = seat_binding(pool, conversation_id).await? else {
+        return Ok(None);
+    };
+    let Some(session) = load_session(pool, conversation_id).await? else {
+        return Ok(None);
+    };
+    let access: String =
+        sqlx::query_scalar("SELECT write_access FROM collaboration_members WHERE id = ?")
+            .bind(&binding.member_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db)?;
+    let access = MemberWriteAccess::parse(&access).unwrap_or(MemberWriteAccess::WriteIsolated);
+    let mut same_workspace = Vec::new();
+    for row in identity::member_bindings(pool, &binding.member_id)
+        .await
+        .map_err(db)?
+    {
+        let Ok(id) = Uuid::parse_str(&row.conversation_id) else {
+            continue;
+        };
+        let Some(head) = load_session(pool, id).await? else {
+            continue;
+        };
+        if head.workspace_id == session.workspace_id
+            && head.deleted_at.is_none()
+            && head.status != "archived"
+        {
+            same_workspace.push(id);
+        }
+    }
+    // member_bindings is ordered by joined_at: the first one is primary.
+    let primary = same_workspace.first() == Some(&conversation_id);
+    let siblings = same_workspace
+        .into_iter()
+        .filter(|id| *id != conversation_id)
+        .collect();
+    let isolated_workspace_id: Option<String> = sqlx::query_scalar(
+        "SELECT isolated_workspace_id FROM member_session_workspaces WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(Some(MemberWritePlan {
+        member_id: binding.member_id,
+        access,
+        workspace_id: session.workspace_id,
+        siblings,
+        primary,
+        isolated_workspace_id: isolated_workspace_id.and_then(|raw| Uuid::parse_str(&raw).ok()),
+    }))
+}
+
+/// Record the worktree workspace provisioned for a WriteIsolated session.
+pub async fn record_member_session_workspace(
+    pool: &SqlitePool,
+    plan: &MemberWritePlan,
+    conversation_id: Uuid,
+    isolated_workspace_id: Uuid,
+    evidence: &Value,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"INSERT INTO member_session_workspaces
+           (conversation_id, member_id, parent_workspace_id, isolated_workspace_id,
+            evidence_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(conversation_id) DO NOTHING"#,
+    )
+    .bind(conversation_id.to_string())
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .bind(isolated_workspace_id.to_string())
+    .bind(evidence.to_string())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Whether a session is doing (or about to do) work: running turn or
+/// queued/claimed input.
+async fn session_busy(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    let busy: i64 = sqlx::query_scalar(
+        r#"SELECT
+             EXISTS (SELECT 1 FROM sessions WHERE id = ? AND active_turn_id IS NOT NULL)
+           OR EXISTS (SELECT 1 FROM conversation_inputs
+                      WHERE conversation_id = ? AND status IN ('queued', 'claimed'))"#,
+    )
+    .bind(conversation_id)
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    Ok(busy != 0)
+}
+
+/// WriteSerialized gate: take the member's write lease for the workspace.
+/// A lease whose holder is no longer busy is stale and is taken over.
+/// Always `true` for sessions that need no serialization.
+pub async fn try_acquire_member_write(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    let Some(plan) = plan_member_write(pool, conversation_id).await? else {
+        return Ok(true);
+    };
+    if plan.access != MemberWriteAccess::WriteSerialized || plan.siblings.is_empty() {
+        return Ok(true);
+    }
+    let holder: Option<String> = sqlx::query_scalar(
+        "SELECT conversation_id FROM member_write_leases WHERE member_id = ? AND workspace_id = ?",
+    )
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if let Some(holder) = holder.and_then(|raw| Uuid::parse_str(&raw).ok())
+        && holder != conversation_id
+        && session_busy(pool, holder).await?
+    {
+        return Ok(false);
+    }
+    sqlx::query(
+        r#"INSERT INTO member_write_leases (member_id, workspace_id, conversation_id, acquired_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(member_id, workspace_id) DO UPDATE
+             SET conversation_id = excluded.conversation_id, acquired_at = excluded.acquired_at"#,
+    )
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .bind(conversation_id.to_string())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(true)
+}
+
+/// Retry deliveries that were deferred (wake cap or write serialization):
+/// queued rows with no input yet. Returns how many messages were retried.
+pub async fn redeliver_deferred(
+    pool: &SqlitePool,
+    delivery: &DeliveryContext,
+) -> Result<usize, CollaborationError> {
+    let pending = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT DISTINCT m.space_id, d.space_message_id
+           FROM collaboration_space_deliveries d
+           JOIN collaboration_space_messages m ON m.id = d.space_message_id
+           WHERE d.status = 'queued' AND d.input_id IS NULL
+           LIMIT 100"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for (space_id, message_id) in &pending {
+        if let Err(error) = deliver_pending(pool, space_id, message_id, delivery).await {
+            tracing::warn!(%error, %message_id, "deferred space delivery retry failed");
+        }
+    }
+    Ok(pending.len())
+}
+
+/// How an agent seat obtains its conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeatMode {
+    /// Default. The seat uses the member's own conversation for this thread,
+    /// creating one when the conversation is already bound to another live
+    /// thread. A binding whose seat was removed is transferred instead.
+    PerThread,
+    /// The conversation moves into this thread (move / undecided fallback).
+    Transfer,
+}
+
+fn identity_error(error: IdentityError) -> CollaborationError {
+    match error {
+        IdentityError::Database(error) => db(error),
+        IdentityError::NotFound(what) => {
+            CollaborationError::new("not_found", format!("{what} was not found"))
+        }
+    }
+}
+
+/// Map `(member, thread)` to its conversation, creating it when missing.
+/// A newly created conversation gets the member's persona notice and the
+/// role's mode/config, like a freshly created space member.
+pub async fn resolve_session(
+    pool: &SqlitePool,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<Uuid, CollaborationError> {
+    let resolved = identity::resolve_session(pool, member_id, thread_id)
+        .await
+        .map_err(identity_error)?;
+    if resolved.created {
+        prepare_member_conversation(pool, member_id, resolved.conversation_id).await?;
+    }
+    Ok(resolved.conversation_id)
+}
+
+async fn prepare_member_conversation(
+    pool: &SqlitePool,
+    member_id: &str,
+    conversation_id: Uuid,
+) -> Result<(), CollaborationError> {
+    let persona_prompt: Option<String> = sqlx::query_scalar(
+        "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if let Some(prompt) = persona_prompt.filter(|prompt| !prompt.trim().is_empty()) {
+        append_persona_notice(pool, conversation_id, &prompt).await?;
+    }
+    let role_id = identity::load_member(pool, member_id)
+        .await
+        .map_err(db)?
+        .and_then(|member| member.role_id);
+    if let Some(role_id) = role_id
+        && let Ok(role) = load_role(pool, &role_id).await
+    {
+        remember_creation_session_controls(
+            pool,
+            conversation_id,
+            role.mode_id.as_deref(),
+            config_overrides(&role.config_values),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+/// Resolve a target for a caller conversation: `member_id` plus `thread_id`
+/// (a space id, a `direct:` thread id, or the undecided space id). The thread
+/// must live in the caller's workspace, and nothing is created otherwise.
+pub async fn resolve_member_target(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<Uuid, CollaborationError> {
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    let member_id = member_id.trim();
+    let mut thread_id = thread_id.trim().to_string();
+    if parse_unassigned_space_id(&thread_id).is_some() {
+        thread_id = identity::direct_thread_id(member_id);
+    }
+    if identity::load_member(pool, member_id)
+        .await
+        .map_err(db)?
+        .is_none()
+    {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    }
+    let thread_workspace = match identity::load_thread(pool, &thread_id).await.map_err(db)? {
+        Some(thread) => thread.workspace_id,
+        None if !thread_id.starts_with(identity::DIRECT_PREFIX) => {
+            let space = load_space(pool, &thread_id).await?;
+            identity::ensure_thread_for_seat(pool, &thread_id, member_id)
+                .await
+                .map_err(identity_error)?;
+            Some(space.workspace_id)
+        }
+        None => None,
+    };
+    if thread_workspace.as_deref() != Some(caller.workspace_id.to_string().as_str()) {
+        return Err(CollaborationError::new("not_found", "thread was not found"));
+    }
+    resolve_session(pool, member_id, &thread_id).await
+}
+
+/// Bind an agent seat's conversation to its `(member, thread)` and return the
+/// conversation that seat must use. Keeps legacy seats working: a seat whose
+/// conversation is bound to another live thread is left as is.
+async fn attach_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    nickname: &str,
+    mode: SeatMode,
+) -> Result<Uuid, CollaborationError> {
+    let binding = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?;
+    if let Some(binding) = binding.as_ref() {
+        let thread_id = identity::thread_for_seat(space_id, &binding.member_id);
+        if binding.thread_id == thread_id {
+            return resolve_session(pool, &binding.member_id, &thread_id).await;
+        }
+        let other_seat: Option<i64> = sqlx::query_scalar(
+            r#"SELECT 1 FROM collaboration_space_members
+               WHERE conversation_id = ? AND space_id != ? AND kind = 'agent' LIMIT 1"#,
+        )
+        .bind(conversation_id.to_string())
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        let orphaned = other_seat.is_none();
+        match mode {
+            SeatMode::Transfer => {
+                identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))
+                    .await
+                    .map_err(identity_error)?;
+            }
+            SeatMode::PerThread if orphaned => {
+                identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))
+                    .await
+                    .map_err(identity_error)?;
+            }
+            SeatMode::PerThread => {}
+        }
+    }
+    let (member_id, _, resolved) =
+        identity::bind_seat(pool, space_id, conversation_id, Some(nickname))
+            .await
+            .map_err(identity_error)?;
+    if resolved.created {
+        prepare_member_conversation(pool, &member_id, resolved.conversation_id).await?;
+    }
+    Ok(resolved.conversation_id)
+}
+
+/// Conversation that a delivery to this seat goes to. Resolves the seat's
+/// identity first; a seat still pointing at a stale conversation is repointed.
+async fn resolve_seat_target(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    nickname: &str,
+) -> Result<Uuid, CollaborationError> {
+    let resolved = attach_seat(
+        pool,
+        space_id,
+        conversation_id,
+        nickname,
+        SeatMode::PerThread,
+    )
+    .await?;
+    if resolved != conversation_id {
+        sqlx::query(
+            "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND conversation_id = ?",
+        )
+        .bind(resolved.to_string())
+        .bind(space_id)
+        .bind(conversation_id.to_string())
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    }
+    Ok(resolved)
+}
+
+/// Seat the member owning `conversation_id` already has in `space_id`
+/// through another conversation, if any.
+async fn existing_member_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+) -> Result<Option<MemberRecord>, CollaborationError> {
+    let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    let thread_id = identity::thread_for_seat(space_id, &binding.member_id);
+    let bound: Option<String> = sqlx::query_scalar(
+        "SELECT conversation_id FROM collaboration_thread_members WHERE thread_id = ? AND member_id = ?",
+    )
+    .bind(&thread_id)
+    .bind(&binding.member_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some(bound) = bound.and_then(|raw| Uuid::parse_str(&raw).ok()) else {
+        return Ok(None);
+    };
+    if bound == conversation_id {
+        return Ok(None);
+    }
+    ensure_agent_member(pool, space_id, bound)
+        .await
+        .map(Some)
+        .or(Ok(None))
+}
+
 async fn insert_member(
     pool: &SqlitePool,
     space_id: &str,
@@ -4405,6 +5971,33 @@ async fn insert_member(
     kind: &str,
     visible: bool,
 ) -> Result<MemberRecord, CollaborationError> {
+    insert_member_with(
+        pool,
+        space_id,
+        conversation_id,
+        nickname,
+        kind,
+        visible,
+        SeatMode::PerThread,
+    )
+    .await
+}
+
+async fn insert_member_with(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Option<Uuid>,
+    nickname: &str,
+    kind: &str,
+    visible: bool,
+    mode: SeatMode,
+) -> Result<MemberRecord, CollaborationError> {
+    if kind == "agent"
+        && let Some(conversation_id) = conversation_id
+        && let Some(existing) = existing_member_seat(pool, space_id, conversation_id).await?
+    {
+        return Ok(existing);
+    }
     let nickname = unique_nickname(pool, space_id, nickname).await?;
     let member_id = Uuid::new_v4().to_string();
     sqlx::query(
@@ -4421,6 +6014,24 @@ async fn insert_member(
     .execute(pool)
     .await
     .map_err(db)?;
+    let conversation_id = match (kind, conversation_id) {
+        ("agent", Some(conversation_id)) => {
+            let resolved = attach_seat(pool, space_id, conversation_id, &nickname, mode).await?;
+            if resolved != conversation_id {
+                sqlx::query(
+                    "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND member_id = ?",
+                )
+                .bind(resolved.to_string())
+                .bind(space_id)
+                .bind(&member_id)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            }
+            Some(resolved)
+        }
+        (_, conversation_id) => conversation_id,
+    };
     Ok(MemberRecord {
         member_id,
         conversation_id: conversation_id.map(|id| id.to_string()),
@@ -4464,6 +6075,30 @@ async fn nickname_owner(
     .fetch_optional(pool)
     .await
     .map_err(db)
+}
+
+/// Seat a calling conversation acts through in `space_id`: its own seat, or
+/// the seat its member identity holds there via a per-thread conversation
+/// (for example the creator of a space, whose seat got its own session).
+pub(crate) async fn caller_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    caller_id: Uuid,
+) -> Result<MemberRecord, CollaborationError> {
+    match ensure_agent_member(pool, space_id, caller_id).await {
+        Ok(member) => Ok(member),
+        Err(error) => match existing_member_seat(pool, space_id, caller_id).await? {
+            Some(member) => Ok(member),
+            None => Err(error),
+        },
+    }
+}
+
+pub(crate) fn seat_conversation(member: &MemberRecord) -> Option<Uuid> {
+    member
+        .conversation_id
+        .as_deref()
+        .and_then(|raw| Uuid::parse_str(raw).ok())
 }
 
 async fn ensure_agent_member(
@@ -4665,6 +6300,9 @@ struct PendingDelivery {
     operation_id: String,
     input_id: Option<String>,
     status: String,
+    receipt_state: String,
+    context_from_seq: Option<i64>,
+    wake_deferred_turn_key: Option<String>,
 }
 
 async fn mark_delivery_failed(
@@ -5367,7 +7005,7 @@ pub async fn add_to_space_collection_with(
     let space = load_space_or_unassigned(pool, space_id).await?;
     let (creator_kind, creator_conversation_id, creator_nickname) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, space_id, caller_id).await?;
+            let member = caller_seat(pool, space_id, caller_id).await?;
             (
                 "agent".to_string(),
                 Some(caller_id.to_string()),
@@ -5681,7 +7319,7 @@ pub async fn list_space_collection_with(
         load_space_or_unassigned(pool, space_id).await?
     };
     let caller_member = match caller_id {
-        Some(cid) => Some(ensure_agent_member(pool, space_id, cid).await?),
+        Some(cid) => Some(caller_seat(pool, space_id, cid).await?),
         None => None,
     };
     let limit = limit
@@ -5764,7 +7402,7 @@ pub async fn read_space_collection_item_with(
     };
     let (reader_key, reader_kind, reader_cid, reader_nickname) = match caller_id {
         Some(cid) => {
-            let member = ensure_agent_member(pool, space_id, cid).await?;
+            let member = caller_seat(pool, space_id, cid).await?;
             (
                 format!("agent:{cid}"),
                 "agent".to_string(),
@@ -6919,6 +8557,1166 @@ mod tests {
         assert!(texts.iter().all(|text| text.contains("请评审当前 diff")));
         assert!(texts.iter().all(|text| text.contains("auth.ts")));
         assert_eq!(texts[0], texts[1]);
+    }
+
+    #[tokio::test]
+    async fn same_member_in_two_spaces_gets_distinct_conversations() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        let in_first = add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        assert_eq!(in_first.conversation_id, Some(b.to_string()));
+        let in_second = add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(in_second.conversation_id.as_deref().unwrap()).unwrap();
+        assert_ne!(forked, b);
+        let forked_session = load_session(&pool, forked)
+            .await
+            .unwrap()
+            .expect("forked session");
+        assert_eq!(forked_session.workspace_id, workspace);
+
+        let member = identity::member_id_for_conversation(b);
+        assert_eq!(resolve_session(&pool, &member, &first).await.unwrap(), b);
+        assert_eq!(
+            resolve_session(&pool, &member, &second).await.unwrap(),
+            forked
+        );
+        assert_eq!(
+            resolve_member_target(&pool, a, &member, &second)
+                .await
+                .unwrap(),
+            forked
+        );
+        let other_workspace = Uuid::new_v4();
+        let stranger = Uuid::new_v4();
+        create_session(&pool, stranger, other_workspace, Some("外人")).await;
+        assert_eq!(
+            resolve_member_target(&pool, stranger, &member, &second)
+                .await
+                .unwrap_err()
+                .code,
+            "not_found"
+        );
+
+        for (space, text) in [(&second, "第二空间"), (&first, "第一空间")] {
+            post_to_space(
+                &pool,
+                PostToSpace {
+                    caller_id: Some(a),
+                    space_id: space.clone(),
+                    content: text.to_string(),
+                    summary: None,
+                    to: vec!["小B".to_string()],
+                    in_reply_to: None,
+                    operation_id: Uuid::new_v4(),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let payload = |conversation: Uuid| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ?",
+                )
+                .bind(conversation)
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        let to_b = payload(b).await;
+        let to_forked = payload(forked).await;
+        assert_eq!(to_b.len(), 1);
+        assert!(to_b[0].contains("第一空间"));
+        assert_eq!(to_forked.len(), 1);
+        assert!(to_forked[0].contains("第二空间"));
+    }
+
+    async fn post_as(
+        pool: &SqlitePool,
+        caller: Option<Uuid>,
+        space: &str,
+        text: &str,
+        to: &[&str],
+    ) -> SpacePostResult {
+        post_to_space(
+            pool,
+            PostToSpace {
+                caller_id: caller,
+                space_id: space.to_string(),
+                content: text.to_string(),
+                summary: None,
+                to: to.iter().map(|name| name.to_string()).collect(),
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn inputs_of(pool: &SqlitePool, conversation: Uuid) -> Vec<String> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ? ORDER BY sort_key",
+        )
+        .bind(conversation)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn agent_created_space_seats_creator_through_member_identity() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        // `a` is now bound to `first`; creating a second space must not share
+        // the same conversation across both spaces.
+        let second = space_of(&pool, a).await;
+        let member = identity::member_id_for_conversation(a);
+        assert_eq!(resolve_session(&pool, &member, &first).await.unwrap(), a);
+        let seat_in_second = resolve_session(&pool, &member, &second).await.unwrap();
+        assert_ne!(seat_in_second, a);
+        let seated: Vec<String> = sqlx::query_scalar(
+            "SELECT conversation_id FROM collaboration_space_members WHERE space_id = ? AND kind = 'agent'",
+        )
+        .bind(&second)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(seated, vec![seat_in_second.to_string()]);
+        let shared: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_members WHERE conversation_id = ? AND kind = 'agent'",
+        )
+        .bind(a.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(shared, 1, "creator conversation must sit in one space only");
+
+        // The creator can still act in the new space from its original
+        // conversation; it posts as its seat and never receives its own post.
+        add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, Some(a), &second, "大家好", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert!(inputs_of(&pool, seat_in_second).await.is_empty());
+        assert!(inputs_of(&pool, a).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn receipts_move_queued_processing_replied_and_origin_is_kept() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        // b is busy, so the input waits in its queue.
+        mark_running(&pool, b).await;
+        let posted = post_as(&pool, None, &space, "@小B 看一下", &[]).await;
+        let to_b = posted
+            .receipts
+            .iter()
+            .find(|receipt| receipt.conversation_id == b)
+            .unwrap();
+        assert_eq!(to_b.state, "queued");
+        let input_id = to_b.input_id.unwrap();
+
+        // The queue dispatches the input: receipt becomes processing.
+        sqlx::query("UPDATE conversation_inputs SET status = 'dispatched' WHERE id = ?")
+            .bind(input_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
+        let state_of = |receipts: &[MessageReceipt]| {
+            receipts
+                .iter()
+                .find(|r| r.conversation_id == b.to_string())
+                .unwrap()
+                .state
+                .clone()
+        };
+        assert_eq!(state_of(&receipts), "processing");
+
+        // b answers in the thread: replied.
+        let reply = post_as(&pool, Some(b), &space, "看完了", &["User"]).await;
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
+        assert_eq!(state_of(&receipts), "replied");
+
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let origin_of = |seq: i64| {
+            messages
+                .iter()
+                .find(|m| m.seq == seq)
+                .map(|m| m.origin.clone())
+                .unwrap()
+        };
+        assert_eq!(origin_of(posted.seq), "user");
+        assert_eq!(origin_of(reply.seq), "agent");
+        let user_post = messages.iter().find(|m| m.seq == posted.seq).unwrap();
+        assert_eq!(state_of(&user_post.receipts), "replied");
+    }
+
+    #[tokio::test]
+    async fn listed_messages_expose_id_origin_and_reply_correlation() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let ask = post_as(&pool, Some(a), &space, "@小B 接口好了吗", &["小B"]).await;
+        let reply = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(b),
+                space_id: space.clone(),
+                content: "@小A 好了".to_string(),
+                summary: None,
+                to: vec!["小A".to_string()],
+                in_reply_to: Some(ask.message_id.clone()),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let user_post = post_as(&pool, None, &space, "收到", &[]).await;
+
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let by_seq = |seq: i64| messages.iter().find(|m| m.seq == seq).unwrap();
+        assert_eq!(by_seq(ask.seq).id, ask.message_id);
+        assert_eq!(by_seq(ask.seq).origin, "agent");
+        assert_eq!(by_seq(ask.seq).in_reply_to, None);
+        assert_eq!(by_seq(reply.seq).id, reply.message_id);
+        assert_eq!(by_seq(reply.seq).origin, "agent");
+        assert_eq!(
+            by_seq(reply.seq).in_reply_to.as_deref(),
+            Some(ask.message_id.as_str())
+        );
+        assert_eq!(by_seq(user_post.seq).origin, "user");
+
+        // Wire shape the frontend reads.
+        let wire = serde_json::to_value(by_seq(reply.seq)).unwrap();
+        assert_eq!(wire["id"], json!(reply.message_id));
+        assert_eq!(wire["origin"], json!("agent"));
+        assert_eq!(wire["in_reply_to"], json!(ask.message_id));
+        let wire_ask = serde_json::to_value(by_seq(ask.seq)).unwrap();
+        assert!(wire_ask.get("in_reply_to").is_none());
+
+        // Agents see the same correlation.
+        let agent_view = list_space_messages(&pool, &space, None, None, MessageAudience::Agent)
+            .await
+            .unwrap();
+        let agent_reply = agent_view.iter().find(|m| m.seq == reply.seq).unwrap();
+        assert_eq!(
+            agent_reply.in_reply_to.as_deref(),
+            Some(ask.message_id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn missed_context_keeps_last_20_and_collapses_older_into_one_line() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        for i in 1..=25 {
+            post_as(&pool, None, &space, &format!("@小C 第{i:02}条"), &[]).await;
+        }
+        post_as(&pool, None, &space, "@小B 你来总结", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        let packed: Value = serde_json::from_str(to_b.last().unwrap()).unwrap();
+        let packed = packed["text"].as_str().unwrap();
+        assert!(
+            packed.contains("count=\"25\""),
+            "{} inputs; last: {packed}",
+            to_b.len()
+        );
+        assert_eq!(packed.matches("] User: ").count(), MISSED_CONTEXT_VERBATIM);
+        assert!(packed.contains("5 earlier messages from User (collapsed"));
+        assert!(!packed.contains("第05条"), "older ones are collapsed");
+        assert!(packed.contains("第06条") && packed.contains("第25条"));
+    }
+
+    struct EchoDistiller;
+
+    #[async_trait::async_trait]
+    impl crate::member_memory::FactDistiller for EchoDistiller {
+        async fn distill(
+            &self,
+            _member_id: &str,
+            activity: &[crate::member_memory::ActivityEntry],
+        ) -> Vec<crate::member_memory::DistilledFact> {
+            activity
+                .iter()
+                .map(|entry| crate::member_memory::DistilledFact {
+                    content: format!("distilled: {}", entry.summary),
+                    global: true,
+                    thread_id: Some(entry.thread_id.clone()),
+                })
+                .collect()
+        }
+    }
+
+    #[tokio::test]
+    async fn member_memory_crosses_groups_but_private_chat_never_reaches_a_group() {
+        use crate::member_memory::{self as memory, FactScope, FirstSentencesSummarizer};
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let group1 = space_of(&pool, a).await;
+        let group2 = space_of(&pool, a).await;
+        add_space_member(&pool, a, &group1, b, "小B", Uuid::new_v4()).await.unwrap();
+        let b_in_group2 = Uuid::parse_str(
+            add_space_member(&pool, a, &group2, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let member_b = identity::member_id_for_conversation(b);
+        assert_eq!(
+            identity::binding_of_conversation(&pool, b_in_group2).await.unwrap().unwrap().member_id,
+            member_b,
+            "one member, two group threads"
+        );
+        // 小B's private chat with the user.
+        let private_conv = Uuid::new_v4();
+        create_session(&pool, private_conv, workspace, Some("小B")).await;
+        let direct = identity::direct_thread_id(&member_b);
+        sqlx::query(
+            "INSERT INTO collaboration_threads (id, kind, title, created_at) VALUES (?, 'direct', '', '2026-10-24T00:00:00Z')",
+        )
+        .bind(&direct)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, joined_at) VALUES (?, ?, ?, '2026-10-24T00:00:00Z')",
+        )
+        .bind(&direct)
+        .bind(&member_b)
+        .bind(private_conv.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Short-term: one line per turn, deterministic, idempotent per turn.
+        let turn1 = Uuid::new_v4();
+        let reply = "我在群里把登录接口的分页 bug 修好了。还补了两条回归测试。第三句不该出现。";
+        let summarizer = FirstSentencesSummarizer;
+        assert!(memory::record_activity(&pool, b, Some(turn1), reply, &summarizer).await.unwrap().is_some());
+        assert!(memory::record_activity(&pool, b, Some(turn1), reply, &summarizer).await.unwrap().is_none());
+        memory::record_activity(&pool, private_conv, Some(Uuid::new_v4()), "私聊里帮用户查了工资单密码。", &summarizer)
+            .await
+            .unwrap();
+        // Long-term facts in every scope.
+        memory::tool_write(&pool, b, "群1约定：分页参数叫 page_size", None).await.unwrap();
+        let forced = memory::tool_write(&pool, private_conv, "用户的生日是五月一日", Some("global"))
+            .await
+            .unwrap();
+        assert_eq!(forced.scope, "private", "private chat writes stay private");
+        memory::create_fact(&pool, &member_b, "项目统一使用 pnpm 管理依赖", &FactScope::Global, None, "user")
+            .await
+            .unwrap();
+
+        // Acceptance: asked in group 2 what it did in group 1.
+        let context = persona_prompt_text_for_turn(&pool, b_in_group2, Some("你在群1做了什么？"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(context.contains("[成员记忆]"));
+        assert!(context.contains("把登录接口的分页 bug 修好了。还补了两条回归测试。"), "{context}");
+        assert!(!context.contains("第三句"));
+        assert!(!context.contains("工资单"), "private activity leaked: {context}");
+        assert!(!context.contains("私聊"), "not even a placeholder: {context}");
+        assert!(!context.contains("生日"), "private fact leaked: {context}");
+        assert!(!context.contains("page_size"), "group-1 thread fact stays in group 1");
+        let pnpm = persona_prompt_text_for_turn(&pool, b_in_group2, Some("用 pnpm 还是 npm"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(pnpm.contains("项目统一使用 pnpm"), "global fact is retrieved by relevance");
+        let in_group1 = persona_prompt_text_for_turn(&pool, b, Some("分页参数 page_size"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(in_group1.contains("page_size"));
+        assert!(!in_group1.contains("工资单") && !in_group1.contains("生日"));
+        // Tools are scoped the same way.
+        let found = memory::tool_search(&pool, b_in_group2, "工资单 生日", 10).await.unwrap();
+        assert_eq!(found["facts"].as_array().unwrap().len(), 0);
+        assert_eq!(found["activity"].as_array().unwrap().len(), 0);
+        // In the private chat itself everything is available.
+        let private = persona_prompt_text_for_turn(&pool, private_conv, Some("生日"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(private.contains("工资单") && private.contains("生日") && private.contains("分页 bug"));
+        // Host view lists everything; group view filters.
+        assert_eq!(memory::list_activity(&pool, &member_b, true, 50).await.unwrap().len(), 2);
+        assert_eq!(memory::list_activity(&pool, &member_b, false, 50).await.unwrap().len(), 1);
+
+        // Distillation never promotes private activity out of `private`.
+        assert_eq!(memory::distill_member_memory(&pool, &EchoDistiller).await.unwrap(), 2);
+        assert_eq!(memory::distill_member_memory(&pool, &EchoDistiller).await.unwrap(), 0);
+        let distilled: Vec<_> = memory::list_facts(&pool, &member_b, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|f| f.origin == "distilled")
+            .collect();
+        let scope_of = |needle: &str| {
+            distilled.iter().find(|f| f.content.contains(needle)).unwrap().scope.clone()
+        };
+        assert_eq!(scope_of("工资单"), "private");
+        assert_eq!(scope_of("分页 bug"), "global");
+        // Update / delete are member-scoped.
+        let id = forced.id;
+        assert!(memory::update_fact(&pool, "someone-else", id, Some("x"), None).await.is_err());
+        let updated = memory::update_fact(&pool, &member_b, id, Some("用户生日：5月1日"), None)
+            .await
+            .unwrap();
+        assert_eq!(updated.scope, "private");
+        assert!(!memory::delete_fact(&pool, "someone-else", id).await.unwrap());
+        assert!(memory::delete_fact(&pool, &member_b, id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn mention_packs_missed_group_messages_and_advances_last_seen() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let first = post_as(&pool, None, &space, "@小C 先看接口", &[]).await;
+        post_as(&pool, Some(c), &space, "接口没问题", &["User"]).await;
+        let member_b = identity::member_id_for_conversation(b);
+        let seen = |member: String| {
+            let pool = pool.clone();
+            let space = space.clone();
+            async move {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT last_seen_message_id FROM collaboration_thread_members WHERE thread_id = ? AND member_id = ?",
+                )
+                .bind(space)
+                .bind(member)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        assert_eq!(seen(member_b.clone()).await, None);
+        assert_eq!(
+            seen(identity::member_id_for_conversation(c)).await,
+            Some(first.message_id.clone())
+        );
+
+        let mention = post_as(&pool, None, &space, "@小B 你来总结", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        assert_eq!(to_b.len(), 1);
+        assert!(to_b[0].contains("missed_group_messages"));
+        assert!(to_b[0].contains("先看接口"));
+        assert!(to_b[0].contains("接口没问题"));
+        assert_eq!(
+            seen(member_b.clone()).await,
+            Some(mention.message_id.clone())
+        );
+
+        // Nothing new since: the next mention packs no backlog.
+        post_as(&pool, None, &space, "@小B 再补一句", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        assert_eq!(to_b.len(), 2);
+        assert!(!to_b[1].contains("missed_group_messages"));
+    }
+
+    #[tokio::test]
+    async fn wake_preview_counts_members_for_a_draft_without_mentions() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let broadcast = preview_space_wake(&pool, &space, None, "大家看看", &[])
+            .await
+            .unwrap();
+        assert!(broadcast.broadcast);
+        assert_eq!(broadcast.will_wake, 3);
+        let mentioned = preview_space_wake(&pool, &space, None, "@小B 看看", &[])
+            .await
+            .unwrap();
+        assert!(!mentioned.broadcast);
+        assert_eq!(mentioned.will_wake, 1);
+        let from_agent = preview_space_wake(&pool, &space, Some(a), "大家看看", &[])
+            .await
+            .unwrap();
+        assert_eq!(from_agent.will_wake, 2);
+        // Preview never delivers.
+        assert!(inputs_of(&pool, b).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn idle_sessions_sleep_and_wakes_are_capped_per_turn() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let mut others = Vec::new();
+        for name in ["小B", "小C", "小D", "小E"] {
+            let id = Uuid::new_v4();
+            create_session(&pool, id, workspace, Some(name)).await;
+            add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+            others.push(id);
+        }
+        // Busy sessions never sleep.
+        mark_running(&pool, others[3]).await;
+        sqlx::query(
+            "UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sleep_idle_sessions(&pool, 0).await.unwrap(),
+            0,
+            "0 disables"
+        );
+        let slept = sleep_idle_sessions(&pool, 30).await.unwrap();
+        assert_eq!(slept, 4, "a + three idle members");
+        assert!(session_is_asleep(&pool, others[0]).await.unwrap());
+        assert!(!session_is_asleep(&pool, others[3]).await.unwrap());
+        let preview = preview_space_wake(&pool, &space, None, "大家", &[])
+            .await
+            .unwrap();
+        assert_eq!(preview.asleep, 4);
+
+        // One user message is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
+        // sleeping sessions wake; the rest are deferred.
+        let posted = post_as(&pool, None, &space, "大家醒醒", &[]).await;
+        let woken = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.is_none() && r.conversation_id != others[3])
+            .count();
+        let deferred: Vec<_> = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.as_deref() == Some("wake_limit_exceeded"))
+            .collect();
+        assert_eq!(woken, 3);
+        assert_eq!(deferred.len(), 1);
+        assert_eq!(deferred[0].delivered, "deferred");
+        assert!(
+            inputs_of(&pool, deferred[0].conversation_id)
+                .await
+                .is_empty()
+        );
+        // The awake (busy) member was delivered without using the cap.
+        assert_eq!(inputs_of(&pool, others[3]).await.len(), 1);
+        // Woken sessions are awake again.
+        let still_asleep: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_thread_members WHERE asleep_since IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(still_asleep, 1);
+        // A new message is a new turn and may wake the deferred member.
+        let next = post_as(&pool, None, &space, "再叫一次", &[]).await;
+        assert!(next.receipts.iter().all(|r| r.error_code.is_none()));
+    }
+
+    fn envelope(ask: &str) -> HandoffEnvelope {
+        HandoffEnvelope {
+            done: "接口草案已完成".to_string(),
+            inputs_constraints: "只改 auth 模块".to_string(),
+            ask: ask.to_string(),
+        }
+    }
+
+    async fn hand(
+        pool: &SqlitePool,
+        from: Uuid,
+        space: &str,
+        to: &str,
+        ask: &str,
+    ) -> Result<HandoffResult, CollaborationError> {
+        handoff(
+            pool,
+            Handoff {
+                caller_id: from,
+                space_id: space.to_string(),
+                to: to.to_string(),
+                envelope: envelope(ask),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+    }
+
+    async fn handoff_team(pool: &SqlitePool) -> (String, Vec<Uuid>) {
+        let workspace = Uuid::new_v4();
+        let names = ["小A", "小B", "小C", "小D"];
+        let mut ids = Vec::new();
+        for name in names {
+            let id = Uuid::new_v4();
+            create_session(pool, id, workspace, Some(name)).await;
+            ids.push(id);
+        }
+        let space = space_of(pool, ids[0]).await;
+        for (id, name) in ids.iter().zip(names).skip(1) {
+            add_space_member(pool, ids[0], &space, *id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+        }
+        (space, ids)
+    }
+
+    #[tokio::test]
+    async fn handoff_delivers_envelope_and_enforces_depth() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        let first = hand(&pool, ids[0], &space, "小B", "实现登录")
+            .await
+            .unwrap();
+        assert_eq!((first.status.as_str(), first.depth), ("accepted", 1));
+        let to_b = inputs_of(&pool, ids[1]).await;
+        assert_eq!(to_b.len(), 1);
+        for part in [
+            "<done>",
+            "接口草案已完成",
+            "<inputs_constraints>",
+            "<ask>",
+            "实现登录",
+        ] {
+            assert!(to_b[0].contains(part), "missing {part}");
+        }
+        assert_eq!(
+            hand(&pool, ids[1], &space, "小C", "写测试")
+                .await
+                .unwrap()
+                .depth,
+            2
+        );
+        assert_eq!(
+            hand(&pool, ids[2], &space, "小D", "跑测试")
+                .await
+                .unwrap()
+                .depth,
+            3
+        );
+        let too_deep = hand(&pool, ids[3], &space, "小A", "再转")
+            .await
+            .unwrap_err();
+        assert_eq!(too_deep.code, "limit_exceeded");
+        let recorded: (String, i64, Option<String>) = sqlx::query_as(
+            "SELECT status, depth, reason FROM collaboration_handoffs WHERE from_conversation_id = ?",
+        )
+        .bind(ids[3].to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(recorded.0, "rejected");
+        assert_eq!(recorded.1, 4);
+        assert!(recorded.2.unwrap().contains("depth"));
+        // Rejected handoffs deliver nothing.
+        assert!(inputs_of(&pool, ids[0]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handoff_count_is_limited_per_turn() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        let turn = mark_running(&pool, ids[0]).await;
+        hand(&pool, ids[0], &space, "小B", "一").await.unwrap();
+        hand(&pool, ids[0], &space, "小C", "二").await.unwrap();
+        let third = hand(&pool, ids[0], &space, "小D", "三").await.unwrap_err();
+        assert_eq!(third.code, "limit_exceeded");
+        let rejected: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_handoffs WHERE status = 'rejected' AND turn_key = ?",
+        )
+        .bind(format!("turn:{turn}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rejected, 1);
+        assert!(inputs_of(&pool, ids[3]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_handoff_is_reported_back_into_the_thread() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        sqlx::query("UPDATE sessions SET status = 'archived' WHERE id = ?")
+            .bind(ids[1])
+            .execute(&pool)
+            .await
+            .unwrap();
+        let operation = Uuid::new_v4();
+        let request = Handoff {
+            caller_id: ids[0],
+            space_id: space.clone(),
+            to: "小B".to_string(),
+            envelope: envelope("实现登录"),
+            operation_id: operation,
+        };
+        let failed = handoff(&pool, request.clone()).await.unwrap();
+        assert_eq!(failed.status, "failed");
+        let report = failed.report_message_id.clone().expect("report posted");
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let posted = messages
+            .iter()
+            .find(|m| m.envelope["id"] == json!(format!("vibex://space-message/{report}")))
+            .expect("report in thread");
+        assert_eq!(posted.origin, "agent");
+        assert!(
+            posted.envelope["content"]
+                .as_str()
+                .unwrap()
+                .contains("失败")
+        );
+        // Replaying the same operation returns the recorded outcome.
+        assert_eq!(handoff(&pool, request).await.unwrap(), failed);
+    }
+
+    #[tokio::test]
+    async fn over_cap_wakes_show_limit_reached_and_deliver_after_the_turn_ends() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let mut others = Vec::new();
+        for name in ["小B", "小C", "小D", "小E"] {
+            let id = Uuid::new_v4();
+            create_session(&pool, id, workspace, Some(name)).await;
+            add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+            others.push(id);
+        }
+        sqlx::query(
+            "UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sleep_idle_sessions(&pool, 30).await.unwrap();
+        // 小A posts mid-turn: one turn may wake at most 3 sleepers.
+        mark_running(&pool, a).await;
+        let posted = post_as(&pool, Some(a), &space, "大家醒醒", &[]).await;
+        let held: Vec<_> = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.as_deref() == Some("wake_limit_exceeded"))
+            .collect();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].state, WAKE_LIMIT_REACHED);
+        let held = held[0].conversation_id;
+        let receipt_of = |receipts: Vec<MessageReceipt>| {
+            receipts
+                .into_iter()
+                .find(|r| r.conversation_id == held.to_string())
+                .unwrap()
+        };
+        let visible = receipt_of(
+            list_message_receipts(&pool, &posted.message_id)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            visible.state, "limit_reached",
+            "visible, not silently queued"
+        );
+        assert!(visible.updated_at.is_some());
+
+        // While the originating turn runs the sweep keeps holding it.
+        redeliver_deferred(&pool, &DeliveryContext::default())
+            .await
+            .unwrap();
+        assert!(inputs_of(&pool, held).await.is_empty());
+        assert_eq!(
+            receipt_of(
+                list_message_receipts(&pool, &posted.message_id)
+                    .await
+                    .unwrap()
+            )
+            .state,
+            "limit_reached"
+        );
+
+        // Turn ends -> the next sweep delivers it; it never stalls.
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(a)
+            .execute(&pool)
+            .await
+            .unwrap();
+        redeliver_deferred(&pool, &DeliveryContext::default())
+            .await
+            .unwrap();
+        assert_eq!(inputs_of(&pool, held).await.len(), 1);
+        let after = receipt_of(
+            list_message_receipts(&pool, &posted.message_id)
+                .await
+                .unwrap(),
+        );
+        assert_ne!(after.state, "limit_reached");
+        assert_eq!(
+            after.state, "queued",
+            "now an ordinary queued input for its next turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn member_sessions_on_one_repo_default_to_isolated() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let primary = plan_member_write(&pool, b).await.unwrap().unwrap();
+        assert_eq!(primary.access, MemberWriteAccess::WriteIsolated);
+        assert!(primary.primary);
+        assert_eq!(primary.siblings, vec![forked]);
+        assert!(!primary.needs_isolated_workspace());
+        let extra = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert!(!extra.primary);
+        assert!(extra.needs_isolated_workspace());
+        let isolated = Uuid::new_v4();
+        record_member_session_workspace(&pool, &extra, forked, isolated, &json!({}))
+            .await
+            .unwrap();
+        let extra = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert_eq!(extra.isolated_workspace_id, Some(isolated));
+        assert!(!extra.needs_isolated_workspace());
+        // Isolated sessions never wait for each other.
+        mark_running(&pool, b).await;
+        assert!(try_acquire_member_write(&pool, forked).await.unwrap());
+        // A conversation without a member identity has no plan.
+        let loose = Uuid::new_v4();
+        create_session(&pool, loose, workspace, Some("散")).await;
+        assert!(plan_member_write(&pool, loose).await.unwrap().is_none());
+    }
+
+    /// Test provisioner: real `git worktree add` per isolated session.
+    struct GitWorktreeProvisioner {
+        repo: std::path::PathBuf,
+        dirs: std::sync::Mutex<std::collections::HashMap<Uuid, std::path::PathBuf>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl IsolatedWorkspaceProvisioner for GitWorktreeProvisioner {
+        async fn provision(
+            &self,
+            _plan: &MemberWritePlan,
+            conversation_id: Uuid,
+            isolated: Uuid,
+        ) -> Result<Option<(Uuid, Value)>, String> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let dir = self.repo.with_file_name(format!("wt-{isolated}"));
+            git(
+                &self.repo,
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    &format!("member/{conversation_id}"),
+                    dir.to_str().unwrap(),
+                ],
+            );
+            self.dirs.lock().unwrap().insert(isolated, dir);
+            Ok(Some((
+                isolated,
+                json!({ "branch": format!("member/{conversation_id}") }),
+            )))
+        }
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[tokio::test]
+    async fn two_sessions_of_one_member_write_one_repo_concurrently_without_conflict() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("shared.txt"), "base\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "base"]);
+        let provisioner = GitWorktreeProvisioner {
+            repo: repo.clone(),
+            dirs: Default::default(),
+            calls: Default::default(),
+        };
+
+        // Both sessions dispatch a turn at the same time.
+        let (primary_ws, forked_ws) = tokio::join!(
+            execution_workspace_id(&pool, b, workspace, &provisioner),
+            execution_workspace_id(&pool, forked, workspace, &provisioner),
+        );
+        let (primary_ws, forked_ws) = (primary_ws.unwrap(), forked_ws.unwrap());
+        assert_eq!(primary_ws, workspace, "primary keeps the native checkout");
+        assert_eq!(forked_ws, member_worktree_workspace_id(forked));
+        let dir_of = |id: Uuid| {
+            if id == workspace {
+                repo.clone()
+            } else {
+                provisioner.dirs.lock().unwrap()[&id].clone()
+            }
+        };
+        let (primary_dir, forked_dir) = (dir_of(primary_ws), dir_of(forked_ws));
+        assert_ne!(primary_dir, forked_dir);
+
+        // Concurrent writes to the same file in the same repo.
+        let writes = [
+            (primary_dir.clone(), "from primary\n"),
+            (forked_dir.clone(), "from fork\n"),
+        ]
+        .map(|(dir, text)| {
+            std::thread::spawn(move || {
+                std::fs::write(dir.join("shared.txt"), text).unwrap();
+                git(&dir, &["commit", "-qam", text.trim()]);
+            })
+        });
+        for write in writes {
+            write.join().unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(primary_dir.join("shared.txt")).unwrap(),
+            "from primary\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(forked_dir.join("shared.txt")).unwrap(),
+            "from fork\n"
+        );
+        assert!(git(&repo, &["status", "--porcelain"]).trim().is_empty());
+        assert!(
+            git(&forked_dir, &["status", "--porcelain"])
+                .trim()
+                .is_empty()
+        );
+
+        // Later turns reuse the recorded worktree; the session row is untouched.
+        let again = execution_workspace_id(&pool, forked, workspace, &provisioner)
+            .await
+            .unwrap();
+        assert_eq!(again, forked_ws);
+        assert_eq!(
+            provisioner.calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let plan = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert_eq!(
+            plan.workspace_id, workspace,
+            "collaboration still sees the session workspace"
+        );
+        assert_eq!(plan.isolated_workspace_id, Some(forked_ws));
+    }
+
+    #[tokio::test]
+    async fn write_serialized_member_sessions_take_turns() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let member = identity::member_id_for_conversation(b);
+        set_member_write_access(&pool, &member, MemberWriteAccess::WriteSerialized)
+            .await
+            .unwrap();
+        assert!(
+            set_member_write_access(&pool, "ghost", MemberWriteAccess::WriteSerialized)
+                .await
+                .is_err()
+        );
+        assert!(
+            !plan_member_write(&pool, forked)
+                .await
+                .unwrap()
+                .unwrap()
+                .needs_isolated_workspace()
+        );
+
+        // b's first-space session takes the lease and is busy.
+        assert!(try_acquire_member_write(&pool, b).await.unwrap());
+        let turn = mark_running(&pool, b).await;
+        // A delivery to the same member's other session waits.
+        let posted = post_as(&pool, Some(a), &second, "@小B 第二空间的活", &[]).await;
+        let deferred = posted
+            .receipts
+            .iter()
+            .find(|r| r.conversation_id == forked)
+            .unwrap();
+        assert_eq!(
+            deferred.error_code.as_deref(),
+            Some("write_serialized_busy")
+        );
+        assert!(inputs_of(&pool, forked).await.is_empty());
+
+        // b finishes; the sweeper retry delivers the deferred message.
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(b)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let _ = turn;
+        assert_eq!(
+            redeliver_deferred(&pool, &DeliveryContext::default())
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(inputs_of(&pool, forked).await.len(), 1);
+        assert_eq!(
+            redeliver_deferred(&pool, &DeliveryContext::default())
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]

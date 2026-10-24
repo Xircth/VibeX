@@ -126,12 +126,20 @@
     "description": "Deliver one instruction to a Conversation and return immediately. With collaboration enabled, the target may be this Conversation, a descendant, or a sibling in the same workspace. Without it, only this Conversation and its descendants are in scope. Another workspace is not_found. Reuse operation_id only for the exact same target and text. Omit delay_seconds and deliver_at, or pass delay_seconds 0, to deliver now: idle targets are dispatched and a busy target stays queued. A positive delay_seconds or deliver_at schedules the input; it does not take a queue position until it is due. Pass steer true only with expected_turn_id to steer that exact in-flight turn. If steering is unsupported, there is no active turn, or the turn changed, the call fails and nothing is queued. Do not wait for the target to finish; continue your own work.",
     "inputSchema": {
       "type": "object",
-      "required": ["conversation_id", "operation_id", "text"],
+      "required": ["operation_id", "text"],
       "properties": {
         "conversation_id": {
           "type": "string",
           "format": "uuid",
-          "description": "Target Conversation id."
+          "description": "Target Conversation id. Required unless member_id and thread_id are passed."
+        },
+        "member_id": {
+          "type": "string",
+          "description": "Collaboration member id. With thread_id, targets that member's conversation for the thread (created when missing) instead of conversation_id."
+        },
+        "thread_id": {
+          "type": "string",
+          "description": "Collaboration thread id: a space id for its group thread, or direct:<member_id>. Pass with member_id."
         },
         "operation_id": {
           "type": "string",
@@ -400,6 +408,88 @@
         "to": { "type": "array", "items": { "type": "string" } },
         "in_reply_to": { "type": "string" },
         "delay_seconds": { "type": "integer", "minimum": 0, "default": 0, "description": "Delay in seconds before posting the message to the collaboration space (default 0 for immediate delivery)." }
+      }
+    }
+  },
+  {
+    "name": "handoff",
+    "description": "Hand work to another member of a collaboration space with a structured envelope {done, inputs_constraints, ask}. The receiver gets it in its own session for this space. Chains are limited in depth and each turn may start only a few handoffs; over-limit calls fail with limit_exceeded and are recorded. If delivery fails you post a failure report back into the space automatically. Reuse operation_id only to retry the exact same handoff.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "to", "ask"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "to": { "type": "string", "description": "Receiver nickname." },
+        "done": { "type": "string", "description": "What you already finished." },
+        "inputs_constraints": { "type": "string", "description": "Inputs, constraints and acceptance criteria." },
+        "ask": { "type": "string", "minLength": 1, "description": "The concrete request." }
+      }
+    }
+  },
+  {
+    "name": "ask_person",
+    "description": "Ask the user a question inline in a collaboration thread. The user sees a card (with optional quick-reply options) and a 'needs you' badge on your avatar; the answer arrives later as a normal message to you starting with [回复问题 <id>]. Do not block waiting; end your turn after asking. Reuse operation_id only to retry the same question.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "question"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "question": { "type": "string", "minLength": 1 },
+        "options": { "type": "array", "items": { "type": "string" }, "maxItems": 6, "description": "Optional quick replies." },
+        "to": { "type": "string", "description": "Optional nickname of another member to ask instead of the user. That member (or the user) answers with resolve_card." }
+      }
+    }
+  },
+  {
+    "name": "request_approval",
+    "description": "Request the user's approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this thread: this group or direct chat) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "action"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "action": { "type": "string", "minLength": 1, "description": "What you want to do." },
+        "command": { "type": "string", "description": "Exact command or change, shown in monospace." },
+        "reason": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "resolve_card",
+    "description": "Answer an ask_person card that another member addressed to you (to=<your nickname>). Only the asked member or the user can answer an ask card; approval cards can only be resolved by the user, so calling this on one is rejected.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["card_id", "answer"],
+      "properties": {
+        "card_id": { "type": "string" },
+        "answer": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  {
+    "name": "memory_search",
+    "description": "Search your own long-term memory (facts) and recent activity across your collaboration threads, ranked by BM25. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 8 }
+      }
+    }
+  },
+  {
+    "name": "memory_write",
+    "description": "Remember a durable fact for yourself. scope: thread (default, only this thread), global (all your threads) or private (only your private chat with the user). Writes made in a private chat are always stored as private.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "enum": ["thread", "global", "private"] }
       }
     }
   },

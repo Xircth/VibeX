@@ -1088,7 +1088,14 @@ impl ConversationSessionService {
         self.interrupt_orphaned_turn(input.conversation_id).await?;
 
         let pool = &self.ctx.deployment.db().pool;
-        let workspace = Workspace::find_by_id(pool, input.workspace_id)
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            input.conversation_id,
+            input.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
             .await?
             .ok_or_else(|| {
                 ConversationServiceError::NotFound(format!(
@@ -1121,7 +1128,11 @@ impl ConversationSessionService {
             origin,
         )
         .await?;
-        let persona = crate::collaboration::persona_prompt_text(pool, input.conversation_id)
+        let persona = crate::collaboration::persona_prompt_text_for_turn(
+            pool,
+            input.conversation_id,
+            Some(&display_text),
+        )
             .await
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let prompt_text = match persona.as_deref() {
@@ -2439,7 +2450,14 @@ impl ConversationSessionService {
                     "Conversation {conversation_id} has no supported coding agent"
                 ))
             })?;
-        let workspace = Workspace::find_by_id(pool, persisted_session.workspace_id)
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            conversation_id,
+            persisted_session.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
             .await?
             .ok_or_else(|| {
                 ConversationServiceError::NotFound(format!(

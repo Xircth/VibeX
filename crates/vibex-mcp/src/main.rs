@@ -112,6 +112,12 @@ impl CompanionFeatures {
             | "add_space_member"
             | "set_space_identity"
             | "post_to_space"
+            | "handoff"
+            | "memory_search"
+            | "memory_write"
+            | "ask_person"
+            | "request_approval"
+            | "resolve_card"
             | "list_space_messages"
             | "list_space_collection"
             | "add_to_space_collection"
@@ -514,7 +520,23 @@ impl Companion {
                 }))
             }
             "send_session_input" => {
-                let conversation_id = required_string(arguments, "conversation_id")?;
+                let optional = |key: &str| {
+                    arguments
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                };
+                let member_id = optional("member_id");
+                let thread_id = optional("thread_id");
+                let conversation_id = match (&member_id, &thread_id) {
+                    (Some(_), Some(_)) => optional("conversation_id").unwrap_or_default(),
+                    (Some(_), None) | (None, Some(_)) => {
+                        return Err("member_id and thread_id must be passed together".to_string());
+                    }
+                    (None, None) => required_string(arguments, "conversation_id")?,
+                };
                 let operation_id = required_string(arguments, "operation_id")?;
                 let text = required_string(arguments, "text")?;
                 if text.trim().is_empty() {
@@ -542,6 +564,8 @@ impl Companion {
                 Ok(BrokerMessage::SessionSend(BrokerSessionSendRequest {
                     token,
                     conversation_id,
+                    member_id,
+                    thread_id,
                     operation_id,
                     text,
                     steer,
@@ -566,6 +590,12 @@ impl Companion {
             | "add_space_member"
             | "set_space_identity"
             | "post_to_space"
+            | "handoff"
+            | "memory_search"
+            | "memory_write"
+            | "ask_person"
+            | "request_approval"
+            | "resolve_card"
             | "list_space_messages"
             | "list_space_collection"
             | "add_to_space_collection"
@@ -1119,7 +1149,16 @@ mod tests {
                 "add_space_member",
                 "set_space_identity",
                 "post_to_space",
+                "handoff",
+                "ask_person",
+                "request_approval",
+                "resolve_card",
+                "memory_search",
+                "memory_write",
                 "list_space_messages",
+                "list_space_collection",
+                "add_to_space_collection",
+                "read_space_collection_item",
             ]
         );
         assert!(!names.contains(&"cancel_session_turn"));

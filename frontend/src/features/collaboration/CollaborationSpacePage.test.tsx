@@ -243,7 +243,7 @@ describe('CollaborationSpacePage', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(screen.queryByRole('textbox', { name: '空间名称' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: '群聊名称' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: '昵称' })).toBeNull();
     expect(await screen.findByRole('button', { name: '设计' })).toBeTruthy();
     expect(screen.getByTestId('session-composer-editor')).toBeTruthy();
@@ -290,7 +290,7 @@ describe('CollaborationSpacePage', () => {
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
     ).toBeTruthy();
 
-    // Setting a space tag color colors the rounded-rectangle space N-grid icon background while keeping cells gray
+    // Setting a space tag color draws the group avatar tag ring
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
     const spaceButton = screen.getByRole('button', { name: '设计' });
@@ -298,10 +298,11 @@ describe('CollaborationSpacePage', () => {
       '[data-tag-color="blue"]'
     ) as HTMLElement | null;
     expect(spaceIcon).toBeTruthy();
-    expect(spaceIcon).toHaveAttribute('data-grid-size', '4');
-    expect(
-      spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
-    ).toHaveLength(4);
+    expect(spaceIcon).toHaveClass('group-avatar--tagged');
+    expect(Number(spaceIcon?.getAttribute('data-member-count'))).toBe(
+      spaceIcon?.querySelectorAll('.group-avatar-slot:not([data-overlay])')
+        .length
+    );
     expect(spaceButton.querySelector('.collaboration-space-tag')).toBeNull();
 
     // Right preview area is hidden until a member or file is selected
@@ -398,7 +399,7 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
 
     // Clicking + in top toolbar expands menu with 新建协作空间 and 新建成员
-    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    await user.click(screen.getByRole('button', { name: '新建群聊' }));
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
       name: '新建协作空间',
     });
@@ -408,7 +409,7 @@ describe('CollaborationSpacePage', () => {
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
     const threadSection = screen.getByRole('region', { name: '设计' });
     const dialogInThread = within(threadSection).getByRole('dialog', {
-      name: '新建空间',
+      name: '新建群聊',
     });
     expect(dialogInThread).toBeTruthy();
     const overlayEl = threadSection.querySelector(
@@ -416,13 +417,13 @@ describe('CollaborationSpacePage', () => {
     );
     expect(overlayEl).toBeTruthy();
     expect(overlayEl?.className).not.toContain('dialog-backdrop');
-    expect(screen.getByRole('textbox', { name: '空间名称' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '群聊名称' })).toBeTruthy();
 
     const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
     expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
     await user.click(closeDialogBtn);
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: '新建空间' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: '新建群聊' })).toBeNull();
     });
 
     // Clicking per-space UserPlus button opens the unified 新建成员 overlay pre-set to 基于会话
@@ -539,7 +540,10 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(await screen.findByText('小A 已收到')).toBeTruthy();
+    expect(
+      await screen.findByRole('img', { name: '小A 已发送' })
+    ).toHaveAttribute('data-state', 'sent');
+    expect(screen.queryByText('小A 已收到')).toBeNull();
     // User message does not render '你' header
     expect(screen.queryByRole('button', { name: '预览 你 会话' })).toBeNull();
 
@@ -634,7 +638,9 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '发送' }));
 
     expect(await screen.findByText('没有送达')).toBeTruthy();
-    expect(await screen.findByText('小A 失败')).toBeTruthy();
+    expect(
+      await screen.findByRole('img', { name: '小A 发送失败' })
+    ).toHaveAttribute('data-state', 'failed');
     expect(editor).toHaveTextContent('@小A 重试这条');
 
     const firstPostCall = collaborationCall.mock.calls.find(
@@ -943,14 +949,14 @@ describe('CollaborationSpacePage', () => {
       screen.getByRole('button', { name: '加入成员 默认空间' })
     ).toBeTruthy();
     // Top row has 12px '协作空间' title on the left of the search button
-    const topTitle = screen.getByText('协作空间');
+    const topTitle = screen.getByText('协作');
     expect(topTitle.className).toContain('text-[12px]');
     // Never show '还没有消息'; composer is NOT rendered when no space is opened;
     // instead, the white-blurred 新建空间 overlay is shown by default over the message area
     expect(screen.queryByText('还没有消息')).toBeNull();
     expect(screen.queryByTestId('session-composer-editor')).toBeNull();
     const initialSpaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
+      name: '新建群聊',
     });
     expect(initialSpaceDialog).toBeTruthy();
     // Right preview area is NOT shown by default
@@ -1014,10 +1020,10 @@ describe('CollaborationSpacePage', () => {
     // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加成员 dialog with 选择成员 / 新建成员 tabs
     await user.click(emptyStateCreateSpaceBtn);
     const spaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
+      name: '新建群聊',
     });
     const nameInput = within(spaceDialog).getByRole('textbox', {
-      name: '空间名称',
+      name: '群聊名称',
     });
     await user.type(nameInput, '架构评审');
 
@@ -1051,7 +1057,7 @@ describe('CollaborationSpacePage', () => {
 
     // Click dashed + button again to create a member via 添加成员 -> 新建成员 tab (no 归属团队 field)
     const spaceDialogAfterChoose = await screen.findByRole('dialog', {
-      name: '新建空间',
+      name: '新建群聊',
     });
     await user.click(
       within(spaceDialogAfterChoose).getByRole('button', {
@@ -1077,7 +1083,7 @@ describe('CollaborationSpacePage', () => {
 
     // Created member chip is displayed under 协作空间成员 with dashed + still after it
     const finalSpaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
+      name: '新建群聊',
     });
     expect(
       await within(finalSpaceDialog).findByText('内联评审员')

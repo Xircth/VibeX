@@ -157,7 +157,7 @@
       "collaborationLabel": "Collaboration",
       "dragHint": "Drag one zone onto another to swap them; each zone keeps its size when moved.",
       "kanbanHint": "Arrangement of the session list (A), session monitor (B), and session execution area (C).",
-      "collaborationHint": "Arrangement of collaboration spaces (A), message thread (B), and preview area (C).",
+      "collaborationHint": "Arrangement of members and group chats (A), message thread (B), and preview area (C).",
       "hint": "You can still drag the dividers on each page to resize the zones.",
       "zones": {
         "dock": "Sidebar panels",
@@ -171,7 +171,7 @@
         "session": "Session execution"
       },
       "collaborationZones": {
-        "spaces": "Collaboration spaces",
+        "spaces": "Members and group chats",
         "thread": "Message thread",
         "preview": "Preview"
       }
@@ -1653,7 +1653,7 @@
     "basicFeaturesTitle": "Basics",
     "multiAgentTitle": "MultiAgent collaboration",
     "multiAgentEnabled": "MultiAgent collaboration",
-    "multiAgentEnabledHint": "New sessions can delegate, use roles, and open collaboration spaces.",
+    "multiAgentEnabledHint": "New sessions can delegate, use roles, and collaborate in group chats.",
     "multiAgentDepth": "Delegation depth",
     "multiAgentCache": "Completed cache (MB)",
     "multiAgentDays": "List window (days)",

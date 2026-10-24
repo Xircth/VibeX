@@ -17,6 +17,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
 | 创建协作空间、拉入成员、修改自己在空间内的昵称 | `create_collaboration_space`、`add_space_member`、`set_space_identity` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 按需回看协作空间历史消息（单次读取，非阻塞轮询） | `list_space_messages` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 在协作空间「群收藏」（共享临界区）中查看、写入或读取跨成员共享的文本、图片、文件产物 | `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
+| 回忆自己在其他群做过什么、检索或写入自己的长期记忆（私聊内容不会出现在群里） | `memory_search`、`memory_write` | 见 [`MEMORY.md`](MEMORY.md) |
 | 创建持久化一等会话，或基于自定义角色创建会话 | `list_roles`、`create_conversation` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 查看工作区近期会话列表或读取指定会话详情 | `list_conversations`、`get_session_info` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 向已有会话点对点发送指令、插话（steer）或延时投递 | `send_session_input`、`wait_for_session`、`cancel_session_turn` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |

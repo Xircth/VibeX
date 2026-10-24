@@ -102,6 +102,7 @@ export type SessionComposerStructuredTokenKind =
   | 'plugin_action'
   | 'element'
   | 'agent_mention'
+  | 'member_mention'
   | 'conversation'
   | 'commit'
   | 'project'
@@ -115,6 +116,20 @@ export type SessionComposerStructuredToken = {
   value: string;
   raw: string;
   title?: string;
+  /** Avatar of a `member_mention` token (space member bot avatar). */
+  avatar?: SessionComposerMemberMentionAvatar;
+};
+
+export type SessionComposerMemberMentionAvatar = {
+  color: string;
+  shape: string;
+  expression: string;
+};
+
+/** Space member a plain `@nickname` mention resolves to. */
+export type SessionComposerMemberMention = {
+  nickname: string;
+  avatar?: SessionComposerMemberMentionAvatar;
 };
 
 export type SessionComposerStructuredTokenSegment =
@@ -134,6 +149,7 @@ type TokenSegment = Extract<
 type StructuredTokenOptions = {
   includeLegacyTokens?: boolean;
   bareAgentMentions?: AgentMention[];
+  memberMentions?: SessionComposerMemberMention[];
 };
 
 type PreviewElementTokenPayload = {
@@ -318,6 +334,48 @@ function parseBareAgentMentionAt(
       value: mention.agent_kind,
       raw,
       title: mention.agent_kind,
+    },
+    end,
+  };
+}
+
+
+/**
+ * Plain `@nickname` mention of a space member. The serialized form stays the
+ * plain text the backend parses (`@` at start or after whitespace), so the
+ * token's `raw` is exactly the source slice and serialization is a no-op.
+ */
+function parseMemberMentionAt(
+  source: string,
+  start: number,
+  candidates: SessionComposerMemberMention[]
+): { token: SessionComposerStructuredToken; end: number } | null {
+  if (source.charAt(start) !== '@') return null;
+  if (start > 0 && !/\s/u.test(source.charAt(start - 1))) return null;
+  let best: SessionComposerMemberMention | null = null;
+  for (const candidate of candidates) {
+    const nickname = candidate.nickname.trim();
+    if (!nickname || !source.startsWith(nickname, start + 1)) continue;
+    // Whitespace must follow (the backend reads `@[^\s@]+`); a mention still
+    // being typed at the very end stays plain text until a space is added.
+    const after = source.charAt(start + 1 + nickname.length);
+    if (!after || !/\s/u.test(after)) continue;
+    if (!best || nickname.length > best.nickname.trim().length) best = candidate;
+  }
+  if (!best) return null;
+  const nickname = best.nickname.trim();
+  const end = start + 1 + nickname.length;
+  const raw = source.slice(start, end);
+  return {
+    token: {
+      kind: 'member_mention',
+      type: '@',
+      key: nickname,
+      label: nickname,
+      value: raw,
+      raw,
+      title: raw,
+      ...(best.avatar ? { avatar: best.avatar } : {}),
     },
     end,
   };
@@ -828,6 +886,27 @@ export function getSessionComposerStructuredTokenSegments(
       continue;
     }
 
+    const memberMention =
+      options.memberMentions &&
+      options.memberMentions.length > 0 &&
+      !isAgentMentionCodeContext(value, scan)
+        ? parseMemberMentionAt(value, scan, options.memberMentions)
+        : null;
+    if (memberMention) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: memberMention.token,
+        start: scan,
+        end: memberMention.end,
+      });
+      cursor = memberMention.end;
+      scan = memberMention.end;
+      continue;
+    }
+
     const bareMention =
       options.bareAgentMentions && !isAgentMentionCodeContext(value, scan)
         ? parseBareAgentMentionAt(value, scan, options.bareAgentMentions)
@@ -914,12 +993,13 @@ function tokenSegments(
 function findTokenForCollapsedDeletion(
   value: string,
   offset: number,
-  direction: 'backward' | 'forward'
+  direction: 'backward' | 'forward',
+  options: StructuredTokenOptions = {}
 ): TokenSegment | null {
   const normalizedOffset = Math.max(0, Math.min(offset, value.length));
 
   return (
-    tokenSegments(value).find((segment) => {
+    tokenSegments(value, options).find((segment) => {
       if (direction === 'backward') {
         return (
           normalizedOffset > segment.start && normalizedOffset <= segment.end
@@ -936,13 +1016,14 @@ function findTokenForCollapsedDeletion(
 function expandRangeToIntersectingTokens(
   value: string,
   selectionStart: number,
-  selectionEnd: number
+  selectionEnd: number,
+  options: StructuredTokenOptions = {}
 ): { start: number; end: number } | null {
   const start = Math.max(0, Math.min(selectionStart, value.length));
   const end = Math.max(start, Math.min(selectionEnd, value.length));
   if (start === end) return null;
 
-  const intersectingTokens = tokenSegments(value).filter(
+  const intersectingTokens = tokenSegments(value, options).filter(
     (segment) => segment.end > start && segment.start < end
   );
   if (intersectingTokens.length === 0) return null;
@@ -1002,12 +1083,17 @@ export function deleteSessionComposerStructuredToken({
   selectionStart,
   selectionEnd,
   direction,
+  memberMentions,
 }: {
   value: string;
   selectionStart: number;
   selectionEnd: number;
   direction: 'backward' | 'forward';
+  memberMentions?: SessionComposerMemberMention[];
 }): { value: string; caretOffset: number } | null {
+  const options: StructuredTokenOptions = memberMentions
+    ? { memberMentions }
+    : {};
   const normalizedStart = Math.max(0, Math.min(selectionStart, value.length));
   const normalizedEnd = Math.max(
     normalizedStart,
@@ -1016,8 +1102,18 @@ export function deleteSessionComposerStructuredToken({
 
   const range =
     normalizedStart === normalizedEnd
-      ? findTokenForCollapsedDeletion(value, normalizedStart, direction)
-      : expandRangeToIntersectingTokens(value, normalizedStart, normalizedEnd);
+      ? findTokenForCollapsedDeletion(
+          value,
+          normalizedStart,
+          direction,
+          options
+        )
+      : expandRangeToIntersectingTokens(
+          value,
+          normalizedStart,
+          normalizedEnd,
+          options
+        );
 
   if (!range) return null;
 

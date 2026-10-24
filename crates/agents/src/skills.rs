@@ -1527,6 +1527,10 @@ fn sync_host_multi_agent_skill_with_layout(
             "SESSION-AND-DELEGATION.md",
             include_str!("skills/vibex-multi-agent/SESSION-AND-DELEGATION.md"),
         ),
+        (
+            "MEMORY.md",
+            include_str!("skills/vibex-multi-agent/MEMORY.md"),
+        ),
     ];
     // Projection accepts the SKILL.md file and copies its parent directory.
     let skill_dir = std::env::temp_dir().join("vibex-host-multi-agent-skill");

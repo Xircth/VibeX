@@ -31,6 +31,7 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'log-stream',
   'vibex://settings-file-changed',
   'vibex://collaboration-space-changed',
+  'vibex://collaboration-receipts-changed',
   'theme-changed',
   'log-settings://changed',
   'logs://appended',

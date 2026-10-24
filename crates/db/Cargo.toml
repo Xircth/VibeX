@@ -17,7 +17,7 @@ tracing = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
 chrono = { workspace = true }
 iana-time-zone = "0.1"
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 ts-rs = { workspace = true }
 tokio = { workspace = true }
 serde_with = { workspace = true }

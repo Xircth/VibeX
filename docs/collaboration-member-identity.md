@@ -192,3 +192,8 @@ as ordinary conversations (one per extra space) rather than being merged back.
 - 资料面板可编辑（`member.config.get` / `member.config.update`），**修改只影响之后新建的会话**，已有会话保持创建时的配置。
 - 工作目录由 workspace 决定（`sessions.workspace_id`），不是成员级配置。
 - 头像点击打开的会话标签页通过 `member.session.resolve`（成员 id + 当前 thread id）解析，永远不回退到成员“最近的会话”；该 thread 尚无会话时按成员配置当场创建。
+
+### 启动时 database is locked 警告（2026-10-24 待确认）
+
+20:20 重启 dev 时日志出现一次 `automation startup reconciliation failed … database is locked`。随后检查只有一套 dev 进程（一个 vibex.exe），没有旧 dev 进程残留；之后没有再出现。推测是旧实例被结束后 3 秒内新实例启动、旧进程尚未释放 SQLite 锁。待确认：自动化启动对账是否需要在遇到锁时重试。
+

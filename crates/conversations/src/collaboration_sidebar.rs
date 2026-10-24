@@ -632,6 +632,48 @@ pub async fn mark_thread_read(
         .map_err(db_err)
 }
 
+/// Move the read cursor before the tail so the thread shows as unread.
+/// A fully-read thread becomes unread by one (the last message).
+pub async fn mark_thread_unread(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<i64, CollaborationError> {
+    let dm = dm_conversation(pool, thread_id).await?;
+    let tail = match dm {
+        Some((conversation, _)) => dm_tail_seq(pool, conversation).await?,
+        None => sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT MAX(seq) FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(thread_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?
+        .unwrap_or(0),
+    };
+    let current = read_mark(pool, thread_id).await?.unwrap_or(tail);
+    let seq = if tail <= 0 {
+        0
+    } else if current >= tail {
+        tail - 1
+    } else {
+        current.min(tail - 1)
+    };
+    sqlx::query(
+        r#"INSERT INTO collaboration_thread_reads (thread_id, last_read_seq, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(thread_id) DO UPDATE SET
+             last_read_seq = excluded.last_read_seq,
+             updated_at = excluded.updated_at"#,
+    )
+    .bind(thread_id)
+    .bind(seq)
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(seq)
+}
+
 pub async fn set_space_tag_color(
     pool: &SqlitePool,
     space_id: &str,

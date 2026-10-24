@@ -23,15 +23,16 @@ import {
   ChevronRight,
   Clock,
   Filter,
+  FolderPlus,
   LayoutGrid,
   Loader2,
   MessageSquare,
   Paperclip,
   Pencil,
   Plus,
+  Search,
   Tag,
   Trash2,
-  FolderPlus,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -55,6 +56,8 @@ import {
   SESSION_LIST_ACTION_ICON_CLASS,
 } from '@/components/kanban/session-hub/utils';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -65,6 +68,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  PRODUCT_MENU_CONTENT_CLASS,
+  PRODUCT_MENU_ITEM_CLASS,
+} from '@/components/ui/product-menu-classes';
 import {
   Popover,
   PopoverContent,
@@ -111,7 +118,6 @@ import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSett
 import { useSessionComposerPromptEnhancement } from '@/components/tasks/follow-up/useSessionComposerPromptEnhancement';
 import { toast } from '@/components/ui/toast';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
-import { SessionListSearchControl } from '@/components/workspace-session-list/SessionListSearchControl';
 import {
   formatCompactSessionAge,
   workspaceSessionStatusTone,
@@ -142,10 +148,29 @@ import {
   loadSidebarItems,
   loadDirectMessages,
   markThreadRead,
+  markThreadUnread,
   postDirectMessage,
   resolveMemberSession,
   updateThreadTagColor,
 } from './threadApi';
+import { CollaborationGlobalSearchModal } from './CollaborationGlobalSearchModal';
+import {
+  applyContactListView,
+  chatEntryThreadId,
+  conversationIdForCopy,
+  cycleTypeFilter,
+  readContactChrome,
+  toggleHiddenThread,
+  togglePinnedThread,
+  writeContactChrome,
+  type ContactChromeState,
+  type ContactListSort,
+  type ContactTypeFilter,
+} from './contactChrome';
+import {
+  buildContactRowMenuItems,
+  moveTargetsForEntry,
+} from './contactRowMenu';
 import {
   buildContactSections,
   createContactGroup,
@@ -162,12 +187,8 @@ import {
   type ContactSection,
 } from './contactGroups';
 import {
-  ContactContextMenu,
   ContactGroupNameInput,
   ContactGroupSections,
-  contactMenuIcons,
-  type ContactMenuItem,
-  type ContactMenuState,
 } from './ContactGroupSections';
 import {
   COLLABORATION_PREVIEW_COMPONENTS,
@@ -191,7 +212,6 @@ import {
   agentRoster,
   deliveryFailureCopy,
   displayName,
-  isWithinActiveWindow,
   latestMessageSeq,
   memberSelectionKey as deleteMemberKey,
   mergeSpaceMessages,
@@ -211,7 +231,6 @@ import {
   toggleSpaceDeleteSelection,
   unassignedSpaceId,
   writeSpaceTags,
-  type ActiveTimeFilterWindow,
   type DeliveryReceipt,
   type SpaceMember,
   type SpaceTagConfig,
@@ -587,10 +606,12 @@ export function CollaborationSpacePage({
   // Search & Filter state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterAgentId, setFilterAgentId] = useState('');
-  const [filterActiveWindow, setFilterActiveWindow] =
-    useState<ActiveTimeFilterWindow>('all');
-  const [filterMemberConvId, setFilterMemberConvId] = useState('');
+  const [listSort, setListSort] = useState<ContactListSort>('activity');
+  const [typeFilter, setTypeFilter] = useState<ContactTypeFilter>('group');
+  const [contactChrome, setContactChrome] = useState<ContactChromeState>({
+    pinned: [],
+    hidden: [],
+  });
 
   // Batch Delete state
   const [isDeleteMode, setIsDeleteMode] = useState(false);
@@ -838,7 +859,17 @@ export function CollaborationSpacePage({
     setCollapsedSections(
       workspace ? readCollapsedSections(workspace) : new Set()
     );
+    setContactChrome(
+      workspace ? readContactChrome(workspace) : { pinned: [], hidden: [] }
+    );
   }, [workspace]);
+  const persistContactChrome = useCallback(
+    (next: ContactChromeState) => {
+      setContactChrome(next);
+      if (workspace) writeContactChrome(workspace, next);
+    },
+    [workspace]
+  );
   const toggleContactSection = useCallback(
     (sectionId: string) => {
       setCollapsedSections((current) => {
@@ -853,7 +884,11 @@ export function CollaborationSpacePage({
   );
   const [creatingContactGroup, setCreatingContactGroup] = useState(false);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
-  const [contactMenu, setContactMenu] = useState<ContactMenuState>(null);
+  const [contactMenu, setContactMenu] = useState<{
+    x: number;
+    y: number;
+    items: ProductContextMenuItem[];
+  } | null>(null);
   const contactGroupFailed = useCallback(() => {
     toast.error(t('collaborationSpace.contactGroupFailed', '分组操作失败'));
   }, [t]);
@@ -1134,23 +1169,6 @@ export function CollaborationSpacePage({
       }
     }
     return map;
-  }, [membersBySpace]);
-
-  const allUniqueMembers = useMemo(() => {
-    const seen = new Map<
-      string,
-      { conversationId: string; nickname: string }
-    >();
-    for (const group of Object.values(membersBySpace)) {
-      for (const member of agentRoster(group)) {
-        const convId = String(member.conversation_id ?? '').trim();
-        const nick = String(member.nickname ?? '').trim();
-        if (convId && nick && !seen.has(convId)) {
-          seen.set(convId, { conversationId: convId, nickname: nick });
-        }
-      }
-    }
-    return [...seen.values()];
   }, [membersBySpace]);
 
   const allExistingNicknames = useMemo(() => {
@@ -3687,10 +3705,7 @@ export function CollaborationSpacePage({
     );
   }, [membersBySpace, spaces, unassignedId]);
 
-  const hasActiveFilter =
-    Boolean(filterAgentId) ||
-    filterActiveWindow !== 'all' ||
-    Boolean(filterMemberConvId);
+  const hasActiveFilter = listSort !== 'activity';
 
   const doesMemberMatchQuery = useCallback(
     (member: SpaceMember, queryLower: string): boolean => {
@@ -3710,101 +3725,6 @@ export function CollaborationSpacePage({
     },
     [conversationById]
   );
-
-  const doesSpaceMatchFilter = useCallback(
-    (space: Space, spaceMembers: SpaceMember[]): boolean => {
-      const queryLower = searchQuery.trim().toLowerCase();
-      const tagConfig = spaceTags[space.space_id];
-      const roster = agentRoster(spaceMembers);
-
-      if (queryLower) {
-        const spaceNameMatches =
-          space.name.toLowerCase().includes(queryLower) ||
-          Boolean(
-            tagConfig?.label &&
-              tagConfig.label.toLowerCase().includes(queryLower)
-          );
-        const anyMemberMatches = roster.some((member) =>
-          doesMemberMatchQuery(member, queryLower)
-        );
-        if (!spaceNameMatches && !anyMemberMatches) {
-          return false;
-        }
-      }
-
-      if (filterAgentId) {
-        const targetAgent = filterAgentId.toLowerCase();
-        const matchesAgent = roster.some((member) => {
-          const conv = member.conversation_id
-            ? conversationById.get(member.conversation_id)
-            : undefined;
-          return String(conv?.agent_id ?? '').toLowerCase() === targetAgent;
-        });
-        if (!matchesAgent) return false;
-      }
-
-      if (filterMemberConvId) {
-        const containsMember = roster.some(
-          (member) => member.conversation_id === filterMemberConvId
-        );
-        if (!containsMember) return false;
-      }
-
-      if (filterActiveWindow !== 'all') {
-        const matchesWindow = roster.some((member) => {
-          const conv = member.conversation_id
-            ? conversationById.get(member.conversation_id)
-            : undefined;
-          const activeNow = Boolean(
-            conv?.turn_in_flight || conv?.status === 'inprogress'
-          );
-          return isWithinActiveWindow(
-            filterActiveWindow,
-            activeNow,
-            conv?.updated_at
-          );
-        });
-        if (!matchesWindow) return false;
-      }
-
-      return true;
-    },
-    [
-      conversationById,
-      doesMemberMatchQuery,
-      filterActiveWindow,
-      filterAgentId,
-      filterMemberConvId,
-      searchQuery,
-      spaceTags,
-    ]
-  );
-
-  const visibleSpaces = useMemo(
-    () =>
-      spaces.filter((space) =>
-        doesSpaceMatchFilter(
-          space,
-          membersBySpace[space.space_id] ?? EMPTY_MEMBERS
-        )
-      ),
-    [doesSpaceMatchFilter, membersBySpace, spaces]
-  );
-
-  const availableFilterAgents = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const agent of agents) {
-      if (agent.agent_id) {
-        map.set(agent.agent_id, agent.name || agent.agent_id);
-      }
-    }
-    for (const conv of conversations) {
-      if (conv.agent_id && !map.has(conv.agent_id)) {
-        map.set(conv.agent_id, conv.agent_id);
-      }
-    }
-    return [...map.entries()].map(([agent_id, name]) => ({ agent_id, name }));
-  }, [agents, conversations]);
 
   const memberSourceOptions = useMemo<
     readonly CollaborationSelectOption<MemberSourceOption>[]
@@ -3888,50 +3808,6 @@ export function CollaborationSpacePage({
       })),
     ],
     [agents]
-  );
-
-  const filterAgentSelectOptions = useMemo<
-    readonly CollaborationSelectOption[]
-  >(
-    () => [
-      { value: '', label: COPY.filterAllAgents },
-      ...availableFilterAgents.map((agent) => ({
-        value: agent.agent_id,
-        label: getAgentName(agent.agent_id) || agent.name || agent.agent_id,
-        icon: (
-          <AgentIcon
-            agent={agent.agent_id as ExecutorProfileId['executor']}
-            className="h-3.5 w-3.5 shrink-0"
-          />
-        ),
-      })),
-    ],
-    [availableFilterAgents]
-  );
-
-  const filterActiveWindowSelectOptions = useMemo<
-    readonly CollaborationSelectOption<ActiveTimeFilterWindow>[]
-  >(
-    () => [
-      { value: 'all', label: COPY.filterAllTimes },
-      { value: 'active', label: COPY.filterTimeActiveNow },
-      { value: '24h', label: COPY.filterTime24h },
-      { value: '7d', label: COPY.filterTime7d },
-    ],
-    []
-  );
-
-  const filterMemberSelectOptions = useMemo<
-    readonly CollaborationSelectOption[]
-  >(
-    () => [
-      { value: '', label: COPY.filterAllMembers },
-      ...allUniqueMembers.map((member) => ({
-        value: member.conversationId,
-        label: member.nickname,
-      })),
-    ],
-    [allUniqueMembers]
   );
 
   const defaultWorkspaceName = useMemo(() => {
@@ -4759,7 +4635,7 @@ export function CollaborationSpacePage({
 
   const chatList = buildChatList({
     sidebarItems,
-    spaces: visibleSpaces,
+    spaces,
     membersBySpace,
     unassignedSpaceId: unassignedId || undefined,
     // Every agent's direct (1:1) chat lives in the unassigned space, even when
@@ -4769,55 +4645,199 @@ export function CollaborationSpacePage({
       : EMPTY_MEMBERS,
   });
   chatListRef.current = chatList;
+  const queryLower = searchQuery.trim().toLowerCase();
+  const globalSearchResults = (() => {
+    const memberResults: Array<{
+      kind: 'member';
+      key: string;
+      name: string;
+      spaceId: string;
+      member: SpaceMember;
+      threadId?: string;
+    }> = [];
+    const seen = new Set<string>();
+    for (const entry of chatList) {
+      if (entry.type !== 'direct') continue;
+      const name = entry.name;
+      const dedupe = (
+        entry.member.conversation_id ||
+        entry.member.member_id ||
+        name
+      ).toLowerCase();
+      if (!dedupe || seen.has(dedupe)) continue;
+      if (queryLower && !doesMemberMatchQuery(entry.member, queryLower)) {
+        continue;
+      }
+      seen.add(dedupe);
+      memberResults.push({
+        kind: 'member',
+        key: `member:${dedupe}`,
+        name,
+        spaceId: entry.spaceId,
+        member: entry.member,
+        threadId: entry.threadId,
+      });
+    }
+    const groupResults: Array<{
+      kind: 'group';
+      key: string;
+      spaceId: string;
+      name: string;
+      memberNames: string;
+      members: SpaceMember[];
+    }> = [];
+    for (const entry of chatList) {
+      if (entry.type !== 'group') continue;
+      const roster = entry.members;
+      const memberNames = roster
+        .map((member) => displayName(member))
+        .join(', ');
+      if (queryLower) {
+        const nameMatches = entry.name.toLowerCase().includes(queryLower);
+        const memberMatches = roster.some((member) =>
+          doesMemberMatchQuery(member, queryLower)
+        );
+        if (!nameMatches && !memberMatches) continue;
+      }
+      groupResults.push({
+        kind: 'group',
+        key: entry.key,
+        spaceId: entry.spaceId,
+        name: entry.name,
+        memberNames,
+        members: roster,
+      });
+    }
+    return [...memberResults, ...groupResults];
+  })();
+  const { visible: visibleChatList, hidden: hiddenChatList } =
+    applyContactListView(chatList, contactChrome, listSort, typeFilter);
   const contactSections = sidebarAvailable
     ? buildContactSections(
-        chatList,
+        visibleChatList,
         contactGroups,
         t('collaborationSpace.contactGroupUngrouped', '未分组')
       )
     : null;
-  const newGroupMenuItem: ContactMenuItem = {
-    kind: 'item',
-    label: t('collaborationSpace.contactGroupNew', '新建分组'),
-    icon: <FolderPlus className="size-3.5 opacity-70" />,
-    testId: 'collaboration-contact-menu-new-group',
+  const newGroupMenuItem: ProductContextMenuItem = {
+    id: 'new-group',
+    label: t(
+      'collaborationSpace.contactGroupNew',
+      COPY.createContactGroupButton
+    ),
+    icon: FolderPlus,
     onSelect: () => setCreatingContactGroup(true),
   };
   const openContactMenu = (
     event: React.MouseEvent,
-    items: ContactMenuItem[]
+    items: ProductContextMenuItem[]
   ) => {
     event.preventDefault();
     event.stopPropagation();
     setContactMenu({ x: event.clientX, y: event.clientY, items });
   };
+  const patchSidebarUnread = (threadId: string, unreadCount: number) => {
+    setSidebarItems((items) =>
+      items
+        ? items.map((item) =>
+            item.thread_id === threadId
+              ? { ...item, unread_count: unreadCount }
+              : item
+          )
+        : items
+    );
+  };
+  const deleteChatEntry = async (entry: ChatListEntry) => {
+    if (!workspace) return;
+    try {
+      if (entry.type === 'group') {
+        await collaborationCall('collaboration', 'space.batchDelete', {
+          workspaceId: workspace,
+          spaceIds: [entry.spaceId],
+          memberTargets: [],
+          operationId: crypto.randomUUID(),
+        });
+      } else {
+        const conversationId = String(
+          entry.member.conversation_id ?? ''
+        ).trim();
+        if (!conversationId) return;
+        await collaborationCall('collaboration', 'space.batchDelete', {
+          workspaceId: workspace,
+          spaceIds: [],
+          memberTargets: [{ spaceId: entry.spaceId, conversationId }],
+          operationId: crypto.randomUUID(),
+        });
+      }
+      await refreshSidebar();
+      const spacePage = await collaborationCall<{ spaces?: Space[] }>(
+        'collaboration',
+        'space.list',
+        { workspaceId: workspace }
+      );
+      setSpaces(spacePage.spaces ?? []);
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    }
+  };
   const openRowContactMenu = (
     event: React.MouseEvent,
     entry: ChatListEntry
   ) => {
-    if (!contactSections || !entry.threadId) return;
-    const threadId = entry.threadId;
-    const current = entry.groupId ?? UNGROUPED_SECTION_ID;
-    const known = contactSections.some((section) => section.id === current)
-      ? current
-      : UNGROUPED_SECTION_ID;
-    openContactMenu(event, [
-      {
-        kind: 'submenu',
-        label: t('collaborationSpace.contactGroupMoveTo', '移动到分组'),
-        icon: contactMenuIcons.move,
-        testId: 'collaboration-contact-menu-move',
-        items: contactSections
-          .filter((section) => section.id !== known)
-          .map((section) => ({
-            label: section.name,
-            testId: `collaboration-contact-menu-move-${section.id}`,
-            onSelect: () => void moveContactToSection(threadId, section.id),
-          })),
-      },
-      { kind: 'separator' },
-      newGroupMenuItem,
-    ]);
+    const threadId = chatEntryThreadId(entry);
+    if (!threadId) return;
+    const pinned = contactChrome.pinned.includes(threadId);
+    const hidden = contactChrome.hidden.includes(threadId);
+    const unread = (entry.unreadCount ?? 0) > 0;
+    openContactMenu(
+      event,
+      buildContactRowMenuItems({
+        entry,
+        pinned,
+        hidden,
+        unread,
+        moveTargets: moveTargetsForEntry(entry, contactSections),
+        onPin: () =>
+          persistContactChrome(togglePinnedThread(contactChrome, threadId)),
+        onMove: (sectionId) => void moveContactToSection(threadId, sectionId),
+        onToggleUnread: () => {
+          if (unread) {
+            patchSidebarUnread(threadId, 0);
+            void markThreadRead(collaborationCall, threadId);
+          } else {
+            patchSidebarUnread(threadId, Math.max(1, entry.unreadCount ?? 1));
+            void markThreadUnread(collaborationCall, threadId);
+          }
+        },
+        onRename: () => {
+          if (entry.type === 'direct') {
+            const conversationId = String(
+              entry.member.conversation_id ?? ''
+            ).trim();
+            if (!conversationId) return;
+            setRenameSpaceId(entry.spaceId);
+            setRenameConversationId(conversationId);
+            setRenameNickname(entry.name);
+            setRenameAvatar(getMemberAvatar(conversationId, entry.name));
+            setRenameOperationId(crypto.randomUUID());
+            setRenameError('');
+            setRenameOpen(true);
+            return;
+          }
+          setRenameSpaceTargetId(entry.spaceId);
+          setRenameSpaceName(entry.name);
+          setRenameSpaceError('');
+          setRenameSpaceOpen(true);
+        },
+        onCopyId: () => {
+          const id = conversationIdForCopy(entry);
+          void navigator.clipboard?.writeText(id);
+        },
+        onHide: () =>
+          persistContactChrome(toggleHiddenThread(contactChrome, threadId)),
+        onDelete: () => void deleteChatEntry(entry),
+      })
+    );
   };
   const openSectionContactMenu = (
     event: React.MouseEvent,
@@ -4829,21 +4849,19 @@ export function CollaborationSpacePage({
         ? [newGroupMenuItem]
         : [
             {
-              kind: 'item',
+              id: 'rename-group',
               label: t('collaborationSpace.contactGroupRename', '重命名分组'),
-              icon: contactMenuIcons.rename,
-              testId: 'collaboration-contact-menu-rename',
+              icon: Pencil,
               onSelect: () => setRenamingGroupId(section.id),
             },
             {
-              kind: 'item',
+              id: 'delete-group',
               label: t('collaborationSpace.contactGroupDelete', '删除分组'),
-              icon: contactMenuIcons.remove,
-              destructive: true,
-              testId: 'collaboration-contact-menu-delete',
+              icon: Trash2,
+              danger: true,
               onSelect: () => void deleteGroup(section.id),
             },
-            { kind: 'separator' },
+            { type: 'separator', id: 'sep-section-new' },
             newGroupMenuItem,
           ]
     );
@@ -4861,6 +4879,11 @@ export function CollaborationSpacePage({
       key={entry.key}
       className="collaboration-contact-row"
       data-testid={`collaboration-contact-row-${entry.key}`}
+      data-pinned={
+        contactChrome.pinned.includes(chatEntryThreadId(entry) ?? '')
+          ? 'true'
+          : undefined
+      }
       onPointerDown={(event) => {
         // DM rows drag through their member row (member payload); group
         // chats drag as a thread onto contact-group sections.
@@ -5951,20 +5974,21 @@ export function CollaborationSpacePage({
                   />
                 ) : (
                   <>
-                    <div
-                      className={cn(
-                        'ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1',
-                        searchOpen && 'flex-1'
-                      )}
-                    >
-                      <SessionListSearchControl
-                        searchQuery={searchQuery}
-                        isExpanded={searchOpen}
-                        searchLabel="搜索协作空间或助手"
-                        placeholder={COPY.searchPlaceholder}
-                        onSearchQueryChange={setSearchQuery}
-                        onExpandedChange={setSearchOpen}
-                      />
+                    <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        data-testid="collaboration-global-search-button"
+                        className={SESSION_LIST_ACTION_BUTTON_CLASS}
+                        aria-label="搜索协作空间或助手"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSearchOpen(true);
+                        }}
+                      >
+                        <Search className={SESSION_LIST_ACTION_ICON_CLASS} />
+                      </Button>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -5972,11 +5996,7 @@ export function CollaborationSpacePage({
                             type="button"
                             size="icon"
                             variant="ghost"
-                            hidden={searchOpen}
-                            className={cn(
-                              SESSION_LIST_ACTION_BUTTON_CLASS,
-                              searchOpen && 'hidden'
-                            )}
+                            className={SESSION_LIST_ACTION_BUTTON_CLASS}
                             aria-label={t(
                               'collaborationSpace.newSpace',
                               COPY.newSpace
@@ -5985,14 +6005,22 @@ export function CollaborationSpacePage({
                             <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent
+                          align="end"
+                          onCloseAutoFocus={(event) => event.preventDefault()}
+                        >
                           <DropdownMenuItem onSelect={openCreateSpaceDialog}>
                             {COPY.newSpaceButton}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => openCreateMemberDialog()}
                           >
-                            {COPY.newMemberButton}
+                            {COPY.createAssistantButton}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => setCreatingContactGroup(true)}
+                          >
+                            {COPY.createContactGroupButton}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -6003,11 +6031,9 @@ export function CollaborationSpacePage({
                             type="button"
                             size="icon"
                             variant="ghost"
-                            hidden={searchOpen}
                             className={cn(
                               SESSION_LIST_ACTION_BUTTON_CLASS,
-                              hasActiveFilter && 'bg-secondary text-foreground',
-                              searchOpen && 'hidden'
+                              hasActiveFilter && 'bg-secondary text-foreground'
                             )}
                             aria-label={COPY.filterLabel}
                           >
@@ -6016,97 +6042,79 @@ export function CollaborationSpacePage({
                             />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent align="end" className="w-60 p-3">
-                          <div className="flex flex-col gap-2.5">
-                            <div className="space-y-1">
-                              <Label className="text-xs">
-                                {COPY.filterByAgent}
-                              </Label>
-                              <CollaborationOptionSelect
-                                ariaLabel={COPY.filterByAgent}
-                                value={filterAgentId}
-                                options={filterAgentSelectOptions}
-                                onChange={setFilterAgentId}
-                                size="compact"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-xs">
-                                {COPY.filterByActiveTime}
-                              </Label>
-                              <CollaborationOptionSelect
-                                ariaLabel={COPY.filterByActiveTime}
-                                value={filterActiveWindow}
-                                options={filterActiveWindowSelectOptions}
-                                onChange={setFilterActiveWindow}
-                                size="compact"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-xs">
-                                {COPY.filterByMember}
-                              </Label>
-                              <CollaborationOptionSelect
-                                ariaLabel={COPY.filterByMember}
-                                value={filterMemberConvId}
-                                options={filterMemberSelectOptions}
-                                onChange={setFilterMemberConvId}
-                                size="compact"
-                              />
-                            </div>
-
-                            {hasActiveFilter ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
-                                onClick={() => {
-                                  setFilterAgentId('');
-                                  setFilterActiveWindow('all');
-                                  setFilterMemberConvId('');
-                                }}
-                              >
-                                {COPY.filterReset}
-                              </Button>
-                            ) : null}
-                          </div>
+                        <PopoverContent
+                          align="end"
+                          className={cn(PRODUCT_MENU_CONTENT_CLASS, 'w-44')}
+                        >
+                          {(
+                            [
+                              {
+                                id: 'name' as const,
+                                label: COPY.filterByName,
+                                active: listSort === 'name',
+                                onSelect: () => {
+                                  setListSort('name');
+                                  setTypeFilter('group');
+                                },
+                              },
+                              {
+                                id: 'type' as const,
+                                label: `${COPY.filterByType} · ${
+                                  typeFilter === 'group'
+                                    ? COPY.filterTypeGroup
+                                    : COPY.filterTypeAssistant
+                                }`,
+                                active: listSort === 'type',
+                                onSelect: () => {
+                                  const next = cycleTypeFilter(
+                                    listSort,
+                                    typeFilter
+                                  );
+                                  setListSort(next.sort);
+                                  setTypeFilter(next.typeFilter);
+                                },
+                              },
+                              {
+                                id: 'activity' as const,
+                                label: COPY.filterByActiveTime,
+                                active: listSort === 'activity',
+                                onSelect: () => {
+                                  setListSort('activity');
+                                  setTypeFilter('group');
+                                },
+                              },
+                            ] as const
+                          ).map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              role="menuitem"
+                              data-testid={`collaboration-filter-${option.id}`}
+                              className={cn(
+                                PRODUCT_MENU_ITEM_CLASS,
+                                'w-full px-2.5 py-1.5'
+                              )}
+                              onClick={option.onSelect}
+                            >
+                              <span className="min-w-0 flex-1 text-left">
+                                {option.label}
+                              </span>
+                              {option.active ? (
+                                <Check
+                                  className="size-3.5 shrink-0"
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </button>
+                          ))}
                         </PopoverContent>
                       </Popover>
-
-                      {sidebarAvailable && contactGroups !== null ? (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          hidden={searchOpen}
-                          className={cn(
-                            SESSION_LIST_ACTION_BUTTON_CLASS,
-                            searchOpen && 'hidden'
-                          )}
-                          aria-label={t(
-                            'collaborationSpace.contactGroupNew',
-                            '新建分组'
-                          )}
-                          data-testid="collaboration-new-contact-group"
-                          onClick={() => setCreatingContactGroup(true)}
-                        >
-                          <FolderPlus
-                            className={SESSION_LIST_ACTION_ICON_CLASS}
-                          />
-                        </Button>
-                      ) : null}
 
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
-                        hidden={searchOpen}
-                        className={cn(
-                          SESSION_LIST_ACTION_BUTTON_CLASS,
-                          searchOpen && 'hidden'
-                        )}
+                        className={SESSION_LIST_ACTION_BUTTON_CLASS}
                         aria-label={COPY.batchDeleteLabel}
                         onClick={handleToggleDeleteMode}
                       >
@@ -6185,19 +6193,40 @@ export function CollaborationSpacePage({
                       },
                       { isVirtualDefault: true }
                     )}
-                    {chatList.map((entry) =>
-                      entry.type === 'direct'
-                        ? renderDirectChatRow(entry)
-                        : null
+                    {visibleChatList.map((entry) =>
+                      entry.type === 'direct' ? renderSectionEntry(entry) : null
                     )}
                   </>
                 ) : (
-                  <>{chatList.map(renderChatEntry)}</>
+                  <>{visibleChatList.map(renderSectionEntry)}</>
                 )}
-                <ContactContextMenu
-                  menu={contactMenu}
-                  onClose={() => setContactMenu(null)}
-                />
+                {hiddenChatList.length > 0 ? (
+                  <section
+                    className="collaboration-contact-section"
+                    data-testid="collaboration-contact-section-hidden"
+                  >
+                    <div className="collaboration-contact-section-header">
+                      <span className="collaboration-contact-section-name">
+                        已隐藏
+                      </span>
+                      <span className="collaboration-contact-section-count">
+                        {hiddenChatList.length}
+                      </span>
+                    </div>
+                    <div className="collaboration-contact-section-body">
+                      {hiddenChatList.map(renderSectionEntry)}
+                    </div>
+                  </section>
+                ) : null}
+                {contactMenu ? (
+                  <ProductContextMenu
+                    x={contactMenu.x}
+                    y={contactMenu.y}
+                    items={contactMenu.items}
+                    onClose={() => setContactMenu(null)}
+                    ariaLabel="联系人菜单"
+                  />
+                ) : null}
               </div>
             </div>
             {hasThread || showPreview ? (
@@ -6544,7 +6573,7 @@ export function CollaborationSpacePage({
                         variant="primary"
                         onClick={openCreateSpaceDialog}
                       >
-                        新建协作空间
+                        {COPY.newSpaceButton}
                       </Button>
                     </div>
                   </div>
@@ -7010,6 +7039,82 @@ export function CollaborationSpacePage({
           >
             <span>{draggingThreadName}</span>
           </div>
+        ) : null}
+        {searchOpen ? (
+          <CollaborationGlobalSearchModal
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            onClose={() => {
+              setSearchOpen(false);
+              setSearchQuery('');
+            }}
+            empty={globalSearchResults.length === 0}
+          >
+            {globalSearchResults.map((item) =>
+              item.kind === 'member' ? (
+                <button
+                  key={item.key}
+                  type="button"
+                  data-testid={`collaboration-global-search-item-${item.name}`}
+                  className="collaboration-global-search-item"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                    openPrivateChat(item.spaceId, item.member, item.threadId);
+                  }}
+                >
+                  <span className="collaboration-global-search-avatar">
+                    <MemberBotAvatar
+                      config={getMemberAvatar(
+                        item.member.conversation_id ?? undefined,
+                        item.name
+                      )}
+                      className="h-7 w-7"
+                    />
+                  </span>
+                  <span className="collaboration-global-search-item-body">
+                    <span className="collaboration-global-search-item-title">
+                      {item.name}
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <button
+                  key={item.key}
+                  type="button"
+                  data-testid={`collaboration-global-search-item-${item.name}`}
+                  className="collaboration-global-search-item"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                    selectSpace(item.spaceId, true);
+                  }}
+                >
+                  <span className="collaboration-global-search-avatar">
+                    <GroupAvatar
+                      avatars={item.members.map((member) =>
+                        getMemberAvatar(
+                          member.conversation_id ?? undefined,
+                          displayName(member)
+                        )
+                      )}
+                      size={28}
+                    />
+                  </span>
+                  <span className="collaboration-global-search-item-body">
+                    <span className="collaboration-global-search-item-title">
+                      {item.name}
+                    </span>
+                    {item.memberNames ? (
+                      <span className="collaboration-global-search-item-subtitle">
+                        {item.memberNames}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              )
+            )}
+          </CollaborationGlobalSearchModal>
         ) : null}
       </div>
     </CollaborationPreviewScope>

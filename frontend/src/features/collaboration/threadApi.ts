@@ -48,6 +48,19 @@ export async function markThreadRead(
   }
 }
 
+/** `thread.markUnread`; best effort, never throws. */
+export async function markThreadUnread(
+  call: CollaborationCaller,
+  id: string
+): Promise<boolean> {
+  try {
+    await call('collaboration', 'thread.markUnread', threadTarget(id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** `thread.update` tag colour ('' clears). False means use the local fallback. */
 export async function updateThreadTagColor(
   call: CollaborationCaller,

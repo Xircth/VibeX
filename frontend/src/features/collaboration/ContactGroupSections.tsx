@@ -1,16 +1,5 @@
-import { ChevronRight, FolderInput, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { ContactSection } from './contactGroups';
 
@@ -34,9 +23,14 @@ export function ContactGroupNameInput({
   const [value, setValue] = useState(initialValue);
   const ref = useRef<HTMLInputElement>(null);
   const doneRef = useRef(false);
+  const acceptBlurRef = useRef(false);
   useEffect(() => {
     ref.current?.focus();
     ref.current?.select();
+    const id = window.setTimeout(() => {
+      acceptBlurRef.current = true;
+    }, 0);
+    return () => window.clearTimeout(id);
   }, []);
   const finish = (submit: boolean) => {
     if (doneRef.current) return;
@@ -64,124 +58,14 @@ export function ContactGroupNameInput({
             finish(false);
           }
         }}
-        onBlur={() => finish(true)}
+        onBlur={() => {
+          if (!acceptBlurRef.current) return;
+          finish(true);
+        }}
       />
     </div>
   );
 }
-
-export type ContactMenuItem =
-  | {
-      kind: 'item';
-      label: string;
-      icon?: ReactNode;
-      destructive?: boolean;
-      onSelect: () => void;
-      testId?: string;
-    }
-  | {
-      kind: 'submenu';
-      label: string;
-      icon?: ReactNode;
-      items: { label: string; onSelect: () => void; testId?: string }[];
-      testId?: string;
-    }
-  | { kind: 'label'; label: string }
-  | { kind: 'separator' };
-
-export type ContactMenuState = {
-  x: number;
-  y: number;
-  items: ContactMenuItem[];
-} | null;
-
-/** Right-click menu anchored at the pointer (no context-menu primitive exists). */
-export function ContactContextMenu({
-  menu,
-  onClose,
-}: {
-  menu: ContactMenuState;
-  onClose: () => void;
-}) {
-  return (
-    <DropdownMenu
-      open={menu !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <span
-          aria-hidden
-          className="collaboration-contact-menu-anchor"
-          style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        sideOffset={2}
-        className="collaboration-contact-menu min-w-[11rem]"
-        data-testid="collaboration-contact-menu"
-      >
-        {menu?.items.map((item, index) => {
-          if (item.kind === 'separator')
-            return <DropdownMenuSeparator key={`sep-${index}`} />;
-          if (item.kind === 'label')
-            return (
-              <DropdownMenuLabel
-                key={`label-${index}`}
-                className="text-[11px] font-medium text-muted-foreground"
-              >
-                {item.label}
-              </DropdownMenuLabel>
-            );
-          if (item.kind === 'submenu')
-            return (
-              <DropdownMenuSub key={item.label}>
-                <DropdownMenuSubTrigger data-testid={item.testId}>
-                  <span className="flex items-center gap-2">
-                    {item.icon}
-                    {item.label}
-                  </span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[9rem]">
-                  {item.items.map((sub) => (
-                    <DropdownMenuItem
-                      key={sub.label}
-                      data-testid={sub.testId}
-                      onSelect={sub.onSelect}
-                    >
-                      {sub.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            );
-          return (
-            <DropdownMenuItem
-              key={item.label}
-              data-testid={item.testId}
-              onSelect={item.onSelect}
-              className={cn(
-                'gap-2',
-                item.destructive && 'text-destructive focus:text-destructive'
-              )}
-            >
-              {item.icon}
-              {item.label}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-export const contactMenuIcons = {
-  move: <FolderInput className="size-3.5 opacity-70" />,
-  rename: <Pencil className="size-3.5 opacity-70" />,
-  remove: <Trash2 className="size-3.5" />,
-};
 
 /** Collapsible sections rendered when the user has at least one group. */
 export function ContactGroupSections<E extends { key: string }>({

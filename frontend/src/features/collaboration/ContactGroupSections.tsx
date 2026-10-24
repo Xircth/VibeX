@@ -195,6 +195,7 @@ export function ContactGroupSections<E extends { key: string }>({
   onRenameCancel,
   onHeaderContextMenu,
   onDropContact,
+  dropTargetId = null,
   renderEntry,
 }: {
   sections: ContactSection<E>[];
@@ -210,6 +211,8 @@ export function ContactGroupSections<E extends { key: string }>({
     section: ContactSection<E>
   ) => void;
   onDropContact: (sectionId: string, threadId: string) => void;
+  /** Section highlighted by the page's pointer drag. */
+  dropTargetId?: string | null;
   renderEntry: (entry: E) => ReactNode;
 }) {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -221,7 +224,17 @@ export function ContactGroupSections<E extends { key: string }>({
         return (
           <section
             key={section.id}
-            className="collaboration-contact-section"
+            className={cn(
+              'collaboration-contact-section',
+              (dropTarget === section.id || dropTargetId === section.id) &&
+                'is-drop-target'
+            )}
+            data-contact-section-id={section.id}
+            data-drop-state={
+              dropTarget === section.id || dropTargetId === section.id
+                ? 'target'
+                : undefined
+            }
             data-testid={`collaboration-contact-section-${section.id}`}
             data-collapsed={isCollapsed ? 'true' : 'false'}
             data-ungrouped={section.ungrouped ? 'true' : undefined}
@@ -239,7 +252,8 @@ export function ContactGroupSections<E extends { key: string }>({
                 type="button"
                 className={cn(
                   'collaboration-contact-section-header',
-                  dropTarget === section.id && 'is-drop-target'
+                  (dropTarget === section.id || dropTargetId === section.id) &&
+                    'is-drop-target'
                 )}
                 aria-expanded={!isCollapsed}
                 aria-controls={bodyId}

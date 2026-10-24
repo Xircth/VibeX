@@ -686,6 +686,7 @@
     "contactGroupDelete": "删除分组",
     "contactGroupMoveTo": "移动到分组",
     "contactGroupToggle": "折叠或展开 {{name}}",
-    "contactGroupFailed": "分组操作失败"
+    "contactGroupFailed": "分组操作失败",
+    "memberAlreadyInGroup": "{{name}} 已在该群中"
   }
 }

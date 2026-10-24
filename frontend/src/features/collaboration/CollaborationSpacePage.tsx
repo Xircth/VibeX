@@ -162,7 +162,6 @@ import {
   type ContactSection,
 } from './contactGroups';
 import {
-  CONTACT_DRAG_TYPE,
   ContactContextMenu,
   ContactGroupNameInput,
   ContactGroupSections,
@@ -223,6 +222,7 @@ import {
   directThreadIdFor,
   reconcilePendingDirectMessages,
   type PendingDirectMessage,
+  isPrivateChatKind,
   memberTabTitle,
 } from './spaceModel';
 import {
@@ -510,6 +510,27 @@ function CustomAgentControls({
   );
 }
 
+/** Contact-list avatar edge (px), shared by DM member and group-chat rows. */
+const CONTACT_AVATAR_PX = 36;
+
+type SidebarDragPayload =
+  | {
+      kind: 'member';
+      fromSpaceId: string;
+      conversationId: string;
+      nickname: string;
+      memberId?: string;
+      /** The member's private-chat thread, when it is a DM row. */
+      threadId?: string;
+    }
+  | { kind: 'thread'; threadId: string; name: string };
+
+type SidebarDropTarget =
+  | { kind: 'space'; spaceId: string }
+  | { kind: 'blocked'; spaceId: string }
+  | { kind: 'section'; sectionId: string }
+  | null;
+
 export function CollaborationSpacePage({
   workspaceId,
 }: {
@@ -675,6 +696,12 @@ export function CollaborationSpacePage({
   } | null>(null);
   const suppressNextMemberClickRef = useRef(false);
   const [dropTargetSpaceId, setDropTargetSpaceId] = useState('');
+  // Pointer drag of sidebar rows (members and group chats).
+  const [sidebarDropTarget, setSidebarDropTarget] =
+    useState<SidebarDropTarget>(null);
+  const [draggingThreadName, setDraggingThreadName] = useState<string | null>(
+    null
+  );
 
   // Pane resize state & refs
   const spacesPaneRef = useRef<HTMLElement | null>(null);
@@ -2564,10 +2591,39 @@ export function CollaborationSpacePage({
     fromSpaceId: string,
     toSpaceId: string,
     conversationId: string,
-    fallbackNickname?: string
+    fallbackNickname?: string,
+    memberId?: string
   ) => {
     if (!fromSpaceId || !toSpaceId || !conversationId) return;
     if (fromSpaceId === toSpaceId) return;
+    const alreadyInGroup = async () => {
+      if (isSpaceMember(toSpaceId, conversationId, memberId)) return true;
+      if (membersBySpace[toSpaceId] || toSpaceId === VIRTUAL_DEFAULT_SPACE_ID)
+        return false;
+      try {
+        const page = await collaborationCall<{ members?: SpaceMember[] }>(
+          'collaboration',
+          'space.listMembers',
+          { spaceId: toSpaceId }
+        );
+        return (page?.members ?? []).some(
+          (m) =>
+            m.conversation_id === conversationId ||
+            (Boolean(memberId) && m.member_id === memberId)
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (await alreadyInGroup()) {
+      toast.error(
+        t('collaborationSpace.memberAlreadyInGroup', {
+          name: fallbackNickname || conversationId,
+          defaultValue: '{{name}} 已在该群中',
+        })
+      );
+      return;
+    }
 
     // Adding to a group keeps the source seat (the private chat stays).
     setMembersBySpace((current) => {
@@ -3925,10 +3981,218 @@ export function CollaborationSpacePage({
     );
   };
 
+  // Is this member already in the group chat? Uses the full space member list
+  // when loaded, plus the sidebar's members_preview.
+  const isSpaceMember = (
+    spaceId: string,
+    conversationId: string,
+    memberId?: string
+  ): boolean => {
+    const item = sidebarItems?.find(
+      (candidate) =>
+        candidate.kind === 'group' &&
+        (candidate.space_id === spaceId || candidate.thread_id === spaceId)
+    );
+    const matches = (m: {
+      conversation_id?: string | null;
+      member_id?: string | null;
+    }) =>
+      (Boolean(conversationId) && m.conversation_id === conversationId) ||
+      (Boolean(memberId) && m.member_id === memberId);
+    return (
+      (membersBySpace[spaceId] ?? []).some(matches) ||
+      (item?.members_preview ?? []).some(matches)
+    );
+  };
+  // Load full member lists for group chats whose preview is truncated, so
+  // the duplicate check holds for groups with more than 4 members.
+  const ensureGroupMembersLoaded = () => {
+    for (const item of sidebarItems ?? []) {
+      const spaceId = item.space_id;
+      if (item.kind !== 'group' || !spaceId || membersBySpace[spaceId])
+        continue;
+      if ((item.member_count ?? 0) <= (item.members_preview?.length ?? 0))
+        continue;
+      void collaborationCall<{ members?: SpaceMember[] }>(
+        'collaboration',
+        'space.listMembers',
+        { spaceId }
+      )
+        .then((page) => {
+          const members = page?.members;
+          if (Array.isArray(members))
+            setMembersBySpace((current) =>
+              current[spaceId] ? current : { ...current, [spaceId]: members }
+            );
+        })
+        .catch(() => undefined);
+    }
+  };
+  const directThreadIdForMember = (member: SpaceMember) =>
+    sidebarItems?.find(
+      (item) =>
+        isPrivateChatKind(item.kind) &&
+        ((member.member_id && item.member?.member_id === member.member_id) ||
+          (member.conversation_id &&
+            item.member?.conversation_id === member.conversation_id))
+    )?.thread_id;
+  const currentSectionOf = (threadId: string): string => {
+    const groupId = sidebarItems?.find(
+      (item) => item.thread_id === threadId
+    )?.group_id;
+    return groupId && contactGroups?.some((g) => g.group_id === groupId)
+      ? groupId
+      : UNGROUPED_SECTION_ID;
+  };
+  const resolveSidebarDrop = (
+    payload: SidebarDragPayload,
+    clientX: number,
+    clientY: number
+  ): SidebarDropTarget => {
+    let spaceId = '';
+    let sectionId = '';
+    const els =
+      typeof document.elementsFromPoint === 'function'
+        ? document.elementsFromPoint(clientX, clientY)
+        : [];
+    for (const el of els) {
+      const node = el as HTMLElement;
+      if (!spaceId)
+        spaceId =
+          (node.closest?.('[data-space-id]') as HTMLElement | null)?.dataset
+            .spaceId ?? '';
+      if (!sectionId)
+        sectionId =
+          (node.closest?.('[data-contact-section-id]') as HTMLElement | null)
+            ?.dataset.contactSectionId ?? '';
+    }
+    if (els.length === 0) {
+      for (const spaceEl of document.querySelectorAll<HTMLElement>(
+        '[data-space-id]'
+      )) {
+        const rect = spaceEl.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          spaceId = spaceEl.dataset.spaceId ?? '';
+          break;
+        }
+      }
+    }
+    // Member onto a group-chat row: add to that group (unless already in).
+    if (payload.kind === 'member' && spaceId) {
+      if (spaceId === payload.fromSpaceId) return null;
+      return isSpaceMember(spaceId, payload.conversationId, payload.memberId)
+        ? { kind: 'blocked', spaceId }
+        : { kind: 'space', spaceId };
+    }
+    // Otherwise (incl. a group chat over another group chat): the contact
+    // group section under the pointer, header or body.
+    const threadId = payload.threadId;
+    if (!sectionId || !threadId) return null;
+    if (currentSectionOf(threadId) === sectionId) return null;
+    return { kind: 'section', sectionId };
+  };
+  const startSidebarPointerDrag = (
+    event: React.PointerEvent,
+    payload: SidebarDragPayload
+  ) => {
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let activeDrag = false;
+    let currentTarget: SidebarDropTarget = null;
+    const setBodyBlocked = (blocked: boolean) =>
+      document.body.classList.toggle('is-drag-blocked', blocked);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (
+        !activeDrag &&
+        Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5
+      ) {
+        return;
+      }
+      if (!activeDrag) {
+        activeDrag = true;
+        suppressNextMemberClickRef.current = true;
+        if (payload.kind === 'member') {
+          setDraggingMember({
+            fromSpaceId: payload.fromSpaceId,
+            conversationId: payload.conversationId,
+            nickname: payload.nickname,
+          });
+          ensureGroupMembersLoaded();
+        } else {
+          setDraggingThreadName(payload.name);
+        }
+        document.body.classList.add('is-dragging-collaboration-member');
+      }
+      setPointerDragCursor({ x: moveEvent.clientX, y: moveEvent.clientY });
+      currentTarget = resolveSidebarDrop(
+        payload,
+        moveEvent.clientX,
+        moveEvent.clientY
+      );
+      setSidebarDropTarget(currentTarget);
+      setBodyBlocked(currentTarget?.kind === 'blocked');
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+      document.body.classList.remove('is-dragging-collaboration-member');
+      setBodyBlocked(false);
+      setPointerDragCursor(null);
+      setDraggingMember(null);
+      setDraggingThreadName(null);
+      setSidebarDropTarget(null);
+      setDropTargetSpaceId('');
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      const target =
+        resolveSidebarDrop(payload, upEvent.clientX, upEvent.clientY) ??
+        currentTarget;
+      const wasDragging = activeDrag;
+      cleanup();
+      if (!wasDragging) return;
+      window.setTimeout(() => {
+        suppressNextMemberClickRef.current = false;
+      }, 0);
+      if (!target) return;
+      if (target.kind === 'section') {
+        if (payload.threadId)
+          void moveContactToSection(payload.threadId, target.sectionId);
+      } else if (payload.kind === 'member') {
+        void addMemberToSpace(
+          payload.fromSpaceId,
+          target.spaceId,
+          payload.conversationId,
+          payload.nickname,
+          payload.memberId
+        );
+      }
+    };
+
+    const handlePointerCancel = () => {
+      cleanup();
+      suppressNextMemberClickRef.current = false;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+  };
+
   const renderMemberRow = (
     spaceId: string,
     member: SpaceMember,
-    onOpen?: () => void
+    onOpen?: () => void,
+    /** Sidebar chat entry: its preview/unread render inside the row. */
+    chatEntry?: ChatListEntry
   ) => {
     const conversationId = member.conversation_id ?? '';
     const memberKey = previewMemberKey(spaceId, member);
@@ -4015,112 +4279,14 @@ export function CollaborationSpacePage({
             ) {
               return;
             }
-            const startX = event.clientX;
-            const startY = event.clientY;
-            const payload = {
+            startSidebarPointerDrag(event, {
+              kind: 'member',
               fromSpaceId: spaceId,
               conversationId,
               nickname: String(member.nickname ?? name),
-            };
-            let activeDrag = false;
-            let currentTargetSpace = '';
-
-            const resolveSpaceIdAtPoint = (
-              clientX: number,
-              clientY: number
-            ): string => {
-              if (typeof document.elementsFromPoint === 'function') {
-                const els = document.elementsFromPoint(clientX, clientY);
-                for (const el of els) {
-                  const spaceEl = (el as HTMLElement).closest?.(
-                    '[data-space-id]'
-                  ) as HTMLElement | null;
-                  if (spaceEl?.dataset.spaceId) {
-                    return spaceEl.dataset.spaceId;
-                  }
-                }
-              }
-              const allSpaceEls =
-                document.querySelectorAll<HTMLElement>('[data-space-id]');
-              for (const spaceEl of allSpaceEls) {
-                const rect = spaceEl.getBoundingClientRect();
-                if (
-                  clientX >= rect.left &&
-                  clientX <= rect.right &&
-                  clientY >= rect.top &&
-                  clientY <= rect.bottom
-                ) {
-                  return spaceEl.dataset.spaceId ?? '';
-                }
-              }
-              return '';
-            };
-
-            const handlePointerMove = (moveEvent: PointerEvent) => {
-              const dx = moveEvent.clientX - startX;
-              const dy = moveEvent.clientY - startY;
-              if (!activeDrag && Math.hypot(dx, dy) < 5) {
-                return;
-              }
-              if (!activeDrag) {
-                activeDrag = true;
-                suppressNextMemberClickRef.current = true;
-                setDraggingMember(payload);
-                document.body.classList.add('is-dragging-collaboration-member');
-              }
-              setPointerDragCursor({
-                x: moveEvent.clientX,
-                y: moveEvent.clientY,
-              });
-              const hoveredSpaceId = resolveSpaceIdAtPoint(
-                moveEvent.clientX,
-                moveEvent.clientY
-              );
-              currentTargetSpace = hoveredSpaceId;
-              setDropTargetSpaceId(hoveredSpaceId);
-            };
-
-            const cleanup = () => {
-              window.removeEventListener('pointermove', handlePointerMove);
-              window.removeEventListener('pointerup', handlePointerUp);
-              window.removeEventListener('pointercancel', handlePointerCancel);
-              document.body.classList.remove(
-                'is-dragging-collaboration-member'
-              );
-              setPointerDragCursor(null);
-              setDraggingMember(null);
-              setDropTargetSpaceId('');
-            };
-
-            const handlePointerUp = (upEvent: PointerEvent) => {
-              const finalSpaceId =
-                resolveSpaceIdAtPoint(upEvent.clientX, upEvent.clientY) ||
-                currentTargetSpace;
-              const wasDragging = activeDrag;
-              cleanup();
-              if (wasDragging) {
-                window.setTimeout(() => {
-                  suppressNextMemberClickRef.current = false;
-                }, 0);
-                if (finalSpaceId && finalSpaceId !== payload.fromSpaceId) {
-                  void addMemberToSpace(
-                    payload.fromSpaceId,
-                    finalSpaceId,
-                    payload.conversationId,
-                    payload.nickname
-                  );
-                }
-              }
-            };
-
-            const handlePointerCancel = () => {
-              cleanup();
-              suppressNextMemberClickRef.current = false;
-            };
-
-            window.addEventListener('pointermove', handlePointerMove);
-            window.addEventListener('pointerup', handlePointerUp);
-            window.addEventListener('pointercancel', handlePointerCancel);
+              memberId: member.member_id ?? undefined,
+              threadId: directThreadIdForMember(member),
+            });
           }}
           onDragStart={(event) => {
             if (!canDrag) return;
@@ -4237,7 +4403,7 @@ export function CollaborationSpacePage({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="workspace-session-row-main"
+                      className="workspace-session-row-main collaboration-contact-row-main"
                       aria-label={name}
                       onMouseEnter={(event) => {
                         if (event.clientX > 0 || event.clientY > 0) {
@@ -4346,6 +4512,7 @@ export function CollaborationSpacePage({
                           )}
                         </span>
                       </span>
+                      {chatEntry ? renderChatMeta(chatEntry) : null}
                     </button>
                   </TooltipTrigger>
                   {!draggingMember ? (
@@ -4562,14 +4729,31 @@ export function CollaborationSpacePage({
     <div
       key={entry.key}
       className="collaboration-contact-row"
-      draggable={Boolean(entry.threadId)}
       data-testid={`collaboration-contact-row-${entry.key}`}
-      onDragStart={(event) => {
-        // Bubbles from the member row too; its member payload is kept so a
-        // drop on a group-chat row still adds the member.
-        if (entry.threadId && event.dataTransfer) {
-          event.dataTransfer.setData(CONTACT_DRAG_TYPE, entry.threadId);
-          event.dataTransfer.effectAllowed = 'copyMove';
+      onPointerDown={(event) => {
+        // DM rows drag through their member row (member payload); group
+        // chats drag as a thread onto contact-group sections.
+        if (entry.type !== 'group' || !entry.threadId || event.button !== 0)
+          return;
+        if (isDeleteMode) return;
+        const targetEl = event.target as HTMLElement | null;
+        if (
+          targetEl?.closest(
+            '.collaboration-space-hover-actions, input, [role="checkbox"], form'
+          )
+        )
+          return;
+        startSidebarPointerDrag(event, {
+          kind: 'thread',
+          threadId: entry.threadId,
+          name: entry.name,
+        });
+      }}
+      onClickCapture={(event) => {
+        if (entry.type === 'group' && suppressNextMemberClickRef.current) {
+          suppressNextMemberClickRef.current = false;
+          event.preventDefault();
+          event.stopPropagation();
         }
       }}
       onContextMenu={(event) => openRowContactMenu(event, entry)}
@@ -4589,10 +4773,12 @@ export function CollaborationSpacePage({
       data-testid={`collaboration-direct-chat-${entry.key}`}
       data-chat-type="direct"
     >
-      {renderMemberRow(entry.spaceId, entry.member, () =>
-        openPrivateChat(entry.spaceId, entry.member, entry.threadId)
+      {renderMemberRow(
+        entry.spaceId,
+        entry.member,
+        () => openPrivateChat(entry.spaceId, entry.member, entry.threadId),
+        entry
       )}
-      {renderChatMeta(entry)}
     </div>
   );
 
@@ -4642,7 +4828,18 @@ export function CollaborationSpacePage({
     const tagPreset = tagConfig
       ? SPACE_TAG_PRESETS.find((preset) => preset.id === tagConfig.colorId)
       : undefined;
-    const isDropTarget = dropTargetSpaceId === space.space_id;
+    const isDropBlocked =
+      sidebarDropTarget?.kind === 'blocked' &&
+      sidebarDropTarget.spaceId === space.space_id;
+    const isDropTarget =
+      !isDropBlocked &&
+      (dropTargetSpaceId === space.space_id ||
+        (sidebarDropTarget?.kind === 'space' &&
+          sidebarDropTarget.spaceId === space.space_id));
+    const draggedIsMember = Boolean(
+      draggingMember &&
+        isSpaceMember(space.space_id, draggingMember.conversationId)
+    );
     const isSpaceCheckedForDelete =
       !isUnassigned &&
       !isVirtualDefault &&
@@ -4657,8 +4854,17 @@ export function CollaborationSpacePage({
         key={space.space_id}
         data-space-id={space.space_id}
         data-testid={`collaboration-space-group-${space.space_id}`}
-        className={cn('collaboration-space', isDropTarget && 'is-drop-target')}
+        className={cn(
+          'collaboration-space',
+          isDropTarget && 'is-drop-target',
+          isDropBlocked && 'is-drop-blocked'
+        )}
+        data-drop-state={
+          isDropBlocked ? 'blocked' : isDropTarget ? 'target' : undefined
+        }
         onDragOver={(event) => {
+          // Already a member: leave the drop disallowed (no highlight).
+          if (draggedIsMember) return;
           event.preventDefault();
           if (event.dataTransfer) {
             event.dataTransfer.dropEffect = 'move';
@@ -4697,6 +4903,15 @@ export function CollaborationSpacePage({
           setDraggingMember(null);
           setPointerDragCursor(null);
           if (payload && payload.fromSpaceId !== space.space_id) {
+            if (isSpaceMember(space.space_id, payload.conversationId)) {
+              toast.error(
+                t('collaborationSpace.memberAlreadyInGroup', {
+                  name: payload.nickname,
+                  defaultValue: '{{name}} 已在该群中',
+                })
+              );
+              return;
+            }
             void addMemberToSpace(
               payload.fromSpaceId,
               space.space_id,
@@ -4736,6 +4951,7 @@ export function CollaborationSpacePage({
                 <GroupAvatar
                   avatars={spaceMemberAvatars}
                   tagHue={tagPreset?.hue}
+                  size={CONTACT_AVATAR_PX}
                 />
                 <Input
                   aria-label="修改空间名称输入框"
@@ -4781,7 +4997,7 @@ export function CollaborationSpacePage({
               <>
                 <button
                   type="button"
-                  className="workspace-session-row-main collaboration-space-header-main"
+                  className="workspace-session-row-main collaboration-space-header-main collaboration-contact-row-main"
                   aria-label={space.name}
                   onClick={() => {
                     if (!isUnassigned && !isVirtualDefault) {
@@ -4814,19 +5030,17 @@ export function CollaborationSpacePage({
                   <GroupAvatar
                     avatars={spaceMemberAvatars}
                     tagHue={tagPreset?.hue}
+                    size={CONTACT_AVATAR_PX}
                   />
-                  <span className="workspace-session-title is-cjk">
-                    {space.name}
-                  </span>
-                  <span
-                    className={cn(
-                      'collaboration-space-meta',
-                      hasSpaceHoverActions &&
-                        'collaboration-space-meta--hide-on-hover'
-                    )}
-                  >
-                    <span className="workspace-session-group-count">
-                      {visibleAgentCount}
+                  <span className="collaboration-contact-name-line">
+                    <span className="workspace-session-title is-cjk">
+                      {space.name}
+                    </span>
+                    <span
+                      className="collaboration-contact-count workspace-session-group-count"
+                      aria-label={`${visibleAgentCount}`}
+                    >
+                      ({visibleAgentCount})
                     </span>
                   </span>
                   {entry ? renderChatMeta(entry) : null}
@@ -5821,6 +6035,11 @@ export function CollaborationSpacePage({
                     }}
                     onRenameCancel={() => setRenamingGroupId(null)}
                     onHeaderContextMenu={openSectionContactMenu}
+                    dropTargetId={
+                      sidebarDropTarget?.kind === 'section'
+                        ? sidebarDropTarget.sectionId
+                        : null
+                    }
                     onDropContact={(sectionId, threadId) =>
                       void moveContactToSection(threadId, sectionId)
                     }
@@ -6647,6 +6866,18 @@ export function CollaborationSpacePage({
               className="h-3.5 w-3.5 shrink-0"
             />
             <span>{draggingMember.nickname}</span>
+          </div>
+        ) : null}
+        {draggingThreadName && pointerDragCursor ? (
+          <div
+            className="collaboration-member-drag-ghost"
+            data-testid="collaboration-thread-drag-ghost"
+            style={{
+              left: `${pointerDragCursor.x + 12}px`,
+              top: `${pointerDragCursor.y + 12}px`,
+            }}
+          >
+            <span>{draggingThreadName}</span>
           </div>
         ) : null}
       </div>

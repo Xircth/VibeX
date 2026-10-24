@@ -686,6 +686,7 @@
     "contactGroupDelete": "Delete group",
     "contactGroupMoveTo": "Move to group",
     "contactGroupToggle": "Collapse or expand {{name}}",
-    "contactGroupFailed": "Group action failed"
+    "contactGroupFailed": "Group action failed",
+    "memberAlreadyInGroup": "{{name}} is already in this group"
   }
 }

@@ -695,16 +695,10 @@
   background: var(--surface-control);
 }
 
+/* Group-chat rows share the DM row chrome: no card border, background-only
+   hover/selected states from .workspace-session-row. */
 .collaboration-shell .collaboration-space-row {
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-}
-
-.collaboration-shell .collaboration-space-row:hover,
-.collaboration-shell .collaboration-space-row.is-selected,
-.collaboration-shell .collaboration-space-row.is-selected:hover {
-  background: var(--surface-control-hover);
-  border-color: var(--border-subtle);
+  border: 0;
 }
 
 .collaboration-space-header-main {
@@ -2634,16 +2628,19 @@ body.is-dragging-collaboration-member * {
 
 /* Tagged: a ring in the tag colour, still no background fill. */
 .collaboration-group-avatar.has-tag {
-  box-shadow: 0 0 0 1.5px var(--group-avatar-tag);
+  box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px) var(--group-avatar-tag);
 }
 
 .collaboration-group-avatar-slot {
   position: absolute;
   display: block;
+  line-height: 0;
   transform-origin: 50% 50%;
 }
 
-.collaboration-group-avatar-img {
+.collaboration-group-avatar-slot > .collaboration-group-avatar-img {
+  /* MemberBotAvatar ships Tailwind `inline-block`; as an inline box the SVG
+     sat on the slot's text baseline and dropped ~6px below its slot. */
   display: block;
   width: 100%;
   height: 100%;
@@ -2812,4 +2809,141 @@ body.is-dragging-collaboration-member * {
   width: 0;
   height: 0;
   pointer-events: none;
+}
+
+/* Contact-group section as a drop target (header and body). */
+.collaboration-contact-section.is-drop-target {
+  border-radius: var(--radius);
+  background: hsl(var(--primary) / 0.06);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.45);
+}
+
+/* Member already in this group chat: not a valid drop. */
+.collaboration-space.is-drop-blocked {
+  border-color: hsl(var(--destructive) / 0.5);
+  border-style: dashed;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+body.is-dragging-collaboration-member.is-drag-blocked,
+body.is-dragging-collaboration-member.is-drag-blocked * {
+  cursor: not-allowed !important;
+}
+
+/* Contact list: DM and group-chat avatars share one 36px size (row height). */
+.collaboration-member-row .workspace-session-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.collaboration-member-row .workspace-session-icon > .collaboration-bot-avatar {
+  width: 100%;
+  height: 100%;
+}
+
+.collaboration-space-header-main > .collaboration-group-avatar {
+  align-self: center;
+}
+
+/* Group-chat names match DM names (.collaboration-member-name). */
+.collaboration-contact-name-line > .workspace-session-title {
+  flex: 0 1 auto;
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+/* ── Shared contact row (DM + group chat) ──────────────────────────────────
+   [avatar] [name (count)        meta]
+            [preview…          unread]                                    */
+.collaboration-contact-row-main {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+  align-items: center;
+  padding-block: 0.375rem;
+  text-align: left;
+}
+
+.collaboration-contact-row-main > .workspace-session-icon,
+.collaboration-contact-row-main > .collaboration-group-avatar {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.collaboration-contact-row-main > .collaboration-member-title-group,
+.collaboration-contact-row-main > .collaboration-chat-meta {
+  display: contents;
+}
+
+.collaboration-contact-row-main .collaboration-member-name,
+.collaboration-contact-row-main > .collaboration-contact-name-line {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.collaboration-contact-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.collaboration-contact-name-line > .workspace-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collaboration-contact-count.workspace-session-group-count {
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.collaboration-contact-row-main > .workspace-session-meta-idle {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.collaboration-contact-row-main .collaboration-member-last-message,
+.collaboration-contact-row-main .collaboration-chat-preview {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.collaboration-contact-row-main .collaboration-chat-unread {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+}
+
+/* Same outer box for both kinds so rows space evenly. */
+.collaboration-chat-direct .workspace-session-row,
+.collaboration-shell .collaboration-space-row {
+  padding-block: 0;
+}
+
+/* Hover actions take the right edge; hide the unread badge under them. */
+.collaboration-space-row:hover .collaboration-chat-unread,
+.collaboration-space-row:focus-within .collaboration-chat-unread {
+  visibility: hidden;
 }

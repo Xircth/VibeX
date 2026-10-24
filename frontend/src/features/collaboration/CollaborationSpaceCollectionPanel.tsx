@@ -667,7 +667,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
           <p className="collaboration-preview-empty">加载中</p>
         ) : items.length === 0 ? (
           <p className="collaboration-preview-empty">
-            暂无群收藏记录，成员或你添加的文本、图片和文件会显示在这里
+            暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里
           </p>
         ) : (
           items.map((item) => {
@@ -884,7 +884,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                       >
                         {itemReads.length === 0 ? (
                           <p className="collaboration-collection-reads-empty">
-                            暂无成员读取记录
+                            暂无助手读取记录
                           </p>
                         ) : (
                           <ul className="collaboration-collection-reads-list">

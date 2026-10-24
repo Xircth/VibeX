@@ -105,7 +105,6 @@ function viewProps(
     onSendGroup: vi.fn(),
     onPreviewWake: vi.fn(async () => ({ willWake: 0, asleep: 0 })),
     onResolveCard: vi.fn(),
-    onOpenSession: vi.fn(),
     onToggleProfile: vi.fn(),
     onOpenMemberSession: vi.fn(),
     onUpdateFact: vi.fn(),
@@ -137,7 +136,6 @@ describe('collaboration click routing', () => {
     expect(props.onSelect).toHaveBeenCalledWith('member:m-alex');
     expect(props.onSelect).toHaveBeenCalledWith('group:g1');
     expect(props.onOpenMemberSession).not.toHaveBeenCalled();
-    expect(props.onOpenSession).not.toHaveBeenCalled();
     expect(screen.queryByTestId('collab-session-panel')).toBeNull();
   });
 
@@ -146,6 +144,27 @@ describe('collaboration click routing', () => {
     const props = viewProps({ selectedKey: 'member:m-alex' });
     render(<CollaborationWorkspaceView {...props} />);
     await user.click(screen.getByTestId('collab-direct-avatar'));
+    expect(props.onOpenMemberSession).toHaveBeenCalledWith('m-alex', DIRECT);
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('folded agent steps open the per-thread member session like the avatar', async () => {
+    const user = userEvent.setup();
+    const props = viewProps({
+      selectedKey: 'member:m-alex',
+      directTurns: [
+        {
+          key: 't1',
+          turn: {
+            role: 'assistant',
+            blocks: [{ type: 'tool_use' }, { type: 'text', text: 'done' }],
+          } as unknown as CollaborationWorkspaceViewProps['directTurns'][number]['turn'],
+        },
+      ],
+    });
+    render(<CollaborationWorkspaceView {...props} />);
+    expect(screen.getByTestId('collab-process')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /在会话标签中打开/ }));
     expect(props.onOpenMemberSession).toHaveBeenCalledWith('m-alex', DIRECT);
     expect(props.onSelect).not.toHaveBeenCalled();
   });

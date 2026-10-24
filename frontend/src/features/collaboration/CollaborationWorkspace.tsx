@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { backendListen } from '@/lib/backendTransport';
-import { focusWorkspaceConversation } from '@/lib/focusConversation';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
-import { useLayoutStore } from '@/stores/useLayoutStore';
-import { useUiPreferencesStore } from '@/stores/useUiPreferencesStore';
-import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 import {
   collaborationCall,
@@ -88,7 +83,6 @@ function cardResolution(card: PendingCard): CardResolution {
 
 export function CollaborationWorkspace({
   workspaceId,
-  projectId,
   workspacePath,
 }: {
   workspaceId: string | null;
@@ -97,7 +91,6 @@ export function CollaborationWorkspace({
 }) {
   const workspace = workspaceId ?? '';
   const directSpaceId = workspace ? unassignedSpaceId(workspace) : '';
-  const navigate = useNavigate();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [membersBySpace, setMembersBySpace] = useState<
     Record<string, SeatRow[]>
@@ -601,22 +594,6 @@ export function CollaborationWorkspace({
     []
   );
 
-  const openSession = useCallback(
-    (conversationId: string) => {
-      if (!projectId || !workspace) return;
-      const focused = focusWorkspaceConversation({
-        projectId,
-        workspaceId: workspace,
-        conversationId,
-      });
-      useUiPreferencesStore.getState().setLayoutMode('workspaces');
-      useLayoutStore.getState().setActiveTab('workspace');
-      useWindowProjectsStore.getState().ensureProjectOpen(projectId);
-      navigate(focused.path);
-    },
-    [navigate, projectId, workspace]
-  );
-
   const [sessionTabs, setSessionTabs] = useState<MemberSessionTab[]>([]);
   const [activeSessionTabKey, setActiveSessionTabKey] = useState<
     string | null
@@ -822,7 +799,6 @@ export function CollaborationWorkspace({
             })
           );
       }}
-      onOpenSession={openSession}
       onToggleProfile={setProfileOpen}
       onOpenMemberSession={(memberId, threadId) =>
         void openMemberSession(memberId, threadId)

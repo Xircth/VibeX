@@ -120,7 +120,6 @@ export type CollaborationWorkspaceViewProps = {
     decision: 'allow_once' | 'allow_always' | 'deny',
     answer?: string
   ) => void;
-  onOpenSession: (conversationId: string) => void;
   onToggleProfile: (open: boolean) => void;
   /** Avatar click inside a chat: open that member's session for this thread. */
   onOpenMemberSession: (memberId: string, threadId: string) => void;
@@ -307,8 +306,12 @@ export function CollaborationWorkspaceView(
           workspaceId={props.workspaceId}
           expandedKeys={props.directExpandedKeys}
           onOpenSession={
-            directSeat?.conversationId
-              ? () => props.onOpenSession(directSeat.conversationId ?? '')
+            directSeat
+              ? () =>
+                  props.onOpenMemberSession(
+                    selectedMember.memberId,
+                    directSeat.threadId
+                  )
               : undefined
           }
           inlineCards={inlineCards}

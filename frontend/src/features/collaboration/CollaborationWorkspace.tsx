@@ -39,10 +39,8 @@ import {
   buildThreadList,
   collectMembers,
   groupKey,
-  markMigrationNoticeSeen,
   memberKey,
   memberPresence,
-  migrationNoticeSeen,
   readThreadPins,
   togglePin,
   writeThreadPins,
@@ -117,11 +115,7 @@ export function CollaborationWorkspace({
   const [dialogs, setDialogs] = useState({
     newGroup: false,
     newMember: false,
-    migration: false,
   });
-  const [bannerVisible, setBannerVisible] = useState(
-    () => !migrationNoticeSeen()
-  );
   const [busy, setBusy] = useState(false);
   const [busyCardIds, setBusyCardIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
@@ -671,7 +665,6 @@ export function CollaborationWorkspace({
       roles={roles}
       agents={agents}
       dialogs={dialogs}
-      bannerVisible={bannerVisible}
       busy={busy}
       workspacePath={workspacePath}
       workspaceId={workspace}
@@ -691,14 +684,6 @@ export function CollaborationWorkspace({
       }
       onDialogChange={(dialog, open) => {
         setDialogs((current) => ({ ...current, [dialog]: open }));
-        if (dialog === 'migration' && !open) {
-          markMigrationNoticeSeen();
-          setBannerVisible(false);
-        }
-      }}
-      onDismissBanner={() => {
-        markMigrationNoticeSeen();
-        setBannerVisible(false);
       }}
       onCreateGroup={(name, memberIds) =>
         void run(async () => {

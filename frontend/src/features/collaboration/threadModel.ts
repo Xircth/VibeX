@@ -743,29 +743,3 @@ export function formatDuration(ms: number | null): string {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
-
-const MIGRATION_NOTICE_KEY = 'vibex-collaboration-migration-notice-seen';
-
-export function migrationNoticeSeen(
-  storage: Pick<Storage, 'getItem'> | undefined = typeof window !== 'undefined'
-    ? window.localStorage
-    : undefined
-): boolean {
-  try {
-    return storage?.getItem(MIGRATION_NOTICE_KEY) === '1';
-  } catch {
-    return true;
-  }
-}
-
-export function markMigrationNoticeSeen(
-  storage: Pick<Storage, 'setItem'> | undefined = typeof window !== 'undefined'
-    ? window.localStorage
-    : undefined
-): void {
-  try {
-    storage?.setItem(MIGRATION_NOTICE_KEY, '1');
-  } catch {
-    // Ignore quota errors.
-  }
-}

@@ -1,11 +1,8 @@
 import { useState } from 'react';
 import {
-  ArrowRight,
   Bot,
   MessageSquare,
   UserPlus,
-  UserRound,
-  Users,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -60,15 +57,6 @@ export const DIALOG_COPY = {
   memberAgent: 'Agent',
   memberCreate: '创建并私聊',
   cancel: '取消',
-  migrationTitle: '协作已升级为「成员 + 群聊」',
-  migrationDescription: '你的数据都在，只是换了组织方式：',
-  migrationSpaces: '原来的协作空间 → 群聊（名称、成员、消息、收藏都保留）',
-  migrationMembers: '空间里的成员 → 成员（同一身份去重，带着自己的记忆）',
-  migrationUndecided: '未归类的成员会话 → 与该成员的私聊',
-  migrationOk: '知道了',
-  bannerText: '协作已升级为成员 + 群聊。',
-  bannerMore: '了解变化',
-  bannerDismiss: '关闭',
 } as const;
 
 export type PickerMember = {
@@ -283,72 +271,5 @@ export function NewMemberDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-export function MigrationNoticeDialog({
-  open,
-  onAcknowledge,
-}: {
-  open: boolean;
-  onAcknowledge: () => void;
-}) {
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => (!next ? onAcknowledge() : undefined)}
-    >
-      <DialogContent data-testid="collab-migration-dialog">
-        <DialogHeader>
-          <DialogTitle>{DIALOG_COPY.migrationTitle}</DialogTitle>
-          <DialogDescription>
-            {DIALOG_COPY.migrationDescription}
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="collab-migration-list">
-          {[
-            [Users, DIALOG_COPY.migrationSpaces],
-            [UserRound, DIALOG_COPY.migrationMembers],
-            [MessageSquare, DIALOG_COPY.migrationUndecided],
-          ].map(([Icon, text]) => {
-            const ItemIcon = Icon as typeof Users;
-            return (
-              <li key={text as string} className="collab-migration-item">
-                <ArrowRight aria-hidden="true" />
-                <ItemIcon aria-hidden="true" />
-                <span>{text as string}</span>
-              </li>
-            );
-          })}
-        </ul>
-        <DialogFooter>
-          <Button onClick={onAcknowledge}>{DIALOG_COPY.migrationOk}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function MigrationBanner({
-  onMore,
-  onDismiss,
-}: {
-  onMore: () => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <div
-      className="collab-banner"
-      role="status"
-      data-testid="collab-migration-banner"
-    >
-      <span className="collab-banner-text">{DIALOG_COPY.bannerText}</span>
-      <Button variant="ghost" size="xs" onClick={onMore}>
-        {DIALOG_COPY.bannerMore}
-      </Button>
-      <Button variant="ghost" size="xs" onClick={onDismiss}>
-        {DIALOG_COPY.bannerDismiss}
-      </Button>
-    </div>
   );
 }

@@ -43,7 +43,6 @@ export function ThreadList({
   onNewMember,
   groupCreatorOpen = false,
   groupCreator,
-  banner,
   now = Date.now(),
 }: {
   items: readonly ThreadListItem[];
@@ -59,7 +58,6 @@ export function ThreadList({
   onNewMember: () => void;
   groupCreatorOpen?: boolean;
   groupCreator?: React.ReactNode;
-  banner?: React.ReactNode;
   now?: number;
 }) {
   const [searchOpen, setSearchOpen] = useState(Boolean(query));
@@ -104,7 +102,6 @@ export function ThreadList({
       {groupCreatorOpen ? (
         <div id="collab-group-inline">{groupCreator}</div>
       ) : null}
-      {banner}
       <div className="collab-list-tools">
         <SegmentedControl
           label={THREAD_COPY.title}

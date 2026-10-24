@@ -4,8 +4,6 @@ import { UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import {
-  MigrationBanner,
-  MigrationNoticeDialog,
   NewMemberDialog,
   type PickerMember,
   type AgentOption,
@@ -92,8 +90,7 @@ export type CollaborationWorkspaceViewProps = {
   threadNames: ReadonlyMap<string, string>;
   roles: readonly RoleTemplate[];
   agents: readonly AgentOption[];
-  dialogs: { newGroup: boolean; newMember: boolean; migration: boolean };
-  bannerVisible: boolean;
+  dialogs: { newGroup: boolean; newMember: boolean };
   busy?: boolean;
   workspacePath?: string;
   workspaceId?: string;
@@ -103,10 +100,9 @@ export type CollaborationWorkspaceViewProps = {
   onSelect: (key: string) => void;
   onTogglePin: (key: string) => void;
   onDialogChange: (
-    dialog: 'newGroup' | 'newMember' | 'migration',
+    dialog: 'newGroup' | 'newMember',
     open: boolean
   ) => void;
-  onDismissBanner: () => void;
   onCreateGroup: (name: string, memberIds: string[]) => void;
   onCreateMember: (input: NewMemberInput) => void;
   onSendDirect: (content: string) => void;
@@ -368,14 +364,6 @@ export function CollaborationWorkspaceView(
           />
         }
         onNewMember={() => props.onDialogChange('newMember', true)}
-        banner={
-          props.bannerVisible ? (
-            <MigrationBanner
-              onMore={() => props.onDialogChange('migration', true)}
-              onDismiss={props.onDismissBanner}
-            />
-          ) : null
-        }
       />
       {main}
       {profileOpen && selectedMember && profile ? (
@@ -429,10 +417,6 @@ export function CollaborationWorkspaceView(
         busy={props.busy}
         onOpenChange={(open) => props.onDialogChange('newMember', open)}
         onCreate={props.onCreateMember}
-      />
-      <MigrationNoticeDialog
-        open={props.dialogs.migration}
-        onAcknowledge={() => props.onDialogChange('migration', false)}
       />
     </div>
   );

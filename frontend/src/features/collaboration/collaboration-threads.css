@@ -766,3 +766,20 @@
     transition: none;
   }
 }
+
+/* Inline group creator (expands under ?????? in the thread list) */
+.collab-group-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.collab-group-inline-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.collab-group-inline-create {
+  align-self: stretch;
+}

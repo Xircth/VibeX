@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -21,7 +20,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
 
 import { Textarea } from '@/components/ui/textarea';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
@@ -32,7 +30,6 @@ import {
 import type { ExecutorProfileId } from 'shared/types';
 
 import {
-  MemberBotAvatar,
   MemberBotAvatarPicker,
   randomMemberBotAvatar,
   type MemberBotAvatarConfig,
@@ -45,7 +42,6 @@ import {
 import { COPY as SPACE_COPY } from './spaceModel';
 import {
   TEAM_TEMPLATES,
-  THREAD_COPY,
   type PresenceView,
   type TeamTemplate,
 } from './threadModel';
@@ -87,156 +83,6 @@ export type PickerMember = {
   avatar: MemberBotAvatarConfig;
   presence: PresenceView;
 };
-
-export function NewGroupDialog({
-  open,
-  members,
-  initialSelected = [],
-  busy,
-  onOpenChange,
-  onCreate,
-  onNewMember,
-}: {
-  open: boolean;
-  members: readonly PickerMember[];
-  initialSelected?: readonly string[];
-  busy?: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, memberIds: string[]) => void;
-  onNewMember: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    new Set(initialSelected)
-  );
-  const toggle = (id: string) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="collab-new-group-dialog">
-        <DialogHeader>
-          <DialogTitle>{DIALOG_COPY.groupTitle}</DialogTitle>
-          <DialogDescription>{DIALOG_COPY.groupDescription}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="collab-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (name.trim() && selected.size > 0)
-              onCreate(name.trim(), Array.from(selected));
-          }}
-        >
-          <div className="collab-form-field">
-            <Label htmlFor="collab-group-name">{DIALOG_COPY.groupName}</Label>
-            <Input
-              id="collab-group-name"
-              value={name}
-              placeholder={DIALOG_COPY.groupNamePlaceholder}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <div className="collab-form-field">
-            <Label>{DIALOG_COPY.groupMembers}</Label>
-            <div
-              className="collaboration-dialog-member-picker collab-group-picker"
-              role="group"
-            >
-              {members.length === 0 ? (
-                <p className="collab-empty-hint">
-                  {DIALOG_COPY.groupNoMembers}
-                </p>
-              ) : (
-                members.map((member) => {
-                  const checked = selected.has(member.memberId);
-                  return (
-                    <div
-                      key={member.memberId}
-                      className="collaboration-picker-row flex items-center gap-2"
-                    >
-                      <Checkbox
-                        className="collab-picker-checkbox"
-                        aria-label={member.nickname}
-                        checked={checked}
-                        onCheckedChange={() => toggle(member.memberId)}
-                      />
-                      <div
-                        className={cn(
-                          'workspace-session-row collaboration-member-row flex-1 min-w-0',
-                          checked && 'is-selected'
-                        )}
-                      >
-                        <button
-                          type="button"
-                          className="workspace-session-row-main"
-                          onClick={() => toggle(member.memberId)}
-                        >
-                          <span
-                            className="workspace-session-icon"
-                            aria-hidden="true"
-                          >
-                            <MemberBotAvatar
-                              config={member.avatar}
-                              animated={false}
-                              className="h-7 w-7"
-                            />
-                            <span
-                              className={cn(
-                                'workspace-session-status',
-                                `workspace-session-status--${member.presence.state}`
-                              )}
-                            />
-                          </span>
-                          <span className="collaboration-member-title-group">
-                            <span className="collaboration-member-name">
-                              {member.nickname}
-                            </span>
-                            <span className="collaboration-member-subtitle collaboration-member-last-message">
-                              {member.presence.line ?? THREAD_COPY.idle}
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="self-start"
-              onClick={onNewMember}
-            >
-              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              {DIALOG_COPY.newMemberInline}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => onOpenChange(false)}
-            >
-              {DIALOG_COPY.cancel}
-            </Button>
-            <Button
-              type="submit"
-              disabled={busy || !name.trim() || selected.size === 0}
-            >
-              {DIALOG_COPY.groupCreate}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export type RoleTemplate = {
   id: string;

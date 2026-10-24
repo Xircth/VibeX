@@ -41,6 +41,8 @@ export function ThreadList({
   onTogglePin,
   onNewGroup,
   onNewMember,
+  groupCreatorOpen = false,
+  groupCreator,
   banner,
   now = Date.now(),
 }: {
@@ -55,6 +57,8 @@ export function ThreadList({
   onTogglePin: (key: string) => void;
   onNewGroup: () => void;
   onNewMember: () => void;
+  groupCreatorOpen?: boolean;
+  groupCreator?: React.ReactNode;
   banner?: React.ReactNode;
   now?: number;
 }) {
@@ -90,11 +94,16 @@ export function ThreadList({
           size="sm"
           aria-label={THREAD_COPY.newGroup}
           title={THREAD_COPY.newGroup}
+          aria-expanded={groupCreatorOpen}
+          aria-controls="collab-group-inline"
           onClick={onNewGroup}
         >
           <Users className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
+      {groupCreatorOpen ? (
+        <div id="collab-group-inline">{groupCreator}</div>
+      ) : null}
       {banner}
       <div className="collab-list-tools">
         <SegmentedControl

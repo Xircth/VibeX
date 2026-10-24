@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import {
   MigrationBanner,
   MigrationNoticeDialog,
-  NewGroupDialog,
   NewMemberDialog,
   TeamTemplateEmptyState,
   type PickerMember,
@@ -51,6 +50,7 @@ export type PendingCard = {
   resolution?: Record<string, unknown> | null;
 };
 
+import { InlineGroupCreator } from './InlineGroupCreator';
 import type { MemberSessionConfig } from './MemberSessionConfigSection';
 
 export type ProfileData = {
@@ -368,7 +368,17 @@ export function CollaborationWorkspaceView(
         onQueryChange={props.onQueryChange}
         onSelect={props.onSelect}
         onTogglePin={props.onTogglePin}
-        onNewGroup={() => props.onDialogChange('newGroup', true)}
+        onNewGroup={() =>
+          props.onDialogChange('newGroup', !props.dialogs.newGroup)
+        }
+        groupCreatorOpen={props.dialogs.newGroup}
+        groupCreator={
+          <InlineGroupCreator
+            members={pickerMembers}
+            busy={props.busy}
+            onCreate={props.onCreateGroup}
+          />
+        }
         onNewMember={() => props.onDialogChange('newMember', true)}
         banner={
           props.bannerVisible ? (
@@ -421,14 +431,6 @@ export function CollaborationWorkspaceView(
           {props.error}
         </p>
       ) : null}
-      <NewGroupDialog
-        open={props.dialogs.newGroup}
-        members={pickerMembers}
-        busy={props.busy}
-        onOpenChange={(open) => props.onDialogChange('newGroup', open)}
-        onCreate={props.onCreateGroup}
-        onNewMember={() => props.onDialogChange('newMember', true)}
-      />
       <NewMemberDialog
         key={`${props.roles.map((r) => r.id).join(',')}|${props.agents
           .map((a) => a.agent_id)

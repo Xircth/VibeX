@@ -684,6 +684,18 @@
     "searchOpen": "搜索成员或群聊",
     "searchPlaceholder": "搜索成员或群聊…",
     "searchEmpty": "没有匹配的成员或群聊",
-    "searchResults": "搜索结果"
+    "searchResults": "搜索结果",
+    "sidebarGroups": {
+      "newGroup": "新建分组",
+      "defaultName": "新分组",
+      "moveTo": "移动到分组",
+      "removeFrom": "移出分组",
+      "rename": "重命名",
+      "delete": "删除分组",
+      "nameLabel": "分组名称",
+      "noGroups": "暂无分组",
+      "expand": "展开 {{name}}",
+      "collapse": "收起 {{name}}"
+    }
   }
 }

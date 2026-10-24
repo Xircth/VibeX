@@ -28,7 +28,6 @@ import { ApprovalCard, AskCard, type CardResolution } from './ThreadCards';
 import {
   THREAD_COPY,
   type DirectChatNotice,
-  type ThreadFilter,
   type ThreadListItem,
   type ThreadMember,
 } from './threadModel';
@@ -66,7 +65,6 @@ export type CollaborationWorkspaceViewProps = {
   allItems?: readonly ThreadListItem[];
   members: readonly ThreadMember[];
   selectedKey: string | null;
-  filter: ThreadFilter;
   query: string;
   avatarFor: (memberId: string, nickname: string) => MemberBotAvatarConfig;
   now?: number;
@@ -100,7 +98,6 @@ export type CollaborationWorkspaceViewProps = {
   workspacePath?: string;
   workspaceId?: string;
   error?: string | null;
-  onFilterChange: (filter: ThreadFilter) => void;
   onQueryChange: (query: string) => void;
   onSelect: (key: string) => void;
   onTogglePin: (key: string) => void;
@@ -376,11 +373,9 @@ export function CollaborationWorkspaceView(
       <ThreadList
         items={items}
         selectedKey={selectedKey}
-        filter={props.filter}
         query={props.query}
         avatarFor={avatarFor}
         now={props.now}
-        onFilterChange={props.onFilterChange}
         onQueryChange={props.onQueryChange}
         searchItems={props.allItems}
         onSelect={props.onSelect}

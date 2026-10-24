@@ -47,10 +47,8 @@ function setup() {
     <ThreadList
       items={items}
       selectedKey={null}
-      filter="all"
       query=""
       avatarFor={(id) => deriveMemberBotAvatar(id)}
-      onFilterChange={vi.fn()}
       onQueryChange={vi.fn()}
       onSelect={onSelect}
       onTogglePin={vi.fn()}
@@ -66,27 +64,19 @@ describe('collaboration sidebar header', () => {
     await i18n.changeLanguage('zh-CN');
   });
 
-  it('has no 协作 title and keeps the segmented control on the header row', () => {
+  it('has no 协作 title or segmented control; buttons are right-aligned', () => {
     setup();
     expect(screen.queryByRole('heading', { name: '协作' })).toBeNull();
     const head = screen
       .getByTestId('collab-thread-list')
       .querySelector('.collab-list-head') as HTMLElement;
     expect(head).not.toBeNull();
-    expect(within(head).getByRole('radio', { name: '全部' })).toBeTruthy();
-    const buttons = within(head).getAllByRole('button');
-    const names = buttons.map((b) => b.getAttribute('aria-label'));
-    expect(names.indexOf('搜索成员或群聊')).toBe(names.indexOf('新建成员') - 1);
+    expect(within(head).queryAllByRole('radio')).toHaveLength(0);
+    const names = within(head)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual(['搜索成员或群聊', '新建成员', '创建群聊']);
     expect(screen.queryByRole('searchbox')).toBeNull();
-  });
-
-  it('renders an icon in every segmented item', () => {
-    setup();
-    for (const name of ['全部', '成员', '群聊']) {
-      const radio = screen.getByRole('radio', { name });
-      const label = radio.closest('label') ?? radio.parentElement!;
-      expect(label.querySelector('svg')).not.toBeNull();
-    }
   });
 
   it('search button opens the modal; Esc and backdrop close it', async () => {

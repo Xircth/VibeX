@@ -226,15 +226,12 @@ describe('collaboration threads UI', () => {
       attentionByMember: new Map([['m1', 1]]),
     });
     const onTogglePin = vi.fn();
-    const onFilterChange = vi.fn();
     render(
       <ThreadList
         items={items}
         selectedKey="member:m1"
-        filter="all"
         query=""
         avatarFor={(id) => deriveMemberBotAvatar(id)}
-        onFilterChange={onFilterChange}
         onQueryChange={vi.fn()}
         onSelect={vi.fn()}
         onTogglePin={onTogglePin}
@@ -246,8 +243,7 @@ describe('collaboration threads UI', () => {
     expect(within(row).getAllByLabelText('等你处理').length).toBeGreaterThan(0);
     await user.click(within(row).getByRole('button', { name: '置顶' }));
     expect(onTogglePin).toHaveBeenCalledWith('member:m1');
-    await user.click(screen.getByRole('radio', { name: '群聊' }));
-    expect(onFilterChange).toHaveBeenCalledWith('group');
+    expect(screen.queryByRole('radio')).toBeNull();
   });
 
   it('derives three-state direct receipts from the timeline', () => {

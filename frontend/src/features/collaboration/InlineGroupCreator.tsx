@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
+import { SessionListSearchControl } from '@/components/workspace-session-list/SessionListSearchControl';
 import { cn } from '@/lib/utils';
 
 import { MemberBotAvatar } from './MemberBotAvatar';
@@ -52,15 +52,19 @@ export function InlineGroupCreator({
         ? current.filter((value) => value !== id)
         : [...current, id]
     );
+  const [searchExpanded, setSearchExpanded] = useState(true);
   const canCreate = !busy && selected.length >= MIN_GROUP_MEMBERS;
   return (
     <div className="collab-group-inline" data-testid="collab-group-inline">
-      <Input
-        className="collab-group-inline-search"
-        value={query}
+      <SessionListSearchControl
+        searchQuery={query}
+        isExpanded={searchExpanded}
+        searchLabel={INLINE_GROUP_COPY.search}
         placeholder={INLINE_GROUP_COPY.search}
-        aria-label={INLINE_GROUP_COPY.search}
-        onChange={(event) => setQuery(event.target.value)}
+        onSearchQueryChange={setQuery}
+        onExpandedChange={(expanded) =>
+          setSearchExpanded(expanded || query.length > 0)
+        }
       />
       <div
         className="collaboration-dialog-member-picker collab-group-picker collab-group-inline-list"

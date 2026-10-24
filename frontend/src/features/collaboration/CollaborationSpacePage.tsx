@@ -511,7 +511,7 @@ function CustomAgentControls({
 }
 
 /** Contact-list avatar edge (px), shared by DM member and group-chat rows. */
-const CONTACT_AVATAR_PX = 36;
+const CONTACT_AVATAR_PX = 72;
 
 type SidebarDragPayload =
   | {
@@ -4325,6 +4325,10 @@ export function CollaborationSpacePage({
               >
                 <span
                   className="workspace-session-icon shrink-0"
+                  style={{
+                    width: CONTACT_AVATAR_PX,
+                    height: CONTACT_AVATAR_PX,
+                  }}
                   aria-hidden="true"
                 >
                   <MemberBotAvatar
@@ -4332,7 +4336,6 @@ export function CollaborationSpacePage({
                     sessionActive={Boolean(
                       isRunning || conv?.status === 'inprogress'
                     )}
-                    className="h-7 w-7"
                     data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
                   />
                   <span
@@ -4443,6 +4446,10 @@ export function CollaborationSpacePage({
                     >
                       <span
                         className="workspace-session-icon"
+                        style={{
+                          width: CONTACT_AVATAR_PX,
+                          height: CONTACT_AVATAR_PX,
+                        }}
                         aria-hidden="true"
                       >
                         <MemberBotAvatar
@@ -4450,7 +4457,6 @@ export function CollaborationSpacePage({
                           sessionActive={Boolean(
                             isRunning || conv?.status === 'inprogress'
                           )}
-                          className="h-7 w-7"
                           data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
                         />
                         <span
@@ -4464,7 +4470,7 @@ export function CollaborationSpacePage({
                         <span className="collaboration-member-name">
                           {name}
                         </span>
-                        {lastMessageText ? (
+                        {lastMessageText && !chatEntry?.lastPreview ? (
                           <span
                             className="collaboration-member-subtitle collaboration-member-last-message"
                             data-testid={`collaboration-member-last-message-${conversationId || name}`}

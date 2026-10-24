@@ -305,6 +305,7 @@ describe('CollaborationSpacePage', () => {
     );
     expect(groupAvatar).toHaveClass('has-tag');
     expect(groupAvatar).toHaveAttribute('data-count', '2');
+    expect(groupAvatar).toHaveStyle({ width: '72px', height: '72px' });
     expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toContain(
       'hsl('
     );
@@ -327,6 +328,10 @@ describe('CollaborationSpacePage', () => {
     expect(
       screen.getByTestId('collaboration-member-bot-avatar-conv-1')
     ).toBeTruthy();
+    expect(memberAButton.querySelector('.workspace-session-icon')).toHaveStyle({
+      width: '72px',
+      height: '72px',
+    });
     expect(
       screen.getByTestId('collaboration-member-row-agent-icon-conv-1')
     ).toBeTruthy();

@@ -1145,8 +1145,39 @@ pub async fn prepare_steer(
     Ok(expected)
 }
 
-pub async fn send_session_input(
+/// The user typing into a member's direct chat: queue `text` on that
+/// conversation (start a turn when idle). Idempotent per `operation_id`.
+/// Returns the receipt and the session's workspace.
+pub async fn send_user_text_to_conversation(
     pool: &SqlitePool,
+    conversation_id: Uuid,
+    operation_id: Uuid,
+    text: &str,
+    delivery: &DeliveryContext,
+) -> Result<(SendReceipt, Uuid), CollaborationError> {
+    if text.trim().is_empty() {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "content must not be empty",
+        ));
+    }
+    let target = live_session(load_session(pool, conversation_id).await?)?;
+    let workspace_id = target.workspace_id;
+    let receipt = deliver_text(
+        pool,
+        conversation_id,
+        operation_id,
+        text,
+        None,
+        &target,
+        json!({ "kind": "collaboration_direct_user" }),
+        delivery,
+    )
+    .await?;
+    Ok((receipt, workspace_id))
+}
+
+pub async fn send_session_input(    pool: &SqlitePool,
     input: SendSessionInput,
 ) -> Result<SendReceipt, CollaborationError> {
     send_session_input_with(pool, input, &DeliveryContext::default()).await

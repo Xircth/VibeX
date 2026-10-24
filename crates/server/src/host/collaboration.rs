@@ -782,6 +782,9 @@ impl HostCollaborationHost {
     async fn list_messages(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id"])?;
         let limit = input.get("limit").and_then(Value::as_i64);
+        if space_id.starts_with("direct:") {
+            return self.list_direct_messages(&space_id, input, limit).await;
+        }
         let since = if truthy(input, &["latest"]) {
             Some(latest_since(&self.pool, &space_id, limit.unwrap_or(200)).await?)
         } else {
@@ -873,8 +876,110 @@ impl HostCollaborationHost {
         Ok(json!({ "scheduled": updated }))
     }
 
+    /// `space.listMessages` for `direct:<id>`: the member's DM conversation,
+    /// in the group message shape. `seq` = conversation event ordinal.
+    async fn list_direct_messages(
+        &self,
+        thread_id: &str,
+        input: &Value,
+        limit: Option<i64>,
+    ) -> Result<Value, CollaborationHostError> {
+        let (conversation, member) = sidebar::dm_conversation(&self.pool, thread_id)
+            .await
+            .map_err(host_error)?
+            .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
+        let since = if truthy(input, &["latest"]) {
+            None
+        } else {
+            input
+                .get("sinceSeq")
+                .or_else(|| input.get("since_seq"))
+                .and_then(Value::as_i64)
+        };
+        let messages = sidebar::list_dm_messages(&self.pool, conversation, since, limit)
+            .await
+            .map_err(host_error)?;
+        let user_actor = format!("vibex://space/{thread_id}/user");
+        let member_actor = format!("vibex://space/{thread_id}/member/{}", member.name);
+        let messages = messages
+            .into_iter()
+            .map(|message| {
+                let from_user = message.origin == "user";
+                json!({
+                    "id": message.id,
+                    "seq": message.seq,
+                    "origin": message.origin,
+                    "in_reply_to": Value::Null,
+                    "receipts": [],
+                    "envelope": {
+                        "type": "Note",
+                        "id": format!("vibex://space-message/{}", message.id),
+                        "actor": if from_user { &user_actor } else { &member_actor },
+                        "attributedTo": if from_user { Value::Null } else { json!(member.conversation_id) },
+                        "to": [if from_user { &member_actor } else { &user_actor }],
+                        "summary": Value::Null,
+                        "content": message.text,
+                        "published": message.created_at,
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "messages": messages,
+            "scheduled": [],
+            "conversationId": member.conversation_id,
+        }))
+    }
+
+    /// `space.post` / `space.submit` for `direct:<id>`: user text into the
+    /// member's DM conversation.
+    async fn post_direct(
+        &self,
+        thread_id: &str,
+        input: &Value,
+    ) -> Result<Value, CollaborationHostError> {
+        let (conversation, member) = sidebar::dm_conversation(&self.pool, thread_id)
+            .await
+            .map_err(host_error)?
+            .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
+        let operation_id = required_uuid(input, &["operationId", "operation_id"])?;
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let (receipt, workspace_id) = collaboration::send_user_text_to_conversation(
+            &self.pool,
+            conversation,
+            operation_id,
+            &text(input, &["content"]),
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        self.events.emit(
+            COLLABORATION_SPACE_CHANGED_EVENT,
+            CollaborationSpaceChangedEvent {
+                workspace_id,
+                space_id: thread_id.to_string(),
+                seq: None,
+                member_id: Some(member.member_id.clone()),
+            },
+        );
+        Ok(json!({
+            "threadId": thread_id,
+            "conversationId": member.conversation_id,
+            "memberId": member.member_id,
+            "delivered": receipt.delivered,
+            "inputId": receipt.input_id,
+            "turnId": receipt.turn_id,
+            "messageId": Value::Null,
+            "seq": Value::Null,
+            "receipts": [],
+        }))
+    }
+
     async fn post(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id"])?;
+        if space_id.starts_with("direct:") {
+            return self.post_direct(&space_id, input).await;
+        }
         let delay_seconds = input
             .get("delaySeconds")
             .or_else(|| input.get("delay_seconds"))
@@ -922,6 +1027,8 @@ impl HostCollaborationHost {
         let mut forwarded = input.clone();
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("spaceId".to_string(), json!(space_id));
+        }        if space_id.starts_with("direct:") {
+            return self.post_direct(&space_id, &forwarded).await;
         }
         let posted = self.post(&forwarded).await?;
         let message_id = posted
@@ -2873,5 +2980,106 @@ mod tests {
             .bind(&space).fetch_one(&pool).await.unwrap();
         assert_eq!(in_group, 0);
         assert_eq!(created["direct_thread_id"], json!(format!("direct:{identity}")));
+    }
+
+    async fn dm_event(pool: &SqlitePool, conversation: Uuid, sequence: i64, kind: &str, body: Value) {
+        sqlx::query(
+            r#"INSERT INTO conversation_events
+               (id, conversation_id, sequence, source, event_kind, normalized_json)
+               VALUES (?, ?, ?, 'acp', ?, ?)"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(conversation)
+        .bind(sequence)
+        .bind(kind)
+        .bind(body.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn dm_sidebar_preview_unread_and_direct_space_routes() {
+        let (pool, host, workspace) = sidebar_host().await;
+        let created = call(&host, "space.createMember", json!({
+            "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
+            "nickname": "Alice", "source": "agent", "agentId": "codex", "modeId": "",
+            "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
+        })).await;
+        let thread = created["direct_thread_id"].as_str().unwrap().to_string();
+        let conversation =
+            Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
+        let dm_item = |sidebar: Value| {
+            sidebar["items"].as_array().unwrap().iter()
+                .find(|item| item["thread_id"] == json!(thread)).unwrap().clone()
+        };
+
+        let empty = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(empty["kind"], json!("dm"));
+        assert!(empty["last_message"].is_null());
+
+        let user = |text: &str| json!({ "kind": "user_turn_created", "blocks": [{ "kind": "text", "text": text }] });
+        let delta = |text: &str, id: &str| json!({ "kind": "assistant_text_delta", "text": text, "message_id": id });
+        dm_event(&pool, conversation, 1, "user_turn_created", user("hello   there")).await;
+        dm_event(&pool, conversation, 2, "tool_call_upsert", json!({ "kind": "tool_call_upsert" })).await;
+        dm_event(&pool, conversation, 3, "assistant_text_delta", delta("Hi", "m1")).await;
+        dm_event(&pool, conversation, 4, "assistant_text_delta", delta(" Alice here", "m1")).await;
+        dm_event(&pool, conversation, 5, "usage_updated", json!({ "kind": "usage_updated" })).await;
+
+        let first = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(first["last_message"]["preview"], json!("Hi Alice here"));
+        assert_eq!(first["last_message"]["origin"], json!("agent"));
+        assert_eq!(first["last_message"]["seq"], json!(3));
+        assert_eq!(first["last_activity_at"], first["last_message"]["created_at"]);
+        assert_eq!(first["unread_count"], json!(1), "reply arrived after the empty-thread baseline");
+
+        let long = "x".repeat(300);
+        dm_event(&pool, conversation, 6, "user_turn_created", user("question two")).await;
+        dm_event(&pool, conversation, 7, "assistant_text_delta", delta("answer two", "m2")).await;
+        dm_event(&pool, conversation, 8, "assistant_text_delta", delta(&long, "m3")).await;
+        let second = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(second["unread_count"], json!(3));
+        assert_eq!(second["last_message"]["seq"], json!(8));
+        assert_eq!(second["last_message"]["preview"].as_str().unwrap().chars().count(), 120);
+
+        let marked = call(&host, "thread.markRead", json!({ "threadId": thread, "seq": 7 })).await;
+        assert_eq!(marked["lastReadSeq"], json!(7));
+        let after = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(after["unread_count"], json!(1));
+        call(&host, "thread.markRead", json!({ "threadId": thread })).await;
+        let all_read = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(all_read["unread_count"], json!(0));
+
+        // space.listMessages with spaceId = direct:<id> reads the DM conversation.
+        let listed = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;
+        let messages = listed["messages"].as_array().unwrap();
+        let summary = messages.iter()
+            .map(|m| (m["seq"].as_i64().unwrap(), m["origin"].as_str().unwrap().to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(summary, vec![
+            (1, "user".to_string()), (3, "agent".to_string()), (6, "user".to_string()),
+            (7, "agent".to_string()), (8, "agent".to_string()),
+        ]);
+        assert_eq!(messages[0]["envelope"]["content"], json!("hello   there"));
+        assert_eq!(messages[1]["envelope"]["content"], json!("Hi Alice here"));
+        assert_eq!(listed["conversationId"], json!(conversation.to_string()));
+        let since = call(&host, "space.listMessages", json!({ "spaceId": thread, "sinceSeq": 3 })).await;
+        assert_eq!(since["messages"].as_array().unwrap().len(), 3);
+
+        // space.post / space.submit with a direct thread queue user input on the DM session.
+        let operation = Uuid::new_v4();
+        let posted = call(&host, "space.post", json!({
+            "spaceId": thread, "content": "ping", "operationId": operation,
+        })).await;
+        assert_eq!(posted["conversationId"], json!(conversation.to_string()));
+        assert!(posted["inputId"].is_string());
+        call(&host, "space.post", json!({ "spaceId": thread, "content": "ping", "operationId": operation })).await;
+        call(&host, "space.submit", json!({ "threadId": thread, "content": "pong", "operationId": Uuid::new_v4() })).await;
+        let inputs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs WHERE conversation_id = ?")
+            .bind(conversation).fetch_one(&pool).await.unwrap();
+        assert_eq!(inputs, 2, "replayed operation is idempotent");
+        let group_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(group_rows, 0);
     }
 }

@@ -7,6 +7,12 @@ import './groupAvatar.css';
 
 /** Member avatar diameter as a percentage of the group avatar. */
 export const GROUP_AVATAR_SLOT_SIZE = 58;
+/**
+ * Small group avatars (<= 1.5rem, list rows) shrink members so the overlap
+ * eases and the fixed-width separator ring reads clearly. Applied in CSS via a
+ * container query; slots keep the same centres.
+ */
+export const GROUP_AVATAR_SLOT_SIZE_SMALL = 54;
 export const GROUP_AVATAR_MAX_MEMBERS = 4;
 
 type Slot = { x: number; y: number };
@@ -50,8 +56,7 @@ const PAINT_ORDER: Record<number, number[]> = {
 };
 
 /** Circle of `other` expressed in `self`'s box, as a radial-gradient layer. */
-function circleIn(self: Slot, other: Slot): string {
-  const s = GROUP_AVATAR_SLOT_SIZE;
+function circleIn(self: Slot, other: Slot, s: number): string {
   const cx = ((other.x - self.x + s / 2) / s) * 100;
   const cy = ((other.y - self.y + s / 2) / s) * 100;
   return `radial-gradient(50% 50% at ${cx}% ${cy}%, #000 calc(100% - 0.5px), transparent 100%)`;
@@ -61,11 +66,17 @@ function circleIn(self: Slot, other: Slot): string {
  * Mask for the overlay copy of member 1: visible only where member 2 sits,
  * minus where member 3 (which covers member 1) sits.
  */
-export function groupAvatarCycleMask(count: number): string | null {
+export function groupAvatarCycleMask(
+  count: number,
+  size: number = GROUP_AVATAR_SLOT_SIZE
+): string | null {
   if (count < 3) return null;
+  // Layout offsets are authored for the default size; smaller slots keep
+  // the same centres, which shifts each top-left by the same amount, so the
+  // relative geometry only depends on the slot size.
   const slots = LAYOUTS[count];
   const first = slots[0];
-  return `${circleIn(first, slots[1])}, ${circleIn(first, slots[2])}`;
+  return `${circleIn(first, slots[1], size)}, ${circleIn(first, slots[2], size)}`;
 }
 
 export function GroupAvatar({
@@ -88,19 +99,20 @@ export function GroupAvatar({
   const slots = LAYOUTS[count] ?? [];
   const order = PAINT_ORDER[count] ?? [];
   const mask = groupAvatarCycleMask(count);
+  const maskSmall = groupAvatarCycleMask(count, GROUP_AVATAR_SLOT_SIZE_SMALL);
 
   const renderSlot = (index: number, overlay = false) => {
     const slot = slots[index];
-    const style: CSSProperties = {
-      left: `${slot.x}%`,
-      top: `${slot.y}%`,
-      width: `${GROUP_AVATAR_SLOT_SIZE}%`,
-      height: `${GROUP_AVATAR_SLOT_SIZE}%`,
-    };
-    if (overlay && mask) {
+    // Geometry lives in CSS (groupAvatar.css) so a container query can
+    // switch to the small slot size; centres are passed in.
+    const style = {
+      '--group-avatar-cx': `${slot.x + GROUP_AVATAR_SLOT_SIZE / 2}%`,
+      '--group-avatar-cy': `${slot.y + GROUP_AVATAR_SLOT_SIZE / 2}%`,
+    } as CSSProperties;
+    if (overlay && mask && maskSmall) {
       Object.assign(style, {
-        maskImage: mask,
-        WebkitMaskImage: mask,
+        '--group-avatar-mask': mask,
+        '--group-avatar-mask-sm': maskSmall,
         maskComposite: 'subtract',
         WebkitMaskComposite: 'source-out',
       });
@@ -108,7 +120,10 @@ export function GroupAvatar({
     return (
       <span
         key={overlay ? `overlay-${index}` : index}
-        className={cn('group-avatar-slot', overlay && 'group-avatar-slot--overlay')}
+        className={cn(
+          'group-avatar-slot',
+          overlay && 'group-avatar-slot--overlay'
+        )}
         data-member-index={index + 1}
         data-overlay={overlay ? 'true' : undefined}
         style={style}
@@ -124,11 +139,19 @@ export function GroupAvatar({
 
   return (
     <span
-      className={cn('group-avatar', tagColor && 'group-avatar--tagged', className)}
+      className={cn(
+        'group-avatar',
+        tagColor && 'group-avatar--tagged',
+        className
+      )}
       data-testid={testId}
       data-member-count={count}
       data-tag-color={tagId}
-      style={tagColor ? ({ '--group-avatar-tag': tagColor } as CSSProperties) : undefined}
+      style={
+        tagColor
+          ? ({ '--group-avatar-tag': tagColor } as CSSProperties)
+          : undefined
+      }
       aria-hidden="true"
     >
       {order.map((index) => renderSlot(index))}

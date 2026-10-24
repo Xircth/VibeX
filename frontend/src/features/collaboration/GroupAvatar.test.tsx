@@ -1,7 +1,11 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { GroupAvatar, groupAvatarCycleMask } from './GroupAvatar';
+import {
+  GROUP_AVATAR_SLOT_SIZE_SMALL,
+  GroupAvatar,
+  groupAvatarCycleMask,
+} from './GroupAvatar';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 const avatar = (seed: string) => deriveMemberBotAvatar(seed);
@@ -37,5 +41,16 @@ describe('GroupAvatar', () => {
     expect(slots(2).root).toHaveClass('group-avatar--tagged');
     expect(groupAvatarCycleMask(2)).toBeNull();
     expect(groupAvatarCycleMask(4)).toContain('radial-gradient');
+  });
+
+  it('passes centres and both masks so small sizes can ease overlap', () => {
+    const { root } = slots(4);
+    const first = root.querySelector<HTMLElement>('[data-member-index="1"]')!;
+    expect(first.style.getPropertyValue('--group-avatar-cx')).toBe('35%');
+    const overlay = root.querySelector<HTMLElement>('[data-overlay]')!;
+    expect(overlay.style.getPropertyValue('--group-avatar-mask-sm')).toBe(
+      groupAvatarCycleMask(4, GROUP_AVATAR_SLOT_SIZE_SMALL)
+    );
+    expect(groupAvatarCycleMask(4, 54)).not.toBe(groupAvatarCycleMask(4));
   });
 });

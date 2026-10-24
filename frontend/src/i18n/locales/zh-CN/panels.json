@@ -678,6 +678,14 @@
     "openWorkspaceFirst": "先打开一个工作区",
     "receiptQueued": "已排队",
     "receiptClaimed": "已认领",
-    "receiptFailed": "失败"
+    "receiptFailed": "失败",
+    "contactGroupUngrouped": "未分组",
+    "contactGroupNew": "新建分组",
+    "contactGroupNamePlaceholder": "分组名称",
+    "contactGroupRename": "重命名分组",
+    "contactGroupDelete": "删除分组",
+    "contactGroupMoveTo": "移动到分组",
+    "contactGroupToggle": "折叠或展开 {{name}}",
+    "contactGroupFailed": "分组操作失败"
   }
 }

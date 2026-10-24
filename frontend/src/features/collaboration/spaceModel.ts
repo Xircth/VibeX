@@ -727,6 +727,8 @@ export type ChatListMeta = {
   unreadCount?: number;
   /** Total non-user members (groups), when known. */
   memberCount?: number;
+  /** User-defined contact group (`thread.listSidebar` item.group_id). */
+  groupId?: string;
 };
 
 /** Member shape returned by `thread.listSidebar` / `member.list`. */
@@ -757,6 +759,8 @@ export type SidebarItem = {
   members_preview?: SidebarMember[];
   member_count?: number;
   member?: SidebarMember | null;
+  /** Contact group id; null/absent = 未分组. See contactGroups.ts. */
+  group_id?: string | null;
 };
 
 export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
@@ -781,6 +785,7 @@ export function chatListFromSidebar(
       lastPreview: item.last_message?.preview || undefined,
       lastActivityAt: item.last_activity_at || undefined,
       unreadCount: item.unread_count || undefined,
+      groupId: item.group_id || undefined,
     };
     if (isPrivateChatKind(item.kind)) {
       if (!item.member) continue;
@@ -992,4 +997,19 @@ export function reconcilePendingDirectMessages(
     remaining.push(item);
   }
   return remaining;
+}
+
+/**
+ * Title for a member session tab. Opened from a group chat (thread kind
+ * 'group') it reads "<group name> · <member name>"; otherwise (dm/direct or
+ * unknown kind) just the member name. The backend has no label field.
+ */
+export function memberTabTitle(
+  memberName: string,
+  thread: { kind?: string | null; name?: string | null } | null | undefined
+): string {
+  const groupName = thread?.name?.trim();
+  return thread?.kind === 'group' && groupName
+    ? `${groupName} · ${memberName}`
+    : memberName;
 }

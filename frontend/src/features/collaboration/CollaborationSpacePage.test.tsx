@@ -1542,6 +1542,290 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('titles a member tab opened from a group chat "<group> · <member>"', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'member.session.resolve') return {};
+        if (method === 'thread.markRead') return {};
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '设计' }));
+    await user.click(
+      await screen.findByRole('button', { name: '预览 小A 会话' })
+    );
+    await screen.findByTestId('session-preview');
+    expect((await screen.findAllByText('设计 · 小A')).length).toBeGreaterThan(
+      0
+    );
+  });
+
+  describe('contact groups', () => {
+    const sidebarItems = (groupOf: Record<string, string | null>) => [
+      {
+        kind: 'group',
+        thread_id: 's1',
+        space_id: 's1',
+        name: '设计',
+        members_preview: [],
+        member_count: 1,
+        group_id: groupOf.s1 ?? null,
+      },
+      {
+        kind: 'dm',
+        thread_id: 'direct:mem-a',
+        space_id: 'unassigned:workspace-1',
+        name: '小A',
+        member: { member_id: 'mem-a', name: '小A', conversation_id: 'conv-1' },
+        group_id: groupOf['direct:mem-a'] ?? null,
+      },
+    ];
+
+    const mockGroups = (groups: Array<{ group_id: string; name: string }>) => {
+      const defaultImpl = collaborationCall.getMockImplementation();
+      const full = (g: { group_id: string; name: string }, i: number) => ({
+        ...g,
+        workspace_id: 'workspace-1',
+        sort_order: i,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      });
+      const state = {
+        groups: groups.map(full),
+        groupOf: { s1: 'g1' } as Record<string, string | null>,
+      };
+      collaborationCall.mockImplementation(
+        async (
+          capability: string,
+          method: string,
+          input?: Record<string, unknown>
+        ) => {
+          if (method === 'thread.listSidebar')
+            return { items: sidebarItems(state.groupOf) };
+          if (method === 'contactGroup.list')
+            return { groups: [...state.groups] };
+          if (method === 'contactGroup.create') {
+            const group = full(
+              { group_id: 'g-new', name: String(input?.name) },
+              state.groups.length
+            );
+            state.groups = [...state.groups, group];
+            return { group };
+          }
+          if (method === 'contactGroup.delete') {
+            state.groups = state.groups.filter(
+              (g) => g.group_id !== input?.groupId
+            );
+            const ungroupedThreadIds: string[] = [];
+            for (const key of Object.keys(state.groupOf))
+              if (state.groupOf[key] === input?.groupId) {
+                state.groupOf[key] = null;
+                ungroupedThreadIds.push(key);
+              }
+            return {
+              groupId: input?.groupId,
+              deleted: true,
+              ungroupedThreadIds,
+            };
+          }
+          if (method === 'thread.setGroup') {
+            state.groupOf[String(input?.threadId)] =
+              (input?.groupId as string | null) ?? null;
+            return {
+              threadId: input?.threadId,
+              groupId: input?.groupId ?? null,
+            };
+          }
+          return defaultImpl?.(capability, method, input);
+        }
+      );
+      return state;
+    };
+
+    const sectionOf = (testId: string) =>
+      screen
+        .getByTestId(testId)
+        .closest('[data-testid^="collaboration-contact-section-"]')
+        ?.getAttribute('data-testid');
+
+    beforeEach(() => window.localStorage.clear());
+
+    it('keeps the flat list when there are no groups', async () => {
+      mockGroups([]);
+      renderPage();
+      await screen.findByTestId(
+        'collaboration-direct-chat-direct:direct:mem-a'
+      );
+      expect(
+        document.querySelector('.collaboration-contact-section')
+      ).toBeNull();
+      expect(
+        screen.getByTestId('collaboration-new-contact-group')
+      ).toBeInTheDocument();
+    });
+
+    it('renders sections, collapses, moves and deletes groups', async () => {
+      const user = userEvent.setup();
+      mockGroups([
+        { group_id: 'g1', name: '核心' },
+        { group_id: 'g2', name: '外部' },
+      ]);
+      renderPage();
+      await screen.findByTestId('collaboration-contact-section-g1');
+      const ids = Array.from(
+        document.querySelectorAll('.collaboration-contact-section')
+      ).map((node) => node.getAttribute('data-testid'));
+      expect(ids).toEqual([
+        'collaboration-contact-section-g1',
+        'collaboration-contact-section-g2',
+        'collaboration-contact-section-__ungrouped__',
+      ]);
+      expect(
+        screen.getByTestId('collaboration-contact-section-header-__ungrouped__')
+      ).toHaveTextContent('未分组1');
+      expect(sectionOf('collaboration-contact-row-group:s1')).toBe(
+        'collaboration-contact-section-g1'
+      );
+
+      // Collapse persists locally.
+      await user.click(
+        screen.getByTestId('collaboration-contact-section-header-g1')
+      );
+      expect(
+        screen.queryByTestId('collaboration-contact-row-group:s1')
+      ).toBeNull();
+      expect(
+        window.localStorage.getItem(
+          'vibex.collaboration.contactGroups.collapsed.workspace-1'
+        )
+      ).toBe('["g1"]');
+      await user.click(
+        screen.getByTestId('collaboration-contact-section-header-g1')
+      );
+
+      // Context menu: move the DM to 外部.
+      fireEvent.contextMenu(
+        screen.getByTestId('collaboration-contact-row-direct:direct:mem-a')
+      );
+      await user.click(
+        await screen.findByTestId('collaboration-contact-menu-move')
+      );
+      fireEvent.click(
+        await screen.findByTestId('collaboration-contact-menu-move-g2')
+      );
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'thread.setGroup',
+          { threadId: 'direct:mem-a', groupId: 'g2' }
+        )
+      );
+      await waitFor(() =>
+        expect(sectionOf('collaboration-contact-row-direct:direct:mem-a')).toBe(
+          'collaboration-contact-section-g2'
+        )
+      );
+
+      // Drop on a section header moves to that group.
+      const data = new Map<string, string>([
+        ['application/x-vibex-contact', 'direct:mem-a'],
+      ]);
+      const dataTransfer = {
+        types: [...data.keys()],
+        getData: (type: string) => data.get(type) ?? '',
+        setData: vi.fn(),
+        dropEffect: 'move',
+      };
+      fireEvent.drop(
+        screen.getByTestId(
+          'collaboration-contact-section-header-__ungrouped__'
+        ),
+        { dataTransfer }
+      );
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'thread.setGroup',
+          { threadId: 'direct:mem-a', groupId: null }
+        )
+      );
+
+      // Delete 核心: its contacts go back to 未分组.
+      fireEvent.contextMenu(
+        screen.getByTestId('collaboration-contact-section-header-g1')
+      );
+      await user.click(
+        await screen.findByTestId('collaboration-contact-menu-delete')
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId('collaboration-contact-section-g1')
+        ).toBeNull()
+      );
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'contactGroup.delete',
+        { groupId: 'g1' }
+      );
+      expect(sectionOf('collaboration-contact-row-group:s1')).toBe(
+        'collaboration-contact-section-__ungrouped__'
+      );
+    });
+
+    it('creates a group with the inline input', async () => {
+      const user = userEvent.setup();
+      mockGroups([]);
+      renderPage();
+      await user.click(
+        await screen.findByTestId('collaboration-new-contact-group')
+      );
+      await user.type(
+        screen.getByTestId('collaboration-new-contact-group-input'),
+        '伙伴{Enter}'
+      );
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'contactGroup.create',
+          { workspaceId: 'workspace-1', name: '伙伴' }
+        )
+      );
+      expect(
+        await screen.findByTestId('collaboration-contact-section-g-new')
+      ).toHaveTextContent('伙伴');
+      expect(
+        screen.getByTestId('collaboration-contact-section-__ungrouped__')
+      ).toBeInTheDocument();
+    });
+  });
+
   it('private chat uses direct:<id> listMessages/post/markRead, shows queued message optimistically and reconciles', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();

@@ -6344,6 +6344,33 @@ async fn load_space_or_unassigned(
             workspace_id: workspace_id.to_string(),
         });
     }
+    if space_id.starts_with("direct:") {
+        let from_thread: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT workspace_id FROM collaboration_threads WHERE id = ? AND kind = 'direct'",
+        )
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        if let Some(workspace_id) = from_thread.flatten().filter(|id| !id.trim().is_empty()) {
+            return Ok(SpaceRow { workspace_id });
+        }
+        let from_session: Option<String> = sqlx::query_scalar(
+            r#"SELECT s.workspace_id
+               FROM collaboration_thread_members tm
+               JOIN sessions s ON s.id = tm.conversation_id
+               WHERE tm.thread_id = ?
+               LIMIT 1"#,
+        )
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        if let Some(workspace_id) = from_session.filter(|id| !id.trim().is_empty()) {
+            return Ok(SpaceRow { workspace_id });
+        }
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
     load_space(pool, space_id).await
 }
 

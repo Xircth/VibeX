@@ -37,6 +37,8 @@ import {
   readMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { AssistantDetailsCustomizeTab } from './AssistantDetailsCustomizeTab';
+import { AssistantDetailsSessionTab } from './AssistantDetailsSessionTab';
 import { GroupAvatar } from './GroupAvatar';
 import { GroupDetailsMembersTab } from './GroupDetailsMembersTab';
 import { GroupDetailsUsageTab } from './GroupDetailsUsageTab';
@@ -163,6 +165,10 @@ export type SpaceCollectionPanelParams = {
   projectId?: string;
   workspaceId?: string;
   workspacePath?: string;
+  variant?: 'group' | 'assistant';
+  memberId?: string;
+  conversationId?: string;
+  memberAvatar?: MemberBotAvatarConfig;
 };
 
 export function spaceCollectionPreviewPanelId(spaceId: string): string {
@@ -244,10 +250,25 @@ export function CollaborationSpaceCollectionDockviewPanel(
     projectId,
     workspacePath,
     workspaceId,
+    variant = 'group',
+    memberId,
+    conversationId,
+    memberAvatar,
   } = props.params;
+  const isAssistant = variant === 'assistant';
   const [detailsTab, setDetailsTab] = useState<
-    'details' | 'collection' | 'members'
-  >('members');
+    'details' | 'collection' | 'members' | 'customize'
+  >(isAssistant ? 'details' : 'members');
+  const [heroName, setHeroName] = useState(spaceName ?? '');
+  const [heroAvatar, setHeroAvatar] = useState<MemberBotAvatarConfig | null>(
+    memberAvatar ?? null
+  );
+  useEffect(() => {
+    if (spaceName) setHeroName(spaceName);
+  }, [spaceName]);
+  useEffect(() => {
+    if (memberAvatar) setHeroAvatar(memberAvatar);
+  }, [memberAvatar]);
   const panelActions = useOptionalPanelActionsContext();
   const [items, setItems] = useState<SpaceCollectionItemRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -555,25 +576,48 @@ export function CollaborationSpaceCollectionDockviewPanel(
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
-        <GroupAvatar
-          avatars={resolvedSpaceAvatars}
-          tagHue={spaceTagPreset?.hue}
-          size={64}
-        />
-        {spaceName ? (
-          <h2 className="collaboration-group-details-name">{spaceName}</h2>
+        {isAssistant ? (
+          <MemberBotAvatar
+            config={
+              heroAvatar ||
+              memberAvatar ||
+              resolvedSpaceAvatars[0] ||
+              deriveMemberBotAvatar(spaceId || heroName || 'bot')
+            }
+            className="h-16 w-16"
+          />
+        ) : (
+          <GroupAvatar
+            avatars={resolvedSpaceAvatars}
+            tagHue={spaceTagPreset?.hue}
+            size={64}
+          />
+        )}
+        {heroName || spaceName ? (
+          <h2 className="collaboration-group-details-name">
+            {heroName || spaceName}
+          </h2>
         ) : null}
         <div
           className="collaboration-group-details-tabs"
           role="tablist"
-          aria-label={COPY.groupDetailsButton}
+          aria-label={
+            isAssistant
+              ? COPY.assistantDetailsButton
+              : COPY.groupDetailsButton
+          }
         >
-          {(
-            [
-              ['details', COPY.groupDetailsTab],
-              ['collection', COPY.groupCollectionTab],
-              ['members', COPY.groupMembersTab],
-            ] as const
+          {(isAssistant
+            ? ([
+                ['details', COPY.assistantDetailsTab],
+                ['collection', COPY.assistantCollectionTab],
+                ['customize', COPY.assistantCustomizeTab],
+              ] as const)
+            : ([
+                ['details', COPY.groupDetailsTab],
+                ['collection', COPY.groupCollectionTab],
+                ['members', COPY.groupMembersTab],
+              ] as const)
           ).map(([id, label]) => (
             <button
               key={id}
@@ -590,7 +634,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
         </div>
       </div>
 
-      {detailsTab === 'members' ? (
+      {detailsTab === 'members' && !isAssistant ? (
         <GroupDetailsMembersTab
           spaceId={spaceId}
           workspaceId={workspaceId}
@@ -599,7 +643,30 @@ export function CollaborationSpaceCollectionDockviewPanel(
       ) : null}
 
       {detailsTab === 'details' ? (
-        <GroupDetailsUsageTab spaceId={spaceId} getAvatar={getAvatar} />
+        isAssistant ? (
+          <AssistantDetailsSessionTab conversationId={conversationId} />
+        ) : (
+          <GroupDetailsUsageTab spaceId={spaceId} getAvatar={getAvatar} />
+        )
+      ) : null}
+
+      {detailsTab === 'customize' && isAssistant && memberId ? (
+        <AssistantDetailsCustomizeTab
+          memberId={memberId}
+          conversationId={conversationId}
+          initialName={heroName || spaceName || ''}
+          initialAvatar={
+            heroAvatar ||
+            memberAvatar ||
+            resolvedSpaceAvatars[0] ||
+            deriveMemberBotAvatar(spaceId || 'bot')
+          }
+          onSaved={({ name, avatar }) => {
+            setHeroName(name);
+            setHeroAvatar(avatar);
+            props.api.setTitle(COPY.assistantDetailsButton);
+          }}
+        />
       ) : null}
 
       {detailsTab === 'collection' ? (

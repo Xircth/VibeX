@@ -303,23 +303,16 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByText('空间助手')).toBeTruthy();
     fireEvent.mouseLeave(statsBadge);
 
-    // Top horizontal member bar is shown, can filter messages by member, and can be collapsed/expanded
+    // Top horizontal member bar is shown and can be collapsed/expanded
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
     expect(screen.getByText('请查看')).toBeTruthy();
-    const filterMemberABtn = screen.getByRole('button', {
-      name: '筛选助手 小A',
+    const chipA = screen.getByRole('button', {
+      name: '打开 小A 会话',
     });
     expect(
-      filterMemberABtn.querySelector('.collaboration-top-member-chip-name')
+      chipA.querySelector('.collaboration-top-member-chip-name')
     ).toHaveTextContent('小A');
-    expect(filterMemberABtn).toHaveClass('collaboration-top-member-chip');
-    await user.click(filterMemberABtn);
-    expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getAllByText('你好').length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByText('请查看')).toBeNull();
-    await user.click(filterMemberABtn);
-    expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByText('请查看')).toBeTruthy();
+    expect(chipA).toHaveClass('collaboration-top-member-chip');
 
     await user.click(screen.getByRole('button', { name: '收起助手列表' }));
     expect(screen.queryByTestId('collaboration-top-member-bar')).toBeNull();
@@ -2392,8 +2385,9 @@ describe('CollaborationSpacePage', () => {
     expect(
       await screen.findByTestId('collaboration-top-member-bar')
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: '筛选助手 小A' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '打开 小A 会话' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '群组详情' })).toBeNull();
+    expect(screen.getByRole('button', { name: '助手详情' })).toBeTruthy();
     await waitFor(() => {
       expect(
         Array.from(document.querySelectorAll('.collaboration-message')).some(
@@ -2589,5 +2583,175 @@ describe('CollaborationSpacePage', () => {
       ).not.toBeNull();
     });
     markViewedSpy.mockRestore();
+  });
+
+  it('opens the current-chat bot session from the assistant list and the message sender', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'member.session.resolve') {
+          const memberId = String(input?.memberId ?? '');
+          const threadId = String(input?.threadId ?? '');
+          return {
+            conversationId: `${memberId}:${threadId}`,
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await screen.findByRole('button', { name: '设计' });
+    await user.click(await screen.findByRole('button', { name: '打开 小A 会话' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.session.resolve',
+        expect.objectContaining({ memberId: 'm1', threadId: 's1' })
+      );
+    });
+    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
+      'm1:s1'
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '预览 小B 会话' })
+    );
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.session.resolve',
+        expect.objectContaining({ memberId: 'm2', threadId: 's1' })
+      );
+    });
+    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
+      'm2:s1'
+    );
+  });
+
+  it('opens the private-chat bot session and assistant details tabs', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'member.session.resolve') {
+          return { conversationId: 'conv-dm-a' };
+        }
+        if (method === 'space.listCollection') {
+          return { items: [] };
+        }
+        if (method === 'member.config.get') {
+          return {
+            memberId: 'mem-a',
+            config: {
+              agent_id: 'CLAUDE_CODE',
+              mode_id: 'default',
+              config_values: { model: 'grok-4.6' },
+              persona_prompt: '你是小A',
+            },
+          };
+        }
+        if (input?.spaceId === 'direct:mem-a' && method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: {
+                  actor: 'vibex://space/direct/member/小A',
+                  content: '私聊一条',
+                },
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    expect(
+      await screen.findByTestId('collaboration-top-member-bar')
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '打开 小A 会话' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.session.resolve',
+        expect.objectContaining({
+          memberId: 'mem-a',
+          threadId: 'direct:mem-a',
+        })
+      );
+    });
+    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
+      'conv-dm-a'
+    );
+
+    await user.click(screen.getByRole('button', { name: '助手详情' }));
+    const panel = await screen.findByTestId(
+      'collaboration-space-collection-panel'
+    );
+    expect(within(panel).getByText('小A')).toBeTruthy();
+    expect(
+      within(panel).getByTestId('collaboration-group-details-tab-details')
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(panel).getByTestId('collaboration-assistant-details-session')
+    ).toBeTruthy();
+    expect(within(panel).queryByText('群收藏')).toBeNull();
+    expect(within(panel).getByText('收藏')).toBeTruthy();
+    expect(within(panel).getByText('自定义')).toBeTruthy();
+    expect(within(panel).queryByText('成员')).toBeNull();
+
+    await user.click(
+      within(panel).getByTestId('collaboration-group-details-tab-collection')
+    );
+    expect(
+      within(panel).getByTestId('collaboration-collection-dropzone')
+    ).toBeTruthy();
+
+    await user.click(
+      within(panel).getByTestId('collaboration-group-details-tab-customize')
+    );
+    expect(
+      await within(panel).findByTestId(
+        'collaboration-assistant-customize-form'
+      )
+    ).toBeTruthy();
+    expect(within(panel).getByRole('textbox', { name: '助手名称' })).toHaveValue(
+      '小A'
+    );
+    expect(within(panel).queryByRole('combobox', { name: '选择 Agent' })).toBeNull();
+    await waitFor(() => {
+      expect(within(panel).getByLabelText('人设提示词（可选）')).toHaveValue(
+        '你是小A'
+      );
+    });
   });
 });

@@ -31,6 +31,7 @@ import {
   Plus,
   Tag,
   Trash2,
+  FolderPlus,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -145,6 +146,30 @@ import {
   resolveMemberSession,
   updateThreadTagColor,
 } from './threadApi';
+import {
+  buildContactSections,
+  createContactGroup,
+  deleteContactGroup,
+  listContactGroups,
+  readCollapsedSections,
+  renameContactGroup,
+  setThreadGroup,
+  sortContactGroups,
+  UNGROUPED_SECTION_ID,
+  withThreadGroup,
+  writeCollapsedSections,
+  type ContactGroup,
+  type ContactSection,
+} from './contactGroups';
+import {
+  CONTACT_DRAG_TYPE,
+  ContactContextMenu,
+  ContactGroupNameInput,
+  ContactGroupSections,
+  contactMenuIcons,
+  type ContactMenuItem,
+  type ContactMenuState,
+} from './ContactGroupSections';
 import {
   COLLABORATION_PREVIEW_COMPONENTS,
   CollaborationPreviewDockviewTab,
@@ -766,6 +791,145 @@ export function CollaborationSpacePage({
     void refreshSidebar();
   }, [refreshSidebar]);
   const sidebarAvailable = sidebarItems !== null;
+  // Contact groups (backend: contactGroup.*). null = unavailable / not loaded.
+  const [contactGroups, setContactGroups] = useState<ContactGroup[] | null>(
+    null
+  );
+  const refreshContactGroups = useCallback(async () => {
+    if (!workspace) return;
+    setContactGroups(await listContactGroups(collaborationCall, workspace));
+  }, [workspace]);
+  useEffect(() => {
+    void refreshContactGroups();
+  }, [refreshContactGroups]);
+  // Only the collapsed state is local.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    setCollapsedSections(
+      workspace ? readCollapsedSections(workspace) : new Set()
+    );
+  }, [workspace]);
+  const toggleContactSection = useCallback(
+    (sectionId: string) => {
+      setCollapsedSections((current) => {
+        const next = new Set(current);
+        if (next.has(sectionId)) next.delete(sectionId);
+        else next.add(sectionId);
+        if (workspace) writeCollapsedSections(workspace, next);
+        return next;
+      });
+    },
+    [workspace]
+  );
+  const [creatingContactGroup, setCreatingContactGroup] = useState(false);
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [contactMenu, setContactMenu] = useState<ContactMenuState>(null);
+  const contactGroupFailed = useCallback(() => {
+    toast.error(t('collaborationSpace.contactGroupFailed', '分组操作失败'));
+  }, [t]);
+  const moveContactToSection = useCallback(
+    async (threadId: string, sectionId: string) => {
+      const groupId = sectionId === UNGROUPED_SECTION_ID ? null : sectionId;
+      setSidebarItems((items) =>
+        items ? withThreadGroup(items, threadId, groupId) : items
+      );
+      try {
+        await setThreadGroup(collaborationCall, threadId, groupId);
+      } catch {
+        contactGroupFailed();
+        void refreshSidebar();
+      }
+    },
+    [contactGroupFailed, refreshSidebar]
+  );
+  const createGroup = useCallback(
+    async (name: string) => {
+      if (!workspace) return;
+      try {
+        const group = await createContactGroup(
+          collaborationCall,
+          workspace,
+          name
+        );
+        setContactGroups((current) =>
+          sortContactGroups([
+            ...(current ?? []).filter((g) => g.group_id !== group.group_id),
+            group,
+          ])
+        );
+      } catch {
+        contactGroupFailed();
+      }
+    },
+    [workspace, contactGroupFailed]
+  );
+  const renameGroup = useCallback(
+    async (groupId: string, name: string) => {
+      setContactGroups((current) =>
+        current
+          ? current.map((group) =>
+              group.group_id === groupId ? { ...group, name } : group
+            )
+          : current
+      );
+      try {
+        const group = await renameContactGroup(
+          collaborationCall,
+          groupId,
+          name
+        );
+        setContactGroups((current) =>
+          current
+            ? current.map((g) => (g.group_id === group.group_id ? group : g))
+            : current
+        );
+      } catch {
+        contactGroupFailed();
+        void refreshContactGroups();
+      }
+    },
+    [contactGroupFailed, refreshContactGroups]
+  );
+  const deleteGroup = useCallback(
+    async (groupId: string) => {
+      setContactGroups((current) =>
+        current
+          ? current.filter((group) => group.group_id !== groupId)
+          : current
+      );
+      // Its contacts fall back to 未分组.
+      setSidebarItems((items) =>
+        items
+          ? items.map((item) =>
+              item.group_id === groupId ? { ...item, group_id: null } : item
+            )
+          : items
+      );
+      try {
+        const { ungroupedThreadIds } = await deleteContactGroup(
+          collaborationCall,
+          groupId
+        );
+        const ungrouped = new Set(ungroupedThreadIds);
+        setSidebarItems((items) =>
+          items
+            ? items.map((item) =>
+                ungrouped.has(item.thread_id)
+                  ? { ...item, group_id: null }
+                  : item
+              )
+            : items
+        );
+      } catch {
+        contactGroupFailed();
+        void refreshContactGroups();
+        void refreshSidebar();
+      }
+    },
+    [contactGroupFailed, refreshContactGroups, refreshSidebar]
+  );
   // Private chat (DM) whose messages live at `direct:<identity_member_id>`.
   const [activeDirect, setActiveDirect] = useState<{
     spaceId: string;
@@ -4307,6 +4471,112 @@ export function CollaborationSpacePage({
       : EMPTY_MEMBERS,
   });
   chatListRef.current = chatList;
+  const contactSections = sidebarAvailable
+    ? buildContactSections(
+        chatList,
+        contactGroups,
+        t('collaborationSpace.contactGroupUngrouped', '未分组')
+      )
+    : null;
+  const newGroupMenuItem: ContactMenuItem = {
+    kind: 'item',
+    label: t('collaborationSpace.contactGroupNew', '新建分组'),
+    icon: <FolderPlus className="size-3.5 opacity-70" />,
+    testId: 'collaboration-contact-menu-new-group',
+    onSelect: () => setCreatingContactGroup(true),
+  };
+  const openContactMenu = (
+    event: React.MouseEvent,
+    items: ContactMenuItem[]
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContactMenu({ x: event.clientX, y: event.clientY, items });
+  };
+  const openRowContactMenu = (
+    event: React.MouseEvent,
+    entry: ChatListEntry
+  ) => {
+    if (!contactSections || !entry.threadId) return;
+    const threadId = entry.threadId;
+    const current = entry.groupId ?? UNGROUPED_SECTION_ID;
+    const known = contactSections.some((section) => section.id === current)
+      ? current
+      : UNGROUPED_SECTION_ID;
+    openContactMenu(event, [
+      {
+        kind: 'submenu',
+        label: t('collaborationSpace.contactGroupMoveTo', '移动到分组'),
+        icon: contactMenuIcons.move,
+        testId: 'collaboration-contact-menu-move',
+        items: contactSections
+          .filter((section) => section.id !== known)
+          .map((section) => ({
+            label: section.name,
+            testId: `collaboration-contact-menu-move-${section.id}`,
+            onSelect: () => void moveContactToSection(threadId, section.id),
+          })),
+      },
+      { kind: 'separator' },
+      newGroupMenuItem,
+    ]);
+  };
+  const openSectionContactMenu = (
+    event: React.MouseEvent,
+    section: ContactSection<ChatListEntry>
+  ) => {
+    openContactMenu(
+      event,
+      section.ungrouped
+        ? [newGroupMenuItem]
+        : [
+            {
+              kind: 'item',
+              label: t('collaborationSpace.contactGroupRename', '重命名分组'),
+              icon: contactMenuIcons.rename,
+              testId: 'collaboration-contact-menu-rename',
+              onSelect: () => setRenamingGroupId(section.id),
+            },
+            {
+              kind: 'item',
+              label: t('collaborationSpace.contactGroupDelete', '删除分组'),
+              icon: contactMenuIcons.remove,
+              destructive: true,
+              testId: 'collaboration-contact-menu-delete',
+              onSelect: () => void deleteGroup(section.id),
+            },
+            { kind: 'separator' },
+            newGroupMenuItem,
+          ]
+    );
+  };
+  const renderChatEntry = (entry: ChatListEntry) =>
+    entry.type === 'group'
+      ? renderSpaceGroup(
+          { space_id: entry.spaceId, name: entry.name },
+          { entry }
+        )
+      : renderDirectChatRow(entry);
+  // Grouped mode: rows can be dragged between sections and right-clicked.
+  const renderSectionEntry = (entry: ChatListEntry) => (
+    <div
+      key={entry.key}
+      className="collaboration-contact-row"
+      draggable={Boolean(entry.threadId)}
+      data-testid={`collaboration-contact-row-${entry.key}`}
+      onDragStart={(event) => {
+        // Bubbles from the member row too; its member payload is kept so a
+        // drop on a group-chat row still adds the member.
+        if (entry.threadId && event.dataTransfer) {
+          event.dataTransfer.setData(CONTACT_DRAG_TYPE, entry.threadId);
+          event.dataTransfer.effectAllowed = 'copyMove';
+        }
+      }}
+      onContextMenu={(event) => openRowContactMenu(event, entry)}
+    >
+      {renderChatEntry(entry)}
+    </div>
+  );
 
   // Private chat: one agent member, rendered with that member's row (avatar,
   // name, last message); clicking opens the member's 1:1 chat.
@@ -5460,6 +5730,29 @@ export function CollaborationSpacePage({
                         </PopoverContent>
                       </Popover>
 
+                      {sidebarAvailable && contactGroups !== null ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          hidden={searchOpen}
+                          className={cn(
+                            SESSION_LIST_ACTION_BUTTON_CLASS,
+                            searchOpen && 'hidden'
+                          )}
+                          aria-label={t(
+                            'collaborationSpace.contactGroupNew',
+                            '新建分组'
+                          )}
+                          data-testid="collaboration-new-contact-group"
+                          onClick={() => setCreatingContactGroup(true)}
+                        >
+                          <FolderPlus
+                            className={SESSION_LIST_ACTION_ICON_CLASS}
+                          />
+                        </Button>
+                      ) : null}
+
                       <Button
                         type="button"
                         size="icon"
@@ -5487,8 +5780,53 @@ export function CollaborationSpacePage({
                     event.dataTransfer.dropEffect = 'move';
                   }
                 }}
+                onContextMenu={(event) => {
+                  if (!sidebarAvailable || contactGroups === null) return;
+                  openContactMenu(event, [newGroupMenuItem]);
+                }}
               >
-                {spaces.length === 0 ? (
+                {creatingContactGroup ? (
+                  <ContactGroupNameInput
+                    placeholder={t(
+                      'collaborationSpace.contactGroupNamePlaceholder',
+                      '分组名称'
+                    )}
+                    testId="collaboration-new-contact-group-input"
+                    onSubmit={(name) => {
+                      setCreatingContactGroup(false);
+                      void createGroup(name);
+                    }}
+                    onCancel={() => setCreatingContactGroup(false)}
+                  />
+                ) : null}
+                {contactSections ? (
+                  <ContactGroupSections
+                    sections={contactSections}
+                    collapsed={collapsedSections}
+                    renamingId={renamingGroupId}
+                    renamePlaceholder={t(
+                      'collaborationSpace.contactGroupNamePlaceholder',
+                      '分组名称'
+                    )}
+                    toggleLabel={(name) =>
+                      t('collaborationSpace.contactGroupToggle', {
+                        name,
+                        defaultValue: '折叠或展开 {{name}}',
+                      })
+                    }
+                    onToggle={toggleContactSection}
+                    onRenameSubmit={(groupId, name) => {
+                      setRenamingGroupId(null);
+                      void renameGroup(groupId, name);
+                    }}
+                    onRenameCancel={() => setRenamingGroupId(null)}
+                    onHeaderContextMenu={openSectionContactMenu}
+                    onDropContact={(sectionId, threadId) =>
+                      void moveContactToSection(threadId, sectionId)
+                    }
+                    renderEntry={renderSectionEntry}
+                  />
+                ) : spaces.length === 0 ? (
                   <>
                     {renderSpaceGroup(
                       {
@@ -5504,17 +5842,12 @@ export function CollaborationSpacePage({
                     )}
                   </>
                 ) : (
-                  <>
-                    {chatList.map((entry) =>
-                      entry.type === 'group'
-                        ? renderSpaceGroup(
-                            { space_id: entry.spaceId, name: entry.name },
-                            { entry }
-                          )
-                        : renderDirectChatRow(entry)
-                    )}
-                  </>
+                  <>{chatList.map(renderChatEntry)}</>
                 )}
+                <ContactContextMenu
+                  menu={contactMenu}
+                  onClose={() => setContactMenu(null)}
+                />
               </div>
             </div>
             {hasThread || showPreview ? (

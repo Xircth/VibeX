@@ -678,6 +678,14 @@
     "openWorkspaceFirst": "Open a workspace first",
     "receiptQueued": "Queued",
     "receiptClaimed": "Claimed",
-    "receiptFailed": "Failed"
+    "receiptFailed": "Failed",
+    "contactGroupUngrouped": "Ungrouped",
+    "contactGroupNew": "New group",
+    "contactGroupNamePlaceholder": "Group name",
+    "contactGroupRename": "Rename group",
+    "contactGroupDelete": "Delete group",
+    "contactGroupMoveTo": "Move to group",
+    "contactGroupToggle": "Collapse or expand {{name}}",
+    "contactGroupFailed": "Group action failed"
   }
 }

@@ -579,6 +579,9 @@ export function CollaborationWorkspace({
     [navigate, projectId, workspace]
   );
 
+  // Conversation of the member created last; the team flow seats it in the
+  // new group chat without widening createMember's return type.
+  const lastCreatedConversation = useRef<string | null>(null);
   const createMember = useCallback(
     async (input: {
       roleId?: string;
@@ -586,7 +589,10 @@ export function CollaborationWorkspace({
       persona?: string;
       nickname: string;
     }) => {
-      const result = await collaborationCall<{ member_id?: string }>(
+      const result = await collaborationCall<{
+        member_id?: string;
+        conversation_id?: string | null;
+      }>(
         'collaboration',
         'space.createMember',
         {
@@ -598,6 +604,7 @@ export function CollaborationWorkspace({
           operationId: newOperationId(),
         }
       );
+      lastCreatedConversation.current = result.conversation_id ?? null;
       return result.member_id ?? null;
     },
     [workspace]
@@ -690,12 +697,14 @@ export function CollaborationWorkspace({
       onCreateTeam={(template: TeamTemplate) =>
         void run(async () => {
           const fallbackAgent = roles[0]?.agent_id;
+          const seated: { conversationId: string; nickname: string }[] = [];
           for (const seat of template.members) {
             const role = roles.find(
               (r) =>
                 r.id === seat.roleHint ||
                 r.name.toLowerCase().includes(seat.roleHint.toLowerCase())
             );
+            lastCreatedConversation.current = null;
             await createMember(
               role
                 ? { roleId: role.id, nickname: seat.nickname }
@@ -705,6 +714,34 @@ export function CollaborationWorkspace({
                     nickname: seat.nickname,
                   }
             );
+            if (lastCreatedConversation.current) {
+              seated.push({
+                conversationId: lastCreatedConversation.current,
+                nickname: seat.nickname,
+              });
+            }
+          }
+          // The empty state promises a team *and* a group chat with it.
+          const created = await collaborationCall<Partial<Space>>(
+            'collaboration',
+            'space.create',
+            {
+              workspaceId: workspace,
+              name: template.name,
+              operationId: newOperationId(),
+            }
+          );
+          const spaceId = created.space_id;
+          if (spaceId) {
+            for (const member of seated) {
+              await collaborationCall('collaboration', 'space.addMember', {
+                spaceId,
+                conversationId: member.conversationId,
+                nickname: member.nickname,
+                operationId: newOperationId(),
+              });
+            }
+            setSelectedKey(groupKey(spaceId));
           }
           reload();
         })

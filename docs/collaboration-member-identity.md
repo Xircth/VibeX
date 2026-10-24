@@ -1,30 +1,41 @@
 # Collaboration member identity
 
-> **唯一权威文档。** 协作空间的成员、会话、私聊/群聊、联系人分组与宿主接口以本文为准。UI 视觉与交互细节见根目录 `DESIGN.md`（Designer 维护）。其他文档只链接到这里，不再各自复述模型。
+> **唯一权威文档。** 协作空间的bot、会话、私聊/群聊、联系人分组与宿主接口以本文为准。UI 视觉与交互细节见根目录 `DESIGN.md`（Designer 维护）。其他文档只链接到这里，不再各自复述模型。
+
+## 术语
+
+| 文档/界面 | 代码标识 |
+| --- | --- |
+| bot | member（`member.*`、`member_id`、`collaboration_members`） |
+| 群组 | space / group thread（`space.*`、`kind: group`） |
+| 私聊（和 bot 一对一聊天） | direct thread（`direct:<member_id>`、`kind: dm`） |
+| 群聊（在群组里聊天） | group thread 内的消息 |
+
+代码标识符不改名。
 
 ## 模型（当前）
 
-- **Member（成员）**：长期身份，不是会话。一行 `collaboration_members`。名下有一族隐藏会话：每个 thread（私聊或群聊）各一个。
-- **Thread**：`group`（群聊，id = space id）或 `direct`（私聊，id = `direct:<member_id>`）。
-- **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`，对用户隐藏。UI 只展示成员与聊天，不暴露会话列表。
-- **新建成员**（`space.createMember`）：只创建身份 + 一条私聊会话与 `direct:` thread，打开私聊。不加入任何群。表单参数与旧「新建成员」一致（Agent、mode、config、人设等），写入成员级会话配置。
-- **加入群聊**（`space.addMember`）：按成员配置为该群新建一条会话；**私聊会话保留**。不再用 `space.moveMember` 作为主路径（仍兼容，但不移除其它座位）。
+- **Member（bot）**：长期身份，不是会话。一行 `collaboration_members`。名下有一族隐藏会话：每个 thread（私聊或群聊）各一个。
+- **Thread**：`group`（群组，id = space id）或 `direct`（私聊，id = `direct:<member_id>`）。
+- **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`，对用户隐藏。UI 只展示bot与聊天，不暴露会话列表。
+- **新建 bot**（`space.createMember`）：只创建身份 + 一条私聊会话与 `direct:` thread，打开私聊。不加入任何群。表单参数与旧「新建 bot」一致（Agent、mode、config、人设等），写入bot级会话配置。
+- **加入群组**（`space.addMember`）：按bot 配置为该群新建一条会话；**私聊会话保留**。不再用 `space.moveMember` 作为主路径（仍兼容，但不移除其它座位）。
 - **联系人分组**（`contactGroup.*`）：联系人列表的归档文件夹。无分组时列表平铺；有分组时，未归入任何组的私聊/群聊由前端归入「未分组」（前端生成，无后端行）。
-- **标签标题**：私聊打开的会话标签只显示成员名；群里打开的显示「群名 · 成员名」。用 thread 的 `kind`（`dm` / `group`）区分。
+- **标签标题**：私聊打开的会话标签只显示bot名；群组里打开的显示「群名 · bot名」。用 thread 的 `kind`（`dm` / `group`）区分。
 - **回执**：群消息投递后 `receipt_state` 为 `queued` → `processing` → `replied`，只前进不后退。详见下文「运行时」。
 
-成员会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_values`、`persona_prompt`（迁移 `20261024100000`）。`resolve_session` / `member.session.resolve` 新建会话时用成员配置；无配置时回退角色模式。改配置只影响之后新建的会话。
+bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_values`、`persona_prompt`（迁移 `20261024100000`）。`resolve_session` / `member.session.resolve` 新建会话时用bot 配置；无配置时回退角色模式。改配置只影响之后新建的会话。
 
 ## 宿主接口（`call('collaboration', method, input)`）
 
-### 成员与会话
+### bot与会话
 
 | method | 要点 |
 | --- | --- |
 | `space.createMember` | 入参：`workspaceId`、`nickname`/`name`，可选 `agentId`、`roleId`、`modeId`、`configValues`、`personaPrompt`、`avatar`、`color`、`operationId`。忽略入参里的 `spaceId`。返回含 `conversation_id`、`identity_member_id`、`direct_thread_id`（`direct:<id>`）。 |
-| `space.addMember` | 把成员拉进群；为该 `(member, group thread)` 建会话，私聊保留。 |
-| `member.session.resolve` | `{ memberId, threadId }` → `{ conversationId }`。缺会话则按成员配置创建。头像点开会话标签必走此接口，不回退「最近会话」。 |
-| `member.config.get` / `member.config.update` | 读写成员级会话配置。 |
+| `space.addMember` | 把bot拉进群组；为该 `(member, group thread)` 建会话，私聊保留。 |
+| `member.session.resolve` | `{ memberId, threadId }` → `{ conversationId }`。缺会话则按bot 配置创建。头像点开会话标签必走此接口，不回退「最近会话」。 |
+| `member.config.get` / `member.config.update` | 读写bot级会话配置。 |
 | `member.memory.*` / `member.activity.list` | 用户侧记忆与活动（含 private）。 |
 
 ### 联系人列表 / thread
@@ -52,23 +63,23 @@
 | `20261024010000` | `collaboration_members` / `threads` / `thread_members` / `member_activity` / `member_facts` |
 | `20261024020000` | FK + `ON DELETE CASCADE` |
 | `20261024030000`–`060000` | 回执/origin、sleep/wake、handoffs、write_access |
-| `20261024100000` | 成员会话配置列 |
+| `20261024100000` | bot 会话配置列 |
 | `20261024110000` | sidebar 相关 |
 | `20261024120000` | `collaboration_contact_groups` + thread.`group_id` |
 
 `collaboration_space_members` 仍是投递/回执/去重读取的座位投影；座位的 `conversation_id` 与对应 `(member, thread)` 绑定一致。
 
-数据回填：`MemberIdentityMigration::run` 幂等；成员 id = UUIDv5(`vibex-member:<conversation>`)；每个 space 成为同 id 的 group thread；未分配空间座位成为私聊。
+数据回填：`MemberIdentityMigration::run` 幂等；bot id = UUIDv5(`vibex-member:<conversation>`)；每个 space 成为同 id 的 group thread；未分配空间座位成为私聊。
 
 ## 运行时
 
 - `resolve_session(member_id, thread_id) -> conversation_id`：缺则创建（db 写行；conversations 加人设与配置）。
 - 空间投递经身份解析后再提交；delivery/receipt/dedupe 逻辑不变。
 - `send_session_input` 可接受 `member_id` + `thread_id`，由宿主解析后发送。
-- 成员可同时在多个群；每群一条会话。
+- bot可同时在多个群组；每个群组一条会话。
 - **回执**：`receipt_state`：`queued` → `processing` → `replied`。群投递可带 `<missed_group_messages>`（最多 30 条）。
 - **Sleep / wake**：空闲会话可睡；唤醒有 cap（见环境变量 `VIBEX_MEMBER_*`）。
-- **Handoffs / write_access / 成员记忆**：见历史 Phase 2 / Phase 4 实现；Agent 工具见 `crates/agents/src/skills/vibex-multi-agent/MEMORY.md`。
+- **Handoffs / write_access / bot记忆**：见历史 Phase 2 / Phase 4 实现；Agent 工具见 `crates/agents/src/skills/vibex-multi-agent/MEMORY.md`。
 
 ## 回滚
 

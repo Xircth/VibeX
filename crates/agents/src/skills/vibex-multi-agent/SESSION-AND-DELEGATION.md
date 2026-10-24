@@ -1,5 +1,7 @@
 # 一等会话与委派规范（Session & Delegation Guide）
 
+> 术语：界面上「bot」即本文的「成员」（代码 member），「群组」即协作空间/群（代码 space）。私聊指和 bot 一对一聊天，群聊指在群组里聊天。
+
 VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型。工作区内用户直接创建的会话、基于角色模板创建的会话、以及委派产生的会话，都是一等公民，支持多轮续聊。
 
 协作空间里的**成员**是身份，不是一条可单独拉进群的会话：每个成员在私聊与每个群聊各有一条**隐藏会话**。用户 UI 不展示这些会话；Agent 在群里通过 `post_to_space` 工作，在需要点对点控制时才用 `send_session_input`（可传 `member_id` + `thread_id`，由宿主解析）。权威模型见仓库 `docs/collaboration-member-identity.md`。

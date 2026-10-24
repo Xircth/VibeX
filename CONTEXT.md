@@ -77,20 +77,21 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。
 - **Conversation relation（会话关系）** — 两个独立 Conversation 之间用于导航、可见性和汇总的亲子关系；它不共享历史，也不参与任一 Conversation 的事件读取。
 - **Delegated conversation（委派会话）** — 父 Conversation 为一项明确任务创建的 child Conversation；其 Conversation 与 Turn 事实独立持久化，父级只持有关系、策略和结果摘要。它是一次性的：子 Turn 到达终态即结束，父退出会取消仍在运行的委派。
-- **Role（角色）** — 设置里可复用的会话模板（名称、可选团队、简介、人设、Agent、会话配置）。可用于一等会话创建，也可在新建成员时可选地种子化成员配置。它不是协作空间联系人列表里的条目。
+- **Role（角色）** — 设置里可复用的会话模板（名称、可选团队、简介、人设、Agent、会话配置）。可用于一等会话创建，也可在新建 bot 时可选地种子化 bot 配置。它不是协作空间联系人列表里的条目。
 - **Team（团队）** — 角色的可选分组（设置侧）。与联系人列表里的「联系人分组」不是同一概念。
-- **Member（成员）** — 协作空间中的长期身份。名下有一族隐藏会话：每个私聊、每个群聊各一条。UI 展示成员与聊天，不暴露会话。权威定义见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
-- **Direct thread（私聊）** — 成员与用户的一对一 thread，id 为 `direct:<member_id>`。新建成员时只创建这一条会话。
-- **Contact group（联系人分组）** — 联系人列表的归档；无分组时平铺，「未分组」由前端生成。
-- **Conversation persona（会话人格投影）** — 创建当时从角色或成员配置抄下的名称、团队、简介和 Agent，绑在那一个 Conversation 上。之后改角色/成员配置都不改写已有会话。
+- **Bot（代码中为 member）** — 协作空间中的长期身份。名下有一族隐藏会话：私聊一条、每个群组各一条。UI 展示 bot 与聊天，不暴露会话。权威定义见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
+- **私聊（direct thread）** — 和 bot 一对一聊天的场景，id 为 `direct:<member_id>`。新建 bot 时只创建这一条会话。
+- **群组（代码中为 space / group thread）** — 多个 bot 与用户所在的群；「群聊」指在群组里聊天这一场景，不是对象名。
+- **Contact group（联系人分组）** — 联系人列表里私聊与群组的归档；无分组时平铺，「未分组」由前端生成。
+- **Conversation persona（会话人格投影）** — 创建当时从角色或 bot 配置抄下的名称、团队、简介和 Agent，绑在那一个 Conversation 上。之后改角色/bot 配置都不改写已有会话。
 - **Persona notice（人设说明）** — 创建会话时写入时间线的第一条可见说明，内容是当时的人设提示词。它不是 Composer 一级菜单里的一项。
 - **Spawned conversation（派生会话）** — 用 `create_conversation` 留下的一等 Conversation。它和父 Conversation 只有导航关系：不级联取消，也不套用一次性委派的先到终态。
 - **Delayed input（延时输入）** — 尚未进入普通队列的定时输入。到期后才提升为排队输入。它不是排队输入，也不是 Steering。
 - **Same-workspace send（同工作区发送）** — 协同写路径可以提交到同一工作区里的自己、子孙和其它会话。其它工作区、已删除或已归档的会话表现为不存在。
-- **Collaboration space（协作空间 / 群聊）** — 一个工作区内的 IM 群 thread：共享房间日志，按收件人向各成员的隐藏会话各提交一次。它不是 Conversation，也不是任务图。见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
-- **Space member seat（空间座位）** — 群里的一个昵称座位，绑定该成员在该 thread 的隐藏会话。用户座位对 Agent 不可见。
+- **Collaboration space（协作空间）** — 私聊与群组所在的内置 IM 界面；群组共享房间日志，按收件人向各 bot 的隐藏会话各提交一次。它不是 Conversation，也不是任务图。见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
+- **Space member seat（空间座位）** — 群组里的一个昵称座位，绑定该 bot 在该 thread 的隐藏会话。用户座位对 Agent 不可见。
 - **Space message（空间消息）** — 房间日志里的一条记录，带单调序号。它不是任一成员会话的历史。
-- **Delivery receipt（投递回执）** — 一条空间消息对一个成员会话的提交结果：`queued` → `processing` → `replied`。
+- **Delivery receipt（投递回执）** — 一条空间消息对一个 bot 会话的提交结果：`queued` → `processing` → `replied`。
 - **Composer reference（Composer 引用）** — 用户在 Composer 中用 `@` 插入的结构化引用。`@` 打开带 Tab 的引用面板，当前 Tab 为文件、项目、会话、提交与指令；`/`、`$`、`&` 仍是独立触发符。`#` 不再单独触发，原指令进入 `@` 的指令 Tab。见 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
 - **Project reference（项目引用）** — `@` 面板项目 Tab 中点名一个仍存在于 VibeX 的 Project。Token 显示为 `@` 加项目名称，Hover 展示完整绝对路径；发给 Agent 的消息展开为该路径。
 - **Quote reference（引用片段）** — 用户从会话消息流选中一段内容后插入 Composer 的结构化引用。序列化为 `[:quote](context)`；Token 显示为 `@` 加所选内容前四个字及省略号，Hover 展示完整内容。
@@ -105,7 +106,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 [ADR-0031](docs/adr/0031-llm-mediated-delegation-and-ampersand-agent-mentions.md)。
 聚焦已有会话面板见
 [ADR-0042](docs/adr/0042-conversations-are-first-class-dockview-panels.md)。
-协作空间成员身份与接口见
+协作空间 bot 身份、术语对照与接口见
 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
 角色模板与历史插件化决策见
 [ADR-0057](docs/adr/0057-session-enhance-and-multi-agent-plugins.md)

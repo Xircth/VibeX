@@ -65,7 +65,6 @@ import {
   COLLABORATION_WORKSPACE_TAB,
   effectiveWorkspaceTab,
   fallbackWorkspaceTab,
-  pluginSurfaceId,
 } from '@/lib/hostSurfaceIds';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { parkNativeSurfaceThen } from '@/lib/nativeSurfaceHandoff';
@@ -86,6 +85,7 @@ import {
 } from '@/lib/workspaceDefault';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
 import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
+import { collectPluginToolbarTabs } from './toolbarTabs';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -98,6 +98,13 @@ import { logoLeadsWindowChrome } from '@/utils/platform';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { useCollaborationLayoutStore } from '@/features/collaboration/collaborationLayoutStore';
 import { MoreHorizontal } from 'lucide-react';
+
+/** Built-in toolbar tab keys; plugin tab views with these ids are not shown separately. */
+const BUILTIN_TOOLBAR_TAB_KEYS: readonly string[] = [
+  'kanban',
+  'workspace',
+  COLLABORATION_WORKSPACE_TAB,
+];
 
 function ToolbarDivider() {
   return (
@@ -615,40 +622,27 @@ function WorkspaceTabSwitcher() {
     label: string;
     icon: typeof LayoutDashboard;
   }[] = useMemo(() => {
-    const seen = new Set<string>();
     const pluginTabItems: {
       key: WorkspaceTab;
       label: string;
       icon: typeof LayoutDashboard;
-    }[] = [];
-    for (const item of pluginTabs) {
-      const key = pluginSurfaceId(item.pluginId, item.id);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      pluginTabItems.push({
-        key,
+    }[] = collectPluginToolbarTabs(
+      BUILTIN_TOOLBAR_TAB_KEYS,
+      pluginTabs.map((item) => ({
+        pluginId: item.pluginId,
+        id: item.id,
         label: item.label,
-        icon: contributionIconComponent(
-          contributionMetadata(item).icon,
-          Puzzle
-        ),
-      });
-    }
-    for (const view of sdkViews) {
-      if (view.kind !== 'tab') continue;
-      const pluginId = view.pluginId ?? 'plugin';
-      const rawId = view.id.startsWith(`${pluginId}:`)
-        ? view.id.slice(pluginId.length + 1)
-        : view.id;
-      const key = pluginSurfaceId(pluginId, rawId);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      pluginTabItems.push({
-        key,
-        label: view.title,
-        icon: contributionIconComponent(view.icon, Puzzle),
-      });
-    }
+        icon: contributionMetadata(item).icon,
+      })),
+      sdkViews
+    ).map((item) => ({
+      key: item.key as WorkspaceTab,
+      label: item.label,
+      icon: contributionIconComponent(
+        item.icon as Parameters<typeof contributionIconComponent>[0],
+        Puzzle
+      ),
+    }));
     return [
       ...(kanbanViews.length > 0
         ? [

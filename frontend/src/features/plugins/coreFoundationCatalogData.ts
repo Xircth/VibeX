@@ -17,6 +17,7 @@ import { clearPluginCrashState } from '@/components/plugins/PluginBoundary';
 import { registerBuiltinCommands } from '@/components/search/SearchPalette';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
+import i18n from '@/i18n';
 import { COLLABORATION_WORKSPACE_TAB } from '@/lib/hostSurfaceIds';
 import { registerBuiltinKanbanViews } from '@/lib/kanbanViewCatalog';
 import { registerBuiltinSettingsPages } from '@/pages/settings/SettingsLayout';
@@ -1045,7 +1046,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         registerBuiltinCommands({ ctx });
         ctx.ui.registerView({
           id: COLLABORATION_WORKSPACE_TAB,
-          title: 'Collaboration Space',
+          title: i18n.t('panels:toolbar.collaboration'),
           kind: 'tab',
           slot: 'tab.main',
           component: CollaborationSpaceSurface,

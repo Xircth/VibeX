@@ -138,6 +138,14 @@ import {
 } from './collaborationApi';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import {
+  loadSidebarItems,
+  loadDirectMessages,
+  markThreadRead,
+  postDirectMessage,
+  resolveMemberSession,
+  updateThreadTagColor,
+} from './threadApi';
+import {
   COLLABORATION_PREVIEW_COMPONENTS,
   CollaborationPreviewDockviewTab,
   CollaborationPreviewHeaderActions,
@@ -183,6 +191,13 @@ import {
   type DeliveryReceipt,
   type SpaceMember,
   type SpaceTagConfig,
+  buildChatList,
+  resolvePrivateChatTarget,
+  type ChatListEntry,
+  type SidebarItem,
+  directThreadIdFor,
+  reconcilePendingDirectMessages,
+  type PendingDirectMessage,
 } from './spaceModel';
 import {
   MemberBotAvatar,
@@ -193,6 +208,7 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { GroupAvatar } from './GroupAvatar';
 import {
   SpaceMessageBody,
   bubbleText,
@@ -217,7 +233,7 @@ if (
   ).ResizeObserver = FallbackResizeObserver;
 }
 
-type Space = { space_id: string; name: string };
+type Space = { space_id: string; name: string; kind?: string };
 type SpaceMessage = {
   seq: number;
   envelope: {
@@ -737,6 +753,60 @@ export function CollaborationSpacePage({
   const messagesRef = useRef<SpaceMessage[]>([]);
   messagesRef.current = messages;
   const [selectedMemberKey, setSelectedMemberKey] = useState('');
+  const chatListRef = useRef<ChatListEntry[]>([]);
+  // `thread.listSidebar` items; null while unavailable (older backend).
+  const [sidebarItems, setSidebarItems] = useState<SidebarItem[] | null>(null);
+  const refreshSidebar = useCallback(async () => {
+    if (!workspace) return;
+    const items = await loadSidebarItems(collaborationCall, workspace);
+    setSidebarItems(items);
+  }, [workspace]);
+  useEffect(() => {
+    void refreshSidebar();
+  }, [refreshSidebar]);
+  const sidebarAvailable = sidebarItems !== null;
+  // Private chat (DM) whose messages live at `direct:<identity_member_id>`.
+  const [activeDirect, setActiveDirect] = useState<{
+    spaceId: string;
+    memberKey: string;
+    threadId: string;
+  } | null>(null);
+  const [pendingDirectMessages, setPendingDirectMessages] = useState<
+    PendingDirectMessage[]
+  >([]);
+  const activeDirectThreadId =
+    sidebarAvailable &&
+    activeDirect &&
+    activeDirect.spaceId === selectedId &&
+    activeDirect.memberKey === selectedMemberKey
+      ? activeDirect.threadId
+      : null;
+  const directThreadRef = useRef<string | null>(null);
+  directThreadRef.current = activeDirectThreadId;
+  const applyDirectMessages = useCallback(
+    (threadId: string, incoming: SpaceMessage[], merge: boolean) => {
+      setScheduledMessages([]);
+      setMessages((current) => {
+        const next = merge ? mergeSpaceMessages(current, incoming) : incoming;
+        setMessagesBySpace((bySpace) => ({ ...bySpace, [threadId]: next }));
+        return next;
+      });
+      setPendingDirectMessages((current) =>
+        reconcilePendingDirectMessages(current, incoming)
+      );
+      const seq = latestMessageSeq(incoming);
+      void markThreadRead(collaborationCall, threadId, seq || undefined);
+    },
+    []
+  );
+  useEffect(() => {
+    // Groups address their thread by space id; DMs are marked in openPrivateChat.
+    if (!sidebarAvailable || !selectedId) return;
+    const isGroup = chatListRef.current.some(
+      (entry) => entry.type === 'group' && entry.spaceId === selectedId
+    );
+    if (isGroup) void markThreadRead(collaborationCall, selectedId);
+  }, [sidebarAvailable, selectedId]);
   const [previewTabs, setPreviewTabs] = useState<PreviewTabItem[]>([]);
   const [activePreviewTabId, setActivePreviewTabId] = useState('');
   const previewTabsRef = useRef<PreviewTabItem[]>([]);
@@ -759,8 +829,18 @@ export function CollaborationSpacePage({
     resetCollaborationLayout,
   } = useCollaborationLayoutStore();
 
-  const selected =
+  const listedSelected =
     spaces.find((space) => space.space_id === selectedId) ?? null;
+  // A private chat's space (e.g. the unassigned space) may not be listed by
+  // space.list; give its message area a synthetic space so it still renders.
+  const selected = useMemo<Space | null>(
+    () =>
+      listedSelected ??
+      (activeDirectThreadId && selectedId
+        ? { space_id: selectedId, name: '', kind: 'direct' }
+        : null),
+    [listedSelected, activeDirectThreadId, selectedId]
+  );
   const isDefaultVirtualSpaceSelected =
     spaces.length === 0 && selectedId === VIRTUAL_DEFAULT_SPACE_ID;
   const hasOpenedSpaceThread =
@@ -1355,6 +1435,19 @@ export function CollaborationSpacePage({
         });
       }
       if (!selectedId || selectedId === VIRTUAL_DEFAULT_SPACE_ID) return;
+      const directThreadId = directThreadRef.current;
+      if (directThreadId) {
+        const page = await loadDirectMessages<SpaceMessage>(
+          collaborationCall,
+          directThreadId
+        );
+        if (cancelled) return;
+        if (page) {
+          applyDirectMessages(directThreadId, page.messages, false);
+          return;
+        }
+        // Older backend without direct threads: fall back to the space log.
+      }
       const messagePage = await collaborationCall<{
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
@@ -1380,7 +1473,15 @@ export function CollaborationSpacePage({
     return () => {
       cancelled = true;
     };
-  }, [openSpaceKey, selectedId, spaces, unassignedId, workspace]);
+  }, [
+    activeDirectThreadId,
+    applyDirectMessages,
+    openSpaceKey,
+    selectedId,
+    spaces,
+    unassignedId,
+    workspace,
+  ]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -1412,6 +1513,19 @@ export function CollaborationSpacePage({
 
     const syncIncrementalMessages = async (spaceId: string) => {
       const sinceSeq = latestMessageSeq(messagesRef.current);
+      const directThreadId = directThreadRef.current;
+      if (directThreadId) {
+        const direct = await loadDirectMessages<SpaceMessage>(
+          collaborationCall,
+          directThreadId,
+          sinceSeq
+        );
+        if (cancelled) return;
+        if (direct) {
+          applyDirectMessages(directThreadId, direct.messages, sinceSeq > 0);
+          return;
+        }
+      }
       const page = await collaborationCall<{
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
@@ -1457,6 +1571,7 @@ export function CollaborationSpacePage({
     void listenCollaborationSpaceChanged((payload) => {
       const event = parseSpaceChangedEvent(payload);
       if (!event || event.workspaceId !== workspace) return;
+      void refreshSidebar();
       if (
         (event.seq === undefined && event.memberId === undefined) ||
         event.memberId === 'batch_delete'
@@ -1476,7 +1591,9 @@ export function CollaborationSpacePage({
         if (
           selectedId &&
           selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
-          event.spaceId === selectedId
+          (event.spaceId === selectedId ||
+            (Boolean(directThreadRef.current) &&
+              event.spaceId === directThreadRef.current))
         ) {
           void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
             if (!cancelled) setError(surfaceErrorCopy(cause));
@@ -1536,7 +1653,9 @@ export function CollaborationSpacePage({
       window.removeEventListener('vibex:host-client-changed', handleReconnect);
     };
   }, [
+    applyDirectMessages,
     loadConversations,
+    refreshSidebar,
     openSpaceKey,
     selectedId,
     spaces,
@@ -1657,9 +1776,23 @@ export function CollaborationSpacePage({
       } else {
         next[spaceId] = config;
       }
-      writeSpaceTags(next);
+      if (!sidebarItems) writeSpaceTags(next);
       return next;
     });
+    if (sidebarItems) {
+      void updateThreadTagColor(
+        collaborationCall,
+        spaceId,
+        config?.colorId ?? ''
+      ).then((ok) => {
+        if (!ok) {
+          setSpaceTags((current) => {
+            writeSpaceTags(current);
+            return current;
+          });
+        }
+      });
+    }
   };
 
   const updateMemberAvatar = useCallback(
@@ -1793,14 +1926,77 @@ export function CollaborationSpacePage({
     markSpaceInReviewMembersViewed(spaceId);
   };
 
+  // Select a member's private (1:1) chat in the flat list and show the chat
+  // message area. Never opens a member session or session tab.
+  const openPrivateChat = (
+    spaceId: string,
+    member: SpaceMember,
+    threadId?: string
+  ) => {
+    const directThreadId = directThreadIdFor(member, threadId);
+    if (sidebarItems) {
+      const id = directThreadId || threadId || spaceId;
+      const lastSeq = sidebarItems.find((item) => item.thread_id === id)
+        ?.last_message?.seq;
+      void markThreadRead(
+        collaborationCall,
+        id,
+        typeof lastSeq === 'number' ? lastSeq : undefined
+      );
+    }
+    setActiveDirect(
+      directThreadId
+        ? {
+            spaceId,
+            memberKey: previewMemberKey(spaceId, member),
+            threadId: directThreadId,
+          }
+        : null
+    );
+    if (member.conversation_id) {
+      markMemberConversationViewed(member.conversation_id);
+    }
+    closeAllOverlays();
+    pendingViewedSpaceIdRef.current = spaceId;
+    setSelectedId(spaceId);
+    setSelectedMemberKey(previewMemberKey(spaceId, member));
+    setThreadVisible(true);
+  };
+
   const selectMemberForPreview = (spaceId: string, member: SpaceMember) => {
     if (spaces.some((item) => item.space_id === spaceId)) {
       setSelectedId(spaceId);
     }
+    const memberKey = previewMemberKey(spaceId, member);
+    if (member.member_id && sidebarItems) {
+      // Thread-scoped member session; fall back to the member's own one.
+      const threadId =
+        chatListRef.current.find(
+          (entry) => entry.type === 'group' && entry.spaceId === spaceId
+        )?.threadId ?? spaceId;
+      void resolveMemberSession(
+        collaborationCall,
+        member.member_id,
+        threadId
+      ).then((resolved) => {
+        const conversationId = resolved || member.conversation_id || '';
+        if (!conversationId) return;
+        setSelectedMemberKey(memberKey);
+        openMemberPreview(spaceId, member, conversationId);
+      });
+      return;
+    }
     const conversationId = member.conversation_id ?? '';
     if (!conversationId) return;
-    const memberKey = previewMemberKey(spaceId, member);
     setSelectedMemberKey(memberKey);
+    openMemberPreview(spaceId, member, conversationId);
+  };
+
+  const openMemberPreview = (
+    spaceId: string,
+    member: SpaceMember,
+    conversationId: string
+  ) => {
     const conv = conversationById.get(conversationId);
     const agentId =
       conv?.agent_id || draftMemberMetaByConvId[conversationId]?.agentId;
@@ -1881,6 +2077,10 @@ export function CollaborationSpacePage({
       member_id?: string;
       conversation_id?: string;
       nickname?: string;
+      private_thread_id?: string;
+      private_conversation_id?: string;
+      identity_member_id?: string;
+      direct_thread_id?: string;
     }>('collaboration', 'space.createMember', {
       workspaceId: workspace,
       spaceId: params.spaceId,
@@ -2020,32 +2220,20 @@ export function CollaborationSpacePage({
 
     if (createdSpaceId && selectedSpaceMemberConvIds.size > 0) {
       const usedNames = new Set(allExistingNicknames);
-      const unassignedList = membersBySpace[unassignedId] ?? [];
       for (const convId of selectedSpaceMemberConvIds) {
         const draftMeta = draftMemberMetaByConvId[convId];
         const existingNick =
           draftMeta?.nickname || memberNicknameByConversationId.get(convId);
         const nick = existingNick || randomEnglishNickname(usedNames);
         usedNames.add(nick);
-        const isUnassigned = unassignedList.some(
-          (item) => item.conversation_id === convId
-        );
-        if (isUnassigned && unassignedId) {
-          await collaborationCall('collaboration', 'space.moveMember', {
-            fromSpaceId: unassignedId,
-            toSpaceId: createdSpaceId,
-            conversationId: convId,
-            nickname: nick,
-            operationId: crypto.randomUUID(),
-          });
-        } else {
-          await collaborationCall('collaboration', 'space.addMember', {
-            spaceId: createdSpaceId,
-            conversationId: convId,
-            nickname: nick,
-            operationId: crypto.randomUUID(),
-          });
-        }
+        // Joining a group keeps the member's private chat: the backend
+        // creates a separate group session for the new seat.
+        await collaborationCall('collaboration', 'space.addMember', {
+          spaceId: createdSpaceId,
+          conversationId: convId,
+          nickname: nick,
+          operationId: crypto.randomUUID(),
+        });
       }
     }
 
@@ -2116,7 +2304,17 @@ export function CollaborationSpacePage({
       setCreateMemberOpen(false);
       await loadConversations();
       await reloadSpaceMembers(targetSpaceId);
-      setExpanded((current) => ({ ...current, [targetSpaceId]: true }));
+      if (unassignedId && unassignedId !== targetSpaceId) {
+        await reloadSpaceMembers(unassignedId);
+      }
+      const target = resolvePrivateChatTarget({
+        created: { conversation_id: newMemberSessionId },
+        fallbackNickname: trimmedNickname,
+        directSpaceId: unassignedId || targetSpaceId,
+        chatList: chatListRef.current,
+      });
+      void refreshSidebar();
+      openPrivateChat(target.spaceId, target.member, target.threadId);
       return;
     }
 
@@ -2129,7 +2327,7 @@ export function CollaborationSpacePage({
         ? createMemberSpaceId
         : '';
 
-    const { created, resolvedAgentId } = await requestCreateMemberSession({
+    const { created } = await requestCreateMemberSession({
       spaceId: targetSpaceId,
       nickname: trimmedNickname,
       source: newMemberSource,
@@ -2158,22 +2356,24 @@ export function CollaborationSpacePage({
     await loadConversations();
     if (effectiveSpaceId) {
       await reloadSpaceMembers(effectiveSpaceId);
-      setExpanded((current) => ({ ...current, [effectiveSpaceId]: true }));
+    }
+    if (unassignedId && unassignedId !== effectiveSpaceId) {
+      await reloadSpaceMembers(unassignedId);
     }
     if (created?.conversation_id) {
-      openPreviewItem({
-        id: memberPreviewPanelId(created.conversation_id),
-        kind: 'member',
-        title: created.nickname || trimmedNickname,
-        workspaceId: workspace,
-        conversationId: created.conversation_id,
-        ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
-        spaceId: effectiveSpaceId,
+      // A member is a session family: land on its private chat, not a session.
+      const target = resolvePrivateChatTarget({
+        created,
+        fallbackNickname: trimmedNickname,
+        directSpaceId: unassignedId || effectiveSpaceId,
+        chatList: chatListRef.current,
       });
+      void refreshSidebar();
+      openPrivateChat(target.spaceId, target.member, target.threadId);
     }
   };
 
-  const moveMemberBetweenSpaces = async (
+  const addMemberToSpace = async (
     fromSpaceId: string,
     toSpaceId: string,
     conversationId: string,
@@ -2182,6 +2382,7 @@ export function CollaborationSpacePage({
     if (!fromSpaceId || !toSpaceId || !conversationId) return;
     if (fromSpaceId === toSpaceId) return;
 
+    // Adding to a group keeps the source seat (the private chat stays).
     setMembersBySpace((current) => {
       const sourceList = current[fromSpaceId] ?? [];
       const targetList = current[toSpaceId] ?? [];
@@ -2191,9 +2392,6 @@ export function CollaborationSpacePage({
       if (!moving) return current;
       return {
         ...current,
-        [fromSpaceId]: sourceList.filter(
-          (item) => item.conversation_id !== conversationId
-        ),
         [toSpaceId]: targetList.some(
           (item) => item.conversation_id === conversationId
         )
@@ -2249,9 +2447,8 @@ export function CollaborationSpacePage({
         }
       }
 
-      await collaborationCall('collaboration', 'space.moveMember', {
-        fromSpaceId: effectiveFromSpaceId,
-        toSpaceId: effectiveToSpaceId,
+      await collaborationCall('collaboration', 'space.addMember', {
+        spaceId: effectiveToSpaceId,
         conversationId,
         ...(fallbackNickname ? { nickname: fallbackNickname } : {}),
         operationId: crypto.randomUUID(),
@@ -2713,6 +2910,53 @@ export function CollaborationSpacePage({
     }
     setSending(true);
     try {
+      const directThreadId = directThreadRef.current;
+      if (directThreadId) {
+        // Busy members queue the turn, so the message is not listed until it
+        // starts: show it optimistically and reconcile on operationId/content.
+        const op = operationId;
+        setPendingDirectMessages((current) => [
+          ...current.filter((item) => item.operationId !== op),
+          {
+            operationId: op,
+            threadId: directThreadId,
+            content,
+            createdAt: Date.now(),
+          },
+        ]);
+        try {
+          await postDirectMessage(
+            collaborationCall,
+            directThreadId,
+            content,
+            op
+          );
+        } catch (cause) {
+          setPendingDirectMessages((current) =>
+            current.filter((item) => item.operationId !== op)
+          );
+          throw cause;
+        }
+        setDraft('');
+        replaceDraftRef.current?.('');
+        setAttachedImages((prev) => {
+          clearComposerImageAttachments(prev);
+          return [];
+        });
+        setError('');
+        setOperationId(crypto.randomUUID());
+        void loadConversations();
+        void refreshSidebar();
+        const sinceSeq = latestMessageSeq(messagesRef.current);
+        const page = await loadDirectMessages<SpaceMessage>(
+          collaborationCall,
+          directThreadId,
+          sinceSeq
+        );
+        if (page)
+          applyDirectMessages(directThreadId, page.messages, sinceSeq > 0);
+        return;
+      }
       const recipients = postRecipients(textPart || content, members);
       const posted = await collaborationCall<{
         seq?: number;
@@ -3487,7 +3731,11 @@ export function CollaborationSpacePage({
     );
   };
 
-  const renderMemberRow = (spaceId: string, member: SpaceMember) => {
+  const renderMemberRow = (
+    spaceId: string,
+    member: SpaceMember,
+    onOpen?: () => void
+  ) => {
     const conversationId = member.conversation_id ?? '';
     const memberKey = previewMemberKey(spaceId, member);
     const tabId = conversationId ? memberPreviewPanelId(conversationId) : '';
@@ -3661,7 +3909,7 @@ export function CollaborationSpacePage({
                   suppressNextMemberClickRef.current = false;
                 }, 0);
                 if (finalSpaceId && finalSpaceId !== payload.fromSpaceId) {
-                  void moveMemberBetweenSpaces(
+                  void addMemberToSpace(
                     payload.fromSpaceId,
                     finalSpaceId,
                     payload.conversationId,
@@ -3824,6 +4072,10 @@ export function CollaborationSpacePage({
                           conversationId
                         ) {
                           handleToggleMemberDelete(spaceId, conversationId);
+                          return;
+                        }
+                        if (onOpen) {
+                          onOpen();
                           return;
                         }
                         selectMemberForPreview(spaceId, member);
@@ -4013,35 +4265,80 @@ export function CollaborationSpacePage({
     );
   };
 
+  const chatList = buildChatList({
+    sidebarItems,
+    spaces: visibleSpaces,
+    membersBySpace,
+    unassignedSpaceId: unassignedId || undefined,
+    // Every agent's direct (1:1) chat lives in the unassigned space, even when
+    // it also holds a seat in a group, so list the full direct roster.
+    unassignedMembers: unassignedId
+      ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
+      : EMPTY_MEMBERS,
+  });
+  chatListRef.current = chatList;
+
+  // Private chat: one agent member, rendered with that member's row (avatar,
+  // name, last message); clicking opens the member's 1:1 chat.
+  const renderDirectChatRow = (
+    entry: Extract<ChatListEntry, { type: 'direct' }>
+  ) => (
+    <div
+      key={entry.key}
+      className="collaboration-chat-direct"
+      data-testid={`collaboration-direct-chat-${entry.key}`}
+      data-chat-type="direct"
+    >
+      {renderMemberRow(entry.spaceId, entry.member, () =>
+        openPrivateChat(entry.spaceId, entry.member, entry.threadId)
+      )}
+      {renderChatMeta(entry)}
+    </div>
+  );
+
+  // Last-message preview + unread badge; renders nothing when absent.
+  const renderChatMeta = (entry: ChatListEntry) =>
+    entry.lastPreview || entry.unreadCount ? (
+      <span
+        className="collaboration-chat-meta"
+        data-testid={`collaboration-chat-meta-${entry.key}`}
+      >
+        {entry.lastPreview ? (
+          <span className="collaboration-chat-preview">
+            {entry.lastPreview}
+          </span>
+        ) : null}
+        {entry.unreadCount ? (
+          <span className="collaboration-chat-unread">{entry.unreadCount}</span>
+        ) : null}
+      </span>
+    ) : null;
+
   const renderSpaceGroup = (
     space: Space,
-    options: { isUnassigned?: boolean; isVirtualDefault?: boolean } = {}
+    options: {
+      isUnassigned?: boolean;
+      isVirtualDefault?: boolean;
+      entry?: Extract<ChatListEntry, { type: 'group' }>;
+    } = {}
   ) => {
-    const { isUnassigned = false, isVirtualDefault = false } = options;
-    const open =
-      space.space_id in expanded
-        ? expanded[space.space_id]
-        : isVirtualDefault || isUnassigned || space.space_id === selectedId;
+    const { isUnassigned = false, isVirtualDefault = false, entry } = options;
+    // Flat chat list: group rows never expand into a member list.
+    const open = false;
     // Requirement 1: User ('你') is an invisible member and never appears in the member list
     const rawSpaceMembers = agentRoster(
       isUnassigned
         ? unassignedMembers
-        : (membersBySpace[space.space_id] ?? EMPTY_MEMBERS)
+        : (membersBySpace[space.space_id] ??
+            (entry?.members.length ? entry.members : EMPTY_MEMBERS))
     );
-    const queryLower = searchQuery.trim().toLowerCase();
-    const spaceNameMatches =
-      !queryLower || space.name.toLowerCase().includes(queryLower);
-    const spaceMembers =
-      queryLower && !spaceNameMatches
-        ? rawSpaceMembers.filter((member) =>
-            doesMemberMatchQuery(member, queryLower)
-          )
-        : rawSpaceMembers;
-    const visibleAgentCount = rawSpaceMembers.length;
+    const visibleAgentCount = entry?.memberCount ?? rawSpaceMembers.length;
     const spaceMemberAvatars = rawSpaceMembers.map((member) =>
       getMemberAvatar(member.conversation_id ?? undefined, displayName(member))
     );
-    const tagConfig = spaceTags[space.space_id];
+    const tagConfig =
+      spaceTags[space.space_id] ??
+      (entry?.tagColor ? { colorId: entry.tagColor } : undefined);
     const tagPreset = tagConfig
       ? SPACE_TAG_PRESETS.find((preset) => preset.id === tagConfig.colorId)
       : undefined;
@@ -4100,7 +4397,7 @@ export function CollaborationSpacePage({
           setDraggingMember(null);
           setPointerDragCursor(null);
           if (payload && payload.fromSpaceId !== space.space_id) {
-            void moveMemberBetweenSpaces(
+            void addMemberToSpace(
               payload.fromSpaceId,
               space.space_id,
               payload.conversationId,
@@ -4136,9 +4433,9 @@ export function CollaborationSpacePage({
                   );
                 }}
               >
-                <CollaborationSpaceIcon
+                <GroupAvatar
                   avatars={spaceMemberAvatars}
-                  tagPreset={tagPreset}
+                  tagHue={tagPreset?.hue}
                 />
                 <Input
                   aria-label="修改空间名称输入框"
@@ -4186,7 +4483,6 @@ export function CollaborationSpacePage({
                   type="button"
                   className="workspace-session-row-main collaboration-space-header-main"
                   aria-label={space.name}
-                  aria-expanded={open}
                   onClick={() => {
                     if (!isUnassigned && !isVirtualDefault) {
                       const nextOpen =
@@ -4215,34 +4511,13 @@ export function CollaborationSpacePage({
                     }
                   }}
                 >
-                  <CollaborationSpaceIcon
+                  <GroupAvatar
                     avatars={spaceMemberAvatars}
-                    tagPreset={tagPreset}
+                    tagHue={tagPreset?.hue}
                   />
                   <span className="workspace-session-title is-cjk">
                     {space.name}
                   </span>
-                  {!open && spaceMemberAvatars.length > 0 ? (
-                    <span
-                      className="collaboration-space-collapsed-member-stack"
-                      data-testid={`collaboration-space-collapsed-stack-${space.space_id}`}
-                      aria-hidden="true"
-                    >
-                      {spaceMemberAvatars.map((avatar, index) => (
-                        <span
-                          key={index}
-                          className="collaboration-space-collapsed-stack-item"
-                          style={{ zIndex: spaceMemberAvatars.length - index }}
-                        >
-                          <MemberBotAvatar
-                            config={avatar}
-                            animated={false}
-                            className="h-3.5 w-3.5"
-                          />
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
                   <span
                     className={cn(
                       'collaboration-space-meta',
@@ -4254,6 +4529,7 @@ export function CollaborationSpacePage({
                       {visibleAgentCount}
                     </span>
                   </span>
+                  {entry ? renderChatMeta(entry) : null}
                 </button>
                 {hasSpaceHoverActions ? (
                   <div className="collaboration-space-hover-actions">
@@ -4351,33 +4627,6 @@ export function CollaborationSpacePage({
         </div>
         {isEditingSpaceName && renameSpaceError ? (
           <p className="collaboration-error px-2 text-xs">{renameSpaceError}</p>
-        ) : null}
-        {open ? (
-          <div className="collaboration-member-list">
-            {spaceMembers.length === 0 ? (
-              <div className="collaboration-member-empty">
-                <span>
-                  {t('collaborationSpace.emptyMembers', COPY.noMemberSessions)}
-                </span>
-                {!isUnassigned && !isVirtualDefault ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      openCreateMemberDialog(space.space_id, 'session')
-                    }
-                  >
-                    {t('collaborationSpace.addMember', COPY.addMember)}
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              spaceMembers.map((member) =>
-                renderMemberRow(space.space_id, member)
-              )
-            )}
-          </div>
         ) : null}
       </div>
     );
@@ -5057,9 +5306,6 @@ export function CollaborationSpacePage({
                   />
                 ) : (
                   <>
-                    <span className="shrink-0 text-[12px] font-semibold leading-none text-foreground">
-                      {t('collaborationSpace.title', '协作空间')}
-                    </span>
                     <div
                       className={cn(
                         'ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1',
@@ -5221,28 +5467,22 @@ export function CollaborationSpacePage({
                       },
                       { isVirtualDefault: true }
                     )}
-                    {unassignedId && unassignedMembers.length > 0
-                      ? renderSpaceGroup(
-                          {
-                            space_id: unassignedId,
-                            name: COPY.unassignedSpaceName,
-                          },
-                          { isUnassigned: true }
-                        )
-                      : null}
+                    {chatList.map((entry) =>
+                      entry.type === 'direct'
+                        ? renderDirectChatRow(entry)
+                        : null
+                    )}
                   </>
                 ) : (
                   <>
-                    {visibleSpaces.map((space) => renderSpaceGroup(space))}
-                    {unassignedId
-                      ? renderSpaceGroup(
-                          {
-                            space_id: unassignedId,
-                            name: COPY.unassignedSpaceName,
-                          },
-                          { isUnassigned: true }
-                        )
-                      : null}
+                    {chatList.map((entry) =>
+                      entry.type === 'group'
+                        ? renderSpaceGroup(
+                            { space_id: entry.spaceId, name: entry.name },
+                            { entry }
+                          )
+                        : renderDirectChatRow(entry)
+                    )}
                   </>
                 )}
               </div>
@@ -5710,6 +5950,40 @@ export function CollaborationSpacePage({
                     );
                   })
                 ) : null}
+                {selected && activeDirectThreadId
+                  ? pendingDirectMessages
+                      .filter((item) => item.threadId === activeDirectThreadId)
+                      .map((item) => (
+                        <article
+                          key={`pending-${item.operationId}`}
+                          className="collaboration-message"
+                          data-pending="true"
+                          data-testid={`collaboration-pending-message-${item.operationId}`}
+                        >
+                          <SpaceMessageBody
+                            fromYou
+                            text={item.content}
+                            workspacePath={workspacePath}
+                            workspaceId={workspace || undefined}
+                          />
+                          <ul className="collaboration-receipts">
+                            <li
+                              className="collaboration-receipt"
+                              data-status="queued"
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                <Check
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                  data-testid="collaboration-pending-tick"
+                                />
+                                {COPY.receiptQueued}
+                              </span>
+                            </li>
+                          </ul>
+                        </article>
+                      ))
+                  : null}
               </div>
 
               <ConversationSelectionToolbar
@@ -5748,9 +6022,17 @@ export function CollaborationSpacePage({
                   onDeleteQueuedMessage={(message) => {
                     void handleDeleteSpaceQueuedMessage(message);
                   }}
-                  onDelayQueuedMessage={(message, delaySeconds) => {
-                    void handleDelaySpaceQueuedMessage(message, delaySeconds);
-                  }}
+                  onDelayQueuedMessage={
+                    // delaySeconds is not supported for private chats.
+                    activeDirectThreadId
+                      ? undefined
+                      : (message, delaySeconds) => {
+                          void handleDelaySpaceQueuedMessage(
+                            message,
+                            delaySeconds
+                          );
+                        }
+                  }
                 />
                 <SessionComposerFrame
                   drawer={

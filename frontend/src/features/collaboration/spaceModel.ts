@@ -683,3 +683,313 @@ export function toggleMemberDeleteSelection(
   }
   return nextMembers;
 }
+
+// ── Flat chat list (groups + private chats) ─────────────────────────────
+
+export type ChatListSpace = {
+  space_id: string;
+  name: string;
+  /** Explicit list-item kind from the backend: 'dm' | 'direct' | 'group'. */
+  kind?: string;
+};
+
+export function isPrivateChatKind(kind: string | null | undefined): boolean {
+  return kind === 'dm' || kind === 'direct';
+}
+
+export type ChatListEntry =
+  | ({
+      type: 'group';
+      key: string;
+      spaceId: string;
+      name: string;
+      /** Non-user agent members in display order (all; avatar shows first 4). */
+      members: SpaceMember[];
+    } & ChatListMeta)
+  | ({
+      type: 'direct';
+      key: string;
+      /** Space the 1:1 chat lives in (a 1-agent space or the unassigned space). */
+      spaceId: string;
+      name: string;
+      member: SpaceMember;
+      /** True when this comes from a real space with exactly one agent. */
+      fromSpace: boolean;
+    } & ChatListMeta);
+
+/** Extra row data only the `thread.listSidebar` endpoint provides. */
+export type ChatListMeta = {
+  threadId?: string;
+  tagColor?: string;
+  /** Preview text of the last message; absent means render nothing. */
+  lastPreview?: string;
+  lastActivityAt?: string;
+  unreadCount?: number;
+  /** Total non-user members (groups), when known. */
+  memberCount?: number;
+};
+
+/** Member shape returned by `thread.listSidebar` / `member.list`. */
+export type SidebarMember = {
+  member_id: string;
+  name?: string;
+  avatar?: unknown;
+  color?: string;
+  conversation_id?: string | null;
+  agent?: string;
+};
+
+export type SidebarItem = {
+  kind: string;
+  thread_id: string;
+  space_id?: string | null;
+  name?: string;
+  tag_color?: string | null;
+  last_message?: {
+    id?: string | number;
+    seq?: number;
+    preview?: string;
+    origin?: string;
+    created_at?: string;
+  } | null;
+  last_activity_at?: string | null;
+  unread_count?: number;
+  members_preview?: SidebarMember[];
+  member_count?: number;
+  member?: SidebarMember | null;
+};
+
+export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
+  return {
+    kind: 'agent',
+    member_id: member.member_id,
+    nickname: member.name,
+    conversation_id: member.conversation_id ?? undefined,
+  };
+}
+
+/** Map `thread.listSidebar` items (already sorted by activity) to list rows. */
+export function chatListFromSidebar(
+  items: readonly SidebarItem[],
+  unassignedSpaceId?: string
+): ChatListEntry[] {
+  const entries: ChatListEntry[] = [];
+  for (const item of items) {
+    const meta: ChatListMeta = {
+      threadId: item.thread_id,
+      tagColor: item.tag_color || undefined,
+      lastPreview: item.last_message?.preview || undefined,
+      lastActivityAt: item.last_activity_at || undefined,
+      unreadCount: item.unread_count || undefined,
+    };
+    if (isPrivateChatKind(item.kind)) {
+      if (!item.member) continue;
+      entries.push({
+        type: 'direct',
+        key: `direct:${item.thread_id}`,
+        spaceId: item.space_id || unassignedSpaceId || item.thread_id,
+        name: item.member.name || item.name || '',
+        member: sidebarMemberToSpaceMember(item.member),
+        fromSpace: false,
+        ...meta,
+      });
+    } else {
+      entries.push({
+        type: 'group',
+        key: `group:${item.thread_id}`,
+        // Group messages/posts address the thread id as the space id.
+        spaceId: item.thread_id,
+        name: item.name || '',
+        members: (item.members_preview ?? []).map(sidebarMemberToSpaceMember),
+        memberCount: item.member_count,
+        ...meta,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
+ * Single data adapter for the left chat list. Today it derives entries from
+ * `space.list` + per-space member rosters; swap the body for the combined
+ * chat-list endpoint once the backend ships it (type, name, tag color, last
+ * preview, unread, first 4 non-user avatars, sorted by recent activity).
+ *
+ * Rules: a space with exactly one non-user agent member is a private chat;
+ * any other space is a group chat. Members of the unassigned (direct) space
+ * are each their own private chat.
+ */
+export function buildChatList(input: {
+  /** `thread.listSidebar` items; when present they win over derivation. */
+  sidebarItems?: readonly SidebarItem[] | null;
+  spaces: readonly ChatListSpace[];
+  membersBySpace: Readonly<Record<string, readonly SpaceMember[] | undefined>>;
+  unassignedSpaceId?: string;
+  unassignedMembers?: readonly SpaceMember[];
+}): ChatListEntry[] {
+  if (input.sidebarItems) {
+    return chatListFromSidebar(input.sidebarItems, input.unassignedSpaceId);
+  }
+  const entries: ChatListEntry[] = [];
+  for (const space of input.spaces) {
+    const roster = agentRoster([
+      ...(input.membersBySpace[space.space_id] ?? []),
+    ]);
+    // Prefer the backend's explicit kind; fall back to the member-count rule.
+    const isPrivate = space.kind
+      ? isPrivateChatKind(space.kind) && roster.length > 0
+      : roster.length === 1;
+    if (isPrivate) {
+      entries.push({
+        type: 'direct',
+        key: `direct:${space.space_id}`,
+        spaceId: space.space_id,
+        name: displayName(roster[0]),
+        member: roster[0],
+        fromSpace: true,
+      });
+    } else {
+      entries.push({
+        type: 'group',
+        key: `group:${space.space_id}`,
+        spaceId: space.space_id,
+        name: space.name,
+        members: roster,
+      });
+    }
+  }
+  if (input.unassignedSpaceId) {
+    for (const member of agentRoster([...(input.unassignedMembers ?? [])])) {
+      entries.push({
+        type: 'direct',
+        key: `direct:${input.unassignedSpaceId}:${member.member_id ?? member.conversation_id ?? displayName(member)}`,
+        spaceId: input.unassignedSpaceId,
+        name: displayName(member),
+        member,
+        fromSpace: false,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
+ * Resolve which private-chat row to select after creating a member. Prefers
+ * the private thread/session id returned by member creation; otherwise finds
+ * the member's 1:1 chat in the list; otherwise synthesises a target in the
+ * direct (unassigned) space.
+ */
+export function resolvePrivateChatTarget(input: {
+  created:
+    | {
+        identity_member_id?: string;
+        direct_thread_id?: string;
+        conversation_id?: string;
+        /** Legacy fields. */
+        member_id?: string;
+        nickname?: string;
+        private_thread_id?: string;
+        private_conversation_id?: string;
+      }
+    | null
+    | undefined;
+  fallbackNickname: string;
+  directSpaceId: string;
+  chatList: readonly ChatListEntry[];
+}): { spaceId: string; member: SpaceMember; threadId?: string } {
+  const created = input.created ?? {};
+  const conversationId =
+    created.conversation_id || created.private_conversation_id || undefined;
+  const memberId = created.identity_member_id || created.member_id;
+  const threadId =
+    created.direct_thread_id ||
+    created.private_thread_id ||
+    (created.identity_member_id
+      ? `direct:${created.identity_member_id}`
+      : undefined);
+  const member: SpaceMember = {
+    kind: 'agent',
+    member_id: memberId,
+    nickname: created.nickname || input.fallbackNickname,
+    conversation_id: conversationId,
+  };
+  const directRows = input.chatList.filter(
+    (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
+      entry.type === 'direct'
+  );
+  const found =
+    (threadId && directRows.find((entry) => entry.threadId === threadId)) ||
+    directRows.find(
+      (entry) =>
+        (memberId && entry.member.member_id === memberId) ||
+        (conversationId && entry.member.conversation_id === conversationId)
+    );
+  if (found) {
+    return {
+      spaceId: found.spaceId,
+      member: found.member,
+      threadId: found.threadId ?? threadId,
+    };
+  }
+  return { spaceId: input.directSpaceId, member, threadId };
+}
+
+/** Private-chat (DM) thread id for a member, e.g. `direct:<identity_member_id>`. */
+export function directThreadIdFor(
+  member: { member_id?: string | null } | null | undefined,
+  threadId?: string | null
+): string | null {
+  if (threadId && threadId.startsWith('direct:')) return threadId;
+  return member?.member_id ? `direct:${member.member_id}` : null;
+}
+
+/** A DM message the user sent that the backend has not listed yet (busy member). */
+export type PendingDirectMessage = {
+  operationId: string;
+  threadId: string;
+  content: string;
+  createdAt: number;
+};
+
+type ListedDirectMessage = {
+  seq: number;
+  operationId?: string | null;
+  operation_id?: string | null;
+  envelope?: { actor?: string; content?: string } | null;
+};
+
+function isUserActor(actor: string | undefined): boolean {
+  return !actor || /\/user$/.test(actor);
+}
+
+/**
+ * Drop pending DM messages that have arrived in `listMessages`, matching by
+ * operationId first and otherwise by identical user content (each listed
+ * message consumes at most one pending entry).
+ */
+export function reconcilePendingDirectMessages(
+  pending: ReadonlyArray<PendingDirectMessage>,
+  listed: ReadonlyArray<ListedDirectMessage>
+): PendingDirectMessage[] {
+  if (pending.length === 0) return [];
+  const ops = new Set<string>();
+  const contents: string[] = [];
+  for (const message of listed) {
+    const op = message.operationId ?? message.operation_id;
+    if (op) ops.add(op);
+    else if (isUserActor(message.envelope?.actor)) {
+      contents.push((message.envelope?.content ?? '').trim());
+    }
+  }
+  const remaining: PendingDirectMessage[] = [];
+  for (const item of pending) {
+    if (ops.has(item.operationId)) continue;
+    const index = contents.indexOf(item.content.trim());
+    if (index >= 0) {
+      contents.splice(index, 1);
+      continue;
+    }
+    remaining.push(item);
+  }
+  return remaining;
+}

@@ -113,9 +113,6 @@ describe('CollaborationSpacePage', () => {
           return { spaces: [{ space_id: 's1', name: '设计' }] };
         }
         if (method === 'space.listMembers') {
-          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
-            return { members: [] };
-          }
           return {
             members: [
               {
@@ -290,19 +287,18 @@ describe('CollaborationSpacePage', () => {
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
     ).toBeTruthy();
 
-    // Setting a space tag color colors the rounded-rectangle space N-grid icon background while keeping cells gray
+    // Setting a space tag color draws it as an outline ring around the group avatar
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
     const spaceButton = screen.getByRole('button', { name: '设计' });
-    const spaceIcon = spaceButton.querySelector(
-      '[data-tag-color="blue"]'
-    ) as HTMLElement | null;
-    expect(spaceIcon).toBeTruthy();
-    expect(spaceIcon).toHaveAttribute('data-grid-size', '4');
-    expect(
-      spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
-    ).toHaveLength(4);
-    expect(spaceButton.querySelector('.collaboration-space-tag')).toBeNull();
+    const groupAvatar = within(spaceButton).getByTestId(
+      'collaboration-group-avatar'
+    );
+    expect(groupAvatar).toHaveClass('has-tag');
+    expect(groupAvatar).toHaveAttribute('data-count', '2');
+    expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toContain(
+      'hsl('
+    );
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();
@@ -336,12 +332,10 @@ describe('CollaborationSpacePage', () => {
     expect(
       memberAButton.querySelector('.collaboration-member-name')?.textContent
     ).toBe('小A');
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-1')
-    ).toHaveTextContent('你好');
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-2')
-    ).toHaveTextContent('请查看 [架构文档](src/arch.md)');
+    // Flat list: group '设计' plus private chats 小A and 小B
+    expect(document.querySelectorAll('[data-chat-type="direct"]')).toHaveLength(
+      2
+    );
     expect(
       screen.getByRole('button', { name: '修改昵称 小A' }).className
     ).toContain('collaboration-edit-name-btn');
@@ -370,7 +364,20 @@ describe('CollaborationSpacePage', () => {
     expect(tooltipContentEl?.style.top).toBe('232px');
     await user.unhover(memberAButton);
 
+    // Clicking a private-chat row opens that member's private chat message
+    // area (row selected), not the member session preview.
     await user.click(memberAButton);
+    await waitFor(() => {
+      expect(memberAButton.closest('.is-selected')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('session-preview')).toBeNull();
+
+    // Back in the group, clicking a member's avatar in the message area opens
+    // that member's session preview tab.
+    await user.click(screen.getByRole('button', { name: '设计' }));
+    await user.click(
+      await screen.findByRole('button', { name: '预览 小A 会话' })
+    );
     const preview = await screen.findByTestId('session-preview');
     expect(preview).toHaveTextContent('conv-1');
     expect(preview).toHaveAttribute('data-embedded', 'true');
@@ -384,18 +391,7 @@ describe('CollaborationSpacePage', () => {
         conversationWidthMode: 'workspace',
       })
     );
-
-    // Clicking another member ('小B') opens a second tab in the right Dockview preview bar
-    await user.click(screen.getByRole('button', { name: '小B' }));
-    const previewPane = screen.getByLabelText('预览');
-    expect(within(previewPane).getByText('小A')).toBeTruthy();
-    expect(within(previewPane).getByText('小B')).toBeTruthy();
-
-    // Clicking the member's avatar in the message area also activates that member's session preview tab
-    await user.click(screen.getByRole('button', { name: '预览 小A 会话' }));
-    expect(
-      await within(previewPane).findAllByTestId('session-preview')
-    ).toBeTruthy();
+    expect(screen.getByLabelText('预览')).toBeTruthy();
 
     // Clicking + in top toolbar expands menu with 新建协作空间 and 新建成员
     await user.click(screen.getByRole('button', { name: '新建空间' }));
@@ -679,23 +675,18 @@ describe('CollaborationSpacePage', () => {
     expect(
       (await screen.findAllByText('增量消息')).length
     ).toBeGreaterThanOrEqual(1);
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-1')
-    ).toHaveTextContent('增量消息');
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.listMessages',
       { spaceId: 's1', sinceSeq: 2 }
     );
 
-    // Drag 小A into 未定空间
+    // Drag private chat 小A onto group '设计'
     const memberButton = screen.getByRole('button', { name: '小A' });
     const memberRow = memberButton.closest(
       '.workspace-session-row'
     ) as HTMLElement;
-    const unassignedGroup = screen.getByTestId(
-      'collaboration-space-group-unassigned:workspace-1'
-    );
+    const unassignedGroup = screen.getByTestId('collaboration-space-group-s1');
     fireEvent.dragStart(memberRow);
     fireEvent.dragOver(unassignedGroup);
     fireEvent.drop(unassignedGroup);
@@ -703,10 +694,9 @@ describe('CollaborationSpacePage', () => {
     await waitFor(() => {
       expect(collaborationCall).toHaveBeenCalledWith(
         'collaboration',
-        'space.moveMember',
+        'space.addMember',
         expect.objectContaining({
-          fromSpaceId: 's1',
-          toSpaceId: 'unassigned:workspace-1',
+          spaceId: 's1',
           conversationId: 'conv-1',
         })
       );
@@ -727,7 +717,7 @@ describe('CollaborationSpacePage', () => {
         'collaboration',
         'space.setIdentity',
         expect.objectContaining({
-          spaceId: 's1',
+          spaceId: 'unassigned:workspace-1',
           conversationId: 'conv-1',
           nickname: '评审A',
         })
@@ -781,26 +771,14 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    // Collapsing space '设计' renders a horizontal stacked member avatar list after the space name
+    // Group rows never expand into a member list or a collapsed stack
+    await user.click(screen.getByRole('button', { name: '设计' }));
     expect(
       screen.queryByTestId('collaboration-space-collapsed-stack-s1')
     ).toBeNull();
-    await user.click(screen.getByRole('button', { name: '设计' }));
-    const collapsedStack = await screen.findByTestId(
-      'collaboration-space-collapsed-stack-s1'
+    expect(screen.getByRole('button', { name: '设计' })).not.toHaveAttribute(
+      'aria-expanded'
     );
-    expect(collapsedStack).toBeTruthy();
-    expect(
-      collapsedStack.querySelectorAll(
-        '.collaboration-space-collapsed-stack-item'
-      )
-    ).toHaveLength(2);
-    // Re-expand space '设计'
-    await user.click(screen.getByRole('button', { name: '设计' }));
-    expect(
-      screen.queryByTestId('collaboration-space-collapsed-stack-s1')
-    ).toBeNull();
-
     // Dragging the pane resizer between spaces pane and message thread adjusts --collaboration-spaces-width
     const spacesResizer = screen.getByTestId('collaboration-spaces-resizer');
     fireEvent.pointerDown(spacesResizer, { clientX: 296 });
@@ -825,25 +803,6 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     await user.click(spaceCheckbox);
 
-    const memberACheckbox = screen.getByRole('checkbox', {
-      name: '选择成员 小A',
-    });
-    const memberBCheckbox = screen.getByRole('checkbox', {
-      name: '选择成员 小B',
-    });
-    expect(memberACheckbox.className).toContain(
-      'collaboration-delete-checkbox'
-    );
-    expect(memberACheckbox.closest('.collaboration-member-row')).toBeNull();
-    expect(
-      memberACheckbox.closest('.collaboration-member-row-outer')
-    ).toBeTruthy();
-    expect(memberACheckbox).toHaveAttribute('aria-checked', 'true');
-    expect(memberBCheckbox).toHaveAttribute('aria-checked', 'true');
-
-    // Deselect 小A while keeping space '设计' selected
-    await user.click(memberACheckbox);
-    expect(memberACheckbox).toHaveAttribute('aria-checked', 'false');
     expect(spaceCheckbox).toHaveAttribute('aria-checked', 'true');
 
     // Confirm batch delete
@@ -859,7 +818,6 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           workspaceId: 'workspace-1',
           spaceIds: ['s1'],
-          memberTargets: [{ spaceId: 's1', conversationId: 'conv-2' }],
         })
       );
     });
@@ -942,9 +900,8 @@ describe('CollaborationSpacePage', () => {
     expect(
       screen.getByRole('button', { name: '加入成员 默认空间' })
     ).toBeTruthy();
-    // Top row has 12px '协作空间' title on the left of the search button
-    const topTitle = screen.getByText('协作空间');
-    expect(topTitle.className).toContain('text-[12px]');
+    // The list no longer has a '协作空间' title heading
+    expect(screen.queryByText('协作空间')).toBeNull();
     // Never show '还没有消息'; composer is NOT rendered when no space is opened;
     // instead, the white-blurred 新建空间 overlay is shown by default over the message area
     expect(screen.queryByText('还没有消息')).toBeNull();
@@ -1011,8 +968,21 @@ describe('CollaborationSpacePage', () => {
       );
     });
 
+    // After creation the member's private chat opens: the empty state is gone
+    // and no member session/preview tab is shown.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('collaboration-empty-member-pill')
+      ).toBeNull();
+    });
+    expect(emptyStateCreateSpaceBtn).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('预览')).toBeNull();
+
     // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加成员 dialog with 选择成员 / 新建成员 tabs
-    await user.click(emptyStateCreateSpaceBtn);
+    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: '新建协作空间' })
+    );
     const spaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });
@@ -1482,6 +1452,225 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(collectionPanel).queryByTestId('collection-item-note-col-1')
     ).toBeNull();
+  });
+
+  it('uses thread.listSidebar when available: unread/preview, markRead on open, tag via thread.update', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                tag_color: null,
+                last_message: { id: 1, seq: 1, preview: '最新进展' },
+                last_activity_at: '2026-10-24T10:00:00Z',
+                unread_count: 2,
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 2,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: null,
+                unread_count: 0,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead' || method === 'thread.update') {
+          return {};
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    const groupMeta = await screen.findByTestId(
+      'collaboration-chat-meta-group:s1'
+    );
+    expect(groupMeta).toHaveTextContent('最新进展');
+    expect(groupMeta).toHaveTextContent('2');
+    // DM rows with no last message / unread render no meta at all.
+    expect(
+      screen.queryByTestId('collaboration-chat-meta-direct:direct:mem-a')
+    ).toBeNull();
+    expect(document.querySelectorAll('[data-chat-type="direct"]')).toHaveLength(
+      1
+    );
+
+    await user.click(screen.getByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.markRead',
+        { threadId: 'direct:mem-a' }
+      );
+    });
+    expect(screen.queryByTestId('session-preview')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '标签 设计' }));
+    await user.click(await screen.findByRole('button', { name: '蓝色' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.update',
+        expect.objectContaining({ spaceId: 's1' })
+      );
+    });
+  });
+
+  it('private chat uses direct:<id> listMessages/post/markRead, shows queued message optimistically and reconciles', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    let directMessages: Array<Record<string, unknown>> = [
+      {
+        seq: 5,
+        conversationId: 'conv-1',
+        envelope: {
+          actor: 'vibex://space/direct/member/小A',
+          content: '私聊历史',
+        },
+      },
+    ];
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: { id: 5, seq: 5, preview: '私聊历史' },
+                unread_count: 1,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead') return {};
+        if (input?.spaceId === 'direct:mem-a') {
+          if (method === 'space.listMessages') {
+            const since = Number(input?.sinceSeq ?? 0);
+            return {
+              messages: directMessages.filter((m) => Number(m.seq) > since),
+            };
+          }
+          if (method === 'space.post') return {};
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(
+        Array.from(document.querySelectorAll('.collaboration-message')).some(
+          (node) => node.textContent?.includes('私聊历史')
+        )
+      ).toBe(true);
+    });
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.listMessages',
+      { spaceId: 'direct:mem-a', latest: true, limit: 200 }
+    );
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.markRead',
+        { threadId: 'direct:mem-a', seq: 5 }
+      );
+    });
+
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, '忙的时候也要收到');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    const postCall = await waitFor(() => {
+      const call = collaborationCall.mock.calls.find(
+        (c) => c[1] === 'space.post' && c[2]?.spaceId === 'direct:mem-a'
+      );
+      expect(call).toBeTruthy();
+      return call!;
+    });
+    const posted = postCall[2] as Record<string, unknown>;
+    expect(posted).toEqual({
+      spaceId: 'direct:mem-a',
+      content: '忙的时候也要收到',
+      operationId: expect.any(String),
+    });
+    const op = String(posted.operationId);
+    const pending = await screen.findByTestId(
+      `collaboration-pending-message-${op}`
+    );
+    expect(pending).toHaveTextContent('忙的时候也要收到');
+    expect(
+      within(pending).getByTestId('collaboration-pending-tick')
+    ).toBeTruthy();
+    expect(pending.querySelector('[data-status="queued"]')).not.toBeNull();
+
+    // The member's turn starts: the message is now listed with its operationId.
+    directMessages = [
+      ...directMessages,
+      {
+        seq: 6,
+        operationId: op,
+        envelope: {
+          actor: 'vibex://space/direct/user',
+          content: '忙的时候也要收到',
+        },
+      },
+    ];
+    act(() => {
+      for (const listener of spaceEventListeners) {
+        listener({
+          workspaceId: 'workspace-1',
+          spaceId: 'direct:mem-a',
+          seq: 6,
+        });
+      }
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId(`collaboration-pending-message-${op}`)
+      ).toBeNull();
+    });
+    expect(screen.getByText('忙的时候也要收到')).toBeTruthy();
   });
 
   it('updates member avatar status indicator dots in real time on turn lifecycle events', async () => {

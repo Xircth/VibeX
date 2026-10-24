@@ -640,8 +640,14 @@ export function MemberBotAvatar({
   animated = true,
   sessionActive = false,
   selectedOutline = false,
+  silhouetteOutline,
+  gaze,
   'data-testid': dataTestId,
 }: {
+  /** Stroke that follows the avatar's own silhouette (drawn under the fill). */
+  silhouetteOutline?: { color: string; width: number };
+  /** Shift the face so the avatar looks in a direction. */
+  gaze?: 'up-right';
   config: MemberBotAvatarConfig;
   className?: string;
   reactionKey?: number;
@@ -763,9 +769,22 @@ export function MemberBotAvatar({
               {renderBotShape(config.shape, 'none', '#ffffff', 4.5)}
             </>
           ) : null}
+          {silhouetteOutline
+            ? renderBotShape(
+                config.shape,
+                silhouetteOutline.color,
+                silhouetteOutline.color,
+                silhouetteOutline.width
+              )
+            : null}
           {renderBotShape(config.shape, normalizedColor, strokeColor)}
-          <g className="collaboration-bot-avatar-face">
-            {renderBotExpression(effectiveExpression, eyeColor)}
+          <g
+            data-gaze={gaze}
+            transform={gaze === 'up-right' ? 'translate(3 -4)' : undefined}
+          >
+            <g className="collaboration-bot-avatar-face">
+              {renderBotExpression(effectiveExpression, eyeColor)}
+            </g>
           </g>
         </g>
       </g>

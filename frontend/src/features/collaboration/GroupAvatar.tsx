@@ -9,7 +9,7 @@ export const GROUP_AVATAR_MAX = 4;
 const BOX = 28;
 
 /** Thickness (px) of the white silhouette outline at the 24px list size. */
-const OUTLINE_PX = 1.75;
+const OUTLINE_PX = 1.25;
 
 type Slot = { x: number; y: number; size: number; z: number };
 
@@ -18,21 +18,23 @@ type Slot = { x: number; y: number; size: number; z: number };
  * top (4 members: 1 < 2 = 3 < 4; 3 members: 1 < 2 < 3; 2 members: 1 < 2).
  */
 export const GROUP_AVATAR_LAYOUTS: Record<number, readonly Slot[]> = {
-  1: [{ x: 6, y: 6, size: 16, z: 1 }],
+  1: [{ x: 4, y: 4, size: 20, z: 1 }],
+  // Shapes fill ~75-85% of their slot, so these steps overlap neighbouring
+  // silhouettes by roughly 25-30% of their width.
   2: [
-    { x: 3.5, y: 8, size: 12, z: 1 },
-    { x: 12.5, y: 8, size: 12, z: 2 },
+    { x: 0.25, y: 5, size: 18, z: 1 },
+    { x: 9.75, y: 5, size: 18, z: 2 },
   ],
   3: [
-    { x: 8, y: 3.5, size: 12, z: 1 },
-    { x: 12.5, y: 12.5, size: 12, z: 2 },
-    { x: 3.5, y: 12.5, size: 12, z: 3 },
+    { x: 5.5, y: 0.5, size: 17, z: 1 },
+    { x: 10.5, y: 10, size: 17, z: 2 },
+    { x: 0.5, y: 10, size: 17, z: 3 },
   ],
   4: [
-    { x: 3.5, y: 3.5, size: 11, z: 1 },
-    { x: 13.5, y: 3.5, size: 11, z: 2 },
-    { x: 3.5, y: 13.5, size: 11, z: 2 },
-    { x: 13.5, y: 13.5, size: 11, z: 3 },
+    { x: 1, y: 1, size: 16, z: 1 },
+    { x: 11, y: 1, size: 16, z: 2 },
+    { x: 1, y: 11, size: 16, z: 2 },
+    { x: 11, y: 11, size: 16, z: 3 },
   ],
 };
 

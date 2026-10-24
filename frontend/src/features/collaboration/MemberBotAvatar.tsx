@@ -780,7 +780,7 @@ export function MemberBotAvatar({
           {renderBotShape(config.shape, normalizedColor, strokeColor)}
           <g
             data-gaze={gaze}
-            transform={gaze === 'up-right' ? 'translate(7 -6)' : undefined}
+            transform={gaze === 'up-right' ? 'translate(9 -8)' : undefined}
           >
             <g className="collaboration-bot-avatar-face">
               {renderBotExpression(effectiveExpression, eyeColor)}

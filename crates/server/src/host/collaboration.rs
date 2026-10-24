@@ -8,10 +8,12 @@ use std::sync::Arc;
 
 use agents::{AgentId, runtime::AgentRuntime};
 use async_trait::async_trait;
-use conversations::collaboration::{
-    self, CollaborationSpaceChangedEvent, DeliveryContext, MessageAudience, SaveRole, SaveTeam,
+use conversations::{
+    collaboration::{
+        self, CollaborationSpaceChangedEvent, DeliveryContext, MessageAudience, SaveRole, SaveTeam,
+    },
+    collaboration_sidebar as sidebar, member_memory,
 };
-use conversations::member_memory;
 use plugins::{CollaborationHost, CollaborationHostError};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -171,6 +173,66 @@ impl CollaborationHost for HostCollaborationHost {
                     "threadId": thread_id,
                     "conversationId": conversation_id,
                 }))
+            }
+            ("collaboration", "thread.listSidebar" | "thread.list_sidebar" | "sidebar.list") => {
+                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
+                let items = sidebar::list_sidebar(&self.pool, workspace_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "items": items }))
+            }
+            ("collaboration", "thread.markRead" | "thread.mark_read") => {
+                let thread_id =
+                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+                let seq = input.get("seq").and_then(Value::as_i64);
+                let last_read_seq = sidebar::mark_thread_read(&self.pool, &thread_id, seq)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }))
+            }
+            ("collaboration", "thread.update" | "space.setTagColor" | "space.set_tag_color") => {
+                let space_id =
+                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+                let tag_color = optional_text(&input, &["tagColor", "tag_color"]);
+                sidebar::set_space_tag_color(&self.pool, &space_id, tag_color.as_deref())
+                    .await
+                    .map_err(host_error)?;
+                if let Ok(workspace_id) =
+                    collaboration::space_workspace_id(&self.pool, &space_id).await
+                {
+                    self.events.emit(
+                        COLLABORATION_SPACE_CHANGED_EVENT,
+                        CollaborationSpaceChangedEvent {
+                            workspace_id,
+                            space_id: space_id.clone(),
+                            seq: None,
+                            member_id: None,
+                        },
+                    );
+                }
+                Ok(json!({ "threadId": space_id, "tagColor": tag_color }))
+            }
+            ("collaboration", "member.list") => {
+                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
+                let members = sidebar::list_members(&self.pool, workspace_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "members": members }))
+            }
+            ("collaboration", "member.update") => {
+                let member_id = required_text(&input, &["memberId", "member_id"])?;
+                let field =
+                    |key: &str| input.get(key).map(|v| v.as_str().unwrap_or("").to_string());
+                sidebar::update_member_profile(
+                    &self.pool,
+                    &member_id,
+                    field("name").as_deref(),
+                    field("avatar").as_deref(),
+                    field("color").as_deref(),
+                )
+                .await
+                .map_err(host_error)?;
+                Ok(json!({ "memberId": member_id, "updated": true }))
             }
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
@@ -418,7 +480,11 @@ impl HostCollaborationHost {
             Some(_) => required_uuid(input, &["operationId", "operation_id"])?,
             None => Uuid::new_v4(),
         };
-        let space_id = optional_text(input, &["spaceId", "space_id"]);
+        // Member = session family: creation always yields the identity plus ONE hidden
+        // direct-chat session; the requested space is ignored (join groups later via
+        // space.addMember with the returned conversation_id).
+        let _requested_space_id = optional_text(input, &["spaceId", "space_id"]);
+        let space_id: Option<String> = None;
         let role_id = optional_text(input, &["roleId", "role_id"]);
         // Compat: without a role or an agent, fall back to the first enabled agent
         // (then `codex`) so a bare createMember still succeeds with defaults.
@@ -436,8 +502,8 @@ impl HostCollaborationHost {
                 workspace_id,
                 space_id,
                 nickname: text(input, &["nickname", "name"]),
-                role_id,
-                agent_id,
+                role_id: role_id.clone(),
+                agent_id: agent_id.clone(),
                 team_id: optional_text(input, &["teamId", "team_id"]),
                 persona_prompt: optional_text(input, &["personaPrompt", "persona_prompt"]),
                 mode_id: optional_text(input, &["modeId", "mode_id"]),
@@ -468,6 +534,84 @@ impl HostCollaborationHost {
             object
                 .entry("space_id")
                 .or_insert_with(|| json!(target_space_id));
+        }
+        // Member identity: expose the identity id (for `member.*`) and apply
+        // optional avatar / color.
+        let conversation = value
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(conversation) = conversation
+            && let Some(identity_id) =
+                sidebar::identity_member_of_conversation(&self.pool, &conversation)
+                    .await
+                    .map_err(host_error)?
+        {
+            let avatar = optional_text(input, &["avatar"]);
+            let color = optional_text(input, &["color"]);
+            if avatar.is_some() || color.is_some() {
+                sidebar::update_member_profile(
+                    &self.pool,
+                    &identity_id,
+                    None,
+                    avatar.as_deref(),
+                    color.as_deref(),
+                )
+                .await
+                .map_err(host_error)?;
+            }
+            // Map the unchanged create-member form onto the member definition:
+            // later sessions of this member (other threads) use this config.
+            let mut config = collaboration::MemberSessionConfig {
+                agent_id: agent_id.clone(),
+                mode_id: optional_text(input, &["modeId", "mode_id"]),
+                config_values: input
+                    .get("configValues")
+                    .or_else(|| input.get("config_values"))
+                    .cloned()
+                    .filter(Value::is_object)
+                    .unwrap_or_else(|| json!({})),
+                persona_prompt: optional_text(input, &["personaPrompt", "persona_prompt"]),
+            };
+            if let Some(role_id) = role_id.as_deref() {
+                let roles = collaboration::list_roles(&self.pool)
+                    .await
+                    .map_err(host_error)?;
+                if let Some(role) = serde_json::to_value(roles)
+                    .ok()
+                    .and_then(|v| v.as_array().cloned())
+                    .and_then(|roles| {
+                        roles
+                            .into_iter()
+                            .find(|r| r.get("id").and_then(Value::as_str) == Some(role_id))
+                    })
+                {
+                    let text = |key: &str| {
+                        role.get(key)
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|v| !v.is_empty())
+                            .map(str::to_string)
+                    };
+                    config = collaboration::MemberSessionConfig {
+                        agent_id: text("agent_id").or(config.agent_id),
+                        mode_id: text("mode_id"),
+                        config_values: role
+                            .get("config_values")
+                            .cloned()
+                            .filter(Value::is_object)
+                            .unwrap_or_else(|| json!({})),
+                        persona_prompt: text("persona_prompt"),
+                    };
+                }
+            }
+            collaboration::set_member_session_config(&self.pool, &identity_id, config)
+                .await
+                .map_err(host_error)?;
+            if let Some(object) = value.as_object_mut() {
+                object.insert("identity_member_id".into(), json!(identity_id));
+                object.insert("direct_thread_id".into(), json!(format!("direct:{identity_id}")));
+            }
         }
         Ok(value)
     }
@@ -823,10 +967,13 @@ impl HostCollaborationHost {
             .or_else(|| input.get("pending_only"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let cards =
-            conversations::collaboration_cards::list_cards(&self.pool, space_id.as_deref(), pending_only)
-                .await
-                .map_err(host_error)?;
+        let cards = conversations::collaboration_cards::list_cards(
+            &self.pool,
+            space_id.as_deref(),
+            pending_only,
+        )
+        .await
+        .map_err(host_error)?;
         Ok(json!({ "cards": cards }))
     }
 
@@ -854,7 +1001,9 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &card.space_id).await {
+        if let Ok(workspace_id) =
+            collaboration::space_workspace_id(&self.pool, &card.space_id).await
+        {
             self.events.emit(
                 COLLABORATION_SPACE_CHANGED_EVENT,
                 CollaborationSpaceChangedEvent {
@@ -871,7 +1020,9 @@ impl HostCollaborationHost {
     /// The user's own view of a member's memory: every scope, private included.
     async fn memory_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let member_id = required_text(input, &["memberId", "member_id"])?;
-        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let scope = optional_text(input, &["scope"])
+            .map(|raw| parse_fact_scope(&raw))
+            .transpose()?;
         let facts = member_memory::list_facts(&self.pool, &member_id, scope.as_ref())
             .await
             .map_err(host_error)?;
@@ -882,7 +1033,9 @@ impl HostCollaborationHost {
         let member_id = required_text(input, &["memberId", "member_id"])?;
         let fact_id = fact_id(input)?;
         let content = optional_text(input, &["content"]);
-        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let scope = optional_text(input, &["scope"])
+            .map(|raw| parse_fact_scope(&raw))
+            .transpose()?;
         let fact = member_memory::update_fact(
             &self.pool,
             &member_id,
@@ -1224,7 +1377,9 @@ fn fact_id(input: &Value) -> Result<i64, CollaborationHostError> {
     ["factId", "fact_id", "id"]
         .iter()
         .find_map(|key| input.get(*key).and_then(Value::as_i64))
-        .ok_or_else(|| CollaborationHostError::new("conversation_control_failed", "factId is required"))
+        .ok_or_else(|| {
+            CollaborationHostError::new("conversation_control_failed", "factId is required")
+        })
 }
 
 fn optional_text(input: &Value, keys: &[&str]) -> Option<String> {
@@ -1381,10 +1536,14 @@ mod tests {
             let host = &host;
             let member = member.clone();
             async move {
-                host.call("host", "collaboration", "member.session.resolve",
-                    json!({ "memberId": member, "threadId": thread }))
-                    .await
-                    .unwrap()["conversationId"]
+                host.call(
+                    "host",
+                    "collaboration",
+                    "member.session.resolve",
+                    json!({ "memberId": member, "threadId": thread }),
+                )
+                .await
+                .unwrap()["conversationId"]
                     .as_str()
                     .unwrap()
                     .to_string()
@@ -1409,8 +1568,12 @@ mod tests {
             .await
             .unwrap();
         let group = host
-            .call("host", "collaboration", "space.create",
-                json!({ "workspaceId": workspace, "name": "g", "operationId": Uuid::new_v4() }))
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "g", "operationId": Uuid::new_v4() }),
+            )
             .await
             .unwrap()["space_id"]
             .as_str()
@@ -1422,7 +1585,11 @@ mod tests {
             .await
             .unwrap();
         let group_conversation = seat["conversation_id"].as_str().unwrap().to_string();
-        assert_ne!(group_conversation, a.to_string(), "group seat must not take the direct session");
+        assert_ne!(
+            group_conversation,
+            a.to_string(),
+            "group seat must not take the direct session"
+        );
         let direct_seat: Option<String> = sqlx::query_scalar(
             "SELECT conversation_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
         )
@@ -1434,11 +1601,18 @@ mod tests {
         assert_eq!(direct_seat.as_deref(), Some(a.to_string().as_str()));
         let member = db::models::collaboration_identity::member_id_for_conversation(a);
         let direct = host
-            .call("host", "collaboration", "member.session.resolve",
-                json!({ "memberId": member, "threadId": direct_space }))
+            .call(
+                "host",
+                "collaboration",
+                "member.session.resolve",
+                json!({ "memberId": member, "threadId": direct_space }),
+            )
             .await
             .unwrap();
-        assert_eq!(direct["conversationId"].as_str(), Some(a.to_string().as_str()));
+        assert_eq!(
+            direct["conversationId"].as_str(),
+            Some(a.to_string().as_str())
+        );
     }
 
     #[tokio::test]
@@ -1450,8 +1624,12 @@ mod tests {
         let a = Uuid::new_v4();
         create_session(&pool, a, workspace, "小A").await;
         let space = host
-            .call("host", "collaboration", "space.create",
-                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }),
+            )
             .await
             .unwrap();
         let space_id = space["space_id"].as_str().unwrap().to_string();
@@ -1460,29 +1638,67 @@ mod tests {
             .await
             .unwrap();
         let member = db::models::collaboration_identity::member_id_for_conversation(a);
-        memory::record_activity(&pool, a, Some(Uuid::new_v4()), "修好了分页。", &FirstSentencesSummarizer)
-            .await
-            .unwrap();
-        let global = memory::create_fact(&pool, &member, "统一用 pnpm", &FactScope::Global, None, "agent")
-            .await
-            .unwrap();
-        memory::create_fact(&pool, &member, "用户生日五月一日", &FactScope::Private, None, "agent")
-            .await
-            .unwrap();
+        memory::record_activity(
+            &pool,
+            a,
+            Some(Uuid::new_v4()),
+            "修好了分页。",
+            &FirstSentencesSummarizer,
+        )
+        .await
+        .unwrap();
+        let global = memory::create_fact(
+            &pool,
+            &member,
+            "统一用 pnpm",
+            &FactScope::Global,
+            None,
+            "agent",
+        )
+        .await
+        .unwrap();
+        memory::create_fact(
+            &pool,
+            &member,
+            "用户生日五月一日",
+            &FactScope::Private,
+            None,
+            "agent",
+        )
+        .await
+        .unwrap();
 
         let listed = host
-            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .call(
+                "host",
+                "collaboration",
+                "member.memory.list",
+                json!({ "memberId": member }),
+            )
             .await
             .unwrap();
-        assert_eq!(listed["facts"].as_array().unwrap().len(), 2, "user view includes private");
+        assert_eq!(
+            listed["facts"].as_array().unwrap().len(),
+            2,
+            "user view includes private"
+        );
         let only_private = host
-            .call("host", "collaboration", "member.memory.list",
-                json!({ "memberId": member, "scope": "private" }))
+            .call(
+                "host",
+                "collaboration",
+                "member.memory.list",
+                json!({ "memberId": member, "scope": "private" }),
+            )
             .await
             .unwrap();
         assert_eq!(only_private["facts"].as_array().unwrap().len(), 1);
         let activity = host
-            .call("host", "collaboration", "member.activity.list", json!({ "memberId": member }))
+            .call(
+                "host",
+                "collaboration",
+                "member.activity.list",
+                json!({ "memberId": member }),
+            )
             .await
             .unwrap();
         assert_eq!(activity["activity"][0]["summary"], json!("修好了分页。"));
@@ -1493,26 +1709,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(updated["fact"]["content"], json!("统一用 pnpm 9"));
-        assert_eq!(updated["fact"]["scope"], json!(format!("thread:{space_id}")));
-        assert!(host
-            .call("host", "collaboration", "member.memory.update",
-                json!({ "memberId": member, "factId": global.id, "scope": "bogus" }))
+        assert_eq!(
+            updated["fact"]["scope"],
+            json!(format!("thread:{space_id}"))
+        );
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "member.memory.update",
+                json!({ "memberId": member, "factId": global.id, "scope": "bogus" })
+            )
             .await
-            .is_err());
+            .is_err()
+        );
         let deleted = host
-            .call("host", "collaboration", "member.memory.delete",
-                json!({ "memberId": member, "factId": global.id }))
+            .call(
+                "host",
+                "collaboration",
+                "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }),
+            )
             .await
             .unwrap();
         assert_eq!(deleted["deleted"], json!(true));
         let again = host
-            .call("host", "collaboration", "member.memory.delete",
-                json!({ "memberId": member, "factId": global.id }))
+            .call(
+                "host",
+                "collaboration",
+                "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }),
+            )
             .await
             .unwrap();
         assert_eq!(again["deleted"], json!(false));
         let left = host
-            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .call(
+                "host",
+                "collaboration",
+                "member.memory.list",
+                json!({ "memberId": member }),
+            )
             .await
             .unwrap();
         assert_eq!(left["facts"].as_array().unwrap().len(), 1);
@@ -1527,8 +1764,12 @@ mod tests {
         let a = Uuid::new_v4();
         create_session(&pool, a, workspace, "小A").await;
         let space = host
-            .call("host", "collaboration", "space.create",
-                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }),
+            )
             .await
             .unwrap();
         let space_id = space["space_id"].as_str().unwrap().to_string();
@@ -1538,40 +1779,117 @@ mod tests {
             .unwrap();
         let delivery = DeliveryContext::default();
         let op = Uuid::new_v4();
-        let ask = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
-            payload: json!({ "question": "用哪个分支？", "options": ["main", "dev"] }), operation_id: op }, &delivery)
-            .await
-            .unwrap();
-        let again = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
-            payload: json!({ "question": "用哪个分支？" }), operation_id: op }, &delivery)
-            .await
-            .unwrap();
+        let ask = cards::post_card(
+            &pool,
+            PostCard {
+                caller_id: a,
+                space_id: space_id.clone(),
+                kind: CardKind::Ask,
+                payload: json!({ "question": "用哪个分支？", "options": ["main", "dev"] }),
+                operation_id: op,
+            },
+            &delivery,
+        )
+        .await
+        .unwrap();
+        let again = cards::post_card(
+            &pool,
+            PostCard {
+                caller_id: a,
+                space_id: space_id.clone(),
+                kind: CardKind::Ask,
+                payload: json!({ "question": "用哪个分支？" }),
+                operation_id: op,
+            },
+            &delivery,
+        )
+        .await
+        .unwrap();
         assert_eq!(ask.id, again.id, "idempotent per operation id");
-        let approval = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Approval,
-            payload: json!({ "action": "run", "command": "rm -rf dist", "reason": "clean" }), operation_id: Uuid::new_v4() }, &delivery)
-            .await
-            .unwrap();
+        let approval = cards::post_card(
+            &pool,
+            PostCard {
+                caller_id: a,
+                space_id: space_id.clone(),
+                kind: CardKind::Approval,
+                payload: json!({ "action": "run", "command": "rm -rf dist", "reason": "clean" }),
+                operation_id: Uuid::new_v4(),
+            },
+            &delivery,
+        )
+        .await
+        .unwrap();
         let pending = host
-            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .call(
+                "host",
+                "collaboration",
+                "card.list",
+                json!({ "threadId": space_id, "pendingOnly": true }),
+            )
             .await
             .unwrap();
         assert_eq!(pending["cards"].as_array().unwrap().len(), 2);
-        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id })).await.is_err(),
-            "ask needs an answer");
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": ask.id })
+            )
+            .await
+            .is_err(),
+            "ask needs an answer"
+        );
         let resolved = host
-            .call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "dev" }))
+            .call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": ask.id, "answer": "dev" }),
+            )
             .await
             .unwrap();
         assert_eq!(resolved["card"]["status"], json!("resolved"));
-        assert!(resolved["card"]["reply_message_id"].is_string() || resolved["card"]["replyMessageId"].is_string());
-        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "x" })).await.is_err(),
-            "double resolve rejected");
-        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "maybe" })).await.is_err());
-        host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "deny" }))
+        assert!(
+            resolved["card"]["reply_message_id"].is_string()
+                || resolved["card"]["replyMessageId"].is_string()
+        );
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": ask.id, "answer": "x" })
+            )
             .await
-            .unwrap();
+            .is_err(),
+            "double resolve rejected"
+        );
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": approval.id, "decision": "maybe" })
+            )
+            .await
+            .is_err()
+        );
+        host.call(
+            "host",
+            "collaboration",
+            "card.resolve",
+            json!({ "cardId": approval.id, "decision": "deny" }),
+        )
+        .await
+        .unwrap();
         let pending = host
-            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .call(
+                "host",
+                "collaboration",
+                "card.list",
+                json!({ "threadId": space_id, "pendingOnly": true }),
+            )
             .await
             .unwrap();
         assert!(pending["cards"].as_array().unwrap().is_empty());
@@ -1857,7 +2175,11 @@ mod tests {
         assert_eq!(messages[0]["origin"], json!("user"));
         assert!(messages[0].get("in_reply_to").is_none());
         assert_eq!(messages[1]["id"], second["message_id"]);
-        assert_eq!(messages[1]["in_reply_to"], json!(first_id), "URI reduced to bare id");
+        assert_eq!(
+            messages[1]["in_reply_to"],
+            json!(first_id),
+            "URI reduced to bare id"
+        );
     }
 
     #[tokio::test]
@@ -2147,7 +2469,10 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert!(agent.is_some_and(|a| !a.is_empty()), "default agent applied");
+        assert!(
+            agent.is_some_and(|a| !a.is_empty()),
+            "default agent applied"
+        );
 
         // explicit agent with no config still works (old frontend agent source)
         let explicit = host
@@ -2250,7 +2575,12 @@ mod tests {
         ] {
             let card_id = post_ask(&pool, &space, a, payload).await;
             let listed = host
-                .call("host", "collaboration", "card.list", json!({ "spaceId": space }))
+                .call(
+                    "host",
+                    "collaboration",
+                    "card.list",
+                    json!({ "spaceId": space }),
+                )
                 .await
                 .unwrap();
             let card = listed["cards"]
@@ -2271,5 +2601,277 @@ mod tests {
             .await
             .unwrap();
         }
+    }
+
+    async fn sidebar_host() -> (SqlitePool, HostCollaborationHost, Uuid) {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        create_session(&pool, Uuid::new_v4(), workspace, "seed").await;
+        (pool, host, workspace)
+    }
+
+    async fn call(host: &HostCollaborationHost, op: &str, input: Value) -> Value {
+        host.call("host", "collaboration", op, input).await.unwrap()
+    }
+
+    async fn new_space(host: &HostCollaborationHost, workspace: Uuid, name: &str) -> String {
+        call(
+            host,
+            "space.create",
+            json!({ "workspaceId": workspace, "name": name, "operationId": Uuid::new_v4() }),
+        )
+        .await["space_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn current_create_member_form_payload_maps_onto_member_definition() {
+        let (_pool, host, workspace) = sidebar_host().await;
+        let space = new_space(&host, workspace, "g1").await;
+        // Exact payload of the current frontend form (source = agent).
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace,
+                "spaceId": space,
+                "nickname": "Alice",
+                "source": "agent",
+                "agentId": "codex",
+                "modeId": "plan",
+                "configValues": { "model": "gpt-5" },
+                "personaPrompt": "be terse",
+                "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
+        assert_eq!(created["nickname"], json!("Alice"));
+        assert_eq!(created["space_id"], json!(format!("unassigned:{workspace}")));
+        let conversation = created["conversation_id"].as_str().unwrap().to_string();
+        let identity = created["identity_member_id"].as_str().unwrap().to_string();
+
+        let config = call(&host, "member.config.get", json!({ "memberId": identity })).await;
+        assert_eq!(config["config"]["agent_id"], json!("codex"));
+        assert_eq!(config["config"]["mode_id"], json!("plan"));
+        assert_eq!(config["config"]["config_values"]["model"], json!("gpt-5"));
+        assert_eq!(config["config"]["persona_prompt"], json!("be terse"));
+
+        let direct_thread = created["direct_thread_id"].as_str().unwrap().to_string();
+        assert_eq!(direct_thread, format!("direct:{identity}"));
+        let dm = call(&host, "member.session.resolve",
+            json!({ "memberId": identity, "threadId": direct_thread })).await;
+        assert_eq!(dm["conversationId"], json!(conversation));
+
+        // Later group join: per-group session for the same member.
+        call(&host, "space.addMember", json!({
+            "spaceId": space, "conversationId": conversation, "nickname": "Alice",
+            "operationId": Uuid::new_v4(),
+        })).await;
+        let in_group = call(&host, "member.session.resolve",
+            json!({ "memberId": identity, "threadId": space })).await;
+        let group_session = in_group["conversationId"].as_str().unwrap().to_string();
+        assert_ne!(group_session, conversation);
+
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        let group = sidebar["items"].as_array().unwrap().iter()
+            .find(|item| item["thread_id"] == json!(space)).unwrap().clone();
+        assert_eq!(group["kind"], json!("group"));
+        assert_eq!(group["name"], json!("g1"));
+        assert_eq!(group["members_preview"][0]["member_id"], json!(identity));
+        assert_eq!(group["members_preview"][0]["name"], json!("Alice"));
+        assert_eq!(group["members_preview"][0]["conversation_id"], json!(group_session));
+        let dm_item = sidebar["items"].as_array().unwrap().iter()
+            .find(|item| item["thread_id"] == json!(direct_thread)).unwrap().clone();
+        assert_eq!(dm_item["kind"], json!("dm"));
+        let members = call(&host, "member.list", json!({ "workspaceId": workspace })).await;
+        assert!(
+            members["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["member_id"] == json!(identity))
+        );
+        call(
+            &host,
+            "member.update",
+            json!({ "memberId": identity, "avatar": "🐱", "color": "#f00" }),
+        )
+        .await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        let group = sidebar["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["thread_id"] == json!(space))
+            .unwrap()
+            .clone();
+        assert_eq!(group["members_preview"][0]["avatar"], json!("🐱"));
+        assert_eq!(group["members_preview"][0]["color"], json!("#f00"));
+    }
+
+    #[tokio::test]
+    async fn current_create_member_form_role_payload_uses_role_config() {
+        let (_pool, host, workspace) = sidebar_host().await;
+        let role = call(
+            &host,
+            "role.create",
+            json!({
+                "name": "Reviewer", "summary": "", "personaPrompt": "review carefully",
+                "agentId": "codex", "modeId": "review", "configValues": { "model": "m1" },
+            }),
+        )
+        .await;
+        let role_id = role["id"].as_str().unwrap().to_string();
+        // Exact payload of the current frontend form (source = role), undecided space.
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace,
+                "spaceId": format!("unassigned:{workspace}"),
+                "nickname": "Rev",
+                "source": "role",
+                "roleId": role_id,
+                "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
+        let identity = created["identity_member_id"].as_str().unwrap().to_string();
+        let config = call(&host, "member.config.get", json!({ "memberId": identity })).await;
+        assert_eq!(config["config"]["agent_id"], json!("codex"));
+        assert_eq!(config["config"]["mode_id"], json!("review"));
+        assert_eq!(config["config"]["config_values"]["model"], json!("m1"));
+        assert_eq!(
+            config["config"]["persona_prompt"],
+            json!("review carefully")
+        );
+
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        let direct = sidebar["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["kind"] == json!("dm"))
+            .unwrap()
+            .clone();
+        assert_eq!(direct["thread_id"], json!(format!("direct:{identity}")));
+        assert_eq!(direct["name"], json!("Rev"));
+        assert_eq!(direct["member"]["member_id"], json!(identity));
+        assert_eq!(
+            direct["member"]["conversation_id"],
+            created["conversation_id"]
+        );
+        let resolved = call(
+            &host,
+            "member.session.resolve",
+            json!({ "memberId": identity, "threadId": direct["thread_id"] }),
+        )
+        .await;
+        assert_eq!(resolved["conversationId"], created["conversation_id"]);
+    }
+
+    #[tokio::test]
+    async fn sidebar_sorts_by_activity_and_tracks_unread_and_tag_color() {
+        let (pool, host, workspace) = sidebar_host().await;
+        let a = new_space(&host, workspace, "A").await;
+        let b = new_space(&host, workspace, "B").await;
+        let first = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        let items = first["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item["unread_count"] == json!(0)));
+        sqlx::query(
+            "INSERT INTO collaboration_space_messages (id, space_id, seq, envelope_json, created_at, origin)
+             VALUES (?, ?, 1, ?, '2999-01-01T00:00:00Z', 'agent')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&a)
+        .bind(json!({ "content": "hello  from\nagent" }).to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        call(
+            &host,
+            "thread.update",
+            json!({ "threadId": a, "tagColor": "#22c55e" }),
+        )
+        .await;
+        let listed = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        let items = listed["items"].as_array().unwrap();
+        assert_eq!(items[0]["thread_id"], json!(a));
+        assert_eq!(items[0]["unread_count"], json!(1));
+        assert_eq!(items[0]["tag_color"], json!("#22c55e"));
+        assert_eq!(
+            items[0]["last_message"]["preview"],
+            json!("hello from agent")
+        );
+        assert_eq!(items[1]["thread_id"], json!(b));
+        let read = call(&host, "thread.markRead", json!({ "threadId": a })).await;
+        assert_eq!(read["lastReadSeq"], json!(1));
+        let listed = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        assert_eq!(listed["items"][0]["unread_count"], json!(0));
+        // Existing space.list response shape is unchanged.
+        let spaces = call(&host, "space.list", json!({ "workspaceId": workspace })).await;
+        assert_eq!(spaces["spaces"][0].as_object().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn create_member_yields_one_dm_session_and_one_direct_thread_only() {
+        let (pool, host, workspace) = sidebar_host().await;
+        let space = new_space(&host, workspace, "g").await;
+        let count = |sql: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.unwrap() }
+        };
+        let sessions_before = count("SELECT COUNT(*) FROM sessions").await;
+        let spaces_before = count("SELECT COUNT(*) FROM collaboration_spaces").await;
+        // Current form payload, created from inside a group.
+        let created = call(&host, "space.createMember", json!({
+            "workspaceId": workspace, "spaceId": space, "nickname": "Solo",
+            "source": "agent", "agentId": "codex", "modeId": "", "configValues": {},
+            "personaPrompt": "", "operationId": Uuid::new_v4(),
+        })).await;
+        let identity = created["identity_member_id"].as_str().unwrap().to_string();
+        assert_eq!(count("SELECT COUNT(*) FROM sessions").await, sessions_before + 1);
+        assert_eq!(count("SELECT COUNT(*) FROM collaboration_spaces").await, spaces_before);
+        let bindings = sqlx::query_as::<_, (String, String)>(
+            "SELECT thread_id, conversation_id FROM collaboration_thread_members WHERE member_id = ?")
+            .bind(&identity).fetch_all(&pool).await.unwrap();
+        assert_eq!(bindings, vec![(format!("direct:{identity}"), created["conversation_id"].as_str().unwrap().to_string())]);
+        let kind: String = sqlx::query_scalar("SELECT kind FROM collaboration_threads WHERE id = ?")
+            .bind(format!("direct:{identity}")).fetch_one(&pool).await.unwrap();
+        assert_eq!(kind, "direct");
+        let in_group: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_members WHERE space_id = ? AND kind = 'agent'")
+            .bind(&space).fetch_one(&pool).await.unwrap();
+        assert_eq!(in_group, 0);
+        assert_eq!(created["direct_thread_id"], json!(format!("direct:{identity}")));
     }
 }

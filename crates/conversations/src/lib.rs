@@ -9,6 +9,7 @@ pub mod bundle;
 pub mod capability_catalog;
 pub mod collaboration;
 pub mod collaboration_cards;
+pub mod collaboration_sidebar;
 pub mod commit_reminder;
 pub mod export;
 pub mod host;

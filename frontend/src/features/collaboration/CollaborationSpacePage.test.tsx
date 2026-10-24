@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 import { sessionsApi } from '@/lib/api';
 
+import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import { CollaborationSpacePage } from './CollaborationSpacePage';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
@@ -108,6 +109,14 @@ function getComposerEditor(): HTMLDivElement {
 
 describe('CollaborationSpacePage', () => {
   beforeEach(() => {
+    useCollaborationLayoutStore.setState({
+      isSpacesVisible: true,
+      isThreadVisible: true,
+      isPreviewVisible: true,
+      hasOpenedSpaceThread: false,
+      hasMountedPreviewTabs: false,
+      sessionFocus: null,
+    });
     collaborationCall.mockReset();
     sessionPreviewSpy.mockReset();
     spaceEventListeners.clear();
@@ -245,7 +254,7 @@ describe('CollaborationSpacePage', () => {
     );
   });
 
-  it('opens creation/edit overlays inside the message area and previews a member session on member click or message avatar click', async () => {
+  it('opens creation/edit overlays inside the message area; contact rows open chat, message avatars open the session tab', async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -528,7 +537,7 @@ describe('CollaborationSpacePage', () => {
 
     const menu = await screen.findByTestId('composer-at-reference-menu');
     expect(menu).toBeVisible();
-    expect(screen.getByRole('tab', { name: /成员/ })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /助手/ })).toHaveAttribute(
       'aria-selected',
       'true'
     );
@@ -1556,7 +1565,7 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
-  it('titles a member tab opened from a group chat "<group> · <member>"', async () => {
+  it('titles a member tab opened from a group chat with the group name', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();
     collaborationCall.mockImplementation(
@@ -1596,9 +1605,107 @@ describe('CollaborationSpacePage', () => {
       await screen.findByRole('button', { name: '预览 小A 会话' })
     );
     await screen.findByTestId('session-preview');
-    expect((await screen.findAllByText('设计 · 小A')).length).toBeGreaterThan(
-      0
+    expect(screen.getByTestId('dockview-dv-default-tab')).toHaveAttribute(
+      'title',
+      '设计'
     );
+  });
+
+  it('opens the matching group chat and session tab from a session-list focus', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'member.session.resolve') return {};
+        if (method === 'thread.markRead') return {};
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    useCollaborationLayoutStore.getState().requestSessionFocus({
+      conversationId: 'conv-1',
+      memberId: 'mem-a',
+      memberName: '小A',
+      threadId: 's1',
+      threadKind: 'group',
+      threadName: '设计',
+    });
+    renderPage();
+    await screen.findByTestId('session-preview');
+    expect(screen.getByTestId('dockview-dv-default-tab')).toHaveAttribute(
+      'title',
+      '设计'
+    );
+  });
+
+  it('opens the matching private chat and session tab from a session-list focus', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                name: '小A',
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'member.session.resolve') return {};
+        if (method === 'thread.markRead') return {};
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    useCollaborationLayoutStore.getState().requestSessionFocus({
+      conversationId: 'conv-1',
+      memberId: 'mem-a',
+      memberName: '小A',
+      threadId: 'direct:mem-a',
+      threadKind: 'direct',
+      threadName: '小A',
+    });
+    renderPage();
+    await screen.findByTestId('session-preview');
+    expect(screen.getByTestId('dockview-dv-default-tab')).toHaveAttribute(
+      'title',
+      '小A'
+    );
+    const memberAButton = await screen.findByRole('button', { name: '小A' });
+    expect(memberAButton.closest('.is-selected')).toBeTruthy();
   });
 
   describe('sidebar pointer drag', () => {

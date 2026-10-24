@@ -134,7 +134,7 @@ use vibex::commands::{
     attention::{AttentionInbox, AttentionItem, AttentionItemKind},
     conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
     crash_reports::{CrashReportMeta, CrashReportsInfo},
-    sessions::{SessionContinuityMode, SessionSummary},
+    sessions::{SessionCollaborationRef, SessionContinuityMode, SessionSummary},
 };
 use workflows::{
     AgentStepSpec, ApprovalStepSpec, ClaimedWorkflowStep, CompletionPolicy, DebugRunScope,
@@ -533,6 +533,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Session>(&mut decls);
     insert_declaration::<CreateSession>(&mut decls);
     insert_declaration::<SessionContinuityMode>(&mut decls);
+    insert_declaration::<SessionCollaborationRef>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<MultiAgentAgentDefault>(&mut decls);

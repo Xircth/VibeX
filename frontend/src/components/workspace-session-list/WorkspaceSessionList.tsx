@@ -44,6 +44,8 @@ import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { CollaborationSessionBadge } from '@/features/collaboration/CollaborationSessionBadge';
+import { openCollaborationSessionFromList } from '@/features/collaboration/sessionCollaboration';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
@@ -1147,7 +1149,21 @@ export function WorkspaceSessionRow({
                     className="h-3 w-3 shrink-0 text-primary"
                   />
                 ) : null}
-                <span className="workspace-session-meta-idle">
+                <span className="workspace-session-meta-idle gap-1.5">
+                  {session.collaboration ? (
+                    <CollaborationSessionBadge
+                      memberName={session.collaboration.memberName}
+                      conversationId={session.id}
+                      onOpen={() => {
+                        const collaboration = session.collaboration;
+                        if (!collaboration) return;
+                        openCollaborationSessionFromList({
+                          conversationId: session.id,
+                          collaboration,
+                        });
+                      }}
+                    />
+                  ) : null}
                   {session.isRunning ? (
                     <Loader2
                       className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"

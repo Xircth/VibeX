@@ -2596,7 +2596,7 @@ pub async fn host_create_space_member(
                 executor: None,
                 agent_id: Some(agent_id),
                 task_id: None,
-                name: Some(nickname.clone()),
+                name: None,
                 initial_prompt: None,
                 status: None,
             },
@@ -8779,6 +8779,15 @@ mod tests {
         .await
         .unwrap();
         let direct = Uuid::parse_str(created.conversation_id.as_deref().unwrap()).unwrap();
+        let created_session = load_session(&pool, direct).await.unwrap().unwrap();
+        assert!(
+            created_session
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+        );
         let member = identity::binding_of_conversation(&pool, direct)
             .await
             .unwrap()

@@ -1,6 +1,7 @@
 import type { ExecutorProfileId } from 'shared/types';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { collaborationStoredSessionName } from '@/features/collaboration/sessionCollaboration';
 import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
 
@@ -103,7 +104,11 @@ export function resolveWorkspaceListActiveSessionId(
 }
 
 export function sessionListTitle(session: KanbanProjectSessionRecord): string {
-  const manualName = sanitizeSessionListTitle(session.name ?? '');
+  const storedName = collaborationStoredSessionName(
+    session.name,
+    session.collaboration?.memberName
+  );
+  const manualName = sanitizeSessionListTitle(storedName ?? '');
   if (manualName) return manualName;
 
   const prompt = session.firstPrompt?.replace(/\s+/g, ' ').trim();

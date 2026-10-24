@@ -6,9 +6,15 @@ import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
 import { sessionsApi } from '@/lib/api';
+import {
+  collaborationStoredSessionName,
+  type KanbanSessionCollaboration,
+} from '@/features/collaboration/sessionCollaboration';
 import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
 import { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
+
+export type { KanbanSessionCollaboration };
 
 export interface KanbanProjectSessionRecord {
   id: string;
@@ -35,6 +41,7 @@ export interface KanbanProjectSessionRecord {
   isErrored: boolean;
   pinnedAt: string | null;
   forkSupported?: boolean;
+  collaboration: KanbanSessionCollaboration | null;
 }
 
 function truncateSessionName(name: string, length = 7) {
@@ -102,6 +109,7 @@ export function kanbanSessionFromCreated(
     isRunning: false,
     isErrored: false,
     pinnedAt: null,
+    collaboration: null,
   };
 }
 
@@ -175,7 +183,11 @@ export function buildDefaultSessionName(
   summary: SessionSummary,
   t: TFunction<['app', 'common']>
 ) {
-  const manualName = sanitizeSessionListTitle(summary.name ?? '');
+  const storedName = collaborationStoredSessionName(
+    summary.name,
+    summary.collaboration?.member_name
+  );
+  const manualName = sanitizeSessionListTitle(storedName ?? '');
   if (manualName) {
     return {
       name: manualName,
@@ -341,6 +353,15 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             isRunning: summary.is_running,
             isErrored,
             pinnedAt: summary.pinned_at ?? null,
+            collaboration: summary.collaboration
+              ? {
+                  memberId: summary.collaboration.member_id,
+                  memberName: summary.collaboration.member_name,
+                  threadId: summary.collaboration.thread_id,
+                  threadKind: summary.collaboration.thread_kind,
+                  threadName: summary.collaboration.thread_name,
+                }
+              : null,
           };
         });
       })

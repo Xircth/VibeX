@@ -11,6 +11,8 @@
 //! the existing delivery, receipt and dedupe code. Each agent seat points at
 //! the conversation that [`resolve_session`] returns for that seat.
 
+use std::collections::HashMap;
+
 use chrono::{SecondsFormat, Utc};
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
@@ -244,7 +246,8 @@ pub async fn ensure_thread_for_seat_in(
         .bind(space_id)
         .execute(&mut *conn)
         .await?;
-        if inserted.rows_affected() == 0 && load_thread_in(&mut *conn, &thread_id).await?.is_none() {
+        if inserted.rows_affected() == 0 && load_thread_in(&mut *conn, &thread_id).await?.is_none()
+        {
             return Err(IdentityError::NotFound("space"));
         }
     }
@@ -262,7 +265,8 @@ pub async fn bind_seat_in(
     conversation_id: Uuid,
     fallback_name: Option<&str>,
 ) -> Result<(String, String, ResolvedSession), IdentityError> {
-    let member_id = ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
+    let member_id =
+        ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
     let thread_id = ensure_thread_for_seat_in(&mut *conn, space_id, &member_id).await?;
     if let Some(binding) = binding_of_conversation_in(&mut *conn, conversation_id).await?
         && binding.thread_id != thread_id
@@ -295,7 +299,8 @@ pub async fn transfer_conversation_in(
     space_id: &str,
     fallback_name: Option<&str>,
 ) -> Result<(), IdentityError> {
-    let member_id = ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
+    let member_id =
+        ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
     let thread_id = ensure_thread_for_seat_in(&mut *conn, space_id, &member_id).await?;
     let occupied: Option<String> = sqlx::query_scalar(
         "SELECT conversation_id FROM collaboration_thread_members
@@ -351,10 +356,11 @@ pub struct ResolvedSession {
 
 /// Map `(member, thread)` to its conversation, creating it when missing.
 ///
-/// A new conversation copies agent/executor/name from the member's earliest
-/// bound conversation and its persona snapshot; without one it uses the
-/// member row (and the role persona when `role_id` is set). The new id is
-/// deterministic, so concurrent or repeated calls converge on one row.
+/// A new conversation copies agent/executor from the member's earliest bound
+/// conversation and its persona snapshot; without one it uses the member row
+/// (and the role persona when `role_id` is set). Session title stays unset so
+/// the ordinary 新会话 / first-message / Agent auto-name path applies. The new
+/// id is deterministic, so concurrent or repeated calls converge on one row.
 pub async fn resolve_session_in(
     conn: &mut SqliteConnection,
     member_id: &str,
@@ -382,12 +388,14 @@ pub async fn resolve_session_in(
     .await?
     .and_then(|raw| Uuid::parse_str(&raw).ok());
     let template_session = match template {
-        Some(id) => sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, Option<String>)>(
-            "SELECT workspace_id, name, executor, agent_id FROM sessions WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?,
+        Some(id) => {
+            sqlx::query_as::<_, (Uuid, Option<String>, Option<String>)>(
+                "SELECT workspace_id, executor, agent_id FROM sessions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+        }
         None => None,
     };
     let workspace_id = match thread
@@ -402,15 +410,11 @@ pub async fn resolve_session_in(
             .ok_or(IdentityError::NotFound("workspace"))?,
     };
     let new_id = thread_session_id(member_id, thread_id);
-    let name = template_session
-        .as_ref()
-        .and_then(|s| s.1.clone())
-        .unwrap_or_else(|| member.name.clone());
-    let executor = template_session.as_ref().and_then(|s| s.2.clone());
+    let executor = template_session.as_ref().and_then(|s| s.1.clone());
     let agent = member
         .agent
         .clone()
-        .or_else(|| template_session.as_ref().and_then(|s| s.3.clone()));
+        .or_else(|| template_session.as_ref().and_then(|s| s.2.clone()));
     let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     sqlx::query(
         "INSERT INTO sessions (id, workspace_id, name, executor, agent_id)
@@ -419,7 +423,7 @@ pub async fn resolve_session_in(
     )
     .bind(new_id)
     .bind(workspace_id)
-    .bind(&name)
+    .bind(Option::<String>::None)
     .bind(executor)
     .bind(&agent)
     .execute(&mut *tx)
@@ -500,7 +504,6 @@ async fn bound_conversation_in(
     .await?
     .and_then(|raw| Uuid::parse_str(&raw).ok()))
 }
-
 
 // Pool entry points; each `*_in` variant runs on a caller-provided
 // connection or transaction.
@@ -600,6 +603,68 @@ pub async fn resolve_session(
     resolve_session_in(&mut conn, member_id, thread_id).await
 }
 
+/// Binding that owns a member session inside a workspace, for session-list badges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSessionBinding {
+    pub conversation_id: Uuid,
+    pub member_id: String,
+    pub member_name: String,
+    pub thread_id: String,
+    pub thread_kind: String,
+    pub thread_title: String,
+}
+
+/// Stored titles that equal the member nickname are treated as unset so
+/// ordinary naming (Agent auto-title, first message, 新会话) applies.
+pub fn collaboration_stored_session_name(
+    stored_name: Option<&str>,
+    member_name: &str,
+) -> Option<String> {
+    let name = stored_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if name == member_name {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+pub async fn bindings_for_workspace(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<HashMap<Uuid, WorkspaceSessionBinding>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
+        r#"SELECT tm.conversation_id, tm.member_id, m.name, tm.thread_id, t.kind, t.title
+           FROM collaboration_thread_members tm
+           JOIN collaboration_members m ON m.id = tm.member_id
+           JOIN collaboration_threads t ON t.id = tm.thread_id
+           JOIN sessions s ON replace(tm.conversation_id, '-', '') = lower(hex(s.id))
+           WHERE s.workspace_id = ?
+             AND tm.status = 'active'"#,
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await?;
+    let mut map = HashMap::new();
+    for (conversation_id, member_id, member_name, thread_id, thread_kind, thread_title) in rows {
+        let Ok(conversation_id) = Uuid::parse_str(&conversation_id) else {
+            continue;
+        };
+        map.insert(
+            conversation_id,
+            WorkspaceSessionBinding {
+                conversation_id,
+                member_id,
+                member_name,
+                thread_id,
+                thread_kind,
+                thread_title,
+            },
+        );
+    }
+    Ok(map)
+}
 
 /// Idempotent backfill from the legacy "member == conversation" layout.
 ///
@@ -657,11 +722,13 @@ impl MemberIdentityMigration {
                 bind_seat_in(&mut tx, &space_id, conversation_id, Some(&nickname)).await?;
             let resolved = resolved.conversation_id;
             if resolved != conversation_id {
-                sqlx::query("UPDATE collaboration_space_members SET conversation_id = ? WHERE rowid = ?")
-                    .bind(resolved.to_string())
-                    .bind(rowid)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "UPDATE collaboration_space_members SET conversation_id = ? WHERE rowid = ?",
+                )
+                .bind(resolved.to_string())
+                .bind(rowid)
+                .execute(&mut *tx)
+                .await?;
                 report.conversations_created += 1;
             }
             report.seats_bound += 1;
@@ -788,7 +855,10 @@ mod tests {
         assert_eq!(seat_conversation(&pool, "space-a", "小A").await, conv);
         let forked = seat_conversation(&pool, "space-b", "小A").await;
         assert_ne!(forked, conv);
-        let binding = binding_of_conversation(&pool, forked).await.unwrap().unwrap();
+        let binding = binding_of_conversation(&pool, forked)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(binding.member_id, member);
         assert_eq!(binding.thread_id, "space-b");
         let forked_workspace: Uuid =
@@ -841,7 +911,10 @@ mod tests {
         assert_eq!(member.name, "评审");
         let binding = binding_of_conversation(&pool, conv).await.unwrap().unwrap();
         assert_eq!(binding.thread_id, direct_thread_id(&member_id));
-        let thread = load_thread(&pool, &binding.thread_id).await.unwrap().unwrap();
+        let thread = load_thread(&pool, &binding.thread_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(thread.kind, "direct");
         assert_eq!(thread.workspace_id, Some(workspace.to_string()));
         assert_eq!(seat_conversation(&pool, &undecided, "小B").await, conv);
@@ -866,7 +939,9 @@ mod tests {
         assert!(!same.created);
 
         // Same member, another thread: a distinct conversation, created once.
-        ensure_thread_for_seat(&pool, "space-b", &member).await.unwrap();
+        ensure_thread_for_seat(&pool, "space-b", &member)
+            .await
+            .unwrap();
         let other = resolve_session(&pool, &member, "space-b").await.unwrap();
         assert!(other.created);
         assert_ne!(other.conversation_id, conv);
@@ -875,8 +950,45 @@ mod tests {
         assert!(!repeat.created);
         assert_eq!(repeat.conversation_id, other.conversation_id);
 
+        let other_name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM sessions WHERE id = ?")
+                .bind(other.conversation_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            other_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+        );
+
         let missing = resolve_session(&pool, &member, "no-such-thread").await;
         assert!(matches!(missing, Err(IdentityError::NotFound(_))));
+
+        let map = bindings_for_workspace(&pool, workspace).await.unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&conv).unwrap().thread_id, "space-a");
+        assert_eq!(map.get(&conv).unwrap().thread_kind, "group");
+        let other_binding = map.get(&other.conversation_id).unwrap();
+        assert_eq!(other_binding.thread_id, "space-b");
+        assert_eq!(other_binding.member_id, map.get(&conv).unwrap().member_id);
+    }
+
+    #[test]
+    fn nickname_session_titles_are_treated_as_unset() {
+        assert_eq!(collaboration_stored_session_name(Some("小A"), "小A"), None);
+        assert_eq!(
+            collaboration_stored_session_name(Some(" 小A "), "小A"),
+            None
+        );
+        assert_eq!(
+            collaboration_stored_session_name(Some("修登录"), "小A"),
+            Some("修登录".to_string())
+        );
+        assert_eq!(collaboration_stored_session_name(None, "小A"), None);
+        assert_eq!(collaboration_stored_session_name(Some("   "), "小A"), None);
     }
 
     #[tokio::test]
@@ -892,7 +1004,10 @@ mod tests {
         MemberIdentityMigration::run(&pool).await.unwrap();
         // Sessions reference workspaces that this fixture does not create, so
         // enforce foreign keys only for the identity tables under test.
-        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
         let member = member_id_for_conversation(conv);
         for thread in ["space-a", "space-b"] {
             sqlx::query("INSERT INTO member_activity (member_id, thread_id, summary, created_at) VALUES (?, ?, 's', 'now')")
@@ -903,19 +1018,29 @@ mod tests {
         sqlx::query("INSERT INTO member_facts (member_id, content, scope, source_thread_id, updated_at) VALUES (?, 'g', 'global', NULL, 'now')")
             .bind(&member).execute(&pool).await.unwrap();
 
-        sqlx::query("DELETE FROM collaboration_threads WHERE id = 'space-a'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM collaboration_threads WHERE id = 'space-a'")
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(count(&pool, "collaboration_thread_members").await, 1);
         assert_eq!(count(&pool, "member_activity").await, 1);
         assert_eq!(count(&pool, "member_facts").await, 1);
 
-        sqlx::query("DELETE FROM collaboration_members WHERE id = ?").bind(&member).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM collaboration_members WHERE id = ?")
+            .bind(&member)
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(count(&pool, "collaboration_thread_members").await, 0);
         assert_eq!(count(&pool, "member_activity").await, 0);
         assert_eq!(count(&pool, "member_facts").await, 0);
 
         let orphan = sqlx::query("INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, joined_at) VALUES ('space-b', 'ghost', 'x', 'now')")
             .execute(&pool).await;
-        assert!(orphan.is_err(), "binding to a missing member must be rejected");
+        assert!(
+            orphan.is_err(),
+            "binding to a missing member must be rejected"
+        );
     }
 
     #[tokio::test]
@@ -932,15 +1057,22 @@ mod tests {
         seat(&pool, "space-a", bad, "坏").await;
         seat(&pool, "space-b", bad, "坏").await;
         // Make forking the second seat of `bad` fail half-way through.
-        sqlx::query("CREATE TRIGGER boom BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'boom'); END")
-            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER boom BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         assert!(MemberIdentityMigration::run(&pool).await.is_err());
         assert_eq!(count(&pool, "collaboration_members").await, 0);
         assert_eq!(count(&pool, "collaboration_threads").await, 0);
         assert_eq!(count(&pool, "collaboration_thread_members").await, 0);
         assert_eq!(seat_conversation(&pool, "space-b", "坏").await, bad);
 
-        sqlx::query("DROP TRIGGER boom").execute(&pool).await.unwrap();
+        sqlx::query("DROP TRIGGER boom")
+            .execute(&pool)
+            .await
+            .unwrap();
         let report = MemberIdentityMigration::run(&pool).await.unwrap();
         assert_eq!(report.seats_bound, 3);
         assert_eq!(report.conversations_created, 1);

@@ -551,11 +551,9 @@ describe('private chat helpers', () => {
 });
 
 describe('memberTabTitle', () => {
-  it('prefixes the group name only for group threads', async () => {
+  it('uses the group name for group threads and the member name for DMs', async () => {
     const { memberTabTitle } = await import('./spaceModel');
-    expect(memberTabTitle('小A', { kind: 'group', name: '设计' })).toBe(
-      '设计 · 小A'
-    );
+    expect(memberTabTitle('小A', { kind: 'group', name: '设计' })).toBe('设计');
     expect(memberTabTitle('小A', { kind: 'dm', name: '小A' })).toBe('小A');
     expect(memberTabTitle('小A', { kind: 'direct' })).toBe('小A');
     expect(memberTabTitle('小A', { kind: 'group', name: ' ' })).toBe('小A');

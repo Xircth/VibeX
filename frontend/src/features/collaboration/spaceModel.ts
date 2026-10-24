@@ -1000,16 +1000,14 @@ export function reconcilePendingDirectMessages(
 }
 
 /**
- * Title for a member session tab. Opened from a group chat (thread kind
- * 'group') it reads "<group name> · <member name>"; otherwise (dm/direct or
- * unknown kind) just the member name. The backend has no label field.
+ * Title for a member session tab. Group threads use the group name; private
+ * chats use the member name. The session itself is still that member's
+ * hidden conversation for the thread.
  */
 export function memberTabTitle(
   memberName: string,
   thread: { kind?: string | null; name?: string | null } | null | undefined
 ): string {
   const groupName = thread?.name?.trim();
-  return thread?.kind === 'group' && groupName
-    ? `${groupName} · ${memberName}`
-    : memberName;
+  return thread?.kind === 'group' && groupName ? groupName : memberName;
 }

@@ -94,6 +94,27 @@ describe('SessionHubListItem', () => {
     expect(screen.getByText('待检查')).toBeInTheDocument();
   });
 
+  it('shows a collaboration badge before the active time without opening the session', () => {
+    const onClick = vi.fn();
+    renderItem({
+      session: session({
+        collaboration: {
+          memberId: 'mem-a',
+          memberName: '小A',
+          threadId: 'direct:mem-a',
+          threadKind: 'dm',
+          threadName: '小A',
+        },
+      }),
+      onClick,
+    });
+
+    const badge = screen.getByTestId('collaboration-session-badge');
+    expect(badge).toHaveTextContent('小A');
+    fireEvent.click(badge);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('shows the session name without the first-message preview', () => {
     renderItem();
 

@@ -73,6 +73,8 @@ export function GroupAvatar({
         {
           width: `${size}px`,
           height: `${size}px`,
+          // Tag ring is 1.5px at the 24px size; keep it proportional.
+          '--group-avatar-ring': `${(1.5 * size) / 24}px`,
           ...(tagHue ? { '--group-avatar-tag': `hsl(${tagHue})` } : {}),
         } as CSSProperties
       }

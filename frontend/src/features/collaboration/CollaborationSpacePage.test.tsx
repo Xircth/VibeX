@@ -16,6 +16,7 @@ import { CollaborationSpacePage } from './CollaborationSpacePage';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
+const toastError = vi.hoisted(() => vi.fn());
 const spaceEventListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
@@ -39,6 +40,14 @@ vi.mock('@/lib/backendTransport', async (importOriginal) => {
         return () => undefined;
       }
     ),
+  };
+});
+
+vi.mock('@/components/ui/toast', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/toast')>();
+  return {
+    ...actual,
+    toast: { ...actual.toast, error: toastError },
   };
 });
 
@@ -687,20 +696,20 @@ describe('CollaborationSpacePage', () => {
       '.workspace-session-row'
     ) as HTMLElement;
     const unassignedGroup = screen.getByTestId('collaboration-space-group-s1');
+    // 小A is already a member of 设计 (space.listMembers): the drop is
+    // refused with a toast instead of a duplicate space.addMember.
     fireEvent.dragStart(memberRow);
     fireEvent.dragOver(unassignedGroup);
+    expect(unassignedGroup).not.toHaveClass('is-drop-target');
     fireEvent.drop(unassignedGroup);
-
-    await waitFor(() => {
-      expect(collaborationCall).toHaveBeenCalledWith(
-        'collaboration',
-        'space.addMember',
-        expect.objectContaining({
-          spaceId: 's1',
-          conversationId: 'conv-1',
-        })
-      );
-    });
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('小A 已在该群中')
+    );
+    expect(collaborationCall).not.toHaveBeenCalledWith(
+      'collaboration',
+      'space.addMember',
+      expect.anything()
+    );
 
     // Clicking rename button turns the member name directly into an inline input with X and Check buttons (no message area dialog overlay)
     await user.click(screen.getByRole('button', { name: '修改昵称 小A' }));
@@ -1585,6 +1594,200 @@ describe('CollaborationSpacePage', () => {
     expect((await screen.findAllByText('设计 · 小A')).length).toBeGreaterThan(
       0
     );
+  });
+
+  describe('sidebar pointer drag', () => {
+    const member = (id: string, name: string, conv: string) => ({
+      member_id: id,
+      name,
+      conversation_id: conv,
+    });
+    const others = [1, 2, 3, 4].map((n) =>
+      member(`mem-${n}`, `成员${n}`, `conv-x${n}`)
+    );
+    const setup = () => {
+      const defaultImpl = collaborationCall.getMockImplementation();
+      const groupOf: Record<string, string | null> = { s2: 'g1', s3: 'g2' };
+      collaborationCall.mockImplementation(
+        async (
+          capability: string,
+          method: string,
+          input?: Record<string, unknown>
+        ) => {
+          if (method === 'thread.listSidebar')
+            return {
+              items: [
+                {
+                  kind: 'group',
+                  thread_id: 's2',
+                  space_id: 's2',
+                  name: '产品',
+                  members_preview: [others[0]],
+                  member_count: 1,
+                  group_id: groupOf.s2,
+                },
+                {
+                  // 6 members, preview truncated to 4 (小A not among them).
+                  kind: 'group',
+                  thread_id: 's3',
+                  space_id: 's3',
+                  name: '大群',
+                  members_preview: others,
+                  member_count: 6,
+                  group_id: groupOf.s3,
+                },
+                {
+                  kind: 'dm',
+                  thread_id: 'direct:mem-a',
+                  space_id: 'unassigned:workspace-1',
+                  name: '小A',
+                  member: member('mem-a', '小A', 'conv-1'),
+                  group_id: groupOf['direct:mem-a'] ?? null,
+                },
+              ],
+            };
+          if (method === 'contactGroup.list')
+            return {
+              groups: [
+                { group_id: 'g1', name: '核心', sort_order: 0 },
+                { group_id: 'g2', name: '外部', sort_order: 1 },
+              ],
+            };
+          if (method === 'space.listMembers' && input?.spaceId === 's2')
+            return {
+              members: [{ ...others[0], kind: 'agent', nickname: '成员1' }],
+            };
+          if (method === 'space.listMembers' && input?.spaceId === 's3')
+            return {
+              members: [
+                ...others.map((m) => ({ ...m, kind: 'agent' })),
+                { member_id: 'mem-5', kind: 'agent', conversation_id: 'c5' },
+                {
+                  member_id: 'mem-a',
+                  kind: 'agent',
+                  conversation_id: 'conv-1',
+                },
+              ],
+            };
+          if (method === 'thread.setGroup') {
+            groupOf[String(input?.threadId)] =
+              (input?.groupId as string | null) ?? null;
+            return { threadId: input?.threadId, groupId: input?.groupId };
+          }
+          if (method === 'space.addMember') return {};
+          return defaultImpl?.(capability, method, input);
+        }
+      );
+    };
+    // Pointer drag (the real app's mechanism); elementsFromPoint is stubbed
+    // to report `target` under the pointer.
+    const startDrag = (source: HTMLElement, target: HTMLElement) => {
+      document.elementsFromPoint = vi.fn(() => [target]);
+      fireEvent.pointerDown(source, { button: 0, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(window, { clientX: 30, clientY: 30 });
+    };
+    const drop = () =>
+      fireEvent.pointerUp(window, { clientX: 30, clientY: 30 });
+    const dmRow = () =>
+      within(
+        screen.getByTestId('collaboration-contact-row-direct:direct:mem-a')
+      )
+        .getByRole('button', { name: '小A' })
+        .closest('.workspace-session-row') as HTMLElement;
+    const groupRow = (spaceId: string) =>
+      within(
+        screen.getByTestId(`collaboration-contact-row-group:${spaceId}`)
+      ).getByRole('button', { name: spaceId === 's2' ? '产品' : '大群' });
+
+    it('drags a group chat row into another contact group (body area)', async () => {
+      setup();
+      renderPage();
+      await screen.findByTestId('collaboration-contact-row-group:s2');
+      // Drop on the 外部 section's rows (over the 大群 group-chat row).
+      startDrag(groupRow('s2'), groupRow('s3'));
+      const section = screen.getByTestId('collaboration-contact-section-g2');
+      await waitFor(() => expect(section).toHaveClass('is-drop-target'));
+      expect(
+        screen.getByTestId('collaboration-space-group-s3')
+      ).not.toHaveClass('is-drop-target');
+      drop();
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'thread.setGroup',
+          { threadId: 's2', groupId: 'g2' }
+        )
+      );
+      expect(collaborationCall).not.toHaveBeenCalledWith(
+        'collaboration',
+        'space.addMember',
+        expect.anything()
+      );
+    });
+
+    it('drags a DM row onto a contact-group header', async () => {
+      setup();
+      renderPage();
+      await screen.findByTestId(
+        'collaboration-contact-row-direct:direct:mem-a'
+      );
+      startDrag(
+        dmRow(),
+        screen.getByTestId('collaboration-contact-section-header-g1')
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('collaboration-contact-section-g1')
+        ).toHaveClass('is-drop-target')
+      );
+      drop();
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'thread.setGroup',
+          { threadId: 'direct:mem-a', groupId: 'g1' }
+        )
+      );
+    });
+
+    it('adds a member to a group chat, but blocks one already in it (>4 members)', async () => {
+      setup();
+      renderPage();
+      await screen.findByTestId('collaboration-contact-row-group:s3');
+      // Not a member of 产品: highlighted, drop -> space.addMember.
+      startDrag(dmRow(), groupRow('s2'));
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('collaboration-space-group-s2')
+        ).toHaveAttribute('data-drop-state', 'target')
+      );
+      drop();
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'space.addMember',
+          expect.objectContaining({ spaceId: 's2', conversationId: 'conv-1' })
+        )
+      );
+      collaborationCall.mockClear();
+
+      // 大群 has 6 members; 小A is only in the full list, not the preview.
+      startDrag(dmRow(), groupRow('s3'));
+      const big = screen.getByTestId('collaboration-space-group-s3');
+      await waitFor(() =>
+        expect(big).toHaveAttribute('data-drop-state', 'blocked')
+      );
+      expect(big).not.toHaveClass('is-drop-target');
+      expect(document.body).toHaveClass('is-drag-blocked');
+      drop();
+      expect(document.body).not.toHaveClass('is-drag-blocked');
+      await act(async () => {});
+      expect(collaborationCall).not.toHaveBeenCalledWith(
+        'collaboration',
+        'space.addMember',
+        expect.anything()
+      );
+    });
   });
 
   describe('contact groups', () => {

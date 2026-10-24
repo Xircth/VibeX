@@ -34,7 +34,7 @@
       "localHost": "This computer",
       "materializeFailed": "Could not copy Host connection files",
       "tabs": {
-        "member": "Members",
+        "member": "Bots",
         "file": "Files",
         "project": "Projects",
         "conversation": "Sessions",

@@ -34,7 +34,7 @@
       "localHost": "本机",
       "materializeFailed": "无法写入 Host 连接文件",
       "tabs": {
-        "member": "成员",
+        "member": "助手",
         "file": "文件",
         "project": "项目",
         "conversation": "会话",

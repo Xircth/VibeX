@@ -19,20 +19,20 @@ describe('InlineGroupCreator', () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();
     render(<InlineGroupCreator members={members} onCreate={onCreate} />);
-    const create = screen.getByRole('button', { name: '????' });
+    const create = screen.getByRole('button', { name: '创建群聊' });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole('checkbox', { name: 'Alex' }));
     expect((create as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole('checkbox', { name: 'Casey' }));
     expect((create as HTMLButtonElement).disabled).toBe(false);
     await user.click(create);
-    expect(onCreate).toHaveBeenCalledWith('Alex?Casey', ['m0', 'm2']);
+    expect(onCreate).toHaveBeenCalledWith('Alex、Casey', ['m0', 'm2']);
   });
 
   it('filters the list with the search box', async () => {
     const user = userEvent.setup();
     render(<InlineGroupCreator members={members} onCreate={vi.fn()} />);
-    await user.type(screen.getByRole('textbox', { name: '????' }), 'bl');
+    await user.type(screen.getByRole('textbox', { name: '搜索成员' }), 'bl');
     expect(screen.queryByRole('checkbox', { name: 'Alex' })).toBeNull();
     expect(screen.getByRole('checkbox', { name: 'Blair' })).toBeTruthy();
   });
@@ -59,7 +59,7 @@ describe('InlineGroupCreator', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(
       screen
-        .getAllByRole('button', { name: '????' })
+        .getAllByRole('button', { name: '创建群聊' })
         .find((b) => b.getAttribute('aria-expanded') === 'true')
     ).toBeTruthy();
   });

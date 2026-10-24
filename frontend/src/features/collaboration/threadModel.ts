@@ -92,7 +92,7 @@ export const THREAD_COPY = {
   needsYou: '等你处理',
   pin: '置顶',
   unpin: '取消置顶',
-  newGroup: '????',
+  newGroup: '创建群聊',
   newMember: '新建成员',
   emptyList: '还没有成员或群聊',
   emptySearch: '没有匹配的成员或群聊',

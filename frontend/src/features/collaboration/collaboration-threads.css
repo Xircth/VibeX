@@ -687,7 +687,7 @@
   }
 }
 
-/* Inline group creator (expands under ?????? in the thread list) */
+/* Inline group creator (expands under 「创建群聊」 in the thread list) */
 .collab-group-inline {
   display: flex;
   flex-direction: column;
@@ -702,4 +702,80 @@
 }
 .collab-group-inline-create {
   align-self: stretch;
+}
+
+/* ---- member session tabs (right panel) ---- */
+.collab-session-panel {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--surface-right-panel);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.collab-session-tabs {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.collab-session-tab {
+  display: flex;
+  align-items: center;
+  max-width: 14rem;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.collab-session-tab.is-active {
+  color: var(--text-strong);
+  background: var(--surface-shell);
+}
+
+.collab-session-tab-button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px 6px 8px;
+  font-size: 12px;
+}
+
+.collab-session-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collab-session-tab-close {
+  padding: 4px 6px;
+  opacity: 0.6;
+}
+
+.collab-session-tab-close:hover {
+  opacity: 1;
+}
+
+.collab-session-tab-group {
+  position: relative;
+  display: inline-flex;
+}
+
+.collab-session-tab-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px var(--surface-right-panel);
+}
+
+.collab-session-body {
+  min-height: 0;
+  flex: 1;
+}
+
+.collab-main-head-avatar {
+  cursor: pointer;
 }

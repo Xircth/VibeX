@@ -159,6 +159,19 @@ impl CollaborationHost for HostCollaborationHost {
                 .map_err(host_error)?;
                 Ok(json!({ "memberId": member_id, "config": config }))
             }
+            ("collaboration", "member.session.resolve" | "member.resolve_session") => {
+                let member_id = required_text(&input, &["memberId", "member_id"])?;
+                let thread_id = required_text(&input, &["threadId", "thread_id"])?;
+                let conversation_id =
+                    collaboration::resolve_thread_session(&self.pool, &member_id, &thread_id)
+                        .await
+                        .map_err(host_error)?;
+                Ok(json!({
+                    "memberId": member_id,
+                    "threadId": thread_id,
+                    "conversationId": conversation_id,
+                }))
+            }
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
             }
@@ -1266,6 +1279,52 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn member_session_resolve_is_per_thread_and_idempotent() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "A").await;
+        let mut spaces = Vec::new();
+        for name in ["g1", "g2"] {
+            let space = host
+                .call("host", "collaboration", "space.create",
+                    json!({ "workspaceId": workspace, "name": name, "operationId": Uuid::new_v4() }))
+                .await
+                .unwrap();
+            spaces.push(space["space_id"].as_str().unwrap().to_string());
+        }
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": spaces[0], "conversationId": a, "nickname": "A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let b = Uuid::new_v4();
+        create_session(&pool, b, workspace, "B").await;
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": spaces[1], "conversationId": b, "nickname": "B", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let member = db::models::collaboration_identity::member_id_for_conversation(a);
+        let resolve = |thread: String| {
+            let host = &host;
+            let member = member.clone();
+            async move {
+                host.call("host", "collaboration", "member.session.resolve",
+                    json!({ "memberId": member, "threadId": thread }))
+                    .await
+                    .unwrap()["conversationId"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            }
+        };
+        assert_eq!(resolve(spaces[0].clone()).await, a.to_string());
+        let created = resolve(spaces[1].clone()).await;
+        assert_ne!(created, a.to_string());
+        assert_eq!(resolve(spaces[1].clone()).await, created);
     }
 
     #[tokio::test]

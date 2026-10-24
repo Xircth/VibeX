@@ -10,22 +10,22 @@ import type { PickerMember } from './CollaborationDialogs';
 import { THREAD_COPY } from './threadModel';
 
 export const INLINE_GROUP_COPY = {
-  search: '????',
-  empty: '???????????',
-  noMatch: '???????',
-  create: '????',
-  minHint: '???? 2 ???',
+  search: '搜索成员',
+  empty: '还没有可以拉进群的成员',
+  noMatch: '没有匹配的成员',
+  create: '创建群聊',
+  minHint: '至少选择 2 位成员',
 } as const;
 
 export const MIN_GROUP_MEMBERS = 2;
 
 /** Default group name derived from the selected members (no name form). */
 export function defaultGroupName(nicknames: readonly string[]): string {
-  return nicknames.join('?');
+  return nicknames.join('、');
 }
 
 /**
- * Inline member picker shown under the ?????? button: search box,
+ * Inline member picker shown under the 「创建群聊」 button: search box,
  * scrollable checkbox list (max height), and a create button that stays
  * disabled until at least two members are selected. No modal, no form.
  */

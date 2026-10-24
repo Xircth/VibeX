@@ -5878,6 +5878,22 @@ pub async fn resolve_session(
     Ok(resolved.conversation_id)
 }
 
+/// Session tab behind a member avatar: always `(member, thread)`, never the
+/// member's most recent session. The undecided space id maps to the member's
+/// direct thread. Creates the conversation from the member config if missing.
+pub async fn resolve_thread_session(
+    pool: &SqlitePool,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<Uuid, CollaborationError> {
+    let member_id = member_id.trim();
+    let mut thread_id = thread_id.trim().to_string();
+    if parse_unassigned_space_id(&thread_id).is_some() {
+        thread_id = identity::direct_thread_id(member_id);
+    }
+    resolve_session(pool, member_id, &thread_id).await
+}
+
 async fn prepare_member_conversation(
     pool: &SqlitePool,
     member_id: &str,

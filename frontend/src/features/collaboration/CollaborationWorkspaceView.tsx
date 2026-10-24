@@ -47,6 +47,10 @@ export type PendingCard = {
 };
 
 import { InlineGroupCreator } from './InlineGroupCreator';
+import {
+  MemberSessionTabsPanel,
+  type MemberSessionTab,
+} from './memberSessionTabs';
 import type { MemberSessionConfig } from './MemberSessionConfigSection';
 
 export type ProfileData = {
@@ -117,7 +121,12 @@ export type CollaborationWorkspaceViewProps = {
   ) => void;
   onOpenSession: (conversationId: string) => void;
   onToggleProfile: (open: boolean) => void;
-  onSelectMember: (memberId: string) => void;
+  /** Avatar click inside a chat: open that member's session for this thread. */
+  onOpenMemberSession: (memberId: string, threadId: string) => void;
+  sessionTabs?: readonly MemberSessionTab[];
+  activeSessionTabKey?: string | null;
+  onActivateSessionTab?: (key: string) => void;
+  onCloseSessionTab?: (key: string) => void;
   onUpdateFact: (factId: string, content: string) => void;
   onDeleteFact: (factId: string) => void;
   onSetWriteAccess: (value: WriteAccess) => void;
@@ -239,7 +248,20 @@ export function CollaborationWorkspaceView(
     main = (
       <div className="collab-main" data-testid="collab-direct-chat">
         <header className="collab-main-head">
-          <span className="collaboration-message-avatar">
+          <button
+            type="button"
+            className="collaboration-message-avatar collab-main-head-avatar collab-focusable"
+            aria-label={selectedMember.nickname}
+            data-testid="collab-direct-avatar"
+            disabled={!directSeat}
+            onClick={() =>
+              directSeat &&
+              props.onOpenMemberSession(
+                selectedMember.memberId,
+                directSeat.threadId
+              )
+            }
+          >
             <MemberBotAvatar
               config={avatarFor(
                 selectedMember.memberId,
@@ -247,7 +269,7 @@ export function CollaborationWorkspaceView(
               )}
               className="h-6 w-6"
             />
-          </span>
+          </button>
           <div className="collab-main-head-text">
             <h3 className="collab-main-title">{selectedMember.nickname}</h3>
             <p className="collab-main-subtitle">
@@ -322,7 +344,9 @@ export function CollaborationWorkspaceView(
         onSend={props.onSendGroup}
         onPreviewWake={props.onPreviewWake}
         onResolveCard={props.onResolveCard}
-        onSelectMember={props.onSelectMember}
+        onSelectMember={(memberId) =>
+          props.onOpenMemberSession(memberId, selectedGroup.spaceId)
+        }
       />
     );
   } else {
@@ -335,10 +359,14 @@ export function CollaborationWorkspaceView(
     );
   }
 
+  const showProfile = Boolean(profileOpen && selectedMember && profile);
+  const sessionTabs = props.sessionTabs ?? [];
+  const showSessions = !showProfile && sessionTabs.length > 0;
+
   return (
     <div
       className="collab-ws"
-      data-profile={profileOpen && selectedMember ? 'open' : 'closed'}
+      data-profile={showProfile || showSessions ? 'open' : 'closed'}
       data-testid="collab-workspace"
     >
       <ThreadList
@@ -366,7 +394,16 @@ export function CollaborationWorkspaceView(
         onNewMember={() => props.onDialogChange('newMember', true)}
       />
       {main}
-      {profileOpen && selectedMember && profile ? (
+      {showSessions ? (
+        <MemberSessionTabsPanel
+          tabs={sessionTabs}
+          activeKey={props.activeSessionTabKey ?? null}
+          workspaceId={props.workspaceId}
+          onActivate={(key) => props.onActivateSessionTab?.(key)}
+          onClose={(key) => props.onCloseSessionTab?.(key)}
+        />
+      ) : null}
+      {showProfile && selectedMember && profile ? (
         <MemberProfilePanel
           nickname={selectedMember.nickname}
           avatar={avatarFor(selectedMember.memberId, selectedMember.nickname)}

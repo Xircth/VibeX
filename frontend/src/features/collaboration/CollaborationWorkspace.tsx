@@ -29,6 +29,13 @@ import {
 } from './MemberBotAvatar';
 import type { WriteAccess } from './MemberProfilePanel';
 import {
+  buildMemberSessionTab,
+  closeMemberSessionTab,
+  memberSessionTabKey,
+  upsertMemberSessionTab,
+  type MemberSessionTab,
+} from './memberSessionTabs';
+import {
   parseSpaceChangedEvent,
   surfaceErrorCopy,
   unassignedSpaceId,
@@ -610,6 +617,52 @@ export function CollaborationWorkspace({
     [navigate, projectId, workspace]
   );
 
+  const [sessionTabs, setSessionTabs] = useState<MemberSessionTab[]>([]);
+  const [activeSessionTabKey, setActiveSessionTabKey] = useState<
+    string | null
+  >(null);
+  const sessionTabsRef = useRef(sessionTabs);
+  sessionTabsRef.current = sessionTabs;
+  const resolvingTabs = useRef(new Set<string>());
+
+  /** Avatar click: the member's session for THIS thread, never "latest". */
+  const openMemberSession = useCallback(
+    async (memberId: string, threadId: string) => {
+      const key = memberSessionTabKey(memberId, threadId);
+      setProfileOpen(false);
+      if (sessionTabsRef.current.some((tab) => tab.key === key)) {
+        setActiveSessionTabKey(key);
+        return;
+      }
+      if (resolvingTabs.current.has(key)) return;
+      resolvingTabs.current.add(key);
+      try {
+        const result = await collaborationCall<{ conversationId?: string }>(
+          'collaboration',
+          'member.session.resolve',
+          { memberId, threadId }
+        );
+        if (!result.conversationId) return;
+        const tab = buildMemberSessionTab({
+          memberId,
+          threadId,
+          conversationId: result.conversationId,
+          members,
+          groups,
+          avatarFor,
+        });
+        setSessionTabs((current) => upsertMemberSessionTab(current, tab));
+        setActiveSessionTabKey(key);
+        setError(null);
+      } catch (cause) {
+        setError(surfaceErrorCopy(cause));
+      } finally {
+        resolvingTabs.current.delete(key);
+      }
+    },
+    [avatarFor, groups, members]
+  );
+
   const createMember = useCallback(
     async (input: {
       nickname: string;
@@ -770,9 +823,20 @@ export function CollaborationWorkspace({
       }}
       onOpenSession={openSession}
       onToggleProfile={setProfileOpen}
-      onSelectMember={(memberId) => {
-        setSelectedKey(memberKey(memberId));
-        setProfileOpen(true);
+      onOpenMemberSession={(memberId, threadId) =>
+        void openMemberSession(memberId, threadId)
+      }
+      sessionTabs={sessionTabs}
+      activeSessionTabKey={activeSessionTabKey}
+      onActivateSessionTab={setActiveSessionTabKey}
+      onCloseSessionTab={(key) => {
+        const next = closeMemberSessionTab(
+          sessionTabsRef.current,
+          activeSessionTabKey,
+          key
+        );
+        setSessionTabs(next.tabs);
+        setActiveSessionTabKey(next.activeKey);
       }}
       onUpdateFact={(factId, content) =>
         void run(async () => {

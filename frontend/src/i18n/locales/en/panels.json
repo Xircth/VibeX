@@ -596,6 +596,7 @@
     "resolveAgentTypeFailed": "Unable to determine the agent type for this session",
     "replySendFailed": "Failed to send reply. Please try again later.",
     "sentHint": "Sent — you can view the reply in the main window",
+    "clickCardHint": "Click the card above to return to this session",
     "replyPlaceholder": "Reply directly…",
     "replyInputAriaLabel": "Reply to this session",
     "sendReplyAriaLabel": "Send reply",

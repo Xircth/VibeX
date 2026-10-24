@@ -1,0 +1,7 @@
+{
+  "showBall": true,
+  "ballPosition": "左下角",
+  "shortcut": "Alt+Shift+C",
+  "insertContent": "源码位置 + 组件链",
+  "keepSelecting": false
+}

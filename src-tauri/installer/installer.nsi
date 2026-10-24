@@ -1,6 +1,7 @@
 Unicode true
 ManifestDPIAware true
 ManifestDPIAwareness PerMonitorV2
+XPStyle on
 
 !if "{{compression}}" == "none"
   SetCompress off
@@ -16,6 +17,7 @@ ManifestDPIAwareness PerMonitorV2
 !include "FileAssociation.nsh"
 !include "Win\COM.nsh"
 !include "Win\Propkey.nsh"
+!include "Win\RestartManager.nsh"
 !include "StrFunc.nsh"
 ${StrCase}
 ${StrLoc}
@@ -119,55 +121,37 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !include "{{installer_hooks}}"
 {{/if}}
 
-!define MUI_CUSTOMFUNCTION_GUIINIT VibeXGuiInit
+!define MUI_CUSTOMFUNCTION_GUIINIT VibeXGuiInitInstaller
+!define MUI_CUSTOMFUNCTION_UNGUIINIT un.VibeXGuiInitUninstaller
+
+; MUI2 has no GUIEND hook; release GDI/GDI+ resources from the NSIS callbacks.
+Function .onGUIEnd
+  Call VibeXGuiEnd
+FunctionEnd
+
+Function un.onGUIEnd
+  Call un.VibeXGuiEnd
+FunctionEnd
 
 ; ============================================================================
-; Minimal Installer Page Flow (Welcome / Maintain -> Progress -> Finish)
+; Installer: main (welcome / custom location / existing) -> progress -> finish
 ; ============================================================================
-Page custom VibeXPageWelcomeOrMaintain VibeXPageWelcomeLeave
+Page custom VibeXPageMain VibeXPageMainLeave
 
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW VibeXInstFilesShow
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE VibeXInstFilesLeave
 !insertmacro MUI_PAGE_INSTFILES
 
 Page custom VibeXPageFinish VibeXPageFinishLeave
 
 ; ============================================================================
-; Uninstaller Pages
+; Uninstaller: confirm -> progress -> finish
 ; ============================================================================
-Var DeleteAppDataCheckbox
-Var DeleteAppDataCheckboxState
-!define /ifndef WS_EX_LAYOUTRTL 0x00400000
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
-Function un.ConfirmShow
-  FindWindow $1 "#32770" "" $HWNDPARENT
-  System::Call "user32::GetDpiForWindow(p r1) i .r2"
-  ${If} $(^RTL) = 1
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"
-    IntOp $4 50 * $2
-  ${Else}
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
-    IntOp $4 0 * $2
-  ${EndIf}
-  IntOp $5 100 * $2
-  IntOp $6 400 * $2
-  IntOp $7 25 * $2
-  IntOp $4 $4 / 96
-  IntOp $5 $5 / 96
-  IntOp $6 $6 / 96
-  IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
-  Pop $DeleteAppDataCheckbox
-  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
-  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
-FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
-Function un.ConfirmLeave
-  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
-FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
-!insertmacro MUI_UNPAGE_CONFIRM
+UninstPage custom un.VibeXPageConfirm un.VibeXPageConfirmLeave
+
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.VibeXInstFilesShow
 !insertmacro MUI_UNPAGE_INSTFILES
+
+UninstPage custom un.VibeXPageFinish
 
 ; ============================================================================
 ; Languages
@@ -263,16 +247,31 @@ Section WebView2
   ${If} $4 == ""
     ${If} $UpdateMode <> 1
       !if "${INSTALLWEBVIEW2MODE}" == "downloadBootstrapper"
+        vibex_webview2_download:
         Delete "$TEMP\MicrosoftEdgeWebview2Setup.exe"
+        !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_WEBVIEW2)"
         DetailPrint "$(webview2Downloading)"
-        NSISdl::download "https://go.microsoft.com/fwlink/p/?LinkId=2124703" "$TEMP\MicrosoftEdgeWebview2Setup.exe"
-        Pop $0
-        ${If} $0 == "success"
+        ; urlmon returns an HRESULT, which the error view shows as the error code.
+        System::Call 'urlmon::URLDownloadToFileW(p 0, w "https://go.microsoft.com/fwlink/p/?LinkId=2124703", w "$TEMP\MicrosoftEdgeWebview2Setup.exe", i 0, p 0) i.s'
+        Pop $VibeXErrCode
+        ${If} $VibeXErrCode == 0
+        ${AndIf} ${FileExists} "$TEMP\MicrosoftEdgeWebview2Setup.exe"
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
           DetailPrint "$(webview2DownloadError)"
-          Abort "$(webview2AbortError)"
+          ${If} $VibeXErrCode == "error"
+            StrCpy $VibeXErrCode 0x80004005
+          ${EndIf}
+          IntFmt $VibeXErrCode "0x%08X" $VibeXErrCode
+          ${If} ${Silent}
+          ${OrIf} $PassiveMode = 1
+            Abort "$(webview2AbortError)"
+          ${EndIf}
+          StrCpy $VibeXErrTitle "$(VIBEX_WEBVIEW2_FAILED)"
+          Call VibeXShowError
+          Goto vibex_webview2_download
         ${EndIf}
+        Call VibeXTick
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
         Goto install_webview2
       !endif
@@ -297,12 +296,25 @@ Section WebView2
 
       install_webview2:
         DetailPrint "$(installingWebview2)"
+        !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_WEBVIEW2_INSTALL)"
         ExecWait "$6 ${WEBVIEW2INSTALLERARGS} /install" $1
         ${If} $1 = 0
           DetailPrint "$(webview2InstallSuccess)"
+          Call VibeXTick
         ${Else}
           DetailPrint "$(webview2InstallError)"
-          Abort "$(webview2AbortError)"
+          ${If} ${Silent}
+          ${OrIf} $PassiveMode = 1
+            Abort "$(webview2AbortError)"
+          ${EndIf}
+          !if "${INSTALLWEBVIEW2MODE}" == "downloadBootstrapper"
+            IntFmt $VibeXErrCode "0x%08X" $1
+            StrCpy $VibeXErrTitle "$(VIBEX_WEBVIEW2_INSTALL_FAILED)"
+            Call VibeXShowError
+            Goto vibex_webview2_download
+          !else
+            Abort "$(webview2AbortError)"
+          !endif
         ${EndIf}
       webview2_done:
     ${EndIf}
@@ -335,9 +347,9 @@ Section WebView2
   ${EndIf}
 SectionEnd
 
-Section Install
+Section Install VibeXSecInstall
   ${If} $VibeXAction == "uninstall"
-    !insertmacro VibeXSetStageCaption "$(VIBEX_PROGRESS_UNINSTALL)"
+    !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_UNINSTALL)"
     !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
     ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
     ${If} $4 == ""
@@ -360,10 +372,11 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  !insertmacro VibeXSetStageCaption "$(VIBEX_PROGRESS_EXTRACT)"
+  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_EXTRACT)"
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
+  Call VibeXTick
 
   ; Copy resources
   {{#each resources_dirs}}
@@ -371,14 +384,16 @@ Section Install
   {{/each}}
   {{#each resources}}
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
+    Call VibeXTick
   {{/each}}
 
   ; Copy external binaries
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
+    Call VibeXTick
   {{/each}}
 
-  !insertmacro VibeXSetStageCaption "$(VIBEX_PROGRESS_INSTALL)"
+  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_INSTALL)"
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -397,6 +412,7 @@ Section Install
 
   ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
+  Call VibeXTick
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
@@ -436,7 +452,7 @@ Section Install
     WriteRegStr SHCTX "${UNINSTKEY}" "HelpLink" "${HOMEPAGE}"
   !endif
 
-  !insertmacro VibeXSetStageCaption "$(VIBEX_PROGRESS_FINISH)"
+  !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_FINISH)"
 
   ; Create start menu shortcut
   Call CreateOrUpdateStartMenuShortcut
@@ -449,10 +465,14 @@ Section Install
   !endif
 
   vibex_install_done:
+  Call VibeXTickDone
   ${If} $PassiveMode = 1
     SetAutoClose true
   ${EndIf}
 SectionEnd
+!if ${VibeXSecInstall} != ${VIBEX_SEC_INSTALL}
+  !error "VIBEX_SEC_INSTALL must match the index of Section Install"
+!endif
 
 Function .onInstSuccess
   ${If} $PassiveMode = 1
@@ -492,10 +512,13 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  !insertmacro VibeXSetStage "un." "$(VIBEX_PROGRESS_UNINSTALL)"
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Call un.VibeXTick
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"
+    Call un.VibeXTick
   {{/each}}
 
   {{#each binaries}}
@@ -579,6 +602,7 @@ Section Uninstall
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
+  Call un.VibeXTickDone
 
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
@@ -590,10 +614,6 @@ Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
   StrCmp $4 "" +2 0
     StrCpy $INSTDIR $4
-FunctionEnd
-
-Function un.SkipIfPassive
-  ${IfThen} $PassiveMode = 1 ${|} Abort ${|}
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut

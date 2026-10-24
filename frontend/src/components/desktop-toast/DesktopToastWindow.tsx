@@ -4,12 +4,18 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { CheckCircle2, CircleAlert, Send, X } from 'lucide-react';
-import { Button } from '@astryxdesign/core/Button';
-import { TextInput } from '@astryxdesign/core/TextInput';
+import {
+  Check,
+  CheckCircle2,
+  Loader2,
+  MessageSquare,
+  Send,
+  X,
+} from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { AgentId, Session } from 'shared/types';
 import { backendListen } from '@/lib/backendTransport';
@@ -71,6 +77,10 @@ export function DesktopToastWindow() {
   );
   const [replyError, setReplyError] = useState<Record<string, string>>({});
   const timersRef = useRef(new Map<string, number>());
+  // Mirrors the dismiss timers so the close-button ring restarts / pauses with them.
+  const [countdowns, setCountdowns] = useState<
+    Record<string, { ms: number; epoch: number }>
+  >({});
 
   const removeToast = useCallback((toastId: string) => {
     setToasts((previous) => previous.filter((toast) => toast.id !== toastId));
@@ -99,6 +109,12 @@ export function DesktopToastWindow() {
       return next;
     });
 
+    setCountdowns((previous) => {
+      if (!(toastId in previous)) return previous;
+      const next = { ...previous };
+      delete next[toastId];
+      return next;
+    });
     const timer = timersRef.current.get(toastId);
     if (timer != null) {
       window.clearTimeout(timer);
@@ -126,6 +142,13 @@ export function DesktopToastWindow() {
         removeToast(toastId);
       }, durationMs ?? DEFAULT_DURATION_MS);
       timersRef.current.set(toastId, timeout);
+      setCountdowns((previous) => ({
+        ...previous,
+        [toastId]: {
+          ms: durationMs ?? DEFAULT_DURATION_MS,
+          epoch: (previous[toastId]?.epoch ?? 0) + 1,
+        },
+      }));
     },
     [removeToast]
   );
@@ -137,6 +160,12 @@ export function DesktopToastWindow() {
       window.clearTimeout(timer);
       timersRef.current.delete(toastId);
     }
+    setCountdowns((previous) => {
+      if (!(toastId in previous)) return previous;
+      const next = { ...previous };
+      delete next[toastId];
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -301,34 +330,38 @@ export function DesktopToastWindow() {
   return (
     <div className="h-full bg-transparent p-4">
       <div className="pointer-events-none flex h-full items-end justify-end">
-        <div className="flex w-[400px] max-w-full flex-col gap-3">
+        <div className="vu-desktop-toast-stack flex w-[400px] max-w-full flex-col items-end gap-2.5">
           {toasts.map((toast) => {
             const status = replyStatus[toast.id] ?? 'idle';
             const draft = drafts[toast.id] ?? '';
             const isSending = status === 'sending';
             const replyExpanded = expandedReplies[toast.id] ?? false;
+            const countdown = countdowns[toast.id];
 
             return (
               <article
                 key={toast.id}
-                className="vu-toast-surface pointer-events-auto"
+                className="vu-toast-surface vu-desktop-toast pointer-events-auto"
                 data-kind={toast.kind}
+                data-reply-open={replyExpanded ? 'true' : 'false'}
+                data-reply-status={status}
                 role={toast.kind === 'error' ? 'alert' : 'status'}
               >
                 <div className="vu-toast-heading">
-                  <span className="vu-toast-icon vu-desktop-toast-app-icon">
+                  <span className="vu-toast-icon-tile vu-desktop-toast-app-icon">
                     <Logo showText={false} />
-                    {toast.kind === 'error' ? (
-                      <CircleAlert
-                        className="vu-desktop-toast-status-badge"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <CheckCircle2
-                        className="vu-desktop-toast-status-badge"
-                        aria-hidden="true"
-                      />
-                    )}
+                    <span
+                      className="vu-desktop-toast-status-badge"
+                      aria-hidden="true"
+                    >
+                      {toast.kind === 'error' ? (
+                        <svg viewBox="0 0 24 24">
+                          <path d="M12 6v8M12 18.5v.01" />
+                        </svg>
+                      ) : (
+                        <Check />
+                      )}
+                    </span>
                   </span>
                   <button
                     type="button"
@@ -336,63 +369,64 @@ export function DesktopToastWindow() {
                     onClick={() => void handleActivate(toast)}
                   >
                     <span className="vu-toast-title">{toast.title}</span>
+                    <span className="vu-toast-summary">
+                      {toast.description}
+                    </span>
                   </button>
-                  <div className="vu-toast-end">
-                    {replyExpanded ? null : (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          label={t('desktopToast.quickReply')}
-                          onClick={() => {
-                            holdToast(toast.id);
-                            setExpandedReplies((previous) => ({
-                              ...previous,
-                              [toast.id]: true,
-                            }));
-                          }}
+                  <button
+                    type="button"
+                    className="vu-toast-close"
+                    aria-label={t('desktopToast.closeAriaLabel')}
+                    onClick={() => removeToast(toast.id)}
+                  >
+                    {countdown ? (
+                      <svg
+                        key={countdown.epoch}
+                        className="vu-toast-countdown"
+                        viewBox="0 0 28 28"
+                        aria-hidden="true"
+                        style={
+                          {
+                            '--vu-toast-duration': `${countdown.ms}ms`,
+                          } as CSSProperties
+                        }
+                      >
+                        <circle
+                          className="vu-toast-countdown-track"
+                          cx="14"
+                          cy="14"
+                          r="12"
                         />
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          label={t('desktopToast.openConversation')}
-                          onClick={() => void handleActivate(toast)}
+                        <circle
+                          className="vu-toast-countdown-ring"
+                          cx="14"
+                          cy="14"
+                          r="12"
                         />
-                      </>
-                    )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<X aria-hidden="true" />}
-                      label={t('desktopToast.closeAriaLabel')}
-                      onClick={() => removeToast(toast.id)}
-                    />
-                  </div>
+                      </svg>
+                    ) : null}
+                    <X aria-hidden="true" />
+                  </button>
                 </div>
 
                 {replyExpanded ? (
-                  status === 'sent' ? (
-                    <div className="vu-desktop-toast-sent">
-                      <CheckCircle2 aria-hidden="true" />
-                      {t('desktopToast.sentHint')}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="vu-desktop-toast-compose">
-                        <div className="vu-desktop-toast-compose-field">
-                          <TextInput
-                            label={t('desktopToast.replyInputAriaLabel')}
-                            isLabelHidden
-                            size="md"
-                            width="100%"
+                  <div className="vu-desktop-toast-reply">
+                    {status === 'sent' ? (
+                      <div className="vu-desktop-toast-sent">
+                        <CheckCircle2 aria-hidden="true" />
+                        {t('desktopToast.sentHint')}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <input
                             value={draft}
-                            isDisabled={isSending}
+                            disabled={isSending}
                             placeholder={t('desktopToast.replyPlaceholder')}
-                            onChange={(value) => {
+                            aria-label={t('desktopToast.replyInputAriaLabel')}
+                            className="vu-desktop-toast-input"
+                            onChange={(event) => {
+                              const value = event.target.value;
                               setDrafts((previous) => ({
                                 ...previous,
                                 [toast.id]: value,
@@ -400,37 +434,74 @@ export function DesktopToastWindow() {
                               holdToast(toast.id);
                             }}
                             onFocus={() => holdToast(toast.id)}
-                            onBlur={() => {
-                              if (!draft.trim() && status !== 'sending') {
+                            onBlur={(event) => {
+                              // 失焦且无草稿时恢复自动消失；发送中（输入禁用）不重排。
+                              if (
+                                !event.target.value.trim() &&
+                                status !== 'sending'
+                              ) {
                                 scheduleRemoval(toast.id, DEFAULT_DURATION_MS);
                               }
                             }}
-                            onEnter={() => {
-                              void handleReplySubmit(toast);
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                void handleReplySubmit(toast);
+                              }
                             }}
                           />
+                          <button
+                            type="button"
+                            aria-label={t('desktopToast.sendReplyAriaLabel')}
+                            disabled={isSending || draft.trim().length === 0}
+                            className="vu-desktop-toast-send"
+                            onClick={() => void handleReplySubmit(toast)}
+                          >
+                            {isSending ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              <Send />
+                            )}
+                          </button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="md"
-                          isIconOnly
-                          isDisabled={isSending || draft.trim().length === 0}
-                          isLoading={isSending}
-                          icon={<Send aria-hidden="true" />}
-                          label={t('desktopToast.sendReplyAriaLabel')}
-                          onClick={() => void handleReplySubmit(toast)}
-                        />
-                      </div>
-                      {status === 'error' ? (
-                        <div className="vu-desktop-toast-hint vu-desktop-toast-error">
-                          {replyError[toast.id] ??
-                            t('desktopToast.replySendFailed')}
-                        </div>
-                      ) : null}
-                    </>
-                  )
-                ) : null}
+                        {status === 'error' ? (
+                          <div className="vu-desktop-toast-hint vu-desktop-toast-error">
+                            {replyError[toast.id] ??
+                              t('desktopToast.replySendFailed')}
+                          </div>
+                        ) : (
+                          <div className="vu-desktop-toast-hint">
+                            {t('desktopToast.clickCardHint')}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="vu-toast-actions">
+                    <button
+                      type="button"
+                      className="vu-toast-action vu-toast-action-secondary vu-desktop-toast-reply-action"
+                      onClick={() => {
+                        holdToast(toast.id);
+                        setExpandedReplies((previous) => ({
+                          ...previous,
+                          [toast.id]: true,
+                        }));
+                      }}
+                    >
+                      <MessageSquare aria-hidden="true" />
+                      {t('desktopToast.quickReply')}
+                    </button>
+                    <button
+                      type="button"
+                      className="vu-toast-action vu-toast-action-primary"
+                      onClick={() => void handleActivate(toast)}
+                    >
+                      {t('desktopToast.openConversation')}
+                    </button>
+                  </div>
+                )}
               </article>
             );
           })}

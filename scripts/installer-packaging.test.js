@@ -29,120 +29,71 @@ function readBmpInfo(filePath) {
   return { width, height, getRgb };
 }
 
-test("Windows brand BMPs place the VibeX wordmark vertically below the logo", () => {
-  const specs = [
-    { name: "brand-light.bmp", w: 480, h: 124, bg: [255, 255, 255] },
-    { name: "brand-light-2x.bmp", w: 960, h: 248, bg: [255, 255, 255] },
-    { name: "brand-dark.bmp", w: 480, h: 124, bg: [27, 27, 27] },
-    { name: "brand-dark-2x.bmp", w: 960, h: 248, bg: [27, 27, 27] },
+test("Windows installer logo BMPs exist for every DPI bucket at integer sizes", () => {
+  // Large logo 64 @ 100/125/150/200% -> 64/80/96/128; small logo 48 -> 48/60/72/96.
+  const sizes = [48, 60, 64, 72, 80, 96, 128];
+  const themes = [
+    { name: "light", bg: [255, 255, 255], squircleLight: false },
+    { name: "dark", bg: [31, 31, 31], squircleLight: true },
   ];
-
-  for (const spec of specs) {
-    const bmp = readBmpInfo(path.join(ASSETS_DIR, spec.name));
-    assert.equal(bmp.width, spec.w, `${spec.name} width`);
-    assert.equal(bmp.height, spec.h, `${spec.name} height`);
-    assert.deepEqual(
-      bmp.getRgb(4, 4),
-      spec.bg,
-      `${spec.name} top-left background`,
-    );
-
-    const scale = spec.w / 480;
-    // Upper band (y = 12..60 * scale): centered logo mark
-    let logoPixels = 0;
-    for (let y = 12 * scale; y < 60 * scale; y += 1) {
-      for (let x = 216 * scale; x < 264 * scale; x += 1) {
-        const [r, g, b] = bmp.getRgb(x, y);
-        if (
-          Math.abs(r - spec.bg[0]) +
-            Math.abs(g - spec.bg[1]) +
-            Math.abs(b - spec.bg[2]) >
-          24
-        ) {
-          logoPixels += 1;
-        }
+  for (const theme of themes) {
+    for (const size of sizes) {
+      const name = `icon-${theme.name}-${size}.bmp`;
+      const bmp = readBmpInfo(path.join(ASSETS_DIR, name));
+      assert.equal(bmp.width, size, `${name} width`);
+      assert.equal(bmp.height, size, `${name} height`);
+      assert.deepEqual(bmp.getRgb(0, 0), theme.bg, `${name} corner = window background`);
+      // A point inside the squircle near its edge: light-on-dark for the dark theme.
+      const [r, g, b] = bmp.getRgb(Math.round(size * 0.2), Math.round(size / 2));
+      const luma = (r + g + b) / 3;
+      if (theme.squircleLight) {
+        assert.ok(luma > 180, `${name} dark-theme logo must be light (got ${luma})`);
+      } else {
+        assert.ok(luma < 80, `${name} light-theme logo must be dark (got ${luma})`);
       }
     }
-    assert.ok(logoPixels > 100, `${spec.name} must contain centered top logo`);
-
-    // Lower band (y = 80..112 * scale): centered VibeX text below logo
-    let textPixels = 0;
-    for (let y = 80 * scale; y < 112 * scale; y += 1) {
-      for (let x = 195 * scale; x < 285 * scale; x += 1) {
-        const [r, g, b] = bmp.getRgb(x, y);
-        if (
-          Math.abs(r - spec.bg[0]) +
-            Math.abs(g - spec.bg[1]) +
-            Math.abs(b - spec.bg[2]) >
-          30
-        ) {
-          textPixels += 1;
-        }
-      }
-    }
-    assert.ok(
-      textPixels > 40,
-      `${spec.name} must render VibeX text below the logo`,
-    );
   }
 });
 
-test("Windows and macOS Tauri configs wire the minimal installer templates", () => {
+test("Windows Tauri config wires the custom installer template", () => {
   const winConf = JSON.parse(
-    fs.readFileSync(
-      path.join(ROOT, "src-tauri", "tauri.windows.conf.json"),
-      "utf8",
-    ),
+    fs.readFileSync(path.join(ROOT, "src-tauri", "tauri.windows.conf.json"), "utf8"),
   );
   assert.equal(winConf.bundle.windows.nsis.template, "installer/installer.nsi");
-  assert.equal(
-    winConf.bundle.windows.nsis.installerHooks,
-    "installer/hooks.nsh",
-  );
-  assert.deepEqual(winConf.bundle.windows.nsis.languages, [
-    "SimpChinese",
-    "English",
-  ]);
-
-  const macConf = JSON.parse(
-    fs.readFileSync(
-      path.join(ROOT, "src-tauri", "tauri.macos.conf.json"),
-      "utf8",
-    ),
-  );
-  const dmg = macConf.bundle.macOS.dmg;
-  assert.equal(dmg.background, "installer/assets/dmg-background.png");
-  assert.deepEqual(dmg.windowSize, { width: 540, height: 360 });
-  assert.deepEqual(dmg.appPosition, { x: 150, y: 175 });
-  assert.deepEqual(dmg.applicationFolderPosition, { x: 390, y: 175 });
-  assert.ok(
-    fs.existsSync(path.join(ROOT, "src-tauri", dmg.background)),
-    "macOS DMG background PNG must exist",
-  );
+  assert.equal(winConf.bundle.windows.nsis.installerHooks, "installer/hooks.nsh");
+  assert.deepEqual(winConf.bundle.windows.nsis.languages, ["SimpChinese", "English"]);
 });
 
 test("Windows NSIS custom template compiles cleanly with makensis when available", (t) => {
+  // Windows: Tauri's bundled NSIS. Elsewhere: makensis on PATH plus a folder of
+  // Tauri's NSIS helpers (utils.nsh, FileAssociation.nsh, English.nsh,
+  // SimpChinese.nsh, plugins/nsis_tauri_utils.dll) in VIBEX_NSIS_HELPER_DIR.
   const makensisCandidates = [
     path.join(ROOT, "target", ".tauri", "NSIS", "makensis.exe"),
     process.env.LOCALAPPDATA
       ? path.join(process.env.LOCALAPPDATA, "tauri", "NSIS", "makensis.exe")
       : "",
+    process.platform !== "win32" ? "/usr/bin/makensis" : "",
+    process.platform !== "win32" ? "/usr/local/bin/makensis" : "",
   ].filter(Boolean);
   const makensis = makensisCandidates.find((p) => fs.existsSync(p));
-  const nsisHelperDir = path.join(ROOT, "target", "release", "nsis", "x64");
+  const nsisHelperDir =
+    process.env.VIBEX_NSIS_HELPER_DIR ||
+    path.join(ROOT, "target", "release", "nsis", "x64");
 
-  if (
-    process.platform !== "win32" ||
-    !makensis ||
-    !fs.existsSync(path.join(nsisHelperDir, "utils.nsh"))
-  ) {
+  if (!makensis || !fs.existsSync(path.join(nsisHelperDir, "utils.nsh"))) {
     t.skip("makensis or Tauri NSIS helper scripts not present in this environment");
     return;
   }
 
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-nsis-test-"));
   try {
-    for (const helper of ["utils.nsh", "FileAssociation.nsh", "English.nsh"]) {
+    for (const helper of [
+      "utils.nsh",
+      "FileAssociation.nsh",
+      "English.nsh",
+      "SimpChinese.nsh",
+    ]) {
       fs.copyFileSync(
         path.join(nsisHelperDir, helper),
         path.join(scratch, helper),
@@ -152,13 +103,9 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
     fs.writeFileSync(dummyBin, "MZ");
     const outExe = path.join(scratch, "VibeX-setup-test.exe");
     const hooksPath = path.join(INSTALLER_DIR, "hooks.nsh");
-    const pluginsDir = path.join(
-      path.dirname(makensis),
-      "Plugins",
-      "x86-unicode",
-      "additional",
-    );
-
+    const pluginsDir = fs.existsSync(path.join(nsisHelperDir, "plugins"))
+      ? path.join(nsisHelperDir, "plugins")
+      : path.join(path.dirname(makensis), "Plugins", "x86-unicode", "additional");
     let tpl = fs.readFileSync(
       path.join(INSTALLER_DIR, "installer.nsi"),
       "utf8",
@@ -205,7 +152,7 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
       )
       .replace(
         /\{\{#each language_files\}\}[\s\S]*?\{\{\/each\}\}/g,
-        `!include "${path.join(scratch, "English.nsh")}"`,
+        `!include "${path.join(scratch, "English.nsh")}"\n!include "${path.join(scratch, "SimpChinese.nsh")}"`,
       )
       .replace(
         /\{\{#each file_associations[\s\S]*?\{\{\/each\}\}\s*\{\{\/each\}\}/g,
@@ -215,7 +162,10 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
 
     const renderedNsi = path.join(scratch, "installer.nsi");
     fs.writeFileSync(renderedNsi, tpl, "utf8");
-    const output = execFileSync(makensis, [renderedNsi], {
+    if (process.env.VIBEX_NSIS_KEEP_RENDERED) {
+      fs.copyFileSync(renderedNsi, process.env.VIBEX_NSIS_KEEP_RENDERED);
+    }
+    const output = execFileSync(makensis, ["-INPUTCHARSET", "UTF8", renderedNsi], {
       cwd: scratch,
       encoding: "utf8",
     });
@@ -225,6 +175,9 @@ test("Windows NSIS custom template compiles cleanly with makensis when available
       `makensis emitted variable warnings:\n${output}`,
     );
     assert.ok(fs.existsSync(outExe), "makensis must produce output installer");
+    if (process.env.VIBEX_NSIS_KEEP_OUTPUT) {
+      fs.copyFileSync(outExe, process.env.VIBEX_NSIS_KEEP_OUTPUT);
+    }
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }

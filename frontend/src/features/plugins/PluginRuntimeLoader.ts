@@ -24,9 +24,51 @@ import { toast } from '@/components/ui/toast';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import {
+  hasActiveComposerDraftTarget,
+  insertIntoActiveComposer,
+} from '@/lib/composerDraftTargets';
+import {
   activatePluginModuleSync,
   deactivatePluginModule,
 } from '@/lib/pluginFederation';
+
+/**
+ * `conversation.draft.insert` without a conversationId targets "the composer
+ * the user is working in", which only the frontend knows. Handle it here so
+ * the plugin receives the real `inserted` result instead of a blind receipt.
+ */
+export function handleLocalComposerDraftCall(
+  capability: string,
+  operation: string,
+  input: unknown
+):
+  | { conversationId: null; available: boolean }
+  | { conversationId: null; inserted: boolean }
+  | null {
+  if (capability !== 'conversation') return null;
+  const record =
+    input && typeof input === 'object'
+      ? (input as Record<string, unknown>)
+      : {};
+  const conversationId =
+    typeof record.conversationId === 'string'
+      ? record.conversationId.trim()
+      : '';
+  if (conversationId) return null;
+  if (operation === 'draft.target') {
+    return { conversationId: null, available: hasActiveComposerDraftTarget() };
+  }
+  if (operation !== 'draft.insert') return null;
+  const token =
+    record.token && typeof record.token === 'object'
+      ? (record.token as Record<string, unknown>)
+      : {};
+  const inserted = insertIntoActiveComposer({
+    label: typeof token.label === 'string' ? token.label : '',
+    markdown: typeof token.markdown === 'string' ? token.markdown : '',
+  });
+  return { conversationId: null, inserted };
+}
 
 const defaultPluginApi = createPluginControlApi(configuredBackendTransport);
 
@@ -36,6 +78,8 @@ const defaultHostTransport: HostCallTransport = async <T>(
   operation: string,
   input?: unknown
 ): Promise<T> => {
+  const local = handleLocalComposerDraftCall(capability, operation, input);
+  if (local) return local as T;
   return await defaultPluginApi.hostCall<T>(
     pluginId,
     capability,

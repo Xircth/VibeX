@@ -1,102 +1,402 @@
-; VibeX Minimal Installer Pages (Modeled after deepseek-harness pages.nsh)
+; VibeX installer & uninstaller pages.
+;
+; Installer:   [welcome | custom location | existing install]  -> progress (+error) -> finish
+; Uninstaller: confirm -> progress -> finish
+;
+; Every view lives on a 520x400 (96-DPI logical) frameless window with a 40px
+; title bar. nsDialogs pages use owner-drawn buttons (NM_CUSTOMDRAW); the MUI
+; instfiles page is restyled with bitmap statics updated from the sections via
+; VibeXTick, because NSIS runs sections on a worker thread with no script
+; callbacks on that page.
 !ifndef VIBEX_INSTALLER_PAGES
 !define VIBEX_INSTALLER_PAGES
 
-!define /ifndef WM_NOTIFY_OUTER_NEXT 0x408
-!define /ifndef PBM_SETBARCOLOR 0x0409
-!define /ifndef PBM_SETBKCOLOR 0x2001
-
+Var VibeXTitleText
+Var DeleteAppDataCheckboxState
+!define VIBEX_SEC_INSTALL 2
+Var VibeXParent
 Var VibeXDialog
 Var VibeXPhase
 Var VibeXAction
 Var VibeXHasExisting
-Var VibeXExpanded
-Var VibeXBrandImage
-Var VibeXPrimaryBtn
-Var VibeXSecondaryBtn
-Var VibeXChooseBtn
-Var VibeXBrowseBtn
-Var VibeXEdit
-Var VibeXEditFrame
-Var VibeXLaunchCheck
-Var VibeXStatusLabel
+Var VibeXExistingVersion
+Var VibeXFocusTarget
+Var VibeXFootX
+Var VibeXSB          ; static-button target
+Var VibeXSBKind
+Var VibeXSBText
+Var VibeXSBState
+; chrome + brand
+Var VibeXTitleLbl
 Var VibeXMinBtn
 Var VibeXCloseBtn
-Var VibeXInstFilesDialog
-Var VibeXProgressBrandBmp
-Var VibeXProgressBrandCtrl
+Var VibeXIconCtl
+Var VibeXNameLbl
+Var VibeXSubLbl
+; installer main page
+Var VibeXBigBtn
+Var VibeXLinkBtn
+Var VibeXLocLbl
+Var VibeXField
+Var VibeXFieldBmpState
+Var VibeXEdit
+Var VibeXBrowseBtn
+Var VibeXMetaLbl
+Var VibeXBackBtn
+Var VibeXInstallBtn
+Var VibeXPathLbl
+Var VibeXUninstallBtn
+Var VibeXReinstallBtn
+Var VibeXLastPath
+; finish / confirm
+Var VibeXCheck
+Var VibeXDoneBtn
+Var VibeXCancelBtn
+; progress page
+Var VibeXInstDlg
+Var VibeXStatusLbl
+Var VibeXErrIcon
+Var VibeXPctLbl
+Var VibeXBar
+Var VibeXFileLbl
+Var VibeXProgCancel
+Var VibeXLogBtn
+Var VibeXErrCancel
+Var VibeXRetryBtn
+Var VibeXPermille
+Var VibeXBarState
+Var VibeXErrTitle
+Var VibeXErrCode
+Var VibeXHover
+Var VibeXMouseDown
+Var VibeXKeyEnter
+Var VibeXKeyEsc
 
-Function VibeXGuiInit
+!define VIBEX_STATIC_TEXT 0x50000080      ; WS_CHILD|WS_VISIBLE|SS_NOPREFIX
+!define VIBEX_STATIC_CENTER 0x50000081
+!define VIBEX_STATIC_RIGHT 0x50000082
+!define VIBEX_STATIC_BITMAP 0x5000020E    ; SS_BITMAP|SS_CENTERIMAGE
+!define VIBEX_STATIC_HIT 0x4000010E       ; hidden SS_BITMAP|SS_NOTIFY (hit-testable)
+
+!macro VibeXMakeButton UN OUT KIND TEXT CALLBACK
+  ${NSD_CreateButton} 0 0 0 0 "${TEXT}"
+  Pop ${OUT}
+  nsDialogs::SetUserData ${OUT} "${KIND}"
+  ${NSD_OnClick} ${OUT} ${CALLBACK}
+  ${NSD_OnNotify} ${OUT} ${UN}VibeXPaint
+  SendMessage ${OUT} ${WM_SETFONT} $VibeXFontBtn 1
+!macroend
+
+; Place a measured button so its body's right edge sits at $VibeXFootX.
+!macro VibeXFootRight UN HWND KIND TEXT
+  StrCpy $VibeXRKind "${KIND}"
+  StrCpy $VibeXRText "${TEXT}"
+  StrCpy $VibeXRFont $VibeXFontBtn
+  Call ${UN}VibeXButtonWidth
+  IntOp $VibeXFootX $VibeXFootX - $VibeXRW
+  !insertmacro VibeXPlaceDevX ${HWND} $VibeXFootX 340 $VibeXRW 40
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_RING}
+  IntOp $VibeXFootX $VibeXFootX + $VibeXT0
+  IntOp $VibeXFootX $VibeXFootX + $VibeXT0
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_BTN_GAP}
+  IntOp $VibeXFootX $VibeXFootX - $VibeXT0
+!macroend
+
+!macro VibeXFootReset
+  !insertmacro VibeXScale $VibeXFootX 496
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_RING}
+  IntOp $VibeXFootX $VibeXFootX + $VibeXT0
+!macroend
+
+!macro VibeXFootLeft UN HWND KIND TEXT
+  StrCpy $VibeXRKind "${KIND}"
+  StrCpy $VibeXRText "${TEXT}"
+  StrCpy $VibeXRFont $VibeXFontBtn
+  Call ${UN}VibeXButtonWidth
+  !insertmacro VibeXScale $VibeXT1 ${VIBEX_FOOT_X}
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_RING}
+  IntOp $VibeXT1 $VibeXT1 - $VibeXT0
+  !insertmacro VibeXPlaceDevX ${HWND} $VibeXT1 340 $VibeXRW 40
+!macroend
+
+!macro VibeXSetText HWND TEXT
+  SendMessage ${HWND} ${WM_SETTEXT} 0 "STR:${TEXT}"
+!macroend
+
+; ---------------------------------------------------------------------------
+; Shared between installer and uninstaller
+; ---------------------------------------------------------------------------
+!macro VIBEX_DEFINE_PAGES_SHARED UN
+
+Function ${UN}VibeXGuiInit
   ${If} $PassiveMode = 1
   ${OrIf} ${Silent}
     Return
   ${EndIf}
-
-  !insertmacro VibeXResolveThemeMacro
-
-  ; Hide window until initial custom page is constructed
-  HideWindow
-
-  ; Pop-up style with minimize and system menu for taskbar & DWM shadow
-  System::Call 'user32::SetWindowLongW(p $HWNDPARENT, i -16, i 0x960A0000)'
-  System::Call 'user32::GetDC(p $HWNDPARENT) p.r0'
-  System::Call 'gdi32::GetDeviceCaps(p r0, i 88) i.s'
-  Pop $VibeXDpi
-  System::Call 'user32::ReleaseDC(p $HWNDPARENT, p r0)'
-
-  System::Call 'kernel32::MulDiv(i ${VIBEX_WIN_W}, i $VibeXDpi, i 96) i.s'
-  Pop $VibeXWinW
-  System::Call 'kernel32::MulDiv(i ${VIBEX_WIN_H}, i $VibeXDpi, i 96) i.s'
-  Pop $VibeXWinH
-
-  ; Center window on primary monitor
-  System::Call 'user32::GetSystemMetrics(i 0) i.r0'
-  System::Call 'user32::GetSystemMetrics(i 1) i.r1'
-  IntOp $0 $0 - $VibeXWinW
-  IntOp $0 $0 / 2
-  IntOp $1 $1 - $VibeXWinH
-  IntOp $1 $1 / 2
-  System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r0, i r1, i $VibeXWinW, i $VibeXWinH, i 0x0024)'
-
-  ; Enable Windows 11 rounded corners (DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2)
-  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, *i 2, i 4)'
-
-  ; Hide all stock outer NSIS dialog buttons and banners
-  GetDlgItem $0 $HWNDPARENT 1
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 2
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 3
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1028
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1256
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1034
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1035
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1036
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1037
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1038
-  ShowWindow $0 0
-  GetDlgItem $0 $HWNDPARENT 1039
-  ShowWindow $0 0
-
-  !insertmacro VibeXControlColors $HWNDPARENT
-
-  ; Extract brand bitmaps into $PLUGINSDIR
-  InitPluginsDir
-  File "/oname=$PLUGINSDIR\brand-light.bmp" "${VIBEX_INSTALLER_DIR}\assets\brand-light.bmp"
-  File "/oname=$PLUGINSDIR\brand-light-2x.bmp" "${VIBEX_INSTALLER_DIR}\assets\brand-light-2x.bmp"
-  File "/oname=$PLUGINSDIR\brand-dark.bmp" "${VIBEX_INSTALLER_DIR}\assets\brand-dark.bmp"
-  File "/oname=$PLUGINSDIR\brand-dark-2x.bmp" "${VIBEX_INSTALLER_DIR}\assets\brand-dark-2x.bmp"
+  Call ${UN}VibeXInitResources
+  Call ${UN}VibeXSetupWindow
+  !insertmacro VibeXLog "VibeX ${VERSION} setup log"
 FunctionEnd
 
+; Title bar (label + min/close) and brand lockup on $VibeXParent.
+; $VibeXDialog != 0 means an nsDialogs page (interactive buttons).
+Function ${UN}VibeXBuildChrome
+  !insertmacro VibeXMakeStatic $VibeXTitleLbl $VibeXParent 0x50000380 "$VibeXTitleText" 16 0 412 ${VIBEX_TITLE_H}
+  SendMessage $VibeXTitleLbl ${WM_SETFONT} $VibeXFontTitle 1
+  !insertmacro VibeXMutedColors $VibeXTitleLbl
+  ${If} $VibeXParent == $VibeXDialog
+    ${NSD_OnClick} $VibeXTitleLbl ${UN}VibeXDragWindow
+    !insertmacro VibeXMakeButton "${UN}" $VibeXMinBtn "min" "" ${UN}VibeXMinimizeWindow
+    !insertmacro VibeXMakeButton "${UN}" $VibeXCloseBtn "close" "" ${UN}VibeXCloseWindow
+    ${NSD_RemoveStyle} $VibeXMinBtn ${WS_TABSTOP}
+    ${NSD_RemoveStyle} $VibeXCloseBtn ${WS_TABSTOP}
+    !insertmacro VibeXPlace $VibeXMinBtn 428 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    !insertmacro VibeXPlace $VibeXCloseBtn 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+  ${Else}
+    ; instfiles page: static glyphs (the page cannot be cancelled mid-section)
+    !insertmacro VibeXMakeStatic $VibeXMinBtn $VibeXParent ${VIBEX_STATIC_BITMAP} "" 428 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    !insertmacro VibeXMakeStatic $VibeXCloseBtn $VibeXParent ${VIBEX_STATIC_BITMAP} "" 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    StrCpy $VibeXSB $VibeXMinBtn
+    StrCpy $VibeXSBKind "min"
+    StrCpy $VibeXSBText ""
+    StrCpy $VibeXSBState 0
+    Call ${UN}VibeXStaticButton
+    StrCpy $VibeXSB $VibeXCloseBtn
+    StrCpy $VibeXSBKind "close"
+    StrCpy $VibeXSBState 8
+    Call ${UN}VibeXStaticButton
+    !insertmacro VibeXPlace $VibeXMinBtn 428 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    !insertmacro VibeXPlace $VibeXCloseBtn 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+  ${EndIf}
+
+  !insertmacro VibeXMakeStatic $VibeXIconCtl $VibeXParent ${VIBEX_STATIC_BITMAP} "" 0 0 0 0
+  !insertmacro VibeXMakeStatic $VibeXNameLbl $VibeXParent ${VIBEX_STATIC_CENTER} "${PRODUCTNAME}" 0 0 0 0
+  !insertmacro VibeXLabelColors $VibeXNameLbl
+  !insertmacro VibeXMakeStatic $VibeXSubLbl $VibeXParent ${VIBEX_STATIC_CENTER} "" 0 0 0 0
+  SendMessage $VibeXSubLbl ${WM_SETFONT} $VibeXFontSub 1
+  !insertmacro VibeXMutedColors $VibeXSubLbl
+FunctionEnd
+
+; Brand lockup: large (64px logo) or small (48px logo).
+Function ${UN}VibeXBrandLarge
+  SendMessage $VibeXIconCtl ${STM_SETIMAGE} ${IMAGE_BITMAP} $VibeXIconBmp
+  !insertmacro VibeXPlace $VibeXIconCtl 228 ${VIBEX_BRAND_ICON_Y} ${VIBEX_BRAND_ICON} ${VIBEX_BRAND_ICON}
+  SendMessage $VibeXNameLbl ${WM_SETFONT} $VibeXFontName 1
+  !insertmacro VibeXPlace $VibeXNameLbl 32 ${VIBEX_BRAND_NAME_Y} 456 ${VIBEX_BRAND_NAME_H}
+  !insertmacro VibeXPlace $VibeXSubLbl 32 ${VIBEX_BRAND_SUB_Y} 456 ${VIBEX_SUB_H}
+FunctionEnd
+
+Function ${UN}VibeXBrandSmall
+  SendMessage $VibeXIconCtl ${STM_SETIMAGE} ${IMAGE_BITMAP} $VibeXIconSmBmp
+  !insertmacro VibeXPlace $VibeXIconCtl 236 ${VIBEX_BRAND_SM_ICON_Y} ${VIBEX_BRAND_SM_ICON} ${VIBEX_BRAND_SM_ICON}
+  SendMessage $VibeXNameLbl ${WM_SETFONT} $VibeXFontNameSm 1
+  !insertmacro VibeXPlace $VibeXNameLbl 32 ${VIBEX_BRAND_SM_NAME_Y} 456 ${VIBEX_BRAND_SM_NAME_H}
+  !insertmacro VibeXPlace $VibeXSubLbl 32 ${VIBEX_BRAND_SM_SUB_Y} 456 ${VIBEX_SUB_H}
+FunctionEnd
+
+; Create an empty nsDialogs page covering the whole window.
+Function ${UN}VibeXNewPage
+  Call ${UN}VibeXHideOuterControls
+  nsDialogs::Create 1018
+  Pop $VibeXDialog
+  ${If} $VibeXDialog == error
+    Abort
+  ${EndIf}
+  !insertmacro VibeXPlace $VibeXDialog 0 0 ${VIBEX_WIN_W} ${VIBEX_WIN_H}
+  !insertmacro VibeXLabelColors $VibeXDialog
+  StrCpy $VibeXParent $VibeXDialog
+  Call ${UN}VibeXBuildChrome
+FunctionEnd
+
+; Show the page with keyboard focus on $VibeXFocusTarget.
+Function ${UN}VibeXShowPage
+  ${NSD_CreateTimer} ${UN}VibeXPageTick 120
+  ShowWindow $HWNDPARENT 5
+  nsDialogs::Show
+FunctionEnd
+
+Function ${UN}VibeXApplyFocus
+  ${If} $VibeXFocusTarget != ""
+  ${AndIf} $VibeXFocusTarget != 0
+    SendMessage $VibeXDialog ${WM_NEXTDLGCTL} $VibeXFocusTarget 1
+    System::Call 'user32::SetFocus(p $VibeXFocusTarget)'
+    StrCpy $VibeXFocusTarget 0
+  ${EndIf}
+FunctionEnd
+
+Function ${UN}VibeXFinishButton
+  !insertmacro VibeXMakeButton "${UN}" $VibeXDoneBtn "pri" "$(VIBEX_FINISH)" ${UN}VibeXGoNext
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "${UN}" $VibeXDoneBtn "pri" "$(VIBEX_FINISH)"
+  StrCpy $VibeXFocusTarget $VibeXDoneBtn
+FunctionEnd
+
+Function ${UN}VibeXGoNext
+  Pop $VibeXT0
+  SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0
+FunctionEnd
+
+; Render a static "button" ($VibeXSB) used on the instfiles page.
+Function ${UN}VibeXStaticButton
+  StrCpy $VibeXRKind $VibeXSBKind
+  StrCpy $VibeXRText $VibeXSBText
+  StrCpy $VibeXRFont $VibeXFontBtn
+  StrCpy $VibeXRState $VibeXSBState
+  ${If} $VibeXRKind == "min"
+  ${OrIf} $VibeXRKind == "close"
+    !insertmacro VibeXScale $VibeXRW ${VIBEX_CAPTION_BTN_W}
+    !insertmacro VibeXScale $VibeXRH ${VIBEX_TITLE_H}
+  ${Else}
+    Call ${UN}VibeXButtonWidth
+    StrCpy $VibeXRText $VibeXSBText
+    !insertmacro VibeXScale $VibeXRH 40
+  ${EndIf}
+  Call ${UN}VibeXRender
+  !insertmacro VibeXSetStaticBitmap $VibeXSB
+FunctionEnd
+
+Function ${UN}VibeXRenderBar
+  ${If} $VibeXBar == ""
+  ${OrIf} $VibeXBar == 0
+    Return
+  ${EndIf}
+  StrCpy $VibeXRKind "bar"
+  StrCpy $VibeXRText $VibeXPermille
+  StrCpy $VibeXRState $VibeXBarState
+  !insertmacro VibeXScale $VibeXRW 456
+  !insertmacro VibeXScale $VibeXRH ${VIBEX_PROG_TRACK_H}
+  Call ${UN}VibeXRender
+  !insertmacro VibeXSetStaticBitmap $VibeXBar
+  !insertmacro VibeXPlace $VibeXBar 32 ${VIBEX_PROG_TRACK_Y} 456 ${VIBEX_PROG_TRACK_H}
+FunctionEnd
+
+; Restyle the MUI instfiles page into the progress view.
+Function ${UN}VibeXInstFilesShow
+  SetAutoClose true
+  ${If} $PassiveMode = 1
+  ${OrIf} ${Silent}
+    Return
+  ${EndIf}
+  Call ${UN}VibeXHideOuterControls
+  StrCpy $VibeXDialog 0
+  FindWindow $VibeXInstDlg "#32770" "" $HWNDPARENT
+  !insertmacro VibeXPlace $VibeXInstDlg 0 0 ${VIBEX_WIN_W} ${VIBEX_WIN_H}
+  !insertmacro VibeXLabelColors $VibeXInstDlg
+  GetDlgItem $VibeXT0 $VibeXInstDlg 1027
+  ShowWindow $VibeXT0 0
+  GetDlgItem $VibeXT0 $VibeXInstDlg 1016
+  ShowWindow $VibeXT0 0
+  GetDlgItem $VibeXT0 $VibeXInstDlg 1004
+  ShowWindow $VibeXT0 0
+
+  StrCpy $VibeXParent $VibeXInstDlg
+  Call ${UN}VibeXBuildChrome
+  Call ${UN}VibeXBrandSmall
+
+  !insertmacro VibeXMakeStatic $VibeXErrIcon $VibeXInstDlg 0x4000020E "" 32 ${VIBEX_PROG_LABEL_Y} 14 ${VIBEX_PROG_LABEL_H}
+  !insertmacro VibeXMakeStatic $VibeXStatusLbl $VibeXInstDlg 0x50000280 "" 32 ${VIBEX_PROG_LABEL_Y} 380 ${VIBEX_PROG_LABEL_H}
+  SendMessage $VibeXStatusLbl ${WM_SETFONT} $VibeXFontBody 1
+  !insertmacro VibeXLabelColors $VibeXStatusLbl
+  !insertmacro VibeXMakeStatic $VibeXPctLbl $VibeXInstDlg 0x50000282 "0%" 412 ${VIBEX_PROG_LABEL_Y} 76 ${VIBEX_PROG_LABEL_H}
+  SendMessage $VibeXPctLbl ${WM_SETFONT} $VibeXFontBody 1
+  !insertmacro VibeXMutedColors $VibeXPctLbl
+  !insertmacro VibeXMakeStatic $VibeXBar $VibeXInstDlg ${VIBEX_STATIC_BITMAP} "" 32 ${VIBEX_PROG_TRACK_Y} 456 ${VIBEX_PROG_TRACK_H}
+  StrCpy $VibeXPermille 0
+  StrCpy $VibeXBarState 0
+  Call ${UN}VibeXRenderBar
+
+  ; NSIS's own detail line (1006) becomes the monospace file line; the static
+  ; ellipsizes long paths in the middle.
+  GetDlgItem $VibeXFileLbl $VibeXInstDlg 1006
+  System::Call 'user32::GetWindowLongW(p $VibeXFileLbl, i -16) i.s'
+  Pop $VibeXT0
+  IntOp $VibeXT0 $VibeXT0 & 0xFFFFFFF0
+  IntOp $VibeXT0 $VibeXT0 | 0x8080 ; SS_PATHELLIPSIS | SS_NOPREFIX
+  System::Call 'user32::SetWindowLongW(p $VibeXFileLbl, i -16, i $VibeXT0)'
+  SendMessage $VibeXFileLbl ${WM_SETFONT} $VibeXFontMono 1
+  !insertmacro VibeXMutedColors $VibeXFileLbl
+  !insertmacro VibeXPlace $VibeXFileLbl 32 ${VIBEX_PROG_FILE_Y} 456 ${VIBEX_PROG_FILE_H}
+  !insertmacro VibeXSetText $VibeXFileLbl ""
+
+  ; Only a (disabled) Cancel in the footer: NSIS cannot abort a running section.
+  !insertmacro VibeXMakeStatic $VibeXProgCancel $VibeXInstDlg ${VIBEX_STATIC_BITMAP} "" 0 0 0 0
+  StrCpy $VibeXSB $VibeXProgCancel
+  StrCpy $VibeXSBKind "sec"
+  StrCpy $VibeXSBText "$(VIBEX_CANCEL)"
+  StrCpy $VibeXSBState 8
+  Call ${UN}VibeXStaticButton
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "${UN}" $VibeXProgCancel "sec" "$(VIBEX_CANCEL)"
+
+  ${If} $VibeXAction == "uninstall"
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_UNINSTALLING)"
+    !insertmacro VibeXSetText $VibeXStatusLbl "$(VIBEX_PROGRESS_UNINSTALL)"
+  ${Else}
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_INSTALLING)"
+    !insertmacro VibeXSetText $VibeXStatusLbl "$(VIBEX_PROGRESS_PREPARE)"
+  ${EndIf}
+  ShowWindow $HWNDPARENT 5
+FunctionEnd
+
+; Mirror NSIS's hidden progress bar (1004) into the custom bar + percentage.
+Function ${UN}VibeXTick
+  ${If} $PassiveMode = 1
+  ${OrIf} ${Silent}
+  ${OrIf} $VibeXInstDlg == ""
+  ${OrIf} $VibeXInstDlg == 0
+    Return
+  ${EndIf}
+  GetDlgItem $VibeXT0 $VibeXInstDlg 1004
+  SendMessage $VibeXT0 ${PBM_GETPOS} 0 0 $VibeXT1
+  SendMessage $VibeXT0 ${PBM_GETRANGE} 0 0 $VibeXT2
+  ${If} $VibeXT2 <= 0
+    Return
+  ${EndIf}
+  IntOp $VibeXT1 $VibeXT1 * 1000
+  IntOp $VibeXT1 $VibeXT1 / $VibeXT2
+  ${If} $VibeXT1 == $VibeXPermille
+    Return
+  ${EndIf}
+  StrCpy $VibeXPermille $VibeXT1
+  Call ${UN}VibeXRenderBar
+  IntOp $VibeXT1 $VibeXPermille / 10
+  !insertmacro VibeXSetText $VibeXPctLbl "$VibeXT1%"
+FunctionEnd
+
+; Finish the bar when a section's work is done.
+Function ${UN}VibeXTickDone
+  ${If} $VibeXBar == ""
+  ${OrIf} $VibeXBar == 0
+    Return
+  ${EndIf}
+  StrCpy $VibeXPermille 1000
+  Call ${UN}VibeXRenderBar
+  !insertmacro VibeXSetText $VibeXPctLbl "100%"
+FunctionEnd
+
+!macroend
+
+!macro VibeXSetStage UN TEXT
+  ${If} $PassiveMode <> 1
+  ${AndIfNot} ${Silent}
+  ${AndIf} $VibeXStatusLbl != ""
+    !insertmacro VibeXSetText $VibeXStatusLbl "${TEXT}"
+    Call ${UN}VibeXTick
+  ${EndIf}
+  !insertmacro VibeXLog "${TEXT}"
+!macroend
+
+!insertmacro VIBEX_DEFINE_DRAWING ""
+!insertmacro VIBEX_DEFINE_DRAWING "un."
+!insertmacro VIBEX_DEFINE_PAGES_SHARED ""
+!insertmacro VIBEX_DEFINE_PAGES_SHARED "un."
+
+; ---------------------------------------------------------------------------
+; Installer pages
+; ---------------------------------------------------------------------------
 Function VibeXDetectExisting
   StrCpy $VibeXHasExisting 0
+  StrCpy $VibeXExistingVersion ""
   StrCpy $0 0
   vibex_wix_loop:
     EnumRegKey $1 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
@@ -111,6 +411,7 @@ Function VibeXDetectExisting
     StrCmp $R0 0 0 vibex_wix_done
     StrCpy $WixMode 1
     StrCpy $R6 "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1"
+    ReadRegStr $VibeXExistingVersion HKLM "$R6" "DisplayVersion"
     StrCpy $VibeXHasExisting 1
     Return
   vibex_wix_done:
@@ -119,12 +420,17 @@ Function VibeXDetectExisting
   ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
   ${If} "$R0$R1" != ""
     StrCpy $VibeXHasExisting 1
+    ReadRegStr $VibeXExistingVersion SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${EndIf}
 FunctionEnd
 
-Function VibeXPageWelcomeOrMaintain
-  Call VibeXDetectExisting
+Function VibeXGuiInitInstaller
+  StrCpy $VibeXTitleText "$(VIBEX_TITLE_SETUP)"
+  Call VibeXGuiInit
+FunctionEnd
 
+Function VibeXPageMain
+  Call VibeXDetectExisting
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
     StrCpy $VibeXAction "install"
@@ -133,7 +439,6 @@ Function VibeXPageWelcomeOrMaintain
     ${EndIf}
     Abort
   ${EndIf}
-
   ${If} $VibeXHasExisting = 1
     StrCpy $VibeXPhase "existing"
     StrCpy $VibeXAction "reinstall"
@@ -142,19 +447,256 @@ Function VibeXPageWelcomeOrMaintain
     StrCpy $VibeXAction "install"
   ${EndIf}
 
-  Call VibeXCreateInteractivePage
+  Call VibeXNewPage
+
+  ; welcome
+  !insertmacro VibeXMakeButton "" $VibeXBigBtn "prilg" "$(VIBEX_INSTALL_NOW)" VibeXOnInstall
+  SendMessage $VibeXBigBtn ${WM_SETFONT} $VibeXFontBtnLg 1
+  !insertmacro VibeXPlace $VibeXBigBtn 156 240 208 48
+  !insertmacro VibeXMakeButton "" $VibeXLinkBtn "link" "$(VIBEX_CUSTOMIZE)" VibeXOnCustomize
+  SendMessage $VibeXLinkBtn ${WM_SETFONT} $VibeXFontBody 1
+  StrCpy $VibeXRText "$(VIBEX_CUSTOMIZE)"
+  StrCpy $VibeXRFont $VibeXFontBody
+  Call VibeXMeasure
+  !insertmacro VibeXScale $VibeXT0 16
+  IntOp $VibeXRW $VibeXRW + $VibeXT0
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_WIN_W}
+  IntOp $VibeXT0 $VibeXT0 - $VibeXRW
+  IntOp $VibeXT0 $VibeXT0 / 2
+  !insertmacro VibeXPlaceDevX $VibeXLinkBtn $VibeXT0 ${VIBEX_WELCOME_LINK_Y} $VibeXRW 24
+
+  ; custom location
+  !insertmacro VibeXMakeStatic $VibeXLocLbl $VibeXDialog ${VIBEX_STATIC_TEXT} "$(VIBEX_LOCATION)" 32 ${VIBEX_LOC_LABEL_Y} 456 18
+  SendMessage $VibeXLocLbl ${WM_SETFONT} $VibeXFontSub 1
+  !insertmacro VibeXMutedColors $VibeXLocLbl
+  !insertmacro VibeXMakeButton "" $VibeXBrowseBtn "sec" "$(VIBEX_BROWSE)" VibeXOnBrowse
+  StrCpy $VibeXRKind "sec"
+  StrCpy $VibeXRText "$(VIBEX_BROWSE)"
+  StrCpy $VibeXRFont $VibeXFontBtn
+  Call VibeXButtonWidth
+  !insertmacro VibeXScale $VibeXT1 488
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_RING}
+  IntOp $VibeXT1 $VibeXT1 + $VibeXT0
+  IntOp $VibeXT1 $VibeXT1 - $VibeXRW
+  !insertmacro VibeXPlaceDevX $VibeXBrowseBtn $VibeXT1 236 $VibeXRW 40
+  ; field spans from x=32 to the browse body minus an 8px gap
+  IntOp $VibeXT1 $VibeXT1 + $VibeXT0
+  !insertmacro VibeXScale $VibeXT0 40
+  IntOp $VibeXT1 $VibeXT1 - $VibeXT0 ; field width (device)
+  IntOp $VibeXT0 ${VIBEX_STATIC_BITMAP} | 0x04000000 ; WS_CLIPSIBLINGS: never paint over the edit
+  !insertmacro VibeXMakeStatic $VibeXField $VibeXDialog $VibeXT0 "" 0 0 0 0
+  !insertmacro VibeXScale $VibeXT0 32
+  !insertmacro VibeXPlaceDevX $VibeXField $VibeXT0 ${VIBEX_LOC_FIELD_Y} $VibeXT1 32
+  StrCpy $VibeXFieldBmpState ""
+  ${NSD_CreateText} 0 0 0 0 "$INSTDIR"
+  Pop $VibeXEdit
+  System::Call 'user32::GetWindowLongW(p $VibeXEdit, i -16) i.s'
+  Pop $VibeXT0
+  IntOp $VibeXT0 $VibeXT0 & 0xFF7FFFFF ; no WS_BORDER
+  System::Call 'user32::SetWindowLongW(p $VibeXEdit, i -16, i $VibeXT0)'
+  System::Call 'user32::GetWindowLongW(p $VibeXEdit, i -20) i.s'
+  Pop $VibeXT0
+  IntOp $VibeXT0 $VibeXT0 & 0xFFFFFDFF ; no WS_EX_CLIENTEDGE
+  System::Call 'user32::SetWindowLongW(p $VibeXEdit, i -20, i $VibeXT0)'
+  SendMessage $VibeXEdit ${WM_SETFONT} $VibeXFontBody 1
+  SendMessage $VibeXEdit ${EM_SETLIMITTEXT} 240 0
+  !insertmacro VibeXFieldColors $VibeXEdit
+  ; text starts after the 16px folder glyph (x=12..28 inside the field) + 8px gap
+  !insertmacro VibeXScale $VibeXT0 68
+  !insertmacro VibeXScale $VibeXT2 48
+  IntOp $VibeXT2 $VibeXT1 - $VibeXT2
+  !insertmacro VibeXPlaceDevX $VibeXEdit $VibeXT0 248 $VibeXT2 18
+  System::Call 'user32::SetWindowPos(p $VibeXEdit, p 0, i 0, i 0, i 0, i 0, i 0x33)'
+  !insertmacro VibeXMakeStatic $VibeXMetaLbl $VibeXDialog ${VIBEX_STATIC_TEXT} "" 32 ${VIBEX_LOC_META_Y} 456 16
+  SendMessage $VibeXMetaLbl ${WM_SETFONT} $VibeXFontSub 1
+  !insertmacro VibeXMutedColors $VibeXMetaLbl
+  StrCpy $VibeXLastPath ""
+  !insertmacro VibeXMakeButton "" $VibeXBackBtn "ghost" "$(VIBEX_BACK)" VibeXOnBack
+  !insertmacro VibeXFootLeft "" $VibeXBackBtn "ghost" "$(VIBEX_BACK)"
+  !insertmacro VibeXMakeButton "" $VibeXInstallBtn "pri" "$(VIBEX_INSTALL)" VibeXOnInstall
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "" $VibeXInstallBtn "pri" "$(VIBEX_INSTALL)"
+
+  ; existing installation
+  !insertmacro VibeXMakeStatic $VibeXPathLbl $VibeXDialog 0x50008081 "$INSTDIR" 32 214 456 16
+  SendMessage $VibeXPathLbl ${WM_SETFONT} $VibeXFontMono 1
+  !insertmacro VibeXMutedColors $VibeXPathLbl
+  !insertmacro VibeXMakeButton "" $VibeXReinstallBtn "pri" "$(VIBEX_REINSTALL)" VibeXOnInstall
+  !insertmacro VibeXMakeButton "" $VibeXUninstallBtn "danger" "$(VIBEX_UNINSTALL)" VibeXOnUninstall
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "" $VibeXReinstallBtn "pri" "$(VIBEX_REINSTALL)"
+  !insertmacro VibeXFootRight "" $VibeXUninstallBtn "danger" "$(VIBEX_UNINSTALL)"
+
+  Call VibeXApplyPhase
+  Call VibeXShowPage
 FunctionEnd
 
-Function VibeXPageWelcomeLeave
-  ${If} $VibeXPhase == "welcome"
-    ${NSD_GetText} $VibeXEdit $INSTDIR
-    ${If} $INSTDIR == ""
+Function VibeXApplyPhase
+  ShowWindow $VibeXBigBtn 0
+  ShowWindow $VibeXLinkBtn 0
+  ShowWindow $VibeXLocLbl 0
+  ShowWindow $VibeXField 0
+  ShowWindow $VibeXEdit 0
+  ShowWindow $VibeXBrowseBtn 0
+  ShowWindow $VibeXMetaLbl 0
+  ShowWindow $VibeXBackBtn 0
+  ShowWindow $VibeXInstallBtn 0
+  ShowWindow $VibeXPathLbl 0
+  ShowWindow $VibeXReinstallBtn 0
+  ShowWindow $VibeXUninstallBtn 0
+  ${If} $VibeXPhase == "location"
+    Call VibeXBrandSmall
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_VERSION_FMT)"
+    ${NSD_SetText} $VibeXEdit "$INSTDIR"
+    StrCpy $VibeXLastPath ""
+    StrCpy $VibeXFieldBmpState ""
+    Call VibeXUpdateLocation
+    ShowWindow $VibeXLocLbl 5
+    ShowWindow $VibeXField 5
+    ShowWindow $VibeXEdit 5
+    ShowWindow $VibeXBrowseBtn 5
+    ShowWindow $VibeXMetaLbl 5
+    ShowWindow $VibeXBackBtn 5
+    ShowWindow $VibeXInstallBtn 5
+    StrCpy $VibeXFocusTarget $VibeXInstallBtn
+  ${ElseIf} $VibeXPhase == "existing"
+    Call VibeXBrandLarge
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_INSTALLED_FMT) $VibeXExistingVersion"
+    !insertmacro VibeXSetText $VibeXPathLbl "$INSTDIR"
+    ShowWindow $VibeXPathLbl 5
+    ShowWindow $VibeXReinstallBtn 5
+    ShowWindow $VibeXUninstallBtn 5
+    StrCpy $VibeXFocusTarget $VibeXReinstallBtn
+  ${Else}
+    Call VibeXBrandLarge
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_VERSION_FMT)"
+    ShowWindow $VibeXBigBtn 5
+    ShowWindow $VibeXLinkBtn 5
+    StrCpy $VibeXFocusTarget $VibeXBigBtn
+  ${EndIf}
+  Call VibeXApplyFocus
+  System::Call 'user32::InvalidateRect(p $VibeXDialog, p 0, i 1)'
+FunctionEnd
+
+; Timer: deferred initial focus, live free-space + field focus ring.
+Function VibeXPageTick
+  Call VibeXApplyFocus
+  ${If} $VibeXPhase == "location"
+    Call VibeXUpdateLocation
+  ${EndIf}
+FunctionEnd
+
+Function VibeXUpdateLocation
+  ; focus ring on the path field follows the edit's focus
+  System::Call 'user32::GetFocus() p.s'
+  Pop $VibeXT0
+  StrCpy $VibeXT1 "field"
+  ${If} $VibeXT0 == $VibeXEdit
+    StrCpy $VibeXT1 "fieldfocus"
+  ${EndIf}
+  ${If} $VibeXT1 != $VibeXFieldBmpState
+    StrCpy $VibeXFieldBmpState $VibeXT1
+    StrCpy $VibeXRKind $VibeXT1
+    StrCpy $VibeXRText ""
+    StrCpy $VibeXRState 0
+    System::Call '*(i 0, i 0, i 0, i 0) p.s'
+    Pop $VibeXT2
+    System::Call 'user32::GetClientRect(p $VibeXField, p $VibeXT2)'
+    System::Call '*$VibeXT2(i, i, i .s, i .s)'
+    Pop $VibeXRW
+    Pop $VibeXRH
+    System::Free $VibeXT2
+    Call VibeXRender
+    !insertmacro VibeXSetStaticBitmap $VibeXField
+    System::Call 'user32::InvalidateRect(p $VibeXEdit, p 0, i 1)'
+  ${EndIf}
+
+  ${NSD_GetText} $VibeXEdit $VibeXT3
+  ${If} $VibeXT3 == $VibeXLastPath
+    Return
+  ${EndIf}
+  StrCpy $VibeXLastPath $VibeXT3
+  SectionGetSize ${VIBEX_SEC_INSTALL} $VibeXT4
+  IntOp $VibeXT4 $VibeXT4 + 1023
+  IntOp $VibeXT4 $VibeXT4 / 1024
+  ${If} $VibeXT4 < 1
+    StrCpy $VibeXT4 1
+  ${EndIf}
+  ${GetRoot} "$VibeXT3" $VibeXT5
+  StrCpy $VibeXT6 "—"
+  ${If} $VibeXT5 != ""
+    ClearErrors
+    ${DriveSpace} "$VibeXT5\" "/D=F /S=M" $VibeXT7
+    ${IfNot} ${Errors}
+      IntOp $VibeXT7 $VibeXT7 * 10
+      IntOp $VibeXT7 $VibeXT7 / 1024
+      IntOp $VibeXT8 $VibeXT7 % 10
+      IntOp $VibeXT7 $VibeXT7 / 10
+      StrCpy $VibeXT6 "$VibeXT7.$VibeXT8"
+    ${EndIf}
+  ${EndIf}
+  !insertmacro VibeXSetText $VibeXMetaLbl "$(VIBEX_SPACE_REQUIRED) $VibeXT4 MB · $(VIBEX_SPACE_FREE) $VibeXT6 GB$(VIBEX_PAREN_L)$VibeXT5$(VIBEX_PAREN_R)"
+FunctionEnd
+
+Function VibeXOnCustomize
+  Pop $VibeXT0
+  StrCpy $VibeXPhase "location"
+  Call VibeXApplyPhase
+FunctionEnd
+
+Function VibeXOnBack
+  Pop $VibeXT0
+  StrCpy $VibeXPhase "welcome"
+  Call VibeXApplyPhase
+FunctionEnd
+
+Function VibeXOnBrowse
+  Pop $VibeXT0
+  ${NSD_GetText} $VibeXEdit $VibeXT1
+  nsDialogs::SelectFolderDialog "$(VIBEX_CHOOSE_PATH)" "$VibeXT1"
+  Pop $VibeXT1
+  ${If} $VibeXT1 != "error"
+  ${AndIf} $VibeXT1 != ""
+    StrLen $VibeXT2 "${PRODUCTNAME}"
+    IntOp $VibeXT2 0 - $VibeXT2
+    StrCpy $VibeXT3 $VibeXT1 "" $VibeXT2
+    ${If} $VibeXT3 != "${PRODUCTNAME}"
+      StrCpy $VibeXT3 $VibeXT1 "" -1
+      ${If} $VibeXT3 == "\"
+        StrCpy $VibeXT1 "$VibeXT1${PRODUCTNAME}"
+      ${Else}
+        StrCpy $VibeXT1 "$VibeXT1\${PRODUCTNAME}"
+      ${EndIf}
+    ${EndIf}
+    ${NSD_SetText} $VibeXEdit $VibeXT1
+    Call VibeXUpdateLocation
+  ${EndIf}
+FunctionEnd
+
+Function VibeXOnInstall
+  Pop $VibeXT0
+  ${If} $VibeXPhase == "existing"
+    StrCpy $VibeXAction "reinstall"
+  ${EndIf}
+  SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0
+FunctionEnd
+
+Function VibeXOnUninstall
+  Pop $VibeXT0
+  StrCpy $VibeXAction "uninstall"
+  SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0
+FunctionEnd
+
+Function VibeXPageMainLeave
+  ${If} $VibeXPhase == "location"
+    ${NSD_GetText} $VibeXEdit $VibeXT0
+    ${If} $VibeXT0 == ""
       MessageBox MB_OK|MB_ICONEXCLAMATION "$(VIBEX_PATH_INVALID)"
       Abort
     ${EndIf}
+    StrCpy $INSTDIR $VibeXT0
   ${EndIf}
-
-  ; If reinstalling over a previous WiX MSI installation, remove the old MSI first
+  ; Reinstalling over a previous WiX MSI installation: remove the MSI first.
   ${If} $VibeXAction == "reinstall"
   ${AndIf} $WixMode = 1
     ReadRegStr $R1 HKLM "$R6" "UninstallString"
@@ -164,21 +706,45 @@ Function VibeXPageWelcomeLeave
       BringToFront
     ${EndIf}
   ${EndIf}
+  !insertmacro VibeXLog "action=$VibeXAction instdir=$INSTDIR"
 FunctionEnd
 
 Function VibeXPageFinish
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
+  ${OrIf} ${Silent}
     Abort
   ${EndIf}
-
-  StrCpy $VibeXPhase "finish"
-  Call VibeXCreateInteractivePage
+  Call VibeXNewPage
+  Call VibeXBrandLarge
+  ${If} $VibeXAction == "uninstall"
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_UNINSTALLED_DONE)"
+    StrCpy $VibeXCheck 0
+  ${Else}
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_INSTALL_DONE)"
+    ${NSD_CreateCheckbox} 0 0 0 0 "$(VIBEX_LAUNCH_NOW)"
+    Pop $VibeXCheck
+    nsDialogs::SetUserData $VibeXCheck "check"
+    ${NSD_OnNotify} $VibeXCheck VibeXPaint
+    SendMessage $VibeXCheck ${WM_SETFONT} $VibeXFontBody 1
+    ${NSD_Check} $VibeXCheck
+    StrCpy $VibeXRText "$(VIBEX_LAUNCH_NOW)"
+    StrCpy $VibeXRFont $VibeXFontBody
+    Call VibeXMeasure
+    !insertmacro VibeXScale $VibeXT0 32
+    IntOp $VibeXRW $VibeXRW + $VibeXT0
+    !insertmacro VibeXScale $VibeXT0 ${VIBEX_WIN_W}
+    IntOp $VibeXT0 $VibeXT0 - $VibeXRW
+    IntOp $VibeXT0 $VibeXT0 / 2
+    !insertmacro VibeXPlaceDevX $VibeXCheck $VibeXT0 ${VIBEX_CHECK_Y} $VibeXRW ${VIBEX_CHECK_H}
+  ${EndIf}
+  Call VibeXFinishButton
+  Call VibeXShowPage
 FunctionEnd
 
 Function VibeXPageFinishLeave
-  ${If} $VibeXAction != "uninstall"
-    ${NSD_GetState} $VibeXLaunchCheck $0
+  ${If} $VibeXCheck != 0
+    ${NSD_GetState} $VibeXCheck $0
     HideWindow
     ${If} $0 == ${BST_CHECKED}
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
@@ -186,464 +752,259 @@ Function VibeXPageFinishLeave
   ${EndIf}
 FunctionEnd
 
-Function VibeXCreateInteractivePage
-  nsDialogs::Create 1018
-  Pop $VibeXDialog
-  ${If} $VibeXDialog == error
-    Abort
+; --- Error state on the progress page -------------------------------------
+Function VibeXRedrawErrorButtons
+  StrCpy $VibeXSB $VibeXLogBtn
+  StrCpy $VibeXSBKind "ghost"
+  StrCpy $VibeXSBText "$(VIBEX_VIEW_LOG)"
+  StrCpy $VibeXSBState 0
+  ${If} $VibeXHover == $VibeXLogBtn
+    StrCpy $VibeXSBState 1
   ${EndIf}
-
-  !insertmacro VibeXPlace $VibeXDialog 0 0 ${VIBEX_WIN_W} ${VIBEX_WIN_H}
-  !insertmacro VibeXControlColors $HWNDPARENT
-  !insertmacro VibeXControlColors $VibeXDialog
-  !insertmacro VibeXPixelFont $VibeXFont ${VIBEX_BTN_FONT_SIZE} 600
-  !insertmacro VibeXPixelFont $VibeXSmallFont ${VIBEX_SMALL_FONT_SIZE} 400
-
-  System::Call '*(i 1, p 0, i 0, i 0) p.r0'
-  System::Call 'gdiplus::GdiplusStartup(*p .r1, p r0, p 0) i.r2'
-  StrCpy $VibeXGdiToken $1
-  System::Free $0
-
-  ; Top draggable region + Minimize & Close controls
-  ${NSD_CreateLabel} 0 0 0 0 ""
-  Pop $4
-  !insertmacro VibeXPlace $4 0 0 396 44
-  ${NSD_AddStyle} $4 ${SS_NOTIFY}
-  ${NSD_OnClick} $4 VibeXDragWindow
-  !insertmacro VibeXControlColors $4
-
-  ${NSD_CreateButton} 0 0 0 0 "−"
-  Pop $VibeXMinBtn
-  !insertmacro VibeXPlace $VibeXMinBtn 396 8 36 28
-  ${NSD_OnClick} $VibeXMinBtn VibeXMinimizeWindow
-  ${NSD_OnNotify} $VibeXMinBtn VibeXPaintButton
-
-  ${NSD_CreateButton} 0 0 0 0 "×"
-  Pop $VibeXCloseBtn
-  !insertmacro VibeXPlace $VibeXCloseBtn 436 8 36 28
-  ${NSD_OnClick} $VibeXCloseBtn VibeXCloseWindow
-  ${NSD_OnNotify} $VibeXCloseBtn VibeXPaintButton
-
-  ; Centered Brand Lockup (Logo on top + VibeX text below)
-  ${NSD_CreateBitmap} 0 0 0 0 ""
-  Pop $4
-  !insertmacro VibeXPlace $4 0 ${VIBEX_BRAND_Y} ${VIBEX_WIN_W} ${VIBEX_BRAND_H}
-  StrCpy $5 "brand-light"
-  ${If} $VibeXTheme == "dark"
-    StrCpy $5 "brand-dark"
+  Call VibeXStaticButton
+  StrCpy $VibeXSB $VibeXErrCancel
+  StrCpy $VibeXSBKind "sec"
+  StrCpy $VibeXSBText "$(VIBEX_CANCEL)"
+  StrCpy $VibeXSBState 0
+  ${If} $VibeXHover == $VibeXErrCancel
+    StrCpy $VibeXSBState 1
   ${EndIf}
-  ${If} $VibeXDpi <= 96
-    ${NSD_SetStretchedImage} $4 "$PLUGINSDIR\$5.bmp" $VibeXBrandImage
-  ${Else}
-    ${NSD_SetStretchedImage} $4 "$PLUGINSDIR\$5-2x.bmp" $VibeXBrandImage
+  Call VibeXStaticButton
+  StrCpy $VibeXSB $VibeXRetryBtn
+  StrCpy $VibeXSBKind "pri"
+  StrCpy $VibeXSBText "$(VIBEX_RETRY)"
+  StrCpy $VibeXSBState 4 ; default action: focus ring, Enter retries
+  ${If} $VibeXHover == $VibeXRetryBtn
+    StrCpy $VibeXSBState 5
   ${EndIf}
-
-  ; Status / Path Caption Label (used in Existing & Uninstall Finish views)
-  ${NSD_CreateLabel} 0 0 0 0 "$INSTDIR"
-  Pop $VibeXStatusLabel
-  !insertmacro VibeXPlace $VibeXStatusLabel 44 278 392 22
-  ${NSD_AddStyle} $VibeXStatusLabel ${SS_CENTER}|${SS_CENTERIMAGE}
-  SendMessage $VibeXStatusLabel ${WM_SETFONT} $VibeXSmallFont 1
-  !insertmacro VibeXMutedControlColors $VibeXStatusLabel
-
-  ; Welcome: "选择安装位置" Ghost Button
-  ${NSD_CreateButton} 0 0 0 0 "$(VIBEX_CHOOSE_PATH)"
-  Pop $VibeXChooseBtn
-  !insertmacro VibeXPlace $VibeXChooseBtn 172 274 136 28
-  ${NSD_OnClick} $VibeXChooseBtn VibeXExpandPath
-  ${NSD_OnNotify} $VibeXChooseBtn VibeXPaintButton
-
-  ; Welcome: Expanded Path Edit Frame + Input + Browse Button
-  ${NSD_CreateBitmap} 0 0 0 0 ""
-  Pop $VibeXEditFrame
-  !insertmacro VibeXPlace $VibeXEditFrame 44 ${VIBEX_ROW_A_Y} 316 34
-  !insertmacro VibeXDrawEditFrameMacro $VibeXEditFrame
-
-  ${NSD_CreateText} 0 0 0 0 "$INSTDIR"
-  Pop $VibeXEdit
-  System::Call 'user32::GetWindowLongW(p $VibeXEdit, i -16) i.r0'
-  IntOp $0 $0 & 0xFF7FFFFF
-  System::Call 'user32::SetWindowLongW(p $VibeXEdit, i -16, i r0)'
-  System::Call 'user32::GetWindowLongW(p $VibeXEdit, i -20) i.r0'
-  IntOp $0 $0 & 0xFFFFFDFF
-  System::Call 'user32::SetWindowLongW(p $VibeXEdit, i -20, i r0)'
-  SendMessage $VibeXEdit ${WM_SETFONT} $VibeXSmallFont 1
-  !insertmacro VibeXPlace $VibeXEdit 54 279 296 20
-  System::Call 'user32::SetWindowPos(p $VibeXEdit, p 0, i 0, i 0, i 0, i 0, i 0x33)'
-  SendMessage $VibeXEdit ${EM_SETLIMITTEXT} 240 0
-  !insertmacro VibeXControlColors $VibeXEdit
-
-  ${NSD_CreateButton} 0 0 0 0 "$(VIBEX_BROWSE)"
-  Pop $VibeXBrowseBtn
-  !insertmacro VibeXPlace $VibeXBrowseBtn 368 ${VIBEX_ROW_A_Y} 68 34
-  ${NSD_OnClick} $VibeXBrowseBtn VibeXBrowsePath
-  ${NSD_OnNotify} $VibeXBrowseBtn VibeXPaintButton
-
-  ; Finish: "立即启动" Custom Checkbox
-  ${NSD_CreateCheckbox} 0 0 0 0 "$(VIBEX_LAUNCH_NOW)"
-  Pop $VibeXLaunchCheck
-  SendMessage $VibeXLaunchCheck ${WM_SETFONT} $VibeXSmallFont 1
-  !insertmacro VibeXPlace $VibeXLaunchCheck 188 274 108 28
-  !insertmacro VibeXControlColors $VibeXLaunchCheck
-  ${NSD_OnNotify} $VibeXLaunchCheck VibeXPaintCheckbox
-  ${NSD_Check} $VibeXLaunchCheck
-
-  ; Primary Action Button (Install Now / Reinstall / Finish)
-  ${NSD_CreateButton} 0 0 0 0 "$(VIBEX_INSTALL_NOW)"
-  Pop $VibeXPrimaryBtn
-  !insertmacro VibeXPlace $VibeXPrimaryBtn 180 ${VIBEX_ROW_B_Y} ${VIBEX_BTN_W} ${VIBEX_BTN_H}
-  SendMessage $VibeXPrimaryBtn ${WM_SETFONT} $VibeXFont 1
-  ${NSD_OnClick} $VibeXPrimaryBtn VibeXOnPrimaryClick
-  ${NSD_OnNotify} $VibeXPrimaryBtn VibeXPaintButton
-
-  ; Secondary Action Button (Uninstall on Existing installation view)
-  ${NSD_CreateButton} 0 0 0 0 "$(VIBEX_UNINSTALL)"
-  Pop $VibeXSecondaryBtn
-  !insertmacro VibeXPlace $VibeXSecondaryBtn 246 ${VIBEX_ROW_B_Y} ${VIBEX_BTN_W} ${VIBEX_BTN_H}
-  SendMessage $VibeXSecondaryBtn ${WM_SETFONT} $VibeXFont 1
-  ${NSD_OnClick} $VibeXSecondaryBtn VibeXOnSecondaryClick
-  ${NSD_OnNotify} $VibeXSecondaryBtn VibeXPaintButton
-
-  Call VibeXRenderPhase
-  ShowWindow $VibeXDialog 5
-  ShowWindow $HWNDPARENT 5
-  nsDialogs::Show
-
-  ${NSD_FreeImage} $VibeXBrandImage
-  ${NSD_FreeImage} $VibeXEditFrameBitmap
-  System::Call 'gdiplus::GdiplusShutdown(p $VibeXGdiToken)'
-  System::Call 'gdi32::DeleteObject(p $VibeXFont)'
-  System::Call 'gdi32::DeleteObject(p $VibeXSmallFont)'
+  Call VibeXStaticButton
+  StrCpy $VibeXSB $VibeXCloseBtn
+  StrCpy $VibeXSBKind "close"
+  StrCpy $VibeXSBText ""
+  StrCpy $VibeXSBState 0
+  ${If} $VibeXHover == $VibeXCloseBtn
+    StrCpy $VibeXSBState 1
+  ${EndIf}
+  Call VibeXStaticButton
+  !insertmacro VibeXPlace $VibeXCloseBtn 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
 FunctionEnd
 
-Function VibeXRenderPhase
-  ShowWindow $VibeXStatusLabel 0
-  ShowWindow $VibeXChooseBtn 0
-  ShowWindow $VibeXEditFrame 0
-  ShowWindow $VibeXEdit 0
-  ShowWindow $VibeXBrowseBtn 0
-  ShowWindow $VibeXLaunchCheck 0
-  ShowWindow $VibeXSecondaryBtn 0
-
-  ${If} $VibeXPhase == "welcome"
-    ${NSD_SetText} $VibeXPrimaryBtn "$(VIBEX_INSTALL_NOW)"
-    !insertmacro VibeXPlace $VibeXPrimaryBtn 180 ${VIBEX_ROW_B_Y} ${VIBEX_BTN_W} ${VIBEX_BTN_H}
-    ${If} $VibeXExpanded == 1
-      ShowWindow $VibeXEditFrame 5
-      ShowWindow $VibeXEdit 5
-      ShowWindow $VibeXBrowseBtn 5
-    ${Else}
-      ShowWindow $VibeXChooseBtn 5
-    ${EndIf}
-  ${ElseIf} $VibeXPhase == "existing"
-    ${NSD_SetText} $VibeXStatusLabel "$INSTDIR"
-    ShowWindow $VibeXStatusLabel 5
-    ${NSD_SetText} $VibeXPrimaryBtn "$(VIBEX_REINSTALL)"
-    !insertmacro VibeXPlace $VibeXPrimaryBtn 114 ${VIBEX_ROW_B_Y} ${VIBEX_BTN_W} ${VIBEX_BTN_H}
-    ShowWindow $VibeXSecondaryBtn 5
-  ${ElseIf} $VibeXPhase == "finish"
-    ${NSD_SetText} $VibeXPrimaryBtn "$(VIBEX_FINISH)"
-    !insertmacro VibeXPlace $VibeXPrimaryBtn 180 ${VIBEX_ROW_B_Y} ${VIBEX_BTN_W} ${VIBEX_BTN_H}
-    ${If} $VibeXAction == "uninstall"
-      ${NSD_SetText} $VibeXStatusLabel "$(VIBEX_UNINSTALLED_DONE)"
-      ShowWindow $VibeXStatusLabel 5
-    ${Else}
-      ShowWindow $VibeXLaunchCheck 5
-    ${EndIf}
-  ${EndIf}
-FunctionEnd
-
-Function VibeXExpandPath
-  Pop $0
-  StrCpy $VibeXExpanded 1
-  Call VibeXRenderPhase
-  SendMessage $VibeXEdit ${EM_SETSEL} 0 0
-  System::Call 'user32::SetFocus(p $VibeXEdit)'
-FunctionEnd
-
-Function VibeXBrowsePath
-  Pop $0
-  ${NSD_GetText} $VibeXEdit $INSTDIR
-  nsDialogs::SelectFolderDialog "$(VIBEX_CHOOSE_PATH)" "$INSTDIR"
-  Pop $0
-  ${If} $0 != "error"
-    StrCpy $INSTDIR "$0"
-    ${NSD_SetText} $VibeXEdit "$0"
-  ${EndIf}
-FunctionEnd
-
-Function VibeXOnPrimaryClick
-  Pop $0
-  ${If} $VibeXPhase == "existing"
-    StrCpy $VibeXAction "reinstall"
-  ${EndIf}
-  SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0
-FunctionEnd
-
-Function VibeXOnSecondaryClick
-  Pop $0
-  StrCpy $VibeXAction "uninstall"
-  SendMessage $HWNDPARENT ${WM_NOTIFY_OUTER_NEXT} 1 0
-FunctionEnd
-
-Function VibeXDragWindow
-  Pop $0
-  System::Call 'user32::ReleaseCapture()'
-  SendMessage $HWNDPARENT ${WM_NCLBUTTONDOWN} 2 0
-FunctionEnd
-
-Function VibeXMinimizeWindow
-  Pop $0
-  ShowWindow $HWNDPARENT 6
-FunctionEnd
-
-Function VibeXCloseWindow
-  Pop $0
-  System::Call 'user32::PostMessageW(p $HWNDPARENT, i ${WM_CLOSE}, p 0, p 0)'
-FunctionEnd
-
-; Custom owner-draw button handler (NM_CUSTOMDRAW = -12)
-Function VibeXPaintButton
-  Pop $R0
-  Pop $R1
-  Pop $R2
-  ${If} $R1 != -12
-    Return
-  ${EndIf}
-  System::Call '*$R2(p, p, i, i .R3, p .R4, i .R5, i .R6, i .R7, i .R8, p, i .R9)'
-  ${If} $R3 != 1
-    Return
-  ${EndIf}
-  System::Call 'gdi32::SaveDC(p R4)'
-  System::Alloc 16
-  Pop $R2
-  System::Call 'user32::GetClientRect(p R0, p R2)'
-  System::Call 'gdi32::CreateSolidBrush(i $VibeXBgColorref) p.R3'
-  System::Call 'user32::FillRect(p R4, p R2, p R3)'
-  System::Call 'gdi32::DeleteObject(p R3)'
-
-  StrCpy $R3 $VibeXBgArgb
-  ${If} $R0 == $VibeXPrimaryBtn
-    StrCpy $R3 $VibeXPrimaryArgb
-    IntOp $R1 $R9 & 64
-    ${If} $R1 != 0
-      StrCpy $R3 $VibeXPrimaryHoverArgb
-    ${EndIf}
-    IntOp $R1 $R9 & 1
-    ${If} $R1 != 0
-      StrCpy $R3 $VibeXPrimaryPressedArgb
-    ${EndIf}
-  ${Else}
-    IntOp $R1 $R9 & 65
-    ${If} $R1 != 0
-      StrCpy $R3 $VibeXControlHoverArgb
-    ${EndIf}
-  ${EndIf}
-
-  System::Call 'gdiplus::GdipCreateSolidFill(i R3, *p .R1)'
-  System::Call 'gdiplus::GdipCreateFromHDC(p R4, *p .R5)'
-  System::Call 'gdiplus::GdipSetSmoothingMode(p R5, i 4)'
-  System::Call 'gdiplus::GdipSetPixelOffsetMode(p R5, i 4)'
-  System::Call 'kernel32::MulDiv(i ${VIBEX_BTN_RADIUS}, i $VibeXDpi, i 96) i.R3'
-  ${If} $R0 == $VibeXBrowseBtn
-  ${OrIf} $R0 == $VibeXChooseBtn
-  ${OrIf} $R0 == $VibeXMinBtn
-  ${OrIf} $R0 == $VibeXCloseBtn
-    System::Call 'kernel32::MulDiv(i ${VIBEX_SMALL_RADIUS}, i $VibeXDpi, i 96) i.R3'
-  ${EndIf}
-  !insertmacro VibeXRoundPath $R6 $R7 $R8 $R3
-  System::Call 'gdiplus::GdipFillPath(p R5, p R1, p R6)'
-
-  ${If} $R0 == $VibeXBrowseBtn
-  ${OrIf} $R0 == $VibeXSecondaryBtn
-    System::Call 'gdiplus::GdipCreatePen1(i $VibeXBorderArgb, i 0x3F800000, i 2, *p .r2)'
-    System::Call 'gdiplus::GdipDrawPath(p R5, p r2, p R6)'
-    System::Call 'gdiplus::GdipDeletePen(p r2)'
-  ${EndIf}
-
-  System::Call 'gdiplus::GdipDeletePath(p R6)'
-  System::Call 'gdiplus::GdipDeleteGraphics(p R5)'
-  System::Call 'gdiplus::GdipDeleteBrush(p R1)'
-  System::Call 'gdi32::SetBkMode(p R4, i 1)'
-
-  ${If} $R0 == $VibeXPrimaryBtn
-    System::Call 'gdi32::SetTextColor(p R4, i $VibeXButtonTextColorref)'
-  ${ElseIf} $R0 == $VibeXChooseBtn
-    System::Call 'gdi32::SetTextColor(p R4, i $VibeXMutedColorref)'
-  ${Else}
-    System::Call 'gdi32::SetTextColor(p R4, i $VibeXTextColorref)'
-  ${EndIf}
-
-  System::Call 'gdi32::SelectObject(p R4, p $VibeXFont)'
-  ${If} $R0 == $VibeXChooseBtn
-  ${OrIf} $R0 == $VibeXBrowseBtn
-    System::Call 'gdi32::SelectObject(p R4, p $VibeXSmallFont)'
-  ${EndIf}
-
-  ${NSD_GetText} $R0 $R3
-  System::Call 'user32::DrawTextW(p R4, w R3, i -1, p R2, i 0x25)'
-  System::Call 'gdi32::RestoreDC(p R4, i -1)'
-  System::Free $R2
-  ${NSD_Return} 4
-FunctionEnd
-
-; Custom owner-draw checkbox handler (18x18 rounded 6px box + checkmark)
-Function VibeXPaintCheckbox
-  Pop $R0
-  Pop $R1
-  Pop $R2
-  ${If} $R1 != -12
-    Return
-  ${EndIf}
-  System::Call '*$R2(p, p, i, i .R3, p .R4, i, i, i, i, p, i .R9)'
-  ${If} $R3 != 1
-    Return
-  ${EndIf}
-  System::Call 'gdi32::SaveDC(p R4)'
-  System::Alloc 16
-  Pop $R2
-  System::Call 'user32::GetClientRect(p R0, p R2)'
-  System::Call 'gdi32::CreateSolidBrush(i $VibeXBgColorref) p.R3'
-  System::Call 'user32::FillRect(p R4, p R2, p R3)'
-  System::Call 'gdi32::DeleteObject(p R3)'
-  System::Call 'kernel32::MulDiv(i 6, i $VibeXDpi, i 96) i.r2'
-  System::Call 'kernel32::MulDiv(i 5, i $VibeXDpi, i 96) i.r3'
-  System::Call 'gdi32::SetViewportOrgEx(p R4, i r2, i r3, p 0)'
-  System::Call 'gdiplus::GdipCreateFromHDC(p R4, *p .R5)'
-  System::Call 'gdiplus::GdipSetSmoothingMode(p R5, i 4)'
-  System::Call 'kernel32::MulDiv(i 18, i $VibeXDpi, i 96) i.R7'
-  StrCpy $R8 $R7
-  System::Call 'kernel32::MulDiv(i 6, i $VibeXDpi, i 96) i.R3'
-  !insertmacro VibeXRoundPath $R6 $R7 $R8 $R3
-  ${NSD_GetState} $R0 $R8
-  StrCpy $R3 $VibeXBgArgb
-  ${If} $R8 == ${BST_CHECKED}
-    StrCpy $R3 $VibeXPrimaryArgb
-  ${EndIf}
-  System::Call 'gdiplus::GdipCreateSolidFill(i R3, *p .R1)'
-  System::Call 'gdiplus::GdipFillPath(p R5, p R1, p R6)'
-  System::Call 'gdiplus::GdipDeleteBrush(p R1)'
-  ${If} $R8 != ${BST_CHECKED}
-    System::Call 'gdiplus::GdipCreatePen1(i $VibeXBorderArgb, i 0x3F800000, i 2, *p .R1)'
-    System::Call 'gdiplus::GdipDrawPath(p R5, p R1, p R6)'
-    System::Call 'gdiplus::GdipDeletePen(p R1)'
-  ${EndIf}
-  System::Call 'gdiplus::GdipDeletePath(p R6)'
-  System::Call 'gdiplus::GdipDeleteGraphics(p R5)'
-  ${If} $R8 == ${BST_CHECKED}
-    System::Call 'kernel32::MulDiv(i 2, i $VibeXDpi, i 96) i.r0'
-    System::Call 'gdi32::CreatePen(i 0, i r0, i $VibeXButtonTextColorref) p.R1'
-    System::Call 'gdi32::SelectObject(p R4, p R1) p.R3'
-    System::Call 'kernel32::MulDiv(i 4, i $VibeXDpi, i 96) i.r0'
-    System::Call 'kernel32::MulDiv(i 9, i $VibeXDpi, i 96) i.r1'
-    System::Call 'gdi32::MoveToEx(p R4, i r0, i r1, p 0)'
-    System::Call 'kernel32::MulDiv(i 8, i $VibeXDpi, i 96) i.r0'
-    System::Call 'kernel32::MulDiv(i 13, i $VibeXDpi, i 96) i.r1'
-    System::Call 'gdi32::LineTo(p R4, i r0, i r1)'
-    System::Call 'kernel32::MulDiv(i 14, i $VibeXDpi, i 96) i.r0'
-    System::Call 'kernel32::MulDiv(i 5, i $VibeXDpi, i 96) i.r1'
-    System::Call 'gdi32::LineTo(p R4, i r0, i r1)'
-    System::Call 'gdi32::SelectObject(p R4, p R3)'
-    System::Call 'gdi32::DeleteObject(p R1)'
-  ${EndIf}
-  System::Call 'gdi32::SetViewportOrgEx(p R4, i 0, i 0, p 0)'
-  System::Call 'kernel32::MulDiv(i 30, i $VibeXDpi, i 96) i.r0'
-  System::Call '*$R2(i r0)'
-  System::Call 'gdi32::SetBkMode(p R4, i 1)'
-  System::Call 'gdi32::SetTextColor(p R4, i $VibeXTextColorref)'
-  System::Call 'gdi32::SelectObject(p R4, p $VibeXSmallFont)'
-  System::Call 'user32::DrawTextW(p R4, w "$(VIBEX_LAUNCH_NOW)", i -1, p R2, i 0x24)'
-  System::Call 'gdi32::RestoreDC(p R4, i -1)'
-  System::Free $R2
-  ${NSD_Return} 4
-FunctionEnd
-
-; Customize the MUI_PAGE_INSTFILES progress view to match the minimal canvas
-Function VibeXInstFilesShow
-  SetAutoClose true
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
-    Return
-  ${EndIf}
-
-  FindWindow $VibeXInstFilesDialog "#32770" "" $HWNDPARENT
-  !insertmacro VibeXPlace $VibeXInstFilesDialog 0 0 ${VIBEX_WIN_W} ${VIBEX_WIN_H}
-  !insertmacro VibeXControlColors $HWNDPARENT
-  !insertmacro VibeXControlColors $VibeXInstFilesDialog
-  !insertmacro VibeXPixelFont $VibeXSmallFont ${VIBEX_SMALL_FONT_SIZE} 400
-
-  ; Hide stock Details button (1027) and Details ListView (1016)
-  GetDlgItem $0 $VibeXInstFilesDialog 1027
-  ShowWindow $0 0
-  GetDlgItem $0 $VibeXInstFilesDialog 1016
-  ShowWindow $0 0
-
-  ; Place centered Brand Lockup (Logo + VibeX text below) at exact same Y coordinate
-  System::Call 'kernel32::MulDiv(i 0, i $VibeXDpi, i 96) i.r0'
-  System::Call 'kernel32::MulDiv(i ${VIBEX_BRAND_Y}, i $VibeXDpi, i 96) i.r1'
-  System::Call 'kernel32::MulDiv(i ${VIBEX_WIN_W}, i $VibeXDpi, i 96) i.r2'
-  System::Call 'kernel32::MulDiv(i ${VIBEX_BRAND_H}, i $VibeXDpi, i 96) i.r3'
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "", i 0x5000000E, i r0, i r1, i r2, i r3, p $VibeXInstFilesDialog, p 0, p 0, p 0) p.s'
-  Pop $VibeXProgressBrandCtrl
-  StrCpy $5 "brand-light"
-  ${If} $VibeXTheme == "dark"
-    StrCpy $5 "brand-dark"
-  ${EndIf}
-  ${If} $VibeXDpi <= 96
-    ${NSD_SetStretchedImage} $VibeXProgressBrandCtrl "$PLUGINSDIR\$5.bmp" $VibeXProgressBrandBmp
-  ${Else}
-    ${NSD_SetStretchedImage} $VibeXProgressBrandCtrl "$PLUGINSDIR\$5-2x.bmp" $VibeXProgressBrandBmp
-  ${EndIf}
-
-  ; Style and place the 6px slim progress bar
-  GetDlgItem $0 $VibeXInstFilesDialog 1004
-  !insertmacro VibeXPlace $0 ${VIBEX_PROGRESS_X} ${VIBEX_PROGRESS_Y} ${VIBEX_PROGRESS_W} ${VIBEX_PROGRESS_H}
-  System::Call 'uxtheme::SetWindowTheme(p $0, w "", w "")'
-  ; Remove sunken 3D border (WS_EX_STATICEDGE)
-  System::Call 'user32::GetWindowLongW(p $0, i -20) i.r1'
-  IntOp $1 $1 & 0xFFFDFFFF
-  System::Call 'user32::SetWindowLongW(p $0, i -20, i r1)'
-  SendMessage $0 ${PBM_SETBKCOLOR} 0 $VibeXTrackColorref
-  SendMessage $0 ${PBM_SETBARCOLOR} 0 $VibeXPrimaryColorref
-
-  ; Style and center the single-line stage status caption below the progress bar
-  GetDlgItem $0 $VibeXInstFilesDialog 1006
-  System::Call 'user32::GetWindowLongW(p $0, i -16) i.r1'
-  IntOp $1 $1 | 1 ; SS_CENTER
-  System::Call 'user32::SetWindowLongW(p $0, i -16, i r1)'
-  !insertmacro VibeXPlace $0 ${VIBEX_PROGRESS_X} ${VIBEX_STATUS_Y} ${VIBEX_PROGRESS_W} ${VIBEX_STATUS_H}
-  SendMessage $0 ${WM_SETFONT} $VibeXSmallFont 1
-  !insertmacro VibeXControlColors $0
-  ${If} $VibeXAction == "uninstall"
-    SendMessage $0 ${WM_SETTEXT} 0 "STR:$(VIBEX_PROGRESS_UNINSTALL)"
-  ${Else}
-    SendMessage $0 ${WM_SETTEXT} 0 "STR:$(VIBEX_PROGRESS_PREPARE)"
-  ${EndIf}
-
-  ShowWindow $HWNDPARENT 5
-FunctionEnd
-
-Function VibeXInstFilesLeave
-  ${If} $VibeXProgressBrandBmp != 0
-    ${NSD_FreeImage} $VibeXProgressBrandBmp
-    StrCpy $VibeXProgressBrandBmp 0
-  ${EndIf}
-  ${If} $VibeXSmallFont != 0
-    System::Call 'gdi32::DeleteObject(p $VibeXSmallFont)'
-    StrCpy $VibeXSmallFont 0
-  ${EndIf}
-FunctionEnd
-
-!macro VibeXSetStageCaption TEXT_LANG_STR
-  ${If} $PassiveMode <> 1
-  ${AndIfNot} ${Silent}
-    ${If} $VibeXInstFilesDialog != 0
-      GetDlgItem $0 $VibeXInstFilesDialog 1006
-      ${If} $0 != 0
-        SendMessage $0 ${WM_SETTEXT} 0 "STR:${TEXT_LANG_STR}"
+!macro VibeXKeyEdge VK STATEVAR LABEL
+  System::Call 'user32::GetAsyncKeyState(i ${VK}) i.s'
+  Pop $VibeXT0
+  IntOp $VibeXT0 $VibeXT0 & 0x8000
+  ${If} $VibeXT0 != 0
+    ${If} ${STATEVAR} == 0
+      StrCpy ${STATEVAR} 1
+      ${If} $VibeXT1 == 1
+        Goto ${LABEL}
       ${EndIf}
     ${EndIf}
+  ${Else}
+    StrCpy ${STATEVAR} 0
   ${EndIf}
 !macroend
+
+; Show the error view and wait (on the section thread) for Retry / Cancel.
+; Inputs: $VibeXErrTitle, $VibeXErrCode. Returns when the user picks Retry.
+Function VibeXShowError
+  !insertmacro VibeXLog "error: $VibeXErrTitle ($VibeXErrCode)"
+  ${If} $VibeXInstDlg == ""
+  ${OrIf} $VibeXInstDlg == 0
+    Abort "$VibeXErrTitle"
+  ${EndIf}
+  ; stop the bar in the error color, red status with glyph, code in the file line
+  StrCpy $VibeXBarState 32
+  Call VibeXRenderBar
+  StrCpy $VibeXRKind "erricon"
+  StrCpy $VibeXRText ""
+  StrCpy $VibeXRState 0
+  !insertmacro VibeXScale $VibeXRW 14
+  StrCpy $VibeXRH $VibeXRW
+  Call VibeXRender
+  !insertmacro VibeXSetStaticBitmap $VibeXErrIcon
+  !insertmacro VibeXPlace $VibeXErrIcon 32 238 14 14
+  ShowWindow $VibeXErrIcon 5
+  !insertmacro VibeXPlace $VibeXStatusLbl 52 ${VIBEX_PROG_LABEL_Y} 360 ${VIBEX_PROG_LABEL_H}
+  !insertmacro VibeXErrorColors $VibeXStatusLbl
+  !insertmacro VibeXSetText $VibeXStatusLbl "$VibeXErrTitle"
+  !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_INSTALL_FAILED)"
+  SetDetailsPrint none
+  !insertmacro VibeXSetText $VibeXFileLbl "$(VIBEX_ERROR_HINT) $VibeXErrCode"
+
+  ShowWindow $VibeXProgCancel 0
+  ${If} $VibeXRetryBtn == ""
+    !insertmacro VibeXMakeStatic $VibeXLogBtn $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
+    !insertmacro VibeXMakeStatic $VibeXErrCancel $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
+    !insertmacro VibeXMakeStatic $VibeXRetryBtn $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
+    ; the title-bar close becomes live while waiting
+    System::Call 'user32::GetWindowLongW(p $VibeXCloseBtn, i -16) i.s'
+    Pop $VibeXT0
+    IntOp $VibeXT0 $VibeXT0 | 0x100
+    System::Call 'user32::SetWindowLongW(p $VibeXCloseBtn, i -16, i $VibeXT0)'
+  ${EndIf}
+  StrCpy $VibeXHover 0
+  Call VibeXRedrawErrorButtons
+  !insertmacro VibeXFootLeft "" $VibeXLogBtn "ghost" "$(VIBEX_VIEW_LOG)"
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "" $VibeXRetryBtn "pri" "$(VIBEX_RETRY)"
+  !insertmacro VibeXFootRight "" $VibeXErrCancel "sec" "$(VIBEX_CANCEL)"
+  ShowWindow $VibeXLogBtn 5
+  ShowWindow $VibeXErrCancel 5
+  ShowWindow $VibeXRetryBtn 5
+  System::Call 'user32::InvalidateRect(p $VibeXInstDlg, p 0, i 1)'
+
+  StrCpy $VibeXMouseDown 1
+  StrCpy $VibeXKeyEnter 1
+  StrCpy $VibeXKeyEsc 1
+  System::Call '*(i 0, i 0) p.s'
+  Pop $VibeXT9
+  vibex_err_loop:
+    Sleep 30
+    System::Call 'user32::GetCursorPos(p $VibeXT9)'
+    System::Call '*$VibeXT9(i .s, i .s)'
+    Pop $VibeXT2
+    Pop $VibeXT3
+    System::Call 'user32::WindowFromPoint(i $VibeXT2, i $VibeXT3) p.s'
+    Pop $VibeXT4
+    ${If} $VibeXT4 != $VibeXLogBtn
+    ${AndIf} $VibeXT4 != $VibeXErrCancel
+    ${AndIf} $VibeXT4 != $VibeXRetryBtn
+    ${AndIf} $VibeXT4 != $VibeXCloseBtn
+      StrCpy $VibeXT4 0
+    ${EndIf}
+    ${If} $VibeXT4 != $VibeXHover
+      StrCpy $VibeXHover $VibeXT4
+      Push $VibeXT9
+      Call VibeXRedrawErrorButtons
+      Pop $VibeXT9
+    ${EndIf}
+    System::Call 'user32::GetAsyncKeyState(i 1) i.s'
+    Pop $VibeXT0
+    IntOp $VibeXT0 $VibeXT0 & 0x8000
+    ${If} $VibeXT0 != 0
+      ${If} $VibeXMouseDown == 0
+        StrCpy $VibeXMouseDown 1
+        ${If} $VibeXHover == $VibeXRetryBtn
+          Goto vibex_err_retry
+        ${ElseIf} $VibeXHover == $VibeXErrCancel
+        ${OrIf} $VibeXHover == $VibeXCloseBtn
+          Goto vibex_err_cancel
+        ${ElseIf} $VibeXHover == $VibeXLogBtn
+          ExecShell "open" "$PLUGINSDIR\install.log"
+        ${EndIf}
+      ${EndIf}
+    ${Else}
+      StrCpy $VibeXMouseDown 0
+    ${EndIf}
+    System::Call 'user32::GetForegroundWindow() p.s'
+    Pop $VibeXT1
+    ${If} $VibeXT1 == $HWNDPARENT
+      StrCpy $VibeXT1 1
+    ${Else}
+      StrCpy $VibeXT1 0
+    ${EndIf}
+    !insertmacro VibeXKeyEdge 0x0D $VibeXKeyEnter vibex_err_retry
+    !insertmacro VibeXKeyEdge 0x1B $VibeXKeyEsc vibex_err_cancel
+    Goto vibex_err_loop
+
+  vibex_err_cancel:
+    System::Free $VibeXT9
+    !insertmacro VibeXLog "cancelled by user"
+    Quit
+
+  vibex_err_retry:
+    System::Free $VibeXT9
+    !insertmacro VibeXLog "retry"
+    ShowWindow $VibeXLogBtn 0
+    ShowWindow $VibeXErrCancel 0
+    ShowWindow $VibeXRetryBtn 0
+    ShowWindow $VibeXErrIcon 0
+    ShowWindow $VibeXProgCancel 5
+    StrCpy $VibeXSB $VibeXCloseBtn
+    StrCpy $VibeXSBKind "close"
+    StrCpy $VibeXSBText ""
+    StrCpy $VibeXSBState 8
+    Call VibeXStaticButton
+    !insertmacro VibeXPlace $VibeXCloseBtn 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    !insertmacro VibeXPlace $VibeXStatusLbl 32 ${VIBEX_PROG_LABEL_Y} 380 ${VIBEX_PROG_LABEL_H}
+    !insertmacro VibeXLabelColors $VibeXStatusLbl
+    !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_INSTALLING)"
+    !insertmacro VibeXSetText $VibeXFileLbl ""
+    SetDetailsPrint both
+    StrCpy $VibeXBarState 0
+    Call VibeXRenderBar
+    System::Call 'user32::InvalidateRect(p $VibeXInstDlg, p 0, i 1)'
+FunctionEnd
+
+; ---------------------------------------------------------------------------
+; Uninstaller pages
+; ---------------------------------------------------------------------------
+Function un.VibeXGuiInitUninstaller
+  StrCpy $VibeXTitleText "$(VIBEX_TITLE_UNINSTALL)"
+  StrCpy $VibeXAction "uninstall"
+  Call un.VibeXGuiInit
+FunctionEnd
+
+Function un.VibeXPageTick
+  Call un.VibeXApplyFocus
+FunctionEnd
+
+Function un.VibeXPageConfirm
+  ${If} $PassiveMode = 1
+    Abort
+  ${EndIf}
+  Call un.VibeXNewPage
+  Call un.VibeXBrandLarge
+  !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_UNINSTALL_SUB)"
+  ${NSD_CreateCheckbox} 0 0 0 0 "$(VIBEX_DELETE_DATA)"
+  Pop $VibeXCheck
+  nsDialogs::SetUserData $VibeXCheck "check"
+  ${NSD_OnNotify} $VibeXCheck un.VibeXPaint
+  SendMessage $VibeXCheck ${WM_SETFONT} $VibeXFontBody 1
+  ${If} $DeleteAppDataCheckboxState = 1
+    ${NSD_Check} $VibeXCheck
+  ${EndIf}
+  StrCpy $VibeXRText "$(VIBEX_DELETE_DATA)"
+  StrCpy $VibeXRFont $VibeXFontBody
+  Call un.VibeXMeasure
+  !insertmacro VibeXScale $VibeXT0 32
+  IntOp $VibeXRW $VibeXRW + $VibeXT0
+  !insertmacro VibeXScale $VibeXT0 ${VIBEX_WIN_W}
+  IntOp $VibeXT0 $VibeXT0 - $VibeXRW
+  IntOp $VibeXT0 $VibeXT0 / 2
+  !insertmacro VibeXPlaceDevX $VibeXCheck $VibeXT0 ${VIBEX_CHECK_Y} $VibeXRW ${VIBEX_CHECK_H}
+
+  !insertmacro VibeXMakeButton "un." $VibeXDoneBtn "danger" "$(VIBEX_UNINSTALL)" un.VibeXGoNext
+  !insertmacro VibeXMakeButton "un." $VibeXCancelBtn "sec" "$(VIBEX_CANCEL)" un.VibeXCloseWindow
+  !insertmacro VibeXFootReset
+  !insertmacro VibeXFootRight "un." $VibeXDoneBtn "danger" "$(VIBEX_UNINSTALL)"
+  !insertmacro VibeXFootRight "un." $VibeXCancelBtn "sec" "$(VIBEX_CANCEL)"
+  ; Destructive action is never the default: focus starts on Cancel.
+  StrCpy $VibeXFocusTarget $VibeXCancelBtn
+  Call un.VibeXShowPage
+FunctionEnd
+
+Function un.VibeXPageConfirmLeave
+  ${NSD_GetState} $VibeXCheck $DeleteAppDataCheckboxState
+  ${If} $DeleteAppDataCheckboxState == ${BST_CHECKED}
+    StrCpy $DeleteAppDataCheckboxState 1
+  ${Else}
+    StrCpy $DeleteAppDataCheckboxState 0
+  ${EndIf}
+FunctionEnd
+
+Function un.VibeXPageFinish
+  ${If} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+  ${OrIf} ${Silent}
+    Abort
+  ${EndIf}
+  Call un.VibeXNewPage
+  Call un.VibeXBrandLarge
+  !insertmacro VibeXSetText $VibeXSubLbl "$(VIBEX_UNINSTALLED_DONE)"
+  Call un.VibeXFinishButton
+  Call un.VibeXShowPage
+FunctionEnd
 
 !endif

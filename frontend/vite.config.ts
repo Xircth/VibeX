@@ -4,6 +4,7 @@ import path from 'path';
 import pkg from './package.json';
 import { createManualChunks } from './vite.manualChunks';
 import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
+import { vxSourceAnnotation } from './vite.vx-source-annotation';
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -32,7 +33,7 @@ function createFilteredLogger() {
   return logger;
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   envDir: path.resolve(__dirname, '..'),
   envPrefix: ['VITE_', 'VIBEX_'],
   customLogger: createFilteredLogger(),
@@ -63,6 +64,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
       babel: {
         compact: false,
         plugins: [
+          ...(command === 'serve' ? [vxSourceAnnotation(path.resolve(__dirname, '..'))] : []),
           [
             'babel-plugin-react-compiler',
             {
@@ -158,4 +160,4 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
       },
     },
   },
-});
+}));

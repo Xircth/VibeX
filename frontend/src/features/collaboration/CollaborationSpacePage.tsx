@@ -4190,7 +4190,9 @@ export function CollaborationSpacePage({
   const renderMemberRow = (
     spaceId: string,
     member: SpaceMember,
-    onOpen?: () => void
+    onOpen?: () => void,
+    /** Sidebar chat entry: its preview/unread render inside the row. */
+    chatEntry?: ChatListEntry
   ) => {
     const conversationId = member.conversation_id ?? '';
     const memberKey = previewMemberKey(spaceId, member);
@@ -4401,7 +4403,7 @@ export function CollaborationSpacePage({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="workspace-session-row-main"
+                      className="workspace-session-row-main collaboration-contact-row-main"
                       aria-label={name}
                       onMouseEnter={(event) => {
                         if (event.clientX > 0 || event.clientY > 0) {
@@ -4510,6 +4512,7 @@ export function CollaborationSpacePage({
                           )}
                         </span>
                       </span>
+                      {chatEntry ? renderChatMeta(chatEntry) : null}
                     </button>
                   </TooltipTrigger>
                   {!draggingMember ? (
@@ -4770,10 +4773,12 @@ export function CollaborationSpacePage({
       data-testid={`collaboration-direct-chat-${entry.key}`}
       data-chat-type="direct"
     >
-      {renderMemberRow(entry.spaceId, entry.member, () =>
-        openPrivateChat(entry.spaceId, entry.member, entry.threadId)
+      {renderMemberRow(
+        entry.spaceId,
+        entry.member,
+        () => openPrivateChat(entry.spaceId, entry.member, entry.threadId),
+        entry
       )}
-      {renderChatMeta(entry)}
     </div>
   );
 
@@ -4992,7 +4997,7 @@ export function CollaborationSpacePage({
               <>
                 <button
                   type="button"
-                  className="workspace-session-row-main collaboration-space-header-main"
+                  className="workspace-session-row-main collaboration-space-header-main collaboration-contact-row-main"
                   aria-label={space.name}
                   onClick={() => {
                     if (!isUnassigned && !isVirtualDefault) {
@@ -5027,18 +5032,15 @@ export function CollaborationSpacePage({
                     tagHue={tagPreset?.hue}
                     size={CONTACT_AVATAR_PX}
                   />
-                  <span className="workspace-session-title is-cjk">
-                    {space.name}
-                  </span>
-                  <span
-                    className={cn(
-                      'collaboration-space-meta',
-                      hasSpaceHoverActions &&
-                        'collaboration-space-meta--hide-on-hover'
-                    )}
-                  >
-                    <span className="workspace-session-group-count">
-                      {visibleAgentCount}
+                  <span className="collaboration-contact-name-line">
+                    <span className="workspace-session-title is-cjk">
+                      {space.name}
+                    </span>
+                    <span
+                      className="collaboration-contact-count workspace-session-group-count"
+                      aria-label={`${visibleAgentCount}`}
+                    >
+                      ({visibleAgentCount})
                     </span>
                   </span>
                   {entry ? renderChatMeta(entry) : null}

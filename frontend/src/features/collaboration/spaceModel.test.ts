@@ -79,6 +79,10 @@ describe('collaboration space model', () => {
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');
     expect(COPY.groupMembersTab).toBe('成员');
+    expect(COPY.assistantDetailsButton).toBe('助手详情');
+    expect(COPY.assistantDetailsTab).toBe('详情');
+    expect(COPY.assistantCollectionTab).toBe('收藏');
+    expect(COPY.assistantCustomizeTab).toBe('自定义');
     expect(COPY.addSpaceMember).toBe('添加成员');
     expect(COPY.removeSpaceMember).toBe('移除');
     expect(COPY.globalSearchPlaceholder).toBe('搜索');

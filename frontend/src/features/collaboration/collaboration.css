@@ -2437,6 +2437,28 @@ body.is-dragging-collaboration-member * {
   padding: 0.5rem 0.75rem 1rem;
 }
 
+.collaboration-assistant-details-session {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-assistant-details-session [data-panel='session-details'] {
+  background: transparent;
+}
+
+.collaboration-assistant-details-customize {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 0.875rem;
+  overflow-y: auto;
+  padding: 0.5rem 1rem 1rem;
+}
+
 .collaboration-group-candidate-list {
   display: flex;
   flex-direction: column;

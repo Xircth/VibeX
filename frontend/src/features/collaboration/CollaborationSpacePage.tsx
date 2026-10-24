@@ -37,10 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type {
-  AgentSessionControlsSnapshot,
-  ExecutorProfileId,
-} from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -102,19 +99,11 @@ import {
   quoteTokenChipLabel,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import type { QueuedMessage } from '@/components/tasks/follow-up/sessionComposerQueue';
-import {
-  advertisedSessionConfigValues,
-  presentableSessionConfigOptions,
-  sanitizeDependentConfigValues,
-  selectConfigOptionValue,
-  visibleSessionConfigOptions,
-} from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionComposerFrame } from '@/components/tasks/follow-up/SessionComposerFrame';
 import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
 } from '@/components/tasks/follow-up/SessionComposerInput';
-import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { useSessionComposerPromptEnhancement } from '@/components/tasks/follow-up/useSessionComposerPromptEnhancement';
 import { toast } from '@/components/ui/toast';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
@@ -123,7 +112,6 @@ import {
   workspaceSessionStatusTone,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
 import { useOptionalProject } from '@/contexts/ProjectContext';
-import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { imagesApi, sessionsApi } from '@/lib/api';
@@ -206,6 +194,7 @@ import {
   spaceCollectionPreviewPanelId,
 } from './CollaborationSpaceCollectionPanel';
 import { COLLABORATION_ADD_MEMBER_EVENT } from './GroupDetailsMembersTab';
+import { MemberSessionConfigControls } from './MemberSessionConfigControls';
 import {
   COPY,
   SPACE_TAG_PRESETS,
@@ -440,97 +429,6 @@ function CollaborationOptionSelect<T extends string = string>({
   );
 }
 
-function CustomAgentControls({
-  agentId,
-  modeId,
-  values,
-  onModeId,
-  onValues,
-}: {
-  agentId: string;
-  modeId: string;
-  values: Record<string, string>;
-  onModeId: (modeId: string) => void;
-  onValues: (values: Record<string, string>) => void;
-}) {
-  const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
-    null
-  );
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!agentId) {
-      setFailed(true);
-      return;
-    }
-    let active = true;
-    setFailed(false);
-    setCatalog(null);
-    void loadAgentSessionControlsCatalog(agentId)
-      .then((next) => {
-        if (active) setCatalog(next);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [agentId]);
-
-  if (!agentId || failed) {
-    return (
-      <p className="settings-row__description">{COPY.controlsUnavailable}</p>
-    );
-  }
-  if (!catalog) return null;
-
-  const visibleConfigOptions = visibleSessionConfigOptions(
-    catalog.config_options ?? []
-  );
-  const presentableConfigOptions = presentableSessionConfigOptions(
-    visibleConfigOptions,
-    catalog.modes ?? []
-  );
-  const advertisedConfigValues =
-    advertisedSessionConfigValues(visibleConfigOptions);
-  const sanitizedConfigValues = sanitizeDependentConfigValues(
-    visibleConfigOptions,
-    {
-      ...advertisedConfigValues,
-      ...values,
-    }
-  );
-  const presentableConfigKeys = new Set(
-    presentableConfigOptions.map((option) => option.key)
-  );
-  const configOverrides = Object.fromEntries(
-    Object.entries(sanitizedConfigValues).filter(([key]) =>
-      presentableConfigKeys.has(key)
-    )
-  );
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <SessionSettingsSummary
-        sessionModes={{
-          current: catalog.current_mode ?? null,
-          modes: catalog.modes,
-        }}
-        options={visibleConfigOptions}
-        selectedMode={modeId || catalog.current_mode || null}
-        pending={configOverrides}
-        onSelectMode={onModeId}
-        onSelectConfigOption={(key, value) => {
-          onValues(
-            selectConfigOptionValue(visibleConfigOptions, values, key, value)
-          );
-        }}
-      />
-    </div>
-  );
-}
-
 /** Contact-list avatar edge (px), shared by DM member and group-chat rows. */
 const CONTACT_AVATAR_PX = 72;
 
@@ -576,8 +474,6 @@ export function CollaborationSpacePage({
   const messageItemRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [activeNavIndex, setActiveNavIndex] = useState<number | null>(null);
   const [topMemberBarExpanded, setTopMemberBarExpanded] = useState(true);
-  const [selectedFilterMemberNicknames, setSelectedFilterMemberNicknames] =
-    useState<Set<string>>(() => new Set());
   const [composerMembersMenuOpen, setComposerMembersMenuOpen] = useState(false);
   const composerMembersCloseTimeoutRef = useRef<number | null>(null);
 
@@ -1468,14 +1364,6 @@ export function CollaborationSpacePage({
         if (!conv || conv.turn_in_flight || conv.status !== 'inreview') {
           continue;
         }
-        const memberName = displayName(member).trim();
-        if (
-          trimmedSpaceId === selectedId &&
-          selectedFilterMemberNicknames.size > 0 &&
-          !selectedFilterMemberNicknames.has(memberName)
-        ) {
-          continue;
-        }
         if (!getMemberLastMessageInSpace(trimmedSpaceId, member)) {
           continue;
         }
@@ -1487,8 +1375,6 @@ export function CollaborationSpacePage({
       getMemberLastMessageInSpace,
       markMemberConversationViewed,
       membersBySpace,
-      selectedFilterMemberNicknames,
-      selectedId,
     ]
   );
 
@@ -1929,7 +1815,6 @@ export function CollaborationSpacePage({
     replaceDraftRef.current?.('');
     setError('');
     setOperationId(crypto.randomUUID());
-    setSelectedFilterMemberNicknames(new Set());
   }, [selectedId]);
 
   useEffect(() => {
@@ -2207,28 +2092,28 @@ export function CollaborationSpacePage({
       setSelectedId(spaceId);
     }
     const memberKey = previewMemberKey(spaceId, member);
-    if (member.member_id && sidebarItems) {
-      // Thread-scoped member session; fall back to the member's own one.
-      const threadId =
-        chatListRef.current.find(
-          (entry) => entry.type === 'group' && entry.spaceId === spaceId
-        )?.threadId ?? spaceId;
+    const threadId =
+      activeDirectThreadId ||
+      chatListRef.current.find(
+        (entry) => entry.type === 'group' && entry.spaceId === spaceId
+      )?.threadId ||
+      spaceId;
+    const openWith = (conversationId: string) => {
+      if (!conversationId) return;
+      setSelectedMemberKey(memberKey);
+      openMemberPreview(spaceId, member, conversationId);
+    };
+    if (member.member_id && threadId) {
       void resolveMemberSession(
         collaborationCall,
         member.member_id,
         threadId
       ).then((resolved) => {
-        const conversationId = resolved || member.conversation_id || '';
-        if (!conversationId) return;
-        setSelectedMemberKey(memberKey);
-        openMemberPreview(spaceId, member, conversationId);
+        openWith(resolved || member.conversation_id || '');
       });
       return;
     }
-    const conversationId = member.conversation_id ?? '';
-    if (!conversationId) return;
-    setSelectedMemberKey(memberKey);
-    openMemberPreview(spaceId, member, conversationId);
+    openWith(member.conversation_id || '');
   };
 
   // The chat a member tab is opened from: its `kind` decides the tab title.
@@ -3213,6 +3098,44 @@ export function CollaborationSpacePage({
     ]
   );
 
+  const openAssistantDetailsTab = useCallback(() => {
+    const threadId = activeDirectThreadId;
+    if (!threadId) return;
+    const sidebarMember = sidebarItems?.find(
+      (item) => item.thread_id === threadId
+    )?.member;
+    if (!sidebarMember) return;
+    const member = sidebarMemberToSpaceMember(sidebarMember);
+    const name = displayName(member);
+    const conversationId = member.conversation_id ?? '';
+    const avatar = getMemberAvatar(conversationId, name);
+    openWorkspacePanel({
+      id: spaceCollectionPreviewPanelId(threadId),
+      component: 'space-collection',
+      title: COPY.assistantDetailsButton,
+      params: {
+        variant: 'assistant',
+        spaceId: threadId,
+        spaceName: name,
+        spaceAvatars: [avatar],
+        memberId: member.member_id,
+        conversationId,
+        memberAvatar: avatar,
+        projectId: projectContext?.projectId ?? undefined,
+        workspaceId: workspace || undefined,
+        workspacePath,
+      },
+    });
+  }, [
+    activeDirectThreadId,
+    getMemberAvatar,
+    openWorkspacePanel,
+    projectContext?.projectId,
+    sidebarItems,
+    workspace,
+    workspacePath,
+  ]);
+
   const handleQuoteSelection = useCallback((selectedText: string) => {
     const trimmed = selectedText.trim();
     if (!trimmed) return;
@@ -3605,34 +3528,19 @@ export function CollaborationSpacePage({
     [t]
   );
 
-  const visibleRoster = useMemo(() => agentRoster(members), [members]);
-
-  const toggleTopFilterMemberNickname = useCallback((nickname: string) => {
-    const trimmed = nickname.trim();
-    if (!trimmed) return;
-    setSelectedFilterMemberNicknames((current) => {
-      const next = new Set(current);
-      if (next.has(trimmed)) {
-        next.delete(trimmed);
-      } else {
-        next.add(trimmed);
-      }
-      return next;
-    });
-  }, []);
-
-  const filteredMessages = useMemo(() => {
-    if (selectedFilterMemberNicknames.size === 0) return messages;
-    return messages.filter((message) => {
-      const author = messageAuthor(message.envelope);
-      if (author === COPY.you) return true;
-      return selectedFilterMemberNicknames.has(author);
-    });
-  }, [messages, selectedFilterMemberNicknames]);
+  const visibleRoster = useMemo(() => {
+    if (activeDirectThreadId) {
+      const item = sidebarItems?.find(
+        (candidate) => candidate.thread_id === activeDirectThreadId
+      );
+      if (item?.member) return [sidebarMemberToSpaceMember(item.member)];
+    }
+    return agentRoster(members);
+  }, [activeDirectThreadId, members, sidebarItems]);
 
   const navEntries = useMemo<ConversationMessageNavEntry[]>(
     () =>
-      filteredMessages.map((message, index) => {
+      messages.map((message, index) => {
         const text = bubbleText(message.envelope);
         const singleLine = text.replace(/\s+/g, ' ').trim();
         return {
@@ -3647,20 +3555,20 @@ export function CollaborationSpacePage({
           deletions: 0,
         };
       }),
-    [filteredMessages]
+    [messages]
   );
 
   const scrollToMessage = useCallback(
     (index: number) => {
       setActiveNavIndex(index);
-      const target = filteredMessages[index];
+      const target = messages[index];
       if (!target) return;
       const el = messageItemRefs.current.get(String(target.seq));
       if (el && typeof el.scrollIntoView === 'function') {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     },
-    [filteredMessages]
+    [messages]
   );
 
   const selectedTagConfig = selected ? spaceTags[selected.space_id] : undefined;
@@ -5707,7 +5615,7 @@ export function CollaborationSpacePage({
                       </div>
 
                       {inlineMemberAgentId ? (
-                        <CustomAgentControls
+                        <MemberSessionConfigControls
                           agentId={inlineMemberAgentId}
                           modeId={inlineMemberModeId}
                           values={inlineMemberConfigValues}
@@ -5860,7 +5768,7 @@ export function CollaborationSpacePage({
                   </div>
 
                   {newMemberAgentId ? (
-                    <CustomAgentControls
+                    <MemberSessionConfigControls
                       agentId={newMemberAgentId}
                       modeId={newMemberModeId}
                       values={newMemberConfigValues}
@@ -6291,28 +6199,40 @@ export function CollaborationSpacePage({
                   className="collaboration-top-member-bar"
                   data-testid="collaboration-top-member-bar"
                 >
-                  {!activeDirectThreadId ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        'collaboration-top-collection-btn',
-                        activePreviewTabId ===
-                          spaceCollectionPreviewPanelId(selected.space_id) &&
-                          'is-active'
-                      )}
-                      aria-label={COPY.groupDetailsButton}
-                      title={COPY.groupDetailsButton}
-                      data-testid="collaboration-open-collection-btn"
-                      onClick={() =>
-                        openSpaceCollectionTab(selected.space_id, selected.name)
-                      }
-                    >
-                      <LayoutGrid
-                        className="h-3.5 w-3.5 shrink-0"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className={cn(
+                      'collaboration-top-collection-btn',
+                      activePreviewTabId ===
+                        spaceCollectionPreviewPanelId(
+                          activeDirectThreadId || selected.space_id
+                        ) && 'is-active'
+                    )}
+                    aria-label={
+                      activeDirectThreadId
+                        ? COPY.assistantDetailsButton
+                        : COPY.groupDetailsButton
+                    }
+                    title={
+                      activeDirectThreadId
+                        ? COPY.assistantDetailsButton
+                        : COPY.groupDetailsButton
+                    }
+                    data-testid="collaboration-open-collection-btn"
+                    onClick={() =>
+                      activeDirectThreadId
+                        ? openAssistantDetailsTab()
+                        : openSpaceCollectionTab(
+                            selected.space_id,
+                            selected.name
+                          )
+                    }
+                  >
+                    <LayoutGrid
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                  </button>
                   <Button
                     type="button"
                     variant="icon"
@@ -6338,8 +6258,6 @@ export function CollaborationSpacePage({
                         memberConv?.turn_in_flight ||
                           memberConv?.status === 'inprogress'
                       );
-                      const isSelectedChip =
-                        selectedFilterMemberNicknames.has(nick);
                       const memberScheduledMessages = scheduledMessages.filter(
                         (item) => {
                           const status = item.status ?? 'scheduled';
@@ -6369,11 +6287,9 @@ export function CollaborationSpacePage({
                               type="button"
                               className={cn(
                                 'collaboration-top-member-chip',
-                                isSelectedChip && 'is-selected',
                                 hasDelayedMessages && 'has-delayed-messages'
                               )}
-                              aria-label={`筛选助手 ${nick}`}
-                              aria-pressed={isSelectedChip}
+                              aria-label={`打开 ${nick} 会话`}
                               data-testid={`top-member-filter-${nick}`}
                               data-has-delayed-messages={
                                 hasDelayedMessages ? 'true' : 'false'
@@ -6399,13 +6315,15 @@ export function CollaborationSpacePage({
                                 }
                               }}
                               onClick={() =>
-                                toggleTopFilterMemberNickname(nick)
+                                selectMemberForPreview(
+                                  selected.space_id,
+                                  member
+                                )
                               }
                             >
                               <MemberBotAvatar
                                 config={avatar}
                                 sessionActive={memberSessionActive}
-                                selectedOutline={isSelectedChip}
                                 silhouetteOutline={botSilhouetteOutline(14)}
                                 className="h-3.5 w-3.5 shrink-0"
                               />
@@ -6493,37 +6411,44 @@ export function CollaborationSpacePage({
                   className="collaboration-top-member-collapsed-bar"
                   data-testid="collaboration-top-member-collapsed-bar"
                 >
-                  {!activeDirectThreadId ? (
-                    <>
-                      <button
-                        type="button"
-                        className={cn(
-                          'collaboration-top-collection-btn is-collapsed-bar',
-                          activePreviewTabId ===
-                            spaceCollectionPreviewPanelId(selected.space_id) &&
-                            'is-active'
-                        )}
-                        aria-label={COPY.groupDetailsButton}
-                        title={COPY.groupDetailsButton}
-                        data-testid="collaboration-open-collection-btn"
-                        onClick={() =>
-                          openSpaceCollectionTab(
+                  <button
+                    type="button"
+                    className={cn(
+                      'collaboration-top-collection-btn is-collapsed-bar',
+                      activePreviewTabId ===
+                        spaceCollectionPreviewPanelId(
+                          activeDirectThreadId || selected.space_id
+                        ) && 'is-active'
+                    )}
+                    aria-label={
+                      activeDirectThreadId
+                        ? COPY.assistantDetailsButton
+                        : COPY.groupDetailsButton
+                    }
+                    title={
+                      activeDirectThreadId
+                        ? COPY.assistantDetailsButton
+                        : COPY.groupDetailsButton
+                    }
+                    data-testid="collaboration-open-collection-btn"
+                    onClick={() =>
+                      activeDirectThreadId
+                        ? openAssistantDetailsTab()
+                        : openSpaceCollectionTab(
                             selected.space_id,
                             selected.name
                           )
-                        }
-                      >
-                        <LayoutGrid
-                          className="h-3.5 w-3.5 shrink-0"
-                          aria-hidden="true"
-                        />
-                      </button>
-                      <span
-                        className="collaboration-top-member-collapsed-divider"
-                        aria-hidden="true"
-                      />
-                    </>
-                  ) : null}
+                    }
+                  >
+                    <LayoutGrid
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <span
+                    className="collaboration-top-member-collapsed-divider"
+                    aria-hidden="true"
+                  />
                   <button
                     type="button"
                     className="collaboration-top-member-expand-trigger"
@@ -6621,8 +6546,8 @@ export function CollaborationSpacePage({
                       </Button>
                     </div>
                   </div>
-                ) : selected && filteredMessages.length > 0 ? (
-                  filteredMessages.map((message) => {
+                ) : selected && messages.length > 0 ? (
+                  messages.map((message) => {
                     const author = messageAuthor(message.envelope);
                     const fromYou = author === COPY.you;
                     const name = fromYou
@@ -6659,12 +6584,15 @@ export function CollaborationSpacePage({
                               className="collaboration-message-avatar"
                               aria-label={`预览 ${name} 会话`}
                               onClick={() => {
-                                if (!authorConversationId) return;
-                                const authorMember = members.find(
-                                  (item) =>
-                                    item.conversation_id ===
-                                    authorConversationId
-                                ) ??
+                                const authorMember =
+                                  visibleRoster.find(
+                                    (item) => displayName(item) === name
+                                  ) ??
+                                  members.find(
+                                    (item) =>
+                                      item.conversation_id ===
+                                      authorConversationId
+                                  ) ??
                                   members.find(
                                     (item) => displayName(item) === name
                                   ) ?? {
@@ -6672,10 +6600,9 @@ export function CollaborationSpacePage({
                                     nickname: name,
                                     conversation_id: authorConversationId,
                                   };
-                                openMemberPreview(
+                                selectMemberForPreview(
                                   selected.space_id,
-                                  authorMember,
-                                  authorConversationId
+                                  authorMember
                                 );
                               }}
                             >

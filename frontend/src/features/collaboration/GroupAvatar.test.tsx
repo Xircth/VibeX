@@ -26,32 +26,29 @@ describe('GroupAvatar', () => {
     ).toHaveLength(4);
   });
 
-  it('uses the clockwise pinwheel cover cycle', () => {
-    const coveredBy = (n: number) =>
-      GROUP_AVATAR_LAYOUTS[n].map((s) =>
-        s.coveredBy === null ? null : s.coveredBy + 1
-      );
-    // 4 covers 3, 3 covers 1, 1 covers 2, 2 covers 4
-    expect(coveredBy(4)).toEqual([3, 1, 4, 2]);
-    // 1 covers 2, 2 covers 3, 3 covers 1
-    expect(coveredBy(3)).toEqual([3, 1, 2]);
-    expect(coveredBy(2)).toEqual([null, 1]);
-    expect(coveredBy(1)).toEqual([null]);
+  it('stacks with plain z-order: 1 lowest, later members on top', () => {
+    const z = (n: number) => GROUP_AVATAR_LAYOUTS[n].map((s) => s.z);
+    expect(z(4)).toEqual([1, 2, 2, 3]);
+    expect(z(3)).toEqual([1, 2, 3]);
+    expect(z(2)).toEqual([1, 2]);
+    render(<GroupAvatar avatars={avatars(4)} />);
+    const slots = screen.getAllByTestId('collaboration-group-avatar-slot');
+    expect(slots.map((el) => el.style.zIndex)).toEqual(['1', '2', '2', '3']);
+    for (const slot of slots) {
+      expect(slot.style.maskImage || slot.style.webkitMaskImage).toBeFalsy();
+    }
   });
 
-  it('masks covered slots and renders the tag as an outline ring', () => {
-    render(<GroupAvatar avatars={avatars(4)} tagHue="45 93% 47%" />);
+  it('outlines each silhouette in white and turns the gaze up-right', () => {
+    render(<GroupAvatar avatars={avatars(2)} tagHue="45 93% 47%" />);
     const root = screen.getByTestId('collaboration-group-avatar');
     expect(root).toHaveClass('has-tag');
     expect(root.style.getPropertyValue('--group-avatar-tag')).toBe(
       'hsl(45 93% 47%)'
     );
-    for (const slot of screen.getAllByTestId(
-      'collaboration-group-avatar-slot'
-    )) {
-      expect(slot.style.maskImage || slot.style.webkitMaskImage).toContain(
-        'radial-gradient'
-      );
-    }
+    expect(root.querySelectorAll('[data-gaze="up-right"]')).toHaveLength(2);
+    expect(root.querySelectorAll('[stroke="#ffffff"]').length).toBeGreaterThan(
+      0
+    );
   });
 });

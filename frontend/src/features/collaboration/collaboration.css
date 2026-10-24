@@ -2649,31 +2649,15 @@ body.is-dragging-collaboration-member * {
     inset 0 0 0 1px hsl(0 0% 100% / 0.06);
 }
 
-/* White disc behind each avatar: the visible ring around its edge, and the
-   gap the mask cuts into the avatar it covers. */
 .collaboration-group-avatar-slot {
   position: absolute;
-  display: flex;
-  box-sizing: border-box;
-  align-items: center;
-  justify-content: center;
-  padding: 1px;
-  border-radius: 9999px;
-  background-color: #fff;
-  overflow: hidden;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-}
-
-.dark .collaboration-group-avatar-slot {
-  background-color: hsl(0 0% 96%);
+  display: block;
 }
 
 .collaboration-group-avatar-img {
+  display: block;
   width: 100%;
   height: 100%;
-  border-radius: 9999px;
-  overflow: hidden;
 }
 
 .collaboration-chat-row-avatar {

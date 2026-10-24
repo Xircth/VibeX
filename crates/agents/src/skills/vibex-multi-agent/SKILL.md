@@ -1,6 +1,6 @@
 ---
 name: vibex-multi-agent
-description: 在同一工作区开展协作空间群组协同、跨成员分工与向用户汇报，或查询会话、创建角色/一等会话、向已有会话投递输入、发起一次性委派。当收到 [协作空间消息]、拥有 [协作空间成员身份]、用户点名其它 Agent/成员、需要多轮协同，或消息中出现 vibex://conversation 与 vibex://agent 时使用。
+description: 在同一工作区开展协作空间群组协同、跨成员分工与向用户汇报，或查询会话、创建一等会话、向已有会话投递输入、发起一次性委派。当收到 [协作空间消息]、拥有 [协作空间成员身份]、用户点名其它 Agent/成员、需要多轮协同，或消息中出现 vibex://conversation 与 vibex://agent 时使用。成员是身份（名下隐藏会话一族），不是可拉进空间的独立会话模板。
 ---
 
 # 多智能体协同（VibeX Multi-Agent）
@@ -18,7 +18,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
 | 按需回看协作空间历史消息（单次读取，非阻塞轮询） | `list_space_messages` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 在协作空间「群收藏」（共享临界区）中查看、写入或读取跨成员共享的文本、图片、文件产物 | `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 回忆自己在其他群做过什么、检索或写入自己的长期记忆（私聊内容不会出现在群里） | `memory_search`、`memory_write` | 见 [`MEMORY.md`](MEMORY.md) |
-| 创建持久化一等会话，或基于自定义角色创建会话 | `list_roles`、`create_conversation` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
+| 创建持久化一等会话（可选基于角色模板） | `list_roles`、`create_conversation` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 查看工作区近期会话列表或读取指定会话详情 | `list_conversations`、`get_session_info` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 向已有会话点对点发送指令、插话（steer）或延时投递 | `send_session_input`、`wait_for_session`、`cancel_session_turn` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 短小、自包含、无需群组可见的一次性后台子任务 | `delegate_to_agent`、`get_delegation_status`、`cancel_delegation` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
@@ -26,7 +26,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
 ## 2. 按场景加载专项规范
 
 - **当你在协作空间中工作**（上下文含 `[协作空间成员身份]`、收到 `[协作空间消息]`，或需调用 `post_to_space` 等空间工具时）：**必须阅读并遵循 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md)**。
-- **当你需要创建一等会话、使用角色模板、点对点发 `send_session_input` 或执行 `delegate_to_agent` 时**：**阅读并遵循 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md)**。
+- **当你需要创建一等会话、点对点发 `send_session_input` 或执行 `delegate_to_agent` 时**：**阅读并遵循 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md)**。协作空间成员模型见宿主文档 `docs/collaboration-member-identity.md`（用户侧）；Agent 侧只通过空间工具与隐藏会话工作。
 
 ## 3. 协作空间四大核心纪律（必守）
 
@@ -53,6 +53,6 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
 
 ## 4. 常见异常处理
 
-- **缺少协同工具**：提示用户前往「设置 → 常规 → MultiAgent协同」开启开关，并新开或重新进入会话。
+- **缺少协同工具**：提示用户开启 MultiAgent 协同能力并新开或重新进入会话（具体入口以当前产品设置为准）。
 - **成员昵称不存在（`unknown_recipient`）**：先调用 `list_space_members` 获取空间最新成员昵称列表，使用最新昵称重发，不要猜测旧昵称。
 - **幂等重试**：同一次写操作重试时复用相同的 `operation_id`；发送一条全新的空间消息（例如先向 `@User` 应答完、稍后再向 `@User` 汇报最终成果）必须生成新的 `operation_id`。

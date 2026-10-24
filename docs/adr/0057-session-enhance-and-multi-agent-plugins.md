@@ -1,3 +1,6 @@
+
+> **状态注记（2026-10-24）：** 协作空间已改为宿主内置组件，不再依赖插件 `vibex.multi-agent`。成员是身份、会话对用户隐藏；模型与接口见 [collaboration-member-identity.md](../collaboration-member-identity.md)。本文正文保留原决策语境，不改正文。
+
 ---
 status: accepted
 date: 2026-08-17

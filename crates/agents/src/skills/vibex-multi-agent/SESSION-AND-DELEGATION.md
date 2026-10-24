@@ -1,6 +1,8 @@
-# 一等会话、角色与委派规范（Session & Delegation Guide）
+# 一等会话与委派规范（Session & Delegation Guide）
 
-VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型：工作区内的所有会话——无论是用户直接创建的会话、基于自定义角色创建的会话、协作空间中的成员会话，还是通过委派产生的会话——都是一等公民，均支持多轮续聊、随时拉入协作空间或由用户直接接管对话。
+VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型。工作区内用户直接创建的会话、基于角色模板创建的会话、以及委派产生的会话，都是一等公民，支持多轮续聊。
+
+协作空间里的**成员**是身份，不是一条可单独拉进群的会话：每个成员在私聊与每个群聊各有一条**隐藏会话**。用户 UI 不展示这些会话；Agent 在群里通过 `post_to_space` 工作，在需要点对点控制时才用 `send_session_input`（可传 `member_id` + `thread_id`，由宿主解析）。权威模型见仓库 `docs/collaboration-member-identity.md`。
 
 ---
 
@@ -9,22 +11,20 @@ VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型�
 | 维度 | 协作空间群组协同 (`post_to_space`) | 一等会话点对点 (`create_conversation` + `send_session_input`) | 一次性子任务委派 (`delegate_to_agent`) |
 |---|---|---|---|
 | **可见性与形态** | 群组共享消息流，用户与空间内成员可见 | 独立持久化会话，留在工作区会话列表中 | 围绕单个独立子任务的后台会话 |
-| **生命周期** | 随空间与成员长期存在，支持多方多轮配合 | 父会话退出不会取消它，可随时多轮追加指令 | 第一个 Turn 到达终态即完成本次委派；父会话退出会取消仍在运行的委派 |
-| **适用场景** | 多角色分工协作、上下游交接、向用户阶段性应答与交付 | 创建具备特定角色人格（`role_id`）的专家会话并多轮指派任务 | 短小、自包含、只需拿回一份独立调研/改动摘要的子任务 |
+| **生命周期** | 随空间与成员长期存在；成员可同时在多个群，每群一条隐藏会话 | 父会话退出不会取消它，可随时多轮追加指令 | 第一个 Turn 到达终态即完成本次委派；父会话退出会取消仍在运行的委派 |
+| **适用场景** | 多成员分工、上下游交接、向用户阶段性应答与交付 | 创建具备特定人格的专家会话并多轮指派任务 | 短小、自包含、只需拿回一份独立调研/改动摘要的子任务 |
 
 ---
 
 ## 二、创建与复用一等会话（`create_conversation` / `list_roles`）
 
 1. **优先复用已有会话**
-   - 在新建会话前，可先调用 `list_conversations`（查看本工作区会话元数据）或 `list_collaboration_spaces` / `list_space_members`（查看空间内已有成员），若有职责匹配的现成会话，直接通过 `post_to_space` 或 `send_session_input` 协作，避免无节制地重复创建新会话。
+   - 新建前可先 `list_conversations`，或用 `list_collaboration_spaces` / `list_space_members` 看空间内成员。职责已匹配时优先 `post_to_space` 或 `send_session_input`，避免重复建会话。
 
 2. **基于角色或指定 Agent 创建**
-   - 调用 `list_roles` 查看用户在「设置 → 常规 → MultiAgent协同 → 自定义角色」中配置的角色模板。
-   - 调用 `create_conversation`：
-     - 传入 `role_id`：直接快照该角色预设的 Agent、会话配置与人设提示词（`persona_prompt`）。
-     - 仅传入 `agent_id`：创建该 Agent 的标准一等会话，使用宿主中为该 Agent 配置的默认委派配置。
-   - 创建后若需将其纳入群组协同，可调用 `add_space_member` 将该 `conversation_id` 加入目标协作空间。
+   - `list_roles` 查看用户配置的角色模板（设置侧；可选）。
+   - `create_conversation`：传 `role_id` 快照该角色的 Agent、配置与人设；或只传 `agent_id` 用该 Agent 默认配置。
+   - **不要**再假设「创建会话后再 `add_space_member` 用 conversation_id 拉进协作空间」是主路径。协作空间加人由用户侧 `space.addMember` / 成员身份完成；Agent 侧用 `add_space_member` 时以当前工具契约为准，加入的是成员座位，不是把任意工作区会话「变成」成员。
 
 ---
 
@@ -33,6 +33,7 @@ VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型�
 1. **异步非阻塞投递**
    - `send_session_input` 立即返回投递状态（`dispatched`、`queued` 或 `scheduled`）。调用后继续推进你自己的工作，不要在原地死等。
    - 若确实需要等待目标会话当前轮次完成后再做汇总，调用 `wait_for_session`（传入 `conversation_id` 与合理的 `wait_ms`）。
+   - 宿主也接受 `member_id` + `thread_id`：由宿主 `resolve_session` 后再发送。
 
 2. **插话引导（`steer`）与延时投递（`delay_seconds`）**
    - **默认排队/直发**：不传 `steer` 时，若目标会话空闲则立即启动新 Turn，若正忙则进入其输入队列。

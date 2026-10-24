@@ -91,6 +91,8 @@ Skill `vibex-session-enhance` 写明了六种工具。
 
 角色、团队和协作空间留在宿主里。关掉开关后，新会话不再注入这些工具，新的写操作会失败。已经排队的输入仍会被送达。已经创建的会话不会因为关掉开关或改角色而消失。
 
+协作空间成员是身份（私聊与每个群各一条隐藏会话）；模型与宿主接口见 [collaboration-member-identity.md](../collaboration-member-identity.md)。
+
 深度、完成缓存、查询窗口和延时上限也在这一页。委派默认只作用于 `delegate_to_agent` 拉起的新子会话。深度默认是 1。多层委托会把权限、工作目录和费用叠起来，需要你自己把上限调高。
 
 ## VibeX Workflow Creator

@@ -1,3 +1,5 @@
+> **已被取代（2026-10-24）。** 本文描述的是改版前的协作空间方案，仅作历史参考。当前成员身份、隐藏会话、私聊/群聊与宿主接口以 [docs/collaboration-member-identity.md](../collaboration-member-identity.md) 为准。
+
 ---
 title: multi-agent 功能重大改进技术方案
 date: 2026-10-19

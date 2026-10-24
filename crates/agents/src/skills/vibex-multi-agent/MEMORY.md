@@ -3,6 +3,8 @@
 Every collaboration member keeps its own memory across all of its threads
 (group spaces and the private chat with the user).
 
+成员身份与私聊/群聊会话关系见仓库 `docs/collaboration-member-identity.md`。私聊活动与事实不会注入群聊上下文。
+
 ## What you get automatically
 
 At the start of each turn your prompt carries a `[成员记忆]` block:

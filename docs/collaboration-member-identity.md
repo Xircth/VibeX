@@ -1,180 +1,89 @@
-# Collaboration member identity (phase 1)
+# Collaboration member identity
 
-Phase 1 separates *who* a collaborator is (a **member**) from *where* it talks
-(a **thread**). Each `(member, thread)` pair owns exactly one conversation.
+> **唯一权威文档。** 协作空间的成员、会话、私聊/群聊、联系人分组与宿主接口以本文为准。UI 视觉与交互细节见根目录 `DESIGN.md`（Designer 维护）。其他文档只链接到这里，不再各自复述模型。
 
-## Tables (`20261024010000_collaboration_member_identity.sql`)
+## 模型（当前）
 
-| table | purpose |
+- **Member（成员）**：长期身份，不是会话。一行 `collaboration_members`。名下有一族隐藏会话：每个 thread（私聊或群聊）各一个。
+- **Thread**：`group`（群聊，id = space id）或 `direct`（私聊，id = `direct:<member_id>`）。
+- **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`，对用户隐藏。UI 只展示成员与聊天，不暴露会话列表。
+- **新建成员**（`space.createMember`）：只创建身份 + 一条私聊会话与 `direct:` thread，打开私聊。不加入任何群。表单参数与旧「新建成员」一致（Agent、mode、config、人设等），写入成员级会话配置。
+- **加入群聊**（`space.addMember`）：按成员配置为该群新建一条会话；**私聊会话保留**。不再用 `space.moveMember` 作为主路径（仍兼容，但不移除其它座位）。
+- **联系人分组**（`contactGroup.*`）：联系人列表的归档文件夹。无分组时列表平铺；有分组时，未归入任何组的私聊/群聊由前端归入「未分组」（前端生成，无后端行）。
+- **标签标题**：私聊打开的会话标签只显示成员名；群里打开的显示「群名 · 成员名」。用 thread 的 `kind`（`dm` / `group`）区分。
+- **回执**：群消息投递后 `receipt_state` 为 `queued` → `processing` → `replied`，只前进不后退。详见下文「运行时」。
+
+成员会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_values`、`persona_prompt`（迁移 `20261024100000`）。`resolve_session` / `member.session.resolve` 新建会话时用成员配置；无配置时回退角色模式。改配置只影响之后新建的会话。
+
+## 宿主接口（`call('collaboration', method, input)`）
+
+### 成员与会话
+
+| method | 要点 |
 | --- | --- |
-| `collaboration_members` | one row per member: name, `role_id`, agent, workspace |
-| `collaboration_threads` | `group` threads (id = space id) and `direct` threads (id = `direct:<member_id>`) |
-| `collaboration_thread_members` | PK `(thread_id, member_id)`, `conversation_id` UNIQUE, `last_seen_message_id`, `status` |
-| `member_activity` | per-member activity log (empty in phase 1) |
-| `member_facts` | per-member facts, scope `global`, `private` or `thread:<id>` (empty in phase 1) |
+| `space.createMember` | 入参：`workspaceId`、`nickname`/`name`，可选 `agentId`、`roleId`、`modeId`、`configValues`、`personaPrompt`、`avatar`、`color`、`operationId`。忽略入参里的 `spaceId`。返回含 `conversation_id`、`identity_member_id`、`direct_thread_id`（`direct:<id>`）。 |
+| `space.addMember` | 把成员拉进群；为该 `(member, group thread)` 建会话，私聊保留。 |
+| `member.session.resolve` | `{ memberId, threadId }` → `{ conversationId }`。缺会话则按成员配置创建。头像点开会话标签必走此接口，不回退「最近会话」。 |
+| `member.config.get` / `member.config.update` | 读写成员级会话配置。 |
+| `member.memory.*` / `member.activity.list` | 用户侧记忆与活动（含 private）。 |
 
-`collaboration_space_members` stays and is the seat projection that delivery,
-receipts and dedupe still read. A seat's `conversation_id` always equals the
-binding of its `(member, thread)` once resolved.
+### 联系人列表 / thread
 
-## Data migration
+| method | 要点 |
+| --- | --- |
+| `thread.listSidebar` | `{ workspaceId }` → `{ items }`。每项：`kind`（`group`\|`dm`）、`thread_id`、`space_id`（仅群）、`name`、`tag_color`、`members_preview`（最多 4 个非 User）、`member_count`、`member`（仅私聊）、`last_message`、`last_activity_at`、`unread_count`、`group_id`（null = 未分组）。 |
+| `thread.markRead` | `{ threadId, seq? }`。 |
+| `thread.update` | 设 `tagColor`（群描边）。 |
+| `thread.setGroup` | `{ threadId, groupId }`；`groupId` 空则回到未分组。 |
 
-`MemberIdentityMigration::run` (called from `db::run_migrations`) is
-idempotent; every insert is `ON CONFLICT DO NOTHING` and ids are derived:
+私聊消息：`space.listMessages` / `space.post`，`spaceId` 传 `direct:<memberId>`。
 
-* member id = UUIDv5(`vibex-member:<conversation>`), inheriting name and
-  `role_id` from `conversation_personas` (else the session name).
-* every space becomes a group thread with the same id, so its messages,
-  deliveries and receipts need no rewrite.
-* seats in the undecided space (`unassigned:<workspace>`) become the member's
-  direct thread.
-* seats are walked in join order (`rowid`). A conversation seated in several
-  spaces keeps the original conversation for the earliest-joined space; every
-  later space gets a new conversation in the same workspace (id
-  UUIDv5(`vibex-member-thread:<member>:<thread>`), persona copied) and that
-  seat is repointed to it.
-* seats whose session or space is gone are skipped.
+### 联系人分组
 
-## Runtime
+| method | 要点 |
+| --- | --- |
+| `contactGroup.list` | `{ workspaceId }` → `{ groups }`（`group_id`、`name`、`sort_order`…） |
+| `contactGroup.create` / `rename` / `delete` / `reorder` | 删除后该组内 thread 的 `group_id` 清空，前端归入「未分组」。`reorder` 须传完整 `groupIds` 排列。 |
 
-* `resolve_session(member_id, thread_id) -> conversation_id` creates the
-  conversation when missing (db crate does rows; conversations crate adds the
-  persona notice and role mode/config).
-* space delivery (`post_to_space*`) resolves each seat through its identity
-  before submitting; delivery/receipt/dedupe logic is unchanged.
-* `send_session_input` accepts `member_id` + `thread_id` instead of
-  `conversation_id`; the host resolves (workspace checked) and then sends.
-* the single-space restriction is gone: moving a member into a space no
-  longer removes it from the workspace's other spaces. Joining a second space
-  creates a new conversation for that thread.
-* an agent creating a space joins through its member identity (see Phase 1
-  follow-ups); there are no shared seats.
+## 表与迁移（摘要）
 
-## Rollback
+| 迁移 | 内容 |
+| --- | --- |
+| `20261024010000` | `collaboration_members` / `threads` / `thread_members` / `member_activity` / `member_facts` |
+| `20261024020000` | FK + `ON DELETE CASCADE` |
+| `20261024030000`–`060000` | 回执/origin、sleep/wake、handoffs、write_access |
+| `20261024100000` | 成员会话配置列 |
+| `20261024110000` | sidebar 相关 |
+| `20261024120000` | `collaboration_contact_groups` + thread.`group_id` |
 
-The change is additive. To roll back, deploy the previous build and drop the
-five tables (`DROP TABLE collaboration_thread_members, collaboration_threads,
-collaboration_members, member_activity, member_facts`) and delete the
-`_sqlx_migrations` row for `20261024010000`. Repointed seats still reference
-valid sessions, so the old code keeps working; the forked conversations remain
-as ordinary conversations (one per extra space) rather than being merged back.
+`collaboration_space_members` 仍是投递/回执/去重读取的座位投影；座位的 `conversation_id` 与对应 `(member, thread)` 绑定一致。
 
-## Phase 1 follow-ups
+数据回填：`MemberIdentityMigration::run` 幂等；成员 id = UUIDv5(`vibex-member:<conversation>`)；每个 space 成为同 id 的 group thread；未分配空间座位成为私聊。
 
-* The backfill runs in **one transaction** (`MemberIdentityMigration::run`);
-  a failure rolls back every member, thread and binding it created.
-* `20261024020000_collaboration_identity_foreign_keys.sql` rebuilds
-  `collaboration_thread_members`, `member_activity` and `member_facts` with
-  `REFERENCES collaboration_members / collaboration_threads ON DELETE CASCADE`
-  (orphans are dropped during the copy). Rollback: rebuild without the
-  references.
-* Agent-created spaces seat the creator through member identity like every
-  other seat (no shared seats). A caller acts in a space through its
-  member's seat there (`caller_seat`), so the creator's original
-  conversation can still post; it never receives its own posts.
-* `last_seen_message_id` advances (never backwards) after each successful
-  delivery to the member's thread session.
+## 运行时
 
-# Phase 2
+- `resolve_session(member_id, thread_id) -> conversation_id`：缺则创建（db 写行；conversations 加人设与配置）。
+- 空间投递经身份解析后再提交；delivery/receipt/dedupe 逻辑不变。
+- `send_session_input` 可接受 `member_id` + `thread_id`，由宿主解析后发送。
+- 成员可同时在多个群；每群一条会话。
+- **回执**：`receipt_state`：`queued` → `processing` → `replied`。群投递可带 `<missed_group_messages>`（最多 30 条）。
+- **Sleep / wake**：空闲会话可睡；唤醒有 cap（见环境变量 `VIBEX_MEMBER_*`）。
+- **Handoffs / write_access / 成员记忆**：见历史 Phase 2 / Phase 4 实现；Agent 工具见 `crates/agents/src/skills/vibex-multi-agent/MEMORY.md`。
 
-| area | migration | entry points |
-| --- | --- | --- |
-| receipts + origin + packing | `20261024030000_collaboration_receipts_origin.sql` | `list_message_receipts`, host `space.submit`, `space.receipts`, event `vibex://collaboration-receipts-changed` |
-| sleep / wake cap | `20261024040000_collaboration_session_sleep.sql` | `sleep_idle_sessions`, `spawn_idle_session_sweeper` |
-| handoffs | `20261024050000_collaboration_handoffs.sql` | `handoff_with`, MCP tool `handoff` |
-| repo write policy | `20261024060000_collaboration_member_write_access.sql` | `plan_member_write`, `try_acquire_member_write`, `application::ensure_member_session_workspace`, host `member.setWriteAccess` |
+## 回滚
 
-* **Receipts**: `collaboration_space_deliveries.receipt_state` is `queued` →
-  `processing` (set when the input is dispatched, by the trigger
-  `collaboration_receipt_processing` on `conversation_inputs`, or directly
-  when delivery dispatched immediately) → `replied` (the receiving seat posts
-  in the same thread afterwards). It never moves backwards. Transport
-  `status` (`queued|dispatched|failed`) is unchanged.
-* **Origin**: `collaboration_space_messages.origin` is `user|agent`
-  (backfilled from the envelope actor) and is returned with every message
-  together with its receipts (user audience).
-* **Group delivery**: each delivery prepends a
-  `<missed_group_messages>` block with up to 30 thread messages after the
-  member's `last_seen_message_id` (excluding its own posts). The window's
-  lower bound is fixed per delivery (`context_from_seq`) so a retry sends
-  identical text and dedupe keeps working. `space.wakePreview` /
-  `preview_space_wake` return how many members a draft would wake (all agent
-  seats for a draft without @, minus the sender) and how many are asleep.
-* **Handoffs**: `{done, inputs_constraints, ask}`; depth = parent (latest
-  accepted handoff received by the caller's seat in the thread) + 1, limit
-  `VIBEX_HANDOFF_MAX_DEPTH` (3); accepted handoffs per initiating turn limit
-  `VIBEX_HANDOFF_MAX_PER_TURN` (2). Over-limit → row `rejected` +
-  `limit_exceeded`. Delivery failure → row `failed` and the initiator posts a
-  report to User in the same thread. Replays by `operation_id` return the
-  stored result.
-* **Repo writes**: per member `write_access` (default `write_isolated`). The
-  member's earliest session in a workspace keeps the checkout; any other
-  session needs its own worktree, provisioned with the workflow
-  `write_isolated` code. `write_serialized`: one busy writer per (member,
-  workspace) lease; other sessions' deliveries are deferred
-  (`write_serialized_busy`) and retried by the minute sweeper.
-* **Sleep**: thread sessions idle for `VIBEX_MEMBER_IDLE_MINUTES` (30; 0
-  disables) with no running turn and no queued input get `asleep_since`.
-  Delivering to one is a wake recorded per originating turn (agent sender's
-  active turn, else the message); over `VIBEX_MEMBER_WAKE_CAP` (3) the
-  delivery is deferred (`wake_limit_exceeded`) and retried by the sweeper.
+变更以加表为主。回滚：部署旧构建，按需 `DROP` 新表并删对应 `_sqlx_migrations` 行。已分叉的会话仍是普通会话。
 
-## Pre-existing test failures (identical on origin/master 442c61ab)
+## Phase 历史与已知限制
 
-1. `agents` lib: `zcode::tests::an_old_path_node_does_not_hide_a_version_manager_node`
-2. `agents` test `auth_mode_policy`: `qoder_has_only_subscription_and_keeps_the_personal_access_token`
-3. `agents` test `auth_mode_policy`: `headless_account_tokens_stay_out_of_the_api_key_field`
-4. `db` lib: `tests::legacy_automation_timezone_is_resolved_exactly_once` (the test's last query lacks `.bind(record.id)`)
-5. `plugins` test `portable_package`: `monorepo_official_v2_plugins_in_plugins_dir_are_valid`
-6. `plugins` test `portable_package`: `monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dependents`
-7. `plugins` test `shared_node_worker`: `tier0_and_tier1_plugins_enable_with_zero_worker_processes`
-8. `plugins` test `sqlite_registry`: `runtime_artifacts_are_content_addressed_and_locks_are_package_scoped`
-9. `server` test `headless_bootstrap`: `headless_agent_events_are_persisted_for_websocket_replay`
-10. `server` test `web_domains`: `one_authenticated_application_surface_opens_product_domains_for_the_web_ui`
+Phase 1–4 的实现细节仍以上述迁移与代码为准。Phase 4 已知限制：中文 BM25 较粗；长期事实主要靠 Agent 调 `memory_write`。
 
-## Phase 4 — member memory
-
-- **Activity (short-term).** On every completed reply the runtime records one
-  line per turn into `member_activity` (`turn_id` unique, so retries are
-  idempotent). The line comes from a pluggable `ActivitySummarizer`
-  (`member_memory::set_activity_summarizer`). The default
-  `FirstSentencesSummarizer` keeps the first 2 sentences, capped at 240 chars.
-  Rows from `direct:` threads are flagged `private`.
-- **Injection.** `persona_prompt_text_for_turn` appends a `[成员记忆]` block to
-  the member identity context. The block holds the latest N cross-thread entries
-  (`VIBEX_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables) and the BM25 top facts
-  for the turn's prompt. In a group thread, private activity and private facts
-  are left out entirely, with no placeholder.
-- **Facts (long-term).** `member_facts` has scope `global`, `thread:<id>` or
-  `private`, and origin `agent`, `user` or `distilled`. Full CRUD is in
-  `member_memory`.
-- **Distillation hook.** `FactDistiller` plus `distill_member_memory` and
-  `spawn_memory_distiller`, with a per-member cursor in
-  `member_memory_distill_state`. Facts distilled from private activity are
-  always forced to `private`. No LLM distiller is wired by default.
-- **Agent tools.** MCP `memory_search` and `memory_write` use underscores
-  because MCP tool names reject dots. They are scoped to the calling member
-  and thread. Writes default to the current thread. Writes in a private chat
-  are forced to private. Writes to another thread's scope are rejected. The
-  skill doc is `vibex-multi-agent/MEMORY.md`.
-- **Host ops** (the user's view, which includes private items):
-  - `collaboration/member.memory.list {memberId, scope?}`
-  - `member.memory.update {memberId, factId, content?, scope?}`
-  - `member.memory.delete {memberId, factId}`
-  - `member.activity.list {memberId, limit?}`
-
-### Known limitations (Phase 4)
-
-- Chinese retrieval ranking is rough: BM25 runs over character unigrams and
-  bigrams, with no word segmentation or embeddings.
-- Long-term facts depend on agents calling `memory_write` (see `MEMORY.md`).
-  Automatic distillation exists only as a hook, so it is future work.
+与 `origin/master` 上无关的预存测试失败清单（agents/plugins/server 等）不在协作改版范围内，此处不再复述。
 
 ## Open questions for final review
 
-- `crates/plugins/src/official_mcp.rs`: the official collaboration tool list does not include the three space-collection tools (`list_space_collection`, `add_to_space_collection`, `read_space_collection_item`) added in fba44df4, although vibex-mcp exposes them and `tool_schema.json` declares them. fba44df4 predates this redesign, so it is unclear whether the omission is intentional. Left unchanged pending owner decision.
-
-- 成员加入群聊时目前会立即为其创建群内会话（非懒创建）。完全懒创建需要将 collaboration_thread_members.conversation_id 改为可空（迁移）、首次收发消息时按成员配置 resolve_session、UI 显示"暂无会话"状态；大总管决定暂不做，待终审确认。
+- `crates/plugins/src/official_mcp.rs`：官方协作工具列表未包含三个群收藏工具（`list_space_collection`、`add_to_space_collection`、`read_space_collection_item`），而 vibex-mcp 与 `tool_schema.json` 已声明。是否故意省略，待负责人决定。
+- 成员加入群聊时目前会立即为其创建群内会话（非懒创建）。完全懒创建需要将 `collaboration_thread_members.conversation_id` 改为可空，并在首次收发时 `resolve_session`；大总管决定暂不做，待终审确认。
 
 ### 依赖环境待确认项
 
@@ -184,16 +93,6 @@ as ordinary conversations (one per extra space) rather than being merged back.
 - 多个插件的 `scripts` 也使用了同样错误的 `../VibeX/packages/plugin-cli/...` 路径；另有一些（如 open-connector、provider-switch、remote-ssh）使用 `../../../packages/...`，多了一级目录。
 - `plugins/open-connector` 依赖 `@vibex/plugin-sdk ^1.0.0`，而其他插件依赖 `^2.0.0`，版本要求不一致。
 
-## 成员会话配置（Member session config）
-
-- 成员是长期身份；每个（成员, thread）对应一个底层会话，由 `resolve_session(member_id, thread_id)` 按需创建。UI 只展示成员，不暴露会话 id。
-- 成员的会话配置存放在 `collaboration_members` 上：`agent`、`mode_id`、`config_values`（JSON，所选 Agent 的会话配置项）、`persona_prompt`。迁移：`20261024100000_collaboration_member_session_config.sql`。
-- `resolve_session` 新建会话时使用成员配置（Agent、模式、配置项、人设）；没有成员配置时回退到角色的模式与配置。
-- 资料面板可编辑（`member.config.get` / `member.config.update`），**修改只影响之后新建的会话**，已有会话保持创建时的配置。
-- 工作目录由 workspace 决定（`sessions.workspace_id`），不是成员级配置。
-- 头像点击打开的会话标签页通过 `member.session.resolve`（成员 id + 当前 thread id）解析，永远不回退到成员“最近的会话”；该 thread 尚无会话时按成员配置当场创建。
-
 ### 启动时 database is locked 警告（2026-10-24 待确认）
 
 20:20 重启 dev 时日志出现一次 `automation startup reconciliation failed … database is locked`。随后检查只有一套 dev 进程（一个 vibex.exe），没有旧 dev 进程残留；之后没有再出现。推测是旧实例被结束后 3 秒内新实例启动、旧进程尚未释放 SQLite 锁。待确认：自动化启动对账是否需要在遇到锁时重试。
-

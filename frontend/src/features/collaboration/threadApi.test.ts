@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  loadDirectMessages,
   loadSidebarItems,
+  postDirectMessage,
   markThreadRead,
   resolveMemberSession,
   updateThreadTagColor,
@@ -93,5 +95,53 @@ describe('threadApi', () => {
         'sp-1'
       )
     ).resolves.toBeNull();
+  });
+
+  it('loads DM messages via space.listMessages with the direct thread id', async () => {
+    const call = caller(() => ({
+      messages: [{ seq: 3, conversationId: 'c1', envelope: {} }],
+    }));
+    await expect(loadDirectMessages(call, 'direct:m1')).resolves.toEqual({
+      messages: [{ seq: 3, conversationId: 'c1', envelope: {} }],
+    });
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.listMessages', {
+      spaceId: 'direct:m1',
+      latest: true,
+      limit: 200,
+    });
+    await loadDirectMessages(call, 'direct:m1', 3);
+    expect(call).toHaveBeenLastCalledWith(
+      'collaboration',
+      'space.listMessages',
+      { spaceId: 'direct:m1', sinceSeq: 3 }
+    );
+  });
+
+  it('returns null when DM listMessages fails', async () => {
+    const call = caller(() => {
+      throw new Error('boom');
+    });
+    await expect(loadDirectMessages(call, 'direct:m1')).resolves.toBeNull();
+  });
+
+  it('posts DM messages without recipients or delay', async () => {
+    const call = caller(() => ({ seq: 9 }));
+    await expect(
+      postDirectMessage(call, 'direct:m1', 'hi', 'op-1')
+    ).resolves.toEqual({ seq: 9 });
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.post', {
+      spaceId: 'direct:m1',
+      content: 'hi',
+      operationId: 'op-1',
+    });
+  });
+
+  it('marks a DM read by threadId with seq', async () => {
+    const call = caller(() => ({}));
+    await markThreadRead(call, 'direct:m1', 7);
+    expect(call).toHaveBeenCalledWith('collaboration', 'thread.markRead', {
+      threadId: 'direct:m1',
+      seq: 7,
+    });
   });
 });

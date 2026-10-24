@@ -933,3 +933,63 @@ export function resolvePrivateChatTarget(input: {
   }
   return { spaceId: input.directSpaceId, member, threadId };
 }
+
+/** Private-chat (DM) thread id for a member, e.g. `direct:<identity_member_id>`. */
+export function directThreadIdFor(
+  member: { member_id?: string | null } | null | undefined,
+  threadId?: string | null
+): string | null {
+  if (threadId && threadId.startsWith('direct:')) return threadId;
+  return member?.member_id ? `direct:${member.member_id}` : null;
+}
+
+/** A DM message the user sent that the backend has not listed yet (busy member). */
+export type PendingDirectMessage = {
+  operationId: string;
+  threadId: string;
+  content: string;
+  createdAt: number;
+};
+
+type ListedDirectMessage = {
+  seq: number;
+  operationId?: string | null;
+  operation_id?: string | null;
+  envelope?: { actor?: string; content?: string } | null;
+};
+
+function isUserActor(actor: string | undefined): boolean {
+  return !actor || /\/user$/.test(actor);
+}
+
+/**
+ * Drop pending DM messages that have arrived in `listMessages`, matching by
+ * operationId first and otherwise by identical user content (each listed
+ * message consumes at most one pending entry).
+ */
+export function reconcilePendingDirectMessages(
+  pending: ReadonlyArray<PendingDirectMessage>,
+  listed: ReadonlyArray<ListedDirectMessage>
+): PendingDirectMessage[] {
+  if (pending.length === 0) return [];
+  const ops = new Set<string>();
+  const contents: string[] = [];
+  for (const message of listed) {
+    const op = message.operationId ?? message.operation_id;
+    if (op) ops.add(op);
+    else if (isUserActor(message.envelope?.actor)) {
+      contents.push((message.envelope?.content ?? '').trim());
+    }
+  }
+  const remaining: PendingDirectMessage[] = [];
+  for (const item of pending) {
+    if (ops.has(item.operationId)) continue;
+    const index = contents.indexOf(item.content.trim());
+    if (index >= 0) {
+      contents.splice(index, 1);
+      continue;
+    }
+    remaining.push(item);
+  }
+  return remaining;
+}

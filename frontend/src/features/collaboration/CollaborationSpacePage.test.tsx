@@ -1542,6 +1542,137 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('private chat uses direct:<id> listMessages/post/markRead, shows queued message optimistically and reconciles', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    let directMessages: Array<Record<string, unknown>> = [
+      {
+        seq: 5,
+        conversationId: 'conv-1',
+        envelope: {
+          actor: 'vibex://space/direct/member/小A',
+          content: '私聊历史',
+        },
+      },
+    ];
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: { id: 5, seq: 5, preview: '私聊历史' },
+                unread_count: 1,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead') return {};
+        if (input?.spaceId === 'direct:mem-a') {
+          if (method === 'space.listMessages') {
+            const since = Number(input?.sinceSeq ?? 0);
+            return {
+              messages: directMessages.filter((m) => Number(m.seq) > since),
+            };
+          }
+          if (method === 'space.post') return {};
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(
+        Array.from(document.querySelectorAll('.collaboration-message')).some(
+          (node) => node.textContent?.includes('私聊历史')
+        )
+      ).toBe(true);
+    });
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.listMessages',
+      { spaceId: 'direct:mem-a', latest: true, limit: 200 }
+    );
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.markRead',
+        { threadId: 'direct:mem-a', seq: 5 }
+      );
+    });
+
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, '忙的时候也要收到');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    const postCall = await waitFor(() => {
+      const call = collaborationCall.mock.calls.find(
+        (c) => c[1] === 'space.post' && c[2]?.spaceId === 'direct:mem-a'
+      );
+      expect(call).toBeTruthy();
+      return call!;
+    });
+    const posted = postCall[2] as Record<string, unknown>;
+    expect(posted).toEqual({
+      spaceId: 'direct:mem-a',
+      content: '忙的时候也要收到',
+      operationId: expect.any(String),
+    });
+    const op = String(posted.operationId);
+    const pending = await screen.findByTestId(
+      `collaboration-pending-message-${op}`
+    );
+    expect(pending).toHaveTextContent('忙的时候也要收到');
+    expect(
+      within(pending).getByTestId('collaboration-pending-tick')
+    ).toBeTruthy();
+    expect(pending.querySelector('[data-status="queued"]')).not.toBeNull();
+
+    // The member's turn starts: the message is now listed with its operationId.
+    directMessages = [
+      ...directMessages,
+      {
+        seq: 6,
+        operationId: op,
+        envelope: {
+          actor: 'vibex://space/direct/user',
+          content: '忙的时候也要收到',
+        },
+      },
+    ];
+    act(() => {
+      for (const listener of spaceEventListeners) {
+        listener({
+          workspaceId: 'workspace-1',
+          spaceId: 'direct:mem-a',
+          seq: 6,
+        });
+      }
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId(`collaboration-pending-message-${op}`)
+      ).toBeNull();
+    });
+    expect(screen.getByText('忙的时候也要收到')).toBeTruthy();
+  });
+
   it('updates member avatar status indicator dots in real time on turn lifecycle events', async () => {
     let conv2State = {
       conversation_id: 'conv-2',

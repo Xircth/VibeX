@@ -521,3 +521,31 @@ describe('chatListFromSidebar (thread.listSidebar adapter)', () => {
     expect(list.map((e) => e.type)).toEqual(['group']);
   });
 });
+
+describe('private chat helpers', () => {
+  it('derives the direct thread id', async () => {
+    const { directThreadIdFor } = await import('./spaceModel');
+    expect(directThreadIdFor({ member_id: 'm1' })).toBe('direct:m1');
+    expect(directThreadIdFor({ member_id: 'm1' }, 'direct:x')).toBe('direct:x');
+    expect(directThreadIdFor({}, 'space-1')).toBeNull();
+  });
+
+  it('reconciles pending DM messages by operationId or content', async () => {
+    const { reconcilePendingDirectMessages } = await import('./spaceModel');
+    const pending = [
+      { operationId: 'a', threadId: 'direct:m', content: 'one', createdAt: 1 },
+      { operationId: 'b', threadId: 'direct:m', content: 'two', createdAt: 2 },
+      { operationId: 'c', threadId: 'direct:m', content: 'two', createdAt: 3 },
+      { operationId: 'd', threadId: 'direct:m', content: 'four', createdAt: 4 },
+    ];
+    const left = reconcilePendingDirectMessages(pending, [
+      { seq: 1, operationId: 'a', envelope: { content: 'changed' } },
+      { seq: 2, envelope: { actor: 'vibex://space/s/user', content: 'two' } },
+      {
+        seq: 3,
+        envelope: { actor: 'vibex://space/s/member/x', content: 'four' },
+      },
+    ]);
+    expect(left.map((item) => item.operationId)).toEqual(['c', 'd']);
+  });
+});

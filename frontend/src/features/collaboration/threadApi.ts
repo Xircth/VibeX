@@ -82,3 +82,40 @@ export async function resolveMemberSession(
     return null;
   }
 }
+
+export type DirectMessagePage<M> = { messages: M[] };
+
+/** `space.listMessages` for a private chat (`direct:<id>`); null on failure. */
+export async function loadDirectMessages<M>(
+  call: CollaborationCaller,
+  threadId: string,
+  sinceSeq?: number
+): Promise<DirectMessagePage<M> | null> {
+  try {
+    const page = await call<{ messages?: M[] }>(
+      'collaboration',
+      'space.listMessages',
+      sinceSeq && sinceSeq > 0
+        ? { spaceId: threadId, sinceSeq }
+        : { spaceId: threadId, latest: true, limit: 200 }
+    );
+    return Array.isArray(page?.messages) ? { messages: page.messages } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `space.post` to a private chat. No `to`/`delaySeconds` (unsupported for DMs). */
+export async function postDirectMessage(
+  call: CollaborationCaller,
+  threadId: string,
+  content: string,
+  operationId: string
+): Promise<{ seq?: number }> {
+  const result = await call<{ seq?: number } | null>(
+    'collaboration',
+    'space.post',
+    { spaceId: threadId, content, operationId }
+  );
+  return result ?? {};
+}

@@ -2621,3 +2621,63 @@ body.is-dragging-collaboration-member * {
   color: var(--text-muted);
   font-size: 0.6875rem;
 }
+
+/* ── Group avatar: pinwheel-stacked member avatars ─────────────────────── */
+.collaboration-group-avatar {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  border-radius: 30%;
+  background-color: hsl(220 14% 94%);
+  box-shadow: inset 0 0 0 1px hsl(220 13% 86% / 0.9);
+}
+
+.dark .collaboration-group-avatar {
+  background-color: hsl(220 8% 20%);
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+}
+
+.collaboration-group-avatar.has-tag {
+  box-shadow:
+    0 0 0 1.5px var(--group-avatar-tag),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.4);
+}
+
+.dark .collaboration-group-avatar.has-tag {
+  box-shadow:
+    0 0 0 1.5px var(--group-avatar-tag),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+}
+
+/* White disc behind each avatar: the visible ring around its edge, and the
+   gap the mask cuts into the avatar it covers. */
+.collaboration-group-avatar-slot {
+  position: absolute;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  border-radius: 9999px;
+  background-color: #fff;
+  overflow: hidden;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.dark .collaboration-group-avatar-slot {
+  background-color: hsl(0 0% 96%);
+}
+
+.collaboration-group-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.collaboration-chat-row-avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+}

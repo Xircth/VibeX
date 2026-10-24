@@ -113,9 +113,6 @@ describe('CollaborationSpacePage', () => {
           return { spaces: [{ space_id: 's1', name: '设计' }] };
         }
         if (method === 'space.listMembers') {
-          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
-            return { members: [] };
-          }
           return {
             members: [
               {
@@ -290,19 +287,18 @@ describe('CollaborationSpacePage', () => {
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
     ).toBeTruthy();
 
-    // Setting a space tag color colors the rounded-rectangle space N-grid icon background while keeping cells gray
+    // Setting a space tag color draws it as an outline ring around the group avatar
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
     const spaceButton = screen.getByRole('button', { name: '设计' });
-    const spaceIcon = spaceButton.querySelector(
-      '[data-tag-color="blue"]'
-    ) as HTMLElement | null;
-    expect(spaceIcon).toBeTruthy();
-    expect(spaceIcon).toHaveAttribute('data-grid-size', '4');
-    expect(
-      spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
-    ).toHaveLength(4);
-    expect(spaceButton.querySelector('.collaboration-space-tag')).toBeNull();
+    const groupAvatar = within(spaceButton).getByTestId(
+      'collaboration-group-avatar'
+    );
+    expect(groupAvatar).toHaveClass('has-tag');
+    expect(groupAvatar).toHaveAttribute('data-count', '2');
+    expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toContain(
+      'hsl('
+    );
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();
@@ -336,12 +332,10 @@ describe('CollaborationSpacePage', () => {
     expect(
       memberAButton.querySelector('.collaboration-member-name')?.textContent
     ).toBe('小A');
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-1')
-    ).toHaveTextContent('你好');
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-2')
-    ).toHaveTextContent('请查看 [架构文档](src/arch.md)');
+    // Flat list: group '设计' plus private chats 小A and 小B
+    expect(document.querySelectorAll('[data-chat-type="direct"]')).toHaveLength(
+      2
+    );
     expect(
       screen.getByRole('button', { name: '修改昵称 小A' }).className
     ).toContain('collaboration-edit-name-btn');
@@ -679,23 +673,18 @@ describe('CollaborationSpacePage', () => {
     expect(
       (await screen.findAllByText('增量消息')).length
     ).toBeGreaterThanOrEqual(1);
-    expect(
-      screen.getByTestId('collaboration-member-last-message-conv-1')
-    ).toHaveTextContent('增量消息');
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.listMessages',
       { spaceId: 's1', sinceSeq: 2 }
     );
 
-    // Drag 小A into 未定空间
+    // Drag private chat 小A onto group '设计'
     const memberButton = screen.getByRole('button', { name: '小A' });
     const memberRow = memberButton.closest(
       '.workspace-session-row'
     ) as HTMLElement;
-    const unassignedGroup = screen.getByTestId(
-      'collaboration-space-group-unassigned:workspace-1'
-    );
+    const unassignedGroup = screen.getByTestId('collaboration-space-group-s1');
     fireEvent.dragStart(memberRow);
     fireEvent.dragOver(unassignedGroup);
     fireEvent.drop(unassignedGroup);
@@ -705,8 +694,8 @@ describe('CollaborationSpacePage', () => {
         'collaboration',
         'space.moveMember',
         expect.objectContaining({
-          fromSpaceId: 's1',
-          toSpaceId: 'unassigned:workspace-1',
+          fromSpaceId: 'unassigned:workspace-1',
+          toSpaceId: 's1',
           conversationId: 'conv-1',
         })
       );
@@ -727,7 +716,7 @@ describe('CollaborationSpacePage', () => {
         'collaboration',
         'space.setIdentity',
         expect.objectContaining({
-          spaceId: 's1',
+          spaceId: 'unassigned:workspace-1',
           conversationId: 'conv-1',
           nickname: '评审A',
         })
@@ -781,26 +770,14 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    // Collapsing space '设计' renders a horizontal stacked member avatar list after the space name
+    // Group rows never expand into a member list or a collapsed stack
+    await user.click(screen.getByRole('button', { name: '设计' }));
     expect(
       screen.queryByTestId('collaboration-space-collapsed-stack-s1')
     ).toBeNull();
-    await user.click(screen.getByRole('button', { name: '设计' }));
-    const collapsedStack = await screen.findByTestId(
-      'collaboration-space-collapsed-stack-s1'
+    expect(screen.getByRole('button', { name: '设计' })).not.toHaveAttribute(
+      'aria-expanded'
     );
-    expect(collapsedStack).toBeTruthy();
-    expect(
-      collapsedStack.querySelectorAll(
-        '.collaboration-space-collapsed-stack-item'
-      )
-    ).toHaveLength(2);
-    // Re-expand space '设计'
-    await user.click(screen.getByRole('button', { name: '设计' }));
-    expect(
-      screen.queryByTestId('collaboration-space-collapsed-stack-s1')
-    ).toBeNull();
-
     // Dragging the pane resizer between spaces pane and message thread adjusts --collaboration-spaces-width
     const spacesResizer = screen.getByTestId('collaboration-spaces-resizer');
     fireEvent.pointerDown(spacesResizer, { clientX: 296 });
@@ -825,25 +802,6 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     await user.click(spaceCheckbox);
 
-    const memberACheckbox = screen.getByRole('checkbox', {
-      name: '选择成员 小A',
-    });
-    const memberBCheckbox = screen.getByRole('checkbox', {
-      name: '选择成员 小B',
-    });
-    expect(memberACheckbox.className).toContain(
-      'collaboration-delete-checkbox'
-    );
-    expect(memberACheckbox.closest('.collaboration-member-row')).toBeNull();
-    expect(
-      memberACheckbox.closest('.collaboration-member-row-outer')
-    ).toBeTruthy();
-    expect(memberACheckbox).toHaveAttribute('aria-checked', 'true');
-    expect(memberBCheckbox).toHaveAttribute('aria-checked', 'true');
-
-    // Deselect 小A while keeping space '设计' selected
-    await user.click(memberACheckbox);
-    expect(memberACheckbox).toHaveAttribute('aria-checked', 'false');
     expect(spaceCheckbox).toHaveAttribute('aria-checked', 'true');
 
     // Confirm batch delete
@@ -859,7 +817,6 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           workspaceId: 'workspace-1',
           spaceIds: ['s1'],
-          memberTargets: [{ spaceId: 's1', conversationId: 'conv-2' }],
         })
       );
     });
@@ -942,9 +899,8 @@ describe('CollaborationSpacePage', () => {
     expect(
       screen.getByRole('button', { name: '加入成员 默认空间' })
     ).toBeTruthy();
-    // Top row has 12px '协作空间' title on the left of the search button
-    const topTitle = screen.getByText('协作空间');
-    expect(topTitle.className).toContain('text-[12px]');
+    // The list no longer has a '协作空间' title heading
+    expect(screen.queryByText('协作空间')).toBeNull();
     // Never show '还没有消息'; composer is NOT rendered when no space is opened;
     // instead, the white-blurred 新建空间 overlay is shown by default over the message area
     expect(screen.queryByText('还没有消息')).toBeNull();

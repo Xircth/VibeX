@@ -28,6 +28,7 @@ import {
   isWithinActiveWindow,
   parseMemberSelectionKey,
   type SpaceMember,
+  buildChatList,
 } from './spaceModel';
 
 const members: SpaceMember[] = [
@@ -303,5 +304,45 @@ describe('collaboration space model', () => {
     expect(
       isWithinActiveWindow('24h', false, '2026-10-18T12:00:00Z', now)
     ).toBe(false);
+  });
+});
+
+describe('buildChatList', () => {
+  const agent = (id: string, nickname: string) => ({
+    member_id: id,
+    nickname,
+    kind: 'agent',
+    visible_to_agents: 1,
+    conversation_id: `conv-${id}`,
+  });
+  const user = {
+    member_id: 'u',
+    nickname: '你',
+    kind: 'user',
+    visible_to_agents: 0,
+  };
+
+  it('flattens groups and private chats; one-agent spaces are private', () => {
+    const list = buildChatList({
+      spaces: [
+        { space_id: 's1', name: '设计' },
+        { space_id: 's2', name: '单聊空间' },
+      ],
+      membersBySpace: {
+        s1: [agent('a', '小A'), agent('b', '小B'), user],
+        s2: [agent('c', '小C'), user],
+      },
+      unassignedSpaceId: 'unassigned:w',
+      unassignedMembers: [agent('d', '小D'), user],
+    });
+    expect(list.map((e) => [e.type, e.name])).toEqual([
+      ['group', '设计'],
+      ['direct', '小C'],
+      ['direct', '小D'],
+    ]);
+    const group = list[0];
+    expect(
+      group.type === 'group' && group.members.map((m) => m.nickname)
+    ).toEqual(['小A', '小B']);
   });
 });

@@ -183,6 +183,8 @@ import {
   type DeliveryReceipt,
   type SpaceMember,
   type SpaceTagConfig,
+  buildChatList,
+  type ChatListEntry,
 } from './spaceModel';
 import {
   MemberBotAvatar,
@@ -193,6 +195,7 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { GroupAvatar } from './GroupAvatar';
 import {
   SpaceMessageBody,
   bubbleText,
@@ -4013,30 +4016,45 @@ export function CollaborationSpacePage({
     );
   };
 
+  const chatList = buildChatList({
+    spaces: visibleSpaces,
+    membersBySpace,
+    unassignedSpaceId: unassignedId || undefined,
+    // Every agent's direct (1:1) chat lives in the unassigned space, even when
+    // it also holds a seat in a group, so list the full direct roster.
+    unassignedMembers: unassignedId
+      ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
+      : EMPTY_MEMBERS,
+  });
+
+  // Private chat: one agent member, rendered with that member's row (avatar,
+  // name, last message); clicking opens the member's 1:1 chat.
+  const renderDirectChatRow = (
+    entry: Extract<ChatListEntry, { type: 'direct' }>
+  ) => (
+    <div
+      key={entry.key}
+      className="collaboration-chat-direct"
+      data-testid={`collaboration-direct-chat-${entry.key}`}
+      data-chat-type="direct"
+    >
+      {renderMemberRow(entry.spaceId, entry.member)}
+    </div>
+  );
+
   const renderSpaceGroup = (
     space: Space,
     options: { isUnassigned?: boolean; isVirtualDefault?: boolean } = {}
   ) => {
     const { isUnassigned = false, isVirtualDefault = false } = options;
-    const open =
-      space.space_id in expanded
-        ? expanded[space.space_id]
-        : isVirtualDefault || isUnassigned || space.space_id === selectedId;
+    // Flat chat list: group rows never expand into a member list.
+    const open = false;
     // Requirement 1: User ('你') is an invisible member and never appears in the member list
     const rawSpaceMembers = agentRoster(
       isUnassigned
         ? unassignedMembers
         : (membersBySpace[space.space_id] ?? EMPTY_MEMBERS)
     );
-    const queryLower = searchQuery.trim().toLowerCase();
-    const spaceNameMatches =
-      !queryLower || space.name.toLowerCase().includes(queryLower);
-    const spaceMembers =
-      queryLower && !spaceNameMatches
-        ? rawSpaceMembers.filter((member) =>
-            doesMemberMatchQuery(member, queryLower)
-          )
-        : rawSpaceMembers;
     const visibleAgentCount = rawSpaceMembers.length;
     const spaceMemberAvatars = rawSpaceMembers.map((member) =>
       getMemberAvatar(member.conversation_id ?? undefined, displayName(member))
@@ -4136,9 +4154,9 @@ export function CollaborationSpacePage({
                   );
                 }}
               >
-                <CollaborationSpaceIcon
+                <GroupAvatar
                   avatars={spaceMemberAvatars}
-                  tagPreset={tagPreset}
+                  tagHue={tagPreset?.hue}
                 />
                 <Input
                   aria-label="修改空间名称输入框"
@@ -4186,7 +4204,6 @@ export function CollaborationSpacePage({
                   type="button"
                   className="workspace-session-row-main collaboration-space-header-main"
                   aria-label={space.name}
-                  aria-expanded={open}
                   onClick={() => {
                     if (!isUnassigned && !isVirtualDefault) {
                       const nextOpen =
@@ -4215,34 +4232,13 @@ export function CollaborationSpacePage({
                     }
                   }}
                 >
-                  <CollaborationSpaceIcon
+                  <GroupAvatar
                     avatars={spaceMemberAvatars}
-                    tagPreset={tagPreset}
+                    tagHue={tagPreset?.hue}
                   />
                   <span className="workspace-session-title is-cjk">
                     {space.name}
                   </span>
-                  {!open && spaceMemberAvatars.length > 0 ? (
-                    <span
-                      className="collaboration-space-collapsed-member-stack"
-                      data-testid={`collaboration-space-collapsed-stack-${space.space_id}`}
-                      aria-hidden="true"
-                    >
-                      {spaceMemberAvatars.map((avatar, index) => (
-                        <span
-                          key={index}
-                          className="collaboration-space-collapsed-stack-item"
-                          style={{ zIndex: spaceMemberAvatars.length - index }}
-                        >
-                          <MemberBotAvatar
-                            config={avatar}
-                            animated={false}
-                            className="h-3.5 w-3.5"
-                          />
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
                   <span
                     className={cn(
                       'collaboration-space-meta',
@@ -4351,33 +4347,6 @@ export function CollaborationSpacePage({
         </div>
         {isEditingSpaceName && renameSpaceError ? (
           <p className="collaboration-error px-2 text-xs">{renameSpaceError}</p>
-        ) : null}
-        {open ? (
-          <div className="collaboration-member-list">
-            {spaceMembers.length === 0 ? (
-              <div className="collaboration-member-empty">
-                <span>
-                  {t('collaborationSpace.emptyMembers', COPY.noMemberSessions)}
-                </span>
-                {!isUnassigned && !isVirtualDefault ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      openCreateMemberDialog(space.space_id, 'session')
-                    }
-                  >
-                    {t('collaborationSpace.addMember', COPY.addMember)}
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              spaceMembers.map((member) =>
-                renderMemberRow(space.space_id, member)
-              )
-            )}
-          </div>
         ) : null}
       </div>
     );
@@ -5057,9 +5026,6 @@ export function CollaborationSpacePage({
                   />
                 ) : (
                   <>
-                    <span className="shrink-0 text-[12px] font-semibold leading-none text-foreground">
-                      {t('collaborationSpace.title', '协作空间')}
-                    </span>
                     <div
                       className={cn(
                         'ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-1',
@@ -5221,28 +5187,22 @@ export function CollaborationSpacePage({
                       },
                       { isVirtualDefault: true }
                     )}
-                    {unassignedId && unassignedMembers.length > 0
-                      ? renderSpaceGroup(
-                          {
-                            space_id: unassignedId,
-                            name: COPY.unassignedSpaceName,
-                          },
-                          { isUnassigned: true }
-                        )
-                      : null}
+                    {chatList.map((entry) =>
+                      entry.type === 'direct'
+                        ? renderDirectChatRow(entry)
+                        : null
+                    )}
                   </>
                 ) : (
                   <>
-                    {visibleSpaces.map((space) => renderSpaceGroup(space))}
-                    {unassignedId
-                      ? renderSpaceGroup(
-                          {
-                            space_id: unassignedId,
-                            name: COPY.unassignedSpaceName,
-                          },
-                          { isUnassigned: true }
-                        )
-                      : null}
+                    {chatList.map((entry) =>
+                      entry.type === 'group'
+                        ? renderSpaceGroup({
+                            space_id: entry.spaceId,
+                            name: entry.name,
+                          })
+                        : renderDirectChatRow(entry)
+                    )}
                   </>
                 )}
               </div>

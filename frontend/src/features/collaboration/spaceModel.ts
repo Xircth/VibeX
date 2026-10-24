@@ -683,3 +683,82 @@ export function toggleMemberDeleteSelection(
   }
   return nextMembers;
 }
+
+// ── Flat chat list (groups + private chats) ─────────────────────────────
+
+export type ChatListSpace = { space_id: string; name: string };
+
+export type ChatListEntry =
+  | {
+      type: 'group';
+      key: string;
+      spaceId: string;
+      name: string;
+      /** Non-user agent members in display order (all; avatar shows first 4). */
+      members: SpaceMember[];
+    }
+  | {
+      type: 'direct';
+      key: string;
+      /** Space the 1:1 chat lives in (a 1-agent space or the unassigned space). */
+      spaceId: string;
+      name: string;
+      member: SpaceMember;
+      /** True when this comes from a real space with exactly one agent. */
+      fromSpace: boolean;
+    };
+
+/**
+ * Single data adapter for the left chat list. Today it derives entries from
+ * `space.list` + per-space member rosters; swap the body for the combined
+ * chat-list endpoint once the backend ships it (type, name, tag color, last
+ * preview, unread, first 4 non-user avatars, sorted by recent activity).
+ *
+ * Rules: a space with exactly one non-user agent member is a private chat;
+ * any other space is a group chat. Members of the unassigned (direct) space
+ * are each their own private chat.
+ */
+export function buildChatList(input: {
+  spaces: readonly ChatListSpace[];
+  membersBySpace: Readonly<Record<string, readonly SpaceMember[] | undefined>>;
+  unassignedSpaceId?: string;
+  unassignedMembers?: readonly SpaceMember[];
+}): ChatListEntry[] {
+  const entries: ChatListEntry[] = [];
+  for (const space of input.spaces) {
+    const roster = agentRoster([
+      ...(input.membersBySpace[space.space_id] ?? []),
+    ]);
+    if (roster.length === 1) {
+      entries.push({
+        type: 'direct',
+        key: `direct:${space.space_id}`,
+        spaceId: space.space_id,
+        name: displayName(roster[0]),
+        member: roster[0],
+        fromSpace: true,
+      });
+    } else {
+      entries.push({
+        type: 'group',
+        key: `group:${space.space_id}`,
+        spaceId: space.space_id,
+        name: space.name,
+        members: roster,
+      });
+    }
+  }
+  if (input.unassignedSpaceId) {
+    for (const member of agentRoster([...(input.unassignedMembers ?? [])])) {
+      entries.push({
+        type: 'direct',
+        key: `direct:${input.unassignedSpaceId}:${member.member_id ?? member.conversation_id ?? displayName(member)}`,
+        spaceId: input.unassignedSpaceId,
+        name: displayName(member),
+        member,
+        fromSpace: false,
+      });
+    }
+  }
+  return entries;
+}

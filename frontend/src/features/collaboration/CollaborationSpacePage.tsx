@@ -138,6 +138,12 @@ import {
 } from './collaborationApi';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import {
+  loadSidebarItems,
+  markThreadRead,
+  resolveMemberSession,
+  updateThreadTagColor,
+} from './threadApi';
+import {
   COLLABORATION_PREVIEW_COMPONENTS,
   CollaborationPreviewDockviewTab,
   CollaborationPreviewHeaderActions,
@@ -186,6 +192,7 @@ import {
   buildChatList,
   resolvePrivateChatTarget,
   type ChatListEntry,
+  type SidebarItem,
 } from './spaceModel';
 import {
   MemberBotAvatar,
@@ -742,6 +749,25 @@ export function CollaborationSpacePage({
   messagesRef.current = messages;
   const [selectedMemberKey, setSelectedMemberKey] = useState('');
   const chatListRef = useRef<ChatListEntry[]>([]);
+  // `thread.listSidebar` items; null while unavailable (older backend).
+  const [sidebarItems, setSidebarItems] = useState<SidebarItem[] | null>(null);
+  const refreshSidebar = useCallback(async () => {
+    if (!workspace) return;
+    const items = await loadSidebarItems(collaborationCall, workspace);
+    setSidebarItems(items);
+  }, [workspace]);
+  useEffect(() => {
+    void refreshSidebar();
+  }, [refreshSidebar]);
+  const sidebarAvailable = sidebarItems !== null;
+  useEffect(() => {
+    // Groups address their thread by space id; DMs are marked in openPrivateChat.
+    if (!sidebarAvailable || !selectedId) return;
+    const isGroup = chatListRef.current.some(
+      (entry) => entry.type === 'group' && entry.spaceId === selectedId
+    );
+    if (isGroup) void markThreadRead(collaborationCall, selectedId);
+  }, [sidebarAvailable, selectedId]);
   const [previewTabs, setPreviewTabs] = useState<PreviewTabItem[]>([]);
   const [activePreviewTabId, setActivePreviewTabId] = useState('');
   const previewTabsRef = useRef<PreviewTabItem[]>([]);
@@ -1462,6 +1488,7 @@ export function CollaborationSpacePage({
     void listenCollaborationSpaceChanged((payload) => {
       const event = parseSpaceChangedEvent(payload);
       if (!event || event.workspaceId !== workspace) return;
+      void refreshSidebar();
       if (
         (event.seq === undefined && event.memberId === undefined) ||
         event.memberId === 'batch_delete'
@@ -1542,6 +1569,7 @@ export function CollaborationSpacePage({
     };
   }, [
     loadConversations,
+    refreshSidebar,
     openSpaceKey,
     selectedId,
     spaces,
@@ -1662,9 +1690,23 @@ export function CollaborationSpacePage({
       } else {
         next[spaceId] = config;
       }
-      writeSpaceTags(next);
+      if (!sidebarItems) writeSpaceTags(next);
       return next;
     });
+    if (sidebarItems) {
+      void updateThreadTagColor(
+        collaborationCall,
+        spaceId,
+        config?.colorId ?? ''
+      ).then((ok) => {
+        if (!ok) {
+          setSpaceTags((current) => {
+            writeSpaceTags(current);
+            return current;
+          });
+        }
+      });
+    }
   };
 
   const updateMemberAvatar = useCallback(
@@ -1800,7 +1842,21 @@ export function CollaborationSpacePage({
 
   // Select a member's private (1:1) chat in the flat list and show the chat
   // message area. Never opens a member session or session tab.
-  const openPrivateChat = (spaceId: string, member: SpaceMember) => {
+  const openPrivateChat = (
+    spaceId: string,
+    member: SpaceMember,
+    threadId?: string
+  ) => {
+    if (sidebarItems) {
+      const id =
+        threadId ||
+        (member.member_id ? `direct:${member.member_id}` : '') ||
+        spaceId;
+      void markThreadRead(collaborationCall, id);
+    }
+    if (member.conversation_id) {
+      markMemberConversationViewed(member.conversation_id);
+    }
     closeAllOverlays();
     pendingViewedSpaceIdRef.current = spaceId;
     setSelectedId(spaceId);
@@ -1812,10 +1868,36 @@ export function CollaborationSpacePage({
     if (spaces.some((item) => item.space_id === spaceId)) {
       setSelectedId(spaceId);
     }
+    const memberKey = previewMemberKey(spaceId, member);
+    if (member.member_id && sidebarItems) {
+      // Thread-scoped member session; fall back to the member's own one.
+      const threadId =
+        chatListRef.current.find(
+          (entry) => entry.type === 'group' && entry.spaceId === spaceId
+        )?.threadId ?? spaceId;
+      void resolveMemberSession(
+        collaborationCall,
+        member.member_id,
+        threadId
+      ).then((resolved) => {
+        const conversationId = resolved || member.conversation_id || '';
+        if (!conversationId) return;
+        setSelectedMemberKey(memberKey);
+        openMemberPreview(spaceId, member, conversationId);
+      });
+      return;
+    }
     const conversationId = member.conversation_id ?? '';
     if (!conversationId) return;
-    const memberKey = previewMemberKey(spaceId, member);
     setSelectedMemberKey(memberKey);
+    openMemberPreview(spaceId, member, conversationId);
+  };
+
+  const openMemberPreview = (
+    spaceId: string,
+    member: SpaceMember,
+    conversationId: string
+  ) => {
     const conv = conversationById.get(conversationId);
     const agentId =
       conv?.agent_id || draftMemberMetaByConvId[conversationId]?.agentId;
@@ -1898,6 +1980,8 @@ export function CollaborationSpacePage({
       nickname?: string;
       private_thread_id?: string;
       private_conversation_id?: string;
+      identity_member_id?: string;
+      direct_thread_id?: string;
     }>('collaboration', 'space.createMember', {
       workspaceId: workspace,
       spaceId: params.spaceId,
@@ -2130,7 +2214,8 @@ export function CollaborationSpacePage({
         directSpaceId: unassignedId || targetSpaceId,
         chatList: chatListRef.current,
       });
-      openPrivateChat(target.spaceId, target.member);
+      void refreshSidebar();
+      openPrivateChat(target.spaceId, target.member, target.threadId);
       return;
     }
 
@@ -2184,7 +2269,8 @@ export function CollaborationSpacePage({
         directSpaceId: unassignedId || effectiveSpaceId,
         chatList: chatListRef.current,
       });
-      openPrivateChat(target.spaceId, target.member);
+      void refreshSidebar();
+      openPrivateChat(target.spaceId, target.member, target.threadId);
     }
   };
 
@@ -3499,7 +3585,11 @@ export function CollaborationSpacePage({
     );
   };
 
-  const renderMemberRow = (spaceId: string, member: SpaceMember) => {
+  const renderMemberRow = (
+    spaceId: string,
+    member: SpaceMember,
+    onOpen?: () => void
+  ) => {
     const conversationId = member.conversation_id ?? '';
     const memberKey = previewMemberKey(spaceId, member);
     const tabId = conversationId ? memberPreviewPanelId(conversationId) : '';
@@ -3838,6 +3928,10 @@ export function CollaborationSpacePage({
                           handleToggleMemberDelete(spaceId, conversationId);
                           return;
                         }
+                        if (onOpen) {
+                          onOpen();
+                          return;
+                        }
                         selectMemberForPreview(spaceId, member);
                       }}
                     >
@@ -4026,6 +4120,7 @@ export function CollaborationSpacePage({
   };
 
   const chatList = buildChatList({
+    sidebarItems,
     spaces: visibleSpaces,
     membersBySpace,
     unassignedSpaceId: unassignedId || undefined,
@@ -4048,28 +4143,56 @@ export function CollaborationSpacePage({
       data-testid={`collaboration-direct-chat-${entry.key}`}
       data-chat-type="direct"
     >
-      {renderMemberRow(entry.spaceId, entry.member)}
+      {renderMemberRow(entry.spaceId, entry.member, () =>
+        openPrivateChat(entry.spaceId, entry.member, entry.threadId)
+      )}
+      {renderChatMeta(entry)}
     </div>
   );
 
+  // Last-message preview + unread badge; renders nothing when absent.
+  const renderChatMeta = (entry: ChatListEntry) =>
+    entry.lastPreview || entry.unreadCount ? (
+      <span
+        className="collaboration-chat-meta"
+        data-testid={`collaboration-chat-meta-${entry.key}`}
+      >
+        {entry.lastPreview ? (
+          <span className="collaboration-chat-preview">
+            {entry.lastPreview}
+          </span>
+        ) : null}
+        {entry.unreadCount ? (
+          <span className="collaboration-chat-unread">{entry.unreadCount}</span>
+        ) : null}
+      </span>
+    ) : null;
+
   const renderSpaceGroup = (
     space: Space,
-    options: { isUnassigned?: boolean; isVirtualDefault?: boolean } = {}
+    options: {
+      isUnassigned?: boolean;
+      isVirtualDefault?: boolean;
+      entry?: Extract<ChatListEntry, { type: 'group' }>;
+    } = {}
   ) => {
-    const { isUnassigned = false, isVirtualDefault = false } = options;
+    const { isUnassigned = false, isVirtualDefault = false, entry } = options;
     // Flat chat list: group rows never expand into a member list.
     const open = false;
     // Requirement 1: User ('你') is an invisible member and never appears in the member list
     const rawSpaceMembers = agentRoster(
       isUnassigned
         ? unassignedMembers
-        : (membersBySpace[space.space_id] ?? EMPTY_MEMBERS)
+        : (membersBySpace[space.space_id] ??
+            (entry?.members.length ? entry.members : EMPTY_MEMBERS))
     );
-    const visibleAgentCount = rawSpaceMembers.length;
+    const visibleAgentCount = entry?.memberCount ?? rawSpaceMembers.length;
     const spaceMemberAvatars = rawSpaceMembers.map((member) =>
       getMemberAvatar(member.conversation_id ?? undefined, displayName(member))
     );
-    const tagConfig = spaceTags[space.space_id];
+    const tagConfig =
+      spaceTags[space.space_id] ??
+      (entry?.tagColor ? { colorId: entry.tagColor } : undefined);
     const tagPreset = tagConfig
       ? SPACE_TAG_PRESETS.find((preset) => preset.id === tagConfig.colorId)
       : undefined;
@@ -4260,6 +4383,7 @@ export function CollaborationSpacePage({
                       {visibleAgentCount}
                     </span>
                   </span>
+                  {entry ? renderChatMeta(entry) : null}
                 </button>
                 {hasSpaceHoverActions ? (
                   <div className="collaboration-space-hover-actions">
@@ -5207,10 +5331,10 @@ export function CollaborationSpacePage({
                   <>
                     {chatList.map((entry) =>
                       entry.type === 'group'
-                        ? renderSpaceGroup({
-                            space_id: entry.spaceId,
-                            name: entry.name,
-                          })
+                        ? renderSpaceGroup(
+                            { space_id: entry.spaceId, name: entry.name },
+                            { entry }
+                          )
                         : renderDirectChatRow(entry)
                     )}
                   </>

@@ -383,15 +383,48 @@ describe('resolvePrivateChatTarget', () => {
     ],
   });
 
-  it('uses the private thread id returned by creation first', () => {
+  it('uses direct_thread_id / identity_member_id returned by creation first', () => {
+    const sidebarList = buildChatList({
+      sidebarItems: [
+        {
+          kind: 'dm',
+          thread_id: 'direct:im-7',
+          space_id: 'unassigned:w',
+          member: { member_id: 'im-7', name: '小新', conversation_id: 'c7' },
+        },
+      ],
+      spaces: [],
+      membersBySpace: {},
+    });
     const target = resolvePrivateChatTarget({
-      created: { member_id: 'm1', private_thread_id: 't-9' },
+      created: {
+        identity_member_id: 'im-7',
+        direct_thread_id: 'direct:im-7',
+        conversation_id: 'c7',
+      },
+      fallbackNickname: '小新',
+      directSpaceId: 'x',
+      chatList: sidebarList,
+    });
+    expect(target).toMatchObject({
+      spaceId: 'unassigned:w',
+      threadId: 'direct:im-7',
+      member: { member_id: 'im-7' },
+    });
+  });
+
+  it('derives the direct thread from identity_member_id when not listed yet', () => {
+    const target = resolvePrivateChatTarget({
+      created: { identity_member_id: 'im-8' },
       fallbackNickname: '小新',
       directSpaceId: 'unassigned:w',
-      chatList,
+      chatList: [],
     });
-    expect(target.spaceId).toBe('t-9');
-    expect(target.member.member_id).toBe('m1');
+    expect(target).toMatchObject({
+      spaceId: 'unassigned:w',
+      threadId: 'direct:im-8',
+      member: { member_id: 'im-8', nickname: '小新' },
+    });
   });
 
   it('falls back to the member 1:1 chat in the list', () => {
@@ -416,5 +449,75 @@ describe('resolvePrivateChatTarget', () => {
       spaceId: 'unassigned:w',
       member: { nickname: '小新' },
     });
+  });
+});
+
+describe('chatListFromSidebar (thread.listSidebar adapter)', () => {
+  const items = [
+    {
+      kind: 'group',
+      thread_id: 'sp-1',
+      space_id: 'sp-1',
+      name: '设计',
+      tag_color: 'blue',
+      last_message: { id: 9, seq: 9, preview: '好的', origin: 'agent' },
+      last_activity_at: '2026-10-24T10:00:00Z',
+      unread_count: 3,
+      members_preview: [
+        { member_id: 'm1', name: '小A', conversation_id: 'c1' },
+        { member_id: 'm2', name: '小B', conversation_id: 'c2' },
+      ],
+      member_count: 6,
+    },
+    {
+      kind: 'dm',
+      thread_id: 'direct:m1',
+      space_id: 'unassigned:w',
+      name: '小A',
+      tag_color: null,
+      last_message: null,
+      last_activity_at: null,
+      unread_count: 0,
+      member: { member_id: 'm1', name: '小A', conversation_id: 'c1' },
+    },
+  ];
+
+  it('prefers sidebar items and keeps their order', () => {
+    const list = buildChatList({
+      sidebarItems: items,
+      spaces: [{ space_id: 'ignored', name: '忽略' }],
+      membersBySpace: {},
+      unassignedSpaceId: 'unassigned:w',
+    });
+    expect(list.map((e) => [e.type, e.name, e.spaceId, e.threadId])).toEqual([
+      ['group', '设计', 'sp-1', 'sp-1'],
+      ['direct', '小A', 'unassigned:w', 'direct:m1'],
+    ]);
+    const [group, dm] = list;
+    expect(group).toMatchObject({
+      tagColor: 'blue',
+      lastPreview: '好的',
+      unreadCount: 3,
+      memberCount: 6,
+    });
+    expect(
+      group.type === 'group' && group.members.map((m) => m.nickname)
+    ).toEqual(['小A', '小B']);
+    // DMs usually have no last message / unread: nothing to render.
+    expect(dm.lastPreview).toBeUndefined();
+    expect(dm.unreadCount).toBeUndefined();
+    expect(dm.type === 'direct' && dm.member).toMatchObject({
+      member_id: 'm1',
+      conversation_id: 'c1',
+    });
+  });
+
+  it('falls back to local derivation when sidebar items are null', () => {
+    const list = buildChatList({
+      sidebarItems: null,
+      spaces: [{ space_id: 's1', name: '设计' }],
+      membersBySpace: {},
+    });
+    expect(list.map((e) => e.type)).toEqual(['group']);
   });
 });

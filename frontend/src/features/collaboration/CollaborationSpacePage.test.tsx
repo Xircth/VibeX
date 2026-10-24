@@ -364,7 +364,20 @@ describe('CollaborationSpacePage', () => {
     expect(tooltipContentEl?.style.top).toBe('232px');
     await user.unhover(memberAButton);
 
+    // Clicking a private-chat row opens that member's private chat message
+    // area (row selected), not the member session preview.
     await user.click(memberAButton);
+    await waitFor(() => {
+      expect(memberAButton.closest('.is-selected')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('session-preview')).toBeNull();
+
+    // Back in the group, clicking a member's avatar in the message area opens
+    // that member's session preview tab.
+    await user.click(screen.getByRole('button', { name: '设计' }));
+    await user.click(
+      await screen.findByRole('button', { name: '预览 小A 会话' })
+    );
     const preview = await screen.findByTestId('session-preview');
     expect(preview).toHaveTextContent('conv-1');
     expect(preview).toHaveAttribute('data-embedded', 'true');
@@ -378,18 +391,7 @@ describe('CollaborationSpacePage', () => {
         conversationWidthMode: 'workspace',
       })
     );
-
-    // Clicking another member ('小B') opens a second tab in the right Dockview preview bar
-    await user.click(screen.getByRole('button', { name: '小B' }));
-    const previewPane = screen.getByLabelText('预览');
-    expect(within(previewPane).getByText('小A')).toBeTruthy();
-    expect(within(previewPane).getByText('小B')).toBeTruthy();
-
-    // Clicking the member's avatar in the message area also activates that member's session preview tab
-    await user.click(screen.getByRole('button', { name: '预览 小A 会话' }));
-    expect(
-      await within(previewPane).findAllByTestId('session-preview')
-    ).toBeTruthy();
+    expect(screen.getByLabelText('预览')).toBeTruthy();
 
     // Clicking + in top toolbar expands menu with 新建协作空间 and 新建成员
     await user.click(screen.getByRole('button', { name: '新建空间' }));
@@ -1450,6 +1452,94 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(collectionPanel).queryByTestId('collection-item-note-col-1')
     ).toBeNull();
+  });
+
+  it('uses thread.listSidebar when available: unread/preview, markRead on open, tag via thread.update', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                tag_color: null,
+                last_message: { id: 1, seq: 1, preview: '最新进展' },
+                last_activity_at: '2026-10-24T10:00:00Z',
+                unread_count: 2,
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 2,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: null,
+                unread_count: 0,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead' || method === 'thread.update') {
+          return {};
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    const groupMeta = await screen.findByTestId(
+      'collaboration-chat-meta-group:s1'
+    );
+    expect(groupMeta).toHaveTextContent('最新进展');
+    expect(groupMeta).toHaveTextContent('2');
+    // DM rows with no last message / unread render no meta at all.
+    expect(
+      screen.queryByTestId('collaboration-chat-meta-direct:direct:mem-a')
+    ).toBeNull();
+    expect(document.querySelectorAll('[data-chat-type="direct"]')).toHaveLength(
+      1
+    );
+
+    await user.click(screen.getByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.markRead',
+        { threadId: 'direct:mem-a' }
+      );
+    });
+    expect(screen.queryByTestId('session-preview')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '标签 设计' }));
+    await user.click(await screen.findByRole('button', { name: '蓝色' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'thread.update',
+        expect.objectContaining({ spaceId: 's1' })
+      );
+    });
   });
 
   it('updates member avatar status indicator dots in real time on turn lifecycle events', async () => {

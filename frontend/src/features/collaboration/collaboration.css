@@ -2665,3 +2665,31 @@ body.is-dragging-collaboration-member * {
   height: 1.5rem;
   flex: 0 0 auto;
 }
+
+/* thread.listSidebar extras: last message preview + unread count. */
+.collaboration-chat-meta {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.collaboration-chat-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collaboration-chat-unread {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}

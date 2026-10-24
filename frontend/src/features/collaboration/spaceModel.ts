@@ -698,15 +698,15 @@ export function isPrivateChatKind(kind: string | null | undefined): boolean {
 }
 
 export type ChatListEntry =
-  | {
+  | ({
       type: 'group';
       key: string;
       spaceId: string;
       name: string;
       /** Non-user agent members in display order (all; avatar shows first 4). */
       members: SpaceMember[];
-    }
-  | {
+    } & ChatListMeta)
+  | ({
       type: 'direct';
       key: string;
       /** Space the 1:1 chat lives in (a 1-agent space or the unassigned space). */
@@ -715,7 +715,99 @@ export type ChatListEntry =
       member: SpaceMember;
       /** True when this comes from a real space with exactly one agent. */
       fromSpace: boolean;
+    } & ChatListMeta);
+
+/** Extra row data only the `thread.listSidebar` endpoint provides. */
+export type ChatListMeta = {
+  threadId?: string;
+  tagColor?: string;
+  /** Preview text of the last message; absent means render nothing. */
+  lastPreview?: string;
+  lastActivityAt?: string;
+  unreadCount?: number;
+  /** Total non-user members (groups), when known. */
+  memberCount?: number;
+};
+
+/** Member shape returned by `thread.listSidebar` / `member.list`. */
+export type SidebarMember = {
+  member_id: string;
+  name?: string;
+  avatar?: unknown;
+  color?: string;
+  conversation_id?: string | null;
+  agent?: string;
+};
+
+export type SidebarItem = {
+  kind: string;
+  thread_id: string;
+  space_id?: string | null;
+  name?: string;
+  tag_color?: string | null;
+  last_message?: {
+    id?: string | number;
+    seq?: number;
+    preview?: string;
+    origin?: string;
+    created_at?: string;
+  } | null;
+  last_activity_at?: string | null;
+  unread_count?: number;
+  members_preview?: SidebarMember[];
+  member_count?: number;
+  member?: SidebarMember | null;
+};
+
+export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
+  return {
+    kind: 'agent',
+    member_id: member.member_id,
+    nickname: member.name,
+    conversation_id: member.conversation_id ?? undefined,
+  };
+}
+
+/** Map `thread.listSidebar` items (already sorted by activity) to list rows. */
+export function chatListFromSidebar(
+  items: readonly SidebarItem[],
+  unassignedSpaceId?: string
+): ChatListEntry[] {
+  const entries: ChatListEntry[] = [];
+  for (const item of items) {
+    const meta: ChatListMeta = {
+      threadId: item.thread_id,
+      tagColor: item.tag_color || undefined,
+      lastPreview: item.last_message?.preview || undefined,
+      lastActivityAt: item.last_activity_at || undefined,
+      unreadCount: item.unread_count || undefined,
     };
+    if (isPrivateChatKind(item.kind)) {
+      if (!item.member) continue;
+      entries.push({
+        type: 'direct',
+        key: `direct:${item.thread_id}`,
+        spaceId: item.space_id || unassignedSpaceId || item.thread_id,
+        name: item.member.name || item.name || '',
+        member: sidebarMemberToSpaceMember(item.member),
+        fromSpace: false,
+        ...meta,
+      });
+    } else {
+      entries.push({
+        type: 'group',
+        key: `group:${item.thread_id}`,
+        // Group messages/posts address the thread id as the space id.
+        spaceId: item.thread_id,
+        name: item.name || '',
+        members: (item.members_preview ?? []).map(sidebarMemberToSpaceMember),
+        memberCount: item.member_count,
+        ...meta,
+      });
+    }
+  }
+  return entries;
+}
 
 /**
  * Single data adapter for the left chat list. Today it derives entries from
@@ -728,11 +820,16 @@ export type ChatListEntry =
  * are each their own private chat.
  */
 export function buildChatList(input: {
+  /** `thread.listSidebar` items; when present they win over derivation. */
+  sidebarItems?: readonly SidebarItem[] | null;
   spaces: readonly ChatListSpace[];
   membersBySpace: Readonly<Record<string, readonly SpaceMember[] | undefined>>;
   unassignedSpaceId?: string;
   unassignedMembers?: readonly SpaceMember[];
 }): ChatListEntry[] {
+  if (input.sidebarItems) {
+    return chatListFromSidebar(input.sidebarItems, input.unassignedSpaceId);
+  }
   const entries: ChatListEntry[] = [];
   for (const space of input.spaces) {
     const roster = agentRoster([
@@ -785,8 +882,11 @@ export function buildChatList(input: {
 export function resolvePrivateChatTarget(input: {
   created:
     | {
-        member_id?: string;
+        identity_member_id?: string;
+        direct_thread_id?: string;
         conversation_id?: string;
+        /** Legacy fields. */
+        member_id?: string;
         nickname?: string;
         private_thread_id?: string;
         private_conversation_id?: string;
@@ -796,27 +896,40 @@ export function resolvePrivateChatTarget(input: {
   fallbackNickname: string;
   directSpaceId: string;
   chatList: readonly ChatListEntry[];
-}): { spaceId: string; member: SpaceMember } {
+}): { spaceId: string; member: SpaceMember; threadId?: string } {
   const created = input.created ?? {};
   const conversationId =
-    created.private_conversation_id || created.conversation_id || undefined;
+    created.conversation_id || created.private_conversation_id || undefined;
+  const memberId = created.identity_member_id || created.member_id;
+  const threadId =
+    created.direct_thread_id ||
+    created.private_thread_id ||
+    (created.identity_member_id
+      ? `direct:${created.identity_member_id}`
+      : undefined);
   const member: SpaceMember = {
     kind: 'agent',
-    member_id: created.member_id,
+    member_id: memberId,
     nickname: created.nickname || input.fallbackNickname,
     conversation_id: conversationId,
   };
-  if (created.private_thread_id) {
-    return { spaceId: created.private_thread_id, member };
-  }
-  const found = input.chatList.find(
-    (entry) =>
-      entry.type === 'direct' &&
-      ((created.member_id && entry.member.member_id === created.member_id) ||
-        (conversationId && entry.member.conversation_id === conversationId))
+  const directRows = input.chatList.filter(
+    (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
+      entry.type === 'direct'
   );
-  if (found && found.type === 'direct') {
-    return { spaceId: found.spaceId, member: found.member };
+  const found =
+    (threadId && directRows.find((entry) => entry.threadId === threadId)) ||
+    directRows.find(
+      (entry) =>
+        (memberId && entry.member.member_id === memberId) ||
+        (conversationId && entry.member.conversation_id === conversationId)
+    );
+  if (found) {
+    return {
+      spaceId: found.spaceId,
+      member: found.member,
+      threadId: found.threadId ?? threadId,
+    };
   }
-  return { spaceId: input.directSpaceId, member };
+  return { spaceId: input.directSpaceId, member, threadId };
 }

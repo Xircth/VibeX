@@ -2628,30 +2628,19 @@ body.is-dragging-collaboration-member * {
   display: inline-block;
   flex: 0 0 auto;
   border-radius: 30%;
-  background-color: hsl(220 14% 94%);
-  box-shadow: inset 0 0 0 1px hsl(220 13% 86% / 0.9);
+  /* Untagged: no border, no background — just the stacked members. */
+  background: transparent;
 }
 
-.dark .collaboration-group-avatar {
-  background-color: hsl(220 8% 20%);
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.06);
-}
-
+/* Tagged: a ring in the tag colour, still no background fill. */
 .collaboration-group-avatar.has-tag {
-  box-shadow:
-    0 0 0 1.5px var(--group-avatar-tag),
-    inset 0 0 0 1px hsl(0 0% 100% / 0.4);
-}
-
-.dark .collaboration-group-avatar.has-tag {
-  box-shadow:
-    0 0 0 1.5px var(--group-avatar-tag),
-    inset 0 0 0 1px hsl(0 0% 100% / 0.06);
+  box-shadow: 0 0 0 1.5px var(--group-avatar-tag);
 }
 
 .collaboration-group-avatar-slot {
   position: absolute;
   display: block;
+  transform-origin: 50% 50%;
 }
 
 .collaboration-group-avatar-img {

@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { GroupAvatar, GROUP_AVATAR_LAYOUTS } from './GroupAvatar';
+import {
+  GroupAvatar,
+  GROUP_AVATAR_LAYOUTS,
+  GROUP_AVATAR_TILT_DEG,
+} from './GroupAvatar';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 const avatars = (n: number) =>
@@ -50,5 +54,18 @@ describe('GroupAvatar', () => {
     expect(root.querySelectorAll('[stroke="#ffffff"]').length).toBeGreaterThan(
       0
     );
+  });
+});
+
+describe('GroupAvatar tilt', () => {
+  it('rotates each member body clockwise toward the upper right', () => {
+    render(<GroupAvatar avatars={avatars(4)} />);
+    for (const slot of screen.getAllByTestId(
+      'collaboration-group-avatar-slot'
+    )) {
+      expect(slot.style.transform).toBe(`rotate(${GROUP_AVATAR_TILT_DEG}deg)`);
+    }
+    expect(GROUP_AVATAR_TILT_DEG).toBeGreaterThanOrEqual(15);
+    expect(GROUP_AVATAR_TILT_DEG).toBeLessThanOrEqual(25);
   });
 });

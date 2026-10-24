@@ -198,6 +198,7 @@ import {
   directThreadIdFor,
   reconcilePendingDirectMessages,
   type PendingDirectMessage,
+  memberTabTitle,
 } from './spaceModel';
 import {
   MemberBotAvatar,
@@ -1992,6 +1993,28 @@ export function CollaborationSpacePage({
     openMemberPreview(spaceId, member, conversationId);
   };
 
+  // The chat a member tab is opened from: its `kind` decides the tab title.
+  const memberTabThread = (
+    spaceId: string | undefined
+  ): { kind?: string | null; name?: string | null } | undefined => {
+    if (!spaceId) return undefined;
+    if (activeDirectThreadId) {
+      const direct = sidebarItems?.find(
+        (item) => item.thread_id === activeDirectThreadId
+      );
+      return direct ?? { kind: 'direct' };
+    }
+    const item = sidebarItems?.find(
+      (candidate) =>
+        candidate.thread_id === spaceId ||
+        (candidate.kind === 'group' && candidate.space_id === spaceId)
+    );
+    if (item) return item;
+    return spaces.find((space) => space.space_id === spaceId);
+  };
+  const memberTabTitleFor = (spaceId: string | undefined, name: string) =>
+    memberTabTitle(name, memberTabThread(spaceId));
+
   const openMemberPreview = (
     spaceId: string,
     member: SpaceMember,
@@ -2003,7 +2026,7 @@ export function CollaborationSpacePage({
     openPreviewItem({
       id: memberPreviewPanelId(conversationId),
       kind: 'member',
-      title: displayName(member),
+      title: memberTabTitleFor(spaceId, displayName(member)),
       workspaceId: workspace,
       conversationId,
       ...(agentId ? { agentId: String(agentId) } : {}),
@@ -2556,12 +2579,19 @@ export function CollaborationSpacePage({
     setRenameOpen(false);
     setRenameOperationId(crypto.randomUUID());
     const tabId = memberPreviewPanelId(renameConversationId);
+    const nextTitle = memberTabTitleFor(
+      (() => {
+        const tab = previewTabs.find((item) => item.id === tabId);
+        return tab && 'spaceId' in tab ? tab.spaceId : renameSpaceId;
+      })(),
+      nextNickname
+    );
     setPreviewTabs((current) =>
       current.map((item) =>
-        item.id === tabId ? { ...item, title: nextNickname } : item
+        item.id === tabId ? { ...item, title: nextTitle } : item
       )
     );
-    previewDockviewApiRef.current?.getPanel(tabId)?.api.setTitle(nextNickname);
+    previewDockviewApiRef.current?.getPanel(tabId)?.api.setTitle(nextTitle);
     const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
       'collaboration',
       'space.listMembers',
@@ -5882,7 +5912,10 @@ export function CollaborationSpacePage({
                                     authorConversationId
                                   ),
                                   kind: 'member',
-                                  title: name,
+                                  title: memberTabTitleFor(
+                                    selected.space_id,
+                                    name
+                                  ),
                                   workspaceId: workspace,
                                   conversationId: authorConversationId,
                                   ...(agentId ? { agentId } : {}),

@@ -1542,6 +1542,51 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('titles a member tab opened from a group chat "<group> · <member>"', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'member.session.resolve') return {};
+        if (method === 'thread.markRead') return {};
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '设计' }));
+    await user.click(
+      await screen.findByRole('button', { name: '预览 小A 会话' })
+    );
+    await screen.findByTestId('session-preview');
+    expect((await screen.findAllByText('设计 · 小A')).length).toBeGreaterThan(
+      0
+    );
+  });
+
   it('private chat uses direct:<id> listMessages/post/markRead, shows queued message optimistically and reconciles', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();

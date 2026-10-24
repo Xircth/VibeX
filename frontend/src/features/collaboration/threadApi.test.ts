@@ -4,6 +4,7 @@ import {
   loadSidebarItems,
   postDirectMessage,
   markThreadRead,
+  markThreadUnread,
   resolveMemberSession,
   updateThreadTagColor,
   type CollaborationCaller,
@@ -143,5 +144,23 @@ describe('threadApi', () => {
       threadId: 'direct:m1',
       seq: 7,
     });
+  });
+
+  it('marks threads unread with the same thread/space targeting as markRead', async () => {
+    const call = caller(() => ({}));
+    await markThreadUnread(call, 'direct:m1');
+    await markThreadUnread(call, 'sp-1');
+    expect(call).toHaveBeenNthCalledWith(
+      1,
+      'collaboration',
+      'thread.markUnread',
+      { threadId: 'direct:m1' }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      2,
+      'collaboration',
+      'thread.markUnread',
+      { spaceId: 'sp-1' }
+    );
   });
 });

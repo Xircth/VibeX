@@ -255,6 +255,14 @@ impl CollaborationHost for HostCollaborationHost {
                     .map_err(host_error)?;
                 Ok(json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }))
             }
+            ("collaboration", "thread.markUnread" | "thread.mark_unread") => {
+                let thread_id =
+                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+                let last_read_seq = sidebar::mark_thread_unread(&self.pool, &thread_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }))
+            }
             ("collaboration", "thread.update" | "space.setTagColor" | "space.set_tag_color") => {
                 let space_id =
                     required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
@@ -3114,6 +3122,12 @@ mod tests {
         call(&host, "thread.markRead", json!({ "threadId": thread })).await;
         let all_read = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
         assert_eq!(all_read["unread_count"], json!(0));
+        call(&host, "thread.markUnread", json!({ "threadId": thread })).await;
+        let unread_again = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert!(
+            unread_again["unread_count"].as_i64().unwrap() > 0,
+            "markUnread must restore an unread badge"
+        );
 
         // space.listMessages with spaceId = direct:<id> reads the DM conversation.
         let listed = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;

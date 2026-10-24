@@ -71,8 +71,16 @@ describe('collaboration space model', () => {
     expect(COPY.newRole).toBe('新建角色');
     expect(COPY.emptySpaces).toBe('还没有协作空间');
     expect(COPY.newSpace).toBe('新建空间');
-    expect(COPY.newSpaceButton).toBe('新建协作空间');
+    expect(COPY.newSpaceButton).toBe('创建群聊');
     expect(COPY.newMemberButton).toBe('新建助手');
+    expect(COPY.createAssistantButton).toBe('创建助手');
+    expect(COPY.createContactGroupButton).toBe('新建分组');
+    expect(COPY.globalSearchPlaceholder).toBe('搜索');
+    expect(COPY.filterByName).toBe('按名称');
+    expect(COPY.filterByType).toBe('按类型');
+    expect(COPY.filterTypeGroup).toBe('群聊');
+    expect(COPY.filterTypeAssistant).toBe('助手');
+    expect(COPY.filterByActiveTime).toBe('按活跃时间');
     expect(COPY.newMemberFromSessionButton).toBe('从会话新建助手');
     expect(COPY.defaultSpaceName).toBe('默认空间');
     expect(COPY.unassignedSpaceName).toBe('未定空间');

@@ -74,6 +74,21 @@ describe('collaboration contact row chrome', () => {
     expect(hiddenMeta.display).toBeUndefined();
   });
 
+  it('paints the left contact pane with the shell gray', () => {
+    const pane = declarationsFor('.collaboration-pane');
+    expect(pane.background?.value).toBe('var(--surface-topbar)');
+  });
+
+  it('leaves the contact search field chrome to the shared Input', () => {
+    const input = declarationsFor(
+      '.collaboration-global-search-header .collaboration-global-search-input'
+    );
+    expect(input.border).toBeUndefined();
+    expect(input.background).toBeUndefined();
+    expect(input['box-shadow']).toBeUndefined();
+    expect(input.flex?.value).toBe('1 1 0%');
+  });
+
   it('keeps member and group contact rows on the same outer box', () => {
     const rows = declarationsFor(
       '.collaboration-shell .collaboration-member-row, .collaboration-shell .collaboration-space-row'

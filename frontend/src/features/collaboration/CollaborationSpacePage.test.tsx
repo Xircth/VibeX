@@ -327,7 +327,7 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByTestId('file-preview')).toBeTruthy();
 
     // When spaces exist, the 2 empty-state buttons in the left list body are not shown
-    expect(screen.queryByRole('button', { name: '新建协作空间' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '创建群聊' })).toBeNull();
 
     // User ('你') is invisible and never shown in the collaboration space member list
     expect(screen.queryByRole('button', { name: '你' })).toBeNull();
@@ -416,12 +416,13 @@ describe('CollaborationSpacePage', () => {
     );
     expect(screen.getByLabelText('预览')).toBeTruthy();
 
-    // Clicking + in top toolbar expands menu with 新建协作空间 and 新建助手
+    // Clicking + in top toolbar expands menu with 创建群聊 / 创建助手 / 新建分组
     await user.click(screen.getByRole('button', { name: '新建空间' }));
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
-      name: '新建协作空间',
+      name: '创建群聊',
     });
-    expect(screen.getByRole('menuitem', { name: '新建助手' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '创建助手' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '新建分组' })).toBeTruthy();
     await user.click(createSpaceMenuItem);
 
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
@@ -783,16 +784,58 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByRole('button', { name: '小A' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: '小B' })).toBeTruthy();
 
-    // Filter by Agent using project standard DropdownMenu combobox
-    await user.click(screen.getByRole('button', { name: '筛选' }));
-    const agentSelect = await screen.findByRole('combobox', {
-      name: '按 Agent',
-    });
-    await user.click(agentSelect);
-    await user.click(await screen.findByRole('menuitem', { name: 'Codex' }));
-    expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
+    const searchBtn = screen.getByTestId('collaboration-global-search-button');
+    await user.click(searchBtn);
+    const searchModal = await screen.findByTestId(
+      'collaboration-global-search-modal'
+    );
+    expect(searchModal).toBeVisible();
+    const searchInput = within(searchModal).getByTestId(
+      'collaboration-global-search-input'
+    );
+    expect(searchInput.tagName).toBe('INPUT');
+    expect(searchInput.className).toContain(
+      'border-[var(--color-border-emphasized'
+    );
+    expect(
+      within(searchModal).getByTestId('collaboration-global-search-item-小A')
+    ).toBeTruthy();
+    expect(
+      within(searchModal).getByTestId('collaboration-global-search-item-设计')
+    ).toHaveTextContent('小A, 小B');
+    await user.type(searchInput, '小B');
+    expect(
+      within(searchModal).queryByTestId('collaboration-global-search-item-小A')
+    ).toBeNull();
+    expect(
+      within(searchModal).getByTestId('collaboration-global-search-item-小B')
+    ).toBeTruthy();
+    await user.keyboard('{Escape}');
+    expect(
+      screen.queryByTestId('collaboration-global-search-modal')
+    ).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: '重置筛选' }));
+    await user.click(screen.getByRole('button', { name: '筛选' }));
+    expect(
+      await screen.findByTestId('collaboration-filter-name')
+    ).toHaveTextContent('按名称');
+    expect(screen.getByTestId('collaboration-filter-type')).toHaveTextContent(
+      '按类型 · 群聊'
+    );
+    expect(
+      screen.getByTestId('collaboration-filter-activity')
+    ).toHaveTextContent('按活跃时间');
+    await user.click(screen.getByTestId('collaboration-filter-type'));
+    expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '小A' })).toBeNull();
+    await user.click(screen.getByTestId('collaboration-filter-type'));
+    expect(screen.getByTestId('collaboration-filter-type')).toHaveTextContent(
+      '按类型 · 助手'
+    );
+    expect(screen.queryByRole('button', { name: '设计' })).toBeNull();
+    expect(screen.getByRole('button', { name: '小A' })).toBeTruthy();
+    await user.click(screen.getByTestId('collaboration-filter-activity'));
+    expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
 
     // Group rows never expand into a member list or a collapsed stack
     await user.click(screen.getByRole('button', { name: '设计' }));
@@ -947,7 +990,7 @@ describe('CollaborationSpacePage', () => {
       name: '添加助手',
     });
     const emptyStateCreateSpaceBtn = screen.getByRole('button', {
-      name: '新建协作空间',
+      name: '创建群聊',
     });
 
     // Test unified 新建助手 overlay inside message area (基于角色 / 基于会话 / 自定义, without 归属团队)
@@ -1003,9 +1046,7 @@ describe('CollaborationSpacePage', () => {
 
     // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加助手 dialog with 选择助手 / 新建助手 tabs
     await user.click(screen.getByRole('button', { name: '新建空间' }));
-    await user.click(
-      await screen.findByRole('menuitem', { name: '新建协作空间' })
-    );
+    await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
     const spaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });
@@ -1110,7 +1151,7 @@ describe('CollaborationSpacePage', () => {
     );
     // Once a space is created and opened, composer is rendered and the 2 empty-state buttons disappear
     expect(await screen.findByTestId('session-composer-editor')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '新建协作空间' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '创建群聊' })).toBeNull();
     unmount();
 
     collaborationCall.mockImplementation(
@@ -2001,8 +2042,11 @@ describe('CollaborationSpacePage', () => {
       expect(
         document.querySelector('.collaboration-contact-section')
       ).toBeNull();
+      await userEvent
+        .setup()
+        .click(screen.getByRole('button', { name: '新建空间' }));
       expect(
-        screen.getByTestId('collaboration-new-contact-group')
+        await screen.findByRole('menuitem', { name: '新建分组' })
       ).toBeInTheDocument();
     });
 
@@ -2029,6 +2073,18 @@ describe('CollaborationSpacePage', () => {
         'collaboration-contact-section-g1'
       );
 
+      fireEvent.contextMenu(
+        screen.getByTestId('collaboration-contact-row-group:s1')
+      );
+      expect(
+        await screen.findByRole('menuitem', { name: '重命名群组' })
+      ).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '置顶' })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '删除' })).toHaveClass(
+        'text-destructive'
+      );
+      fireEvent.keyDown(window, { key: 'Escape' });
+
       // Collapse persists locally.
       await user.click(
         screen.getByTestId('collaboration-contact-section-header-g1')
@@ -2049,12 +2105,9 @@ describe('CollaborationSpacePage', () => {
       fireEvent.contextMenu(
         screen.getByTestId('collaboration-contact-row-direct:direct:mem-a')
       );
-      await user.click(
-        await screen.findByTestId('collaboration-contact-menu-move')
-      );
-      fireEvent.click(
-        await screen.findByTestId('collaboration-contact-menu-move-g2')
-      );
+      const moveItem = await screen.findByRole('menuitem', { name: '移至' });
+      fireEvent.mouseEnter(moveItem);
+      await user.click(await screen.findByRole('menuitem', { name: '外部' }));
       await waitFor(() =>
         expect(collaborationCall).toHaveBeenCalledWith(
           'collaboration',
@@ -2097,7 +2150,7 @@ describe('CollaborationSpacePage', () => {
         screen.getByTestId('collaboration-contact-section-header-g1')
       );
       await user.click(
-        await screen.findByTestId('collaboration-contact-menu-delete')
+        await screen.findByRole('menuitem', { name: '删除分组' })
       );
       await waitFor(() =>
         expect(
@@ -2118,11 +2171,15 @@ describe('CollaborationSpacePage', () => {
       const user = userEvent.setup();
       mockGroups([]);
       renderPage();
+      await screen.findByTestId(
+        'collaboration-direct-chat-direct:direct:mem-a'
+      );
+      await user.click(screen.getByRole('button', { name: '新建空间' }));
       await user.click(
-        await screen.findByTestId('collaboration-new-contact-group')
+        await screen.findByRole('menuitem', { name: '新建分组' })
       );
       await user.type(
-        screen.getByTestId('collaboration-new-contact-group-input'),
+        await screen.findByTestId('collaboration-new-contact-group-input'),
         '伙伴{Enter}'
       );
       await waitFor(() =>
@@ -2138,6 +2195,74 @@ describe('CollaborationSpacePage', () => {
       expect(
         screen.getByTestId('collaboration-contact-section-__ungrouped__')
       ).toBeInTheDocument();
+    });
+
+    it('offers pin, unread, rename 助手, copy id, hide and delete on a DM row', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      });
+      mockGroups([
+        { group_id: 'g1', name: '核心' },
+        { group_id: 'g2', name: '外部' },
+      ]);
+      renderPage();
+      const row = await screen.findByTestId(
+        'collaboration-contact-row-direct:direct:mem-a'
+      );
+      fireEvent.contextMenu(row);
+      expect(
+        await screen.findByRole('menuitem', { name: '置顶' })
+      ).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '移至' })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '标为未读' })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '重命名助手' })).toBeTruthy();
+      expect(
+        screen.getByRole('menuitem', { name: '复制对话 ID' })
+      ).toBeTruthy();
+      expect(
+        screen.getByRole('menuitem', { name: '从侧边栏隐藏' })
+      ).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: '删除' })).toHaveClass(
+        'text-destructive'
+      );
+
+      await user.click(screen.getByRole('menuitem', { name: '置顶' }));
+      expect(
+        JSON.parse(
+          window.localStorage.getItem(
+            'vibex.collaboration.contactChrome.workspace-1'
+          ) ?? '{}'
+        ).pinned
+      ).toEqual(['direct:mem-a']);
+
+      fireEvent.contextMenu(row);
+      await user.click(screen.getByRole('menuitem', { name: '复制对话 ID' }));
+      expect(writeText).toHaveBeenCalledWith('conv-1');
+
+      fireEvent.contextMenu(row);
+      await user.click(screen.getByRole('menuitem', { name: '标为未读' }));
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'thread.markUnread',
+          { threadId: 'direct:mem-a' }
+        )
+      );
+
+      fireEvent.contextMenu(row);
+      await user.click(screen.getByRole('menuitem', { name: '从侧边栏隐藏' }));
+      expect(
+        screen.getByTestId('collaboration-contact-section-hidden')
+      ).toBeTruthy();
+      fireEvent.contextMenu(
+        screen.getByTestId('collaboration-contact-row-direct:direct:mem-a')
+      );
+      expect(
+        screen.getByRole('menuitem', { name: '在侧边栏显示' })
+      ).toBeTruthy();
     });
   });
 

@@ -29,6 +29,7 @@ import {
   parseMemberSelectionKey,
   type SpaceMember,
   buildChatList,
+  resolvePrivateChatTarget,
 } from './spaceModel';
 
 const members: SpaceMember[] = [
@@ -344,5 +345,76 @@ describe('buildChatList', () => {
     expect(
       group.type === 'group' && group.members.map((m) => m.nickname)
     ).toEqual(['小A', '小B']);
+  });
+
+  it('prefers an explicit space kind over the member-count heuristic', () => {
+    const list = buildChatList({
+      spaces: [
+        { space_id: 'g1', name: '单人群', kind: 'group' },
+        { space_id: 'd1', name: 'dm', kind: 'dm' },
+        { space_id: 'd2', name: 'direct', kind: 'direct' },
+      ],
+      membersBySpace: {
+        g1: [agent('a', '小A'), user],
+        d1: [agent('b', '小B'), user],
+        d2: [agent('c', '小C'), user],
+      },
+    });
+    expect(list.map((e) => [e.type, e.name])).toEqual([
+      ['group', '单人群'],
+      ['direct', '小B'],
+      ['direct', '小C'],
+    ]);
+  });
+});
+
+describe('resolvePrivateChatTarget', () => {
+  const chatList = buildChatList({
+    spaces: [],
+    membersBySpace: {},
+    unassignedSpaceId: 'unassigned:w',
+    unassignedMembers: [
+      {
+        member_id: 'm1',
+        nickname: '小新',
+        kind: 'agent',
+        conversation_id: 'c1',
+      },
+    ],
+  });
+
+  it('uses the private thread id returned by creation first', () => {
+    const target = resolvePrivateChatTarget({
+      created: { member_id: 'm1', private_thread_id: 't-9' },
+      fallbackNickname: '小新',
+      directSpaceId: 'unassigned:w',
+      chatList,
+    });
+    expect(target.spaceId).toBe('t-9');
+    expect(target.member.member_id).toBe('m1');
+  });
+
+  it('falls back to the member 1:1 chat in the list', () => {
+    const target = resolvePrivateChatTarget({
+      created: { private_conversation_id: 'c1' },
+      fallbackNickname: '小新',
+      directSpaceId: 'x',
+      chatList,
+    });
+    expect(target.spaceId).toBe('unassigned:w');
+    expect(target.member.member_id).toBe('m1');
+  });
+
+  it('falls back to the direct space when nothing matches', () => {
+    const target = resolvePrivateChatTarget({
+      created: null,
+      fallbackNickname: '小新',
+      directSpaceId: 'unassigned:w',
+      chatList: [],
+    });
+    expect(target).toMatchObject({
+      spaceId: 'unassigned:w',
+      member: { nickname: '小新' },
+    });
   });
 });

@@ -184,6 +184,7 @@ import {
   type SpaceMember,
   type SpaceTagConfig,
   buildChatList,
+  resolvePrivateChatTarget,
   type ChatListEntry,
 } from './spaceModel';
 import {
@@ -220,7 +221,7 @@ if (
   ).ResizeObserver = FallbackResizeObserver;
 }
 
-type Space = { space_id: string; name: string };
+type Space = { space_id: string; name: string; kind?: string };
 type SpaceMessage = {
   seq: number;
   envelope: {
@@ -740,6 +741,7 @@ export function CollaborationSpacePage({
   const messagesRef = useRef<SpaceMessage[]>([]);
   messagesRef.current = messages;
   const [selectedMemberKey, setSelectedMemberKey] = useState('');
+  const chatListRef = useRef<ChatListEntry[]>([]);
   const [previewTabs, setPreviewTabs] = useState<PreviewTabItem[]>([]);
   const [activePreviewTabId, setActivePreviewTabId] = useState('');
   const previewTabsRef = useRef<PreviewTabItem[]>([]);
@@ -1796,6 +1798,16 @@ export function CollaborationSpacePage({
     markSpaceInReviewMembersViewed(spaceId);
   };
 
+  // Select a member's private (1:1) chat in the flat list and show the chat
+  // message area. Never opens a member session or session tab.
+  const openPrivateChat = (spaceId: string, member: SpaceMember) => {
+    closeAllOverlays();
+    pendingViewedSpaceIdRef.current = spaceId;
+    setSelectedId(spaceId);
+    setSelectedMemberKey(previewMemberKey(spaceId, member));
+    setThreadVisible(true);
+  };
+
   const selectMemberForPreview = (spaceId: string, member: SpaceMember) => {
     if (spaces.some((item) => item.space_id === spaceId)) {
       setSelectedId(spaceId);
@@ -1884,6 +1896,8 @@ export function CollaborationSpacePage({
       member_id?: string;
       conversation_id?: string;
       nickname?: string;
+      private_thread_id?: string;
+      private_conversation_id?: string;
     }>('collaboration', 'space.createMember', {
       workspaceId: workspace,
       spaceId: params.spaceId,
@@ -2023,32 +2037,20 @@ export function CollaborationSpacePage({
 
     if (createdSpaceId && selectedSpaceMemberConvIds.size > 0) {
       const usedNames = new Set(allExistingNicknames);
-      const unassignedList = membersBySpace[unassignedId] ?? [];
       for (const convId of selectedSpaceMemberConvIds) {
         const draftMeta = draftMemberMetaByConvId[convId];
         const existingNick =
           draftMeta?.nickname || memberNicknameByConversationId.get(convId);
         const nick = existingNick || randomEnglishNickname(usedNames);
         usedNames.add(nick);
-        const isUnassigned = unassignedList.some(
-          (item) => item.conversation_id === convId
-        );
-        if (isUnassigned && unassignedId) {
-          await collaborationCall('collaboration', 'space.moveMember', {
-            fromSpaceId: unassignedId,
-            toSpaceId: createdSpaceId,
-            conversationId: convId,
-            nickname: nick,
-            operationId: crypto.randomUUID(),
-          });
-        } else {
-          await collaborationCall('collaboration', 'space.addMember', {
-            spaceId: createdSpaceId,
-            conversationId: convId,
-            nickname: nick,
-            operationId: crypto.randomUUID(),
-          });
-        }
+        // Joining a group keeps the member's private chat: the backend
+        // creates a separate group session for the new seat.
+        await collaborationCall('collaboration', 'space.addMember', {
+          spaceId: createdSpaceId,
+          conversationId: convId,
+          nickname: nick,
+          operationId: crypto.randomUUID(),
+        });
       }
     }
 
@@ -2119,7 +2121,16 @@ export function CollaborationSpacePage({
       setCreateMemberOpen(false);
       await loadConversations();
       await reloadSpaceMembers(targetSpaceId);
-      setExpanded((current) => ({ ...current, [targetSpaceId]: true }));
+      if (unassignedId && unassignedId !== targetSpaceId) {
+        await reloadSpaceMembers(unassignedId);
+      }
+      const target = resolvePrivateChatTarget({
+        created: { conversation_id: newMemberSessionId },
+        fallbackNickname: trimmedNickname,
+        directSpaceId: unassignedId || targetSpaceId,
+        chatList: chatListRef.current,
+      });
+      openPrivateChat(target.spaceId, target.member);
       return;
     }
 
@@ -2132,7 +2143,7 @@ export function CollaborationSpacePage({
         ? createMemberSpaceId
         : '';
 
-    const { created, resolvedAgentId } = await requestCreateMemberSession({
+    const { created } = await requestCreateMemberSession({
       spaceId: targetSpaceId,
       nickname: trimmedNickname,
       source: newMemberSource,
@@ -2161,22 +2172,23 @@ export function CollaborationSpacePage({
     await loadConversations();
     if (effectiveSpaceId) {
       await reloadSpaceMembers(effectiveSpaceId);
-      setExpanded((current) => ({ ...current, [effectiveSpaceId]: true }));
+    }
+    if (unassignedId && unassignedId !== effectiveSpaceId) {
+      await reloadSpaceMembers(unassignedId);
     }
     if (created?.conversation_id) {
-      openPreviewItem({
-        id: memberPreviewPanelId(created.conversation_id),
-        kind: 'member',
-        title: created.nickname || trimmedNickname,
-        workspaceId: workspace,
-        conversationId: created.conversation_id,
-        ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
-        spaceId: effectiveSpaceId,
+      // A member is a session family: land on its private chat, not a session.
+      const target = resolvePrivateChatTarget({
+        created,
+        fallbackNickname: trimmedNickname,
+        directSpaceId: unassignedId || effectiveSpaceId,
+        chatList: chatListRef.current,
       });
+      openPrivateChat(target.spaceId, target.member);
     }
   };
 
-  const moveMemberBetweenSpaces = async (
+  const addMemberToSpace = async (
     fromSpaceId: string,
     toSpaceId: string,
     conversationId: string,
@@ -2185,6 +2197,7 @@ export function CollaborationSpacePage({
     if (!fromSpaceId || !toSpaceId || !conversationId) return;
     if (fromSpaceId === toSpaceId) return;
 
+    // Adding to a group keeps the source seat (the private chat stays).
     setMembersBySpace((current) => {
       const sourceList = current[fromSpaceId] ?? [];
       const targetList = current[toSpaceId] ?? [];
@@ -2194,9 +2207,6 @@ export function CollaborationSpacePage({
       if (!moving) return current;
       return {
         ...current,
-        [fromSpaceId]: sourceList.filter(
-          (item) => item.conversation_id !== conversationId
-        ),
         [toSpaceId]: targetList.some(
           (item) => item.conversation_id === conversationId
         )
@@ -2252,9 +2262,8 @@ export function CollaborationSpacePage({
         }
       }
 
-      await collaborationCall('collaboration', 'space.moveMember', {
-        fromSpaceId: effectiveFromSpaceId,
-        toSpaceId: effectiveToSpaceId,
+      await collaborationCall('collaboration', 'space.addMember', {
+        spaceId: effectiveToSpaceId,
         conversationId,
         ...(fallbackNickname ? { nickname: fallbackNickname } : {}),
         operationId: crypto.randomUUID(),
@@ -3664,7 +3673,7 @@ export function CollaborationSpacePage({
                   suppressNextMemberClickRef.current = false;
                 }, 0);
                 if (finalSpaceId && finalSpaceId !== payload.fromSpaceId) {
-                  void moveMemberBetweenSpaces(
+                  void addMemberToSpace(
                     payload.fromSpaceId,
                     finalSpaceId,
                     payload.conversationId,
@@ -4026,6 +4035,7 @@ export function CollaborationSpacePage({
       ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
       : EMPTY_MEMBERS,
   });
+  chatListRef.current = chatList;
 
   // Private chat: one agent member, rendered with that member's row (avatar,
   // name, last message); clicking opens the member's 1:1 chat.
@@ -4118,7 +4128,7 @@ export function CollaborationSpacePage({
           setDraggingMember(null);
           setPointerDragCursor(null);
           if (payload && payload.fromSpaceId !== space.space_id) {
-            void moveMemberBetweenSpaces(
+            void addMemberToSpace(
               payload.fromSpaceId,
               space.space_id,
               payload.conversationId,

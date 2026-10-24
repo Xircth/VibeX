@@ -686,7 +686,16 @@ export function toggleMemberDeleteSelection(
 
 // ── Flat chat list (groups + private chats) ─────────────────────────────
 
-export type ChatListSpace = { space_id: string; name: string };
+export type ChatListSpace = {
+  space_id: string;
+  name: string;
+  /** Explicit list-item kind from the backend: 'dm' | 'direct' | 'group'. */
+  kind?: string;
+};
+
+export function isPrivateChatKind(kind: string | null | undefined): boolean {
+  return kind === 'dm' || kind === 'direct';
+}
 
 export type ChatListEntry =
   | {
@@ -729,7 +738,11 @@ export function buildChatList(input: {
     const roster = agentRoster([
       ...(input.membersBySpace[space.space_id] ?? []),
     ]);
-    if (roster.length === 1) {
+    // Prefer the backend's explicit kind; fall back to the member-count rule.
+    const isPrivate = space.kind
+      ? isPrivateChatKind(space.kind) && roster.length > 0
+      : roster.length === 1;
+    if (isPrivate) {
       entries.push({
         type: 'direct',
         key: `direct:${space.space_id}`,
@@ -761,4 +774,49 @@ export function buildChatList(input: {
     }
   }
   return entries;
+}
+
+/**
+ * Resolve which private-chat row to select after creating a member. Prefers
+ * the private thread/session id returned by member creation; otherwise finds
+ * the member's 1:1 chat in the list; otherwise synthesises a target in the
+ * direct (unassigned) space.
+ */
+export function resolvePrivateChatTarget(input: {
+  created:
+    | {
+        member_id?: string;
+        conversation_id?: string;
+        nickname?: string;
+        private_thread_id?: string;
+        private_conversation_id?: string;
+      }
+    | null
+    | undefined;
+  fallbackNickname: string;
+  directSpaceId: string;
+  chatList: readonly ChatListEntry[];
+}): { spaceId: string; member: SpaceMember } {
+  const created = input.created ?? {};
+  const conversationId =
+    created.private_conversation_id || created.conversation_id || undefined;
+  const member: SpaceMember = {
+    kind: 'agent',
+    member_id: created.member_id,
+    nickname: created.nickname || input.fallbackNickname,
+    conversation_id: conversationId,
+  };
+  if (created.private_thread_id) {
+    return { spaceId: created.private_thread_id, member };
+  }
+  const found = input.chatList.find(
+    (entry) =>
+      entry.type === 'direct' &&
+      ((created.member_id && entry.member.member_id === created.member_id) ||
+        (conversationId && entry.member.conversation_id === conversationId))
+  );
+  if (found && found.type === 'direct') {
+    return { spaceId: found.spaceId, member: found.member };
+  }
+  return { spaceId: input.directSpaceId, member };
 }

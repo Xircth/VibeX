@@ -692,10 +692,9 @@ describe('CollaborationSpacePage', () => {
     await waitFor(() => {
       expect(collaborationCall).toHaveBeenCalledWith(
         'collaboration',
-        'space.moveMember',
+        'space.addMember',
         expect.objectContaining({
-          fromSpaceId: 'unassigned:workspace-1',
-          toSpaceId: 's1',
+          spaceId: 's1',
           conversationId: 'conv-1',
         })
       );
@@ -967,8 +966,21 @@ describe('CollaborationSpacePage', () => {
       );
     });
 
+    // After creation the member's private chat opens: the empty state is gone
+    // and no member session/preview tab is shown.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('collaboration-empty-member-pill')
+      ).toBeNull();
+    });
+    expect(emptyStateCreateSpaceBtn).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('预览')).toBeNull();
+
     // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加成员 dialog with 选择成员 / 新建成员 tabs
-    await user.click(emptyStateCreateSpaceBtn);
+    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: '新建协作空间' })
+    );
     const spaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });

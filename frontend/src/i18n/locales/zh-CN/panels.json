@@ -680,6 +680,10 @@
     "receiptClaimed": "已认领",
     "receiptFailed": "失败",
     "approvalAlwaysGroup": "本群始终允许",
-    "approvalAlwaysDirect": "此私聊始终允许"
+    "approvalAlwaysDirect": "此私聊始终允许",
+    "searchOpen": "搜索成员或群聊",
+    "searchPlaceholder": "搜索成员或群聊…",
+    "searchEmpty": "没有匹配的成员或群聊",
+    "searchResults": "搜索结果"
   }
 }

@@ -63,6 +63,7 @@ export type ProfileData = {
 
 export type CollaborationWorkspaceViewProps = {
   items: readonly ThreadListItem[];
+  allItems?: readonly ThreadListItem[];
   members: readonly ThreadMember[];
   selectedKey: string | null;
   filter: ThreadFilter;
@@ -378,6 +379,7 @@ export function CollaborationWorkspaceView(
         now={props.now}
         onFilterChange={props.onFilterChange}
         onQueryChange={props.onQueryChange}
+        searchItems={props.allItems}
         onSelect={props.onSelect}
         onTogglePin={props.onTogglePin}
         onNewGroup={() =>

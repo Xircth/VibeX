@@ -10,6 +10,8 @@ import {
   NewMemberDialog,
   TeamTemplateEmptyState,
   type PickerMember,
+  type AgentOption,
+  type NewMemberInput,
   type RoleTemplate,
 } from './CollaborationDialogs';
 import { GroupChat, type GroupMessage, type GroupSeat } from './GroupChat';
@@ -49,11 +51,14 @@ export type PendingCard = {
   resolution?: Record<string, unknown> | null;
 };
 
+import type { MemberSessionConfig } from './MemberSessionConfigSection';
+
 export type ProfileData = {
   activity: ProfileActivity[];
   facts: ProfileFact[];
   writeAccess: WriteAccess;
   agentLabel?: string;
+  sessionConfig?: MemberSessionConfig | null;
 };
 
 export type CollaborationWorkspaceViewProps = {
@@ -88,6 +93,7 @@ export type CollaborationWorkspaceViewProps = {
   profile: ProfileData | null;
   threadNames: ReadonlyMap<string, string>;
   roles: readonly RoleTemplate[];
+  agents: readonly AgentOption[];
   dialogs: { newGroup: boolean; newMember: boolean; migration: boolean };
   bannerVisible: boolean;
   busy?: boolean;
@@ -104,7 +110,7 @@ export type CollaborationWorkspaceViewProps = {
   ) => void;
   onDismissBanner: () => void;
   onCreateGroup: (name: string, memberIds: string[]) => void;
-  onCreateMember: (input: { roleId: string; nickname: string }) => void;
+  onCreateMember: (input: NewMemberInput) => void;
   onCreateTeam: (template: TeamTemplate) => void;
   onSendDirect: (content: string) => void;
   onSendGroup: (content: string, to: string[]) => Promise<void> | void;
@@ -122,6 +128,12 @@ export type CollaborationWorkspaceViewProps = {
   onUpdateFact: (factId: string, content: string) => void;
   onDeleteFact: (factId: string) => void;
   onSetWriteAccess: (value: WriteAccess) => void;
+  onSaveSessionConfig?: (next: {
+    agentId: string;
+    modeId?: string;
+    configValues: Record<string, string>;
+    personaPrompt?: string;
+  }) => void;
 };
 
 function cardView(card: PendingCard) {
@@ -399,6 +411,9 @@ export function CollaborationWorkspaceView(
           onUpdateFact={props.onUpdateFact}
           onDeleteFact={props.onDeleteFact}
           onSetWriteAccess={props.onSetWriteAccess}
+          sessionConfig={profile.sessionConfig}
+          agents={props.agents}
+          onSaveSessionConfig={props.onSaveSessionConfig}
         />
       ) : null}
       {props.error ? (
@@ -415,9 +430,12 @@ export function CollaborationWorkspaceView(
         onNewMember={() => props.onDialogChange('newMember', true)}
       />
       <NewMemberDialog
-        key={props.roles.map((r) => r.id).join(',')}
+        key={`${props.roles.map((r) => r.id).join(',')}|${props.agents
+          .map((a) => a.agent_id)
+          .join(',')}`}
         open={props.dialogs.newMember}
         roles={props.roles}
+        agents={props.agents}
         busy={props.busy}
         onOpenChange={(open) => props.onDialogChange('newMember', open)}
         onCreate={props.onCreateMember}

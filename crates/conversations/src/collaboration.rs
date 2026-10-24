@@ -2611,6 +2611,22 @@ pub async fn host_create_space_member(
         true,
     )
     .await?;
+    // The member keeps the config it was created with; every later session
+    // (new direct or group thread) is spun up from it.
+    let member_id = identity::ensure_member_for_conversation(pool, session_id, Some(&nickname))
+        .await
+        .map_err(identity_error)?;
+    write_member_session_config(
+        pool,
+        &member_id,
+        &MemberSessionConfig {
+            agent_id: Some(agent_raw.clone()),
+            mode_id: mode_id.clone(),
+            config_values: config_values.clone(),
+            persona_prompt: Some(persona_prompt.clone()).filter(|p| !p.trim().is_empty()),
+        },
+    )
+    .await?;
     store_operation(
         pool,
         &input.operation_id.to_string(),
@@ -5758,9 +5774,96 @@ fn identity_error(error: IdentityError) -> CollaborationError {
     }
 }
 
+/// Session config stored on a member (`collaboration_members`). New sessions
+/// of the member are created from it; edits never touch existing sessions.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MemberSessionConfig {
+    pub agent_id: Option<String>,
+    pub mode_id: Option<String>,
+    /// Session config selection (model, permissions, ...), `{key: value}`.
+    pub config_values: Value,
+    pub persona_prompt: Option<String>,
+}
+
+impl MemberSessionConfig {
+    fn has_session_controls(&self) -> bool {
+        self.mode_id.as_deref().is_some_and(|m| !m.trim().is_empty())
+            || !config_overrides(&self.config_values).is_empty()
+    }
+}
+
+pub async fn load_member_session_config(
+    pool: &SqlitePool,
+    member_id: &str,
+) -> Result<Option<MemberSessionConfig>, CollaborationError> {
+    let row = sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT agent, mode_id, config_values, persona_prompt FROM collaboration_members WHERE id = ?",
+    )
+    .bind(member_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(row.map(|(agent_id, mode_id, config_values, persona_prompt)| MemberSessionConfig {
+        agent_id,
+        mode_id,
+        config_values: config_values
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_else(|| json!({})),
+        persona_prompt,
+    }))
+}
+
+async fn write_member_session_config(
+    pool: &SqlitePool,
+    member_id: &str,
+    config: &MemberSessionConfig,
+) -> Result<(), CollaborationError> {
+    let non_empty = |v: &Option<String>| {
+        v.as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let updated = sqlx::query(
+        "UPDATE collaboration_members
+         SET agent = COALESCE(?, agent), mode_id = ?, config_values = ?, persona_prompt = ?
+         WHERE id = ?",
+    )
+    .bind(non_empty(&config.agent_id))
+    .bind(non_empty(&config.mode_id))
+    .bind(config.config_values.to_string())
+    .bind(non_empty(&config.persona_prompt))
+    .bind(member_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    if updated.rows_affected() == 0 {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    }
+    Ok(())
+}
+
+/// Edit a member's session config. Only sessions created afterwards (new
+/// direct or group threads) use it; existing sessions keep their settings.
+pub async fn set_member_session_config(
+    pool: &SqlitePool,
+    member_id: &str,
+    config: MemberSessionConfig,
+) -> Result<MemberSessionConfig, CollaborationError> {
+    if let Some(agent) = config.agent_id.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+        AgentId::parse(agent)
+            .map_err(|_| CollaborationError::new("not_found", "agent_id is not valid"))?;
+    }
+    write_member_session_config(pool, member_id, &config).await?;
+    load_member_session_config(pool, member_id)
+        .await?
+        .ok_or_else(|| CollaborationError::new("not_found", "member was not found"))
+}
+
 /// Map `(member, thread)` to its conversation, creating it when missing.
-/// A newly created conversation gets the member's persona notice and the
-/// role's mode/config, like a freshly created space member.
+/// A newly created conversation uses the member's stored session config
+/// (agent, mode, config selection, persona); members without one fall back
+/// to the role's mode/config, like a freshly created space member.
 pub async fn resolve_session(
     pool: &SqlitePool,
     member_id: &str,
@@ -5787,13 +5890,46 @@ async fn prepare_member_conversation(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
-    if let Some(prompt) = persona_prompt.filter(|prompt| !prompt.trim().is_empty()) {
+    if let Some(prompt) = persona_prompt.clone().filter(|prompt| !prompt.trim().is_empty()) {
         append_persona_notice(pool, conversation_id, &prompt).await?;
     }
-    let role_id = identity::load_member(pool, member_id)
-        .await
-        .map_err(db)?
-        .and_then(|member| member.role_id);
+    let member = identity::load_member(pool, member_id).await.map_err(db)?;
+    let stored = load_member_session_config(pool, member_id).await?;
+    if let (Some(member), Some(config)) = (member.as_ref(), stored.as_ref()) {
+        if let Some(prompt) = config.persona_prompt.as_deref().filter(|p| !p.trim().is_empty())
+            && persona_prompt.as_deref().map(str::trim) != Some(prompt.trim())
+        {
+            sqlx::query(
+                r#"INSERT INTO conversation_personas
+                   (conversation_id, role_id, name, team_name, summary, agent_id,
+                    persona_prompt, snapshotted_at)
+                   VALUES (?, ?, ?, NULL, '', ?, ?, ?)
+                   ON CONFLICT(conversation_id) DO UPDATE SET
+                     persona_prompt = excluded.persona_prompt"#,
+            )
+            .bind(conversation_id.to_string())
+            .bind(member.role_id.as_deref())
+            .bind(&member.name)
+            .bind(config.agent_id.as_deref().unwrap_or_default())
+            .bind(prompt)
+            .bind(now_stamp())
+            .execute(pool)
+            .await
+            .map_err(db)?;
+            append_persona_notice(pool, conversation_id, prompt).await?;
+        }
+        if config.has_session_controls() {
+            remember_creation_session_controls(
+                pool,
+                conversation_id,
+                config.mode_id.as_deref(),
+                config_overrides(&config.config_values),
+            )
+            .await;
+            return Ok(());
+        }
+    }
+    let role_id = member.and_then(|member| member.role_id);
     if let Some(role_id) = role_id
         && let Ok(role) = load_role(pool, &role_id).await
     {
@@ -8557,6 +8693,95 @@ mod tests {
         assert!(texts.iter().all(|text| text.contains("请评审当前 diff")));
         assert!(texts.iter().all(|text| text.contains("auth.ts")));
         assert_eq!(texts[0], texts[1]);
+    }
+
+    async fn session_controls_of(pool: &SqlitePool, conversation_id: Uuid) -> (Option<String>, Option<String>) {
+        sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            "SELECT current_mode, config_selection_json FROM conversation_agent_bindings
+             WHERE conversation_id = ? ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+        .unwrap_or((None, None))
+    }
+
+    #[tokio::test]
+    async fn member_sessions_use_stored_member_config_and_later_edits() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let seed = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+        create_session(&pool, seed, workspace, Some("seed")).await;
+        let created = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Alex".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: Some("reviewer".to_string()),
+                mode_id: Some("plan".to_string()),
+                config_values: Some(json!({ "model": "m-1", "approval": "never" })),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let direct = Uuid::parse_str(created.conversation_id.as_deref().unwrap()).unwrap();
+        let member = identity::binding_of_conversation(&pool, direct)
+            .await
+            .unwrap()
+            .map(|b| b.member_id)
+            .unwrap_or_else(|| identity::member_id_for_conversation(direct));
+        let stored = load_member_session_config(&pool, &member).await.unwrap().unwrap();
+        assert_eq!(stored.agent_id.as_deref(), Some("codex"));
+        assert_eq!(stored.mode_id.as_deref(), Some("plan"));
+        assert_eq!(stored.config_values["model"], "m-1");
+
+        // New group thread: the session is created from the member config.
+        let first = space_of(&pool, seed).await;
+        identity::ensure_thread_for_seat(&pool, &first, &member).await.unwrap();
+        let in_first = resolve_session(&pool, &member, &first).await.unwrap();
+        assert_ne!(in_first, direct);
+        let session = load_session(&pool, in_first).await.unwrap().unwrap();
+        assert_eq!(session.agent_id.map(|a| a.to_string()).as_deref(), Some("codex"));
+        let (mode, config) = session_controls_of(&pool, in_first).await;
+        assert_eq!(mode.as_deref(), Some("plan"));
+        assert!(config.unwrap_or_default().contains("m-1"));
+
+        // Edit: only sessions created afterwards pick it up.
+        set_member_session_config(
+            &pool,
+            &member,
+            MemberSessionConfig {
+                agent_id: Some("codex".to_string()),
+                mode_id: Some("auto".to_string()),
+                config_values: json!({ "model": "m-2" }),
+                persona_prompt: None,
+            },
+        )
+        .await
+        .unwrap();
+        let second = space_of(&pool, seed).await;
+        identity::ensure_thread_for_seat(&pool, &second, &member).await.unwrap();
+        let in_second = resolve_session(&pool, &member, &second).await.unwrap();
+        let (mode, config) = session_controls_of(&pool, in_second).await;
+        assert_eq!(mode.as_deref(), Some("auto"));
+        assert!(config.unwrap_or_default().contains("m-2"));
+        let (old_mode, old_config) = session_controls_of(&pool, in_first).await;
+        assert_eq!(old_mode.as_deref(), Some("plan"));
+        assert!(old_config.unwrap_or_default().contains("m-1"));
     }
 
     #[tokio::test]

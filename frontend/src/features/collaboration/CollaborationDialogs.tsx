@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ArrowRight,
+  Bot,
   Check,
   MessageSquare,
   UserPlus,
@@ -22,7 +23,26 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
+import { Textarea } from '@/components/ui/textarea';
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import type { ExecutorProfileId } from 'shared/types';
+
+import {
+  MemberBotAvatar,
+  MemberBotAvatarPicker,
+  randomMemberBotAvatar,
+  type MemberBotAvatarConfig,
+} from './MemberBotAvatar';
+import {
+  CollaborationOptionSelect,
+  CustomAgentControls,
+  type CollaborationSelectOption,
+} from './memberFormControls';
+import { COPY as SPACE_COPY } from './spaceModel';
 import {
   TEAM_TEMPLATES,
   THREAD_COPY,
@@ -225,22 +245,84 @@ export type RoleTemplate = {
   agent_id: string;
 };
 
+export type AgentOption = { agent_id: string; name: string };
+
+export type NewMemberSource = 'role' | 'custom';
+
+export type NewMemberInput = {
+  nickname: string;
+  avatar: MemberBotAvatarConfig;
+  source: NewMemberSource;
+  roleId?: string;
+  agentId?: string;
+  modeId?: string;
+  configValues?: Record<string, string>;
+  personaPrompt?: string;
+};
+
+/**
+ * Pre-redesign member form (from CollaborationSpacePage): name, bot avatar,
+ * creation source (role or custom agent). No template is mandatory ? the
+ * custom source works without any role.
+ */
 export function NewMemberDialog({
   open,
   roles,
+  agents,
   busy,
   onOpenChange,
   onCreate,
 }: {
   open: boolean;
   roles: readonly RoleTemplate[];
+  agents: readonly AgentOption[];
   busy?: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: { roleId: string; nickname: string }) => void;
+  onCreate: (input: NewMemberInput) => void;
 }) {
-  const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
   const [nickname, setNickname] = useState('');
-  const role = roles.find((r) => r.id === roleId);
+  const [avatar, setAvatar] = useState<MemberBotAvatarConfig>(() =>
+    randomMemberBotAvatar()
+  );
+  const [source, setSource] = useState<NewMemberSource>(
+    roles.length > 0 ? 'role' : 'custom'
+  );
+  const [roleId, setRoleId] = useState(roles[0]?.id ?? '');
+  const [agentId, setAgentId] = useState(agents[0]?.agent_id ?? '');
+  const [modeId, setModeId] = useState('');
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
+  const [personaPrompt, setPersonaPrompt] = useState('');
+
+  const roleOptions: CollaborationSelectOption[] = [
+    { value: '', label: SPACE_COPY.chooseRole },
+    ...roles.map((role) => ({
+      value: role.id,
+      label: `${role.name} (${getAgentName(role.agent_id) || role.agent_id})`,
+      icon: role.agent_id ? (
+        <AgentIcon
+          agent={role.agent_id as ExecutorProfileId['executor']}
+          className="h-3.5 w-3.5 shrink-0"
+        />
+      ) : undefined,
+    })),
+  ];
+  const agentOptions: CollaborationSelectOption[] = [
+    { value: '', label: SPACE_COPY.chooseAgent },
+    ...agents.map((agent) => ({
+      value: agent.agent_id,
+      label: getAgentName(agent.agent_id) || agent.name || agent.agent_id,
+      icon: (
+        <AgentIcon
+          agent={agent.agent_id as ExecutorProfileId['executor']}
+          className="h-3.5 w-3.5 shrink-0"
+        />
+      ),
+    })),
+  ];
+  const trimmed = nickname.trim();
+  const canSubmit =
+    !busy && !!trimmed && (source === 'role' ? !!roleId : !!agentId);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="collab-new-member-dialog">
@@ -252,55 +334,99 @@ export function NewMemberDialog({
           className="collab-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (roleId && nickname.trim())
-              onCreate({ roleId, nickname: nickname.trim() });
+            if (!canSubmit) return;
+            onCreate(
+              source === 'role'
+                ? { nickname: trimmed, avatar, source, roleId }
+                : {
+                    nickname: trimmed,
+                    avatar,
+                    source,
+                    agentId,
+                    modeId: modeId || undefined,
+                    configValues,
+                    personaPrompt: personaPrompt.trim() || undefined,
+                  }
+            );
           }}
         >
           <div className="collab-form-field">
-            <Label>{DIALOG_COPY.memberTemplate}</Label>
-            <div className="collab-template-grid" role="group">
-              {roles.slice(0, 6).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className="collab-template"
-                  aria-pressed={option.id === roleId}
-                  onClick={() => {
-                    setRoleId(option.id);
-                    if (!nickname) setNickname(option.name);
-                  }}
-                >
-                  {option.id === roleId ? (
-                    <Check
-                      className="collab-template-check"
-                      aria-hidden="true"
-                    />
-                  ) : null}
-                  <span className="collab-template-name">{option.name}</span>
-                  {option.summary ? (
-                    <span className="collab-template-desc">
-                      {option.summary}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="collab-form-field">
             <Label htmlFor="collab-member-nickname">
-              {DIALOG_COPY.memberNickname}
+              {SPACE_COPY.memberNameLabel}
             </Label>
             <Input
               id="collab-member-nickname"
+              aria-label={SPACE_COPY.memberNameLabel}
+              placeholder={SPACE_COPY.memberNameLabel}
               value={nickname}
               onChange={(event) => setNickname(event.target.value)}
             />
           </div>
-          {role ? (
-            <p className="collab-profile-row-sub">
-              {DIALOG_COPY.memberAgent}: {role.agent_id}
-            </p>
-          ) : null}
+          <MemberBotAvatarPicker value={avatar} onChange={setAvatar} compact />
+          <div className="collab-form-field">
+            <Label>{SPACE_COPY.memberSourceLabel}</Label>
+            <SegmentedControl
+              label={SPACE_COPY.memberSourceLabel}
+              size="sm"
+              layout="hug"
+              className="collaboration-compact-segmented"
+              value={source}
+              onChange={(next) => setSource(next as NewMemberSource)}
+            >
+              <SegmentedControlItem
+                value="role"
+                label={SPACE_COPY.memberSourceRole}
+                icon={<Bot className="h-3 w-3 shrink-0" aria-hidden="true" />}
+              />
+              <SegmentedControlItem
+                value="custom"
+                label={SPACE_COPY.memberSourceCustom}
+                icon={
+                  <UserPlus className="h-3 w-3 shrink-0" aria-hidden="true" />
+                }
+              />
+            </SegmentedControl>
+          </div>
+          {source === 'role' ? (
+            <CollaborationOptionSelect
+              ariaLabel={SPACE_COPY.chooseRole}
+              value={roleId}
+              placeholder={SPACE_COPY.chooseRole}
+              options={roleOptions}
+              onChange={setRoleId}
+            />
+          ) : (
+            <>
+              <CollaborationOptionSelect
+                ariaLabel={SPACE_COPY.chooseAgent}
+                value={agentId}
+                placeholder={SPACE_COPY.chooseAgent}
+                options={agentOptions}
+                onChange={(next) => {
+                  setAgentId(next);
+                  setModeId('');
+                  setConfigValues({});
+                }}
+              />
+              <CustomAgentControls
+                agentId={agentId}
+                modeId={modeId}
+                values={configValues}
+                onModeId={setModeId}
+                onValues={setConfigValues}
+              />
+              <div className="collab-form-field">
+                <Label htmlFor="collab-member-persona">
+                  {SPACE_COPY.personaPromptLabel}
+                </Label>
+                <Textarea
+                  id="collab-member-persona"
+                  value={personaPrompt}
+                  onChange={(event) => setPersonaPrompt(event.target.value)}
+                />
+              </div>
+            </>
+          )}
           <DialogFooter>
             <Button
               type="button"
@@ -309,10 +435,7 @@ export function NewMemberDialog({
             >
               {DIALOG_COPY.cancel}
             </Button>
-            <Button
-              type="submit"
-              disabled={busy || !roleId || !nickname.trim()}
-            >
+            <Button type="submit" disabled={!canSubmit}>
               <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
               {DIALOG_COPY.memberCreate}
             </Button>

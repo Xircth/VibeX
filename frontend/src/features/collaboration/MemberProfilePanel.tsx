@@ -9,6 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
+import {
+  MemberSessionConfigSection,
+  type MemberSessionConfig,
+} from './MemberSessionConfigSection';
 import { factScopeTag, type PresenceView } from './threadModel';
 
 export const PROFILE_COPY = {
@@ -158,6 +162,9 @@ export function MemberProfilePanel({
   onUpdateFact,
   onDeleteFact,
   onSetWriteAccess,
+  sessionConfig,
+  agents,
+  onSaveSessionConfig,
 }: {
   nickname: string;
   avatar: MemberBotAvatarConfig;
@@ -173,6 +180,11 @@ export function MemberProfilePanel({
   onUpdateFact: (factId: string, content: string) => void;
   onDeleteFact: (factId: string) => void;
   onSetWriteAccess: (value: WriteAccess) => void;
+  sessionConfig?: MemberSessionConfig | null;
+  agents?: readonly { agent_id: string; name: string }[];
+  onSaveSessionConfig?: Parameters<
+    typeof MemberSessionConfigSection
+  >[0]['onSave'];
 }) {
   return (
     <aside
@@ -297,6 +309,14 @@ export function MemberProfilePanel({
         </SegmentedControl>
         <p className="collab-profile-row-sub">{PROFILE_COPY.writeHint}</p>
       </section>
+
+      {onSaveSessionConfig ? (
+        <MemberSessionConfigSection
+          config={sessionConfig ?? null}
+          agents={agents ?? []}
+          onSave={onSaveSessionConfig}
+        />
+      ) : null}
     </aside>
   );
 }

@@ -12,17 +12,19 @@ import {
   collaborationCall,
   listenCollaborationSpaceChanged,
 } from './collaborationApi';
-import type { RoleTemplate } from './CollaborationDialogs';
+import type { AgentOption, RoleTemplate } from './CollaborationDialogs';
 import {
   CollaborationWorkspaceView,
   type PendingCard,
   type ProfileData,
 } from './CollaborationWorkspaceView';
 import type { GroupMessage, GroupSeat } from './GroupChat';
+import type { MemberSessionConfig } from './MemberSessionConfigSection';
 import { directReceipts } from './MemberDirectChat';
 import {
   deriveMemberBotAvatar,
   readMemberBotAvatars,
+  writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
 import type { WriteAccess } from './MemberProfilePanel';
@@ -125,7 +127,8 @@ export function CollaborationWorkspace({
   const [busyCardIds, setBusyCardIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const [avatars] = useState(() => readMemberBotAvatars());
+  const [avatars, setAvatars] = useState(() => readMemberBotAvatars());
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
   // Workspace-wide snapshot: groups, seats, sessions, pending cards.
@@ -219,6 +222,12 @@ export function CollaborationWorkspace({
     )
       .then((page) => setRoles(page.roles ?? []))
       .catch(() => setRoles([]));
+    void collaborationCall<{ agents?: AgentOption[] }>(
+      'collaboration',
+      'role.agents'
+    )
+      .then((page) => setAgents(page.agents ?? []))
+      .catch(() => setAgents([]));
   }, []);
 
   const { members, groups } = useMemo(
@@ -459,7 +468,12 @@ export function CollaborationWorkspace({
       }>('collaboration', 'member.activity.list', {
         memberId: selectedMemberId,
       }).catch(() => ({ activity: [] })),
-    ]).then(([memory, act]) => {
+      collaborationCall<{ config?: MemberSessionConfig | null }>(
+        'collaboration',
+        'member.config.get',
+        { memberId: selectedMemberId }
+      ).catch(() => ({ config: null })),
+    ]).then(([memory, act, cfg]) => {
       if (cancelled) return;
       setProfile((current) => ({
         facts: memory.facts ?? [],
@@ -471,6 +485,7 @@ export function CollaborationWorkspace({
           createdAt: row.created_at,
         })),
         writeAccess: current?.writeAccess ?? 'write_isolated',
+        sessionConfig: cfg.config ?? null,
         agentLabel:
           conversations.get(directConversationId ?? '')?.agent_id ?? undefined,
       }));
@@ -607,26 +622,32 @@ export function CollaborationWorkspace({
   const lastCreatedConversation = useRef<string | null>(null);
   const createMember = useCallback(
     async (input: {
+      nickname: string;
+      source?: 'role' | 'custom';
       roleId?: string;
       agentId?: string;
+      modeId?: string;
+      configValues?: Record<string, string>;
+      personaPrompt?: string;
       persona?: string;
-      nickname: string;
     }) => {
       const result = await collaborationCall<{
         member_id?: string;
         conversation_id?: string | null;
-      }>(
-        'collaboration',
-        'space.createMember',
-        {
-          workspaceId: workspace,
-          nickname: input.nickname,
-          ...(input.roleId
-            ? { roleId: input.roleId }
-            : { agentId: input.agentId, personaPrompt: input.persona }),
-          operationId: newOperationId(),
-        }
-      );
+      }>('collaboration', 'space.createMember', {
+        workspaceId: workspace,
+        nickname: input.nickname,
+        source: input.source ?? (input.roleId ? 'role' : 'custom'),
+        ...(input.roleId
+          ? { roleId: input.roleId }
+          : {
+              agentId: input.agentId,
+              modeId: input.modeId,
+              configValues: input.configValues,
+              personaPrompt: input.personaPrompt ?? input.persona,
+            }),
+        operationId: newOperationId(),
+      });
       lastCreatedConversation.current = result.conversation_id ?? null;
       return result.member_id ?? null;
     },
@@ -653,6 +674,7 @@ export function CollaborationWorkspace({
       profile={profile}
       threadNames={threadNames}
       roles={roles}
+      agents={agents}
       dialogs={dialogs}
       bannerVisible={bannerVisible}
       busy={busy}
@@ -710,9 +732,15 @@ export function CollaborationWorkspace({
           reload();
         })
       }
-      onCreateMember={({ roleId, nickname }) =>
+      onCreateMember={(input) =>
         void run(async () => {
-          const memberId = await createMember({ roleId, nickname });
+          const memberId = await createMember(input);
+          setAvatars((current) => {
+            const next = { ...current, [input.nickname]: input.avatar };
+            if (memberId) next[memberId] = input.avatar;
+            writeMemberBotAvatars(next);
+            return next;
+          });
           setDialogs((d) => ({ ...d, newMember: false }));
           if (memberId) setSelectedKey(memberKey(memberId));
           reload();
@@ -837,6 +865,21 @@ export function CollaborationWorkspace({
             factId,
           });
           reload();
+        })
+      }
+      onSaveSessionConfig={(next) =>
+        void run(async () => {
+          const saved = await collaborationCall<{
+            config?: MemberSessionConfig | null;
+          }>('collaboration', 'member.config.update', {
+            memberId: selectedMemberId,
+            ...next,
+          });
+          setProfile((current) =>
+            current
+              ? { ...current, sessionConfig: saved.config ?? null }
+              : current
+          );
         })
       }
       onSetWriteAccess={(value: WriteAccess) =>

@@ -132,6 +132,33 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "member.activity.list" | "member.activity_list") => {
                 self.activity_list(&input).await
             }
+            ("collaboration", "member.config.get" | "member.config_get") => {
+                let member_id = required_text(&input, &["memberId", "member_id"])?;
+                let config = collaboration::load_member_session_config(&self.pool, &member_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "memberId": member_id, "config": config }))
+            }
+            ("collaboration", "member.config.update" | "member.config_update") => {
+                let member_id = required_text(&input, &["memberId", "member_id"])?;
+                let config = collaboration::set_member_session_config(
+                    &self.pool,
+                    &member_id,
+                    collaboration::MemberSessionConfig {
+                        agent_id: optional_text(&input, &["agentId", "agent_id"]),
+                        mode_id: optional_text(&input, &["modeId", "mode_id"]),
+                        config_values: input
+                            .get("configValues")
+                            .or_else(|| input.get("config_values"))
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                        persona_prompt: optional_text(&input, &["personaPrompt", "persona_prompt"]),
+                    },
+                )
+                .await
+                .map_err(host_error)?;
+                Ok(json!({ "memberId": member_id, "config": config }))
+            }
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
             }

@@ -67,6 +67,24 @@ export function parseCard(text: string): ParsedCard | null {
   return { kind, id: match[2], before, body, options: [] };
 }
 
+/** One-line sidebar preview: cards become a short label instead of raw markup. */
+export function messagePreviewText(text: string): string {
+  const card = parseCard(text);
+  let result = text;
+  if (card) {
+    const label =
+      card.kind === 'approval'
+        ? '审批请求'
+        : card.body
+          ? `提问：${card.body}`
+          : '提问';
+    result = label;
+  } else {
+    result = text.replace(/<card[\s\S]*?(<\/card>|$)/g, '审批请求');
+  }
+  return result.replace(/\s+/g, ' ').trim();
+}
+
 export function SpaceCardActions({ card }: { card: ParsedCard }) {
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);

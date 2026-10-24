@@ -53,6 +53,8 @@ pub struct SidebarItem {
     pub last_message: Option<SidebarLastMessage>,
     pub last_activity_at: String,
     pub unread_count: i64,
+    /// Contact group (`contactGroup.*`) the chat is filed under; null = 未分组.
+    pub group_id: Option<String>,
 }
 
 type MemberJoinRow = (
@@ -500,6 +502,7 @@ pub async fn list_sidebar(
             last_message: last,
             last_activity_at,
             unread_count: unread,
+            group_id: None,
         });
     }
     let directs = sqlx::query_as::<_, (String, String, String)>(
@@ -552,7 +555,22 @@ pub async fn list_sidebar(
             last_message: last,
             last_activity_at,
             unread_count: unread,
+            group_id: None,
         });
+    }
+    let assigned = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT tg.thread_id, tg.group_id FROM collaboration_thread_contact_groups tg
+           JOIN collaboration_contact_groups g ON g.id = tg.group_id
+           WHERE g.workspace_id = ?"#,
+    )
+    .bind(workspace_id.to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?
+    .into_iter()
+    .collect::<std::collections::HashMap<_, _>>();
+    for item in &mut items {
+        item.group_id = assigned.get(&item.thread_id).cloned();
     }
     items.sort_by(|a, b| {
         normalize(&b.last_activity_at)
@@ -758,4 +776,228 @@ pub async fn identity_member_of_conversation(
     .fetch_optional(pool)
     .await
     .map_err(db_err)
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ContactGroup {
+    pub group_id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+type ContactGroupRow = (String, String, String, i64, String, String);
+
+fn contact_group(row: ContactGroupRow) -> ContactGroup {
+    let (group_id, workspace_id, name, sort_order, created_at, updated_at) = row;
+    ContactGroup { group_id, workspace_id, name, sort_order, created_at, updated_at }
+}
+
+fn contact_group_name(name: &str) -> Result<String, CollaborationError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CollaborationError::new("invalid_input", "group name is required"));
+    }
+    Ok(name.to_string())
+}
+
+pub async fn list_contact_groups(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Vec<ContactGroup>, CollaborationError> {
+    let rows = sqlx::query_as::<_, ContactGroupRow>(
+        r#"SELECT id, workspace_id, name, sort_order, created_at, updated_at
+           FROM collaboration_contact_groups WHERE workspace_id = ?
+           ORDER BY sort_order, created_at, id"#,
+    )
+    .bind(workspace_id.to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(rows.into_iter().map(contact_group).collect())
+}
+
+pub async fn get_contact_group(
+    pool: &SqlitePool,
+    group_id: &str,
+) -> Result<ContactGroup, CollaborationError> {
+    sqlx::query_as::<_, ContactGroupRow>(
+        r#"SELECT id, workspace_id, name, sort_order, created_at, updated_at
+           FROM collaboration_contact_groups WHERE id = ?"#,
+    )
+    .bind(group_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?
+    .map(contact_group)
+    .ok_or_else(|| CollaborationError::new("not_found", "contact group was not found"))
+}
+
+/// New group goes last.
+pub async fn create_contact_group(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    name: &str,
+) -> Result<ContactGroup, CollaborationError> {
+    let name = contact_group_name(name)?;
+    let id = Uuid::new_v4().to_string();
+    let now = now_stamp();
+    sqlx::query(
+        r#"INSERT INTO collaboration_contact_groups
+           (id, workspace_id, name, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1
+                             FROM collaboration_contact_groups WHERE workspace_id = ?), ?, ?)"#,
+    )
+    .bind(&id)
+    .bind(workspace_id.to_string())
+    .bind(&name)
+    .bind(workspace_id.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+    get_contact_group(pool, &id).await
+}
+
+pub async fn rename_contact_group(
+    pool: &SqlitePool,
+    group_id: &str,
+    name: &str,
+) -> Result<ContactGroup, CollaborationError> {
+    let name = contact_group_name(name)?;
+    let updated =
+        sqlx::query("UPDATE collaboration_contact_groups SET name = ?, updated_at = ? WHERE id = ?")
+            .bind(&name)
+            .bind(now_stamp())
+            .bind(group_id)
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+    if updated.rows_affected() == 0 {
+        return Err(CollaborationError::new("not_found", "contact group was not found"));
+    }
+    get_contact_group(pool, group_id).await
+}
+
+/// Deletes the group; its chats fall back to ungrouped. Returns those thread ids.
+pub async fn delete_contact_group(
+    pool: &SqlitePool,
+    group_id: &str,
+) -> Result<Vec<String>, CollaborationError> {
+    get_contact_group(pool, group_id).await?;
+    let mut tx = pool.begin().await.map_err(db_err)?;
+    let threads = sqlx::query_scalar::<_, String>(
+        "SELECT thread_id FROM collaboration_thread_contact_groups WHERE group_id = ? ORDER BY thread_id",
+    )
+    .bind(group_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(db_err)?;
+    sqlx::query("DELETE FROM collaboration_thread_contact_groups WHERE group_id = ?")
+        .bind(group_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    sqlx::query("DELETE FROM collaboration_contact_groups WHERE id = ?")
+        .bind(group_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    tx.commit().await.map_err(db_err)?;
+    Ok(threads)
+}
+
+/// `group_ids` is the new order; it must list every group of the workspace once.
+pub async fn reorder_contact_groups(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    group_ids: &[String],
+) -> Result<Vec<ContactGroup>, CollaborationError> {
+    let existing = list_contact_groups(pool, workspace_id).await?;
+    let mut want: Vec<&str> = group_ids.iter().map(String::as_str).collect();
+    let mut have: Vec<&str> = existing.iter().map(|g| g.group_id.as_str()).collect();
+    want.sort_unstable();
+    have.sort_unstable();
+    if want != have {
+        return Err(CollaborationError::new(
+            "invalid_input",
+            "groupIds must list every contact group of the workspace exactly once",
+        ));
+    }
+    let now = now_stamp();
+    let mut tx = pool.begin().await.map_err(db_err)?;
+    for (index, id) in group_ids.iter().enumerate() {
+        sqlx::query("UPDATE collaboration_contact_groups SET sort_order = ?, updated_at = ? WHERE id = ?")
+            .bind(index as i64)
+            .bind(&now)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+    }
+    tx.commit().await.map_err(db_err)?;
+    list_contact_groups(pool, workspace_id).await
+}
+
+/// Workspace of a sidebar thread: a group (space id) or `direct:<member>`.
+async fn thread_workspace(pool: &SqlitePool, thread_id: &str) -> Result<String, CollaborationError> {
+    let workspace: Option<Option<String>> = sqlx::query_scalar(
+        r#"SELECT workspace_id FROM collaboration_spaces WHERE id = ?
+           UNION ALL
+           SELECT workspace_id FROM collaboration_threads WHERE id = ?
+           LIMIT 1"#,
+    )
+    .bind(thread_id)
+    .bind(thread_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    match workspace {
+        Some(Some(workspace)) => Ok(workspace),
+        Some(None) => Ok(String::new()),
+        None => Err(CollaborationError::new("not_found", "thread was not found")),
+    }
+}
+
+/// File a chat under a contact group, or `None` for ungrouped.
+pub async fn set_thread_contact_group(
+    pool: &SqlitePool,
+    thread_id: &str,
+    group_id: Option<&str>,
+) -> Result<(), CollaborationError> {
+    let workspace = thread_workspace(pool, thread_id).await?;
+    match group_id {
+        None => {
+            sqlx::query("DELETE FROM collaboration_thread_contact_groups WHERE thread_id = ?")
+                .bind(thread_id)
+                .execute(pool)
+                .await
+                .map_err(db_err)?;
+        }
+        Some(group_id) => {
+            let group = get_contact_group(pool, group_id).await?;
+            if !workspace.is_empty() && group.workspace_id != workspace {
+                return Err(CollaborationError::new(
+                    "invalid_input",
+                    "contact group belongs to another workspace",
+                ));
+            }
+            sqlx::query(
+                r#"INSERT INTO collaboration_thread_contact_groups (thread_id, group_id, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(thread_id) DO UPDATE SET
+                     group_id = excluded.group_id, updated_at = excluded.updated_at"#,
+            )
+            .bind(thread_id)
+            .bind(group_id)
+            .bind(now_stamp())
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        }
+    }
+    Ok(())
 }

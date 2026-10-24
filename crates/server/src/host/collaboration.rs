@@ -174,6 +174,71 @@ impl CollaborationHost for HostCollaborationHost {
                     "conversationId": conversation_id,
                 }))
             }
+            ("collaboration", "contactGroup.list" | "contact_group.list") => {
+                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
+                let groups = sidebar::list_contact_groups(&self.pool, workspace_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "groups": groups }))
+            }
+            ("collaboration", "contactGroup.create" | "contact_group.create") => {
+                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
+                let name = required_text(&input, &["name"])?;
+                let group = sidebar::create_contact_group(&self.pool, workspace_id, &name)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "group": group }))
+            }
+            ("collaboration", "contactGroup.rename" | "contact_group.rename") => {
+                let group_id = required_text(&input, &["groupId", "group_id"])?;
+                let name = required_text(&input, &["name"])?;
+                let group = sidebar::rename_contact_group(&self.pool, &group_id, &name)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "group": group }))
+            }
+            ("collaboration", "contactGroup.delete" | "contact_group.delete") => {
+                let group_id = required_text(&input, &["groupId", "group_id"])?;
+                let ungrouped = sidebar::delete_contact_group(&self.pool, &group_id)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "groupId": group_id, "deleted": true, "ungroupedThreadIds": ungrouped }))
+            }
+            ("collaboration", "contactGroup.reorder" | "contact_group.reorder") => {
+                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
+                let group_ids = input
+                    .get("groupIds")
+                    .or_else(|| input.get("group_ids"))
+                    .and_then(Value::as_array)
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .ok_or_else(|| host_error(collaboration::CollaborationError::new(
+                        "invalid_input",
+                        "groupIds is required",
+                    )))?;
+                let groups = sidebar::reorder_contact_groups(&self.pool, workspace_id, &group_ids)
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "groups": groups }))
+            }
+            ("collaboration", "thread.setGroup" | "thread.set_group") => {
+                let thread_id = required_text(&input, &["threadId", "thread_id"])?;
+                let group_id = input
+                    .get("groupId")
+                    .or_else(|| input.get("group_id"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string);
+                sidebar::set_thread_contact_group(&self.pool, &thread_id, group_id.as_deref())
+                    .await
+                    .map_err(host_error)?;
+                Ok(json!({ "threadId": thread_id, "groupId": group_id }))
+            }
             ("collaboration", "thread.listSidebar" | "thread.list_sidebar" | "sidebar.list") => {
                 let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
                 let items = sidebar::list_sidebar(&self.pool, workspace_id)
@@ -3081,5 +3146,68 @@ mod tests {
         let group_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(group_rows, 0);
+    }
+
+    #[tokio::test]
+    async fn contact_groups_crud_reorder_and_thread_filing() {
+        let (_pool, host, workspace) = sidebar_host().await;
+        let space = new_space(&host, workspace, "g").await;
+        let created = call(&host, "space.createMember", json!({
+            "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
+            "nickname": "Bob", "source": "agent", "agentId": "codex", "modeId": "",
+            "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
+        })).await;
+        let dm = created["direct_thread_id"].as_str().unwrap().to_string();
+        let group_of = |sidebar: Value, id: &str| {
+            sidebar["items"].as_array().unwrap().iter()
+                .find(|item| item["thread_id"] == json!(id)).unwrap()["group_id"].clone()
+        };
+
+        let work = call(&host, "contactGroup.create", json!({ "workspaceId": workspace, "name": " Work " })).await["group"].clone();
+        let home = call(&host, "contactGroup.create", json!({ "workspaceId": workspace, "name": "Home" })).await["group"].clone();
+        assert_eq!(work["name"], json!("Work"));
+        assert_eq!((work["sort_order"].clone(), home["sort_order"].clone()), (json!(0), json!(1)));
+        let work_id = work["group_id"].as_str().unwrap().to_string();
+        let home_id = home["group_id"].as_str().unwrap().to_string();
+        assert!(host.call("host", "collaboration", "contactGroup.create", json!({ "workspaceId": workspace, "name": "  " })).await.is_err());
+
+        let renamed = call(&host, "contactGroup.rename", json!({ "groupId": work_id, "name": "Job" })).await;
+        assert_eq!(renamed["group"]["name"], json!("Job"));
+
+        let order = call(&host, "contactGroup.reorder", json!({ "workspaceId": workspace, "groupIds": [home_id, work_id] })).await;
+        let names: Vec<_> = order["groups"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap().to_string()).collect();
+        assert_eq!(names, vec!["Home", "Job"]);
+        assert!(host.call("host", "collaboration", "contactGroup.reorder", json!({ "workspaceId": workspace, "groupIds": [home_id] })).await.is_err());
+        let listed = call(&host, "contactGroup.list", json!({ "workspaceId": workspace })).await;
+        assert_eq!(listed["groups"][0]["group_id"], json!(home_id));
+
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        assert!(group_of(sidebar.clone(), &dm).is_null());
+        assert!(group_of(sidebar, &space).is_null());
+
+        call(&host, "thread.setGroup", json!({ "threadId": dm, "groupId": work_id })).await;
+        call(&host, "thread.setGroup", json!({ "threadId": space, "groupId": work_id })).await;
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        assert_eq!(group_of(sidebar.clone(), &dm), json!(work_id));
+        assert_eq!(group_of(sidebar, &space), json!(work_id));
+
+        call(&host, "thread.setGroup", json!({ "threadId": space, "groupId": home_id })).await;
+        call(&host, "thread.setGroup", json!({ "threadId": dm, "groupId": null })).await;
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        assert!(group_of(sidebar.clone(), &dm).is_null());
+        assert_eq!(group_of(sidebar, &space), json!(home_id));
+
+        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": "direct:nope", "groupId": home_id })).await.is_err());
+        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": dm, "groupId": "nope" })).await.is_err());
+        let other = call(&host, "contactGroup.create", json!({ "workspaceId": Uuid::new_v4(), "name": "Else" })).await["group"]["group_id"].clone();
+        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": dm, "groupId": other })).await.is_err());
+
+        let deleted = call(&host, "contactGroup.delete", json!({ "groupId": home_id })).await;
+        assert_eq!(deleted["ungroupedThreadIds"], json!([space]));
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        assert!(group_of(sidebar, &space).is_null());
+        let listed = call(&host, "contactGroup.list", json!({ "workspaceId": workspace })).await;
+        assert_eq!(listed["groups"].as_array().unwrap().len(), 1);
+        assert!(host.call("host", "collaboration", "contactGroup.delete", json!({ "groupId": home_id })).await.is_err());
     }
 }

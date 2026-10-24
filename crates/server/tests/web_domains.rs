@@ -119,7 +119,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
             .iter()
             .filter(|item| item["kind"] == "skill")
             .count(),
-        3,
+        10,
         "Office skills come from the locked officecli load_skill set"
     );
     assert!(
@@ -228,10 +228,11 @@ async fn host_coding_loop_commands_are_registered_on_the_authenticated_surface()
     let agents = call(app.clone(), "agent_management_bar", serde_json::json!({})).await;
     assert!(agents.is_array() || agents.is_object());
 
+    let missing_path = data_dir.path().join("definitely-missing-file.rs");
     let missing_file = call_status(
         app,
         "read_file_content",
-        serde_json::json!({ "path": "/definitely/missing/file.rs" }),
+        serde_json::json!({ "path": missing_path }),
     )
     .await;
     assert_eq!(missing_file, StatusCode::NOT_FOUND);

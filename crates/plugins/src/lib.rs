@@ -69,8 +69,10 @@ pub use control_plane::{
     ActivationRecoveryFailure, BundledPluginActivation, ConflictDecision, HostAuditEntry,
     ImportConflict, ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin,
     PluginAuditEvent, PluginBusEvent, PluginCommandHandler, PluginControlPlane,
-    PluginEventSubscriptionBatch, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
-    candidate_capability_grants,
+    PluginEventSubscriptionBatch, PluginRegistry, RuntimeInstallation,
+    SYSTEM_BUNDLE_PLUGIN_MANIFESTS, SqlitePluginRegistry, SystemBundlePluginManifest,
+    candidate_capability_grants, is_system_bundle_plugin_id, resolve_system_bundle_domain_command,
+    system_bundle_plugin_manifest, system_bundle_plugin_manifests,
 };
 pub use conversation_host::{
     PluginConversationCancelInput, PluginConversationCreate, PluginConversationDraftInsert,

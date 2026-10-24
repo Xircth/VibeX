@@ -1,10 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { kanbanViewRegistry } from '@vibex/plugin-sdk';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  ensureCoreFoundationPluginsBootstrapped,
+  getCoreFoundationPluginSource,
+} from '@/features/plugins/coreFoundationPlugins';
+import {
+  loadPluginRuntime,
+  unloadPluginRuntime,
+} from '@/features/plugins/PluginRuntimeLoader';
 import {
   isKanbanViewContribution,
   kanbanViewsFromCatalog,
 } from './kanbanViewCatalog';
 
 describe('kanbanViewCatalog', () => {
+  beforeEach(() => {
+    kanbanViewRegistry.clear();
+    unloadPluginRuntime('vibex.webui.kanban');
+    ensureCoreFoundationPluginsBootstrapped({
+      force: true,
+      onlyIds: ['vibex.webui.kanban'],
+    });
+  });
+
   it('accepts the dedicated kind and the synthesized surface slot', () => {
     expect(
       isKanbanViewContribution({
@@ -38,7 +56,7 @@ describe('kanbanViewCatalog', () => {
     ).toBe(false);
   });
 
-  it('appends one plugin view after the four built-ins', () => {
+  it('appends one plugin view after the four built-ins registered by vibex.webui.kanban', () => {
     const views = kanbanViewsFromCatalog([
       {
         pluginId: 'vibex.host-surface',
@@ -58,10 +76,53 @@ describe('kanbanViewCatalog', () => {
       },
     ]);
     expect(views).toHaveLength(5);
+    expect(views.slice(0, 4).map((v) => v.id)).toEqual([
+      'columns',
+      'sessions',
+      'canvas',
+      'usage',
+    ]);
     expect(views[4]).toMatchObject({
       id: 'plugin:vibex.host-surface/sample-view',
       titleKey: '示例视图',
       builtin: false,
     });
+  });
+
+  it('uses kanbanViewRegistry as the single source of truth and removes built-in views when vibex.webui.kanban is unloaded', async () => {
+    expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
+      'columns',
+      'sessions',
+      'canvas',
+      'usage',
+    ]);
+
+    unloadPluginRuntime('vibex.webui.kanban');
+    expect(kanbanViewRegistry.getAll()).toHaveLength(0);
+    expect(kanbanViewsFromCatalog([])).toEqual([]);
+
+    const pluginOnly = kanbanViewsFromCatalog([
+      {
+        pluginId: 'vibex.host-surface',
+        id: 'sample-view',
+        kind: 'kanban_view',
+        label: '示例视图',
+        generation: 1,
+        metadata: {},
+      },
+    ]);
+    expect(pluginOnly).toHaveLength(1);
+    expect(pluginOnly[0]?.id).toBe('plugin:vibex.host-surface/sample-view');
+
+    await loadPluginRuntime(
+      'vibex.webui.kanban',
+      getCoreFoundationPluginSource('vibex.webui.kanban')
+    );
+    expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
+      'columns',
+      'sessions',
+      'canvas',
+      'usage',
+    ]);
   });
 });

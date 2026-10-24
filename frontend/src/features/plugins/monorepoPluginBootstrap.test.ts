@@ -149,8 +149,16 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       ).toBeTypeOf('function');
       expect(commandRegistry.has('vibex.browser.open-tab')).toBe(true);
 
-      // Still disabled plugins remain unloaded
+      // Still disabled plugins remain unloaded, and 'notes' panel is not registered
       expect(isMonorepoPluginModuleLoaded('vibex.notes')).toBe(false);
+      expect(panelRegistry.has('notes')).toBe(false);
+
+      // Dynamically enabling vibex.notes registers the 'notes' panel, and disabling removes it
+      await syncMonorepoPluginRuntime('vibex.notes', true);
+      expect(panelRegistry.has('notes')).toBe(true);
+      expect(panelRegistry.get('notes')?.pluginId).toBe('vibex.notes');
+      await syncMonorepoPluginRuntime('vibex.notes', false);
+      expect(panelRegistry.has('notes')).toBe(false);
 
       // 3. Dynamically disabling vibex.browser immediately unloads all its contributions
       await syncMonorepoPluginRuntime('vibex.browser', false);

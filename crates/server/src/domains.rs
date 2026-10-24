@@ -916,6 +916,11 @@ impl ServerApplicationDomains {
             .await
             .map_err(plugin_error)?;
         if decision != plugins::ConflictDecision::KeepInstalled
+            && self
+                .plugin_control_plane
+                .validate_runtime_readiness(imported.plugin.id())
+                .await
+                .is_ok()
             && let Ok(enabled_item) = self
                 .plugin_control_set_enabled(json!({
                     "pluginId": imported.plugin.id(),
@@ -1129,6 +1134,30 @@ impl ServerApplicationDomains {
             ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
         let conflict_decision = args.conflict.clone().unwrap_or_else(|| "reject".into());
         let origin_url = plugins::marketplace_listing_url(&args.owner, &args.plugin_name);
+        if args.tag.is_none()
+            && let Some(monorepo_root) = plugins::monorepo_official_plugin_root(&args.plugin_name)
+                .or_else(|| {
+                    plugins::monorepo_official_plugin_root(&format!(
+                        "{}.{}",
+                        args.owner, args.plugin_name
+                    ))
+                })
+        {
+            match self
+                .plugin_control_import(json!({
+                    "path": monorepo_root.to_string_lossy(),
+                    "developerLink": false,
+                    "conflictDecision": conflict_decision,
+                    "origin": origin_url,
+                    "gitRef": "2.0.0",
+                    "locked": true,
+                }))
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(error) => last_error = error,
+            }
+        }
         let github_urls = plugins::official_github_archive_urls(&args.owner, &args.plugin_name);
         for url in &github_urls {
             match download_marketplace_archive(url).await {
@@ -1148,29 +1177,6 @@ impl ServerApplicationDomains {
                         Err(error) => last_error = error,
                     }
                 }
-                Err(error) => last_error = error,
-            }
-        }
-        if let Some(monorepo_root) = plugins::monorepo_official_plugin_root(&args.plugin_name)
-            .or_else(|| {
-                plugins::monorepo_official_plugin_root(&format!(
-                    "{}.{}",
-                    args.owner, args.plugin_name
-                ))
-            })
-        {
-            match self
-                .plugin_control_import(json!({
-                    "path": monorepo_root.to_string_lossy(),
-                    "developerLink": false,
-                    "conflictDecision": conflict_decision,
-                    "origin": origin_url,
-                    "gitRef": args.tag.clone().or_else(|| Some("2.0.0".to_owned())),
-                    "locked": true,
-                }))
-                .await
-            {
-                Ok(result) => return Ok(result),
                 Err(error) => last_error = error,
             }
         }
@@ -1461,8 +1467,17 @@ impl ServerApplicationDomains {
                 ));
             };
 
-        self.plugin_control_plane()
-            .await?
+        let control_plane = self.plugin_control_plane().await?;
+        if !control_plane.has_command_handler(&resolved_plugin_id, &resolved_command)
+            && let Some(domain_command) =
+                resolve_bridged_domain_command(&resolved_plugin_id, &resolved_command)
+        {
+            return self
+                .execute_bridged_domain_command(domain_command, input)
+                .await;
+        }
+
+        control_plane
             .invoke_plugin_command(&resolved_plugin_id, &resolved_command, input)
             .await
             .map_err(plugin_worker_command_error)
@@ -1487,6 +1502,13 @@ impl ServerApplicationDomains {
         else {
             return Err(ApplicationError::not_found(qualified_command));
         };
+        if !control_plane.has_command_handler(&plugin_id, &command_name)
+            && let Some(domain_command) = resolve_bridged_domain_command(&plugin_id, &command_name)
+        {
+            return self
+                .execute_bridged_domain_command(domain_command, args)
+                .await;
+        }
         let input = args
             .get("input")
             .or_else(|| args.get("params"))
@@ -1496,6 +1518,24 @@ impl ServerApplicationDomains {
             .invoke_plugin_command(&plugin_id, &command_name, input)
             .await
             .map_err(plugin_worker_command_error)
+    }
+
+    async fn execute_bridged_domain_command(
+        &self,
+        domain_command: DomainCommand,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let primary = Box::pin(self.execute_command(domain_command, args.clone())).await;
+        if primary.is_ok() {
+            return primary;
+        }
+        if let Some(inner) = args.get("input").or_else(|| args.get("params")).cloned() {
+            let fallback = Box::pin(self.execute_command(domain_command, inner)).await;
+            if fallback.is_ok() {
+                return fallback;
+            }
+        }
+        primary
     }
 
     async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2960,6 +3000,38 @@ pub(crate) fn conversation_error(
     }
 }
 
+pub(crate) fn resolve_bridged_domain_command(
+    plugin_id: &str,
+    command_name: &str,
+) -> Option<DomainCommand> {
+    if let Some(canonical) = plugins::resolve_system_bundle_domain_command(plugin_id, command_name)
+        && let Ok(domain_cmd) = canonical.parse::<DomainCommand>()
+    {
+        return Some(domain_cmd);
+    }
+    if plugins::is_system_bundle_plugin_id(plugin_id) {
+        let normalized = command_name.trim().replace(['-', '.'], "_");
+        if let Ok(domain_cmd) = normalized.parse::<DomainCommand>() {
+            return Some(domain_cmd);
+        }
+    }
+    if plugin_id
+        .trim()
+        .strip_prefix("vibex.")
+        .is_some_and(|slug| slug.ends_with("-enhancer"))
+    {
+        let normalized = command_name.trim().replace(['-', '.'], "_");
+        match normalized.as_str() {
+            "enhance" | "enhance_prompt" => return Some(DomainCommand::EnhancePrompt),
+            "cancel" | "cancel_enhance" | "cancel_enhance_prompt" | "cancel_prompt_enhancement" => {
+                return Some(DomainCommand::CancelEnhancePrompt);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod plugin_invoke_contribution_args {
     use serde_json::json;
@@ -2990,5 +3062,59 @@ mod plugin_invoke_contribution_args {
             "timeoutSeconds": 300
         });
         assert!(parse::<plugins::AppSurfaceInvocation>(args).is_err());
+    }
+
+    #[tokio::test]
+    async fn system_bundle_and_core_domain_commands_resolve_and_route_dynamically() {
+        let registry = Arc::new(plugins::InMemoryPluginRegistry::default());
+        let control_plane = plugins::PluginControlPlane::new(registry);
+
+        let cases = [
+            (
+                "vibex.core.workspace-git.project_list",
+                DomainCommand::ProjectList,
+            ),
+            (
+                "vibex.core.workspace-git.branches",
+                DomainCommand::RepoBranches,
+            ),
+            ("vibex.core.automation.list", DomainCommand::AutomationList),
+            (
+                "vibex.core.automation.templates",
+                DomainCommand::AutomationTemplates,
+            ),
+            (
+                "vibex.core.session.detail",
+                DomainCommand::ConversationDetail,
+            ),
+            ("vibex.core.skills.list", DomainCommand::AgentSkillsList),
+            (
+                "vibex.core.agent-runtime.management_bar",
+                DomainCommand::AgentManagementBar,
+            ),
+            (
+                "vibex.core.channels.get_webhooks",
+                DomainCommand::GetChatEventWebhooks,
+            ),
+            (
+                "vibex.prompt-enhancer.enhance",
+                DomainCommand::EnhancePrompt,
+            ),
+            (
+                "vibex.prompt-enhancer.cancel",
+                DomainCommand::CancelEnhancePrompt,
+            ),
+        ];
+
+        for (qualified, expected) in cases {
+            let (plugin_id, command_name) = control_plane
+                .resolve_dynamic_command_target(qualified)
+                .await
+                .expect("resolve dynamic command")
+                .unwrap_or_else(|| panic!("expected target for {qualified}"));
+            let resolved = resolve_bridged_domain_command(&plugin_id, &command_name)
+                .unwrap_or_else(|| panic!("expected DomainCommand for {qualified}"));
+            assert_eq!(resolved, expected, "mismatch for {qualified}");
+        }
     }
 }

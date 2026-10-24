@@ -211,6 +211,23 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
     }>('vibex.webui.theme');
     expect(typeof themeService?.listThemes).toBe('function');
     expect(typeof themeService?.toggleTheme).toBe('function');
+
+    // 7. vibex.webui.layout owns welcome & logs panels, NOT notes (notes belongs to vibex.notes)
+    expect(panelRegistry.get(PANEL_IDS.WELCOME)?.pluginId).toBe(
+      'vibex.webui.layout'
+    );
+    expect(panelRegistry.get(PANEL_IDS.LOGS)?.pluginId).toBe(
+      'vibex.webui.layout'
+    );
+    expect(panelRegistry.has(PANEL_IDS.NOTES)).toBe(false);
+
+    // 8. vibex.core.approval owns browser-eval-confirm overlay; vibex.core.delegation owns collaboration tab view
+    expect(overlayRegistry.get('browser-eval-confirm')?.pluginId).toBe(
+      'vibex.core.approval'
+    );
+    expect(viewRegistry.get('collaboration')?.pluginId).toBe(
+      'vibex.core.delegation'
+    );
   });
 
   it('cleanly unregisters every Panel, Settings Page, Kanban View, Command, Slash Command, and Service via EffectScope on unloadPluginRuntime and restores on reload', async () => {

@@ -80,15 +80,38 @@ export function kanbanViewsFromCatalog(
   items: readonly PluginContributionCatalogItem[],
   sdkContributions: readonly KanbanViewContribution[] = kanbanViewRegistry.getAll()
 ): KanbanViewDescriptor[] {
-  const seen = new Set<string>(BUILTIN_KANBAN_VIEWS.map((v) => v.id));
+  const seen = new Set<string>();
+  const builtinViews: Array<{
+    descriptor: KanbanViewDescriptor;
+    order: number;
+  }> = [];
   const pluginViews: KanbanViewDescriptor[] = [];
 
-  for (const sdkView of sdkContributions) {
-    if (sdkView.builtin || sdkView.id.startsWith('builtin:')) continue;
+  for (let i = 0; i < sdkContributions.length; i += 1) {
+    const sdkView = sdkContributions[i];
+    if (!sdkView) continue;
     const pluginId = sdkView.pluginId ?? 'plugin';
     const rawId = sdkView.id.startsWith(`${pluginId}:`)
       ? sdkView.id.slice(pluginId.length + 1)
-      : sdkView.id;
+      : sdkView.id.startsWith('builtin:')
+        ? sdkView.id.slice('builtin:'.length)
+        : sdkView.id;
+
+    if (sdkView.builtin || sdkView.id.startsWith('builtin:')) {
+      if (seen.has(rawId)) continue;
+      seen.add(rawId);
+      builtinViews.push({
+        descriptor: {
+          id: rawId,
+          titleKey: sdkView.titleKey ?? sdkView.title,
+          hidesBottomDock: sdkView.hidesBottomDock !== false,
+          builtin: true,
+        },
+        order: sdkView.order ?? (i + 1) * 10,
+      });
+      continue;
+    }
+
     const id = pluginSurfaceId(pluginId, rawId);
     if (seen.has(id)) continue;
     seen.add(id);
@@ -101,6 +124,8 @@ export function kanbanViewsFromCatalog(
       contributionId: rawId,
     });
   }
+
+  builtinViews.sort((a, b) => a.order - b.order);
 
   for (const item of items) {
     if (!isKanbanViewContribution(item)) continue;
@@ -117,5 +142,6 @@ export function kanbanViewsFromCatalog(
       contributionId: item.id,
     });
   }
-  return [...BUILTIN_KANBAN_VIEWS, ...pluginViews];
+
+  return [...builtinViews.map((entry) => entry.descriptor), ...pluginViews];
 }

@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,13 +28,11 @@ import { useViews } from '@vibex/plugin-sdk';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
-import { CollaborationWorkspace } from '@/features/collaboration/CollaborationWorkspace';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
 import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
 import { useAutoOpenCreatedPreviews } from '@/lib/autoOpenCreatedPreviews';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import {
-  COLLABORATION_WORKSPACE_TAB,
   effectiveWorkspaceTab,
   parsePluginSurfaceId,
 } from '@/lib/hostSurfaceIds';
@@ -61,7 +60,6 @@ import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
-import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import { KANBAN_INACTIVE_EVICT_MS } from '@/components/layout/kanbanKeepAlive';
 import {
@@ -412,6 +410,25 @@ export function IDELayout({
   const hidesBottomDock = useActiveSurfaceHidesBottomDock(effectiveActiveTab);
   const pluginTabs = usePluginHostContributions('app_tab');
   const sdkViews = useViews();
+  const activeSdkTabView = useMemo(
+    () =>
+      sdkViews.find(
+        (view) =>
+          (view.kind === 'tab' || view.slot === 'tab.main') &&
+          Boolean(view.component) &&
+          (view.id === effectiveActiveTab ||
+            (view.pluginId &&
+              (`${view.pluginId}:${effectiveActiveTab}` === view.id ||
+                `plugin:${view.pluginId}/${effectiveActiveTab}` === view.id)))
+      ) ?? null,
+    [effectiveActiveTab, sdkViews]
+  );
+  const ActiveSdkTabComponent = activeSdkTabView?.component as
+    | ComponentType<{
+        workspaceId?: string | null;
+        projectId?: string | null;
+      }>
+    | undefined;
   const activePluginTab = (() => {
     const parsed = parsePluginSurfaceId(effectiveActiveTab);
     if (!parsed) return null;
@@ -1197,7 +1214,6 @@ export function IDELayout({
 
   return (
     <div className="workspace-shell relative flex h-full w-full flex-col">
-      <BrowserEvalConfirm />
       <SearchPalette />
       <PluginOverlays
         context={{
@@ -1264,9 +1280,9 @@ export function IDELayout({
                 </Suspense>
               </KeepAliveSurface>
 
-              {effectiveActiveTab === COLLABORATION_WORKSPACE_TAB ? (
+              {ActiveSdkTabComponent ? (
                 <div className="kanban-overlay absolute inset-0 z-10">
-                  <CollaborationWorkspace
+                  <ActiveSdkTabComponent
                     workspaceId={surfaceWorkspaceId}
                     projectId={projectId ?? null}
                   />

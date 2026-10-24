@@ -1,3 +1,5 @@
+import React, { lazy, Suspense } from 'react';
+
 import {
   commandRegistry,
   kanbanViewRegistry,
@@ -14,6 +16,8 @@ import { registerBuiltinPanels } from '@/components/layout/panels/PanelRegistry'
 import { clearPluginCrashState } from '@/components/plugins/PluginBoundary';
 import { registerBuiltinCommands } from '@/components/search/SearchPalette';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
+import { COLLABORATION_WORKSPACE_TAB } from '@/lib/hostSurfaceIds';
 import { registerBuiltinKanbanViews } from '@/lib/kanbanViewCatalog';
 import { registerBuiltinSettingsPages } from '@/pages/settings/SettingsLayout';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
@@ -30,6 +34,24 @@ import {
   loadPluginRuntime,
   pluginRuntimeLoader,
 } from './PluginRuntimeLoader';
+
+const LazyCollaborationSpacePage = lazy(async () => {
+  const mod = await import('@/features/collaboration/CollaborationWorkspace');
+  return { default: mod.CollaborationWorkspace };
+});
+
+const CollaborationSpaceSurface: React.ComponentType<{
+  workspaceId?: string | null;
+  projectId?: string | null;
+}> = ({ workspaceId, projectId }) =>
+  React.createElement(
+    Suspense,
+    { fallback: null },
+    React.createElement(LazyCollaborationSpacePage, {
+      workspaceId: workspaceId ?? null,
+      projectId: projectId ?? null,
+    })
+  );
 
 export type CorePluginPlane = 'boot' | 'agent' | 'execution' | 'webui';
 
@@ -1021,6 +1043,13 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           ],
         });
         registerBuiltinCommands({ ctx });
+        ctx.ui.registerView({
+          id: COLLABORATION_WORKSPACE_TAB,
+          title: 'Collaboration Space',
+          kind: 'tab',
+          slot: 'tab.main',
+          component: CollaborationSpaceSurface,
+        });
         ctx.ui.registerSlashCommand({
           id: 'vibex.core.delegation:delegate',
           name: 'delegate',
@@ -1193,6 +1222,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           ],
         });
         registerBuiltinCommands({ ctx });
+        ctx.ui.registerOverlay({
+          id: 'browser-eval-confirm',
+          title: 'Browser Eval Confirmation',
+          component: BrowserEvalConfirm,
+          order: 10,
+        });
         bindCoreDomainServices(
           ctx,
           {
@@ -1666,7 +1701,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
       onActivate: (ctx) => {
         registerBuiltinPanels({
           ctx,
-          panelIds: [PANEL_IDS.WELCOME, PANEL_IDS.LOGS, PANEL_IDS.NOTES],
+          panelIds: [PANEL_IDS.WELCOME, PANEL_IDS.LOGS],
         });
         registerBuiltinCommands({ ctx });
         bindCoreDomainServices(

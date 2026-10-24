@@ -1,3 +1,4 @@
+import { usePanels } from '@vibex/plugin-sdk';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import {
   FileDiff,
@@ -31,6 +32,7 @@ import {
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
 } from '@/lib/terminalPreferences';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import { terminalHostPlatform } from '@/utils/platform';
 import { openWorkspaceTerminal } from './openWorkspaceTerminal';
@@ -48,6 +50,15 @@ export function WorkspaceTabAddMenu({
     runInEditorGroup,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
+  const sdkPanels = usePanels();
+  const canOpenNotes =
+    sdkPanels.length === 0 ||
+    sdkPanels.some(
+      (panel) =>
+        panel.id === PANEL_IDS.NOTES ||
+        panel.id.endsWith(`:${PANEL_IDS.NOTES}`) ||
+        panel.id.endsWith(`/${PANEL_IDS.NOTES}`)
+    );
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
   const system = useOptionalUserSystem();
   const worktree = useOptionalWorktree();
@@ -88,10 +99,12 @@ export function WorkspaceTabAddMenu({
           <FileDiff />
           {t('tabCreation.review')}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => runInThisGroup(openNotes)}>
-          <StickyNote />
-          {t('tabCreation.note')}
-        </DropdownMenuItem>
+        {canOpenNotes ? (
+          <DropdownMenuItem onSelect={() => runInThisGroup(openNotes)}>
+            <StickyNote />
+            {t('tabCreation.note')}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <SquareTerminal />

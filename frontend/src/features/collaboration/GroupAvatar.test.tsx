@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
+  botSilhouetteOutline,
   GroupAvatar,
   GROUP_AVATAR_LAYOUTS,
   GROUP_AVATAR_TILT_DEG,
@@ -67,5 +68,14 @@ describe('GroupAvatar tilt', () => {
     }
     expect(GROUP_AVATAR_TILT_DEG).toBeGreaterThanOrEqual(-15);
     expect(GROUP_AVATAR_TILT_DEG).toBeLessThanOrEqual(-8);
+  });
+});
+
+describe('botSilhouetteOutline', () => {
+  it('uses a white stroke scaled to the 64 viewBox', () => {
+    expect(botSilhouetteOutline(14)).toEqual({
+      color: '#ffffff',
+      width: ((0.75 * 2) / 14) * 64,
+    });
   });
 });

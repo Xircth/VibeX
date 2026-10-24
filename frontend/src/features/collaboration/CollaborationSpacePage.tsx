@@ -205,6 +205,7 @@ import {
   CollaborationSpaceIcon,
   spaceCollectionPreviewPanelId,
 } from './CollaborationSpaceCollectionPanel';
+import { COLLABORATION_ADD_MEMBER_EVENT } from './GroupDetailsMembersTab';
 import {
   COPY,
   SPACE_TAG_PRESETS,
@@ -254,7 +255,7 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
-import { GroupAvatar } from './GroupAvatar';
+import { botSilhouetteOutline, GroupAvatar } from './GroupAvatar';
 import {
   SpaceMessageBody,
   bubbleText,
@@ -2140,6 +2141,21 @@ export function CollaborationSpacePage({
     setCreateMemberOpen(true);
   };
 
+  const openCreateMemberDialogRef = useRef(openCreateMemberDialog);
+  openCreateMemberDialogRef.current = openCreateMemberDialog;
+
+  useEffect(() => {
+    const onAdd = (event: Event) => {
+      const spaceId = (event as CustomEvent<{ spaceId?: string }>).detail
+        ?.spaceId;
+      if (spaceId) openCreateMemberDialogRef.current(spaceId);
+    };
+    window.addEventListener(COLLABORATION_ADD_MEMBER_EVENT, onAdd);
+    return () => {
+      window.removeEventListener(COLLABORATION_ADD_MEMBER_EVENT, onAdd);
+    };
+  }, []);
+
   const selectSpace = (spaceId: string, nextExpanded = true) => {
     closeAllOverlays();
     pendingViewedSpaceIdRef.current = spaceId;
@@ -3174,7 +3190,7 @@ export function CollaborationSpacePage({
       openWorkspacePanel({
         id: spaceCollectionPreviewPanelId(spaceId),
         component: 'space-collection',
-        title: '群收藏',
+        title: COPY.groupDetailsButton,
         params: {
           spaceId,
           spaceName: name ?? '协作空间',
@@ -6269,218 +6285,245 @@ export function CollaborationSpacePage({
               }
             }}
           >
-            {selected && topMemberBarExpanded ? (
-              <div
-                className="collaboration-top-member-bar"
-                data-testid="collaboration-top-member-bar"
-              >
-                <button
-                  type="button"
-                  className={cn(
-                    'collaboration-top-collection-btn',
-                    activePreviewTabId ===
-                      spaceCollectionPreviewPanelId(selected.space_id) &&
-                      'is-active'
-                  )}
-                  aria-label="群收藏"
-                  title="群收藏"
-                  data-testid="collaboration-open-collection-btn"
-                  onClick={() =>
-                    openSpaceCollectionTab(selected.space_id, selected.name)
-                  }
-                >
-                  <LayoutGrid
-                    className="h-3.5 w-3.5 shrink-0"
-                    aria-hidden="true"
-                  />
-                </button>
-                <Button
-                  type="button"
-                  variant="icon"
-                  size="icon"
-                  className="collaboration-expand"
-                  aria-label="收起助手列表"
-                  title="收起助手列表"
-                  onClick={() => setTopMemberBarExpanded(false)}
-                >
-                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                </Button>
-                <div className="collaboration-top-member-scroll">
-                  {visibleRoster.map((member) => {
-                    const nick = displayName(member);
-                    const convId = member.conversation_id ?? '';
-                    const memberHoverKey = member.member_id ?? (convId || nick);
-                    const memberConv = convId
-                      ? conversationById.get(convId)
-                      : undefined;
-                    const memberSessionActive = Boolean(
-                      memberConv?.turn_in_flight ||
-                        memberConv?.status === 'inprogress'
-                    );
-                    const isSelectedChip =
-                      selectedFilterMemberNicknames.has(nick);
-                    const memberScheduledMessages = scheduledMessages.filter(
-                      (item) => {
-                        const status = item.status ?? 'scheduled';
-                        const senderConv =
-                          item.caller_id ?? item.sender_conversation_id;
-                        const senderNick =
-                          item.nickname ?? item.sender_nickname;
-                        return (
-                          status === 'scheduled' &&
-                          ((convId && senderConv === convId) ||
-                            (nick && senderNick === nick))
-                        );
-                      }
-                    );
-                    const hasDelayedMessages =
-                      memberScheduledMessages.length > 0;
-                    const isDelayedPopoverOpen =
-                      hasDelayedMessages &&
-                      hoveredDelayedMemberKey === memberHoverKey;
-                    return (
-                      <Popover key={memberHoverKey} open={isDelayedPopoverOpen}>
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            className={cn(
-                              'collaboration-top-member-chip',
-                              isSelectedChip && 'is-selected',
-                              hasDelayedMessages && 'has-delayed-messages'
-                            )}
-                            aria-label={`筛选助手 ${nick}`}
-                            aria-pressed={isSelectedChip}
-                            data-testid={`top-member-filter-${nick}`}
-                            data-has-delayed-messages={
-                              hasDelayedMessages ? 'true' : 'false'
-                            }
-                            onMouseEnter={() => {
-                              if (hasDelayedMessages) {
-                                openDelayedMemberPopover(memberHoverKey);
-                              }
-                            }}
-                            onMouseLeave={() => {
-                              if (hasDelayedMessages) {
-                                scheduleCloseDelayedMemberPopover();
-                              }
-                            }}
-                            onFocus={() => {
-                              if (hasDelayedMessages) {
-                                openDelayedMemberPopover(memberHoverKey);
-                              }
-                            }}
-                            onBlur={() => {
-                              if (hasDelayedMessages) {
-                                scheduleCloseDelayedMemberPopover();
-                              }
-                            }}
-                            onClick={() => toggleTopFilterMemberNickname(nick)}
-                          >
-                            <MemberBotAvatar
-                              config={getMemberAvatar(convId, nick)}
-                              sessionActive={memberSessionActive}
-                              className="h-3.5 w-3.5 shrink-0"
-                            />
-                            <span>{nick}</span>
-                          </button>
-                        </PopoverTrigger>
-                        {hasDelayedMessages ? (
-                          <PopoverContent
-                            align="start"
-                            side="bottom"
-                            sideOffset={6}
-                            onMouseEnter={() =>
-                              openDelayedMemberPopover(memberHoverKey)
-                            }
-                            onMouseLeave={scheduleCloseDelayedMemberPopover}
-                            onOpenAutoFocus={(event) => event.preventDefault()}
-                            onCloseAutoFocus={(event) => event.preventDefault()}
-                            data-testid={`member-delayed-queue-${nick}`}
-                            className="collaboration-member-delayed-queue-popover rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
-                          >
-                            <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
-                              <span className="inline-flex items-center gap-1">
-                                <Clock
-                                  className="h-3 w-3 text-blue-500"
-                                  aria-hidden="true"
-                                />
-                                <span>定时消息队列</span>
-                              </span>
-                              <span>{memberScheduledMessages.length}</span>
-                            </div>
-                            <div className="collaboration-member-delayed-queue-list">
-                              {memberScheduledMessages.map((item) => {
-                                const itemId =
-                                  item.id ??
-                                  item.delayed_input_id ??
-                                  item.deliver_at;
-                                return (
-                                  <div
-                                    key={itemId}
-                                    className="collaboration-member-delayed-queue-item"
-                                    data-testid={`member-delayed-queue-item-${itemId}`}
-                                  >
-                                    <span
-                                      className="collaboration-member-delayed-queue-content"
-                                      title={item.content}
-                                    >
-                                      {item.content}
-                                    </span>
-                                    <span
-                                      className="collaboration-member-delayed-queue-timer"
-                                      data-testid={`member-delayed-queue-timer-${itemId}`}
-                                    >
-                                      <Clock
-                                        className="h-2.5 w-2.5 shrink-0"
-                                        aria-hidden="true"
-                                      />
-                                      <DelayedMessageCountdown
-                                        deliverAt={item.deliver_at}
-                                      />
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </PopoverContent>
-                        ) : null}
-                      </Popover>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
             <div className="collaboration-thread-body">
+              {selected && topMemberBarExpanded ? (
+                <div
+                  className="collaboration-top-member-bar"
+                  data-testid="collaboration-top-member-bar"
+                >
+                  {!activeDirectThreadId ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        'collaboration-top-collection-btn',
+                        activePreviewTabId ===
+                          spaceCollectionPreviewPanelId(selected.space_id) &&
+                          'is-active'
+                      )}
+                      aria-label={COPY.groupDetailsButton}
+                      title={COPY.groupDetailsButton}
+                      data-testid="collaboration-open-collection-btn"
+                      onClick={() =>
+                        openSpaceCollectionTab(selected.space_id, selected.name)
+                      }
+                    >
+                      <LayoutGrid
+                        className="h-3.5 w-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon"
+                    className="collaboration-expand"
+                    aria-label="收起助手列表"
+                    title="收起助手列表"
+                    onClick={() => setTopMemberBarExpanded(false)}
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <div className="collaboration-top-member-scroll">
+                    {visibleRoster.map((member) => {
+                      const nick = displayName(member);
+                      const convId = member.conversation_id ?? '';
+                      const avatar = getMemberAvatar(convId, nick);
+                      const memberHoverKey =
+                        member.member_id ?? (convId || nick);
+                      const memberConv = convId
+                        ? conversationById.get(convId)
+                        : undefined;
+                      const memberSessionActive = Boolean(
+                        memberConv?.turn_in_flight ||
+                          memberConv?.status === 'inprogress'
+                      );
+                      const isSelectedChip =
+                        selectedFilterMemberNicknames.has(nick);
+                      const memberScheduledMessages = scheduledMessages.filter(
+                        (item) => {
+                          const status = item.status ?? 'scheduled';
+                          const senderConv =
+                            item.caller_id ?? item.sender_conversation_id;
+                          const senderNick =
+                            item.nickname ?? item.sender_nickname;
+                          return (
+                            status === 'scheduled' &&
+                            ((convId && senderConv === convId) ||
+                              (nick && senderNick === nick))
+                          );
+                        }
+                      );
+                      const hasDelayedMessages =
+                        memberScheduledMessages.length > 0;
+                      const isDelayedPopoverOpen =
+                        hasDelayedMessages &&
+                        hoveredDelayedMemberKey === memberHoverKey;
+                      return (
+                        <Popover
+                          key={memberHoverKey}
+                          open={isDelayedPopoverOpen}
+                        >
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                'collaboration-top-member-chip',
+                                isSelectedChip && 'is-selected',
+                                hasDelayedMessages && 'has-delayed-messages'
+                              )}
+                              aria-label={`筛选助手 ${nick}`}
+                              aria-pressed={isSelectedChip}
+                              data-testid={`top-member-filter-${nick}`}
+                              data-has-delayed-messages={
+                                hasDelayedMessages ? 'true' : 'false'
+                              }
+                              onMouseEnter={() => {
+                                if (hasDelayedMessages) {
+                                  openDelayedMemberPopover(memberHoverKey);
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (hasDelayedMessages) {
+                                  scheduleCloseDelayedMemberPopover();
+                                }
+                              }}
+                              onFocus={() => {
+                                if (hasDelayedMessages) {
+                                  openDelayedMemberPopover(memberHoverKey);
+                                }
+                              }}
+                              onBlur={() => {
+                                if (hasDelayedMessages) {
+                                  scheduleCloseDelayedMemberPopover();
+                                }
+                              }}
+                              onClick={() =>
+                                toggleTopFilterMemberNickname(nick)
+                              }
+                            >
+                              <MemberBotAvatar
+                                config={avatar}
+                                sessionActive={memberSessionActive}
+                                selectedOutline={isSelectedChip}
+                                silhouetteOutline={botSilhouetteOutline(14)}
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                              <span
+                                className="collaboration-top-member-chip-name"
+                                style={{ color: avatar.color }}
+                              >
+                                {nick}
+                              </span>
+                            </button>
+                          </PopoverTrigger>
+                          {hasDelayedMessages ? (
+                            <PopoverContent
+                              align="start"
+                              side="bottom"
+                              sideOffset={6}
+                              onMouseEnter={() =>
+                                openDelayedMemberPopover(memberHoverKey)
+                              }
+                              onMouseLeave={scheduleCloseDelayedMemberPopover}
+                              onOpenAutoFocus={(event) =>
+                                event.preventDefault()
+                              }
+                              onCloseAutoFocus={(event) =>
+                                event.preventDefault()
+                              }
+                              data-testid={`member-delayed-queue-${nick}`}
+                              className="collaboration-member-delayed-queue-popover rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
+                            >
+                              <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock
+                                    className="h-3 w-3 text-blue-500"
+                                    aria-hidden="true"
+                                  />
+                                  <span>定时消息队列</span>
+                                </span>
+                                <span>{memberScheduledMessages.length}</span>
+                              </div>
+                              <div className="collaboration-member-delayed-queue-list">
+                                {memberScheduledMessages.map((item) => {
+                                  const itemId =
+                                    item.id ??
+                                    item.delayed_input_id ??
+                                    item.deliver_at;
+                                  return (
+                                    <div
+                                      key={itemId}
+                                      className="collaboration-member-delayed-queue-item"
+                                      data-testid={`member-delayed-queue-item-${itemId}`}
+                                    >
+                                      <span
+                                        className="collaboration-member-delayed-queue-content"
+                                        title={item.content}
+                                      >
+                                        {item.content}
+                                      </span>
+                                      <span
+                                        className="collaboration-member-delayed-queue-timer"
+                                        data-testid={`member-delayed-queue-timer-${itemId}`}
+                                      >
+                                        <Clock
+                                          className="h-2.5 w-2.5 shrink-0"
+                                          aria-hidden="true"
+                                        />
+                                        <DelayedMessageCountdown
+                                          deliverAt={item.deliver_at}
+                                        />
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </PopoverContent>
+                          ) : null}
+                        </Popover>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
               {selected && !topMemberBarExpanded ? (
                 <div
                   className="collaboration-top-member-collapsed-bar"
                   data-testid="collaboration-top-member-collapsed-bar"
                 >
-                  <button
-                    type="button"
-                    className={cn(
-                      'collaboration-top-collection-btn is-collapsed-bar',
-                      activePreviewTabId ===
-                        spaceCollectionPreviewPanelId(selected.space_id) &&
-                        'is-active'
-                    )}
-                    aria-label="群收藏"
-                    title="群收藏"
-                    data-testid="collaboration-open-collection-btn"
-                    onClick={() =>
-                      openSpaceCollectionTab(selected.space_id, selected.name)
-                    }
-                  >
-                    <LayoutGrid
-                      className="h-3.5 w-3.5 shrink-0"
-                      aria-hidden="true"
-                    />
-                  </button>
-                  <span
-                    className="collaboration-top-member-collapsed-divider"
-                    aria-hidden="true"
-                  />
+                  {!activeDirectThreadId ? (
+                    <>
+                      <button
+                        type="button"
+                        className={cn(
+                          'collaboration-top-collection-btn is-collapsed-bar',
+                          activePreviewTabId ===
+                            spaceCollectionPreviewPanelId(selected.space_id) &&
+                            'is-active'
+                        )}
+                        aria-label={COPY.groupDetailsButton}
+                        title={COPY.groupDetailsButton}
+                        data-testid="collaboration-open-collection-btn"
+                        onClick={() =>
+                          openSpaceCollectionTab(
+                            selected.space_id,
+                            selected.name
+                          )
+                        }
+                      >
+                        <LayoutGrid
+                          className="h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                      </button>
+                      <span
+                        className="collaboration-top-member-collapsed-divider"
+                        aria-hidden="true"
+                      />
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     className="collaboration-top-member-expand-trigger"
@@ -6505,6 +6548,7 @@ export function CollaborationSpacePage({
                             >
                               <MemberBotAvatar
                                 config={getMemberAvatar(convId, nick)}
+                                silhouetteOutline={botSilhouetteOutline(14)}
                                 className="h-3.5 w-3.5 shrink-0"
                               />
                             </span>

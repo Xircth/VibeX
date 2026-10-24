@@ -37,6 +37,9 @@ import {
   readMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { GroupAvatar } from './GroupAvatar';
+import { GroupDetailsMembersTab } from './GroupDetailsMembersTab';
+import { GroupDetailsUsageTab } from './GroupDetailsUsageTab';
 import {
   COPY,
   SPACE_TAG_PRESETS,
@@ -240,7 +243,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
     tagColorId: paramTagColorId,
     projectId,
     workspacePath,
+    workspaceId,
   } = props.params;
+  const [detailsTab, setDetailsTab] = useState<
+    'details' | 'collection' | 'members'
+  >('members');
   const panelActions = useOptionalPanelActionsContext();
   const [items, setItems] = useState<SpaceCollectionItemRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -539,412 +546,472 @@ export function CollaborationSpaceCollectionDockviewPanel(
         }
       }}
     >
-      <div className="collaboration-collection-header">
-        <div className="collaboration-collection-title-group">
-          {spaceName ? (
-            <span
-              className="collaboration-collection-space-chip"
-              data-testid="collaboration-collection-space-chip"
+      <div className="collaboration-group-details-hero">
+        <button
+          type="button"
+          className="collaboration-group-details-close"
+          aria-label="关闭"
+          onClick={() => props.api.close()}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <GroupAvatar
+          avatars={resolvedSpaceAvatars}
+          tagHue={spaceTagPreset?.hue}
+          size={64}
+        />
+        {spaceName ? (
+          <h2 className="collaboration-group-details-name">{spaceName}</h2>
+        ) : null}
+        <div
+          className="collaboration-group-details-tabs"
+          role="tablist"
+          aria-label={COPY.groupDetailsButton}
+        >
+          {(
+            [
+              ['details', COPY.groupDetailsTab],
+              ['collection', COPY.groupCollectionTab],
+              ['members', COPY.groupMembersTab],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={detailsTab === id}
+              data-testid={`collaboration-group-details-tab-${id}`}
+              className="collaboration-group-details-tab"
+              onClick={() => setDetailsTab(id)}
             >
-              <CollaborationSpaceIcon
-                avatars={resolvedSpaceAvatars}
-                tagPreset={spaceTagPreset}
-                className="collaboration-space-icon--sm"
-              />
-              <span className="truncate">{spaceName}</span>
-            </span>
-          ) : null}
-          <span className="workspace-session-group-count">{items.length}</span>
-        </div>
-        <div className="collaboration-collection-actions">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            data-testid="collaboration-collection-file-input"
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              event.target.value = '';
-              if (files.length > 0) {
-                void handleAddFiles(files);
-              }
-            }}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            disabled={submitting}
-            className="collaboration-collection-action-btn"
-            data-testid="collaboration-collection-add-text-toggle"
-            onClick={() => setAddFormOpen((current) => !current)}
-          >
-            <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
-            添加文本
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            disabled={submitting}
-            className="collaboration-collection-action-btn"
-            data-testid="collaboration-collection-upload-file-btn"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
-            上传文件
-          </Button>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {addFormOpen ? (
-        <div
-          className="collaboration-collection-add-form"
-          data-testid="collaboration-collection-add-form"
-        >
-          <Input
-            aria-label="收藏名称"
-            value={textName}
-            onChange={(event) => setTextName(event.target.value)}
-            placeholder="名称（可选，如 api-spec.md）"
-            className="h-7 px-2 text-xs"
-          />
-          <Textarea
-            aria-label="收藏文本内容"
-            value={textContent}
-            onChange={(event) => setTextContent(event.target.value)}
-            placeholder="输入要收藏的文本内容..."
-            rows={3}
-            className="text-xs"
-          />
-          <Input
-            aria-label="收藏备注"
-            value={noteInput}
-            onChange={(event) => setNoteInput(event.target.value)}
-            placeholder="备注（可选）"
-            className="h-7 px-2 text-xs"
-          />
-          <div className="flex justify-end gap-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => setAddFormOpen(false)}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="xs"
-              disabled={!textContent.trim() || submitting}
-              data-testid="collaboration-collection-submit-text-btn"
-              onClick={() => {
-                void handleAddTextSubmit();
-              }}
-            >
-              添加到群收藏
-            </Button>
-          </div>
-        </div>
+      {detailsTab === 'members' ? (
+        <GroupDetailsMembersTab
+          spaceId={spaceId}
+          workspaceId={workspaceId}
+          getAvatar={getAvatar}
+        />
       ) : null}
 
-      {error ? (
-        <p
-          className="collaboration-error px-3 pt-2 text-xs"
-          data-testid="collaboration-collection-error"
-        >
-          {error}
-        </p>
+      {detailsTab === 'details' ? (
+        <GroupDetailsUsageTab spaceId={spaceId} getAvatar={getAvatar} />
       ) : null}
 
-      <div
-        className="collaboration-collection-list"
-        data-testid="collaboration-collection-list"
-      >
-        {loading ? (
-          <p className="collaboration-preview-empty">加载中</p>
-        ) : items.length === 0 ? (
-          <p className="collaboration-preview-empty">
-            暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里
-          </p>
-        ) : (
-          items.map((item) => {
-            const isCollapsed = collapsedItemIds.has(item.id);
-            const isReadsExpanded = expandedReadItemIds.has(item.id);
-            const isEditingNote = editingNoteItemId === item.id;
-            const itemKind = item.item_kind ?? item.kind ?? 'file';
-            const itemName = item.file_name ?? item.name ?? '';
-            const itemReads = item.read_receipts ?? item.reads ?? [];
-            const kindLabel =
-              itemKind === 'image'
-                ? '图片'
-                : itemKind === 'file'
-                  ? '文件'
-                  : '文本';
-            const creatorIsUser =
-              !item.creator_conversation_id &&
-              (item.creator_nickname === 'user' ||
-                item.creator_nickname === 'User' ||
-                item.creator_nickname === COPY.you);
-            const creatorDisplay =
-              creatorIsUser ||
-              item.creator_nickname === 'user' ||
-              item.creator_nickname === COPY.you
-                ? 'User'
-                : item.creator_nickname;
-            return (
-              <article
-                key={item.id}
-                className={cn(
-                  'collaboration-collection-card',
-                  isCollapsed && 'is-collapsed'
-                )}
-                data-testid={`collection-item-${item.id}`}
-                data-collapsed={isCollapsed ? 'true' : 'false'}
+      {detailsTab === 'collection' ? (
+        <div className="collaboration-group-details-body">
+          <div className="collaboration-collection-header">
+            <div className="collaboration-collection-title-group">
+              <span className="workspace-session-group-count">
+                {items.length}
+              </span>
+            </div>
+            <div className="collaboration-collection-actions">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                data-testid="collaboration-collection-file-input"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = '';
+                  if (files.length > 0) {
+                    void handleAddFiles(files);
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={submitting}
+                className="collaboration-collection-action-btn"
+                data-testid="collaboration-collection-add-text-toggle"
+                onClick={() => setAddFormOpen((current) => !current)}
               >
-                <div
-                  className="collaboration-collection-card-header"
-                  onClick={() => toggleItemCollapsed(item.id)}
+                <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
+                添加文本
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={submitting}
+                className="collaboration-collection-action-btn"
+                data-testid="collaboration-collection-upload-file-btn"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
+                上传文件
+              </Button>
+            </div>
+          </div>
+
+          {addFormOpen ? (
+            <div
+              className="collaboration-collection-add-form"
+              data-testid="collaboration-collection-add-form"
+            >
+              <Input
+                aria-label="收藏名称"
+                value={textName}
+                onChange={(event) => setTextName(event.target.value)}
+                placeholder="名称（可选，如 api-spec.md）"
+                className="h-7 px-2 text-xs"
+              />
+              <Textarea
+                aria-label="收藏文本内容"
+                value={textContent}
+                onChange={(event) => setTextContent(event.target.value)}
+                placeholder="输入要收藏的文本内容..."
+                rows={3}
+                className="text-xs"
+              />
+              <Input
+                aria-label="收藏备注"
+                value={noteInput}
+                onChange={(event) => setNoteInput(event.target.value)}
+                placeholder="备注（可选）"
+                className="h-7 px-2 text-xs"
+              />
+              <div className="flex justify-end gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setAddFormOpen(false)}
                 >
-                  <div
-                    className="collaboration-collection-creator"
-                    data-testid={`collection-item-creator-${item.id}`}
+                  取消
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="xs"
+                  disabled={!textContent.trim() || submitting}
+                  data-testid="collaboration-collection-submit-text-btn"
+                  onClick={() => {
+                    void handleAddTextSubmit();
+                  }}
+                >
+                  添加到群收藏
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p
+              className="collaboration-error px-3 pt-2 text-xs"
+              data-testid="collaboration-collection-error"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <div
+            className="collaboration-collection-list"
+            data-testid="collaboration-collection-list"
+          >
+            {loading ? (
+              <p className="collaboration-preview-empty">加载中</p>
+            ) : items.length === 0 ? (
+              <p className="collaboration-preview-empty">
+                暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里
+              </p>
+            ) : (
+              items.map((item) => {
+                const isCollapsed = collapsedItemIds.has(item.id);
+                const isReadsExpanded = expandedReadItemIds.has(item.id);
+                const isEditingNote = editingNoteItemId === item.id;
+                const itemKind = item.item_kind ?? item.kind ?? 'file';
+                const itemName = item.file_name ?? item.name ?? '';
+                const itemReads = item.read_receipts ?? item.reads ?? [];
+                const kindLabel =
+                  itemKind === 'image'
+                    ? '图片'
+                    : itemKind === 'file'
+                      ? '文件'
+                      : '文本';
+                const creatorIsUser =
+                  !item.creator_conversation_id &&
+                  (item.creator_nickname === 'user' ||
+                    item.creator_nickname === 'User' ||
+                    item.creator_nickname === COPY.you);
+                const creatorDisplay =
+                  creatorIsUser ||
+                  item.creator_nickname === 'user' ||
+                  item.creator_nickname === COPY.you
+                    ? 'User'
+                    : item.creator_nickname;
+                return (
+                  <article
+                    key={item.id}
+                    className={cn(
+                      'collaboration-collection-card',
+                      isCollapsed && 'is-collapsed'
+                    )}
+                    data-testid={`collection-item-${item.id}`}
+                    data-collapsed={isCollapsed ? 'true' : 'false'}
                   >
-                    <MemberBotAvatar
-                      config={getAvatar(
-                        item.creator_conversation_id,
-                        creatorDisplay
-                      )}
-                      className="h-4 w-4 shrink-0"
-                    />
-                    <span className="truncate">{creatorDisplay}</span>
-                  </div>
-                  <div className="collaboration-collection-card-header-right">
-                    <span
-                      className="collaboration-collection-kind-badge"
-                      data-testid={`collection-item-kind-${item.id}`}
-                    >
-                      {kindLabel}
-                    </span>
-                    <button
-                      type="button"
-                      className="collaboration-collection-collapse-btn"
-                      data-testid={`collection-item-collapse-toggle-${item.id}`}
-                      aria-expanded={!isCollapsed}
-                      aria-label={isCollapsed ? '展开收藏记录' : '折叠收藏记录'}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleItemCollapsed(item.id);
-                      }}
-                    >
-                      <ChevronDown
-                        className={cn(
-                          'h-3.5 w-3.5 transition-transform',
-                          isCollapsed && '-rotate-90'
-                        )}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </div>
-                </div>
-
-                {!isCollapsed ? (
-                  <>
                     <div
-                      className="collaboration-collection-card-content"
-                      data-testid={`collection-item-content-${item.id}`}
+                      className="collaboration-collection-card-header"
+                      onClick={() => toggleItemCollapsed(item.id)}
                     >
-                      {itemKind === 'text' ? (
-                        <div className="collaboration-collection-text-content">
-                          {item.text_content ?? itemName}
-                        </div>
-                      ) : itemKind === 'image' ? (
-                        <SpaceCollectionImagePreview
-                          filePath={item.file_path}
-                          name={itemName}
+                      <div
+                        className="collaboration-collection-creator"
+                        data-testid={`collection-item-creator-${item.id}`}
+                      >
+                        <MemberBotAvatar
+                          config={getAvatar(
+                            item.creator_conversation_id,
+                            creatorDisplay
+                          )}
+                          className="h-4 w-4 shrink-0"
                         />
-                      ) : (
-                        <AttachmentFileCard
-                          name={itemName}
-                          sizeBytes={item.byte_size}
-                          modifiedAt={item.created_at}
-                          onClick={() =>
-                            panelActions?.openFilePreview(item.file_path)
-                          }
-                        />
-                      )}
-                    </div>
-
-                    <div
-                      className="collaboration-collection-note"
-                      data-testid={`collection-item-note-${item.id}`}
-                    >
-                      <span className="collaboration-collection-meta-label">
-                        备注：
-                      </span>
-                      {isEditingNote ? (
-                        <div className="collaboration-collection-note-editor">
-                          <Input
-                            aria-label="编辑收藏备注"
-                            data-testid={`collection-item-note-input-${item.id}`}
-                            value={editingNoteDraft}
-                            disabled={savingNoteItemId === item.id}
-                            autoFocus
-                            placeholder="输入备注..."
-                            className="h-6 flex-1 px-2 text-xs"
-                            onChange={(event) =>
-                              setEditingNoteDraft(event.target.value)
-                            }
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault();
-                                void handleSaveNote(item.id, editingNoteDraft);
-                              } else if (event.key === 'Escape') {
-                                event.preventDefault();
-                                setEditingNoteItemId(null);
-                              }
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 shrink-0"
-                            aria-label="保存备注"
-                            data-testid={`collection-item-note-save-${item.id}`}
-                            disabled={savingNoteItemId === item.id}
-                            onClick={() => {
-                              void handleSaveNote(item.id, editingNoteDraft);
-                            }}
-                          >
-                            <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 shrink-0"
-                            aria-label="取消编辑备注"
-                            data-testid={`collection-item-note-cancel-${item.id}`}
-                            disabled={savingNoteItemId === item.id}
-                            onClick={() => setEditingNoteItemId(null)}
-                          >
-                            <X className="h-3.5 w-3.5" aria-hidden="true" />
-                          </Button>
-                        </div>
-                      ) : (
+                        <span className="truncate">{creatorDisplay}</span>
+                      </div>
+                      <div className="collaboration-collection-card-header-right">
+                        <span
+                          className="collaboration-collection-kind-badge"
+                          data-testid={`collection-item-kind-${item.id}`}
+                        >
+                          {kindLabel}
+                        </span>
                         <button
                           type="button"
-                          className="collaboration-collection-note-display"
-                          data-testid={`collection-item-note-edit-${item.id}`}
-                          aria-label="编辑备注"
-                          title="点击编辑备注"
-                          onClick={() => {
-                            setEditingNoteItemId(item.id);
-                            setEditingNoteDraft(item.note || '');
+                          className="collaboration-collection-collapse-btn"
+                          data-testid={`collection-item-collapse-toggle-${item.id}`}
+                          aria-expanded={!isCollapsed}
+                          aria-label={
+                            isCollapsed ? '展开收藏记录' : '折叠收藏记录'
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleItemCollapsed(item.id);
                           }}
                         >
-                          <span>{item.note || '无'}</span>
-                          <Pencil
-                            className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
+                          <ChevronDown
+                            className={cn(
+                              'h-3.5 w-3.5 transition-transform',
+                              isCollapsed && '-rotate-90'
+                            )}
                             aria-hidden="true"
                           />
                         </button>
-                      )}
-                    </div>
-
-                    <div className="collaboration-collection-card-footer">
-                      <span data-testid={`collection-item-time-${item.id}`}>
-                        创建时间：{formatCollectionTime(item.created_at)}
-                      </span>
-                      <button
-                        type="button"
-                        className="collaboration-collection-reads-toggle"
-                        data-testid={`collection-item-reads-toggle-${item.id}`}
-                        aria-expanded={isReadsExpanded}
-                        onClick={() => toggleReadLog(item.id)}
-                      >
-                        <span>读取记录 ({itemReads.length})</span>
-                        <ChevronDown
-                          className={cn(
-                            'h-3 w-3 transition-transform',
-                            isReadsExpanded && 'rotate-180'
-                          )}
-                          aria-hidden="true"
-                        />
-                      </button>
-                    </div>
-
-                    {isReadsExpanded ? (
-                      <div
-                        className="collaboration-collection-reads-panel"
-                        data-testid={`collection-item-reads-list-${item.id}`}
-                      >
-                        {itemReads.length === 0 ? (
-                          <p className="collaboration-collection-reads-empty">
-                            暂无助手读取记录
-                          </p>
-                        ) : (
-                          <ul className="collaboration-collection-reads-list">
-                            {itemReads.map((read, readIndex) => (
-                              <li
-                                key={
-                                  read.reader_key ??
-                                  read.reader_conversation_id ??
-                                  `${item.id}-${readIndex}`
-                                }
-                                className="collaboration-collection-read-row"
-                              >
-                                <span className="collaboration-collection-read-member">
-                                  <MemberBotAvatar
-                                    config={getAvatar(
-                                      read.reader_conversation_id,
-                                      read.reader_nickname
-                                    )}
-                                    className="h-3.5 w-3.5 shrink-0"
-                                  />
-                                  <span className="truncate">
-                                    {read.reader_nickname}
-                                  </span>
-                                </span>
-                                <span className="collaboration-collection-read-meta">
-                                  读取 {read.read_count ?? 1} 次 ·{' '}
-                                  {formatCollectionTime(
-                                    read.last_read_at ?? read.read_at ?? ''
-                                  )}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
                       </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </article>
-            );
-          })
-        )}
-      </div>
+                    </div>
 
-      <div
-        role="button"
-        tabIndex={0}
-        className="collaboration-collection-dropzone"
-        data-testid="collaboration-collection-dropzone"
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            fileInputRef.current?.click();
-          }
-        }}
-      >
-        <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span>拖拽文件到此处或点击上传（单文件最大 200MB）</span>
-      </div>
+                    {!isCollapsed ? (
+                      <>
+                        <div
+                          className="collaboration-collection-card-content"
+                          data-testid={`collection-item-content-${item.id}`}
+                        >
+                          {itemKind === 'text' ? (
+                            <div className="collaboration-collection-text-content">
+                              {item.text_content ?? itemName}
+                            </div>
+                          ) : itemKind === 'image' ? (
+                            <SpaceCollectionImagePreview
+                              filePath={item.file_path}
+                              name={itemName}
+                            />
+                          ) : (
+                            <AttachmentFileCard
+                              name={itemName}
+                              sizeBytes={item.byte_size}
+                              modifiedAt={item.created_at}
+                              onClick={() =>
+                                panelActions?.openFilePreview(item.file_path)
+                              }
+                            />
+                          )}
+                        </div>
+
+                        <div
+                          className="collaboration-collection-note"
+                          data-testid={`collection-item-note-${item.id}`}
+                        >
+                          <span className="collaboration-collection-meta-label">
+                            备注：
+                          </span>
+                          {isEditingNote ? (
+                            <div className="collaboration-collection-note-editor">
+                              <Input
+                                aria-label="编辑收藏备注"
+                                data-testid={`collection-item-note-input-${item.id}`}
+                                value={editingNoteDraft}
+                                disabled={savingNoteItemId === item.id}
+                                autoFocus
+                                placeholder="输入备注..."
+                                className="h-6 flex-1 px-2 text-xs"
+                                onChange={(event) =>
+                                  setEditingNoteDraft(event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    void handleSaveNote(
+                                      item.id,
+                                      editingNoteDraft
+                                    );
+                                  } else if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    setEditingNoteItemId(null);
+                                  }
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                aria-label="保存备注"
+                                data-testid={`collection-item-note-save-${item.id}`}
+                                disabled={savingNoteItemId === item.id}
+                                onClick={() => {
+                                  void handleSaveNote(
+                                    item.id,
+                                    editingNoteDraft
+                                  );
+                                }}
+                              >
+                                <Check
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                aria-label="取消编辑备注"
+                                data-testid={`collection-item-note-cancel-${item.id}`}
+                                disabled={savingNoteItemId === item.id}
+                                onClick={() => setEditingNoteItemId(null)}
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="collaboration-collection-note-display"
+                              data-testid={`collection-item-note-edit-${item.id}`}
+                              aria-label="编辑备注"
+                              title="点击编辑备注"
+                              onClick={() => {
+                                setEditingNoteItemId(item.id);
+                                setEditingNoteDraft(item.note || '');
+                              }}
+                            >
+                              <span>{item.note || '无'}</span>
+                              <Pencil
+                                className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
+                                aria-hidden="true"
+                              />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="collaboration-collection-card-footer">
+                          <span data-testid={`collection-item-time-${item.id}`}>
+                            创建时间：{formatCollectionTime(item.created_at)}
+                          </span>
+                          <button
+                            type="button"
+                            className="collaboration-collection-reads-toggle"
+                            data-testid={`collection-item-reads-toggle-${item.id}`}
+                            aria-expanded={isReadsExpanded}
+                            onClick={() => toggleReadLog(item.id)}
+                          >
+                            <span>读取记录 ({itemReads.length})</span>
+                            <ChevronDown
+                              className={cn(
+                                'h-3 w-3 transition-transform',
+                                isReadsExpanded && 'rotate-180'
+                              )}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        </div>
+
+                        {isReadsExpanded ? (
+                          <div
+                            className="collaboration-collection-reads-panel"
+                            data-testid={`collection-item-reads-list-${item.id}`}
+                          >
+                            {itemReads.length === 0 ? (
+                              <p className="collaboration-collection-reads-empty">
+                                暂无助手读取记录
+                              </p>
+                            ) : (
+                              <ul className="collaboration-collection-reads-list">
+                                {itemReads.map((read, readIndex) => (
+                                  <li
+                                    key={
+                                      read.reader_key ??
+                                      read.reader_conversation_id ??
+                                      `${item.id}-${readIndex}`
+                                    }
+                                    className="collaboration-collection-read-row"
+                                  >
+                                    <span className="collaboration-collection-read-member">
+                                      <MemberBotAvatar
+                                        config={getAvatar(
+                                          read.reader_conversation_id,
+                                          read.reader_nickname
+                                        )}
+                                        className="h-3.5 w-3.5 shrink-0"
+                                      />
+                                      <span className="truncate">
+                                        {read.reader_nickname}
+                                      </span>
+                                    </span>
+                                    <span className="collaboration-collection-read-meta">
+                                      读取 {read.read_count ?? 1} 次 ·{' '}
+                                      {formatCollectionTime(
+                                        read.last_read_at ?? read.read_at ?? ''
+                                      )}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </article>
+                );
+              })
+            )}
+          </div>
+
+          <div
+            role="button"
+            tabIndex={0}
+            className="collaboration-collection-dropzone"
+            data-testid="collaboration-collection-dropzone"
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+          >
+            <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>拖拽文件到此处或点击上传（单文件最大 200MB）</span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

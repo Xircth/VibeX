@@ -257,13 +257,23 @@
 }
 
 .collaboration-top-member-bar {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.75rem;
+  z-index: 5;
   display: flex;
+  width: auto;
+  max-width: calc(100% - 1.5rem);
   flex-shrink: 0;
-  width: 100%;
   align-items: center;
   gap: 0.375rem;
-  padding: 0.375rem 0.75rem;
-  background: var(--surface-right-panel);
+  padding: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+.collaboration-top-member-bar > * {
+  pointer-events: auto;
 }
 
 .collaboration-top-member-scroll {
@@ -288,21 +298,29 @@
   align-items: center;
   gap: 0.375rem;
   height: 1.625rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-control);
+  padding: 0 0.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-strong);
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  box-shadow: none;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    box-shadow 180ms ease;
+    box-shadow 180ms ease,
+    opacity 140ms ease;
+}
+
+.collaboration-top-member-chip:hover,
+.collaboration-top-member-chip:focus-visible {
+  background: transparent;
+}
+
+.collaboration-top-member-chip-name {
+  font-weight: 700;
 }
 
 .collaboration-top-member-chip.has-delayed-messages {
@@ -329,15 +347,15 @@
 }
 
 .collaboration-top-member-chip.is-selected {
-  border-color: hsl(214 88% 56%);
-  background: hsl(214 88% 56%);
-  color: #ffffff;
+  border-color: transparent;
+  background: transparent;
+  opacity: 1;
 }
 
 .collaboration-top-member-chip.is-selected.has-delayed-messages {
-  border-color: rgba(147, 197, 253, 0.95);
+  border-color: transparent;
   background-image: none;
-  background: hsl(214 88% 56%);
+  background: transparent;
   box-shadow:
     0 0 0 1.5px rgba(147, 197, 253, 0.75),
     0 0 10px rgba(59, 130, 246, 0.48);
@@ -474,7 +492,7 @@
 }
 
 .collaboration-top-collection-btn.is-collapsed-bar:hover {
-  background: var(--surface-control-hover);
+  background: transparent;
 }
 
 .collaboration-top-collection-btn.is-collapsed-bar.is-active {
@@ -523,8 +541,10 @@
   box-shadow: none;
 }
 
-.collaboration-top-member-expand-trigger:hover {
-  background: var(--surface-control-hover);
+.collaboration-top-member-expand-trigger:hover,
+.collaboration-top-member-collapsed-bar
+  .collaboration-top-member-expand-trigger:hover {
+  background: transparent;
 }
 
 .collaboration-top-member-stack {
@@ -540,8 +560,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--surface-right-panel);
-  box-shadow: 0 0 0 1.5px var(--surface-right-panel);
+  background: transparent;
+  box-shadow: none;
 }
 
 .collaboration-top-member-stack-item + .collaboration-top-member-stack-item {
@@ -571,7 +591,14 @@
   gap: 0.75rem;
   min-height: 0;
   overflow: auto;
-  padding: 0.75rem 1rem;
+  padding: 2.75rem 1rem 0.75rem;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 2.5rem,
+    #000 100%
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 2.5rem, #000 100%);
 }
 
 .collaboration-message {
@@ -1152,7 +1179,9 @@ body.is-dragging-collaboration-member * {
   border-color: transparent;
 }
 
-.collaboration-shell .collaboration-member-row:hover .workspace-session-meta-idle,
+.collaboration-shell
+  .collaboration-member-row:hover
+  .workspace-session-meta-idle,
 .collaboration-shell
   .collaboration-member-row:focus-within
   .workspace-session-meta-idle,
@@ -2256,6 +2285,166 @@ body.is-dragging-collaboration-member * {
   background: rgba(59, 130, 246, 0.04);
 }
 
+.collaboration-group-details-hero {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.collaboration-group-details-close {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.collaboration-group-details-close:hover {
+  color: var(--text-primary);
+}
+
+.collaboration-group-details-name {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.collaboration-group-details-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.collaboration-group-details-tab {
+  padding: 0.25rem 0.625rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.collaboration-group-details-tab[aria-selected='true'] {
+  background: var(--surface-control);
+  color: var(--text-strong);
+}
+
+.collaboration-group-details-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-group-members {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0.5rem 1rem 1rem;
+}
+
+.collaboration-group-member-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+}
+
+.collaboration-group-member-name {
+  min-width: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collaboration-group-member-remove {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.collaboration-group-member-row:hover .collaboration-group-member-remove,
+.collaboration-group-member-row:focus-within
+  .collaboration-group-member-remove {
+  opacity: 1;
+}
+
+.collaboration-group-member-remove:hover {
+  color: var(--destructive, #dc2626);
+}
+
+.collaboration-group-add-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.collaboration-group-add-member:hover {
+  color: var(--text-strong);
+}
+
+.collaboration-group-details-usage {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem 1rem;
+}
+
+.collaboration-group-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 12rem;
+  padding: 0.25rem;
+}
+
 .collaboration-collection-header {
   display: flex;
   flex-shrink: 0;
@@ -2875,10 +3064,8 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
             [preview…          unread]                                    */
 .collaboration-contact-row-main {
   display: grid;
-  grid-template-columns: var(--collaboration-contact-avatar, 4.5rem) minmax(
-      0,
-      1fr
-    )
+  grid-template-columns:
+    var(--collaboration-contact-avatar, 4.5rem) minmax(0, 1fr)
     auto;
   grid-template-rows: auto auto;
   column-gap: 0.625rem;

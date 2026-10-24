@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { type IDockviewPanelProps } from 'dockview-react';
 import { Check, ChevronDown, Pencil, Plus, Upload, X } from 'lucide-react';
@@ -26,7 +27,6 @@ import {
 } from '@/utils/fileReferences';
 import { attachmentPreviewKind } from '@/utils/mediaAttachments';
 
-import { GroupAvatar } from './GroupAvatar';
 import {
   collaborationCall,
   listenCollaborationSpaceChanged,
@@ -45,7 +45,6 @@ import {
   surfaceErrorCopy,
 } from './spaceModel';
 
-/** Group avatar used everywhere a collaboration space/thread is shown. */
 export function CollaborationSpaceIcon({
   avatars,
   tagPreset,
@@ -55,14 +54,68 @@ export function CollaborationSpaceIcon({
   tagPreset?: (typeof SPACE_TAG_PRESETS)[number];
   className?: string;
 }) {
+  const isSingle = avatars.length === 1;
+  const gridCols = avatars.length > 4 ? 3 : 2;
+  const cellCount = gridCols * gridCols;
+
   return (
-    <GroupAvatar
-      avatars={avatars}
-      tagColor={tagPreset ? `hsl(${tagPreset.hue})` : undefined}
-      tagId={tagPreset?.id}
-      className={cn('collaboration-space-icon', className)}
+    <span
+      className={cn(
+        'collaboration-space-icon',
+        isSingle
+          ? 'collaboration-space-icon--single'
+          : 'collaboration-space-icon--grid',
+        className
+      )}
       data-testid="collaboration-space-icon"
-    />
+      data-tag-color={tagPreset?.id}
+      data-grid-size={isSingle ? 1 : cellCount}
+      style={
+        tagPreset
+          ? ({
+              '--space-icon-bg': `hsl(${tagPreset.hue})`,
+              backgroundColor: `hsl(${tagPreset.hue})`,
+            } as CSSProperties)
+          : undefined
+      }
+      aria-hidden="true"
+    >
+      {isSingle ? (
+        <MemberBotAvatar
+          config={avatars[0]}
+          animated={false}
+          className="collaboration-space-icon-single-avatar"
+        />
+      ) : (
+        <span
+          className={cn(
+            'collaboration-space-icon-grid',
+            gridCols === 3
+              ? 'collaboration-space-icon-grid--3x3'
+              : 'collaboration-space-icon-grid--2x2'
+          )}
+        >
+          {Array.from({ length: cellCount }, (_, index) => {
+            const avatar = avatars[index];
+            return (
+              <span
+                key={index}
+                className="collaboration-space-icon-cell"
+                data-testid="collaboration-space-icon-cell"
+              >
+                {avatar ? (
+                  <MemberBotAvatar
+                    config={avatar}
+                    animated={false}
+                    className="collaboration-space-icon-cell-avatar"
+                  />
+                ) : null}
+              </span>
+            );
+          })}
+        </span>
+      )}
+    </span>
   );
 }
 

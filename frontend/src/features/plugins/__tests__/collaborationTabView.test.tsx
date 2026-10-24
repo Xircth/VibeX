@@ -7,8 +7,8 @@ import { COLLABORATION_WORKSPACE_TAB } from '@/lib/hostSurfaceIds';
 import { bootstrapCoreFoundationPlugins } from '../coreFoundationPlugins';
 import { unloadAllPluginRuntimes } from '../PluginRuntimeLoader';
 
-vi.mock('@/features/collaboration/CollaborationWorkspace', () => ({
-  CollaborationWorkspace: () => <div data-testid="collaboration-workspace" />,
+vi.mock('@/features/collaboration/CollaborationSpacePage', () => ({
+  CollaborationSpacePage: () => <div data-testid="collaboration-workspace" />,
 }));
 
 describe('collaboration tab view', () => {
@@ -17,12 +17,12 @@ describe('collaboration tab view', () => {
     viewRegistry.clear();
   });
 
-  it('is owned by vibex.core.delegation, uses the built-in tab id and i18n title, and renders CollaborationWorkspace', async () => {
+  it('is owned by vibex.core.delegation, uses the built-in tab id and i18n title, and renders CollaborationSpacePage', async () => {
     await bootstrapCoreFoundationPlugins();
     const view = viewRegistry.get(COLLABORATION_WORKSPACE_TAB);
     expect(view?.pluginId).toBe('vibex.core.delegation');
     expect(view?.title).not.toBe('Collaboration Space');
-    expect(['协作', 'Collaboration']).toContain(view?.title);
+    expect(['协作空间', 'Collaboration']).toContain(view?.title);
     const Component = view?.component as ComponentType<{
       projectId?: string | null;
     }>;

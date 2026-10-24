@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
 import {
   DockviewReact,
@@ -17,6 +18,7 @@ import {
   AtSign,
   Bot,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -34,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentSessionControlsSnapshot,
   ExecutorProfileId,
 } from 'shared/types';
 import {
@@ -91,11 +94,19 @@ import {
   quoteTokenChipLabel,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import type { QueuedMessage } from '@/components/tasks/follow-up/sessionComposerQueue';
+import {
+  advertisedSessionConfigValues,
+  presentableSessionConfigOptions,
+  sanitizeDependentConfigValues,
+  selectConfigOptionValue,
+  visibleSessionConfigOptions,
+} from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionComposerFrame } from '@/components/tasks/follow-up/SessionComposerFrame';
 import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
 } from '@/components/tasks/follow-up/SessionComposerInput';
+import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { useSessionComposerPromptEnhancement } from '@/components/tasks/follow-up/useSessionComposerPromptEnhancement';
 import { toast } from '@/components/ui/toast';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
@@ -105,6 +116,7 @@ import {
   workspaceSessionStatusTone,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
 import { useOptionalProject } from '@/contexts/ProjectContext';
+import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { imagesApi, sessionsApi } from '@/lib/api';
@@ -115,11 +127,6 @@ import {
   type WorkspaceSessionsChangedPayload,
 } from '@/lib/sessionQueryCache';
 import { cn } from '@/lib/utils';
-import {
-  CollaborationOptionSelect,
-  CustomAgentControls,
-  type CollaborationSelectOption,
-} from './memberFormControls';
 import { type PreviewPanelParams } from '@/types/panels';
 import { prepareImageFileForUpload } from '@/utils/clipboard';
 import '@/styles/conversation.css';
@@ -162,6 +169,7 @@ import {
   postRecipients,
   randomEnglishNickname,
   readSpaceTags,
+  receiptStatusCopy,
   resolveMessageConversationId,
   resolveMessageReceipts,
   sortConversationsForSpaceMemberPicker,
@@ -185,11 +193,6 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
-import {
-  MemberMentionProvider,
-  type MemberMentionCandidate,
-} from './MemberMention';
-import { MessageReceiptCheck } from './MessageReceiptCheck';
 import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
 import './collaboration.css';
 
@@ -282,6 +285,183 @@ function DelayedMessageCountdown({ deliverAt }: { deliverAt: string }) {
     };
   }, [deliverAt]);
   return <span>{formatCountdownTimer(deliverAt, tickNow)}</span>;
+}
+
+type CollaborationSelectOption<T extends string = string> = {
+  value: T;
+  label: string;
+  icon?: ReactNode;
+};
+
+function CollaborationOptionSelect<T extends string = string>({
+  ariaLabel,
+  value,
+  placeholder,
+  options,
+  onChange,
+  size = 'default',
+  disabled = false,
+}: {
+  ariaLabel: string;
+  value: T;
+  placeholder?: string;
+  options: readonly CollaborationSelectOption<T>[];
+  onChange: (value: T) => void;
+  size?: 'default' | 'compact';
+  disabled?: boolean;
+}) {
+  const selectedOption = options.find((option) => option.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-label={ariaLabel}
+          data-value={value}
+          disabled={disabled}
+          className={cn(
+            'raised-control w-full justify-between px-2.5 font-normal',
+            size === 'compact' ? 'h-7 text-xs' : 'h-8 text-[13px]'
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {selectedOption?.icon ? (
+              <span aria-hidden="true" className="inline-flex shrink-0">
+                {selectedOption.icon}
+              </span>
+            ) : null}
+            <span className="truncate">
+              {selectedOption?.label || placeholder || ''}
+            </span>
+          </span>
+          <ChevronDown
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+      >
+        {options.map((option) => {
+          const isSelected = option.value === value;
+          return (
+            <DropdownMenuItem
+              key={option.value || '__empty__'}
+              data-state={isSelected ? 'checked' : undefined}
+              onSelect={() => onChange(option.value)}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                {option.icon ? (
+                  <span aria-hidden="true" className="inline-flex shrink-0">
+                    {option.icon}
+                  </span>
+                ) : null}
+                <span className="truncate">{option.label}</span>
+              </span>
+              {isSelected ? (
+                <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function CustomAgentControls({
+  agentId,
+  modeId,
+  values,
+  onModeId,
+  onValues,
+}: {
+  agentId: string;
+  modeId: string;
+  values: Record<string, string>;
+  onModeId: (modeId: string) => void;
+  onValues: (values: Record<string, string>) => void;
+}) {
+  const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
+    null
+  );
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!agentId) {
+      setFailed(true);
+      return;
+    }
+    let active = true;
+    setFailed(false);
+    setCatalog(null);
+    void loadAgentSessionControlsCatalog(agentId)
+      .then((next) => {
+        if (active) setCatalog(next);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [agentId]);
+
+  if (!agentId || failed) {
+    return (
+      <p className="settings-row__description">{COPY.controlsUnavailable}</p>
+    );
+  }
+  if (!catalog) return null;
+
+  const visibleConfigOptions = visibleSessionConfigOptions(
+    catalog.config_options ?? []
+  );
+  const presentableConfigOptions = presentableSessionConfigOptions(
+    visibleConfigOptions,
+    catalog.modes ?? []
+  );
+  const advertisedConfigValues =
+    advertisedSessionConfigValues(visibleConfigOptions);
+  const sanitizedConfigValues = sanitizeDependentConfigValues(
+    visibleConfigOptions,
+    {
+      ...advertisedConfigValues,
+      ...values,
+    }
+  );
+  const presentableConfigKeys = new Set(
+    presentableConfigOptions.map((option) => option.key)
+  );
+  const configOverrides = Object.fromEntries(
+    Object.entries(sanitizedConfigValues).filter(([key]) =>
+      presentableConfigKeys.has(key)
+    )
+  );
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <SessionSettingsSummary
+        sessionModes={{
+          current: catalog.current_mode ?? null,
+          modes: catalog.modes,
+        }}
+        options={visibleConfigOptions}
+        selectedMode={modeId || catalog.current_mode || null}
+        pending={configOverrides}
+        onSelectMode={onModeId}
+        onSelectConfigOption={(key, value) => {
+          onValues(
+            selectConfigOptionValue(visibleConfigOptions, values, key, value)
+          );
+        }}
+      />
+    </div>
+  );
 }
 
 export function CollaborationSpacePage({
@@ -1515,30 +1695,6 @@ export function CollaborationSpacePage({
     },
     [draftMemberMetaByConvId, memberAvatars]
   );
-
-  const memberMentionCandidates = useMemo<MemberMentionCandidate[]>(
-    () =>
-      agentRoster(members)
-        .map((member) => {
-          const nick = String(member.nickname ?? '').trim();
-          if (!nick) return null;
-          return {
-            nickname: nick,
-            avatar: getMemberAvatar(member.conversation_id ?? undefined, nick),
-          };
-        })
-        .filter((item): item is MemberMentionCandidate => Boolean(item)),
-    [getMemberAvatar, members]
-  );
-  const composerSpaceMembers = useMemo(() => {
-    const avatarByNick = new Map(
-      memberMentionCandidates.map((item) => [item.nickname, item.avatar])
-    );
-    return spaceMemberRefs.map((ref) => ({
-      ...ref,
-      avatar: avatarByNick.get(ref.nickname),
-    }));
-  }, [memberMentionCandidates, spaceMemberRefs]);
 
   const openFilePreview = useCallback(
     (params: PreviewPanelParams) => {
@@ -2781,6 +2937,15 @@ export function CollaborationSpacePage({
       }
     },
     [members, selected]
+  );
+
+  const receiptLabels = useMemo(
+    () => ({
+      queued: COPY.receiptQueued,
+      claimed: COPY.receiptClaimed,
+      failed: t('collaborationSpace.receiptFailed', COPY.receiptFailed),
+    }),
+    [t]
   );
 
   const visibleRoster = useMemo(() => agentRoster(members), [members]);
@@ -4446,7 +4611,7 @@ export function CollaborationSpacePage({
                                     preset.id === groupTagConfig.colorId
                                 )
                               : undefined;
-                            const groupAvatars = agentRoster(groupMembers).map((member) =>
+                            const groupAvatars = groupMembers.map((member) =>
                               getMemberAvatar(
                                 member.conversation_id ?? undefined,
                                 displayName(member)
@@ -5374,7 +5539,6 @@ export function CollaborationSpacePage({
                 </div>
               ) : null}
 
-              <MemberMentionProvider candidates={memberMentionCandidates}>
               <div
                 ref={threadLogRef}
                 className="collaboration-thread-log"
@@ -5500,23 +5664,49 @@ export function CollaborationSpacePage({
                         ) : null}
                         <SpaceMessageBody
                           fromYou={fromYou}
-                          bubble
                           text={bubbleText(message.envelope)}
                           workspacePath={workspacePath}
                           workspaceId={workspace || undefined}
-                          footer={
-                            messageReceipts.length > 0 ? (
-                              <MessageReceiptCheck receipts={messageReceipts} />
-                            ) : undefined
-                          }
                         />
+                        {messageReceipts.length > 0 ? (
+                          <ul className="collaboration-receipts">
+                            {messageReceipts.map((receipt, index) => {
+                              const status = receiptStatusCopy(
+                                receipt,
+                                receiptLabels
+                              );
+                              const failed =
+                                receipt.delivered === 'failed' ||
+                                Boolean(receipt.error_code);
+                              return (
+                                <li
+                                  key={
+                                    receipt.conversation_id ??
+                                    receipt.nickname ??
+                                    `${message.seq}-${index}`
+                                  }
+                                  className="collaboration-receipt"
+                                  data-status={
+                                    failed
+                                      ? 'failed'
+                                      : (receipt.delivered ?? 'queued')
+                                  }
+                                >
+                                  <span>
+                                    {receipt.nickname
+                                      ? `${receipt.nickname} ${status}`
+                                      : status}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
                       </article>
                     );
                   })
                 ) : null}
               </div>
-
-              </MemberMentionProvider>
 
               <ConversationSelectionToolbar
                 rootRef={threadLogRef}
@@ -5665,7 +5855,6 @@ export function CollaborationSpacePage({
                     </Popover>
                   </div>
 
-                  <MemberMentionProvider candidates={memberMentionCandidates}>
                   <SessionComposerInput
                     value={draft}
                     disabled={sending}
@@ -5676,7 +5865,7 @@ export function CollaborationSpacePage({
                       workspacePath,
                       repoId: repoIds[0],
                       repoIds,
-                      spaceMembers: composerSpaceMembers,
+                      spaceMembers: spaceMemberRefs,
                     }}
                     onChange={setDraft}
                     onSubmit={(value) => {
@@ -5686,7 +5875,6 @@ export function CollaborationSpacePage({
                       void handleAttachFiles(files);
                     }}
                   />
-                  </MemberMentionProvider>
                   <div className="flex items-center gap-1 pt-1">
                     <input
                       ref={composerFileInputRef}

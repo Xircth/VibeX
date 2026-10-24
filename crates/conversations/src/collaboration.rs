@@ -2984,17 +2984,10 @@ pub async fn host_add_space_member(
             "nickname is already used in this space",
         ));
     }
-    if parse_unassigned_space_id(space_id).is_none() {
-        let unassigned = unassigned_space_id(target.workspace_id);
-        sqlx::query(
-            "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
-        )
-        .bind(&unassigned)
-        .bind(conversation_id.to_string())
-        .execute(pool)
-        .await
-        .map_err(db)?;
-    }
+    // Joining a group keeps the member's direct chat (and its session) where
+    // it is. The seat gets the member's own per-thread session for this group
+    // (created from the member config by resolve_session), never the direct
+    // conversation moved over.
     let record = insert_member(
         pool,
         space_id,

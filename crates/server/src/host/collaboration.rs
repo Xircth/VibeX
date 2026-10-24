@@ -1328,6 +1328,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn joining_a_group_keeps_the_direct_session_in_the_direct_chat() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "A").await;
+        let direct_space = collaboration::unassigned_space_id(workspace);
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": direct_space, "conversationId": a, "nickname": "A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let group = host
+            .call("host", "collaboration", "space.create",
+                json!({ "workspaceId": workspace, "name": "g", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap()["space_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let seat = host
+            .call("host", "collaboration", "space.addMember",
+                json!({ "spaceId": group, "conversationId": a, "nickname": "A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let group_conversation = seat["conversation_id"].as_str().unwrap().to_string();
+        assert_ne!(group_conversation, a.to_string(), "group seat must not take the direct session");
+        let direct_seat: Option<String> = sqlx::query_scalar(
+            "SELECT conversation_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+        )
+        .bind(&direct_space)
+        .bind(a.to_string())
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(direct_seat.as_deref(), Some(a.to_string().as_str()));
+        let member = db::models::collaboration_identity::member_id_for_conversation(a);
+        let direct = host
+            .call("host", "collaboration", "member.session.resolve",
+                json!({ "memberId": member, "threadId": direct_space }))
+            .await
+            .unwrap();
+        assert_eq!(direct["conversationId"].as_str(), Some(a.to_string().as_str()));
+    }
+
+    #[tokio::test]
     async fn host_member_memory_view_edit_delete_round_trip() {
         use conversations::member_memory::{self as memory, FactScope, FirstSentencesSummarizer};
         let pool = setup_pool().await;

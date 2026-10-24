@@ -176,6 +176,14 @@ as ordinary conversations (one per extra space) rather than being merged back.
 
 - 成员加入群聊时目前会立即为其创建群内会话（非懒创建）。完全懒创建需要将 collaboration_thread_members.conversation_id 改为可空（迁移）、首次收发消息时按成员配置 resolve_session、UI 显示"暂无会话"状态；大总管决定暂不做，待终审确认。
 
+### 依赖环境待确认项
+
+以下问题在本次回滚之前就已存在，不影响当前安装和运行（`pnpm install --frozen-lockfile`、tsc 和 dev server 均正常）。修复依赖安装时（6ff5ebb9）为避免扩大改动范围，暂未处理，待负责人确认：
+
+- `plugins/browser` 和 `plugins/computer-use` 把 `@vibex/plugin-sdk` / `@vibex/plugin-cli` 声明为 `link:../VibeX/packages/...`，解析后的路径（`plugins/VibeX/...`）并不存在。应改为 `workspace:*` 或 `link:../../packages/...`。
+- 多个插件的 `scripts` 也使用了同样错误的 `../VibeX/packages/plugin-cli/...` 路径；另有一些（如 open-connector、provider-switch、remote-ssh）使用 `../../../packages/...`，多了一级目录。
+- `plugins/open-connector` 依赖 `@vibex/plugin-sdk ^1.0.0`，而其他插件依赖 `^2.0.0`，版本要求不一致。
+
 ## 成员会话配置（Member session config）
 
 - 成员是长期身份；每个（成员, thread）对应一个底层会话，由 `resolve_session(member_id, thread_id)` 按需创建。UI 只展示成员，不暴露会话 id。

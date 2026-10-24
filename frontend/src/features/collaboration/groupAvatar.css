@@ -10,6 +10,8 @@
   border-radius: 999px;
   background: var(--group-avatar-bg);
   isolation: isolate;
+  /* Lets slots switch to the small geometry at list sizes (<= 1.5rem). */
+  container-type: size;
 }
 
 .dark .group-avatar {
@@ -28,7 +30,12 @@
 }
 
 .group-avatar-slot {
+  --group-avatar-slot: 58%;
   position: absolute;
+  left: calc(var(--group-avatar-cx) - var(--group-avatar-slot) / 2);
+  top: calc(var(--group-avatar-cy) - var(--group-avatar-slot) / 2);
+  width: var(--group-avatar-slot);
+  height: var(--group-avatar-slot);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -42,4 +49,26 @@
 .group-avatar-member {
   width: 100%;
   height: 100%;
+}
+
+.group-avatar-slot--overlay {
+  mask-image: var(--group-avatar-mask);
+  -webkit-mask-image: var(--group-avatar-mask);
+}
+
+/* List sizes (1.5rem, 1.125rem): ease the overlap and keep the separator
+ * ring at a fixed 1.5px in the opaque page surface so it never scales away. */
+@container (max-width: 1.5rem) {
+  .group-avatar-slot {
+    --group-avatar-slot: 54%;
+    /* Inner disc stays opaque (it occludes the member underneath); the
+     * separator is a fixed 1.5px ring that does not shrink with the avatar. */
+    padding: 0;
+    box-shadow: 0 0 0 1.5px hsl(var(--background));
+  }
+
+  .group-avatar-slot--overlay {
+    mask-image: var(--group-avatar-mask-sm);
+    -webkit-mask-image: var(--group-avatar-mask-sm);
+  }
 }

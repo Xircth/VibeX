@@ -61,7 +61,10 @@ export default {
       label: '电脑控制',
       icon: 'monitor',
       slot: 'status.after-mcp',
-      component: ComputerUseStatusComponent,
+      // No component here: a slot component is rendered inline by the host
+      // status bar (and on the start screen), which drew the full window picker
+      // outside any popover. The picker is reached through the registered
+      // 'computer-use-status' view below, which the host shows in a popover.
       onActivate: () => {
         ctx.events.emit('computer-use:open-status');
       },

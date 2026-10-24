@@ -342,6 +342,54 @@ mod tests {
             table == "sessions" && from == "conversation_id" && on_delete == "CASCADE"
         }));
     }
+
+    #[test]
+    fn embedded_migrations_match_migration_files() {
+        // Regression: a migration file added without rebuilding the crate was
+        // missing from the embedded set (no build.rs rerun-if-changed).
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let mut on_disk: Vec<i64> = std::fs::read_dir(&dir)
+            .expect("migrations dir")
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let name = entry.file_name().into_string().ok()?;
+                if !name.ends_with(".sql") {
+                    return None;
+                }
+                name.split('_').next()?.parse().ok()
+            })
+            .collect();
+        on_disk.sort_unstable();
+        on_disk.dedup();
+        let mut embedded: Vec<i64> = sqlx::migrate!("./migrations")
+            .iter()
+            .map(|migration| migration.version)
+            .collect();
+        embedded.sort_unstable();
+        embedded.dedup();
+        assert_eq!(embedded, on_disk);
+        assert!(embedded.contains(&20261024100000));
+        assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs").exists());
+    }
+
+    #[tokio::test]
+    async fn member_session_config_columns_exist_after_migration() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:").unwrap().foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.unwrap();
+        let columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('collaboration_members')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        for column in ["mode_id", "config_values", "persona_prompt"] {
+            assert!(columns.iter().any(|c| c == column), "missing {column}");
+        }
+    }
 }
 
 fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {

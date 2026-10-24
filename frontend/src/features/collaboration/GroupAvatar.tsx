@@ -12,7 +12,7 @@ const BOX = 28;
 const OUTLINE_PX = 0.75;
 
 /** Clockwise tilt (deg) of each member body inside the group avatar. */
-export const GROUP_AVATAR_TILT_DEG = 20;
+export const GROUP_AVATAR_TILT_DEG = 16;
 
 type Slot = { x: number; y: number; size: number; z: number };
 

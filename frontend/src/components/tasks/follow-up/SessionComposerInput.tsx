@@ -121,7 +121,6 @@ import {
   getSessionComposerStructuredTokenSegments,
   type SessionComposerStructuredToken,
   type SessionComposerStructuredTokenKind,
-  type SessionComposerMemberMention,
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
 import {
@@ -139,7 +138,6 @@ import {
 import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
 import { type AtReferenceMember } from './composerAtReferences';
 import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
-import { collapseMemberMentionSpacing } from '@/features/collaboration/MemberMention';
 import {
   fileFromHostPath,
   hostPathFileName,
@@ -1036,15 +1034,13 @@ function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string,
   bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>,
-  savedCaretOffset?: number | null,
-  memberMentions?: SessionComposerMemberMention[]
+  savedCaretOffset?: number | null
 ): void {
   const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
 
   const segments = getSessionComposerStructuredTokenSegments(value, {
     bareAgentMentions,
-    memberMentions,
   });
   const tokenSegments = segments.filter((segment) => segment.kind === 'token');
   if (tokenSegments.length === 0) return;
@@ -1296,34 +1292,6 @@ export function SessionComposerInput({
     onChange,
   });
 
-  const memberMentionCandidates = useMemo<
-    SessionComposerMemberMention[] | undefined
-  >(
-    () =>
-      spaceMembers && spaceMembers.length > 0
-        ? spaceMembers.map((member) => ({
-            nickname: member.nickname,
-            ...(member.avatar ? { avatar: member.avatar } : {}),
-          }))
-        : undefined,
-    [spaceMembers]
-  );
-
-  useEffect(() => {
-    const root = composerRootRef.current;
-    if (!root || !memberMentionCandidates) return;
-    collapseMemberMentionSpacing(root);
-    const observer = new MutationObserver(() =>
-      collapseMemberMentionSpacing(root)
-    );
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    return () => observer.disconnect();
-  }, [memberMentionCandidates]);
-
   const preSyncCaretOffsetRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const editor = getSessionComposerEditable(composerRootRef.current);
@@ -1331,7 +1299,7 @@ export function SessionComposerInput({
       editor && document.activeElement === editor
         ? getEditorCaretOffset(editor)
         : null;
-  }, [agentMentions.candidates, agentMentions.capability, memberMentionCandidates, value]);
+  }, [agentMentions.candidates, agentMentions.capability, value]);
 
   useEffect(() => {
     const savedCaretOffset = preSyncCaretOffsetRef.current;
@@ -1343,16 +1311,10 @@ export function SessionComposerInput({
         agentMentions.capability === 'supported'
           ? agentMentions.candidates
           : undefined,
-        savedCaretOffset,
-        memberMentionCandidates
+        savedCaretOffset
       );
     }
-  }, [
-    agentMentions.candidates,
-    agentMentions.capability,
-    memberMentionCandidates,
-    value,
-  ]);
+  }, [agentMentions.candidates, agentMentions.capability, value]);
 
   useEffect(() => {
     if (!replaceValueRef) return;

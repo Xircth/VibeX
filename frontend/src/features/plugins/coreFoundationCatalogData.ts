@@ -37,20 +37,21 @@ import {
 } from './PluginRuntimeLoader';
 
 const LazyCollaborationSpacePage = lazy(async () => {
-  const mod = await import('@/features/collaboration/CollaborationWorkspace');
-  return { default: mod.CollaborationWorkspace };
+  const mod = await import('@/features/collaboration/CollaborationSpacePage');
+  return { default: mod.CollaborationSpacePage };
 });
 
 const CollaborationSpaceSurface: React.ComponentType<{
   workspaceId?: string | null;
   projectId?: string | null;
-}> = ({ workspaceId, projectId }) =>
+}> = ({ workspaceId }) =>
   React.createElement(
     Suspense,
     { fallback: null },
+    // projectId is accepted for the SDK tab contract; CollaborationSpacePage
+    // only needs the workspace.
     React.createElement(LazyCollaborationSpacePage, {
       workspaceId: workspaceId ?? null,
-      projectId: projectId ?? null,
     })
   );
 

@@ -357,6 +357,43 @@ Use crisp, consistent line icons (lucide) as SF-Symbols stand-ins for system con
 
 The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (one compact full-width paged row of equal-size icons; the selected agent shows its name beside its icon, the add and refresh controls follow the last icon of every page, and edge chevrons flip pages, also while dragging an icon) are VibeX's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
 
+### Collaboration space
+
+_Terminology: “bot” is the developer term; the UI calls it 助手 (zh-CN) / Bot (en). “Group” is 群组 in the UI._
+
+Left-rail contact list for DMs and group chats (`frontend/src/features/collaboration`).
+Member / session / backend identity live in
+[`docs/collaboration-member-identity.md`](docs/collaboration-member-identity.md);
+this section covers the contact-list UI only.
+
+- **List shape.** Flat when the workspace has no contact groups. Once any group
+  exists, ungrouped DMs and group chats sit in a frontend-only **未分组**
+  section (never stored). Groups themselves persist via `contactGroup.*`; a
+  thread's membership is `thread.setGroup`.
+- **Row layout.** One chrome for DMs and group chats: **36px** avatar, **bold**
+  name with time on line 1, ellipsised preview and unread count on line 2. No
+  card border. Group names append `(N)` for the agent bot count.
+- **Group avatar.** Thin white silhouette outline on each stacked bot head.
+  Untagged groups have no border or background; tagged groups show only a
+  tag-color ring. Each bot face is front-facing, tilted **−12°**
+  counter-clockwise, gaze **up-right**. Stacking (z-order): 1 under 2 and 3,
+  and 2 and 3 under 4 (`GroupAvatar`).
+- **Drag and tags.** Pointer-drag DMs and group chats onto contact-group
+  sections. Dragging a bot onto a group adds them; a duplicate is
+  blocked (red dashed not-allowed state + toast `X 已在该群中`). Tag colour is
+  set through `thread.update`.
+- **Tab title.** Group-opened bot tabs read `群组名 · 助手名`; DM / direct
+  tabs show the bot name only (`memberTabTitle`).
+- **Click-to-open.** A DM opens the `direct:<id>` space (bot sessions
+  resolve via `member.session.resolve`); a group opens its space.
+
+**The Flat-Contact-Row Rule.** Contact rows never wear a card border or a
+segmented filter chrome. Hierarchy comes from section headers, spacing, and
+the shared two-line grid.
+
+**The Group-Avatar-Ring Rule.** Untagged = stacked faces only. Tagged = one
+tag-coloured ring, no fill. Never both a border and a background wash.
+
 ## 7. Accessibility (designed in, not added later)
 
 - **Labels:** every icon-only control carries an `aria-label`/title (e.g. the agent bar buttons). Communicate state with icon + text + color together — never color alone.
@@ -375,7 +412,7 @@ The **Composer Shell** (grounded, always-available action surface) and the **Age
 - **Do** express hierarchy through grouping, spacing, and hairlines — and delete any chrome added only for emphasis.
 - **Do** keep hover changes stable: change color, shadow, or a small transform; never size, border width, or text wrapping.
 - **Do** keep a reduced-transparency state on the same fill. Dropping blur must not swap the hex.
-- **Do** keep settings, dialogs, Kanban, conversation, file tree, and preview controls aligned to the same radius, hairline, focus, and material rules.
+- **Do** keep settings, dialogs, Kanban, conversation, file tree, preview, and collaboration contact rows aligned to the same radius, hairline, focus, and material rules.
 
 ### Don't
 

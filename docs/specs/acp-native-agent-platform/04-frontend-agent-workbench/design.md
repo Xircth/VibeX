@@ -78,3 +78,6 @@ from imported context only through an explicit action that calls the new runtime
 Use existing VibeX product tokens. Avoid hero/card marketing patterns. Use dense
 panels, tabs, segmented controls, icon buttons, and status labels.
 
+## Collaboration space (out of scope here)
+
+Collaboration space contact-list UI (contact groups, GroupAvatar, drag-to-group, tab titles) is owned by root `DESIGN.md` § Collaboration space. The “segmented controls” note above is a general workbench styling cue, not the removed collab sidebar filter.

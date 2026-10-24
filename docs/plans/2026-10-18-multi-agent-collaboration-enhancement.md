@@ -8,6 +8,8 @@ plugin: C:\Users\18190\Documents\projects\vibex-plugin-multi-agent
 reference: C:\Users\18190\Documents\projects\vibex-plugin-computer-use
 ---
 
+> **已过时（UI）**：本文是 2026-10-18 的可行性分析，其中协作空间「插件 Tab 三栏 IM / 成员卡片 / 角色模板入口」等前端描述已被现行实现取代。当前协作空间联系人列表 UI 以根目录 [`DESIGN.md`](../../DESIGN.md)「Collaboration space」为准；成员/会话身份模型见 [`docs/collaboration-member-identity.md`](../collaboration-member-identity.md)。下文保留作历史决策记录，勿按文中 UI 草图实现。
+
 # 多智能体协同功能增强：可行性评估与实现方案
 
 本文只做分析和方案，不改代码。结论先说：五项需求在产品上成立，但**不能只改本插件仓库**。当前 `vibex.multi-agent` 是薄包（Skill + Host 家族 MCP），真正的会话创建、排队、纠偏、列表、Composer 和顶级 Tab 都在 VibeX Host 的 Application Core。按 ADR-0069 / 插件开发规范，缺的是通用 Host 缝，必须先加深公开 SDK 与控制面，再由本插件消费。

@@ -18,6 +18,15 @@ use uuid::Uuid;
 use crate::{error::AppError, state::AppState};
 
 #[derive(Debug, Clone, Serialize, TS)]
+pub struct SessionCollaborationRef {
+    pub member_id: String,
+    pub member_name: String,
+    pub thread_id: String,
+    pub thread_kind: String,
+    pub thread_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct SessionSummary {
     pub id: Uuid,
     pub workspace_id: Uuid,
@@ -38,6 +47,8 @@ pub struct SessionSummary {
     pub pinned_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub collaboration: Option<SessionCollaborationRef>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

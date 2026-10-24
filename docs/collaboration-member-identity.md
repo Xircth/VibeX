@@ -17,11 +17,13 @@
 
 - **Member（bot）**：长期身份，不是会话。一行 `collaboration_members`。名下有一族隐藏会话：每个 thread（私聊或群聊）各一个。
 - **Thread**：`group`（群组，id = space id）或 `direct`（私聊，id = `direct:<member_id>`）。
-- **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`，对用户隐藏。UI 只展示bot与聊天，不暴露会话列表。
+- **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`。协作空间 UI 展示 bot 与聊天；工作区会话列表用普通命名展示这些会话，并以助手头像+名称标识。
 - **新建 bot**（`space.createMember`）：只创建身份 + 一条私聊会话与 `direct:` thread，打开私聊。不加入任何群。表单参数与旧「新建 bot」一致（Agent、mode、config、人设等），写入bot级会话配置。
 - **加入群组**（`space.addMember`）：按bot 配置为该群新建一条会话；**私聊会话保留**。不再用 `space.moveMember` 作为主路径（仍兼容，但不移除其它座位）。
 - **联系人分组**（`contactGroup.*`）：联系人列表的归档文件夹。无分组时列表平铺；有分组时，未归入任何组的私聊/群聊由前端归入「未分组」（前端生成，无后端行）。
-- **标签标题**：私聊打开的会话标签只显示bot名；群组里打开的显示「群名 · bot名」。用 thread 的 `kind`（`dm` / `group`）区分。
+- **标签标题**：群聊打开的会话标签显示群头像与群名；私聊显示该成员头像与成员名。用 thread 的 `kind`（`dm` / `group`）区分。
+- **联系人列表**：点击 bot 只打开私聊区，点击群组只打开群聊区。点击消息区中的 bot 头像才打开右侧会话标签。
+- **会话命名**：新建 bot / 为 thread 解析会话时不把昵称写入 `sessions.name`。已有「昵称当会话名」的行在列表里按未命名处理，走 Agent 自动命名、首条消息或「新会话」。
 - **回执**：群消息投递后 `receipt_state` 为 `queued` → `processing` → `replied`，只前进不后退。详见下文「运行时」。
 
 bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_values`、`persona_prompt`（迁移 `20261024100000`）。`resolve_session` / `member.session.resolve` 新建会话时用bot 配置；无配置时回退角色模式。改配置只影响之后新建的会话。

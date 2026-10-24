@@ -224,6 +224,7 @@ import {
   type PendingDirectMessage,
   isPrivateChatKind,
   memberTabTitle,
+  sidebarMemberToSpaceMember,
 } from './spaceModel';
 import {
   MemberBotAvatar,
@@ -1018,6 +1019,8 @@ export function CollaborationSpacePage({
     setPreviewVisible,
     setHasOpenedSpaceThread,
     setHasMountedPreviewTabs,
+    sessionFocus,
+    consumeSessionFocus,
     resetCollaborationLayout,
   } = useCollaborationLayoutStore();
 
@@ -1216,6 +1219,11 @@ export function CollaborationSpacePage({
             conversationId: item.conversationId,
             nickname: item.title,
             agentId: item.agentId,
+            threadKind: item.threadKind,
+            memberName: item.memberName,
+            memberAvatar: item.memberAvatar,
+            groupAvatars: item.groupAvatars,
+            tagHue: item.tagHue,
           });
         } else if (item.kind === 'file') {
           existing.api.updateParameters(item.fileParams);
@@ -1239,6 +1247,11 @@ export function CollaborationSpacePage({
             conversationId: item.conversationId,
             nickname: item.title,
             agentId: item.agentId,
+            threadKind: item.threadKind,
+            memberName: item.memberName,
+            memberAvatar: item.memberAvatar,
+            groupAvatars: item.groupAvatars,
+            tagHue: item.tagHue,
           },
           ...(activeGroup
             ? {
@@ -2189,41 +2202,153 @@ export function CollaborationSpacePage({
     spaceId: string | undefined
   ): { kind?: string | null; name?: string | null } | undefined => {
     if (!spaceId) return undefined;
-    if (activeDirectThreadId) {
-      const direct = sidebarItems?.find(
-        (item) => item.thread_id === activeDirectThreadId
-      );
-      return direct ?? { kind: 'direct' };
-    }
     const item = sidebarItems?.find(
       (candidate) =>
         candidate.thread_id === spaceId ||
         (candidate.kind === 'group' && candidate.space_id === spaceId)
     );
     if (item) return item;
+    if (activeDirectThreadId) {
+      const direct = sidebarItems?.find(
+        (candidate) => candidate.thread_id === activeDirectThreadId
+      );
+      return direct ?? { kind: 'direct' };
+    }
     return spaces.find((space) => space.space_id === spaceId);
   };
   const memberTabTitleFor = (spaceId: string | undefined, name: string) =>
     memberTabTitle(name, memberTabThread(spaceId));
 
+  const memberPreviewChrome = (
+    spaceId: string | undefined,
+    member: SpaceMember,
+    conversationId: string,
+    threadOverride?: { kind?: string | null; name?: string | null }
+  ) => {
+    const thread = threadOverride ?? memberTabThread(spaceId);
+    const isGroup = thread?.kind === 'group';
+    const sidebarGroup =
+      isGroup && spaceId
+        ? sidebarItems?.find(
+            (candidate) =>
+              candidate.thread_id === spaceId || candidate.space_id === spaceId
+          )
+        : undefined;
+    const groupMembers =
+      isGroup && spaceId
+        ? (chatListRef.current.find(
+            (entry): entry is Extract<ChatListEntry, { type: 'group' }> =>
+              entry.type === 'group' &&
+              (entry.spaceId === spaceId || entry.threadId === spaceId)
+          )?.members ??
+          membersBySpace[spaceId] ??
+          sidebarGroup?.members_preview?.map(sidebarMemberToSpaceMember) ??
+          [])
+        : [];
+    const tagColorId =
+      (spaceId && spaceTags[spaceId]?.colorId) ||
+      sidebarGroup?.tag_color ||
+      (thread && 'tag_color' in thread ? thread.tag_color : undefined) ||
+      '';
+    const tagHue = SPACE_TAG_PRESETS.find(
+      (preset) => preset.id === tagColorId
+    )?.hue;
+    return {
+      title: memberTabTitle(displayName(member), thread),
+      threadKind: thread?.kind ?? undefined,
+      memberName: displayName(member),
+      memberAvatar: getMemberAvatar(conversationId, displayName(member)),
+      groupAvatars: groupMembers.map((item) =>
+        getMemberAvatar(item.conversation_id ?? undefined, displayName(item))
+      ),
+      tagHue,
+    };
+  };
+
   const openMemberPreview = (
     spaceId: string,
     member: SpaceMember,
-    conversationId: string
+    conversationId: string,
+    threadOverride?: { kind?: string | null; name?: string | null }
   ) => {
     const conv = conversationById.get(conversationId);
     const agentId =
       conv?.agent_id || draftMemberMetaByConvId[conversationId]?.agentId;
+    const chrome = memberPreviewChrome(
+      spaceId,
+      member,
+      conversationId,
+      threadOverride
+    );
     openPreviewItem({
       id: memberPreviewPanelId(conversationId),
       kind: 'member',
-      title: memberTabTitleFor(spaceId, displayName(member)),
+      title: chrome.title,
       workspaceId: workspace,
       conversationId,
       ...(agentId ? { agentId: String(agentId) } : {}),
       spaceId,
+      threadKind: chrome.threadKind,
+      memberName: chrome.memberName,
+      memberAvatar: chrome.memberAvatar,
+      groupAvatars: chrome.groupAvatars,
+      tagHue: chrome.tagHue,
     });
   };
+
+  const applySessionFocusRef = useRef(openMemberPreview);
+  applySessionFocusRef.current = openMemberPreview;
+  const applyPrivateChatRef = useRef(openPrivateChat);
+  applyPrivateChatRef.current = openPrivateChat;
+  const applySelectSpaceRef = useRef(selectSpace);
+  applySelectSpaceRef.current = selectSpace;
+
+  useEffect(() => {
+    if (!sessionFocus || !workspace) return;
+    const focus = sessionFocus;
+    consumeSessionFocus();
+    const member: SpaceMember = {
+      kind: 'agent',
+      member_id: focus.memberId,
+      nickname: focus.memberName,
+      conversation_id: focus.conversationId,
+    };
+    const thread = {
+      kind: focus.threadKind,
+      name: focus.threadName,
+    };
+    if (focus.threadKind === 'group') {
+      applySelectSpaceRef.current(focus.threadId);
+      applySessionFocusRef.current(
+        focus.threadId,
+        member,
+        focus.conversationId,
+        thread
+      );
+      return;
+    }
+    const sidebar = sidebarItems?.find(
+      (item) => item.thread_id === focus.threadId
+    );
+    const spaceId =
+      sidebar?.space_id || unassignedId || unassignedSpaceId(workspace);
+    const resolvedMember = sidebar?.member
+      ? sidebarMemberToSpaceMember(sidebar.member)
+      : member;
+    applyPrivateChatRef.current(spaceId, resolvedMember, focus.threadId);
+    applySessionFocusRef.current(
+      spaceId,
+      resolvedMember,
+      focus.conversationId,
+      thread
+    );
+  }, [
+    consumeSessionFocus,
+    sessionFocus,
+    sidebarItems,
+    unassignedId,
+    workspace,
+  ]);
 
   const togglePendingSpaceMemberConvSelection = (conversationId: string) => {
     setPendingSpaceMemberConvIds((current) => {
@@ -4441,7 +4566,7 @@ export function CollaborationSpacePage({
                           onOpen();
                           return;
                         }
-                        selectMemberForPreview(spaceId, member);
+                        openPrivateChat(spaceId, member);
                       }}
                     >
                       <span
@@ -6462,23 +6587,23 @@ export function CollaborationSpacePage({
                               aria-label={`预览 ${name} 会话`}
                               onClick={() => {
                                 if (!authorConversationId) return;
-                                const agentId = authorConv?.agent_id
-                                  ? String(authorConv.agent_id)
-                                  : undefined;
-                                openPreviewItem({
-                                  id: memberPreviewPanelId(
+                                const authorMember = members.find(
+                                  (item) =>
+                                    item.conversation_id ===
                                     authorConversationId
-                                  ),
-                                  kind: 'member',
-                                  title: memberTabTitleFor(
-                                    selected.space_id,
-                                    name
-                                  ),
-                                  workspaceId: workspace,
-                                  conversationId: authorConversationId,
-                                  ...(agentId ? { agentId } : {}),
-                                  spaceId: selected.space_id,
-                                });
+                                ) ??
+                                  members.find(
+                                    (item) => displayName(item) === name
+                                  ) ?? {
+                                    kind: 'agent',
+                                    nickname: name,
+                                    conversation_id: authorConversationId,
+                                  };
+                                openMemberPreview(
+                                  selected.space_id,
+                                  authorMember,
+                                  authorConversationId
+                                );
                               }}
                             >
                               <MemberBotAvatar

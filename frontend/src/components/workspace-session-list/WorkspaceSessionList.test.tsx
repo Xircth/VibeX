@@ -66,6 +66,7 @@ function session(
     isRunning: false,
     isErrored: false,
     pinnedAt: null,
+    collaboration: null,
     ...overrides,
   };
 }
@@ -660,5 +661,34 @@ describe('WorkspaceSessionList', () => {
     expect(
       screen.getByRole('button', { name: /Worktree session/ })
     ).toBeInTheDocument();
+  });
+
+  it('shows a collaboration badge before the session age', () => {
+    const onSessionClick = vi.fn();
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: '请帮我看登录',
+            collaboration: {
+              memberId: 'mem-a',
+              memberName: '小A',
+              threadId: 'direct:mem-a',
+              threadKind: 'dm',
+              threadName: '小A',
+            },
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={onSessionClick}
+      />
+    );
+
+    const badge = screen.getByTestId('collaboration-session-badge');
+    expect(badge).toHaveTextContent('小A');
+    fireEvent.click(badge);
+    expect(onSessionClick).not.toHaveBeenCalled();
   });
 });

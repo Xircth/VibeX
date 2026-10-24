@@ -1248,7 +1248,7 @@ export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archi
 
 export type SessionContinuityMode = "new_session" | "resume_in_place";
 
-export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, agent_id: AgentId | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, model: string | null, };
+export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, agent_id: AgentId | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, model: string | null, collaboration: SessionCollaborationRef | null, };
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
 
@@ -2300,3 +2300,5 @@ export type ConversationPersonaView = { name: string, team_name?: string | null,
 export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: { [key in string]?: string }, };
 
 export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, };
+
+export type SessionCollaborationRef = { member_id: string, member_name: string, thread_id: string, thread_kind: string, thread_name: string, };

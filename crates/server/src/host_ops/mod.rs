@@ -15,6 +15,7 @@ use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use conversations::{derive_session_display_name, remember_creation_session_controls};
 use db::models::{
+    collaboration_identity::{bindings_for_workspace, collaboration_stored_session_name},
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,
     project::{CreateProject, Project, UpdateProject},
@@ -935,12 +936,33 @@ impl ServerApplicationDomains {
             .into_iter()
             .map(|(id, pinned_at, model)| (id, (pinned_at, model)))
             .collect::<std::collections::HashMap<_, _>>();
+        let bindings = bindings_for_workspace(&self.pool, args.workspace_id)
+            .await
+            .map_err(internal_error)?;
+        let mut sessions = sessions;
+        for session in &mut sessions {
+            if let Some(binding) = bindings.get(&session.id) {
+                session.name = collaboration_stored_session_name(
+                    session.name.as_deref(),
+                    &binding.member_name,
+                );
+            }
+        }
         let fallback_numbers = untitled_fallback_numbers(&sessions);
         serialize(
             sessions
                 .into_iter()
                 .map(|session| {
                     let first_prompt = session.initial_prompt.clone();
+                    let collaboration = bindings.get(&session.id).map(|binding| {
+                        json!({
+                            "member_id": binding.member_id,
+                            "member_name": binding.member_name,
+                            "thread_id": binding.thread_id,
+                            "thread_kind": binding.thread_kind,
+                            "thread_name": binding.thread_title,
+                        })
+                    });
                     json!({
                         "id": session.id,
                         "workspace_id": session.workspace_id,
@@ -967,6 +989,7 @@ impl ServerApplicationDomains {
                         "model": summary_meta_by_id
                             .get(&session.id)
                             .and_then(|meta| meta.1.clone()),
+                        "collaboration": collaboration,
                     })
                 })
                 .collect::<Vec<_>>(),

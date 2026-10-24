@@ -1,11 +1,21 @@
 import { create } from 'zustand';
 
+export type CollaborationSessionFocus = {
+  conversationId: string;
+  memberId: string;
+  memberName: string;
+  threadId: string;
+  threadKind: string;
+  threadName: string;
+};
+
 export interface CollaborationLayoutState {
   isSpacesVisible: boolean;
   isThreadVisible: boolean;
   isPreviewVisible: boolean;
   hasOpenedSpaceThread: boolean;
   hasMountedPreviewTabs: boolean;
+  sessionFocus: CollaborationSessionFocus | null;
   setSpacesVisible: (visible: boolean) => void;
   toggleSpacesVisible: () => void;
   setThreadVisible: (visible: boolean) => void;
@@ -14,6 +24,8 @@ export interface CollaborationLayoutState {
   togglePreviewVisible: () => void;
   setHasOpenedSpaceThread: (hasTarget: boolean) => void;
   setHasMountedPreviewTabs: (hasTarget: boolean) => void;
+  requestSessionFocus: (focus: CollaborationSessionFocus) => void;
+  consumeSessionFocus: () => void;
   resetCollaborationLayout: () => void;
 }
 
@@ -24,6 +36,7 @@ export const useCollaborationLayoutStore = create<CollaborationLayoutState>(
     isPreviewVisible: true,
     hasOpenedSpaceThread: false,
     hasMountedPreviewTabs: false,
+    sessionFocus: null,
 
     setSpacesVisible: (visible) => set({ isSpacesVisible: visible }),
 
@@ -108,13 +121,18 @@ export const useCollaborationLayoutStore = create<CollaborationLayoutState>(
         return { hasMountedPreviewTabs: hasTarget };
       }),
 
+    requestSessionFocus: (focus) => set({ sessionFocus: focus }),
+
+    consumeSessionFocus: () => set({ sessionFocus: null }),
+
     resetCollaborationLayout: () =>
-      set({
+      set((state) => ({
         isSpacesVisible: true,
         isThreadVisible: true,
         isPreviewVisible: true,
         hasOpenedSpaceThread: false,
         hasMountedPreviewTabs: false,
-      }),
+        sessionFocus: state.sessionFocus,
+      })),
   })
 );

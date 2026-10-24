@@ -26,6 +26,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { CollaborationSessionBadge } from '@/features/collaboration/CollaborationSessionBadge';
+import { openCollaborationSessionFromList } from '@/features/collaboration/sessionCollaboration';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
@@ -568,6 +570,20 @@ export function SessionHubListItem({
               isCanvasMode ? 'gap-1' : 'flex-wrap gap-y-1'
             )}
           >
+            {session.collaboration ? (
+              <CollaborationSessionBadge
+                memberName={session.collaboration.memberName}
+                conversationId={session.id}
+                onOpen={() => {
+                  const collaboration = session.collaboration;
+                  if (!collaboration) return;
+                  openCollaborationSessionFromList({
+                    conversationId: session.id,
+                    collaboration,
+                  });
+                }}
+              />
+            ) : null}
             <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
               {formatTimeAgo(session.updatedAt)}
             </span>

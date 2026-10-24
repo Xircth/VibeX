@@ -54,6 +54,13 @@ import {
 } from '@/types/panels';
 
 import { CollaborationSpaceCollectionDockviewPanel } from './CollaborationSpaceCollectionPanel';
+import { GroupAvatar } from './GroupAvatar';
+import {
+  MemberBotAvatar,
+  type BotAvatarExpression,
+  type BotAvatarShape,
+  type MemberBotAvatarConfig,
+} from './MemberBotAvatar';
 import { type SpaceMember } from './spaceModel';
 
 const SessionPreview = lazy(() =>
@@ -73,6 +80,11 @@ export type MemberSessionPanelParams = {
   conversationId: string;
   nickname: string;
   agentId?: string;
+  threadKind?: string;
+  memberName?: string;
+  memberAvatar?: MemberBotAvatarConfig;
+  groupAvatars?: MemberBotAvatarConfig[];
+  tagHue?: string;
 };
 
 export type PreviewTabItem =
@@ -84,6 +96,11 @@ export type PreviewTabItem =
       conversationId: string;
       agentId?: string;
       spaceId: string;
+      threadKind?: string;
+      memberName?: string;
+      memberAvatar?: MemberBotAvatarConfig;
+      groupAvatars?: MemberBotAvatarConfig[];
+      tagHue?: string;
     }
   | {
       id: string;
@@ -182,6 +199,21 @@ export const COLLABORATION_PREVIEW_COMPONENTS = {
   'space-collection': CollaborationSpaceCollectionDockviewPanel,
 };
 
+function asMemberAvatar(value: unknown): MemberBotAvatarConfig | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.color !== 'string' || typeof record.shape !== 'string') {
+    return null;
+  }
+  return {
+    color: record.color,
+    shape: record.shape as BotAvatarShape,
+    expression: (typeof record.expression === 'string'
+      ? record.expression
+      : 'neutral') as BotAvatarExpression,
+  };
+}
+
 export function CollaborationPreviewDockviewTab(
   props: IDockviewPanelHeaderProps
 ) {
@@ -237,6 +269,15 @@ export function CollaborationPreviewDockviewTab(
 
   const agentId =
     typeof tabParams.agentId === 'string' ? tabParams.agentId : '';
+  const threadKind =
+    typeof tabParams.threadKind === 'string' ? tabParams.threadKind : '';
+  const tagHue = typeof tabParams.tagHue === 'string' ? tabParams.tagHue : '';
+  const memberAvatar = asMemberAvatar(tabParams.memberAvatar);
+  const groupAvatars = Array.isArray(tabParams.groupAvatars)
+    ? tabParams.groupAvatars
+        .map(asMemberAvatar)
+        .filter((avatar): avatar is MemberBotAvatarConfig => Boolean(avatar))
+    : [];
   const filePath =
     typeof tabParams.filePath === 'string' ? tabParams.filePath : '';
   const imagePreviewId =
@@ -328,7 +369,19 @@ export function CollaborationPreviewDockviewTab(
           data-tab-icon="member"
           data-testid="workspace-tab-icon"
         >
-          {agentId ? (
+          {threadKind === 'group' && groupAvatars.length > 0 ? (
+            <GroupAvatar
+              avatars={groupAvatars}
+              tagHue={tagHue || undefined}
+              size={14}
+            />
+          ) : memberAvatar ? (
+            <MemberBotAvatar
+              config={memberAvatar}
+              animated={false}
+              className="h-3.5 w-3.5"
+            />
+          ) : agentId ? (
             <AgentIcon
               agent={agentId as ExecutorProfileId['executor']}
               className="h-3.5 w-3.5"

@@ -1161,6 +1161,7 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'log-stream', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'vibex://settings-file-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'vibex://collaboration-space-changed', durability: 'invalidation', scope: 'application.call' },
+  { prefix: 'vibex://collaboration-receipts-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'theme-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'log-settings://changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'logs://appended', durability: 'best_effort', scope: 'application.call' },

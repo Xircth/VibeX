@@ -69,6 +69,7 @@ function session(
     isRunning: false,
     isErrored: false,
     pinnedAt: null,
+    collaboration: null,
     ...overrides,
   };
 }
@@ -433,6 +434,25 @@ describe('sessionListTitle', () => {
         })
       )
     ).toBe('Previous conversation notes');
+  });
+
+  it('ignores a stored title that is only the collaboration member nickname', () => {
+    expect(
+      sessionListTitle(
+        session({
+          name: '小A',
+          firstPrompt: '请帮我看登录',
+          fullName: '小A',
+          collaboration: {
+            memberId: 'mem-a',
+            memberName: '小A',
+            threadId: 'direct:mem-a',
+            threadKind: 'dm',
+            threadName: '小A',
+          },
+        })
+      )
+    ).toBe('请帮我看登录');
   });
 });
 

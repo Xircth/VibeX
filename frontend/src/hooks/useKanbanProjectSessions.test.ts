@@ -87,6 +87,7 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     continuity_mode: 'new_session',
     pinned_at: null,
     model: null,
+    collaboration: null,
     ...overrides,
   };
 }
@@ -99,6 +100,32 @@ describe('buildDefaultSessionName', () => {
       name: '修复会话标题功能并保持手动标题',
       source: 'prompt',
       prompt: '修复会话标题功能并保持手动标题',
+    });
+  });
+
+  it('ignores a stored title that is only the collaboration member nickname', () => {
+    const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
+
+    expect(
+      buildDefaultSessionName(
+        summary({
+          name: '小A',
+          display_name: '小A',
+          first_prompt: '请帮我看登录',
+          collaboration: {
+            member_id: 'mem-a',
+            member_name: '小A',
+            thread_id: 'direct:mem-a',
+            thread_kind: 'dm',
+            thread_name: '小A',
+          },
+        }),
+        t
+      )
+    ).toEqual({
+      name: '请帮我看登录',
+      source: 'prompt',
+      prompt: '请帮我看登录',
     });
   });
 

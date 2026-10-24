@@ -156,6 +156,8 @@ Function ${UN}VibeXBuildChrome
     ; instfiles page: static glyphs (the page cannot be cancelled mid-section)
     !insertmacro VibeXMakeStatic $VibeXMinBtn $VibeXParent ${VIBEX_STATIC_BITMAP} "" 428 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
     !insertmacro VibeXMakeStatic $VibeXCloseBtn $VibeXParent ${VIBEX_STATIC_BITMAP} "" 474 0 ${VIBEX_CAPTION_BTN_W} ${VIBEX_TITLE_H}
+    !insertmacro VibeXLabelColors $VibeXMinBtn
+    !insertmacro VibeXLabelColors $VibeXCloseBtn
     StrCpy $VibeXSB $VibeXMinBtn
     StrCpy $VibeXSBKind "min"
     StrCpy $VibeXSBText ""
@@ -294,6 +296,7 @@ Function ${UN}VibeXInstFilesShow
   Call ${UN}VibeXBrandSmall
 
   !insertmacro VibeXMakeStatic $VibeXErrIcon $VibeXInstDlg 0x4000020E "" 32 ${VIBEX_PROG_LABEL_Y} 14 ${VIBEX_PROG_LABEL_H}
+  !insertmacro VibeXLabelColors $VibeXErrIcon
   !insertmacro VibeXMakeStatic $VibeXStatusLbl $VibeXInstDlg 0x50000280 "" 32 ${VIBEX_PROG_LABEL_Y} 380 ${VIBEX_PROG_LABEL_H}
   SendMessage $VibeXStatusLbl ${WM_SETFONT} $VibeXFontBody 1
   !insertmacro VibeXLabelColors $VibeXStatusLbl
@@ -301,6 +304,7 @@ Function ${UN}VibeXInstFilesShow
   SendMessage $VibeXPctLbl ${WM_SETFONT} $VibeXFontBody 1
   !insertmacro VibeXMutedColors $VibeXPctLbl
   !insertmacro VibeXMakeStatic $VibeXBar $VibeXInstDlg ${VIBEX_STATIC_BITMAP} "" 32 ${VIBEX_PROG_TRACK_Y} 456 ${VIBEX_PROG_TRACK_H}
+  !insertmacro VibeXLabelColors $VibeXBar
   StrCpy $VibeXPermille 0
   StrCpy $VibeXBarState 0
   Call ${UN}VibeXRenderBar
@@ -320,6 +324,7 @@ Function ${UN}VibeXInstFilesShow
 
   ; Only a (disabled) Cancel in the footer: NSIS cannot abort a running section.
   !insertmacro VibeXMakeStatic $VibeXProgCancel $VibeXInstDlg ${VIBEX_STATIC_BITMAP} "" 0 0 0 0
+  !insertmacro VibeXLabelColors $VibeXProgCancel
   StrCpy $VibeXSB $VibeXProgCancel
   StrCpy $VibeXSBKind "sec"
   StrCpy $VibeXSBText "$(VIBEX_CANCEL)"
@@ -485,6 +490,7 @@ Function VibeXPageMain
   IntOp $VibeXT1 $VibeXT1 - $VibeXT0 ; field width (device)
   IntOp $VibeXT0 ${VIBEX_STATIC_BITMAP} | 0x04000000 ; WS_CLIPSIBLINGS: never paint over the edit
   !insertmacro VibeXMakeStatic $VibeXField $VibeXDialog $VibeXT0 "" 0 0 0 0
+  !insertmacro VibeXLabelColors $VibeXField
   !insertmacro VibeXScale $VibeXT0 32
   !insertmacro VibeXPlaceDevX $VibeXField $VibeXT0 ${VIBEX_LOC_FIELD_Y} $VibeXT1 32
   StrCpy $VibeXFieldBmpState ""
@@ -837,6 +843,9 @@ Function VibeXShowError
     !insertmacro VibeXMakeStatic $VibeXLogBtn $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
     !insertmacro VibeXMakeStatic $VibeXErrCancel $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
     !insertmacro VibeXMakeStatic $VibeXRetryBtn $VibeXInstDlg ${VIBEX_STATIC_HIT} "" 0 0 0 0
+    !insertmacro VibeXLabelColors $VibeXLogBtn
+    !insertmacro VibeXLabelColors $VibeXErrCancel
+    !insertmacro VibeXLabelColors $VibeXRetryBtn
     ; the title-bar close becomes live while waiting
     System::Call 'user32::GetWindowLongW(p $VibeXCloseBtn, i -16) i.s'
     Pop $VibeXT0

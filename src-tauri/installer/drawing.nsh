@@ -3,8 +3,8 @@
 ; bar, error glyph) is rendered by one function, VibeXRender, into a device-
 ; dependent bitmap. Owner-drawn buttons blit it during NM_CUSTOMDRAW; statics on
 ; the MUI instfiles page (which has no nsDialogs notify routing) show it through
-; STM_SETIMAGE. Using a DDB instead of a 32bpp DIB keeps statics free of alpha
-; artifacts. Shadows are never stacked: the only window shadow is the DWM one.
+; STM_SETIMAGE. The face is a 24bpp DIB (no alpha channel), which keeps
+; statics free of alpha artifacts. Shadows are never stacked: the only window shadow is the DWM one.
 ;
 ; None of these helpers touch $0-$9 / $R0-$R9, so they are safe to call from
 ; sections and from page callbacks that keep values in registers.
@@ -400,8 +400,17 @@ Function ${UN}VibeXRender
   Pop $VibeXT0
   System::Call 'gdi32::CreateCompatibleDC(p $VibeXT0) p.s'
   Pop $VibeXDC
-  System::Call 'gdi32::CreateCompatibleBitmap(p $VibeXT0, i $VibeXRW, i $VibeXRH) p.s'
+  ; 24bpp top-down DIB section: no alpha channel. A CreateCompatibleBitmap DDB is
+  ; 32bpp on modern displays; GDI (FillRect/DrawText) leaves its alpha byte at 0
+  ; while GDI+ writes 0xFF, so comctl32 v6 statics (SS_BITMAP) alpha-blend it and
+  ; every GDI-filled pixel shows the static's default COLOR_BTNFACE (#F0F0F0)
+  ; background instead of the installer background.
+  IntOp $VibeXT1 0 - $VibeXRH
+  System::Call '*(i 40, i $VibeXRW, i $VibeXT1, &i2 1, &i2 24, i 0, i 0, i 0, i 0, i 0, i 0) p.s'
+  Pop $VibeXT1
+  System::Call 'gdi32::CreateDIBSection(p $VibeXT0, p $VibeXT1, i 0, p 0, p 0, i 0) p.s'
   Pop $VibeXRBmp
+  System::Free $VibeXT1
   System::Call 'user32::ReleaseDC(p 0, p $VibeXT0)'
   System::Call 'gdi32::SelectObject(p $VibeXDC, p $VibeXRBmp) p.s'
   Pop $VibeXOldBmp

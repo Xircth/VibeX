@@ -595,49 +595,6 @@
 }
 
 /* ---- dialogs ---- */
-.collab-template-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.collab-template {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-card-strong);
-  color: var(--text-strong);
-  text-align: left;
-  cursor: pointer;
-}
-.collab-template[aria-pressed='true'] {
-  border-color: hsl(var(--primary));
-}
-.collab-template:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-.collab-template-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-.collab-template-desc {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-.collab-template-check {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 16px;
-  height: 16px;
-  color: hsl(var(--primary));
-}
-
 .collab-form {
   display: flex;
   flex-direction: column;

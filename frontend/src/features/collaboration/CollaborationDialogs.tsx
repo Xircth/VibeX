@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   ArrowRight,
   Bot,
-  Check,
   MessageSquare,
   UserPlus,
   UserRound,
@@ -41,9 +40,7 @@ import {
 } from './memberFormControls';
 import { COPY as SPACE_COPY } from './spaceModel';
 import {
-  TEAM_TEMPLATES,
   type PresenceView,
-  type TeamTemplate,
 } from './threadModel';
 
 export const DIALOG_COPY = {
@@ -69,9 +66,6 @@ export const DIALOG_COPY = {
   migrationMembers: '空间里的成员 → 成员（同一身份去重，带着自己的记忆）',
   migrationUndecided: '未归类的成员会话 → 与该成员的私聊',
   migrationOk: '知道了',
-  teamTitle: '一键建队',
-  teamDescription: '还没有成员。选一个模板，马上拥有一支小队和一个群聊。',
-  teamCreate: '创建小队',
   bannerText: '协作已升级为成员 + 群聊。',
   bannerMore: '了解变化',
   bannerDismiss: '关闭',
@@ -332,51 +326,6 @@ export function MigrationNoticeDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/** First-run empty state: create a small team from a template. */
-export function TeamTemplateEmptyState({
-  busy,
-  onCreate,
-}: {
-  busy?: boolean;
-  onCreate: (template: TeamTemplate) => void;
-}) {
-  const [selected, setSelected] = useState(TEAM_TEMPLATES[0].id);
-  const template =
-    TEAM_TEMPLATES.find((t) => t.id === selected) ?? TEAM_TEMPLATES[0];
-  return (
-    <div className="collaboration-empty-stage" data-testid="collab-team-empty">
-      <div className="collaboration-empty-card collab-form">
-        <Users
-          className="h-6 w-6 text-[var(--text-muted)]"
-          aria-hidden="true"
-        />
-        <h3 className="collaboration-empty-title">{DIALOG_COPY.teamTitle}</h3>
-        <p className="collab-profile-row-sub">{DIALOG_COPY.teamDescription}</p>
-        <div className="collab-template-grid" role="group">
-          {TEAM_TEMPLATES.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              className="collab-template"
-              aria-pressed={option.id === selected}
-              onClick={() => setSelected(option.id)}
-            >
-              {option.id === selected ? (
-                <Check className="collab-template-check" aria-hidden="true" />
-              ) : null}
-              <span className="collab-template-name">{option.name}</span>
-              <span className="collab-template-desc">{option.description}</span>
-            </button>
-          ))}
-        </div>
-        <Button disabled={busy} onClick={() => onCreate(template)}>
-          {DIALOG_COPY.teamCreate}
-        </Button>
-      </div>
-    </div>
   );
 }
 

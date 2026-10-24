@@ -7,7 +7,6 @@ import {
   MigrationBanner,
   MigrationNoticeDialog,
   NewMemberDialog,
-  TeamTemplateEmptyState,
   type PickerMember,
   type AgentOption,
   type NewMemberInput,
@@ -34,7 +33,6 @@ import {
   type ThreadFilter,
   type ThreadListItem,
   type ThreadMember,
-  type TeamTemplate,
 } from './threadModel';
 
 import './collaboration.css';
@@ -111,7 +109,6 @@ export type CollaborationWorkspaceViewProps = {
   onDismissBanner: () => void;
   onCreateGroup: (name: string, memberIds: string[]) => void;
   onCreateMember: (input: NewMemberInput) => void;
-  onCreateTeam: (template: TeamTemplate) => void;
   onSendDirect: (content: string) => void;
   onSendGroup: (content: string, to: string[]) => Promise<void> | void;
   onPreviewWake: (
@@ -242,16 +239,7 @@ export function CollaborationWorkspaceView(
       : [];
 
   let main: ReactNode;
-  if (items.length === 0 && !props.query && props.filter === 'all') {
-    main = (
-      <div className="collab-main">
-        <TeamTemplateEmptyState
-          busy={props.busy}
-          onCreate={props.onCreateTeam}
-        />
-      </div>
-    );
-  } else if (selectedMember) {
+  if (selectedMember) {
     main = (
       <div className="collab-main" data-testid="collab-direct-chat">
         <header className="collab-main-head">

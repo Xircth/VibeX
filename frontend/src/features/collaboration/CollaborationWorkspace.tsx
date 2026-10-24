@@ -54,7 +54,6 @@ import {
   type ConversationFacts,
   type ReceiptInput,
   type ThreadActivity,
-  type ThreadFilter,
   directChatNotices,
 } from './threadModel';
 
@@ -113,7 +112,6 @@ export function CollaborationWorkspace({
   >({});
   const seqByMessageId = useRef(new Map<string, number>());
   const [pins, setPins] = useState<string[]>(() => readThreadPins());
-  const [filter, setFilter] = useState<ThreadFilter>('all');
   const [query, setQuery] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -301,13 +299,11 @@ export function CollaborationWorkspace({
         pins,
         attentionByMember: attention,
         queuedByConversation,
-        filter,
         query,
       }),
     [
       attention,
       conversations,
-      filter,
       groups,
       members,
       mergedActivity,
@@ -702,7 +698,6 @@ export function CollaborationWorkspace({
       allItems={allItems}
       members={members}
       selectedKey={selectedKey}
-      filter={filter}
       query={query}
       avatarFor={avatarFor}
       directTurns={directTurns}
@@ -723,7 +718,6 @@ export function CollaborationWorkspace({
       workspacePath={workspacePath}
       workspaceId={workspace}
       error={error}
-      onFilterChange={setFilter}
       onQueryChange={setQuery}
       onSelect={(key) => {
         setSelectedKey(key);

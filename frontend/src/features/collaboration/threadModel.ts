@@ -79,9 +79,6 @@ export type ThreadFilter = 'all' | 'member' | 'group';
 
 export const THREAD_COPY = {
   title: '协作',
-  filterAll: '全部',
-  filterMembers: '成员',
-  filterGroups: '群聊',
   searchPlaceholder: '搜索成员或群聊…',
   groupPill: (count: number) => `群聊·${count}`,
   idle: '空闲',

@@ -684,6 +684,18 @@
     "searchOpen": "Search members or group chats",
     "searchPlaceholder": "Search members or group chats…",
     "searchEmpty": "No matching members or group chats",
-    "searchResults": "Search results"
+    "searchResults": "Search results",
+    "sidebarGroups": {
+      "newGroup": "New group",
+      "defaultName": "New group",
+      "moveTo": "Move to group",
+      "removeFrom": "Remove from group",
+      "rename": "Rename",
+      "delete": "Delete group",
+      "nameLabel": "Group name",
+      "noGroups": "No groups yet",
+      "expand": "Expand {{name}}",
+      "collapse": "Collapse {{name}}"
+    }
   }
 }

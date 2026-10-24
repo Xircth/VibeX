@@ -42,10 +42,8 @@ describe('InlineGroupCreator', () => {
       <ThreadList
         items={[]}
         selectedKey={null}
-        filter="all"
         query=""
         avatarFor={(id) => deriveMemberBotAvatar(id)}
-        onFilterChange={vi.fn()}
         onQueryChange={vi.fn()}
         onSelect={vi.fn()}
         onTogglePin={vi.fn()}

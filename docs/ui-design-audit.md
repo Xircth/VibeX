@@ -7,6 +7,8 @@ Scope: `frontend/src/components`, `frontend/src/styles`, Tailwind config, shadcn
 > Historical note: this audit is a migration reference. `DESIGN.md` is the
 > single current source of truth for frontend design. The active convergence
 > plan lives in `docs/specs/tahoe-design-system-convergence/`.
+>
+> Collaboration-space contact-list UI (flat/grouped rows, GroupAvatar, drag-to-group) is documented in `DESIGN.md` § Collaboration space; this audit does not cover that surface.
 
 ## Summary
 

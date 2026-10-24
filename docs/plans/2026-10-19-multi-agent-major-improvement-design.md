@@ -7,6 +7,8 @@ plugin: C:\Users\18190\Documents\projects\vibex-plugin-multi-agent
 analysis: docs/plans/2026-10-18-multi-agent-collaboration-enhancement.md
 ---
 
+> **已过时（UI）**：本文是 2026-10-19 的产品设计草稿。§6.3 协作空间 Tab 的三栏布局、右栏成员卡片，以及文中的成员模板 / 插件自绘 Tab 等 UI 口径已过时。现行联系人列表 UI 见根目录 [`DESIGN.md`](../../DESIGN.md)「Collaboration space」；成员/会话身份见 [`docs/collaboration-member-identity.md`](../collaboration-member-identity.md)。正文不改写，仅作历史记录。
+
 # multi-agent 功能重大改进设计方案
 
 本文是产品与领域设计。实施步骤、表结构、错误码和验收剧本在《multi-agent 功能重大改进技术方案》。两份一起读，才能从需求走到可运行的功能。

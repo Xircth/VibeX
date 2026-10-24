@@ -264,14 +264,14 @@ describe('CollaborationSpacePage', () => {
     expect(statsBadge).toHaveTextContent(/^2$/);
     expect(statsBadge.querySelector('svg')).toBeNull();
     fireEvent.mouseEnter(statsBadge);
-    expect(await screen.findByText('空间成员')).toBeTruthy();
+    expect(await screen.findByText('空间助手')).toBeTruthy();
     fireEvent.mouseLeave(statsBadge);
 
     // Top horizontal member bar is shown, can filter messages by member, and can be collapsed/expanded
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
     expect(screen.getByText('请查看')).toBeTruthy();
     const filterMemberABtn = screen.getByRole('button', {
-      name: '筛选成员 小A',
+      name: '筛选助手 小A',
     });
     await user.click(filterMemberABtn);
     expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'true');
@@ -281,14 +281,14 @@ describe('CollaborationSpacePage', () => {
     expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByText('请查看')).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: '收起成员列表' }));
+    await user.click(screen.getByRole('button', { name: '收起助手列表' }));
     expect(screen.queryByTestId('collaboration-top-member-bar')).toBeNull();
     const collapsedStack = screen.getByTestId('collaboration-top-member-stack');
     expect(collapsedStack).toBeTruthy();
     expect(
       collapsedStack.querySelectorAll('.collaboration-top-member-stack-item')
     ).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: '展开成员列表' }));
+    await user.click(screen.getByRole('button', { name: '展开助手列表' }));
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
 
     // Piano-key message navigation is rendered in the message area
@@ -402,12 +402,12 @@ describe('CollaborationSpacePage', () => {
     );
     expect(screen.getByLabelText('预览')).toBeTruthy();
 
-    // Clicking + in top toolbar expands menu with 新建协作空间 and 新建成员
+    // Clicking + in top toolbar expands menu with 新建协作空间 and 新建助手
     await user.click(screen.getByRole('button', { name: '新建空间' }));
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
       name: '新建协作空间',
     });
-    expect(screen.getByRole('menuitem', { name: '新建成员' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '新建助手' })).toBeTruthy();
     await user.click(createSpaceMenuItem);
 
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
@@ -430,10 +430,10 @@ describe('CollaborationSpacePage', () => {
       expect(screen.queryByRole('dialog', { name: '新建空间' })).toBeNull();
     });
 
-    // Clicking per-space UserPlus button opens the unified 新建成员 overlay pre-set to 基于会话
-    await user.click(screen.getByRole('button', { name: '加入成员 设计' }));
+    // Clicking per-space UserPlus button opens the unified 新建助手 overlay pre-set to 基于会话
+    await user.click(screen.getByRole('button', { name: '加入助手 设计' }));
     const memberDialog = await within(threadSection).findByRole('dialog', {
-      name: '新建成员',
+      name: '新建助手',
     });
     expect(memberDialog).toBeTruthy();
     const sourceSegmented = within(memberDialog).getByRole('radiogroup', {
@@ -446,7 +446,7 @@ describe('CollaborationSpacePage', () => {
       within(memberDialog).getByRole('combobox', { name: '选择会话' })
     ).toBeTruthy();
     expect(
-      within(memberDialog).getByRole('textbox', { name: '成员名称' })
+      within(memberDialog).getByRole('textbox', { name: '助手名称' })
     ).toBeTruthy();
 
     // Avatar customizer field is rendered with 颜色/形状 SegmentedControl on the right of 头像 label, no 表情 tab, no text in color/shape panels, no shadows/highlights/eyeballs
@@ -516,10 +516,10 @@ describe('CollaborationSpacePage', () => {
     );
     expect(await screen.findByRole('button', { name: '小A' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '选择文件' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '@成员' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '@助手' })).toBeTruthy();
 
     const editor = getComposerEditor();
-    await user.click(screen.getByRole('button', { name: '@成员' }));
+    await user.click(screen.getByRole('button', { name: '@助手' }));
 
     const menu = await screen.findByTestId('composer-at-reference-menu');
     expect(menu).toBeVisible();
@@ -898,7 +898,7 @@ describe('CollaborationSpacePage', () => {
     );
 
     const { unmount } = renderPage();
-    // Default space is shown in the left space list along with its 3 hover buttons (标签, 修改名称, 加入成员)
+    // Default space is shown in the left space list along with its 3 hover buttons (标签, 修改名称, 加入助手)
     expect(
       await screen.findByRole('button', { name: '默认空间' })
     ).toBeTruthy();
@@ -907,7 +907,7 @@ describe('CollaborationSpacePage', () => {
       screen.getByRole('button', { name: '修改名称 默认空间' })
     ).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: '加入成员 默认空间' })
+      screen.getByRole('button', { name: '加入助手 默认空间' })
     ).toBeTruthy();
     // The list no longer has a '协作空间' title heading
     expect(screen.queryByText('协作空间')).toBeNull();
@@ -928,18 +928,18 @@ describe('CollaborationSpacePage', () => {
     );
     expect(
       await screen.findByTestId('collaboration-empty-member-pill')
-    ).toHaveTextContent('当前协作空间暂无成员，请先添加成员');
+    ).toHaveTextContent('当前协作空间暂无助手，请先添加助手');
     const emptyStateAddMemberBtn = screen.getByRole('button', {
-      name: '添加成员',
+      name: '添加助手',
     });
     const emptyStateCreateSpaceBtn = screen.getByRole('button', {
       name: '新建协作空间',
     });
 
-    // Test unified 新建成员 overlay inside message area (基于角色 / 基于会话 / 自定义, without 归属团队)
+    // Test unified 新建助手 overlay inside message area (基于角色 / 基于会话 / 自定义, without 归属团队)
     await user.click(emptyStateAddMemberBtn);
     const memberDialog = await screen.findByRole('dialog', {
-      name: '新建成员',
+      name: '新建助手',
     });
     expect(memberDialog).toBeTruthy();
     expect(
@@ -957,7 +957,7 @@ describe('CollaborationSpacePage', () => {
     await user.click(sourceRadioItems[0]);
 
     await user.type(
-      within(memberDialog).getByRole('textbox', { name: '成员名称' }),
+      within(memberDialog).getByRole('textbox', { name: '助手名称' }),
       '架构助手'
     );
     await user.click(
@@ -987,7 +987,7 @@ describe('CollaborationSpacePage', () => {
     expect(emptyStateCreateSpaceBtn).not.toBeInTheDocument();
     expect(screen.queryByLabelText('预览')).toBeNull();
 
-    // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加成员 dialog with 选择成员 / 新建成员 tabs
+    // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加助手 dialog with 选择助手 / 新建助手 tabs
     await user.click(screen.getByRole('button', { name: '新建空间' }));
     await user.click(
       await screen.findByRole('menuitem', { name: '新建协作空间' })
@@ -1000,23 +1000,23 @@ describe('CollaborationSpacePage', () => {
     });
     await user.type(nameInput, '架构评审');
 
-    // Click dashed + button to open 添加成员 form directly
+    // Click dashed + button to open 添加助手 form directly
     const dashedAddBtn = within(spaceDialog).getByRole('button', {
-      name: '添加或新建协作空间成员',
+      name: '添加或新建协作空间助手',
     });
     await user.click(dashedAddBtn);
     const addMemberDialog = await screen.findByRole('dialog', {
-      name: '添加成员',
+      name: '添加助手',
     });
     expect(
-      within(addMemberDialog).getByRole('button', { name: '选择成员' })
+      within(addMemberDialog).getByRole('button', { name: '选择助手' })
     ).toBeTruthy();
     expect(
-      within(addMemberDialog).getByRole('button', { name: '新建成员' })
+      within(addMemberDialog).getByRole('button', { name: '新建助手' })
     ).toBeTruthy();
 
-    // 选择成员 tab is active by default -> shows 可选成员 with 2-level space -> member list
-    expect(within(addMemberDialog).getByText('可选成员')).toBeTruthy();
+    // 选择助手 tab is active by default -> shows 可选助手 with 2-level space -> member list
+    expect(within(addMemberDialog).getByText('可选助手')).toBeTruthy();
     expect(
       within(addMemberDialog).getByTestId(
         'collaboration-picker-space-unassigned:workspace-1'
@@ -1028,33 +1028,33 @@ describe('CollaborationSpacePage', () => {
       within(addMemberDialog).getByRole('button', { name: '完成' })
     );
 
-    // Click dashed + button again to create a member via 添加成员 -> 新建成员 tab (no 归属团队 field)
+    // Click dashed + button again to create a member via 添加助手 -> 新建助手 tab (no 归属团队 field)
     const spaceDialogAfterChoose = await screen.findByRole('dialog', {
       name: '新建空间',
     });
     await user.click(
       within(spaceDialogAfterChoose).getByRole('button', {
-        name: '添加或新建协作空间成员',
+        name: '添加或新建协作空间助手',
       })
     );
     const addMemberDialog2 = await screen.findByRole('dialog', {
-      name: '添加成员',
+      name: '添加助手',
     });
     await user.click(
-      within(addMemberDialog2).getByRole('button', { name: '新建成员' })
+      within(addMemberDialog2).getByRole('button', { name: '新建助手' })
     );
     expect(
       within(addMemberDialog2).queryByRole('combobox', { name: /归属团队/ })
     ).toBeNull();
     await user.type(
-      within(addMemberDialog2).getByRole('textbox', { name: '成员名称' }),
+      within(addMemberDialog2).getByRole('textbox', { name: '助手名称' }),
       '内联评审员'
     );
     await user.click(
-      within(addMemberDialog2).getByRole('button', { name: '添加成员' })
+      within(addMemberDialog2).getByRole('button', { name: '添加助手' })
     );
 
-    // Created member chip is displayed under 协作空间成员 with dashed + still after it
+    // Created member chip is displayed under 协作空间助手 with dashed + still after it
     const finalSpaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });
@@ -1063,7 +1063,7 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     expect(
       within(finalSpaceDialog).getByRole('button', {
-        name: '添加或新建协作空间成员',
+        name: '添加或新建协作空间助手',
       })
     ).toBeTruthy();
 
@@ -1348,7 +1348,7 @@ describe('CollaborationSpacePage', () => {
     expect(openCollectionBtn).toBeTruthy();
 
     // Collapse top member bar and verify the collection button remains separate from avatar stack on the far left
-    await user.click(screen.getByRole('button', { name: '收起成员列表' }));
+    await user.click(screen.getByRole('button', { name: '收起助手列表' }));
     const collapsedBar = await screen.findByTestId(
       'collaboration-top-member-collapsed-bar'
     );

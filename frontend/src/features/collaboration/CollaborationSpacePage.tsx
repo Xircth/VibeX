@@ -3908,7 +3908,7 @@ export function CollaborationSpacePage({
       >
         <Checkbox
           className="collaboration-delete-checkbox"
-          aria-label={`选择成员 ${name}`}
+          aria-label={`选择助手 ${name}`}
           checked={checked}
           onCheckedChange={() =>
             togglePendingSpaceMemberConvSelection(conversationId)
@@ -4253,7 +4253,7 @@ export function CollaborationSpacePage({
         {isDeleteMode && member.kind === 'agent' && conversationId ? (
           <Checkbox
             className="collaboration-delete-checkbox"
-            aria-label={`选择成员 ${name}`}
+            aria-label={`选择助手 ${name}`}
             checked={isMemberCheckedForDelete}
             onCheckedChange={() =>
               handleToggleMemberDelete(spaceId, conversationId)
@@ -5151,7 +5151,7 @@ export function CollaborationSpacePage({
 
     const overlayTitle = createOpen
       ? spaceAddMemberOpen
-        ? '添加成员'
+        ? '添加助手'
         : t('collaborationSpace.newSpace', COPY.newSpace)
       : COPY.newMemberButton;
 
@@ -5277,7 +5277,7 @@ export function CollaborationSpacePage({
                         <button
                           type="button"
                           className="collaboration-member-chip-remove"
-                          aria-label={`移除成员 ${memberName}`}
+                          aria-label={`移除助手 ${memberName}`}
                           onClick={() => removeDraftSpaceMember(convId)}
                         >
                           <X className="h-3 w-3" aria-hidden="true" />
@@ -5289,7 +5289,7 @@ export function CollaborationSpacePage({
                   <button
                     type="button"
                     className="collaboration-member-dashed-add"
-                    aria-label="添加或新建协作空间成员"
+                    aria-label="添加或新建协作空间助手"
                     onClick={() => {
                       setPendingSpaceMemberConvIds(
                         new Set(selectedSpaceMemberConvIds)
@@ -5331,7 +5331,7 @@ export function CollaborationSpacePage({
                   onClick={() => setSpaceAddMemberTab('select')}
                   className="h-8 text-xs"
                 >
-                  选择成员
+                  选择助手
                 </Button>
                 <Button
                   type="button"
@@ -5592,7 +5592,7 @@ export function CollaborationSpacePage({
                         void submitInlineCreateMember();
                       }}
                     >
-                      添加成员
+                      添加助手
                     </Button>
                   </div>
                 </>
@@ -5808,7 +5808,7 @@ export function CollaborationSpacePage({
                   <SessionListDeleteControl
                     selectedCount={selectedDeleteCount}
                     isDeleting={isDeletingBatch}
-                    selectLabel="选择协作空间或成员"
+                    selectLabel="选择协作空间或助手"
                     selectedCountLabel={`已选择 ${selectedDeleteCount} 项`}
                     deleteLabel="确认删除"
                     deletingLabel="删除中..."
@@ -5829,7 +5829,7 @@ export function CollaborationSpacePage({
                       <SessionListSearchControl
                         searchQuery={searchQuery}
                         isExpanded={searchOpen}
-                        searchLabel="搜索协作空间或成员"
+                        searchLabel="搜索协作空间或助手"
                         placeholder={COPY.searchPlaceholder}
                         onSearchQueryChange={setSearchQuery}
                         onExpandedChange={setSearchOpen}
@@ -6139,8 +6139,8 @@ export function CollaborationSpacePage({
                   variant="icon"
                   size="icon"
                   className="collaboration-expand"
-                  aria-label="收起成员列表"
-                  title="收起成员列表"
+                  aria-label="收起助手列表"
+                  title="收起助手列表"
                   onClick={() => setTopMemberBarExpanded(false)}
                 >
                   <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -6188,7 +6188,7 @@ export function CollaborationSpacePage({
                               isSelectedChip && 'is-selected',
                               hasDelayedMessages && 'has-delayed-messages'
                             )}
-                            aria-label={`筛选成员 ${nick}`}
+                            aria-label={`筛选助手 ${nick}`}
                             aria-pressed={isSelectedChip}
                             data-testid={`top-member-filter-${nick}`}
                             data-has-delayed-messages={
@@ -6324,8 +6324,8 @@ export function CollaborationSpacePage({
                   <button
                     type="button"
                     className="collaboration-top-member-expand-trigger"
-                    aria-label="展开成员列表"
-                    title="展开成员列表"
+                    aria-label="展开助手列表"
+                    title="展开助手列表"
                     data-testid="collaboration-top-member-collapsed-stack"
                     onClick={() => setTopMemberBarExpanded(true)}
                   >
@@ -6398,7 +6398,7 @@ export function CollaborationSpacePage({
                       className="collaboration-empty-member-pill"
                       data-testid="collaboration-empty-member-pill"
                     >
-                      当前协作空间暂无成员，请先添加成员
+                      当前协作空间暂无助手，请先添加助手
                     </div>
                     <div className="collaboration-empty-member-actions">
                       <Button
@@ -6406,7 +6406,7 @@ export function CollaborationSpacePage({
                         variant="primary"
                         onClick={() => openCreateMemberDialog()}
                       >
-                        添加成员
+                        添加助手
                       </Button>
                       <Button
                         type="button"
@@ -6655,7 +6655,7 @@ export function CollaborationSpacePage({
                         <button
                           type="button"
                           data-testid="composer-space-stats"
-                          aria-label={`空间成员数量 ${visibleRoster.length}`}
+                          aria-label={`空间助手数量 ${visibleRoster.length}`}
                           onMouseEnter={openComposerMembersMenu}
                           onMouseLeave={scheduleCloseComposerMembersMenu}
                           className="workspace-session-group-count cursor-pointer border-0"
@@ -6674,7 +6674,7 @@ export function CollaborationSpacePage({
                         className="w-60 rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
                       >
                         <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
-                          <span>空间成员</span>
+                          <span>空间助手</span>
                           <span>{visibleRoster.length}</span>
                         </div>
                         {visibleRoster.length === 0 ? (
@@ -6785,8 +6785,8 @@ export function CollaborationSpacePage({
                       size="sm"
                       variant="ghost"
                       className="collaboration-icon-btn h-7 w-7 p-0"
-                      title="@成员"
-                      aria-label="@成员"
+                      title="@助手"
+                      aria-label="@助手"
                     >
                       <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>

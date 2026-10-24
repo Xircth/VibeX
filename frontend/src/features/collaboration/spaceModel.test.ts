@@ -72,11 +72,11 @@ describe('collaboration space model', () => {
     expect(COPY.emptySpaces).toBe('还没有协作空间');
     expect(COPY.newSpace).toBe('新建空间');
     expect(COPY.newSpaceButton).toBe('新建协作空间');
-    expect(COPY.newMemberButton).toBe('新建成员');
-    expect(COPY.newMemberFromSessionButton).toBe('从会话新建成员');
+    expect(COPY.newMemberButton).toBe('新建助手');
+    expect(COPY.newMemberFromSessionButton).toBe('从会话新建助手');
     expect(COPY.defaultSpaceName).toBe('默认空间');
     expect(COPY.unassignedSpaceName).toBe('未定空间');
-    expect(COPY.noMemberSessions).toBe('暂无成员会话');
+    expect(COPY.noMemberSessions).toBe('暂无助手会话');
     expect(COPY.emptyMessages).toBe('还没有消息');
     expect(COPY.deleteRole).toBe('删除后，已创建的会话仍保留。');
   });
@@ -125,7 +125,7 @@ describe('collaboration space model', () => {
         { delivered: 'queued' },
         { delivered: 'failed', error_code: 'not_found' },
       ])
-    ).toBe('部分成员没有送达');
+    ).toBe('部分助手没有送达');
     expect(deliveryFailureCopy([{ delivered: 'queued' }])).toBe('');
     expect(receiptStatusCopy({ delivered: 'queued' })).toBe('已收到');
     expect(receiptStatusCopy({ delivered: 'dispatched' })).toBe('已收到');

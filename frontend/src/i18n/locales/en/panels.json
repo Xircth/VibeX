@@ -687,6 +687,7 @@
     "contactGroupMoveTo": "Move to group",
     "contactGroupToggle": "Collapse or expand {{name}}",
     "contactGroupFailed": "Group action failed",
+    "unknownMember": "Unknown member",
     "memberAlreadyInGroup": "{{name}} is already in this group"
   }
 }

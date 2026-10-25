@@ -1112,7 +1112,8 @@ export function CollaborationSpacePage({
           return {
             id: member.member_id ?? member.conversation_id ?? nick,
             nickname: nick,
-            detail: conv?.title || member.conversation_id || undefined,
+            // Never surface the internal conversation id as a subtitle.
+            detail: conv?.title || undefined,
           };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item)),
@@ -3960,6 +3961,10 @@ export function CollaborationSpacePage({
                   'workspace-session-status',
                   `workspace-session-status--${tone}`
                 )}
+              data-status={tone}
+              title={t('conversation:children.status.' + tone, {
+                defaultValue: tone,
+              })}
               />
             </span>
             <span className="collaboration-member-title-group">
@@ -4362,6 +4367,10 @@ export function CollaborationSpacePage({
                       'workspace-session-status',
                       `workspace-session-status--${tone}`
                     )}
+                  data-status={tone}
+                  title={t('conversation:children.status.' + tone, {
+                    defaultValue: tone,
+                  })}
                   />
                 </span>
                 <Input
@@ -4483,6 +4492,10 @@ export function CollaborationSpacePage({
                             'workspace-session-status',
                             `workspace-session-status--${tone}`
                           )}
+                        data-status={tone}
+                        title={t('conversation:children.status.' + tone, {
+                          defaultValue: tone,
+                        })}
                         />
                       </span>
                       <span className="collaboration-member-title-group">
@@ -5336,7 +5349,7 @@ export function CollaborationSpacePage({
               variant="icon"
               size="icon"
               className="collaboration-expand h-7 w-7"
-              aria-label="Close"
+              aria-label={t('tabCreation.close', '关闭')}
               onClick={closeAllOverlays}
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -6653,7 +6666,8 @@ export function CollaborationSpacePage({
                     const fromYou = author === COPY.you;
                     const name = fromYou
                       ? t('collaborationSpace.you', COPY.you)
-                      : author || COPY.you;
+                      : author ||
+                        t('collaborationSpace.unknownMember', '未知成员');
                     const authorConversationId = resolveMessageConversationId(
                       message.envelope,
                       members

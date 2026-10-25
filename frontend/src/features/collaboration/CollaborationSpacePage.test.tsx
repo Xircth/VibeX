@@ -485,7 +485,7 @@ describe('CollaborationSpacePage', () => {
     expect(overlayEl?.className).not.toContain('dialog-backdrop');
     expect(screen.getByRole('textbox', { name: '空间名称' })).toBeTruthy();
 
-    const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
+    const closeDialogBtn = screen.getByRole('button', { name: /^(关闭|Close)$/ });
     expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
     await user.click(closeDialogBtn);
     await waitFor(() => {
@@ -1094,7 +1094,7 @@ describe('CollaborationSpacePage', () => {
 
     // Closing 新建空间 dialog when no spaces exist opens Default Space message area with empty-state capsule and 2 action buttons
     await user.click(
-      within(initialSpaceDialog).getByRole('button', { name: 'Close' })
+      within(initialSpaceDialog).getByRole('button', { name: /^(关闭|Close)$/ })
     );
     expect(
       await screen.findByTestId('collaboration-empty-member-pill')

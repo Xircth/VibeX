@@ -528,7 +528,7 @@ export function MultiAgentSettings({
                     variant="icon"
                     size="icon"
                     className="collaboration-expand h-7 w-7"
-                    aria-label="Close"
+                    aria-label={t('panels:tabCreation.close', '关闭')}
                     onClick={() => setRoleDialogOpen(false)}
                   >
                     <X className="h-4 w-4" aria-hidden="true" />

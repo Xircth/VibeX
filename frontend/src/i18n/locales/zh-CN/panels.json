@@ -687,6 +687,7 @@
     "contactGroupMoveTo": "移动到分组",
     "contactGroupToggle": "折叠或展开 {{name}}",
     "contactGroupFailed": "分组操作失败",
+    "unknownMember": "未知成员",
     "memberAlreadyInGroup": "{{name}} 已在该群中"
   }
 }

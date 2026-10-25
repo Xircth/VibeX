@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationStatus } from '@/contexts/ConversationStatusContext';
+import { useSessionSurfaceChrome } from '@/contexts/SessionSurfaceChromeContext';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
@@ -935,12 +936,14 @@ export function TaskFollowUpSection({
     isAttemptRunning: isComposerExecutionRunning,
     isEditable,
   });
+  const { composerIdentity } = useSessionSurfaceChrome();
   const showTopbar = getComposerTopbarVisibility({
     hasTokenUsageInfo: Boolean(tokenUsageInfo),
     hasCodexGoalState: Boolean(codexGoalState),
     showSessionSelector,
     sessionCount: sessions.length,
     hasExecutorProfile: Boolean(effectiveExecutorProfile?.executor),
+    hasComposerIdentity: Boolean(composerIdentity),
   });
 
   const { handleComposerSubmit } = useSessionComposerSubmitActions({
@@ -1169,6 +1172,7 @@ export function TaskFollowUpSection({
                 <SessionComposerTopbar
                   executorProfile={effectiveExecutorProfile}
                   sessionExecutor={session?.executor}
+                  composerIdentity={composerIdentity}
                   showChangedFileSummary={showChangedFileSummary}
                   changedFileCount={fileCount}
                   added={added}

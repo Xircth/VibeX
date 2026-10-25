@@ -21,6 +21,12 @@ export const COPY = {
   get newSpaceButton() {
     return i18n.t('panels:collabCopy.newSpaceButton');
   },
+  get createMenu() {
+    return i18n.t('panels:collabCopy.createMenu');
+  },
+  get spaceName() {
+    return i18n.t('panels:collabCopy.spaceName');
+  },
   get newMemberButton() {
     return i18n.t('panels:collabCopy.newMemberButton');
   },
@@ -29,6 +35,9 @@ export const COPY = {
   },
   get createContactGroupButton() {
     return i18n.t('panels:collabCopy.createContactGroupButton');
+  },
+  get defaultContactGroupName() {
+    return i18n.t('panels:collabCopy.defaultContactGroupName');
   },
   get newMemberFromSessionButton() {
     return i18n.t('panels:collabCopy.newMemberFromSessionButton');
@@ -228,6 +237,65 @@ export const VIRTUAL_DEFAULT_SPACE_ID = '__default_space__';
 
 export function unassignedSpaceId(workspaceId: string): string {
   return `unassigned:${workspaceId}`;
+}
+
+export function defaultGroupChatNameFromMembers(
+  memberNames: Iterable<string>,
+  existingNames: Iterable<string> = []
+): string {
+  const base = Array.from(memberNames)
+    .map((name) => String(name ?? '').trim())
+    .filter(Boolean)
+    .join('、');
+  if (!base) return '';
+  const taken = new Set(
+    Array.from(existingNames)
+      .map((name) =>
+        String(name ?? '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
+  );
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${base} ${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${base} ${Date.now().toString(36).slice(-4)}`;
+}
+
+export function uniqueBotsForGroupMemberPicker(input: {
+  directMembers?: readonly SpaceMember[];
+  unassignedMembers?: readonly SpaceMember[];
+  membersBySpace?: Readonly<Record<string, readonly SpaceMember[] | undefined>>;
+  excludeConversationIds?: ReadonlySet<string>;
+}): SpaceMember[] {
+  const seen = new Set<string>();
+  const exclude = input.excludeConversationIds ?? new Set<string>();
+  const result: SpaceMember[] = [];
+
+  const push = (member: SpaceMember | null | undefined) => {
+    if (!member || member.kind === 'user') return;
+    if (Number(member.visible_to_agents) === 0) return;
+    const conversationId = String(member.conversation_id ?? '').trim();
+    const memberId = String(member.member_id ?? '').trim();
+    const key = conversationId || memberId;
+    if (!key || seen.has(key)) return;
+    if (conversationId && exclude.has(conversationId)) return;
+    if (memberId && exclude.has(memberId)) return;
+    seen.add(key);
+    if (conversationId) seen.add(conversationId);
+    if (memberId) seen.add(memberId);
+    result.push(member);
+  };
+
+  for (const member of input.directMembers ?? []) push(member);
+  for (const member of input.unassignedMembers ?? []) push(member);
+  for (const members of Object.values(input.membersBySpace ?? {})) {
+    for (const member of members ?? []) push(member);
+  }
+  return result;
 }
 
 export const ENGLISH_MEMBER_NAMES = [

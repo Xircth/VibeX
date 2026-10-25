@@ -4,6 +4,7 @@ import {
   createContactGroup,
   deleteContactGroup,
   listContactGroups,
+  nextNewContactGroupName,
   readCollapsedSections,
   renameContactGroup,
   reorderContactGroups,
@@ -121,6 +122,17 @@ describe('contactGroups api', () => {
       throw new Error('boom');
     });
     await expect(setThreadGroup(call, 't', 'g')).rejects.toThrow('boom');
+  });
+});
+
+describe('nextNewContactGroupName', () => {
+  it('uses the base name, then numbered suffixes', () => {
+    expect(nextNewContactGroupName([], '新分组')).toBe('新分组');
+    expect(nextNewContactGroupName(['核心'], '新分组')).toBe('新分组');
+    expect(nextNewContactGroupName(['新分组'], '新分组')).toBe('新分组 2');
+    expect(nextNewContactGroupName(['新分组', '新分组 2'], '新分组')).toBe(
+      '新分组 3'
+    );
   });
 });
 

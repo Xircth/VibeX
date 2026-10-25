@@ -151,6 +151,17 @@ describe('session composer session helpers', () => {
         hasExecutorProfile: true,
       })
     ).toBe(true);
+
+    expect(
+      getComposerTopbarVisibility({
+        hasTokenUsageInfo: false,
+        hasCodexGoalState: false,
+        showSessionSelector: false,
+        sessionCount: 0,
+        hasExecutorProfile: false,
+        hasComposerIdentity: true,
+      })
+    ).toBe(true);
   });
 
   it('builds session selection notifications only when a workspace exists', () => {

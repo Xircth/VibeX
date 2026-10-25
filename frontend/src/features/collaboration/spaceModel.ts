@@ -4,13 +4,16 @@ export const COPY = {
   emptyTeams: '还没有团队',
   newTeam: '新建团队',
   emptySpaces: '还没有协作空间',
-  newSpace: '新建空间',
+  newSpace: '创建群聊',
   newSpaceButton: '创建群聊',
+  createMenu: '创建',
+  spaceName: '群聊名称',
   newMemberButton: '新建助手',
   createAssistantButton: '创建助手',
   createContactGroupButton: '新建分组',
   newMemberFromSessionButton: '从会话新建助手',
   defaultSpaceName: '默认空间',
+  defaultGroupChatName: '群聊',
   unassignedSpaceName: '未定空间',
   noMemberSessions: '暂无助手会话',
   memberNameLabel: '助手名称',
@@ -23,7 +26,7 @@ export const COPY = {
   personaPromptLabel: '人设提示词（可选）',
   teamLabel: '归属团队（可选）',
   noTeam: '不属于任何团队',
-  spaceMembersLabel: '协作空间助手（可选）',
+  spaceMembersLabel: '群聊成员',
   spaceTagLabel: '颜色标签',
   memberSessionsGroup: '可选助手',
   otherSessionsGroup: '非助手会话',
@@ -79,6 +82,60 @@ export const VIRTUAL_DEFAULT_SPACE_ID = '__default_space__';
 
 export function unassignedSpaceId(workspaceId: string): string {
   return `unassigned:${workspaceId}`;
+}
+
+export function nextDefaultGroupChatName(
+  existingNames: Iterable<string>
+): string {
+  const taken = new Set(
+    Array.from(existingNames)
+      .map((name) =>
+        String(name ?? '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
+  );
+  const base = COPY.defaultGroupChatName;
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${base} ${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${base} ${Date.now().toString(36).slice(-4)}`;
+}
+
+export function uniqueBotsForGroupMemberPicker(input: {
+  directMembers?: readonly SpaceMember[];
+  unassignedMembers?: readonly SpaceMember[];
+  membersBySpace?: Readonly<Record<string, readonly SpaceMember[] | undefined>>;
+  excludeConversationIds?: ReadonlySet<string>;
+}): SpaceMember[] {
+  const seen = new Set<string>();
+  const exclude = input.excludeConversationIds ?? new Set<string>();
+  const result: SpaceMember[] = [];
+
+  const push = (member: SpaceMember | null | undefined) => {
+    if (!member || member.kind === 'user') return;
+    if (Number(member.visible_to_agents) === 0) return;
+    const conversationId = String(member.conversation_id ?? '').trim();
+    const memberId = String(member.member_id ?? '').trim();
+    const key = conversationId || memberId;
+    if (!key || seen.has(key)) return;
+    if (conversationId && exclude.has(conversationId)) return;
+    if (memberId && exclude.has(memberId)) return;
+    seen.add(key);
+    if (conversationId) seen.add(conversationId);
+    if (memberId) seen.add(memberId);
+    result.push(member);
+  };
+
+  for (const member of input.directMembers ?? []) push(member);
+  for (const member of input.unassignedMembers ?? []) push(member);
+  for (const members of Object.values(input.membersBySpace ?? {})) {
+    for (const member of members ?? []) push(member);
+  }
+  return result;
 }
 
 export const ENGLISH_MEMBER_NAMES = [

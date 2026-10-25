@@ -160,6 +160,7 @@ impl AppState {
             plugin_control_plane.official_product_mcp_gate(),
             events.clone(),
         );
+        collaboration_host.install_companion_memory(delegation.features.clone());
         if let Err(error) = server::start_product_mcp_gateway(
             delegation.listener.clone(),
             delegation.tokens.clone(),

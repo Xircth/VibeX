@@ -274,7 +274,7 @@ impl HeadlessServer {
                 bind_prompts,
             )
             .with_conversation_host(conversation_host.clone())
-            .with_collaboration_host(collaboration_host),
+            .with_collaboration_host(collaboration_host.clone()),
         );
         let host_call = plugins::PluginHostCall::new(
             capability_broker.clone() as Arc<dyn plugins::CapabilityBroker>
@@ -417,6 +417,7 @@ impl HeadlessServer {
                 plugin_control_plane.official_product_mcp_gate(),
                 events.clone(),
             );
+        collaboration_host.install_companion_memory(companion_memory.clone());
         let host_config = deployment.config().read().await.clone();
         if let Err(error) = crate::host::plugin_projections::refresh_official_product_runtime_with(
             &plugin_control_plane,

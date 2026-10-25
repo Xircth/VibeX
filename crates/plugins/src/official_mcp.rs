@@ -537,6 +537,7 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("handoff", "collaboration"),
             tool("memory_search", "collaboration"),
             tool("memory_write", "collaboration"),
+            tool("ask_user_question", "collaboration"),
             tool("ask_person", "collaboration"),
             tool("request_approval", "collaboration"),
             tool("resolve_card", "collaboration"),
@@ -1008,6 +1009,7 @@ mod tests {
             "read_space_collection_item",
             "handoff",
             "ask_person",
+            "ask_user_question",
             "request_approval",
             "resolve_card",
         ] {
@@ -1016,7 +1018,6 @@ mod tests {
         for name in [
             "cancel_session_turn",
             "wait_for_session",
-            "ask_user_question",
             "check_inbox",
             "fetch_inbox",
         ] {

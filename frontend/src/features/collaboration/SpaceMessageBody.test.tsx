@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
@@ -19,6 +20,17 @@ const approval =
   '请求审批：合并 PR\n\n<card kind="approval" id="card-1">\n<action>\n合并 PR #42\n</action>\n<command>\ngit merge &lt;x&gt;\n</command>\n<reason>\n修复完成\n</reason>\n</card>';
 const ask =
   '问你：用哪个分支？\n\n<card kind="ask" id="card-2">\n<question>\n用哪个分支？\n</question>\n<options>main|dev</options>\n</card>';
+const askUserQuestion = `问你：用哪个方案？
+
+<card kind="ask" id="card-3">
+<question>
+用哪个方案？
+</question>
+<options>Patch (Recommended)|Rewrite</options>
+<questions>
+[{"question":"用哪个方案？","header":"方案","multiSelect":false,"options":[{"label":"Patch (Recommended)","description":"小改。"},{"label":"Rewrite","description":"重写。"}]}]
+</questions>
+</card>`;
 
 describe('SpaceMessageBody cards', () => {
   beforeEach(() => {
@@ -38,6 +50,37 @@ describe('SpaceMessageBody cards', () => {
       options: ['main', 'dev'],
     });
     expect(parseCard('plain text')).toBeNull();
+    expect(parseCard(askUserQuestion)).toMatchObject({
+      kind: 'ask',
+      id: 'card-3',
+    });
+    expect(parseCard(askUserQuestion)?.questions).toEqual([
+      {
+        question: '用哪个方案？',
+        header: '方案',
+        multiSelect: false,
+        options: [
+          { label: 'Patch (Recommended)', description: '小改。' },
+          { label: 'Rewrite', description: '重写。' },
+        ],
+      },
+    ]);
+  });
+
+  it('renders ask_user_question cards with the session question UI', async () => {
+    render(<SpaceMessageBody fromYou={false} text={askUserQuestion} />);
+    expect(await screen.findByTestId('agent-question-card')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+    await waitFor(() =>
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'card.resolve',
+        expect.objectContaining({
+          cardId: 'card-3',
+          answer: expect.stringContaining('Patch'),
+        })
+      )
+    );
   });
 
   it('resolves an approval card', async () => {
@@ -125,27 +168,21 @@ describe('messagePreviewText', () => {
     const memberBubble = screen.getByTestId('collaboration-member-bubble');
     expect(memberBubble).toBeTruthy();
     expect(memberBubble.className).toContain('collaboration-member-bubble');
-    const mentionChip = screen.getByTestId('collaboration-member-mention-chip-小A');
+    const mentionChip = screen.getByTestId(
+      'collaboration-member-mention-chip-小A'
+    );
     expect(mentionChip).toBeTruthy();
     expect(mentionChip.textContent).toBe('小A');
 
     rerender(
-      <SpaceMessageBody
-        fromYou
-        text="发送给 @小A"
-        deliveryStatus="sent"
-      />
+      <SpaceMessageBody fromYou text="发送给 @小A" deliveryStatus="sent" />
     );
     const sentTicks = screen.getByTestId('collaboration-message-ticks');
     expect(sentTicks).toHaveAttribute('data-status', 'queued');
     expect(sentTicks.querySelectorAll('svg')).toHaveLength(1);
 
     rerender(
-      <SpaceMessageBody
-        fromYou
-        text="发送给 @小A"
-        deliveryStatus="delivered"
-      />
+      <SpaceMessageBody fromYou text="发送给 @小A" deliveryStatus="delivered" />
     );
     const deliveredTicks = screen.getByTestId('collaboration-message-ticks');
     expect(deliveredTicks).toHaveAttribute('data-status', 'claimed');
@@ -164,5 +201,25 @@ describe('messagePreviewText', () => {
         userRow!.querySelector('.conv-user-bubble') as Node
       ) & Node.DOCUMENT_POSITION_PRECEDING
     ).toBeTruthy();
+  });
+
+  it('renders markdown images and live HTML previews in member bubbles', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SpaceMessageBody
+          fromYou={false}
+          text={
+            '![截图](https://example.com/shot.png)\n\n```html\n<p>hi</p>\n```'
+          }
+        />
+      </QueryClientProvider>
+    );
+    const image = screen.getByRole('img', { name: '截图' });
+    expect(image).toHaveAttribute('src', 'https://example.com/shot.png');
+    const frame = screen.getByTitle('HTML 预览');
+    expect(frame).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('<p>hi</p>')
+    );
   });
 });

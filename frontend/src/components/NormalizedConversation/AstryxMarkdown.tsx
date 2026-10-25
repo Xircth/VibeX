@@ -37,6 +37,7 @@ import {
 import { findMarkdownRenderer, useMarkdownRenderers } from '@vibex/plugin-sdk';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
+import { HtmlPreviewBlock, isHtmlPreviewLanguage } from './HtmlPreviewBlock';
 import { MermaidDiagram } from './MermaidDiagram';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import {
@@ -275,6 +276,9 @@ function MarkdownCodeSwitch({
   }
   if (language?.toLowerCase() === 'mermaid') {
     return <MermaidDiagram value={code} />;
+  }
+  if (isHtmlPreviewLanguage(language)) {
+    return <HtmlPreviewBlock code={code} isStreaming={isStreaming} />;
   }
   const className =
     language && language !== 'plaintext' ? `language-${language}` : undefined;

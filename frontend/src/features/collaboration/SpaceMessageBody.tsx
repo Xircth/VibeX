@@ -5,7 +5,9 @@ import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { AgentQuestionCard } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
+import type { AgentElicitationResponse } from 'shared/types';
 import {
   CollaborationMemberMentionContext,
   useCollaborationMemberMention,
@@ -23,6 +25,7 @@ export type ParsedCard = {
   before: string;
   body: string;
   options: string[];
+  questions?: unknown[];
 };
 
 const CARD_RE = /<card kind="(ask|approval)" id="([^"]+)">([\s\S]*?)<\/card>/;
@@ -53,12 +56,23 @@ export function parseCard(text: string): ParsedCard | null {
       .split('|')
       .map((item) => item.trim())
       .filter(Boolean);
+    const questionsRaw = cardField(inner, 'questions');
+    let questions: unknown[] | undefined;
+    if (questionsRaw) {
+      try {
+        const parsed = JSON.parse(questionsRaw) as unknown;
+        if (Array.isArray(parsed)) questions = parsed;
+      } catch {
+        questions = undefined;
+      }
+    }
     return {
       kind,
       id: match[2],
       before,
       body: cardField(inner, 'question'),
       options,
+      questions,
     };
   }
   const command = cardField(inner, 'command');
@@ -86,7 +100,10 @@ export function messagePreviewText(text: string): string {
           : i18n.t('panels:ui.spaceMessage.question');
     result = label;
   } else {
-    result = text.replace(/<card[\s\S]*?(<\/card>|$)/g, i18n.t('panels:ui.spaceMessage.approvalRequest'));
+    result = text.replace(
+      /<card[\s\S]*?(<\/card>|$)/g,
+      i18n.t('panels:ui.spaceMessage.approvalRequest')
+    );
   }
   return result.replace(/\s+/g, ' ').trim();
 }
@@ -110,11 +127,47 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
         err && typeof err === 'object' && 'message' in err
           ? String((err as { message: unknown }).message)
           : String(err);
-      if (/already|resolved/i.test(message)) setDone(i18n.t('panels:ui.spaceMessage.handled'));
+      if (/already|resolved/i.test(message))
+        setDone(i18n.t('panels:ui.spaceMessage.handled'));
       else setError(message);
     } finally {
       setBusy(false);
     }
+  };
+  const respondQuestion = async (response: AgentElicitationResponse) => {
+    if (response.action === 'decline' || response.action === 'cancel') {
+      await resolve(
+        { declined: true },
+        i18n.t('panels:ui.spaceMessage.handled')
+      );
+      return;
+    }
+    const content = response.content;
+    const answers =
+      content &&
+      typeof content === 'object' &&
+      !Array.isArray(content) &&
+      'answers' in content
+        ? (content as { answers: unknown }).answers
+        : content;
+    const labels = Array.isArray(answers)
+      ? answers.flatMap((item) => {
+          if (!item || typeof item !== 'object' || !('labels' in item)) {
+            return [];
+          }
+          const raw = (item as { labels: unknown }).labels;
+          return Array.isArray(raw)
+            ? raw.filter((label): label is string => typeof label === 'string')
+            : [];
+        })
+      : [];
+    const summary = labels.join('；');
+    await resolve(
+      { answers, answer: summary },
+      summary
+        ? i18n.t('panels:ui.spaceMessage.answeredValue', { value: summary })
+        : i18n.t('panels:ui.spaceMessage.handled')
+    );
   };
   if (done) {
     return (
@@ -124,6 +177,30 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
       >
         {done}
       </p>
+    );
+  }
+  if (card.kind === 'ask' && card.questions && card.questions.length > 0) {
+    return (
+      <div
+        className="collaboration-card-actions mt-2"
+        data-testid="collaboration-card-actions"
+      >
+        <AgentQuestionCard
+          request={{
+            question_id: card.id,
+            prompt: card.body,
+            options: card.options,
+            schema: { type: 'object', 'x-vibex-questions': card.questions },
+          }}
+          responding={busy}
+          onRespond={(_questionId, response) => {
+            void respondQuestion(response);
+          }}
+        />
+        {error ? (
+          <span className="text-xs text-destructive">{error}</span>
+        ) : null}
+      </div>
     );
   }
   return (
@@ -137,7 +214,12 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
             type="button"
             size="sm"
             disabled={busy}
-            onClick={() => void resolve({ decision: 'allow_once' }, i18n.t('panels:ui.spaceMessage.approved'))}
+            onClick={() =>
+              void resolve(
+                { decision: 'allow_once' },
+                i18n.t('panels:ui.spaceMessage.approved')
+              )
+            }
           >
             {i18n.t('panels:ui.spaceMessage.approve')}
           </Button>
@@ -146,7 +228,12 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
             size="sm"
             variant="outline"
             disabled={busy}
-            onClick={() => void resolve({ decision: 'deny' }, i18n.t('panels:ui.spaceMessage.rejected'))}
+            onClick={() =>
+              void resolve(
+                { decision: 'deny' },
+                i18n.t('panels:ui.spaceMessage.rejected')
+              )
+            }
           >
             {i18n.t('panels:ui.spaceMessage.reject')}
           </Button>
@@ -161,7 +248,12 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
               variant="outline"
               disabled={busy}
               onClick={() =>
-                void resolve({ answer: option }, i18n.t('panels:ui.spaceMessage.answeredOption', { option: option }))
+                void resolve(
+                  { answer: option },
+                  i18n.t('panels:ui.spaceMessage.answeredOption', {
+                    option: option,
+                  })
+                )
               }
             >
               {option}
@@ -174,7 +266,9 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
               if (answer.trim())
                 void resolve(
                   { answer: answer.trim() },
-                  i18n.t('panels:ui.spaceMessage.answeredValue', { value: answer.trim() })
+                  i18n.t('panels:ui.spaceMessage.answeredValue', {
+                    value: answer.trim(),
+                  })
                 );
             }}
           >
@@ -327,10 +421,18 @@ export function SpaceMessageBody({
           >
             <AstryxMarkdown
               value={
-                card ? [card.before, card.body].filter(Boolean).join('\n\n') : text
+                card
+                  ? [
+                      card.before,
+                      card.questions && card.questions.length > 0
+                        ? ''
+                        : card.body,
+                    ]
+                      .filter(Boolean)
+                      .join('\n\n')
+                  : text
               }
               workspacePath={workspacePath}
-              rawHtml={false}
             />
             {card ? <SpaceCardActions card={card} /> : null}
           </div>

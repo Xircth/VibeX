@@ -262,6 +262,55 @@
   overflow-y: hidden;
 }
 
+/* Fenced HTML live preview */
+
+.conv-md-html-preview {
+  margin: 6px 0;
+  max-width: 100%;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: var(--radius);
+  background: var(--conv-surface-card);
+  overflow: hidden;
+}
+
+.conv-md-html-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--conv-text-secondary);
+  background: var(--conv-surface-control);
+  font-size: 12px;
+}
+
+.conv-md-html-preview-label {
+  font-weight: 600;
+}
+
+.conv-md-html-preview-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--conv-text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.conv-md-html-preview-frame {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  border: 0;
+  background: #fff;
+}
+
+.conv-md-html-preview-status {
+  padding: 8px 12px;
+  color: var(--conv-text-tertiary);
+  font-size: 12px;
+}
+
 /* Mermaid diagrams */
 
 .conv-md-mermaid {

@@ -37,6 +37,7 @@ import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConfl
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import i18n from '@/i18n';
 
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
 
@@ -135,7 +136,7 @@ export function BranchInfoHeader() {
             <div
               className="branch-info-toolbar"
               role="toolbar"
-              aria-label="Git workspace controls"
+              aria-label={i18n.t('panels:ui.branch.gitWorkspaceControls')}
             >
               <div className="branch-info-summary">
                 <TargetBranchDropdown
@@ -151,13 +152,13 @@ export function BranchInfoHeader() {
                     <span
                       className="branch-info-current-branch"
                       tabIndex={0}
-                      aria-label={`当前分支：${workspace?.branch ?? 'HEAD'}`}
+                      aria-label={i18n.t('panels:ui.branch.currentBranchBranch', { branch: workspace?.branch ?? 'HEAD' })}
                     >
                       {workspace?.branch ?? 'HEAD'}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    当前分支：{workspace?.branch ?? 'HEAD'}
+                    {i18n.t('panels:ui.branch.currentBranchLabel', { branch: workspace?.branch ?? 'HEAD' })}
                   </TooltipContent>
                 </Tooltip>
                 {(repo.commits_ahead ?? 0) > 0 && (
@@ -175,7 +176,7 @@ export function BranchInfoHeader() {
                 {repo.is_rebase_in_progress && (
                   <span className="branch-info-rebase-status">
                     <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                    Rebase in progress
+                    {i18n.t('panels:ui.branch.rebaseInProgress')}
                   </span>
                 )}
               </div>
@@ -214,7 +215,7 @@ function GitActionsButton({
       }}
       disabled={!task}
     >
-      Git Actions
+      {i18n.t('panels:ui.branch.gitActions')}
     </Button>
   );
 }
@@ -304,7 +305,7 @@ function TargetBranchDropdown({
             <DropdownMenuTrigger asChild>
               <button
                 className="branch-info-branch-button"
-                aria-label={`目标分支：${repo.target_branch_name}`}
+                aria-label={i18n.t('panels:ui.branch.targetBranchTargetBranchName', { target_branch_name: repo.target_branch_name })}
               >
                 <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
                 <span className="max-w-28 truncate">
@@ -315,7 +316,7 @@ function TargetBranchDropdown({
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            目标分支：{repo.target_branch_name}
+            {i18n.t('panels:ui.branch.targetBranchLabel', { branch: repo.target_branch_name })}
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start">

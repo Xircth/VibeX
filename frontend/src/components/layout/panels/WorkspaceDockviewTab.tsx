@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { resolveBuiltinPanelTitle } from '@/lib/builtinPanelTitles';
 import { type IDockviewPanelHeaderProps } from 'dockview-react';
 import {
   ClipboardList,
@@ -177,9 +178,16 @@ export function WorkspaceDockviewTab({
   onPointerLeave,
   ...rest
 }: WorkspaceDockviewTabProps) {
-  const { t } = useTranslation(['common']);
+  const { t, i18n: tabI18n } = useTranslation(['common', 'panels']);
   const { openSurfaceMenu } = useAppContextMenu();
-  const [title, setTitle] = React.useState(api.title ?? '');
+  const [storedTitle, setTitle] = React.useState(api.title ?? '');
+  // Builtin tab titles are persisted in the layout; resolve them per render so
+  // a language switch also relabels tabs restored from an earlier session.
+  const title = React.useMemo(
+    () => resolveBuiltinPanelTitle(api.id, storedTitle, t),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api.id, storedTitle, t, tabI18n.language]
+  );
   const [tabParams, setTabParams] = React.useState<WorkspaceTabParams>(
     params ?? {}
   );
@@ -190,12 +198,12 @@ export function WorkspaceDockviewTab({
       setTitle(event.title ?? '');
     });
 
-    if (title !== (api.title ?? '')) {
+    if (storedTitle !== (api.title ?? '')) {
       setTitle(api.title ?? '');
     }
 
     return () => disposable.dispose();
-  }, [api, title]);
+  }, [api, storedTitle]);
 
   React.useEffect(() => {
     const disposable = api.onDidParametersChange((nextParams) => {

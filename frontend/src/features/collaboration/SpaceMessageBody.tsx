@@ -10,6 +10,7 @@ import { UserMessageMarkdown } from '@/components/NormalizedConversation/UserMes
 import { splitDisplayContentImages } from '@/components/NormalizedConversation/userMessageImages';
 
 import { collaborationCall } from './collaborationApi';
+import i18n from '@/i18n';
 
 export type ParsedCard = {
   kind: 'ask' | 'approval';
@@ -74,13 +75,13 @@ export function messagePreviewText(text: string): string {
   if (card) {
     const label =
       card.kind === 'approval'
-        ? '审批请求'
+        ? i18n.t('panels:ui.spaceMessage.approvalRequest')
         : card.body
-          ? `提问：${card.body}`
-          : '提问';
+          ? i18n.t('panels:ui.spaceMessage.questionBody', { body: card.body })
+          : i18n.t('panels:ui.spaceMessage.question');
     result = label;
   } else {
-    result = text.replace(/<card[\s\S]*?(<\/card>|$)/g, '审批请求');
+    result = text.replace(/<card[\s\S]*?(<\/card>|$)/g, i18n.t('panels:ui.spaceMessage.approvalRequest'));
   }
   return result.replace(/\s+/g, ' ').trim();
 }
@@ -104,7 +105,7 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
         err && typeof err === 'object' && 'message' in err
           ? String((err as { message: unknown }).message)
           : String(err);
-      if (/already|resolved/i.test(message)) setDone('已处理');
+      if (/already|resolved/i.test(message)) setDone(i18n.t('panels:ui.spaceMessage.handled'));
       else setError(message);
     } finally {
       setBusy(false);
@@ -131,18 +132,18 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
             type="button"
             size="sm"
             disabled={busy}
-            onClick={() => void resolve({ decision: 'allow_once' }, '已批准')}
+            onClick={() => void resolve({ decision: 'allow_once' }, i18n.t('panels:ui.spaceMessage.approved'))}
           >
-            批准
+            {i18n.t('panels:ui.spaceMessage.approve')}
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
             disabled={busy}
-            onClick={() => void resolve({ decision: 'deny' }, '已拒绝')}
+            onClick={() => void resolve({ decision: 'deny' }, i18n.t('panels:ui.spaceMessage.rejected'))}
           >
-            拒绝
+            {i18n.t('panels:ui.spaceMessage.reject')}
           </Button>
         </>
       ) : (
@@ -155,7 +156,7 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
               variant="outline"
               disabled={busy}
               onClick={() =>
-                void resolve({ answer: option }, `已回答：${option}`)
+                void resolve({ answer: option }, i18n.t('panels:ui.spaceMessage.answeredOption', { option: option }))
               }
             >
               {option}
@@ -168,20 +169,20 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
               if (answer.trim())
                 void resolve(
                   { answer: answer.trim() },
-                  `已回答：${answer.trim()}`
+                  i18n.t('panels:ui.spaceMessage.answeredValue', { value: answer.trim() })
                 );
             }}
           >
             <Input
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
-              placeholder="输入回答"
-              aria-label="回答"
+              placeholder={i18n.t('panels:ui.spaceMessage.typeAnAnswer')}
+              aria-label={i18n.t('panels:ui.spaceMessage.answer')}
               className="h-8 w-56"
               disabled={busy}
             />
             <Button type="submit" size="sm" disabled={busy || !answer.trim()}>
-              回答
+              {i18n.t('panels:ui.spaceMessage.answer')}
             </Button>
           </form>
         </>

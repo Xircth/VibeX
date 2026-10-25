@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { type GitHubCliStatus, versionControlApi } from '@/lib/api';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import i18n from '@/i18n';
 
 interface GitHubCliSetupModalProps {
   open: boolean;
@@ -58,8 +59,8 @@ export function GitHubCliSetupModal({
           setAwaitingLogin(false);
           setActionMessage(
             nextStatus.username
-              ? `已成功登录 GitHub (${nextStatus.username})`
-              : '已成功登录 GitHub'
+              ? i18n.t('panels:ui.ghSetup.signedInToGithubUsername', { username: nextStatus.username })
+              : i18n.t('panels:ui.ghSetup.signedInToGithub')
           );
           onConfigured?.();
         }
@@ -67,7 +68,7 @@ export function GitHubCliSetupModal({
       } catch (err) {
         if (!silent) {
           setActionError(
-            err instanceof Error ? err.message : '检查 GitHub CLI 状态失败'
+            err instanceof Error ? err.message : i18n.t('panels:ui.ghSetup.failedToCheckGithubCli')
           );
         }
         return null;
@@ -117,18 +118,18 @@ export function GitHubCliSetupModal({
         await versionControlApi.installGithubCli(effectiveHost);
       setStatus(nextStatus);
       if (nextStatus.gh_installed) {
-        setActionMessage('GitHub CLI (gh) 安装成功，请继续完成 GitHub 登录。');
+        setActionMessage(i18n.t('panels:ui.ghSetup.githubCliGhInstalledContinue'));
       } else {
         setActionError(
           nextStatus.message ||
-            '自动安装未能完成，请参考下方命令手动安装 GitHub CLI。'
+            i18n.t('panels:ui.ghSetup.automaticInstallDidNotFinish')
         );
       }
     } catch (err) {
       setActionError(
         err instanceof Error
           ? err.message
-          : '安装 GitHub CLI 失败，请手动安装后点击重新检查。'
+          : i18n.t('panels:ui.ghSetup.failedToInstallGithubCli')
       );
     } finally {
       setInstalling(false);
@@ -144,13 +145,13 @@ export function GitHubCliSetupModal({
       await versionControlApi.openGithubCliLogin(effectiveHost);
       setAwaitingLogin(true);
       setActionMessage(
-        '已打开登录终端，请在弹出的终端或浏览器中完成授权，完成后将自动同步状态。'
+        i18n.t('panels:ui.ghSetup.aSignInTerminalIs')
       );
     } catch (err) {
       setActionError(
         err instanceof Error
           ? err.message
-          : '无法自动打开登录终端，请复制下方命令在终端中执行登录。'
+          : i18n.t('panels:ui.ghSetup.couldnTOpenASign')
       );
     } finally {
       setLoggingIn(false);
@@ -183,7 +184,7 @@ export function GitHubCliSetupModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             <Github className="h-4 w-4" />
-            <span>配置 GitHub CLI 与登录</span>
+            <span>{i18n.t('panels:ui.ghSetup.setUpGithubCliAnd')}</span>
           </DialogTitle>
         </DialogHeader>
 
@@ -215,7 +216,7 @@ export function GitHubCliSetupModal({
                   <RefreshCw
                     className={`mr-1 h-3 w-3 ${checking ? 'animate-spin' : ''}`}
                   />
-                  检查
+                  {i18n.t('panels:ui.ghSetup.check')}
                 </Button>
                 {!ghInstalled && (
                   <Button
@@ -230,15 +231,15 @@ export function GitHubCliSetupModal({
                     ) : (
                       <Download className="mr-1 h-3 w-3" />
                     )}
-                    {installing ? '安装中...' : '安装 gh'}
+                    {installing ? i18n.t('panels:ui.ghSetup.installing') : i18n.t('panels:ui.ghSetup.installGh')}
                   </Button>
                 )}
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground break-all">
               {ghInstalled
-                ? `已安装：${status?.gh_path ?? 'gh'}`
-                : '尚未检测到 GitHub CLI，可点击「安装 gh」自动安装，或访问 cli.github.com 安装。'}
+                ? i18n.t('panels:ui.ghSetup.installedGhPath', { gh_path: status?.gh_path ?? 'gh' })
+                : i18n.t('panels:ui.ghSetup.githubCliNotFoundClick')}
             </p>
           </div>
 
@@ -254,7 +255,7 @@ export function GitHubCliSetupModal({
                   <AlertCircle className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
                 )}
                 <span className="font-medium text-foreground">
-                  2. GitHub 账号登录
+                  {i18n.t('panels:ui.ghSetup.2SignInToGithub')}
                 </span>
               </div>
               <Button
@@ -270,14 +271,14 @@ export function GitHubCliSetupModal({
                 ) : (
                   <LogIn className="mr-1 h-3 w-3" />
                 )}
-                {authenticated ? '重新登录' : '登录 GitHub'}
+                {authenticated ? i18n.t('panels:ui.ghSetup.signInAgain') : i18n.t('panels:ui.ghSetup.signInToGithub')}
               </Button>
             </div>
 
             <p className="text-[11px] text-muted-foreground">
               {authenticated
-                ? `当前已登录账号：${status?.username ?? '已授权'}`
-                : '点击「登录 GitHub」启动浏览器授权流程，或在终端运行下方登录命令：'}
+                ? i18n.t('panels:ui.ghSetup.signedInAsUsername', { username: status?.username ?? i18n.t('panels:ui.ghSetup.authorized') })
+                : i18n.t('panels:ui.ghSetup.clickSignInToGithub')}
             </p>
 
             <div className="space-y-1.5">
@@ -299,7 +300,7 @@ export function GitHubCliSetupModal({
                   type="button"
                   onClick={() => void handleCopyCommand()}
                   className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                  title="复制登录命令"
+                  title={i18n.t('panels:ui.ghSetup.copySignInCommand')}
                 >
                   {copiedCmd ? (
                     <Check className="h-3 w-3 text-[hsl(var(--success))]" />
@@ -331,7 +332,7 @@ export function GitHubCliSetupModal({
             size="sm"
             onClick={() => onOpenChange(false)}
           >
-            关闭
+            {i18n.t('panels:ui.ghSetup.close')}
           </Button>
           <Button
             type="button"
@@ -339,7 +340,7 @@ export function GitHubCliSetupModal({
             onClick={() => void handleComplete()}
             disabled={checking || installing}
           >
-            完成并刷新
+            {i18n.t('panels:ui.ghSetup.doneAndRefresh')}
           </Button>
         </DialogFooter>
       </DialogContent>

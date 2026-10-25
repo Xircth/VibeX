@@ -205,7 +205,7 @@ describe('UserMessage', () => {
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览图片' }));
 
     expect(imageMocks.showPreview).toHaveBeenCalledWith({
       imageUrl: 'blob:image/png',
@@ -242,7 +242,7 @@ describe('UserMessage', () => {
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览图片' }));
     expect(imageMocks.showPreview).toHaveBeenCalledWith(
       expect.objectContaining({ imageUrl: 'blob:image/png' })
     );

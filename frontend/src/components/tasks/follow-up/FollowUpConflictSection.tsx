@@ -3,6 +3,7 @@ import { ConflictBanner } from '@/components/tasks/ConflictBanner';
 import { useAttemptConflicts } from '@/hooks/useAttemptConflicts';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import type { RepoBranchStatus } from 'shared/types';
+import i18n from '@/i18n';
 
 type Props = {
   workspaceId?: string;
@@ -70,7 +71,7 @@ export function FollowUpConflictSection({
       {conflictResolutionInstructions && enableResolve && (
         <div className="text-sm mb-4">
           <div className="text-xs font-medium text-warning-foreground dark:text-warning mb-1">
-            Conflict resolution instructions
+            {i18n.t('panels:ui.followUpConflict.conflictResolutionInstructions')}
           </div>
           <div className="whitespace-pre-wrap">
             {conflictResolutionInstructions}

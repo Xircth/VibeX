@@ -20,6 +20,7 @@ import {
   conversationSelectionInRoot,
   conversationSelectionToolbarPosition,
 } from './conversationSelection';
+import i18n from '@/i18n';
 
 export function ConversationSelectionToolbar({
   rootRef,
@@ -136,7 +137,7 @@ export function ConversationSelectionToolbar({
             data-testid="conversation-selection-quote"
           >
             <Quote aria-hidden="true" />
-            {t('contextMenu.quote', { defaultValue: '引用' })}
+            {t('contextMenu.quote', { defaultValue: i18n.t('panels:ui.selection.quote') })}
           </button>
           <button
             type="button"
@@ -148,7 +149,7 @@ export function ConversationSelectionToolbar({
             data-testid="conversation-selection-add-to-collection"
           >
             <BookmarkPlus aria-hidden="true" />
-            {t('contextMenu.addToCollection', { defaultValue: '添加到群收藏' })}
+            {t('contextMenu.addToCollection', { defaultValue: i18n.t('panels:ui.selection.addToGroupSaved') })}
           </button>
           <button
             type="button"
@@ -156,7 +157,7 @@ export function ConversationSelectionToolbar({
             data-testid="conversation-selection-copy"
           >
             <FileText aria-hidden="true" />
-            {t('contextMenu.copyText', { defaultValue: '复制文本' })}
+            {t('contextMenu.copyText', { defaultValue: i18n.t('panels:ui.selection.copyText') })}
           </button>
         </>
       ) : (
@@ -167,7 +168,7 @@ export function ConversationSelectionToolbar({
             data-testid="conversation-selection-copy"
           >
             <FileText aria-hidden="true" />
-            {t('contextMenu.copyText', { defaultValue: '复制文本' })}
+            {t('contextMenu.copyText', { defaultValue: i18n.t('panels:ui.selection.copyText') })}
           </button>
           <button
             type="button"
@@ -175,7 +176,7 @@ export function ConversationSelectionToolbar({
             data-testid="conversation-selection-quote"
           >
             <Quote aria-hidden="true" />
-            {t('contextMenu.quote', { defaultValue: '引用' })}
+            {t('contextMenu.quote', { defaultValue: i18n.t('panels:ui.selection.quote') })}
           </button>
         </>
       )}

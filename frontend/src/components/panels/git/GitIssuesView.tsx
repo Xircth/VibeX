@@ -12,6 +12,7 @@ import type { GitHubIssueInfo } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
 import { GitHubCliSetupModal } from './GitHubCliSetupModal';
+import i18n from '@/i18n';
 
 interface GitIssuesViewProps {
   issues: GitHubIssueInfo[];
@@ -135,7 +136,7 @@ export const GitIssuesView = memo(function GitIssuesView({
           type="button"
           className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           onClick={() => setSetupModalOpen(true)}
-          title="GitHub CLI 设置与登录"
+          title={i18n.t('panels:ui.gitIssues.githubCliSetupAndSign')}
         >
           <Github className="h-3 w-3" />
         </button>
@@ -144,7 +145,7 @@ export const GitIssuesView = memo(function GitIssuesView({
           className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
           onClick={onRefresh}
           disabled={isLoading}
-          title="Refresh issues"
+          title={i18n.t('panels:ui.gitIssues.refreshIssues')}
         >
           {isLoading ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -159,7 +160,7 @@ export const GitIssuesView = memo(function GitIssuesView({
         {isLoading && issues.length === 0 ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-            Loading issues...
+            {i18n.t('panels:ui.gitIssues.loadingIssues')}
           </div>
         ) : issues.length > 0 ? (
           issues.map((issue) => (
@@ -169,11 +170,11 @@ export const GitIssuesView = memo(function GitIssuesView({
           <div className="h-full flex flex-col items-center justify-center px-4 text-center">
             <CircleDot className="h-7 w-7 text-muted-foreground/35 mb-2" />
             <p className="text-xs font-medium text-foreground">
-              暂无可用 Issue
+              {i18n.t('panels:ui.gitIssues.noIssuesAvailable')}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
               {errorPresentation.requiresGhSetup
-                ? '未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 Issue。'
+                ? i18n.t('panels:ui.gitIssues.githubCliGhWasNot')
                 : errorPresentation.title}
             </p>
             {!errorPresentation.requiresGhSetup && errorPresentation.hint && (
@@ -189,7 +190,7 @@ export const GitIssuesView = memo(function GitIssuesView({
               onClick={() => setSetupModalOpen(true)}
             >
               <Github className="h-3.5 w-3.5" />
-              <span>安装 / 登录 GitHub CLI</span>
+              <span>{i18n.t('panels:ui.gitIssues.installSignInToGithub')}</span>
             </Button>
           </div>
         ) : (

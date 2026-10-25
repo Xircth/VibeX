@@ -476,5 +476,26 @@
     "decline": "Decline",
     "answered": "Answered",
     "justNow": "Now"
+  },
+  "backendNotice": {
+    "connectingAgent": "Connecting to agent…",
+    "sessionExpired": "Agent session expired",
+    "sessionExpiredDescription": "The agent no longer has this session. Visible history is kept, but the agent's hidden context is lost. Confirm rebind to continue.",
+    "reauthRequired": "Re-authentication required",
+    "resumeUnsupported": "Agent can't resume sessions",
+    "resumeUnsupportedDescription": "This agent can't restore the original session. Confirming rebind starts cold without the agent-side context.",
+    "sessionArchived": "Agent session archived",
+    "sessionArchivedDescription": "The session is archived. Reload or start a new conversation.",
+    "sessionBusy": "Agent session in use",
+    "sessionBusyDescription": "Close the window using this session, then reload. Don't start a new session, or the only pointer will be lost.",
+    "sessionUnavailable": "Agent session unavailable",
+    "sessionUnavailableDescription": "The agent-side session has ended or doesn't exist. Visible history is kept, but the agent's hidden context is lost.",
+    "sessionLoadFailed": "Couldn't load agent session",
+    "sessionRebound": "Agent session rebound",
+    "sessionRecoveryFailed": "Agent session recovery failed",
+    "agentConfigChanged": "Agent configuration changed",
+    "sessionError": "Session error",
+    "configOverrideSkipped": "Session config not applied",
+    "unrecognizedUpdate": "Unrecognized session update"
   }
 }

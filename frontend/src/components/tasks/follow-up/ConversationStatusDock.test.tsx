@@ -52,7 +52,7 @@ describe('ConversationStatusDock', () => {
     const dock = screen.getByTestId('conversation-status-dock');
     expect(dock).toHaveTextContent('连接已断开');
     expect(dock).toHaveTextContent('因重启中断');
-    expect(dock).toHaveTextContent('代理不支持会话恢复');
+    expect(dock).toHaveTextContent('Agent 不支持会话恢复');
     expect(
       Array.from(dock.querySelectorAll('.astryx-badge')).map(
         (badge) => badge.textContent
@@ -102,13 +102,13 @@ describe('ConversationStatusDock', () => {
       />
     );
 
-    expect(screen.getByText('加载代理会话失败')).toBeInTheDocument();
+    expect(screen.getByText('加载 Agent 会话失败')).toBeInTheDocument();
     expect(
       screen.queryByText('session/load failed: no rollout found')
     ).not.toBeInTheDocument();
 
     const detailsButton = screen.getByRole('button', {
-      name: '查看详细信息：加载代理会话失败',
+      name: '查看详细信息：加载 Agent 会话失败',
     });
     expect(detailsButton).toHaveAttribute('aria-expanded', 'false');
 

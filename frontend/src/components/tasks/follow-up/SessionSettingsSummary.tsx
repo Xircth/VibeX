@@ -27,6 +27,7 @@ import {
   isDangerousPermissionsMode,
   presentableSessionModes,
 } from './SessionModeSelector';
+import i18n from '@/i18n';
 
 type ConfigRow = {
   option: AgentSessionConfigOption;
@@ -120,11 +121,11 @@ function effortLabel(value: string, fallback: string): string {
 
   if (/(ultrathink|ultra)/.test(normalized)) return 'Ultra';
   if (/(maximum|max)/.test(normalized)) return 'Max';
-  if (/(xhigh|extrahigh|veryhigh)/.test(normalized)) return '超高';
-  if (/(default|auto)/.test(normalized)) return '默认';
-  if (/high/.test(normalized)) return '高';
-  if (/(medium|med|mid)/.test(normalized)) return '中';
-  if (/(minimal|min|low)/.test(normalized)) return '低';
+  if (/(xhigh|extrahigh|veryhigh)/.test(normalized)) return i18n.t('panels:ui.effort.extraHigh');
+  if (/(default|auto)/.test(normalized)) return i18n.t('panels:ui.effort.default');
+  if (/high/.test(normalized)) return i18n.t('panels:ui.effort.high');
+  if (/(medium|med|mid)/.test(normalized)) return i18n.t('panels:ui.effort.medium');
+  if (/(minimal|min|low)/.test(normalized)) return i18n.t('panels:ui.effort.low');
   return fallback;
 }
 

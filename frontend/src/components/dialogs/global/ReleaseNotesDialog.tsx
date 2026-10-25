@@ -13,6 +13,7 @@ import { useTheme } from '@/components/ThemeProvider';
 import { getActualTheme } from '@/utils/theme';
 import { defineModal, type NoProps } from '@/lib/modals';
 import { APP_NAME, getSiteUrl } from '@/lib/branding';
+import i18n from '@/i18n';
 
 const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
   const modal = useModal();
@@ -53,7 +54,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
             <AlertCircle className="h-12 w-12 text-muted-foreground" />
             <div className="space-y-2">
               <h3 className="text-lg font-medium">
-                Unable to load release notes
+                {i18n.t('panels:ui.releaseNotes.unableToLoadReleaseNotes')}
               </h3>
               <p className="text-sm text-muted-foreground max-w-md">
                 We couldn't display the release notes in this window. Click
@@ -62,7 +63,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
             </div>
             <Button onClick={handleOpenInBrowser} className="mt-4">
               <ExternalLink className="h-4 w-4 mr-2" />
-              Open Release Notes in Browser
+              {i18n.t('panels:ui.releaseNotes.openReleaseNotesInBrowser')}
             </Button>
           </div>
         ) : (
@@ -71,7 +72,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
             className="flex-1 w-full border-0"
             sandbox="allow-scripts allow-same-origin allow-popups"
             referrerPolicy="no-referrer"
-            title="Release Notes"
+            title={i18n.t('panels:ui.releaseNotes.releaseNotes')}
             onError={handleIframeError}
             onLoad={(e) => {
               // Check if iframe content loaded successfully
@@ -91,7 +92,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
         <DialogFooter className="p-4 border-t flex-shrink-0">
           <Button variant="outline" onClick={handleOpenInBrowser}>
             <ExternalLink className="h-4 w-4 mr-2" />
-            Open in Browser
+            {i18n.t('panels:ui.releaseNotes.openInBrowser')}
           </Button>
         </DialogFooter>
       </DialogContent>

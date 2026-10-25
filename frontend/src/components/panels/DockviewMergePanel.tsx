@@ -3,6 +3,7 @@ import type { IDockviewPanelProps } from 'dockview-react';
 import { MergeConflictEditor } from './merge/MergeConflictEditor';
 import { setMergePanelDirty } from './merge/mergePanelDirty';
 import type { MergePanelParams } from '@/types/mergeConflict';
+import i18n from '@/i18n';
 
 function asMergeParams(params: unknown): MergePanelParams | null {
   if (!params || typeof params !== 'object') return null;
@@ -25,7 +26,7 @@ function DockviewMergePanel({ api, params }: IDockviewPanelProps) {
   if (!mergeParams) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Select a conflicted file
+        {i18n.t('panels:ui.merge.selectAConflictedFile')}
       </div>
     );
   }

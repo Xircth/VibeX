@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
+import i18n from '@/i18n';
 
 interface GitDiscardDialogProps {
   open: boolean;
@@ -72,7 +73,7 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
           </span>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={i18n.t('panels:ui.gitDiscard.close')}
             className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             onClick={onCancel}
             disabled={loading}
@@ -84,7 +85,7 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
         {/* Body */}
         <div className="px-4 py-3 space-y-2">
           <p className="text-xs text-destructive font-medium">
-            This action cannot be undone.
+            {i18n.t('panels:ui.gitDiscard.thisActionCannotBeUndone')}
           </p>
           <p className="text-xs text-muted-foreground">
             {isAll

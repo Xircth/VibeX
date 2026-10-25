@@ -5,6 +5,7 @@ import {
 } from '@astryxdesign/core/SegmentedControl';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import i18n from '@/i18n';
 
 export type BotAvatarShape =
   | 'circle'
@@ -65,58 +66,58 @@ export const BOT_AVATAR_COLOR_PRESETS: ReadonlyArray<{
   label: string;
   hex: string;
 }> = [
-  { id: 'ink', label: '炭黑', hex: '#000000' },
-  { id: 'brown', label: '暖棕', hex: '#9a6433' },
-  { id: 'red', label: '珊瑚红', hex: '#fa2d37' },
-  { id: 'orange', label: '活力橙', hex: '#ff6b0a' },
-  { id: 'amber', label: '琥珀黄', hex: '#f99408' },
-  { id: 'green', label: '薄荷绿', hex: '#09b866' },
-  { id: 'turquoise', label: '松石青', hex: '#0db49b' },
-  { id: 'blue', label: '电光蓝', hex: '#1584ff' },
-  { id: 'purple', label: '紫罗兰', hex: '#8b52ff' },
-  { id: 'pink', label: '樱花粉', hex: '#ff2994' },
-  { id: 'grey', label: '岩石灰', hex: '#8c8c8c' },
+  { id: 'ink', get label() { return i18n.t('panels:botAvatar.color.ink'); }, hex: '#000000' },
+  { id: 'brown', get label() { return i18n.t('panels:botAvatar.color.brown'); }, hex: '#9a6433' },
+  { id: 'red', get label() { return i18n.t('panels:botAvatar.color.red'); }, hex: '#fa2d37' },
+  { id: 'orange', get label() { return i18n.t('panels:botAvatar.color.orange'); }, hex: '#ff6b0a' },
+  { id: 'amber', get label() { return i18n.t('panels:botAvatar.color.amber'); }, hex: '#f99408' },
+  { id: 'green', get label() { return i18n.t('panels:botAvatar.color.green'); }, hex: '#09b866' },
+  { id: 'turquoise', get label() { return i18n.t('panels:botAvatar.color.turquoise'); }, hex: '#0db49b' },
+  { id: 'blue', get label() { return i18n.t('panels:botAvatar.color.blue'); }, hex: '#1584ff' },
+  { id: 'purple', get label() { return i18n.t('panels:botAvatar.color.purple'); }, hex: '#8b52ff' },
+  { id: 'pink', get label() { return i18n.t('panels:botAvatar.color.pink'); }, hex: '#ff2994' },
+  { id: 'grey', get label() { return i18n.t('panels:botAvatar.color.grey'); }, hex: '#8c8c8c' },
 ];
 
 export const BOT_AVATAR_SHAPE_PRESETS: ReadonlyArray<{
   id: BotAvatarShape;
   label: string;
 }> = [
-  { id: 'circle', label: '圆形' },
-  { id: 'cloud', label: '云朵' },
-  { id: 'squircle', label: '超椭圆' },
-  { id: 'sparkle', label: '星芒' },
-  { id: 'clover', label: '四叶草' },
-  { id: 'heart', label: '心形' },
-  { id: 'pebble', label: '花朵' },
-  { id: 'droplet', label: '水滴' },
-  { id: 'capsule', label: '胶囊' },
-  { id: 'triangle', label: '三角形' },
-  { id: 'pentagon', label: '五边形' },
-  { id: 'star', label: '波浪星' },
-  { id: 'hexagon', label: '六边形' },
+  { id: 'circle', get label() { return i18n.t('panels:botAvatar.shape.circle'); }, },
+  { id: 'cloud', get label() { return i18n.t('panels:botAvatar.shape.cloud'); }, },
+  { id: 'squircle', get label() { return i18n.t('panels:botAvatar.shape.squircle'); }, },
+  { id: 'sparkle', get label() { return i18n.t('panels:botAvatar.shape.sparkle'); }, },
+  { id: 'clover', get label() { return i18n.t('panels:botAvatar.shape.clover'); }, },
+  { id: 'heart', get label() { return i18n.t('panels:botAvatar.shape.heart'); }, },
+  { id: 'pebble', get label() { return i18n.t('panels:botAvatar.shape.pebble'); }, },
+  { id: 'droplet', get label() { return i18n.t('panels:botAvatar.shape.droplet'); }, },
+  { id: 'capsule', get label() { return i18n.t('panels:botAvatar.shape.capsule'); }, },
+  { id: 'triangle', get label() { return i18n.t('panels:botAvatar.shape.triangle'); }, },
+  { id: 'pentagon', get label() { return i18n.t('panels:botAvatar.shape.pentagon'); }, },
+  { id: 'star', get label() { return i18n.t('panels:botAvatar.shape.star'); }, },
+  { id: 'hexagon', get label() { return i18n.t('panels:botAvatar.shape.hexagon'); }, },
 ];
 
 export const BOT_AVATAR_EXPRESSION_PRESETS: ReadonlyArray<{
   id: BotAvatarExpression;
   label: string;
 }> = [
-  { id: 'neutral', label: '默认' },
-  { id: 'attentive', label: '专注' },
-  { id: 'happy', label: '开心' },
-  { id: 'laughing', label: '大笑' },
-  { id: 'excited', label: '兴奋' },
-  { id: 'surprised', label: '惊讶' },
-  { id: 'confused', label: '困惑' },
-  { id: 'curious', label: '好奇' },
-  { id: 'suspicious', label: '怀疑' },
-  { id: 'sleepy', label: '困倦' },
-  { id: 'sad', label: '难过' },
-  { id: 'scared', label: '害怕' },
-  { id: 'angry', label: '生气' },
-  { id: 'proud', label: '得意' },
-  { id: 'shy', label: '害羞' },
-  { id: 'unimpressed', label: '无语' },
+  { id: 'neutral', get label() { return i18n.t('panels:botAvatar.expression.neutral'); }, },
+  { id: 'attentive', get label() { return i18n.t('panels:botAvatar.expression.attentive'); }, },
+  { id: 'happy', get label() { return i18n.t('panels:botAvatar.expression.happy'); }, },
+  { id: 'laughing', get label() { return i18n.t('panels:botAvatar.expression.laughing'); }, },
+  { id: 'excited', get label() { return i18n.t('panels:botAvatar.expression.excited'); }, },
+  { id: 'surprised', get label() { return i18n.t('panels:botAvatar.expression.surprised'); }, },
+  { id: 'confused', get label() { return i18n.t('panels:botAvatar.expression.confused'); }, },
+  { id: 'curious', get label() { return i18n.t('panels:botAvatar.expression.curious'); }, },
+  { id: 'suspicious', get label() { return i18n.t('panels:botAvatar.expression.suspicious'); }, },
+  { id: 'sleepy', get label() { return i18n.t('panels:botAvatar.expression.sleepy'); }, },
+  { id: 'sad', get label() { return i18n.t('panels:botAvatar.expression.sad'); }, },
+  { id: 'scared', get label() { return i18n.t('panels:botAvatar.expression.scared'); }, },
+  { id: 'angry', get label() { return i18n.t('panels:botAvatar.expression.angry'); }, },
+  { id: 'proud', get label() { return i18n.t('panels:botAvatar.expression.proud'); }, },
+  { id: 'shy', get label() { return i18n.t('panels:botAvatar.expression.shy'); }, },
+  { id: 'unimpressed', get label() { return i18n.t('panels:botAvatar.expression.unimpressed'); }, },
 ];
 
 function hashSeed(input: string): number {
@@ -798,7 +799,7 @@ export function MemberBotAvatarPicker({
   value,
   onChange,
   compact = false,
-  label = '头像',
+  label = i18n.t('panels:botAvatar.ui.avatar'),
 }: {
   value: MemberBotAvatarConfig;
   onChange: (next: MemberBotAvatarConfig) => void;
@@ -834,13 +835,13 @@ export function MemberBotAvatarPicker({
           onChange={(next) =>
             setActiveSection(next === 'shape' ? 'shape' : 'color')
           }
-          label="头像属性"
+          label={i18n.t('panels:botAvatar.ui.avatarProperties')}
           size="sm"
           layout="hug"
           className="collaboration-compact-segmented"
         >
-          <SegmentedControlItem value="color" label="颜色" />
-          <SegmentedControlItem value="shape" label="形状" />
+          <SegmentedControlItem value="color" label={i18n.t('panels:botAvatar.ui.color')} />
+          <SegmentedControlItem value="shape" label={i18n.t('panels:botAvatar.ui.shape')} />
         </SegmentedControl>
       </div>
 
@@ -850,7 +851,7 @@ export function MemberBotAvatarPicker({
             type="button"
             className="collaboration-avatar-preview-box"
             data-testid="member-bot-avatar-preview"
-            title="点击预览头像动态效果"
+            title={i18n.t('panels:botAvatar.ui.clickToPreviewTheAvatar')}
             onClick={() => setReactionKey((prev) => prev + 1)}
           >
             <MemberBotAvatar

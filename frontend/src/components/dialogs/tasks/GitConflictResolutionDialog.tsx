@@ -20,6 +20,7 @@ import { getFirstAvailableProfile } from '@/utils/executor';
 import { sessionsApi } from '@/lib/api';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { useQueryClient } from '@tanstack/react-query';
+import i18n from '@/i18n';
 
 export interface GitConflictResolutionDialogProps {
   workspaceId: string;
@@ -157,7 +158,7 @@ const GitConflictResolutionDialogImpl =
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-warning" />
-                Resolve rebase conflicts with AI
+                {i18n.t('panels:ui.conflictDialog.resolveRebaseConflictsWithAi')}
               </DialogTitle>
               <DialogDescription>
                 A Git operation hit conflicts. Review the generated template
@@ -183,7 +184,7 @@ const GitConflictResolutionDialogImpl =
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium">Prompt template</div>
+                <div className="text-sm font-medium">{i18n.t('panels:ui.conflictDialog.promptTemplate')}</div>
                 <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-3 text-xs leading-5">
                   {instructions}
                 </pre>

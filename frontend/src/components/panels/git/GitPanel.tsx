@@ -56,6 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import i18n from '@/i18n';
 
 const GIT_PANEL_MODE_OPTIONS: SelectorOptionData[] = [
   {
@@ -91,7 +92,7 @@ function EmptyState() {
       <div className="text-center space-y-2">
         <GitBranch className="h-8 w-8 opacity-40 mx-auto" />
         <p className="font-medium">Git</p>
-        <p className="text-xs">这个文件夹不是 Git 仓库。</p>
+        <p className="text-xs">{i18n.t('panels:ui.git.thisFolderIsNotA')}</p>
       </div>
     </div>
   );
@@ -100,7 +101,7 @@ function EmptyState() {
 function LoadingState() {
   return (
     <div className="h-full w-full flex items-center justify-center text-muted-foreground text-xs">
-      Loading Git status...
+      {i18n.t('panels:ui.git.loadingGitStatus')}
     </div>
   );
 }
@@ -344,7 +345,7 @@ export function GitPanel() {
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
             onClick={onFetch}
             disabled={fetchLoading}
-            title="Fetch all remotes"
+            title={i18n.t('panels:ui.git.fetchAllRemotes')}
           >
             {fetchLoading ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -409,7 +410,7 @@ export function GitPanel() {
               onValueChange={setGitChildId}
             >
               <SelectTrigger className="h-7 w-[140px] text-xs">
-                <SelectValue placeholder="Git 仓库" />
+                <SelectValue placeholder={i18n.t('panels:ui.git.gitRepository')} />
               </SelectTrigger>
               <SelectContent>
                 {gitChildren.map((child) => (

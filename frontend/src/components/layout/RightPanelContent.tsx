@@ -49,6 +49,7 @@ import {
 } from '@/lib/createSessionFormVisibility';
 import { executionConversationSurface } from '@/lib/workspaceSurface';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
+import i18n from '@/i18n';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 const CREATE_SESSION_ERROR_FALLBACK =
@@ -714,9 +715,9 @@ export function RightPanelContent() {
               <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
                 <Loader2 className="h-6 w-6 animate-spin" />
                 <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
-                  <p className="font-medium text-foreground">Loading session</p>
+                  <p className="font-medium text-foreground">{i18n.t('panels:ui.rightPanel.loadingSession')}</p>
                   <p className="text-xs text-muted-foreground">
-                    Preparing the conversation panel...
+                    {i18n.t('panels:ui.rightPanel.preparingTheConversationPanel')}
                   </p>
                 </div>
               </div>

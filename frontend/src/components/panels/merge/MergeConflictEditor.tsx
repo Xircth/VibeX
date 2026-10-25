@@ -26,6 +26,7 @@ import { applyConflictHunk, type HunkChoice } from './applyConflictHunk';
 import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 function languageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
@@ -218,7 +219,7 @@ export function MergeConflictEditor({
             disabled={ours.missing}
             onClick={() => takeWhole('ours')}
           >
-            Take ours
+            {i18n.t('panels:ui.merge.takeOurs')}
           </Button>
           <Button
             size="sm"
@@ -226,7 +227,7 @@ export function MergeConflictEditor({
             disabled={theirs.missing}
             onClick={() => takeWhole('theirs')}
           >
-            Take theirs
+            {i18n.t('panels:ui.merge.takeTheirs')}
           </Button>
           <Button size="sm" onClick={() => void save()} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
@@ -280,7 +281,7 @@ export function MergeConflictEditor({
         <span className="truncate font-mono text-xs">{filePath}</span>
         <div className="flex-1" />
         <Button size="sm" variant="ghost" onClick={askAgent}>
-          Ask agent
+          {i18n.t('panels:ui.merge.askAgent')}
         </Button>
         <Button
           size="sm"
@@ -297,7 +298,7 @@ export function MergeConflictEditor({
       ) : null}
       <div className="grid min-h-0 flex-1 grid-cols-2 gap-px bg-border/40">
         <StageDiff
-          title="Ours"
+          title={i18n.t('panels:ui.merge.ours')}
           missing={ours.missing || base.missing}
           original={base.value}
           modified={ours.value}
@@ -306,7 +307,7 @@ export function MergeConflictEditor({
           onBeforeMount={handleBeforeMount}
         />
         <StageDiff
-          title="Theirs"
+          title={i18n.t('panels:ui.merge.theirs')}
           missing={theirs.missing || base.missing}
           original={base.value}
           modified={theirs.value}
@@ -329,7 +330,7 @@ export function MergeConflictEditor({
                 className="h-6 px-1.5"
                 onClick={() => takeHunk(hunk.index, 'ours')}
               >
-                Ours
+                {i18n.t('panels:ui.merge.ours')}
               </Button>
               <Button
                 size="sm"
@@ -337,7 +338,7 @@ export function MergeConflictEditor({
                 className="h-6 px-1.5"
                 onClick={() => takeHunk(hunk.index, 'theirs')}
               >
-                Theirs
+                {i18n.t('panels:ui.merge.theirs')}
               </Button>
               <Button
                 size="sm"
@@ -415,7 +416,7 @@ function StageDiff({
       <div className="px-3 py-1 text-[11px] text-muted-foreground">{title}</div>
       {missing ? (
         <div className="flex flex-1 items-center justify-center px-4 text-xs text-muted-foreground">
-          This side is missing
+          {i18n.t('panels:ui.merge.thisSideIsMissing')}
         </div>
       ) : (
         <DiffEditor

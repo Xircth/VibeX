@@ -144,7 +144,7 @@ export function Navbar() {
                 <Button
                   variant="outline"
                   className="ml-3 h-8 w-44 justify-between gap-2 px-3 sm:w-64"
-                  aria-label="Select project"
+                  aria-label={i18n.t('panels:ui.navbar.selectProject')}
                 >
                   <span className="truncate text-sm font-medium">
                     {project?.name ?? 'Select project'}
@@ -164,7 +164,7 @@ export function Navbar() {
                     </DropdownMenuItem>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled>No projects</DropdownMenuItem>
+                  <DropdownMenuItem disabled>{i18n.t('panels:ui.navbar.noProjects')}</DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -223,7 +223,7 @@ export function Navbar() {
                     variant="ghost"
                     size="icon"
                     className="h-9 w-9"
-                    aria-label="Main navigation"
+                    aria-label={i18n.t('panels:ui.navbar.mainNavigation')}
                   >
                     <Menu className="h-4 w-4" />
                   </Button>

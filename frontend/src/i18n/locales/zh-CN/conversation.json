@@ -476,5 +476,26 @@
     "decline": "拒绝回答",
     "answered": "已回答",
     "justNow": "刚刚"
+  },
+  "backendNotice": {
+    "connectingAgent": "正在连接 Agent…",
+    "sessionExpired": "Agent 会话已过期",
+    "sessionExpiredDescription": "Agent 侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。",
+    "reauthRequired": "需要重新认证",
+    "resumeUnsupported": "Agent 不支持会话恢复",
+    "resumeUnsupportedDescription": "该 Agent 无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。",
+    "sessionArchived": "Agent 会话已归档",
+    "sessionArchivedDescription": "会话已归档。重新加载或新建对话。",
+    "sessionBusy": "Agent 会话正被占用",
+    "sessionBusyDescription": "关闭占用该会话的窗口后重新加载。不要新建会话，否则会丢掉唯一指针。",
+    "sessionUnavailable": "Agent 会话不可用",
+    "sessionUnavailableDescription": "Agent 侧会话已结束或不存在。可见历史仍在，但 Agent 隐藏上下文已丢失。",
+    "sessionLoadFailed": "加载 Agent 会话失败",
+    "sessionRebound": "Agent 会话已重新绑定",
+    "sessionRecoveryFailed": "Agent 会话恢复失败",
+    "agentConfigChanged": "Agent 配置已变更",
+    "sessionError": "会话出错",
+    "configOverrideSkipped": "会话配置未应用",
+    "unrecognizedUpdate": "未识别的会话更新"
   }
 }

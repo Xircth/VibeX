@@ -14,6 +14,7 @@ import {
   getFilePreviewKind,
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
+import i18n from '@/i18n';
 
 /**
  * Map file extension to Monaco language identifier.
@@ -148,7 +149,7 @@ function DockviewDiffPanel() {
             <FileWarning className="h-10 w-10 opacity-50" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">
-                Binary diff is not supported
+                {i18n.t('panels:ui.diff.binaryDiffIsNotSupported')}
               </p>
               <p className="text-xs">
                 This file cannot be rendered as UTF-8 text in the diff panel.
@@ -160,10 +161,10 @@ function DockviewDiffPanel() {
             <ImageIcon className="h-10 w-10 opacity-50" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">
-                Image diff is not supported here
+                {i18n.t('panels:ui.diff.imageDiffIsNotSupported')}
               </p>
               <p className="text-xs">
-                Open this asset in a dedicated image diff flow instead.
+                {i18n.t('panels:ui.diff.openThisAssetInA')}
               </p>
             </div>
           </div>
@@ -181,7 +182,7 @@ function DockviewDiffPanel() {
           </div>
         ) : isLoading ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-            Loading diff...
+            {i18n.t('panels:ui.diff.loadingDiff')}
           </div>
         ) : (
           <DiffEditor

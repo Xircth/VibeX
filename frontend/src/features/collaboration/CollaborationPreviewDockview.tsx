@@ -134,7 +134,7 @@ export function filePreviewTitle(params: PreviewPanelParams): string {
   if (display) return display;
   const rawPath = String(params.filePath ?? '').replace(/\\/g, '/');
   const baseName = rawPath.split('/').filter(Boolean).pop();
-  return baseName || '预览';
+  return baseName || i18n.t('panels:ui.collabPreview.preview');
 }
 
 export function collaborationImagePreviewId(imageUrl: string): string {
@@ -171,7 +171,7 @@ export function CollaborationMemberSessionDockviewPanel(
   return (
     <div className="collaboration-preview-frame h-full w-full">
       <Suspense
-        fallback={<p className="collaboration-preview-empty">加载中</p>}
+        fallback={<p className="collaboration-preview-empty">{i18n.t('panels:ui.collabPreview.loading')}</p>}
       >
         <SessionPreview {...sessionPreviewProps} />
       </Suspense>
@@ -185,7 +185,7 @@ export function CollaborationFileDockviewPanel(
   return (
     <div className="collaboration-preview-frame h-full w-full">
       <Suspense
-        fallback={<p className="collaboration-preview-empty">加载中</p>}
+        fallback={<p className="collaboration-preview-empty">{i18n.t('panels:ui.collabPreview.loading')}</p>}
       >
         <FilePreviewPanel {...props} />
       </Suspense>
@@ -300,16 +300,16 @@ export function CollaborationPreviewDockviewTab(
           {
             type: 'submenu',
             id: 'close',
-            label: '关闭',
+            label: i18n.t('panels:ui.collabPreview.close'),
             children: [
               {
                 id: 'close-current',
-                label: '关闭当前标签页',
+                label: i18n.t('panels:ui.collabPreview.closeTab'),
                 onSelect: () => closeTab(),
               },
               {
                 id: 'close-others',
-                label: '关闭其他标签页',
+                label: i18n.t('panels:ui.collabPreview.closeOtherTabs'),
                 disabled: panels.length <= 1,
                 onSelect: () => {
                   panels
@@ -319,7 +319,7 @@ export function CollaborationPreviewDockviewTab(
               },
               {
                 id: 'close-right',
-                label: '关闭右侧标签页',
+                label: i18n.t('panels:ui.collabPreview.closeTabsToTheRight'),
                 disabled: index < 0 || index >= panels.length - 1,
                 onSelect: () => {
                   panels.slice(index + 1).forEach((panel) => panel.api.close());
@@ -330,21 +330,21 @@ export function CollaborationPreviewDockviewTab(
           {
             type: 'submenu',
             id: 'split',
-            label: '拆分',
+            label: i18n.t('panels:ui.collabPreview.split'),
             children: [
               {
                 id: 'split-right',
-                label: '向右拆分',
+                label: i18n.t('panels:ui.collabPreview.splitRight'),
                 onSelect: () => splitTab('right'),
               },
               {
                 id: 'split-down',
-                label: '向下拆分',
+                label: i18n.t('panels:ui.collabPreview.splitDown'),
                 onSelect: () => splitTab('below'),
               },
               {
                 id: 'split-left',
-                label: '向左拆分',
+                label: i18n.t('panels:ui.collabPreview.splitLeft'),
                 onSelect: () => splitTab('left'),
               },
             ],
@@ -500,8 +500,8 @@ export function CollaborationPreviewHeaderActions(
         variant="ghost"
         size="icon"
         className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-        aria-label="向右拆分"
-        title="向右拆分"
+        aria-label={i18n.t('panels:ui.collabPreview.splitRight')}
+        title={i18n.t('panels:ui.collabPreview.splitRight')}
         onClick={() => handleSplit('right')}
       >
         <Columns2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -511,8 +511,8 @@ export function CollaborationPreviewHeaderActions(
         variant="ghost"
         size="icon"
         className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-        aria-label="向下拆分"
-        title="向下拆分"
+        aria-label={i18n.t('panels:ui.collabPreview.splitDown')}
+        title={i18n.t('panels:ui.collabPreview.splitDown')}
         onClick={() => handleSplit('below')}
       >
         <Rows2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -599,7 +599,7 @@ export function CollaborationPreviewScope({
         onOpenWorkspacePanelRef.current({
           id: PANEL_IDS.DIFFS,
           component: PANEL_IDS.DIFFS,
-          title: '变更',
+          title: i18n.t('panels:ui.collabPreview.changes'),
         });
       },
       openDiffPreviewAtPath: (
@@ -627,7 +627,7 @@ export function CollaborationPreviewScope({
         onOpenWorkspacePanelRef.current({
           id: PANEL_IDS.NOTES,
           component: PANEL_IDS.NOTES,
-          title: '笔记',
+          title: i18n.t('panels:ui.collabPreview.notes'),
         });
       },
       openTerminalEditorTab: (shell?: string) => {
@@ -635,7 +635,7 @@ export function CollaborationPreviewScope({
         onOpenWorkspacePanelRef.current({
           id: `${PANEL_IDS.TERMINAL}-editor-${suffix}`,
           component: PANEL_IDS.TERMINAL,
-          title: '终端',
+          title: i18n.t('panels:ui.collabPreview.terminal'),
           params: {
             surface: 'editor',
             tabId: suffix,
@@ -648,7 +648,7 @@ export function CollaborationPreviewScope({
         onOpenWorkspacePanelRef.current({
           id: `${PANEL_IDS.TERMINAL}-editor-${suffix}`,
           component: PANEL_IDS.TERMINAL,
-          title: '终端',
+          title: i18n.t('panels:ui.collabPreview.terminal'),
           params: {
             surface: 'editor',
             tabId: suffix,
@@ -662,7 +662,7 @@ export function CollaborationPreviewScope({
         onOpenWorkspacePanelRef.current({
           id,
           component: PLUGIN_PANEL_COMPONENT,
-          title: options.title || '插件',
+          title: options.title || i18n.t('panels:ui.collabPreview.plugin'),
           params: options as unknown as Record<string, unknown>,
         });
       },

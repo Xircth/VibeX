@@ -3,6 +3,7 @@ import { FileWarning, Loader2, RotateCw } from 'lucide-react';
 
 import { pluginControlApi } from '@/lib/api/plugins';
 import { configuredBackendTransport } from '@/lib/backendTransport';
+import i18n from '@/i18n';
 
 function renewIntervalMs(expiresAtUnixMs: number | null): number {
   if (expiresAtUnixMs === null) return 30_000;
@@ -85,7 +86,7 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <FileWarning className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm font-medium text-foreground">
-          Plugin preview unavailable
+          {i18n.t('panels:ui.pluginPreview.pluginPreviewUnavailable')}
         </p>
         <p className="max-w-sm break-words text-xs text-muted-foreground">
           {error}
@@ -110,7 +111,7 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
       {previewUrl === null ? (
         <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Starting plugin preview…
+          {i18n.t('panels:ui.pluginPreview.startingPluginPreview')}
         </div>
       ) : (
         <iframe

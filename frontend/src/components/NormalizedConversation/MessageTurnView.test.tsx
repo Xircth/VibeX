@@ -869,7 +869,7 @@ describe('MessageTurnView', () => {
       undefined
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览图片' }));
     expect(openImagePreviewMock).toHaveBeenCalledWith({
       imageUrl: 'blob:image/png',
       altText: 'screen.png',

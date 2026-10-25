@@ -246,6 +246,12 @@ import {
 } from './MemberBotAvatar';
 import { botSilhouetteOutline, GroupAvatar } from './GroupAvatar';
 import {
+  COLLAB_ASSISTANT_AVATAR_PX,
+  memberMessageClusters,
+  showsClusterAvatar,
+  showsClusterName,
+} from './messageCluster';
+import {
   SpaceMessageBody,
   bubbleText,
   messagePreviewText,
@@ -3538,6 +3544,26 @@ export function CollaborationSpacePage({
     return agentRoster(members);
   }, [activeDirectThreadId, members, sidebarItems]);
 
+  const messageClusters = useMemo(
+    () =>
+      memberMessageClusters(
+        messages.map((message, index) => {
+          const author = messageAuthor(message.envelope);
+          const fromYou = author === COPY.you;
+          if (fromYou) return { fromYou: true, authorKey: '' };
+          const conversationId = resolveMessageConversationId(
+            message.envelope,
+            members
+          );
+          return {
+            fromYou: false,
+            authorKey: conversationId || author || `anon:${index}`,
+          };
+        })
+      ),
+    [members, messages]
+  );
+
   const navEntries = useMemo<ConversationMessageNavEntry[]>(
     () =>
       messages.map((message, index) => {
@@ -6324,8 +6350,10 @@ export function CollaborationSpacePage({
                               <MemberBotAvatar
                                 config={avatar}
                                 sessionActive={memberSessionActive}
-                                silhouetteOutline={botSilhouetteOutline(14)}
-                                className="h-3.5 w-3.5 shrink-0"
+                                silhouetteOutline={botSilhouetteOutline(
+                                  COLLAB_ASSISTANT_AVATAR_PX
+                                )}
+                                className="h-10 w-10 shrink-0"
                               />
                               <span
                                 className="collaboration-top-member-chip-name"
@@ -6473,8 +6501,10 @@ export function CollaborationSpacePage({
                             >
                               <MemberBotAvatar
                                 config={getMemberAvatar(convId, nick)}
-                                silhouetteOutline={botSilhouetteOutline(14)}
-                                className="h-3.5 w-3.5 shrink-0"
+                                silhouetteOutline={botSilhouetteOutline(
+                                  COLLAB_ASSISTANT_AVATAR_PX
+                                )}
+                                className="h-10 w-10 shrink-0"
                               />
                             </span>
                           );
@@ -6547,7 +6577,7 @@ export function CollaborationSpacePage({
                     </div>
                   </div>
                 ) : selected && messages.length > 0 ? (
-                  messages.map((message) => {
+                  messages.map((message, index) => {
                     const author = messageAuthor(message.envelope);
                     const fromYou = author === COPY.you;
                     const name = fromYou
@@ -6565,6 +6595,25 @@ export function CollaborationSpacePage({
                       receiptsBySeq[message.seq] ?? EMPTY_RECEIPTS
                     );
                     const messageKey = String(message.seq);
+                    const cluster = messageClusters[index] ?? null;
+                    const showName = showsClusterName(cluster);
+                    const showAvatar = showsClusterAvatar(cluster);
+                    const avatar = getMemberAvatar(authorConversationId, name);
+                    const openAuthorPreview = () => {
+                      const authorMember = visibleRoster.find(
+                        (item) => displayName(item) === name
+                      ) ??
+                        members.find(
+                          (item) =>
+                            item.conversation_id === authorConversationId
+                        ) ??
+                        members.find((item) => displayName(item) === name) ?? {
+                          kind: 'agent',
+                          nickname: name,
+                          conversation_id: authorConversationId,
+                        };
+                      selectMemberForPreview(selected.space_id, authorMember);
+                    };
                     return (
                       <article
                         key={message.seq}
@@ -6576,58 +6625,56 @@ export function CollaborationSpacePage({
                           }
                         }}
                         className="collaboration-message"
+                        data-testid={`collaboration-message-${message.seq}`}
+                        data-cluster={cluster ?? undefined}
                       >
                         {!fromYou ? (
-                          <div className="collaboration-message-header">
-                            <button
-                              type="button"
-                              className="collaboration-message-avatar"
-                              aria-label={`预览 ${name} 会话`}
-                              onClick={() => {
-                                const authorMember =
-                                  visibleRoster.find(
-                                    (item) => displayName(item) === name
-                                  ) ??
-                                  members.find(
-                                    (item) =>
-                                      item.conversation_id ===
-                                      authorConversationId
-                                  ) ??
-                                  members.find(
-                                    (item) => displayName(item) === name
-                                  ) ?? {
-                                    kind: 'agent',
-                                    nickname: name,
-                                    conversation_id: authorConversationId,
-                                  };
-                                selectMemberForPreview(
-                                  selected.space_id,
-                                  authorMember
-                                );
-                              }}
-                            >
-                              <MemberBotAvatar
-                                config={getMemberAvatar(
-                                  authorConversationId,
-                                  name
-                                )}
-                                sessionActive={Boolean(
-                                  authorConv?.turn_in_flight ||
-                                    authorConv?.status === 'inprogress'
-                                )}
-                                className="h-5 w-5"
-                                data-testid={`collaboration-message-bot-avatar-${message.seq}`}
+                          <div className="collaboration-message-row">
+                            <div className="collaboration-message-avatar-slot">
+                              {showAvatar ? (
+                                <button
+                                  type="button"
+                                  className="collaboration-message-avatar"
+                                  aria-label={`预览 ${name} 会话`}
+                                  onClick={openAuthorPreview}
+                                >
+                                  <MemberBotAvatar
+                                    config={avatar}
+                                    sessionActive={Boolean(
+                                      authorConv?.turn_in_flight ||
+                                        authorConv?.status === 'inprogress'
+                                    )}
+                                    className="h-10 w-10"
+                                    data-testid={`collaboration-message-bot-avatar-${message.seq}`}
+                                  />
+                                </button>
+                              ) : null}
+                            </div>
+                            <div className="collaboration-message-main">
+                              {showName ? (
+                                <p
+                                  className="collaboration-message-name"
+                                  style={{ color: avatar.color }}
+                                >
+                                  {name}
+                                </p>
+                              ) : null}
+                              <SpaceMessageBody
+                                fromYou={fromYou}
+                                text={bubbleText(message.envelope)}
+                                workspacePath={workspacePath}
+                                workspaceId={workspace || undefined}
                               />
-                            </button>
-                            <p className="collaboration-message-name">{name}</p>
+                            </div>
                           </div>
-                        ) : null}
-                        <SpaceMessageBody
-                          fromYou={fromYou}
-                          text={bubbleText(message.envelope)}
-                          workspacePath={workspacePath}
-                          workspaceId={workspace || undefined}
-                        />
+                        ) : (
+                          <SpaceMessageBody
+                            fromYou={fromYou}
+                            text={bubbleText(message.envelope)}
+                            workspacePath={workspacePath}
+                            workspaceId={workspace || undefined}
+                          />
+                        )}
                         {messageReceipts.length > 0 ? (
                           <ul className="collaboration-receipts">
                             {messageReceipts.map((receipt, index) => {

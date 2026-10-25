@@ -14,6 +14,7 @@ import { sessionsApi } from '@/lib/api';
 
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import { CollaborationSpacePage } from './CollaborationSpacePage';
+import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
@@ -313,6 +314,10 @@ describe('CollaborationSpacePage', () => {
       chipA.querySelector('.collaboration-top-member-chip-name')
     ).toHaveTextContent('小A');
     expect(chipA).toHaveClass('collaboration-top-member-chip');
+    expect(chipA.querySelector('.collaboration-bot-avatar')).toHaveClass(
+      'h-10',
+      'w-10'
+    );
 
     await user.click(screen.getByRole('button', { name: '收起助手列表' }));
     expect(screen.queryByTestId('collaboration-top-member-bar')).toBeNull();
@@ -370,7 +375,7 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     expect(
       screen.getByTestId('collaboration-message-bot-avatar-1')
-    ).toBeTruthy();
+    ).toHaveClass('h-10', 'w-10');
     expect(
       memberAButton
         .closest('.workspace-session-row')
@@ -2585,6 +2590,88 @@ describe('CollaborationSpacePage', () => {
     markViewedSpy.mockRestore();
   });
 
+  it('clusters consecutive assistant bubbles: name on first, avatar on last', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMessages') {
+          if (input?.sinceSeq) return { messages: [] };
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: { actor: 'space/member/小A', content: '第一条' },
+              },
+              {
+                seq: 2,
+                envelope: { actor: 'space/member/小A', content: '第二条' },
+              },
+              {
+                seq: 3,
+                envelope: { actor: 'space/member/小A', content: '第三条' },
+              },
+              {
+                seq: 4,
+                envelope: { actor: 'space/user', content: '我的回复' },
+              },
+              {
+                seq: 5,
+                envelope: { actor: 'space/member/小B', content: '单独一条' },
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    const first = await screen.findByTestId('collaboration-message-1');
+    const second = screen.getByTestId('collaboration-message-2');
+    const third = screen.getByTestId('collaboration-message-3');
+    const userMsg = screen.getByTestId('collaboration-message-4');
+    const solo = screen.getByTestId('collaboration-message-5');
+
+    expect(first).toHaveAttribute('data-cluster', 'start');
+    expect(second).toHaveAttribute('data-cluster', 'middle');
+    expect(third).toHaveAttribute('data-cluster', 'end');
+    expect(userMsg).not.toHaveAttribute('data-cluster');
+    expect(solo).toHaveAttribute('data-cluster', 'solo');
+
+    expect(within(first).getByText('小A')).toHaveClass(
+      'collaboration-message-name'
+    );
+    expect(within(second).queryByText('小A')).toBeNull();
+    expect(within(third).queryByText('小A')).toBeNull();
+    expect(within(solo).getByText('小B')).toHaveClass(
+      'collaboration-message-name'
+    );
+
+    expect(
+      screen.queryByTestId('collaboration-message-bot-avatar-1')
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('collaboration-message-bot-avatar-2')
+    ).toBeNull();
+    expect(
+      screen.getByTestId('collaboration-message-bot-avatar-3')
+    ).toHaveClass('h-10', 'w-10');
+    expect(
+      screen.getByTestId('collaboration-message-bot-avatar-5')
+    ).toHaveClass('h-10', 'w-10');
+
+    expect(within(first).getByText('小A')).toHaveStyle({
+      color: deriveMemberBotAvatar('conv-1').color,
+    });
+    expect(within(solo).getByText('小B')).toHaveStyle({
+      color: deriveMemberBotAvatar('conv-2').color,
+    });
+  });
+
   it('opens the current-chat bot session from the assistant list and the message sender', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();
@@ -2606,7 +2693,9 @@ describe('CollaborationSpacePage', () => {
     );
     renderPage();
     await screen.findByRole('button', { name: '设计' });
-    await user.click(await screen.findByRole('button', { name: '打开 小A 会话' }));
+    await user.click(
+      await screen.findByRole('button', { name: '打开 小A 会话' })
+    );
     await waitFor(() => {
       expect(collaborationCall).toHaveBeenCalledWith(
         'collaboration',
@@ -2676,7 +2765,10 @@ describe('CollaborationSpacePage', () => {
             },
           };
         }
-        if (input?.spaceId === 'direct:mem-a' && method === 'space.listMessages') {
+        if (
+          input?.spaceId === 'direct:mem-a' &&
+          method === 'space.listMessages'
+        ) {
           return {
             messages: [
               {
@@ -2740,14 +2832,14 @@ describe('CollaborationSpacePage', () => {
       within(panel).getByTestId('collaboration-group-details-tab-customize')
     );
     expect(
-      await within(panel).findByTestId(
-        'collaboration-assistant-customize-form'
-      )
+      await within(panel).findByTestId('collaboration-assistant-customize-form')
     ).toBeTruthy();
-    expect(within(panel).getByRole('textbox', { name: '助手名称' })).toHaveValue(
-      '小A'
-    );
-    expect(within(panel).queryByRole('combobox', { name: '选择 Agent' })).toBeNull();
+    expect(
+      within(panel).getByRole('textbox', { name: '助手名称' })
+    ).toHaveValue('小A');
+    expect(
+      within(panel).queryByRole('combobox', { name: '选择 Agent' })
+    ).toBeNull();
     await waitFor(() => {
       expect(within(panel).getByLabelText('人设提示词（可选）')).toHaveValue(
         '你是小A'

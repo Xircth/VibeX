@@ -58,4 +58,13 @@ describe('collaboration group and assistant details width', () => {
     const wrap = declarationsFor('.collaboration-group-add-member-wrap');
     expect(wrap['justify-content']?.value).toBe('center');
   });
+
+  it('caps the create-group bot list height', () => {
+    expect(
+      declarationsFor('.collaboration-create-member-list')['max-height']?.value
+    ).toBe('14.5rem');
+    expect(
+      declarationsFor('.collaboration-create-member-list')['overflow']?.value
+    ).toBe('auto');
+  });
 });

@@ -2,6 +2,7 @@ import { Search, X } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Input } from '@/components/ui/input';
 import { COPY } from './spaceModel';
+import i18n from '@/i18n';
 
 export function CollaborationGlobalSearchModal({
   query,
@@ -41,7 +42,7 @@ export function CollaborationGlobalSearchModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="搜索协作空间或助手"
+        aria-label={i18n.t('panels:ui.globalSearch.searchSpacesOrBots')}
         data-testid="collaboration-global-search-modal"
         className="collaboration-global-search-modal dialog-surface"
       >
@@ -61,14 +62,14 @@ export function CollaborationGlobalSearchModal({
               }
             }}
             placeholder={COPY.globalSearchPlaceholder}
-            aria-label="搜索协作空间或助手输入框"
+            aria-label={i18n.t('panels:ui.globalSearch.searchSpacesOrBotsInput')}
             data-testid="collaboration-global-search-input"
             className="collaboration-global-search-input"
           />
           {query ? (
             <button
               type="button"
-              aria-label="清空搜索"
+              aria-label={i18n.t('panels:ui.globalSearch.clearSearch')}
               className="collaboration-global-search-clear"
               onClick={() => onQueryChange('')}
             >
@@ -83,7 +84,7 @@ export function CollaborationGlobalSearchModal({
         >
           {empty ? (
             <p className="collaboration-global-search-empty">
-              未找到匹配的助手或群聊
+              {i18n.t('panels:ui.globalSearch.noMatchingBotsOrGroups')}
             </p>
           ) : (
             children

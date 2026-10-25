@@ -713,7 +713,7 @@ function PreviewElementTokenTooltip({
           <span className="block truncate font-medium text-foreground">
             {token.label}
           </span>
-          <span className="block text-[11px] text-muted-foreground">
+          <span className="block text-xs text-muted-foreground">
             {t('composer.elementToken.type')}
           </span>
         </span>
@@ -723,7 +723,7 @@ function PreviewElementTokenTooltip({
         {details.dom ? (
           <>
             <dt className="text-muted-foreground">DOM</dt>
-            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+            <dd className="min-w-0 truncate font-mono text-xs text-foreground">
               {details.dom}
             </dd>
           </>
@@ -733,7 +733,7 @@ function PreviewElementTokenTooltip({
             <dt className="text-muted-foreground">
               {t('composer.elementToken.source')}
             </dt>
-            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+            <dd className="min-w-0 truncate font-mono text-xs text-foreground">
               {details.source}
             </dd>
           </>
@@ -743,7 +743,7 @@ function PreviewElementTokenTooltip({
             <dt className="text-muted-foreground">
               {t('composer.elementToken.selector')}
             </dt>
-            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+            <dd className="min-w-0 truncate font-mono text-xs text-foreground">
               {details.selector}
             </dd>
           </>
@@ -752,10 +752,10 @@ function PreviewElementTokenTooltip({
 
       {details.html ? (
         <div className="mt-2.5 border-t border-border/60 pt-2">
-          <div className="mb-1 text-[11px] text-muted-foreground">
+          <div className="mb-1 text-xs text-muted-foreground">
             {t('composer.elementToken.html')}
           </div>
-          <pre className="max-h-20 overflow-hidden whitespace-pre-wrap break-all rounded-md bg-[var(--surface-control)] px-2 py-1.5 font-mono text-[11px] leading-4 text-foreground">
+          <pre className="max-h-20 overflow-hidden whitespace-pre-wrap break-all rounded-md bg-[var(--surface-control)] px-2 py-1.5 font-mono text-xs leading-4 text-foreground">
             {details.html.slice(0, 600)}
             {details.html.length > 600 ? '…' : ''}
           </pre>

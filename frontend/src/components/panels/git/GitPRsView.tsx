@@ -12,6 +12,7 @@ import type { OpenPrInfo } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
 import { GitHubCliSetupModal } from './GitHubCliSetupModal';
+import i18n from '@/i18n';
 
 interface GitPRsViewProps {
   prs: OpenPrInfo[];
@@ -42,7 +43,7 @@ export const GitPRsView = memo(function GitPRsView({
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border/30 shrink-0">
         <GitPullRequest className="h-3 w-3 text-muted-foreground" />
         <span className="text-xs font-medium text-foreground flex-1">
-          Pull Requests
+          {i18n.t('panels:ui.gitPrs.pullRequests')}
         </span>
         <span className="text-[10px] text-muted-foreground mr-1">
           {prs.length} open
@@ -51,7 +52,7 @@ export const GitPRsView = memo(function GitPRsView({
           type="button"
           className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           onClick={() => setSetupModalOpen(true)}
-          title="GitHub CLI 设置与登录"
+          title={i18n.t('panels:ui.gitPrs.githubCliSetupAndSign')}
         >
           <Github className="h-3 w-3" />
         </button>
@@ -59,7 +60,7 @@ export const GitPRsView = memo(function GitPRsView({
           type="button"
           className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           onClick={onRefresh}
-          title="Refresh"
+          title={i18n.t('panels:ui.gitPrs.refresh')}
           disabled={isLoading}
         >
           {isLoading ? (
@@ -75,7 +76,7 @@ export const GitPRsView = memo(function GitPRsView({
         {isLoading && prs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
             <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-            Loading pull requests...
+            {i18n.t('panels:ui.gitPrs.loadingPullRequests')}
           </div>
         ) : prs.length > 0 ? (
           <div className="flex flex-col">
@@ -122,11 +123,11 @@ export const GitPRsView = memo(function GitPRsView({
           <div className="flex flex-col items-center justify-center h-full px-4 text-center">
             <GitPullRequest className="h-7 w-7 text-muted-foreground/35 mb-2" />
             <p className="text-xs font-medium text-foreground">
-              暂无可用 Pull Request
+              {i18n.t('panels:ui.gitPrs.noPullRequestsAvailable')}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
               {errorPresentation.requiresGhSetup
-                ? '未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 PR。'
+                ? i18n.t('panels:ui.gitPrs.githubCliGhWasNot')
                 : errorPresentation.title}
             </p>
             {!errorPresentation.requiresGhSetup && errorPresentation.hint && (
@@ -142,13 +143,13 @@ export const GitPRsView = memo(function GitPRsView({
               onClick={() => setSetupModalOpen(true)}
             >
               <Github className="h-3.5 w-3.5" />
-              <span>安装 / 登录 GitHub CLI</span>
+              <span>{i18n.t('panels:ui.gitPrs.installSignInToGithub')}</span>
             </Button>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <GitPullRequest className="h-6 w-6 opacity-30 mb-2" />
-            <span className="text-xs">No open pull requests</span>
+            <span className="text-xs">{i18n.t('panels:ui.gitPrs.noOpenPullRequests')}</span>
           </div>
         )}
       </div>

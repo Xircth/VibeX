@@ -576,7 +576,15 @@
     "search": "Search",
     "sessionList": "Sessions",
     "loadFailed": "Couldn't load this panel",
-    "retry": "Retry"
+    "retry": "Retry",
+    "kanban": "Kanban",
+    "preview": "Preview",
+    "diffs": "Diffs",
+    "terminal": "Terminal",
+    "aiChat": "AI Chat",
+    "git": "Git",
+    "merge": "Merge",
+    "logs": "Logs"
   },
   "ideIcon": {
     "fileManager": "File Manager"
@@ -688,6 +696,513 @@
     "contactGroupMoveTo": "Move to group",
     "contactGroupToggle": "Collapse or expand {{name}}",
     "contactGroupFailed": "Group action failed",
+    "unknownMember": "Unknown member",
     "memberAlreadyInGroup": "{{name}} is already in this group"
+  },
+  "shellA11y": {
+    "settings": "Settings",
+    "workspaceBranches": "Workspace and target branches",
+    "closeTab": "Close {{title}}",
+    "selectFolder": "Select Folder",
+    "selectFolderHint": "Choose a folder for your project"
+  },
+  "collabCopy": {
+    "emptyRoles": "No roles yet",
+    "newRole": "New role",
+    "emptyTeams": "No teams yet",
+    "newTeam": "New team",
+    "emptySpaces": "No collaboration spaces yet",
+    "newSpace": "Create group chat",
+    "newSpaceButton": "Create group chat",
+    "newMemberButton": "New Bot",
+    "createAssistantButton": "Create Bot",
+    "createContactGroupButton": "New folder",
+    "newMemberFromSessionButton": "New Bot from session",
+    "defaultSpaceName": "Default space",
+    "unassignedSpaceName": "Unassigned space",
+    "noMemberSessions": "No Bot sessions",
+    "memberNameLabel": "Bot name",
+    "memberSourceLabel": "Created from",
+    "memberSourceRole": "From role",
+    "memberSourceSession": "From session",
+    "memberSourceCustom": "Custom",
+    "chooseRole": "Choose role",
+    "chooseAgent": "Choose agent",
+    "personaPromptLabel": "Persona prompt (optional)",
+    "teamLabel": "Team (optional)",
+    "noTeam": "No team",
+    "spaceMembersLabel": "Group members",
+    "spaceTagLabel": "Color tag",
+    "memberSessionsGroup": "Available Bots",
+    "otherSessionsGroup": "Other sessions",
+    "addMember": "Add Bot",
+    "addSpaceMember": "Add member",
+    "removeSpaceMember": "Remove",
+    "groupDetailsButton": "Group details",
+    "groupDetailsTab": "Details",
+    "groupCollectionTab": "Group saved",
+    "groupMembersTab": "Members",
+    "assistantDetailsButton": "Bot details",
+    "assistantDetailsTab": "Details",
+    "assistantCollectionTab": "Saved",
+    "assistantCustomizeTab": "Customize",
+    "saveAssistant": "Save",
+    "tokenOverview": "Token overview",
+    "totalTokens": "Total tokens",
+    "unlabeledModel": "Unlabeled model",
+    "renameMember": "Edit nickname",
+    "chooseConversation": "Choose conversation",
+    "globalSearchPlaceholder": "Search",
+    "filterLabel": "Filter",
+    "filterByName": "By name",
+    "filterByType": "By type",
+    "filterTypeGroup": "Groups",
+    "filterTypeAssistant": "Bots",
+    "filterByActiveTime": "By last active",
+    "batchDeleteLabel": "Delete multiple",
+    "emptyMessages": "No messages yet",
+    "previewEmpty": "No Bot sessions",
+    "noSession": "No session",
+    "backToSession": "Back to session",
+    "attachmentsUnsupported": "Space messages send text only",
+    "deleteRole": "Sessions already created are kept after deletion.",
+    "openWorkspace": "Open in workspace",
+    "you": "You",
+    "notAMember": "Not in this space",
+    "nicknameMissing": "Nickname not found",
+    "nicknameTaken": "Nickname already in use",
+    "openWorkspaceFirst": "Open a workspace first",
+    "emptyAgents": "No enabled agents yet",
+    "controlsUnavailable": "Unavailable",
+    "noneDelivered": "Not delivered",
+    "partialDelivered": "Some Bots were not reached",
+    "receiptQueued": "Received",
+    "receiptClaimed": "Received",
+    "receiptFailed": "Failed",
+    "requestFailed": "Request failed",
+    "rangeError": "Depth 1–8, cache ≥ 0, query window 1–90, max delay 1–168.",
+    "createMenu": "Create",
+    "spaceName": "Group name",
+    "defaultContactGroupName": "New folder"
+  },
+  "spaceTag": {
+    "blue": "Blue",
+    "emerald": "Green",
+    "amber": "Amber",
+    "violet": "Violet",
+    "rose": "Rose",
+    "cyan": "Cyan"
+  },
+  "contactRowMenu": {
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "moveTo": "Move to",
+    "markUnread": "Mark as unread",
+    "markRead": "Mark as read",
+    "renameAssistant": "Rename Bot",
+    "renameGroup": "Rename group",
+    "copyThreadId": "Copy conversation ID",
+    "hideFromSidebar": "Hide from sidebar",
+    "showInSidebar": "Show in sidebar",
+    "delete": "Delete"
+  },
+  "botAvatar": {
+    "color": {
+      "ink": "Charcoal",
+      "brown": "Warm brown",
+      "red": "Coral red",
+      "orange": "Orange",
+      "amber": "Amber",
+      "green": "Mint green",
+      "turquoise": "Turquoise",
+      "blue": "Electric blue",
+      "purple": "Violet",
+      "pink": "Sakura pink",
+      "grey": "Slate grey"
+    },
+    "shape": {
+      "circle": "Circle",
+      "cloud": "Cloud",
+      "squircle": "Squircle",
+      "sparkle": "Sparkle",
+      "clover": "Clover",
+      "heart": "Heart",
+      "pebble": "Flower",
+      "droplet": "Droplet",
+      "capsule": "Capsule",
+      "triangle": "Triangle",
+      "pentagon": "Pentagon",
+      "star": "Wavy star",
+      "hexagon": "Hexagon"
+    },
+    "expression": {
+      "neutral": "Default",
+      "attentive": "Focused",
+      "happy": "Happy",
+      "laughing": "Laughing",
+      "excited": "Excited",
+      "surprised": "Surprised",
+      "confused": "Confused",
+      "curious": "Curious",
+      "suspicious": "Suspicious",
+      "sleepy": "Sleepy",
+      "sad": "Sad",
+      "scared": "Scared",
+      "angry": "Angry",
+      "proud": "Smug",
+      "shy": "Shy",
+      "unimpressed": "Unimpressed"
+    },
+    "ui": {
+      "avatar": "Avatar",
+      "avatarProperties": "Avatar properties",
+      "color": "Color",
+      "shape": "Shape",
+      "clickToPreviewTheAvatar": "Click to preview the avatar animation"
+    }
+  },
+  "ui": {
+    "select": {
+      "arialabelClear": "{{ariaLabel}} (clear)",
+      "clear": "Clear"
+    },
+    "git": {
+      "gitRepository": "Git repository",
+      "thisFolderIsNotA": "This folder is not a Git repository.",
+      "fetchAllRemotes": "Fetch all remotes",
+      "loadingGitStatus": "Loading Git status..."
+    },
+    "gitIssues": {
+      "githubCliSetupAndSign": "GitHub CLI setup and sign-in",
+      "githubCliGhWasNot": "GitHub CLI (gh) was not found or you are not signed in to GitHub. Install it and sign in to view issues.",
+      "installSignInToGithub": "Install / sign in to GitHub CLI",
+      "noIssuesAvailable": "No issues available",
+      "refreshIssues": "Refresh issues",
+      "loadingIssues": "Loading issues..."
+    },
+    "gitPrs": {
+      "githubCliSetupAndSign": "GitHub CLI setup and sign-in",
+      "githubCliGhWasNot": "GitHub CLI (gh) was not found or you are not signed in to GitHub. Install it and sign in to view pull requests.",
+      "installSignInToGithub": "Install / sign in to GitHub CLI",
+      "noPullRequestsAvailable": "No pull requests available",
+      "refresh": "Refresh",
+      "pullRequests": "Pull Requests",
+      "loadingPullRequests": "Loading pull requests...",
+      "noOpenPullRequests": "No open pull requests"
+    },
+    "ghSetup": {
+      "signedInToGithubUsername": "Signed in to GitHub ({{username}})",
+      "installedGhPath": "Installed: {{gh_path}}",
+      "signedInAsUsername": "Signed in as: {{username}}",
+      "copySignInCommand": "Copy sign-in command",
+      "signedInToGithub": "Signed in to GitHub",
+      "failedToCheckGithubCli": "Failed to check GitHub CLI status",
+      "githubCliGhInstalledContinue": "GitHub CLI (gh) installed. Continue to sign in to GitHub.",
+      "automaticInstallDidNotFinish": "Automatic install did not finish. Install GitHub CLI manually with the command below.",
+      "failedToInstallGithubCli": "Failed to install GitHub CLI. Install it manually, then click Check again.",
+      "aSignInTerminalIs": "A sign-in terminal is open. Finish authorizing in the terminal or browser; status will sync automatically.",
+      "couldnTOpenASign": "Couldn't open a sign-in terminal. Copy the command below and run it in a terminal.",
+      "installing": "Installing...",
+      "installGh": "Install gh",
+      "githubCliNotFoundClick": "GitHub CLI not found. Click \"Install gh\" to install it automatically, or get it from cli.github.com.",
+      "signInAgain": "Sign in again",
+      "signInToGithub": "Sign in to GitHub",
+      "authorized": "authorized",
+      "clickSignInToGithub": "Click \"Sign in to GitHub\" to authorize in the browser, or run the sign-in command below in a terminal:",
+      "setUpGithubCliAnd": "Set up GitHub CLI and sign in",
+      "check": "Check",
+      "2SignInToGithub": "2. Sign in to GitHub",
+      "close": "Close",
+      "doneAndRefresh": "Done and refresh"
+    },
+    "effort": {
+      "extraHigh": "Extra high",
+      "default": "Default",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "branch": {
+      "currentBranchBranch": "Current branch: {{branch}}",
+      "targetBranchTargetBranchName": "Target branch: {{target_branch_name}}",
+      "currentBranchLabel": "Current branch: {{branch}}",
+      "targetBranchLabel": "Target branch: {{branch}}",
+      "gitWorkspaceControls": "Git workspace controls",
+      "rebaseInProgress": "Rebase in progress",
+      "gitActions": "Git Actions"
+    },
+    "sessionControl": {
+      "fullAccess": "Full access"
+    },
+    "selection": {
+      "quote": "Quote",
+      "addToGroupSaved": "Add to group saved",
+      "copyText": "Copy text"
+    },
+    "multiAgent": {
+      "editRoleName": "Edit role {{name}}",
+      "deleteRoleName": "Delete role {{name}}",
+      "roleName": "Role name",
+      "frontendEngineer": "Frontend engineer",
+      "chooseRoleAgent": "Choose role Agent",
+      "personaPromptOptional": "Persona prompt (optional)",
+      "editRole": "Edit role",
+      "newRole": "New role",
+      "chooseAgent": "Choose Agent",
+      "save": "Save",
+      "customRoles": "Custom roles",
+      "sessionSettings": "Session settings",
+      "chooseAnAgentFirst": "Choose an Agent first",
+      "defaultSessionSettings": "Default session settings",
+      "cancel": "Cancel"
+    },
+    "collab": {
+      "openBotMembername": "Open Bot {{memberName}}"
+    },
+    "collabPage": {
+      "selectBotName": "Select Bot {{name}}",
+      "selectSpaceName": "Select space {{name}}",
+      "tagName": "Tag name",
+      "renameName": "Rename {{name}}",
+      "removeBotMembername": "Remove Bot {{memberName}}",
+      "selecteddeletecountSelected": "{{selectedDeleteCount}} selected",
+      "openNickSession": "Open {{nick}} session",
+      "previewNameSession": "Preview {{name}} session",
+      "spaceBotsVisibleroster": "Space Bots: {{visibleRoster}}",
+      "cancelNicknameEdit": "Cancel nickname edit",
+      "spaceNameInput": "Space name input",
+      "cancelSpaceRename": "Cancel space rename",
+      "confirmSpaceRename": "Confirm space rename",
+      "tagNameOptional": "Tag name (optional)",
+      "addOrCreateASpace": "Add or create a space Bot",
+      "selectSpacesOrBots": "Select spaces or Bots",
+      "confirmDelete": "Confirm delete",
+      "deleting": "Deleting...",
+      "cancel": "Cancel",
+      "searchSpacesOrBots": "Search spaces or Bots",
+      "contactMenu": "Contact menu",
+      "resizeSpaceList": "Resize space list",
+      "collapseBotList": "Collapse Bot list",
+      "expandBotList": "Expand Bot list",
+      "chooseFile": "Choose file",
+      "bot": "@Bot",
+      "resizePreview": "Resize preview",
+      "spaces": "Spaces",
+      "addedToGroupSaved": "Added to group saved",
+      "justNow": "Just now",
+      "addBot": "Add Bot",
+      "scheduledMessageQueue": "Scheduled message queue",
+      "spaceBots": "Space Bots",
+      "workspace": "Workspace",
+      "team": "Team",
+      "chooseBot": "Choose Bot",
+      "back": "Back",
+      "done": "Done",
+      "hidden": "Hidden",
+      "thisSpaceHasNoBots": "This space has no Bots yet. Add a Bot first.",
+      "tagFor": "Tag {{name}}"
+    },
+    "spaceMessage": {
+      "questionBody": "Question: {{body}}",
+      "answeredOption": "Answered: {{option}}",
+      "answeredValue": "Answered: {{value}}",
+      "typeAnAnswer": "Type an answer",
+      "answer": "Answer",
+      "approvalRequest": "Approval request",
+      "question": "Question",
+      "handled": "Handled",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "approve": "Approve",
+      "reject": "Reject"
+    },
+    "globalSearch": {
+      "searchSpacesOrBots": "Search spaces or Bots",
+      "searchSpacesOrBotsInput": "Search spaces or Bots input",
+      "clearSearch": "Clear search",
+      "noMatchingBotsOrGroups": "No matching Bots or groups"
+    },
+    "collabPreview": {
+      "splitRight": "Split right",
+      "splitDown": "Split down",
+      "preview": "Preview",
+      "close": "Close",
+      "closeTab": "Close tab",
+      "closeOtherTabs": "Close other tabs",
+      "closeTabsToTheRight": "Close tabs to the right",
+      "split": "Split",
+      "splitLeft": "Split left",
+      "changes": "Changes",
+      "notes": "Notes",
+      "terminal": "Terminal",
+      "plugin": "Plugin",
+      "loading": "Loading"
+    },
+    "collection": {
+      "previewImageName": "Preview image {{name}}",
+      "close": "Close",
+      "savedItemName": "Saved item name",
+      "nameOptionalEGApi": "Name (optional, e.g. api-spec.md)",
+      "savedTextContent": "Saved text content",
+      "enterTextToSave": "Enter text to save...",
+      "savedItemNote": "Saved item note",
+      "noteOptional": "Note (optional)",
+      "editSavedItemNote": "Edit saved item note",
+      "enterANote": "Enter a note...",
+      "saveNote": "Save note",
+      "cancelNoteEdit": "Cancel note edit",
+      "editNote": "Edit note",
+      "clickToEditNote": "Click to edit note",
+      "fileMustBe200mbOr": "File must be 200MB or smaller",
+      "image": "Image",
+      "file": "File",
+      "text": "Text",
+      "expandSavedItem": "Expand saved item",
+      "collapseSavedItem": "Collapse saved item",
+      "none": "None",
+      "loading": "Loading",
+      "dragAFileHereOr": "Drag a file here or click to upload (max 200MB per file)",
+      "addText": "Add text",
+      "uploadFile": "Upload file",
+      "cancel": "Cancel",
+      "addToGroupSaved": "Add to group saved",
+      "nothingSavedInThisGroup": "Nothing saved in this group yet. Text, images and files added by you or Bots appear here.",
+      "note": "Note:",
+      "noBotReadsYet": "No Bot reads yet",
+      "createdAt": "Created: {{time}}",
+      "readsCount": "Reads ({{count}})",
+      "readTimes": "Read {{count}}×"
+    },
+    "diffsReview": {
+      "copyFullSha": "Copy full SHA"
+    },
+    "terminal": {
+      "newTerminal": "New terminal",
+      "selectAWorkspaceToOpen": "Select a workspace to open the terminal.",
+      "waitingForDevServerOutput": "Waiting for dev server output..."
+    },
+    "navbar": {
+      "selectProject": "Select project",
+      "mainNavigation": "Main navigation",
+      "noProjects": "No projects"
+    },
+    "folderPicker": {
+      "filterFoldersAndFiles": "Filter folders and files..."
+    },
+    "gitBranches": {
+      "createNewBranch": "Create new branch",
+      "newBranchName": "New branch name...",
+      "loadingBranches": "Loading branches...",
+      "noBranchesFound": "No branches found"
+    },
+    "gitCommit": {
+      "commitMessage": "Commit message...",
+      "generateCommitMessageFromStaged": "Generate commit message from staged changes"
+    },
+    "releaseNotes": {
+      "releaseNotes": "Release Notes",
+      "unableToLoadReleaseNotes": "Unable to load release notes",
+      "openReleaseNotesInBrowser": "Open Release Notes in Browser",
+      "openInBrowser": "Open in Browser"
+    },
+    "gitLog": {
+      "copyFullSha": "Copy full SHA",
+      "searchCommits": "Search commits...",
+      "searchCommits2": "Search commits",
+      "loadingCommits": "Loading commits...",
+      "noCommitsFound": "No commits found"
+    },
+    "gitDiscard": {
+      "close": "Close",
+      "thisActionCannotBeUndone": "This action cannot be undone."
+    },
+    "gitStaging": {
+      "stageSelected": "Stage selected",
+      "unstageSelected": "Unstage selected",
+      "discardSelected": "Discard selected",
+      "clearSelection": "Clear selection",
+      "unstageAll": "Unstage all",
+      "stageAll": "Stage all",
+      "discardAll": "Discard all",
+      "noChangesDetected": "No changes detected"
+    },
+    "preview": {
+      "filePreviewFailed": "File preview failed",
+      "imagePreviewExpired": "Image preview expired",
+      "clickToTogglePreview": "Click to toggle preview",
+      "binaryDiffIsNotSupported": "Binary diff is not supported here",
+      "imageDiffIsNotSupported": "Image diff is not supported here",
+      "pdfDiffIsNotSupported": "PDF diff is not supported here",
+      "officeDocumentDiffIsNot": "Office document diff is not supported here",
+      "imagePreviewIsUnavailable": "Image preview is unavailable",
+      "pdfPreviewIsUnavailable": "PDF preview is unavailable",
+      "selectAFileFromThe": "Select a file from the file tree to preview"
+    },
+    "merge": {
+      "ours": "Ours",
+      "theirs": "Theirs",
+      "takeOurs": "Take ours",
+      "takeTheirs": "Take theirs",
+      "askAgent": "Ask agent",
+      "thisSideIsMissing": "This side is missing",
+      "selectAConflictedFile": "Select a conflicted file"
+    },
+    "diffCard": {
+      "openDiffInTab": "Open diff in tab"
+    },
+    "attachment": {
+      "previewImage": "Preview image"
+    },
+    "review": {
+      "editCommentTypeToSearch": "Edit comment... (type # to search tags or files)",
+      "saveChanges": "Save changes",
+      "addACommentTypeTo": "Add a comment... (type # to search tags or files)",
+      "addReviewComment": "Add review comment"
+    },
+    "conflictDialog": {
+      "promptTemplate": "Prompt template",
+      "resolveRebaseConflictsWithAi": "Resolve rebase conflicts with AI"
+    },
+    "childConversation": {
+      "feedbackRequested": "Feedback requested"
+    },
+    "rightPanel": {
+      "loadingSession": "Loading session",
+      "preparingTheConversationPanel": "Preparing the conversation panel..."
+    },
+    "projectDetail": {
+      "projectNotFound": "Project not found",
+      "loadingProject": "Loading project...",
+      "backToProjects": "Back to Projects",
+      "projectDetailsAndSettings": "Project details and settings",
+      "viewSessions": "View Sessions",
+      "projectInformation": "Project Information",
+      "technicalInformationAboutThisProject": "Technical information about this project",
+      "projectId": "Project ID",
+      "createdAt": "Created At",
+      "lastModified": "Last Modified"
+    },
+    "logs": {
+      "logsUnavailableForThisWorkspace": "Logs unavailable for this workspace."
+    },
+    "followUpConflict": {
+      "conflictResolutionInstructions": "Conflict resolution instructions"
+    },
+    "diff": {
+      "binaryDiffIsNotSupported": "Binary diff is not supported",
+      "imageDiffIsNotSupported": "Image diff is not supported here",
+      "openThisAssetInA": "Open this asset in a dedicated image diff flow instead.",
+      "loadingDiff": "Loading diff..."
+    },
+    "pluginPreview": {
+      "pluginPreviewUnavailable": "Plugin preview unavailable",
+      "startingPluginPreview": "Starting plugin preview…"
+    },
+    "notes": {
+      "selectAWorkspaceToEdit": "Select a workspace to edit notes."
+    },
+    "workflow": {
+      "workflowRun": "Workflow run"
+    }
   }
 }

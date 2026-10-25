@@ -16,6 +16,7 @@ import {
   userMessageImageFilesystemCandidates,
   type UserMessageImage,
 } from './userMessageImages';
+import i18n from '@/i18n';
 
 function UserMessageImageAttachment({
   image,
@@ -161,7 +162,7 @@ function UserMessageImageAttachment({
       data-expanded={expanded ? 'true' : 'false'}
       onClick={handlePreview}
       disabled={!imageUrl || imageLoadFailed}
-      aria-label="Preview image"
+      aria-label={i18n.t('panels:ui.attachment.previewImage')}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >

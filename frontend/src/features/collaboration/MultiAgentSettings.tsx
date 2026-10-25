@@ -32,6 +32,7 @@ import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionContro
 import { collaborationCall } from './collaborationApi';
 import './collaboration.css';
 import { surfaceErrorCopy } from './spaceModel';
+import i18n from '@/i18n';
 
 type CustomRole = {
   id: string;
@@ -92,7 +93,7 @@ function CustomRoleSessionControls({
   if (!agentId.trim()) {
     return (
       <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
-        请先选择 Agent
+        {i18n.t('panels:ui.multiAgent.chooseAnAgentFirst')}
       </div>
     );
   }
@@ -100,7 +101,7 @@ function CustomRoleSessionControls({
   if (!catalog) {
     return (
       <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
-        默认会话配置
+        {i18n.t('panels:ui.multiAgent.defaultSessionSettings')}
       </div>
     );
   }
@@ -110,7 +111,7 @@ function CustomRoleSessionControls({
   if (!hasModes && !hasOptions) {
     return (
       <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
-        默认会话配置
+        {i18n.t('panels:ui.multiAgent.defaultSessionSettings')}
       </div>
     );
   }
@@ -406,7 +407,7 @@ export function MultiAgentSettings({
       <div className="space-y-2">
         <div className="settings-row">
           <div>
-            <Label>自定义角色</Label>
+            <Label>{i18n.t('panels:ui.multiAgent.customRoles')}</Label>
           </div>
           <Button
             type="button"
@@ -416,7 +417,7 @@ export function MultiAgentSettings({
             onClick={openCreateRoleDialog}
           >
             <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-            新建角色
+            {i18n.t('panels:ui.multiAgent.newRole')}
           </Button>
         </div>
 
@@ -434,7 +435,7 @@ export function MultiAgentSettings({
                 onClick={openCreateRoleDialog}
               >
                 <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                新建角色
+                {i18n.t('panels:ui.multiAgent.newRole')}
               </Button>
             </div>
           ) : (
@@ -459,7 +460,7 @@ export function MultiAgentSettings({
                       <span className="truncate text-xs font-medium text-foreground">
                         {role.name}
                       </span>
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                         {agentLabel}
                       </span>
                       {role.persona_prompt ? (
@@ -474,7 +475,7 @@ export function MultiAgentSettings({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        aria-label={`编辑角色 ${role.name}`}
+                        aria-label={i18n.t('panels:ui.multiAgent.editRoleName', { name: role.name })}
                         onClick={() => openEditRoleDialog(role)}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -484,7 +485,7 @@ export function MultiAgentSettings({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        aria-label={`删除角色 ${role.name}`}
+                        aria-label={i18n.t('panels:ui.multiAgent.deleteRoleName', { name: role.name })}
                         onClick={() => void handleDeleteRole(role.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -516,19 +517,19 @@ export function MultiAgentSettings({
               <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={editingRoleId ? '编辑角色' : '新建角色'}
+                aria-label={editingRoleId ? i18n.t('panels:ui.multiAgent.editRole') : i18n.t('panels:ui.multiAgent.newRole')}
                 className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[440px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h3 className="text-[14px] font-semibold text-foreground">
-                    {editingRoleId ? '编辑角色' : '新建角色'}
+                    {editingRoleId ? i18n.t('panels:ui.multiAgent.editRole') : i18n.t('panels:ui.multiAgent.newRole')}
                   </h3>
                   <Button
                     type="button"
                     variant="icon"
                     size="icon"
                     className="collaboration-expand h-7 w-7"
-                    aria-label="Close"
+                    aria-label={t('panels:tabCreation.close', '关闭')}
                     onClick={() => setRoleDialogOpen(false)}
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
@@ -543,13 +544,13 @@ export function MultiAgentSettings({
                   }}
                 >
                   <div className="space-y-1.5">
-                    <Label htmlFor="custom-role-name-input">角色名称</Label>
+                    <Label htmlFor="custom-role-name-input">{i18n.t('panels:ui.multiAgent.roleName')}</Label>
                     <Input
                       id="custom-role-name-input"
-                      aria-label="角色名称"
+                      aria-label={i18n.t('panels:ui.multiAgent.roleName')}
                       value={roleName}
                       onChange={(event) => setRoleName(event.target.value)}
-                      placeholder="前端工程师"
+                      placeholder={i18n.t('panels:ui.multiAgent.frontendEngineer')}
                       className="h-8 px-2.5 text-[13px]"
                       autoFocus
                     />
@@ -563,7 +564,7 @@ export function MultiAgentSettings({
                           type="button"
                           variant="outline"
                           role="combobox"
-                          aria-label="选择角色 Agent"
+                          aria-label={i18n.t('panels:ui.multiAgent.chooseRoleAgent')}
                           data-value={roleAgentId}
                           className="custom-role-agent-trigger raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
                         >
@@ -577,7 +578,7 @@ export function MultiAgentSettings({
                               />
                             ) : null}
                             <span className="truncate">
-                              {selectedRoleAgentLabel || '选择 Agent'}
+                              {selectedRoleAgentLabel || i18n.t('panels:ui.multiAgent.chooseAgent')}
                             </span>
                           </span>
                           <ChevronDown
@@ -628,7 +629,7 @@ export function MultiAgentSettings({
                     className="space-y-1.5"
                     data-testid="custom-role-session-config"
                   >
-                    <Label>会话配置</Label>
+                    <Label>{i18n.t('panels:ui.multiAgent.sessionSettings')}</Label>
                     <CustomRoleSessionControls
                       agentId={roleAgentId}
                       modeId={roleModeId}
@@ -640,13 +641,13 @@ export function MultiAgentSettings({
 
                   <div className="space-y-1.5">
                     <Label htmlFor="custom-role-persona-input">
-                      人设提示词（可选）
+                      {i18n.t('panels:ui.multiAgent.personaPromptOptional')}
                     </Label>
                     <Textarea
                       ref={personaTextareaRef}
                       id="custom-role-persona-input"
-                      aria-label="人设提示词（可选）"
-                      placeholder="人设提示词（可选）"
+                      aria-label={i18n.t('panels:ui.multiAgent.personaPromptOptional')}
+                      placeholder={i18n.t('panels:ui.multiAgent.personaPromptOptional')}
                       rows={3}
                       value={rolePersonaPrompt}
                       onChange={(event) =>
@@ -667,7 +668,7 @@ export function MultiAgentSettings({
                       size="sm"
                       onClick={() => setRoleDialogOpen(false)}
                     >
-                      取消
+                      {i18n.t('panels:ui.multiAgent.cancel')}
                     </Button>
                     <Button
                       type="submit"
@@ -677,7 +678,7 @@ export function MultiAgentSettings({
                         !roleName.trim() || !roleAgentId || isSavingRole
                       }
                     >
-                      {editingRoleId ? '保存' : '新建角色'}
+                      {editingRoleId ? i18n.t('panels:ui.multiAgent.save') : i18n.t('panels:ui.multiAgent.newRole')}
                     </Button>
                   </div>
                 </form>

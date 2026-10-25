@@ -19,6 +19,7 @@ import { useBackendTransport } from '@/lib/transport';
 import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const TERMINAL_RUN_STATUSES = new Set([
   'completed',
@@ -99,7 +100,7 @@ export function WorkflowInspectorView({
         ) : null}
         <div className="min-w-0 flex-1">
           <span className="text-xs font-medium text-muted-foreground">
-            Workflow run
+            {i18n.t('panels:ui.workflow.workflowRun')}
           </span>
           <span className="ml-2 font-mono text-[10px] text-muted-foreground">
             {run.id.slice(0, 8)} · {run.status}

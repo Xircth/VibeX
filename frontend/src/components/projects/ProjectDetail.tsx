@@ -28,6 +28,7 @@ import {
   Loader2,
   Trash2,
 } from 'lucide-react';
+import i18n from '@/i18n';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -72,7 +73,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Loading project...
+        {i18n.t('panels:ui.projectDetail.loadingProject')}
       </div>
     );
   }
@@ -86,17 +87,17 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
       <div className="space-y-4 px-4 py-12">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Projects
+          {i18n.t('panels:ui.projectDetail.backToProjects')}
         </Button>
         <Card>
           <CardContent className="py-12 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
               <AlertCircle className="h-6 w-6 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">Project not found</h3>
+            <h3 className="mt-4 text-lg font-semibold">{i18n.t('panels:ui.projectDetail.projectNotFound')}</h3>
             <p className="mt-2 text-sm text-muted-foreground">{errorMsg}</p>
             <Button className="mt-4" onClick={onBack}>
-              Back to Projects
+              {i18n.t('panels:ui.projectDetail.backToProjects')}
             </Button>
           </CardContent>
         </Card>
@@ -110,14 +111,14 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         <div className="flex items-center space-x-4">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Projects
+            {i18n.t('panels:ui.projectDetail.backToProjects')}
           </Button>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{project.name}</h1>
             </div>
             <p className="text-sm text-muted-foreground">
-              Project details and settings
+              {i18n.t('panels:ui.projectDetail.projectDetailsAndSettings')}
             </p>
           </div>
         </div>
@@ -126,7 +127,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             onClick={() => navigate(`/local-projects/${projectId}/sessions`)}
           >
             <CheckSquare className="mr-2 h-4 w-4" />
-            View Sessions
+            {i18n.t('panels:ui.projectDetail.viewSessions')}
           </Button>
           {!project.is_git ? (
             <Button
@@ -152,7 +153,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
           <CardHeader>
             <CardTitle className="flex items-center">
               <Calendar className="mr-2 h-5 w-5" />
-              Project Information
+              {i18n.t('panels:ui.projectDetail.projectInformation')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -185,13 +186,13 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
           <CardHeader>
             <CardTitle>Project Details</CardTitle>
             <CardDescription>
-              Technical information about this project
+              {i18n.t('panels:ui.projectDetail.technicalInformationAboutThisProject')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
               <h4 className="text-sm font-medium text-muted-foreground">
-                Project ID
+                {i18n.t('panels:ui.projectDetail.projectId')}
               </h4>
               <code className="mt-1 block rounded bg-muted p-2 font-mono text-xs">
                 {project.id}
@@ -199,7 +200,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             </div>
             <div>
               <h4 className="text-sm font-medium text-muted-foreground">
-                Created At
+                {i18n.t('panels:ui.projectDetail.createdAt')}
               </h4>
               <p className="mt-1 text-sm">
                 {new Date(project.created_at).toLocaleString()}
@@ -207,7 +208,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             </div>
             <div>
               <h4 className="text-sm font-medium text-muted-foreground">
-                Last Modified
+                {i18n.t('panels:ui.projectDetail.lastModified')}
               </h4>
               <p className="mt-1 text-sm">
                 {new Date(project.updated_at).toLocaleString()}

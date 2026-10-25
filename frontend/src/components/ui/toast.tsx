@@ -115,8 +115,55 @@ function resumeToast(id: ToastId) {
   if (item) scheduleToast(item);
 }
 
+const MAX_VISIBLE_TOASTS = 3;
+
+/**
+ * Keep at most MAX_VISIBLE_TOASTS. Errors are the last to go: the oldest
+ * non-error toast is evicted first, so a burst of success/info toasts can
+ * never push an unread error off the stack.
+ */
+function evictOverflow(items: ToastItem[]): ToastItem[] {
+  const next = [...items];
+  while (next.length > MAX_VISIBLE_TOASTS) {
+    let index = next.findIndex((candidate) => candidate.kind !== 'error');
+    if (index < 0 || index === next.length - 1) index = 0;
+    const [removed] = next.splice(index, 1);
+    clearToastTimer(removed.id);
+  }
+  return next;
+}
+
+const TECHNICAL_SUFFIX =
+  /^(?:os error \d+|E[A-Z]{2,}(?:[:\s].*)?|[A-Za-z]:\\.*|\/.+|.*[\\/].*\.[A-Za-z0-9]+)$/;
+
+/**
+ * Errors and warnings often end with a technical parenthetical such as
+ * "(os error 32)" or a file path. Move it out of the title into details so the
+ * headline stays readable; ordinary parentheticals stay in the title.
+ */
+function splitTechnicalSuffix(
+  kind: ToastKind,
+  message: ReactNode
+): { title: ReactNode; suffix: string | null } {
+  if ((kind !== 'error' && kind !== 'warning') || typeof message !== 'string') {
+    return { title: message, suffix: null };
+  }
+  const match = /^(.*?)\s*[(（]([^()（）]+)[)）]\s*$/s.exec(message);
+  if (!match || !match[1].trim()) return { title: message, suffix: null };
+  const inner = match[2].trim();
+  if (!TECHNICAL_SUFFIX.test(inner)) return { title: message, suffix: null };
+  return { title: match[1].trim(), suffix: inner };
+}
+
 function fallbackTitle(kind: ToastKind): string {
-  return i18n.t(`app:toast.${kind}Title`);
+  const fallback: Record<ToastKind, string> = {
+    success: 'Done',
+    info: 'Notice',
+    warning: 'Warning',
+    error: 'Something went wrong',
+    loading: 'Working…',
+  };
+  return i18n.t(`app:toast.${kind}Title`, { defaultValue: fallback[kind] });
 }
 
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
@@ -144,7 +191,7 @@ function ToastStatusIcon({ kind }: { kind: ToastKind }) {
 function ToastCard({
   id,
   kind,
-  message,
+  message: rawMessage,
   options,
   duration,
 }: {
@@ -156,10 +203,15 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const hasDescription = options.description != null;
-  const title = hasDescription ? message : fallbackTitle(kind);
-  const summary = hasDescription ? options.description : message;
-  const hasDetails = Boolean(options.details?.length);
+  const { title: message, suffix } = splitTechnicalSuffix(kind, rawMessage);
+  const details: ToastDetail[] = [
+    ...(suffix ? [{ description: suffix, mono: true }] : []),
+    ...(options.description != null
+      ? [{ description: options.description }]
+      : []),
+    ...(options.details ?? []),
+  ];
+  const hasDetails = details.length > 0;
   const showClose = options.closeButton !== false && kind !== 'loading';
 
   const runAction =
@@ -192,7 +244,7 @@ function ToastCard({
       ? Math.min(1, Math.max(0, options.progress))
       : null;
   const layout =
-    hasDescription || hasDetails || hasActions || progress != null
+    hasDetails || hasActions || progress != null
       ? 'card'
       : 'capsule';
   const countdown =
@@ -221,18 +273,28 @@ function ToastCard({
           <ToastStatusIcon kind={kind} />
         </span>
         <div className="vu-toast-copy">
-          {layout === 'capsule' ? (
-            <>
-              <span className="vu-toast-sr-only">{fallbackTitle(kind)}</span>
-              <div className="vu-toast-title">{message}</div>
-            </>
-          ) : (
-            <>
-              <div className="vu-toast-title">{title}</div>
-              <div className="vu-toast-summary">{summary}</div>
-            </>
-          )}
+          <span className="vu-toast-sr-only">{fallbackTitle(kind)}</span>
+          <div className="vu-toast-title">{message}</div>
         </div>
+        {hasDetails ? (
+          <button
+            type="button"
+            className="vu-toast-disclosure vu-toast-disclosure-inline"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={toggleDetails}
+          >
+            <span>
+              {expanded
+                ? i18n.t('app:toast.hideDetails')
+                : (options.detailsLabel ?? i18n.t('app:toast.showDetails'))}
+            </span>
+            <ChevronDown
+              className={expanded ? 'is-expanded' : undefined}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
         {showClose ? (
           <button
             type="button"
@@ -278,43 +340,26 @@ function ToastCard({
         </div>
       ) : null}
 
-      {hasDetails ? (
+      {hasDetails && expanded ? (
         <div className="vu-toast-details-section">
-          <button
-            type="button"
-            className="vu-toast-disclosure"
-            aria-expanded={expanded}
-            aria-controls={detailsId}
-            onClick={toggleDetails}
-          >
-            <span>
-              {options.detailsLabel ?? i18n.t('app:toast.showDetails')}
-            </span>
-            <ChevronDown
-              className={expanded ? 'is-expanded' : undefined}
-              aria-hidden="true"
-            />
-          </button>
-          {expanded ? (
-            <div id={detailsId} className="vu-toast-details">
-              {options.details?.map((detail, index) => (
-                <div className="vu-toast-detail-row" key={index}>
-                  {detail.title ? (
-                    <div className="vu-toast-detail-title">{detail.title}</div>
-                  ) : null}
-                  <div
-                    className={
-                      detail.mono
-                        ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
-                        : 'vu-toast-detail-copy'
-                    }
-                  >
-                    {detail.description}
-                  </div>
+          <div id={detailsId} className="vu-toast-details">
+            {details.map((detail, index) => (
+              <div className="vu-toast-detail-row" key={index}>
+                {detail.title ? (
+                  <div className="vu-toast-detail-title">{detail.title}</div>
+                ) : null}
+                <div
+                  className={
+                    detail.mono
+                      ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
+                      : 'vu-toast-detail-copy'
+                  }
+                >
+                  {detail.description}
                 </div>
-              ))}
-            </div>
-          ) : null}
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -363,10 +408,7 @@ function showToast(
       candidate.id === id ? item : candidate
     );
   } else {
-    const next = [...toastItems, item];
-    const removed = next.slice(0, Math.max(0, next.length - 3));
-    removed.forEach((candidate) => clearToastTimer(candidate.id));
-    toastItems = next.slice(-3);
+    toastItems = evictOverflow([...toastItems, item]);
   }
 
   emitChange();

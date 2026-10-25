@@ -112,14 +112,14 @@ describe('BranchInfoHeader', () => {
     render(<BranchInfoHeader />);
 
     const toolbar = screen.getByRole('toolbar', {
-      name: 'Git workspace controls',
+      name: 'Git 工作区控制',
     });
     const glass = screen.getByTestId('liquid-glass');
 
     expect(glass).toHaveAttribute('data-corner-radius', '12');
     expect(glass).toHaveAttribute('data-mode', 'prominent');
     expect(glass).toContainElement(toolbar);
-    expect(screen.getByRole('button', { name: 'Git Actions' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Git 操作' })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Rebase' })
     ).not.toBeInTheDocument();
@@ -155,7 +155,7 @@ describe('BranchInfoHeader', () => {
     render(<BranchInfoHeader />);
 
     expect(
-      screen.queryByRole('toolbar', { name: 'Git workspace controls' })
+      screen.queryByRole('toolbar', { name: 'Git 工作区控制' })
     ).not.toBeInTheDocument();
     expect(screen.queryByText('Git Actions')).not.toBeInTheDocument();
   });

@@ -7,6 +7,7 @@ import {
   MemberBotAvatar,
   readMemberBotAvatars,
 } from './MemberBotAvatar';
+import i18n from '@/i18n';
 
 export function CollaborationSessionBadge({
   memberName,
@@ -34,7 +35,7 @@ export function CollaborationSessionBadge({
     <button
       type="button"
       data-testid="collaboration-session-badge"
-      aria-label={`打开助手 ${memberName}`}
+      aria-label={i18n.t('panels:ui.collab.openBotMembername', { memberName: memberName })}
       className={cn(
         'inline-flex min-w-0 max-w-[7rem] shrink-0 items-center gap-1',
         className

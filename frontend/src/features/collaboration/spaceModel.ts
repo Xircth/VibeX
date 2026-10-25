@@ -1,81 +1,236 @@
+import i18n from '@/i18n';
 export const COPY = {
-  emptyRoles: '还没有角色',
-  newRole: '新建角色',
-  emptyTeams: '还没有团队',
-  newTeam: '新建团队',
-  emptySpaces: '还没有协作空间',
-  newSpace: '创建群聊',
-  newSpaceButton: '创建群聊',
-  createMenu: '创建',
-  spaceName: '群聊名称',
-  newMemberButton: '新建助手',
-  createAssistantButton: '创建助手',
-  createContactGroupButton: '新建分组',
-  defaultContactGroupName: '新分组',
-  newMemberFromSessionButton: '从会话新建助手',
-  defaultSpaceName: '默认空间',
-  unassignedSpaceName: '未定空间',
-  noMemberSessions: '暂无助手会话',
-  memberNameLabel: '助手名称',
-  memberSourceLabel: '创建方式',
-  memberSourceRole: '基于角色',
-  memberSourceSession: '基于会话',
-  memberSourceCustom: '自定义',
-  chooseRole: '选择角色',
-  chooseAgent: '选择 Agent',
-  personaPromptLabel: '人设提示词（可选）',
-  teamLabel: '归属团队（可选）',
-  noTeam: '不属于任何团队',
-  spaceMembersLabel: '群聊成员',
-  spaceTagLabel: '颜色标签',
-  memberSessionsGroup: '可选助手',
-  otherSessionsGroup: '非助手会话',
-  addMember: '加入助手',
-  addSpaceMember: '添加成员',
-  removeSpaceMember: '移除',
-  groupDetailsButton: '群组详情',
-  groupDetailsTab: '详情',
-  groupCollectionTab: '群收藏',
-  groupMembersTab: '成员',
-  assistantDetailsButton: '助手详情',
-  assistantDetailsTab: '详情',
-  assistantCollectionTab: '收藏',
-  assistantCustomizeTab: '自定义',
-  saveAssistant: '保存',
-  tokenOverview: 'Token 概览',
-  totalTokens: '总 Token',
-  unlabeledModel: '未标记模型',
-  renameMember: '修改昵称',
-  chooseConversation: '选择会话',
-  globalSearchPlaceholder: '搜索',
-  filterLabel: '筛选',
-  filterByName: '按名称',
-  filterByType: '按类型',
-  filterTypeGroup: '群聊',
-  filterTypeAssistant: '助手',
-  filterByActiveTime: '按活跃时间',
-  batchDeleteLabel: '批量删除',
-  emptyMessages: '还没有消息',
-  previewEmpty: '暂无助手会话',
-  noSession: '没有会话',
-  backToSession: '返回会话',
-  attachmentsUnsupported: '空间消息只发送文字',
-  deleteRole: '删除后，已创建的会话仍保留。',
-  openWorkspace: '在工作区打开',
-  you: '你',
-  notAMember: '不在这个空间',
-  nicknameMissing: '昵称不存在',
-  nicknameTaken: '昵称已被使用',
-  openWorkspaceFirst: '先打开一个工作区',
-  emptyAgents: '还没有已启用的 Agent',
-  controlsUnavailable: '暂不可用',
-  noneDelivered: '没有送达',
-  partialDelivered: '部分助手没有送达',
-  receiptQueued: '已收到',
-  receiptClaimed: '已收到',
-  receiptFailed: '失败',
-  requestFailed: '请求失败',
-  rangeError: '深度 1–8，缓存不少于 0，查询窗口 1–90，延时上限 1–168。',
+  get emptyRoles() {
+    return i18n.t('panels:collabCopy.emptyRoles');
+  },
+  get newRole() {
+    return i18n.t('panels:collabCopy.newRole');
+  },
+  get emptyTeams() {
+    return i18n.t('panels:collabCopy.emptyTeams');
+  },
+  get newTeam() {
+    return i18n.t('panels:collabCopy.newTeam');
+  },
+  get emptySpaces() {
+    return i18n.t('panels:collabCopy.emptySpaces');
+  },
+  get newSpace() {
+    return i18n.t('panels:collabCopy.newSpace');
+  },
+  get newSpaceButton() {
+    return i18n.t('panels:collabCopy.newSpaceButton');
+  },
+  get createMenu() {
+    return i18n.t('panels:collabCopy.createMenu');
+  },
+  get spaceName() {
+    return i18n.t('panels:collabCopy.spaceName');
+  },
+  get newMemberButton() {
+    return i18n.t('panels:collabCopy.newMemberButton');
+  },
+  get createAssistantButton() {
+    return i18n.t('panels:collabCopy.createAssistantButton');
+  },
+  get createContactGroupButton() {
+    return i18n.t('panels:collabCopy.createContactGroupButton');
+  },
+  get defaultContactGroupName() {
+    return i18n.t('panels:collabCopy.defaultContactGroupName');
+  },
+  get newMemberFromSessionButton() {
+    return i18n.t('panels:collabCopy.newMemberFromSessionButton');
+  },
+  get defaultSpaceName() {
+    return i18n.t('panels:collabCopy.defaultSpaceName');
+  },
+  get unassignedSpaceName() {
+    return i18n.t('panels:collabCopy.unassignedSpaceName');
+  },
+  get noMemberSessions() {
+    return i18n.t('panels:collabCopy.noMemberSessions');
+  },
+  get memberNameLabel() {
+    return i18n.t('panels:collabCopy.memberNameLabel');
+  },
+  get memberSourceLabel() {
+    return i18n.t('panels:collabCopy.memberSourceLabel');
+  },
+  get memberSourceRole() {
+    return i18n.t('panels:collabCopy.memberSourceRole');
+  },
+  get memberSourceSession() {
+    return i18n.t('panels:collabCopy.memberSourceSession');
+  },
+  get memberSourceCustom() {
+    return i18n.t('panels:collabCopy.memberSourceCustom');
+  },
+  get chooseRole() {
+    return i18n.t('panels:collabCopy.chooseRole');
+  },
+  get chooseAgent() {
+    return i18n.t('panels:collabCopy.chooseAgent');
+  },
+  get personaPromptLabel() {
+    return i18n.t('panels:collabCopy.personaPromptLabel');
+  },
+  get teamLabel() {
+    return i18n.t('panels:collabCopy.teamLabel');
+  },
+  get noTeam() {
+    return i18n.t('panels:collabCopy.noTeam');
+  },
+  get spaceMembersLabel() {
+    return i18n.t('panels:collabCopy.spaceMembersLabel');
+  },
+  get spaceTagLabel() {
+    return i18n.t('panels:collabCopy.spaceTagLabel');
+  },
+  get memberSessionsGroup() {
+    return i18n.t('panels:collabCopy.memberSessionsGroup');
+  },
+  get otherSessionsGroup() {
+    return i18n.t('panels:collabCopy.otherSessionsGroup');
+  },
+  get addMember() {
+    return i18n.t('panels:collabCopy.addMember');
+  },
+  get addSpaceMember() {
+    return i18n.t('panels:collabCopy.addSpaceMember');
+  },
+  get removeSpaceMember() {
+    return i18n.t('panels:collabCopy.removeSpaceMember');
+  },
+  get groupDetailsButton() {
+    return i18n.t('panels:collabCopy.groupDetailsButton');
+  },
+  get groupDetailsTab() {
+    return i18n.t('panels:collabCopy.groupDetailsTab');
+  },
+  get groupCollectionTab() {
+    return i18n.t('panels:collabCopy.groupCollectionTab');
+  },
+  get groupMembersTab() {
+    return i18n.t('panels:collabCopy.groupMembersTab');
+  },
+  get assistantDetailsButton() {
+    return i18n.t('panels:collabCopy.assistantDetailsButton');
+  },
+  get assistantDetailsTab() {
+    return i18n.t('panels:collabCopy.assistantDetailsTab');
+  },
+  get assistantCollectionTab() {
+    return i18n.t('panels:collabCopy.assistantCollectionTab');
+  },
+  get assistantCustomizeTab() {
+    return i18n.t('panels:collabCopy.assistantCustomizeTab');
+  },
+  get saveAssistant() {
+    return i18n.t('panels:collabCopy.saveAssistant');
+  },
+  get tokenOverview() {
+    return i18n.t('panels:collabCopy.tokenOverview');
+  },
+  get totalTokens() {
+    return i18n.t('panels:collabCopy.totalTokens');
+  },
+  get unlabeledModel() {
+    return i18n.t('panels:collabCopy.unlabeledModel');
+  },
+  get renameMember() {
+    return i18n.t('panels:collabCopy.renameMember');
+  },
+  get chooseConversation() {
+    return i18n.t('panels:collabCopy.chooseConversation');
+  },
+  get globalSearchPlaceholder() {
+    return i18n.t('panels:collabCopy.globalSearchPlaceholder');
+  },
+  get filterLabel() {
+    return i18n.t('panels:collabCopy.filterLabel');
+  },
+  get filterByName() {
+    return i18n.t('panels:collabCopy.filterByName');
+  },
+  get filterByType() {
+    return i18n.t('panels:collabCopy.filterByType');
+  },
+  get filterTypeGroup() {
+    return i18n.t('panels:collabCopy.filterTypeGroup');
+  },
+  get filterTypeAssistant() {
+    return i18n.t('panels:collabCopy.filterTypeAssistant');
+  },
+  get filterByActiveTime() {
+    return i18n.t('panels:collabCopy.filterByActiveTime');
+  },
+  get batchDeleteLabel() {
+    return i18n.t('panels:collabCopy.batchDeleteLabel');
+  },
+  get emptyMessages() {
+    return i18n.t('panels:collabCopy.emptyMessages');
+  },
+  get previewEmpty() {
+    return i18n.t('panels:collabCopy.previewEmpty');
+  },
+  get noSession() {
+    return i18n.t('panels:collabCopy.noSession');
+  },
+  get backToSession() {
+    return i18n.t('panels:collabCopy.backToSession');
+  },
+  get attachmentsUnsupported() {
+    return i18n.t('panels:collabCopy.attachmentsUnsupported');
+  },
+  get deleteRole() {
+    return i18n.t('panels:collabCopy.deleteRole');
+  },
+  get openWorkspace() {
+    return i18n.t('panels:collabCopy.openWorkspace');
+  },
+  get you() {
+    return i18n.t('panels:collabCopy.you');
+  },
+  get notAMember() {
+    return i18n.t('panels:collabCopy.notAMember');
+  },
+  get nicknameMissing() {
+    return i18n.t('panels:collabCopy.nicknameMissing');
+  },
+  get nicknameTaken() {
+    return i18n.t('panels:collabCopy.nicknameTaken');
+  },
+  get openWorkspaceFirst() {
+    return i18n.t('panels:collabCopy.openWorkspaceFirst');
+  },
+  get emptyAgents() {
+    return i18n.t('panels:collabCopy.emptyAgents');
+  },
+  get controlsUnavailable() {
+    return i18n.t('panels:collabCopy.controlsUnavailable');
+  },
+  get noneDelivered() {
+    return i18n.t('panels:collabCopy.noneDelivered');
+  },
+  get partialDelivered() {
+    return i18n.t('panels:collabCopy.partialDelivered');
+  },
+  get receiptQueued() {
+    return i18n.t('panels:collabCopy.receiptQueued');
+  },
+  get receiptClaimed() {
+    return i18n.t('panels:collabCopy.receiptClaimed');
+  },
+  get receiptFailed() {
+    return i18n.t('panels:collabCopy.receiptFailed');
+  },
+  get requestFailed() {
+    return i18n.t('panels:collabCopy.requestFailed');
+  },
+  get rangeError() {
+    return i18n.t('panels:collabCopy.rangeError');
+  },
 } as const;
 
 export const VIRTUAL_DEFAULT_SPACE_ID = '__default_space__';
@@ -212,12 +367,12 @@ export type SpaceTagPreset = {
 };
 
 export const SPACE_TAG_PRESETS: readonly SpaceTagPreset[] = [
-  { id: 'blue', label: '蓝色', hue: '214 88% 56%' },
-  { id: 'emerald', label: '绿色', hue: '152 68% 42%' },
-  { id: 'amber', label: '琥珀', hue: '38 92% 50%' },
-  { id: 'violet', label: '紫色', hue: '262 76% 58%' },
-  { id: 'rose', label: '玫红', hue: '346 78% 56%' },
-  { id: 'cyan', label: '青色', hue: '192 82% 44%' },
+  { id: 'blue', get label() { return i18n.t('panels:spaceTag.blue'); }, hue: '214 88% 56%' },
+  { id: 'emerald', get label() { return i18n.t('panels:spaceTag.emerald'); }, hue: '152 68% 42%' },
+  { id: 'amber', get label() { return i18n.t('panels:spaceTag.amber'); }, hue: '38 92% 50%' },
+  { id: 'violet', get label() { return i18n.t('panels:spaceTag.violet'); }, hue: '262 76% 58%' },
+  { id: 'rose', get label() { return i18n.t('panels:spaceTag.rose'); }, hue: '346 78% 56%' },
+  { id: 'cyan', get label() { return i18n.t('panels:spaceTag.cyan'); }, hue: '192 82% 44%' },
 ] as const;
 
 export type SpaceTagConfig = {

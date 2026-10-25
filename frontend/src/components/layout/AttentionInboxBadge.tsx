@@ -137,7 +137,7 @@ function AttentionItemRow({
             {relativeTime(item.happenedAtMs)}
           </span>
         </span>
-        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             className={cn(
               presentation.tone === 'blocking' && 'text-warning',
@@ -150,7 +150,7 @@ function AttentionItemRow({
           <span className="truncate">{item.projectName}</span>
         </span>
         {item.detail ? (
-          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/80">
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground/80">
             {item.detail}
           </span>
         ) : null}

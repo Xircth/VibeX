@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, useOpenSettings } from '@/lib/api';
@@ -572,7 +573,7 @@ export function WorkspaceBranchControls({
     <div
       className="flex min-w-0 shrink-0 items-center gap-2"
       role="group"
-      aria-label="Workspace and target branches"
+      aria-label={i18n.t('panels:shellA11y.workspaceBranches', { defaultValue: 'Workspace and target branches' })}
     >
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
       {isWorkspaceTab && isGitProject ? <WorktreeSelector /> : null}
@@ -1123,7 +1124,7 @@ export function Toolbar() {
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={handleCreateSession}
-                      aria-label="Create new session"
+                      aria-label={t('workspaceSessionList.newSession', 'New session')}
                       data-basic-guide="toolbar-new-session"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -1148,7 +1149,7 @@ export function Toolbar() {
                   size="icon"
                   className="workspace-toolbar-button h-7 w-7"
                   onClick={handleOpenSettings}
-                  aria-label="Settings"
+                  aria-label={t('shellA11y.settings', 'Settings')}
                   data-basic-guide="open-settings"
                 >
                   <Settings className="h-3.5 w-3.5" />

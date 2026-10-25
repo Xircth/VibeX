@@ -9,6 +9,7 @@ import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 import { useOptionMenuPlacement } from '@/components/ui/option-menu-position';
+import i18n from '@/i18n';
 
 export { getMenuPosition } from '@/components/ui/option-menu-position';
 
@@ -292,7 +293,7 @@ export function AstryxSelect({
           <span
             role="button"
             tabIndex={disabled ? -1 : 0}
-            aria-label={ariaLabel ? `${ariaLabel}（清除）` : '清除'}
+            aria-label={ariaLabel ? i18n.t('panels:ui.select.arialabelClear', { ariaLabel: ariaLabel }) : i18n.t('panels:ui.select.clear')}
             className="astryx-select-clear"
             onClick={(event) => {
               event.stopPropagation();

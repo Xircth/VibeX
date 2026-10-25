@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import i18n from '@/i18n';
 import { useOpenSettings } from '@/lib/api';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -143,7 +144,7 @@ export function Navbar() {
                 <Button
                   variant="outline"
                   className="ml-3 h-8 w-44 justify-between gap-2 px-3 sm:w-64"
-                  aria-label="Select project"
+                  aria-label={i18n.t('panels:ui.navbar.selectProject')}
                 >
                   <span className="truncate text-sm font-medium">
                     {project?.name ?? 'Select project'}
@@ -163,7 +164,7 @@ export function Navbar() {
                     </DropdownMenuItem>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled>No projects</DropdownMenuItem>
+                  <DropdownMenuItem disabled>{i18n.t('panels:ui.navbar.noProjects')}</DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -190,7 +191,7 @@ export function Navbar() {
                     size="icon"
                     className="h-9 w-9"
                     onClick={handleCreateSession}
-                    aria-label="Create new session"
+                    aria-label={i18n.t('panels:workspaceSessionList.newSession', { defaultValue: 'New session' })}
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -210,7 +211,7 @@ export function Navbar() {
                 variant="ghost"
                 size="icon"
                 className="h-9 w-9"
-                aria-label="Settings"
+                aria-label={i18n.t('panels:shellA11y.settings', { defaultValue: 'Settings' })}
                 onClick={openSettings}
               >
                 <Settings className="h-4 w-4" />
@@ -222,7 +223,7 @@ export function Navbar() {
                     variant="ghost"
                     size="icon"
                     className="h-9 w-9"
-                    aria-label="Main navigation"
+                    aria-label={i18n.t('panels:ui.navbar.mainNavigation')}
                   >
                     <Menu className="h-4 w-4" />
                   </Button>

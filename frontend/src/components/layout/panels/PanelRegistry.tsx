@@ -18,6 +18,7 @@ import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+import { builtinPanelTitle } from '@/lib/builtinPanelTitles';
 
 export { WorkspaceDockviewTab } from './WorkspaceDockviewTab';
 
@@ -181,21 +182,27 @@ export const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
 export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
   {
     id: PANEL_IDS.KANBAN,
-    title: 'Kanban',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.KANBAN);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.KANBAN],
   },
   {
     id: PANEL_IDS.FILE_TREE,
-    title: 'File Explorer',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.FILE_TREE);
+    },
     zone: 'left',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.FILE_TREE],
   },
   {
     id: PANEL_IDS.PREVIEW,
-    title: 'Preview',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.PREVIEW);
+    },
     zone: 'editor',
     builtin: true,
     multiInstance: true,
@@ -203,14 +210,18 @@ export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
   },
   {
     id: PANEL_IDS.DIFFS,
-    title: 'Diffs',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.DIFFS);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.DIFFS],
   },
   {
     id: PANEL_IDS.TERMINAL,
-    title: 'Terminal',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.TERMINAL);
+    },
     zone: 'bottom',
     builtin: true,
     multiInstance: true,
@@ -218,70 +229,90 @@ export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
   },
   {
     id: PANEL_IDS.AI_CHAT,
-    title: 'AI Chat',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.AI_CHAT);
+    },
     zone: 'session',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.AI_CHAT],
   },
   {
     id: PANEL_IDS.GIT,
-    title: 'Git',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.GIT);
+    },
     zone: 'left',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.GIT],
   },
   {
     id: PANEL_IDS.MERGE,
-    title: 'Merge',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.MERGE);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.MERGE],
   },
   {
     id: PANEL_IDS.WELCOME,
-    title: 'Welcome',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.WELCOME);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.WELCOME],
   },
   {
     id: PANEL_IDS.LOGS,
-    title: 'Logs',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.LOGS);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.LOGS],
   },
   {
     id: PANEL_IDS.NOTES,
-    title: 'Notes',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.NOTES);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.NOTES],
   },
   {
     id: PANEL_IDS.SESSION_DETAILS,
-    title: 'Session Details',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.SESSION_DETAILS);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_DETAILS],
   },
   {
     id: PANEL_IDS.PROCESSES,
-    title: 'Processes',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.PROCESSES);
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.PROCESSES],
   },
   {
     id: PANEL_IDS.SEARCH,
-    title: 'Search',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.SEARCH);
+    },
     zone: 'left',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.SEARCH],
   },
   {
     id: PANEL_IDS.SESSION_LIST,
-    title: 'Session List',
+    get title() {
+      return builtinPanelTitle(PANEL_IDS.SESSION_LIST);
+    },
     zone: 'left',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_LIST],
@@ -422,11 +453,11 @@ export function usePanelMeta(): PanelMeta[] {
       title: t('panelRegistry.fileExplorer'),
       defaultPosition: 'left',
     },
-    { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
-    { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
-    { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
-    { id: PANEL_IDS.MERGE, title: 'Merge', defaultPosition: 'center' },
-    { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },
+    { id: PANEL_IDS.KANBAN, title: builtinPanelTitle(PANEL_IDS.KANBAN), defaultPosition: 'center' },
+    { id: PANEL_IDS.PREVIEW, title: builtinPanelTitle(PANEL_IDS.PREVIEW), defaultPosition: 'center' },
+    { id: PANEL_IDS.DIFFS, title: builtinPanelTitle(PANEL_IDS.DIFFS), defaultPosition: 'center' },
+    { id: PANEL_IDS.MERGE, title: builtinPanelTitle(PANEL_IDS.MERGE), defaultPosition: 'center' },
+    { id: PANEL_IDS.TERMINAL, title: builtinPanelTitle(PANEL_IDS.TERMINAL), defaultPosition: 'bottom' },
     {
       id: PANEL_IDS.GIT,
       title: t('panelRegistry.gitManager'),
@@ -437,7 +468,7 @@ export function usePanelMeta(): PanelMeta[] {
       title: t('panelRegistry.welcome'),
       defaultPosition: 'center',
     },
-    { id: PANEL_IDS.LOGS, title: 'Logs', defaultPosition: 'center' },
+    { id: PANEL_IDS.LOGS, title: builtinPanelTitle(PANEL_IDS.LOGS), defaultPosition: 'center' },
     {
       id: PANEL_IDS.NOTES,
       title: t('panelRegistry.notes'),

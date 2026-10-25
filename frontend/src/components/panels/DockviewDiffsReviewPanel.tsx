@@ -30,6 +30,7 @@ import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
 import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import i18n from '@/i18n';
 
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
 
@@ -506,7 +507,7 @@ function DockviewDiffsReviewPanel() {
                     onClick={() =>
                       navigator.clipboard.writeText(commitInfo.sha)
                     }
-                    title="Copy full SHA"
+                    title={i18n.t('panels:ui.diffsReview.copyFullSha')}
                   >
                     {commitInfo.sha.slice(0, 12)}
                   </button>

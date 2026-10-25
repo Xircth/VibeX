@@ -13,6 +13,7 @@ import {
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { UNGROUPED_SECTION_ID } from './contactGroups';
 import type { ChatListEntry } from './spaceModel';
+import i18n from '@/i18n';
 
 export type ContactMoveTarget = {
   id: string;
@@ -34,17 +35,39 @@ export type ContactRowMenuCopy = {
 };
 
 export const CONTACT_ROW_MENU_COPY: ContactRowMenuCopy = {
-  pin: '置顶',
-  unpin: '取消置顶',
-  moveTo: '移至',
-  markUnread: '标为未读',
-  markRead: '标为已读',
-  renameAssistant: '重命名助手',
-  renameGroup: '重命名群组',
-  copyThreadId: '复制对话 ID',
-  hideFromSidebar: '从侧边栏隐藏',
-  showInSidebar: '在侧边栏显示',
-  delete: '删除',
+  get pin() {
+    return i18n.t('panels:contactRowMenu.pin');
+  },
+  get unpin() {
+    return i18n.t('panels:contactRowMenu.unpin');
+  },
+  get moveTo() {
+    return i18n.t('panels:contactRowMenu.moveTo');
+  },
+  get markUnread() {
+    return i18n.t('panels:contactRowMenu.markUnread');
+  },
+  get markRead() {
+    return i18n.t('panels:contactRowMenu.markRead');
+  },
+  get renameAssistant() {
+    return i18n.t('panels:contactRowMenu.renameAssistant');
+  },
+  get renameGroup() {
+    return i18n.t('panels:contactRowMenu.renameGroup');
+  },
+  get copyThreadId() {
+    return i18n.t('panels:contactRowMenu.copyThreadId');
+  },
+  get hideFromSidebar() {
+    return i18n.t('panels:contactRowMenu.hideFromSidebar');
+  },
+  get showInSidebar() {
+    return i18n.t('panels:contactRowMenu.showInSidebar');
+  },
+  get delete() {
+    return i18n.t('panels:contactRowMenu.delete');
+  },
 };
 
 export type BuildContactRowMenuInput = {

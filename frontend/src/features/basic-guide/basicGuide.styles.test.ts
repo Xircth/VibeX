@@ -44,8 +44,8 @@ describe('basic guide panel chrome', () => {
     expect(panel['max-width']).toBe('230px');
     expect(bottom.bottom).toBe('30px');
     expect(kanban.left).toBe('10px');
-    expect(frame.background).toBe('#f1f1f1');
-    expect(frame.border).toBe('1px solid #111');
+    expect(frame.background).toBe('var(--surface-control)');
+    expect(frame.border).toBe('1px solid hsl(var(--foreground))');
     expect(frame['border-radius']).toBe('8px');
     expect(footer['justify-content']).toBe('flex-end');
     expect(declarationsFor('.basic-guide-panel--workspace')).toEqual({});
@@ -53,8 +53,8 @@ describe('basic guide panel chrome', () => {
 
   it('styles the callout continue as a black action', () => {
     const button = declarationsFor('.basic-guide-callout__continue');
-    expect(button.background).toBe('#111');
-    expect(button.color).toBe('#fff');
+    expect(button.background).toBe('hsl(var(--foreground))');
+    expect(button.color).toBe('hsl(var(--background))');
     expect(button['pointer-events']).toBe('auto');
     expect(button.height).toBe('28px');
   });

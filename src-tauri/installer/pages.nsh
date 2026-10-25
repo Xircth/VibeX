@@ -531,7 +531,8 @@ Function VibeXPageMain
   !insertmacro VibeXMakeButton "" $VibeXUninstallBtn "danger" "$(VIBEX_UNINSTALL)" VibeXOnUninstall
   !insertmacro VibeXFootReset
   !insertmacro VibeXFootRight "" $VibeXReinstallBtn "pri" "$(VIBEX_REINSTALL)"
-  !insertmacro VibeXFootRight "" $VibeXUninstallBtn "danger" "$(VIBEX_UNINSTALL)"
+  ; Keep the destructive action away from the primary one.
+  !insertmacro VibeXFootLeft "" $VibeXUninstallBtn "danger" "$(VIBEX_UNINSTALL)"
 
   Call VibeXApplyPhase
   Call VibeXShowPage

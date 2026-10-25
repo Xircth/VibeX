@@ -63,7 +63,7 @@ describe('GitCommitBox', () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText('Commit message...');
+    const textarea = screen.getByPlaceholderText('提交信息...');
     expect(textarea.getAttribute('rows')).toBe('1');
     const inputFrame = textarea.closest('[data-control-frame]');
     expect(inputFrame?.className).toContain('astryx-text-input');
@@ -238,12 +238,12 @@ describe('GitLogView', () => {
       />
     );
 
-    const searchInput = screen.getByPlaceholderText('Search commits...');
+    const searchInput = screen.getByPlaceholderText('搜索提交...');
     expect(searchInput.closest('.astryx-text-input')).toBeTruthy();
     expect(
       searchInput.closest('.git-log-search-input.astryx-text-input')
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Search commits' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '搜索提交' })).toBeTruthy();
     expect(screen.queryByText('feature/hidden-branch-header')).toBeNull();
 
     // Clicking TO PUSH section header collapses and expands its commit entries
@@ -351,7 +351,7 @@ describe('GitBranchList', () => {
     expect(remoteHeader.className).toContain('rounded-md');
     expect(remoteHeader.className).toContain('bg-muted/60');
 
-    expect(within(localHeader).getByTitle('Create new branch')).toBeTruthy();
+    expect(within(localHeader).getByTitle('新建分支')).toBeTruthy();
     expect(screen.getByTestId('git-branch-local-count').textContent).toBe('2');
     expect(screen.getByTestId('git-branch-remote-count').textContent).toBe('1');
     expect(

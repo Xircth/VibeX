@@ -52,6 +52,7 @@ import {
   headerChangeCounts,
   streamContentsAreUsable,
 } from '@/components/diff/diffCardContent';
+import i18n from '@/i18n';
 
 type Props = {
   diff: Diff;
@@ -545,7 +546,7 @@ export default function DiffCard({
               void handleOpenDiffInTab();
             }}
             className="h-6 w-6 p-0 ml-2"
-            title="Open diff in tab"
+            title={i18n.t('panels:ui.diffCard.openDiffInTab')}
           >
             <ExternalLink className="h-3 w-3" aria-hidden />
           </Button>

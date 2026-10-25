@@ -20,6 +20,11 @@
     "showDetails": "Show details",
     "hideDetails": "Hide details",
     "region": "Notifications",
+    "successTitle": "Done",
+    "infoTitle": "Notice",
+    "warningTitle": "Warning",
+    "errorTitle": "Something went wrong",
+    "loadingTitle": "Working…",
     "close": "Close notification"
   },
   "diffCard": {

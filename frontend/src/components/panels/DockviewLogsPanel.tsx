@@ -9,6 +9,7 @@ import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
+import i18n from '@/i18n';
 
 function DockviewLogsPanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation(['panels', 'common']);
@@ -43,7 +44,7 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
       <div className="h-full w-full flex items-center justify-center bg-background text-muted-foreground text-sm">
         <div className="text-center space-y-2">
           <ScrollText className="h-8 w-8 opacity-40 mx-auto" />
-          <p>Logs unavailable for this workspace.</p>
+          <p>{i18n.t('panels:ui.logs.logsUnavailableForThisWorkspace')}</p>
         </div>
       </div>
     );

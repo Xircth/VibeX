@@ -38,8 +38,8 @@
 }
 
 .workflow-confirmation-waiting {
-  border-color: color-mix(in srgb, #d97706 72%, var(--border));
-  color: #b45309;
+  border-color: color-mix(in srgb, hsl(var(--warning)) 72%, var(--border));
+  color: hsl(var(--warning));
   animation: workflow-confirmation-pulse 1.45s ease-in-out infinite;
 }
 
@@ -67,7 +67,7 @@
 }
 
 .workflow-node-completed {
-  border-color: color-mix(in srgb, #16a34a 55%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--success)) 55%, var(--border));
 }
 
 .workflow-node-failed {
@@ -75,7 +75,7 @@
 }
 
 .workflow-node-waiting {
-  border-color: color-mix(in srgb, #d97706 65%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--warning)) 65%, var(--border));
 }
 
 .workflow-node-status-dot {
@@ -92,7 +92,7 @@
 }
 
 .workflow-status-dot-completed {
-  background: #16a34a;
+  background: hsl(var(--success));
 }
 
 .workflow-status-dot-failed {
@@ -100,7 +100,7 @@
 }
 
 .workflow-status-dot-waiting {
-  background: #d97706;
+  background: hsl(var(--warning));
 }
 
 .workflow-status-dot-standby {
@@ -160,7 +160,7 @@
 }
 
 .workflow-edge-completed path {
-  stroke: color-mix(in srgb, #16a34a 70%, var(--muted-foreground));
+  stroke: color-mix(in srgb, hsl(var(--success)) 70%, var(--muted-foreground));
 }
 
 .workflow-studio .react-flow__minimap.relative,
@@ -191,10 +191,10 @@
 @keyframes workflow-confirmation-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, #d97706 28%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, hsl(var(--warning)) 28%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, #d97706 0%, transparent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, hsl(var(--warning)) 0%, transparent);
   }
 }
 

@@ -54,15 +54,28 @@ describe('getConversationSessionNoticeCopy', () => {
     expect(
       getConversationSessionNoticeCopy(
         {
-          title: '代理不支持会话恢复',
+          title: '某个未知提示',
           message: '已自动新建会话继续。',
           severity: 'info',
         },
         t
       )
     ).toEqual({
-      title: '代理不支持会话恢复',
+      title: '某个未知提示',
       message: '已自动新建会话继续。',
     });
+  });
+
+  it('maps known backend notice titles to i18n keys', () => {
+    expect(
+      getConversationSessionNoticeCopy(
+        {
+          title: '代理不支持会话恢复',
+          message: '已自动新建会话继续。',
+          severity: 'info',
+        },
+        t
+      ).title
+    ).toBe('conversation:backendNotice.resumeUnsupported');
   });
 });

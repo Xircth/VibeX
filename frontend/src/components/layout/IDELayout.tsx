@@ -10,6 +10,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from 'react';
+import i18n from '@/i18n';
 import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import {
@@ -278,7 +279,7 @@ function buildDefaultLayout(api: DockviewApi) {
   const welcomePanel = api.addPanel({
     id: PANEL_IDS.WELCOME,
     component: PANEL_IDS.WELCOME,
-    title: 'Welcome',
+    title: i18n.t('panels:panelRegistry.welcome', { defaultValue: 'Welcome' }),
     renderer: 'onlyWhenVisible',
   });
   (welcomePanel.group as { id: string }).id = `${EDITOR_GROUP_PREFIX}1`;

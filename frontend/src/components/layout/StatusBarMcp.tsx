@@ -204,7 +204,7 @@ export function StatusBarMcp() {
                         <span className="block truncate text-[0.75rem] font-medium text-foreground">
                           {plugin.name}
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                        <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span>
                             {t('mcp.mcpCount', { count: plugin.mcpCount })}
                           </span>
@@ -247,7 +247,7 @@ export function StatusBarMcp() {
                         <div>
                           <button
                             type="button"
-                            className="text-[0.6875rem] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                             aria-expanded={descriptionOpen === plugin.pluginId}
                             onClick={() =>
                               setDescriptionOpen((current) =>
@@ -260,14 +260,14 @@ export function StatusBarMcp() {
                             {t('mcp.viewDescription')}
                           </button>
                           {descriptionOpen === plugin.pluginId ? (
-                            <div className="mt-1 rounded-md border border-border bg-background px-2 py-1.5 text-[0.6875rem] leading-4 text-muted-foreground">
+                            <div className="mt-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs leading-4 text-muted-foreground">
                               {plugin.description}
                             </div>
                           ) : null}
                         </div>
                       ) : null}
                       {toolCount === 0 ? (
-                        <p className="text-[0.6875rem] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {t('mcp.noTools')}
                         </p>
                       ) : (
@@ -282,7 +282,7 @@ export function StatusBarMcp() {
                                   defaultValue: tool.name,
                                 })}
                               </div>
-                              <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[0.625rem] text-muted-foreground">
+                              <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
                                 {tool.name}
                               </span>
                             </div>

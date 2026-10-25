@@ -167,6 +167,23 @@
   cursor: pointer;
 }
 
+/* Inline variant: sits on the title row, just left of the close button. */
+.vu-toast-disclosure.vu-toast-disclosure-inline {
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 6px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  border-radius: var(--radius);
+}
+
+.vu-toast-disclosure.vu-toast-disclosure-inline:hover {
+  color: var(--text-primary);
+  background: var(--surface-control);
+}
+
 .vu-toast-disclosure svg {
   width: 14px;
   height: 14px;
@@ -664,6 +681,10 @@
 
 .vu-toast-viewport .vu-toast-details-section {
   margin: 0 14px 12px 47px;
+}
+
+.vu-toast-viewport .vu-toast-details-section > .vu-toast-details {
+  margin-top: 0;
 }
 
 .vu-toast-viewport .vu-toast-actions {

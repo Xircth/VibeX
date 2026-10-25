@@ -276,6 +276,25 @@ function ToastCard({
           <span className="vu-toast-sr-only">{fallbackTitle(kind)}</span>
           <div className="vu-toast-title">{message}</div>
         </div>
+        {hasDetails ? (
+          <button
+            type="button"
+            className="vu-toast-disclosure vu-toast-disclosure-inline"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={toggleDetails}
+          >
+            <span>
+              {expanded
+                ? i18n.t('app:toast.hideDetails')
+                : (options.detailsLabel ?? i18n.t('app:toast.showDetails'))}
+            </span>
+            <ChevronDown
+              className={expanded ? 'is-expanded' : undefined}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
         {showClose ? (
           <button
             type="button"
@@ -321,45 +340,26 @@ function ToastCard({
         </div>
       ) : null}
 
-      {hasDetails ? (
+      {hasDetails && expanded ? (
         <div className="vu-toast-details-section">
-          <button
-            type="button"
-            className="vu-toast-disclosure"
-            aria-expanded={expanded}
-            aria-controls={detailsId}
-            onClick={toggleDetails}
-          >
-            <span>
-              {expanded
-                ? i18n.t('app:toast.hideDetails')
-                : (options.detailsLabel ?? i18n.t('app:toast.showDetails'))}
-            </span>
-            <ChevronDown
-              className={expanded ? 'is-expanded' : undefined}
-              aria-hidden="true"
-            />
-          </button>
-          {expanded ? (
-            <div id={detailsId} className="vu-toast-details">
-              {details.map((detail, index) => (
-                <div className="vu-toast-detail-row" key={index}>
-                  {detail.title ? (
-                    <div className="vu-toast-detail-title">{detail.title}</div>
-                  ) : null}
-                  <div
-                    className={
-                      detail.mono
-                        ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
-                        : 'vu-toast-detail-copy'
-                    }
-                  >
-                    {detail.description}
-                  </div>
+          <div id={detailsId} className="vu-toast-details">
+            {details.map((detail, index) => (
+              <div className="vu-toast-detail-row" key={index}>
+                {detail.title ? (
+                  <div className="vu-toast-detail-title">{detail.title}</div>
+                ) : null}
+                <div
+                  className={
+                    detail.mono
+                      ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
+                      : 'vu-toast-detail-copy'
+                  }
+                >
+                  {detail.description}
                 </div>
-              ))}
-            </div>
-          ) : null}
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 

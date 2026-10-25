@@ -49,4 +49,13 @@ describe('toast surface contract', () => {
     );
     expect(css).toMatch(/\.vu-toast-details \{[\s\S]*?overflow-y: auto;/);
   });
+
+  it('puts the details toggle on the title row with token chrome', () => {
+    expect(css).toMatch(
+      /\.vu-toast-disclosure-inline \{[\s\S]*?flex: 0 0 auto;[\s\S]*?white-space: nowrap;[\s\S]*?border-radius: var\(--radius\);/
+    );
+    expect(css).toMatch(
+      /\.vu-toast-disclosure-inline:hover \{[\s\S]*?background: var\(--surface-control\);/
+    );
+  });
 });

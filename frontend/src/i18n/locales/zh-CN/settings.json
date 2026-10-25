@@ -3072,5 +3072,81 @@
       "removed": "已删除配置文件 {{name}}",
       "actionFailed": "配置文件操作失败"
     }
+  },
+
+  "pluginsUi": {
+    "badges": {
+      "telemetryAria": "插件遥测与安全信息",
+      "installs": "安装量与趋势",
+      "repository": "插件仓库",
+      "latestVersion": "最新版本",
+      "securityAudits": "插件安全测试结果"
+    },
+    "add": {
+      "invalidRepoUrl": "请输入有效的 GitHub 仓库地址（例如 https://github.com/owner/repo）",
+      "packageArchive": "安装包",
+      "githubRepo": "GitHub仓库",
+      "marketplace": "插件市场",
+      "githubDialogAria": "从 GitHub 仓库拉取插件",
+      "githubDialogTitle": "从 GitHub 仓库添加插件",
+      "githubRepoUrlAria": "GitHub仓库地址",
+      "pull": "拉取",
+      "pulling": "正在拉取仓库并解析插件包...",
+      "pullFailedPrefix": "拉取失败：",
+      "pullSucceeded": "拉取成功"
+    },
+    "content": {
+      "ready": "已就绪",
+      "columnName": "名称",
+      "columnType": "类型",
+      "columnSize": "大小",
+      "folder": "目录",
+      "folderItemCount": "{{count}} 项"
+    },
+    "marketplace": {
+      "featuredCarouselAria": "推荐插件轮播",
+      "featuredBadge": "推荐插件",
+      "viewDetails": "查看详情",
+      "prevFeatured": "上一个推荐插件",
+      "nextFeatured": "下一个推荐插件"
+    },
+    "core": {
+      "running": "运行中",
+      "entryId": "插件标识 (Entry ID)",
+      "module": "模块包名 (Module)",
+      "provides": "提供服务 (Provides)",
+      "injects": "注入依赖 (Injects)",
+      "noInjects": "无 (内核根插件)",
+      "activeRegistrations": "已激活贡献项",
+      "decomposedParts": "拆解子模块 ({{count}})",
+      "openSettingsPanel": "前往关联设置面板"
+    },
+    "componentTitle": {
+      "computerUse": "电脑控制",
+      "browser": "浏览器",
+      "browserSettings": "浏览器设置",
+      "createDocument": "创建文档",
+      "modifyDocument": "修改文档",
+      "createPresentation": "创建演示文稿",
+      "modifyPresentation": "修改演示文稿",
+      "analyzeSpreadsheet": "分析表格",
+      "generateSpreadsheet": "生成表格",
+      "sessionEnhance": "会话增强",
+      "sessionMcp": "会话 MCP",
+      "openConnectorStatus": "Open Connector 状态",
+      "pluginDevelopment": "VibeX 插件开发"
+    }
+  },
+  "kanbanUi": {
+    "defaultGroupName": "分组",
+    "trendTooltipDate": "{{month}}月{{day}}日周{{weekday}}"
+  },
+  "settingsUi": {
+    "windowControls": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "还原",
+      "close": "关闭"
+    }
   }
 }

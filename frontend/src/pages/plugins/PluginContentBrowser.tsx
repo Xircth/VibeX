@@ -35,6 +35,7 @@ import {
   buildRepoTreeNodes,
   entriesFromContents,
   groupedPluginContents,
+  localizedContentTitle,
   resolvePluginComponentDocuments,
   type PackageTreeNode,
   type RepoTreeEntry,
@@ -43,6 +44,7 @@ import { officialPluginReadme } from './officialPlugins';
 
 export {
   groupedPluginContents,
+  localizedContentTitle,
   resolvePluginComponentDocuments,
   type PackageTreeNode,
 };
@@ -118,8 +120,7 @@ export function PluginContentsView({
   listing?: CatalogListing | null;
   preferOfficialCatalog?: boolean;
 }) {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const resolvedContents = useMemo(
     () =>
       resolvePluginComponentDocuments({
@@ -205,7 +206,7 @@ export function PluginContentsView({
               <ul id={listId} className="dsh-component-list">
                 {group.items.map((item) => {
                   const titleText =
-                    item.title ||
+                    localizedContentTitle(item, t) ||
                     item.path.split('/').filter(Boolean).at(-1) ||
                     item.path;
                   return (
@@ -236,7 +237,7 @@ export function PluginContentsView({
                             data-state="done"
                             aria-hidden="true"
                           />
-                          <span>{isZh ? '已就绪' : 'Ready'}</span>
+                          <span>{t('pluginsUi.content.ready')}</span>
                         </span>
                       </div>
                     </li>
@@ -266,8 +267,7 @@ export function PluginPackageTree({
   repo?: string | null;
   sourceOrigin?: string | null;
 }) {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const telemetry = useMemo(
     () =>
       resolvePluginTelemetry({
@@ -352,8 +352,8 @@ export function PluginPackageTree({
   );
 
   const { nodes: treeNodes, expandableIds } = useMemo(
-    () => buildRepoTreeNodes(effectiveEntries, isZh),
-    [effectiveEntries, isZh]
+    () => buildRepoTreeNodes(effectiveEntries, t),
+    [effectiveEntries, t]
   );
 
   const { visibleData, treeConfig } = useTableTreeState<PackageTreeNode>({
@@ -375,7 +375,7 @@ export function PluginPackageTree({
     () => [
       {
         key: 'name',
-        header: isZh ? '名称' : 'Name',
+        header: t('pluginsUi.content.columnName'),
         width: proportional(1, { minWidth: 200 }),
         renderCell: (row) => (
           <span
@@ -393,7 +393,7 @@ export function PluginPackageTree({
       },
       {
         key: 'kindLabel',
-        header: isZh ? '类型' : 'Type',
+        header: t('pluginsUi.content.columnType'),
         width: pixel(120),
         renderCell: (row) => (
           <span className="dsh-tree-kind-badge" data-node-type={row.nodeType}>
@@ -403,7 +403,7 @@ export function PluginPackageTree({
       },
       {
         key: 'sizeLabel',
-        header: isZh ? '大小' : 'Size',
+        header: t('pluginsUi.content.columnSize'),
         width: pixel(100),
         align: 'end',
         renderCell: (row) => (
@@ -411,7 +411,7 @@ export function PluginPackageTree({
         ),
       },
     ],
-    [isZh]
+    [t]
   );
 
   return (

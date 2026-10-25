@@ -143,8 +143,7 @@ export function PluginMarketplaceList({
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
 }) {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const [category, setCategory] = useState('all');
   const listings = useMemo(
     () => flattenMarketplaceListings(official, community),
@@ -240,7 +239,7 @@ export function PluginMarketplaceList({
   return (
     <div className="product-plugin-market dsh-market-container">
       {!query.trim() && featuredListings.length > 0 ? (
-        <PluginMarketplaceCarousel listings={featuredListings} isZh={isZh} />
+        <PluginMarketplaceCarousel listings={featuredListings} />
       ) : null}
 
       <div
@@ -270,7 +269,7 @@ export function PluginMarketplaceList({
           >
             <span className="dsh-scale-tab-tick" aria-hidden="true" />
             <span className="dsh-scale-tab-label">
-              {pluginCategoryLabel(id, t, isZh)}
+              {pluginCategoryLabel(id, t)}
             </span>
           </button>
         ))}
@@ -311,10 +310,8 @@ export function PluginMarketplaceList({
 
 function PluginMarketplaceCarousel({
   listings,
-  isZh,
 }: {
   listings: CatalogListing[];
-  isZh: boolean;
 }) {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
@@ -339,12 +336,12 @@ function PluginMarketplaceCarousel({
   const displayName = officialListingName(activeListing, t);
   const summary = officialListingSummary(activeListing, t);
   const resolvedCategory = resolveMarketplaceListingCategory(activeListing);
-  const categoryName = pluginCategoryLabel(resolvedCategory, t, isZh);
+  const categoryName = pluginCategoryLabel(resolvedCategory, t);
 
   return (
     <section
       className="dsh-market-carousel"
-      aria-label={isZh ? '推荐插件轮播' : 'Featured plugins'}
+      aria-label={t('pluginsUi.marketplace.featuredCarouselAria')}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
@@ -353,7 +350,7 @@ function PluginMarketplaceCarousel({
           <div className="dsh-carousel-badges">
             <span className="dsh-carousel-kicker">
               <Sparkles aria-hidden="true" />
-              {isZh ? '推荐插件' : 'Featured Plugin'}
+              {t('pluginsUi.marketplace.featuredBadge')}
             </span>
             <PluginDeveloperBadge
               pluginId={activePluginId}
@@ -403,16 +400,14 @@ function PluginMarketplaceCarousel({
               )
             }
           >
-            {isZh ? '查看详情' : 'View details'}
+            {t('pluginsUi.marketplace.viewDetails')}
           </Button>
           {listings.length > 1 ? (
             <div className="dsh-carousel-arrows">
               <button
                 type="button"
                 className="dsh-carousel-arrow"
-                aria-label={
-                  isZh ? '上一个推荐插件' : 'Previous featured plugin'
-                }
+                aria-label={t('pluginsUi.marketplace.prevFeatured')}
                 onClick={() =>
                   setActiveIndex(
                     (prev) => (prev - 1 + listings.length) % listings.length
@@ -424,7 +419,7 @@ function PluginMarketplaceCarousel({
               <button
                 type="button"
                 className="dsh-carousel-arrow"
-                aria-label={isZh ? '下一个推荐插件' : 'Next featured plugin'}
+                aria-label={t('pluginsUi.marketplace.nextFeatured')}
                 onClick={() =>
                   setActiveIndex((prev) => (prev + 1) % listings.length)
                 }
@@ -506,8 +501,7 @@ function MarketplaceRow({
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
 }) {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const displayName = officialListingName(listing, t);
   const resolvedCategory = resolveMarketplaceListingCategory(listing);
@@ -544,7 +538,7 @@ function MarketplaceRow({
         tag={listing.tag}
         homepage={listing.homepage}
         repo={listing.repo}
-        categoryLabel={pluginCategoryLabel(resolvedCategory, t, isZh)}
+        categoryLabel={pluginCategoryLabel(resolvedCategory, t)}
       />
       <span className="product-plugin-row-actions dsh-row-action-slot">
         {installed ? (

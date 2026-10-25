@@ -60,8 +60,7 @@ export function PluginCatalogActions({
   ) => void | Promise<void>;
   onOpenExternalMarketplace?: () => void | Promise<void>;
 }) {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const [menuOpen, setMenuOpen] = useState(false);
   const [githubPopOpen, setGithubPopOpen] = useState(false);
   const [repoInput, setRepoInput] = useState('');
@@ -142,11 +141,7 @@ export function PluginCatalogActions({
     const normalized = normalizeGithubRepositoryInput(repoInput);
     if (!normalized) {
       setPullState('error');
-      setPullError(
-        isZh
-          ? '请输入有效的 GitHub 仓库地址（例如 https://github.com/owner/repo）'
-          : 'Please enter a valid GitHub repository URL'
-      );
+      setPullError(t('pluginsUi.add.invalidRepoUrl'));
       setPulledPreview(null);
       return;
     }
@@ -227,7 +222,7 @@ export function PluginCatalogActions({
                   aria-hidden="true"
                   className="dsh-add-menu-icon"
                 />
-                <span>{isZh ? '安装包' : 'Package Archive'}</span>
+                <span>{t('pluginsUi.add.packageArchive')}</span>
               </button>
               <button
                 type="button"
@@ -236,7 +231,7 @@ export function PluginCatalogActions({
                 onClick={handleSelectGithub}
               >
                 <GitBranch aria-hidden="true" className="dsh-add-menu-icon" />
-                <span>{isZh ? 'GitHub仓库' : 'GitHub Repository'}</span>
+                <span>{t('pluginsUi.add.githubRepo')}</span>
               </button>
               <button
                 type="button"
@@ -245,7 +240,7 @@ export function PluginCatalogActions({
                 onClick={handleSelectMarketplace}
               >
                 <Store aria-hidden="true" className="dsh-add-menu-icon" />
-                <span>{isZh ? '插件市场' : 'Plugin Marketplace'}</span>
+                <span>{t('pluginsUi.add.marketplace')}</span>
                 <ExternalLink
                   aria-hidden="true"
                   className="dsh-add-menu-trailing"
@@ -258,17 +253,11 @@ export function PluginCatalogActions({
             <div
               className="dsh-github-popconfirm"
               role="dialog"
-              aria-label={
-                isZh ? '从 GitHub 仓库拉取插件' : 'Pull plugin from GitHub'
-              }
+              aria-label={t('pluginsUi.add.githubDialogAria')}
             >
               <div className="dsh-github-popconfirm-head">
                 <GitBranch aria-hidden="true" className="h-3.5 w-3.5" />
-                <strong>
-                  {isZh
-                    ? '从 GitHub 仓库添加插件'
-                    : 'Add from GitHub Repository'}
-                </strong>
+                <strong>{t('pluginsUi.add.githubDialogTitle')}</strong>
               </div>
 
               <div className="dsh-github-popconfirm-input-row">
@@ -279,7 +268,7 @@ export function PluginCatalogActions({
                   value={repoInput}
                   disabled={pullState === 'pulling'}
                   placeholder="https://github.com/owner/repo"
-                  aria-label={isZh ? 'GitHub仓库地址' : 'GitHub repository URL'}
+                  aria-label={t('pluginsUi.add.githubRepoUrlAria')}
                   onChange={(event) => {
                     setRepoInput(event.target.value);
                     if (pullState === 'error') {
@@ -306,7 +295,7 @@ export function PluginCatalogActions({
                       className="h-3.5 w-3.5 animate-spin"
                     />
                   ) : null}
-                  {isZh ? '拉取' : 'Pull'}
+                  {t('pluginsUi.add.pull')}
                 </Button>
               </div>
 
@@ -321,11 +310,7 @@ export function PluginCatalogActions({
                       aria-hidden="true"
                       className="h-3.5 w-3.5 animate-spin"
                     />
-                    <span>
-                      {isZh
-                        ? '正在拉取仓库并解析插件包...'
-                        : 'Pulling repository and inspecting package...'}
-                    </span>
+                    <span>{t('pluginsUi.add.pulling')}</span>
                   </div>
                   <div className="dsh-github-pull-progress" aria-hidden="true">
                     <span className="dsh-github-pull-progress-bar" />
@@ -342,7 +327,7 @@ export function PluginCatalogActions({
                   <div className="dsh-github-pull-status-line">
                     <AlertCircle aria-hidden="true" className="h-3.5 w-3.5" />
                     <span>
-                      {isZh ? '拉取失败：' : 'Pull failed: '}
+                      {t('pluginsUi.add.pullFailedPrefix')}
                       {pullError}
                     </span>
                   </div>
@@ -357,7 +342,7 @@ export function PluginCatalogActions({
                 >
                   <div className="dsh-github-pull-status-line">
                     <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />
-                    <span>{isZh ? '拉取成功' : 'Pull succeeded'}</span>
+                    <span>{t('pluginsUi.add.pullSucceeded')}</span>
                   </div>
                   <div
                     className="dsh-github-plugin-minicard"

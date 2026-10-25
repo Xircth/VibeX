@@ -553,8 +553,7 @@ export function PluginTelemetrySidebar({
   sourceOrigin?: string | null;
   stars?: number | null;
 }) {
-  const { i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const gradientId = useId();
   const telemetry = resolvePluginTelemetry({
     pluginId,
@@ -596,12 +595,12 @@ export function PluginTelemetrySidebar({
   return (
     <aside
       className="dsh-detail-telemetry-rail"
-      aria-label={isZh ? '插件遥测与安全信息' : 'Plugin telemetry and security'}
+      aria-label={t('pluginsUi.badges.telemetryAria')}
     >
       {/* 1. 安装量与趋势图 */}
       <section className="dsh-telemetry-block">
         <span className="dsh-telemetry-label">
-          {isZh ? '安装量与趋势' : 'INSTALLS'}
+          {t('pluginsUi.badges.installs')}
         </span>
         <strong className="dsh-telemetry-hero-value">
           {telemetry.installs}
@@ -638,7 +637,7 @@ export function PluginTelemetrySidebar({
       {/* 2. 插件仓库（下方展示 Star 数量与开发者） */}
       <section className="dsh-telemetry-block">
         <span className="dsh-telemetry-label">
-          <span>{isZh ? '插件仓库' : 'REPOSITORY'}</span>
+          <span>{t('pluginsUi.badges.repository')}</span>
           <BadgeCheck aria-hidden="true" className="dsh-telemetry-verified" />
         </span>
         <div className="dsh-telemetry-repo-value">
@@ -667,7 +666,7 @@ export function PluginTelemetrySidebar({
       {/* 3. 最新版本 */}
       <section className="dsh-telemetry-block">
         <span className="dsh-telemetry-label">
-          {isZh ? '最新版本' : 'LATEST VERSION'}
+          {t('pluginsUi.badges.latestVersion')}
         </span>
         <div className="dsh-telemetry-version-row">
           <strong className="dsh-telemetry-version-value">
@@ -679,7 +678,7 @@ export function PluginTelemetrySidebar({
       {/* 4. 插件安全测试结果 */}
       <section className="dsh-telemetry-block">
         <span className="dsh-telemetry-label">
-          <span>{isZh ? '插件安全测试结果' : 'SECURITY AUDITS'}</span>
+          <span>{t('pluginsUi.badges.securityAudits')}</span>
           <ShieldCheck aria-hidden="true" className="dsh-telemetry-verified" />
         </span>
         <ul className="dsh-telemetry-audit-list">

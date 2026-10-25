@@ -901,9 +901,72 @@ export function entriesFromContents(
     .filter((item): item is RepoTreeEntry => item !== null);
 }
 
+/**
+ * Built-in component titles above are authored in zh-CN. Map them to
+ * `settings:pluginsUi.componentTitle.*` so the content browser re-localizes
+ * on language switch (resolved at render time, not module load).
+ */
+const OFFICIAL_COMPONENT_TITLE_KEYS: Record<
+  string,
+  { key: string; zh: string }
+> = {
+  'app/settings-pages/computer-use.md': { key: 'computerUse', zh: '电脑控制' },
+  'app/status/computer-use-status.md': { key: 'computerUse', zh: '电脑控制' },
+  'app/settings-pages/browser-settings.md': { key: 'browser', zh: '浏览器' },
+  'app/surfaces/settings.md': { key: 'browserSettings', zh: '浏览器设置' },
+  'contents/workflows/create-document/workflow.json': {
+    key: 'createDocument',
+    zh: '创建文档',
+  },
+  'contents/workflows/modify-document/workflow.json': {
+    key: 'modifyDocument',
+    zh: '修改文档',
+  },
+  'contents/workflows/create-presentation/workflow.json': {
+    key: 'createPresentation',
+    zh: '创建演示文稿',
+  },
+  'contents/workflows/modify-presentation/workflow.json': {
+    key: 'modifyPresentation',
+    zh: '修改演示文稿',
+  },
+  'contents/workflows/analyze-spreadsheet/workflow.json': {
+    key: 'analyzeSpreadsheet',
+    zh: '分析表格',
+  },
+  'contents/workflows/generate-spreadsheet/workflow.json': {
+    key: 'generateSpreadsheet',
+    zh: '生成表格',
+  },
+  'contents/skills/vibex-session-enhance/SKILL.md': {
+    key: 'sessionEnhance',
+    zh: '会话增强',
+  },
+  'contents/mcps/session.json': { key: 'sessionMcp', zh: '会话 MCP' },
+  'app/commands/runtime-status-command.md': {
+    key: 'openConnectorStatus',
+    zh: 'Open Connector 状态',
+  },
+  'contents/skills/vibex-plugin-development/SKILL.md': {
+    key: 'pluginDevelopment',
+    zh: 'VibeX 插件开发',
+  },
+};
+
+export function localizedContentTitle(
+  document: Pick<PluginContentDocument, 'path' | 'title'>,
+  t: (key: string, options?: Record<string, unknown>) => string
+): string {
+  const entry = OFFICIAL_COMPONENT_TITLE_KEYS[document.path];
+  if (!entry || document.title !== entry.zh) return document.title;
+  return t(`pluginsUi.componentTitle.${entry.key}`, {
+    defaultValue: document.title,
+  });
+}
+
 export function buildRepoTreeNodes(
   entries: RepoTreeEntry[],
-  isZh: boolean
+  t: (key: string, options?: Record<string, unknown>) => string
 ): { nodes: PackageTreeNode[]; expandableIds: string[] } {
   const root: MutableRepoTreeFolder = {
     name: '',
@@ -998,12 +1061,10 @@ export function buildRepoTreeNodes(
           name: childFolder.name,
           displayName: childFolder.name,
           nodeType: 'folder',
-          kindLabel: isZh ? '目录' : 'Folder',
+          kindLabel: t('pluginsUi.content.folder'),
           sizeLabel:
             itemCount > 0
-              ? isZh
-                ? `${itemCount} 项`
-                : `${itemCount} items`
+              ? t('pluginsUi.content.folderItemCount', { count: itemCount })
               : '-',
           ...(canExpand && children.length > 0 ? { children } : {}),
         };

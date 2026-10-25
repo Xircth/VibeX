@@ -3072,5 +3072,81 @@
       "removed": "Removed profile {{name}}",
       "actionFailed": "Profile operation failed"
     }
+  },
+
+  "pluginsUi": {
+    "badges": {
+      "telemetryAria": "Plugin telemetry and security",
+      "installs": "INSTALLS",
+      "repository": "REPOSITORY",
+      "latestVersion": "LATEST VERSION",
+      "securityAudits": "SECURITY AUDITS"
+    },
+    "add": {
+      "invalidRepoUrl": "Please enter a valid GitHub repository URL (e.g. https://github.com/owner/repo)",
+      "packageArchive": "Package Archive",
+      "githubRepo": "GitHub Repository",
+      "marketplace": "Plugin Marketplace",
+      "githubDialogAria": "Pull plugin from GitHub",
+      "githubDialogTitle": "Add from GitHub Repository",
+      "githubRepoUrlAria": "GitHub repository URL",
+      "pull": "Pull",
+      "pulling": "Pulling repository and inspecting package...",
+      "pullFailedPrefix": "Pull failed: ",
+      "pullSucceeded": "Pull succeeded"
+    },
+    "content": {
+      "ready": "Ready",
+      "columnName": "Name",
+      "columnType": "Type",
+      "columnSize": "Size",
+      "folder": "Folder",
+      "folderItemCount": "{{count}} items"
+    },
+    "marketplace": {
+      "featuredCarouselAria": "Featured plugins",
+      "featuredBadge": "Featured Plugin",
+      "viewDetails": "View details",
+      "prevFeatured": "Previous featured plugin",
+      "nextFeatured": "Next featured plugin"
+    },
+    "core": {
+      "running": "Running",
+      "entryId": "Entry ID",
+      "module": "Module",
+      "provides": "Provides",
+      "injects": "Injects",
+      "noInjects": "None (Root plugin)",
+      "activeRegistrations": "Active registrations",
+      "decomposedParts": "Decomposed Components ({{count}})",
+      "openSettingsPanel": "Open Settings Panel"
+    },
+    "componentTitle": {
+      "computerUse": "Computer Control",
+      "browser": "Browser",
+      "browserSettings": "Browser Settings",
+      "createDocument": "Create Document",
+      "modifyDocument": "Modify Document",
+      "createPresentation": "Create Presentation",
+      "modifyPresentation": "Modify Presentation",
+      "analyzeSpreadsheet": "Analyze Spreadsheet",
+      "generateSpreadsheet": "Generate Spreadsheet",
+      "sessionEnhance": "Session Enhancement",
+      "sessionMcp": "Session MCP",
+      "openConnectorStatus": "Open Connector Status",
+      "pluginDevelopment": "VibeX Plugin Development"
+    }
+  },
+  "kanbanUi": {
+    "defaultGroupName": "Group",
+    "trendTooltipDate": "{{weekday}}, {{month}}/{{day}}"
+  },
+  "settingsUi": {
+    "windowControls": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    }
   }
 }

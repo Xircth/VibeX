@@ -111,29 +111,12 @@ const CATEGORY_LABELS_ZH: Record<'all' | PluginCategoryKey, string> = {
   other: '其他',
 };
 
-const CATEGORY_LABELS_EN: Record<'all' | PluginCategoryKey, string> = {
-  all: 'All',
-  design: 'Design',
-  development: 'Development',
-  science: 'Science',
-  'ai-enhancement': 'AI Enhancement',
-  utilities: 'Utilities',
-  aigc: 'AIGC',
-  other: 'Other',
-};
-
 export function pluginCategoryLabel(
   category: 'all' | PluginCategoryKey | string,
-  t: TFunction<'settings'>,
-  isZh?: boolean
+  t: TFunction<'settings'>
 ): string {
   const normalized = category as 'all' | PluginCategoryKey;
   if (normalized in CATEGORY_LABELS_ZH) {
-    if (typeof isZh === 'boolean') {
-      return isZh
-        ? CATEGORY_LABELS_ZH[normalized]
-        : CATEGORY_LABELS_EN[normalized];
-    }
     if (normalized === 'all') {
       return t('plugins.allCategory', { defaultValue: '全部' });
     }

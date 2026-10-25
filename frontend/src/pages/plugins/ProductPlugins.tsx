@@ -184,8 +184,7 @@ function pluginsCatalogPath(mode: PluginCatalogMode = 'installed') {
 }
 
 export function PluginCatalogPage() {
-  const { t, i18n } = useTranslation('settings');
-  const isZh = i18n.language.toLowerCase().startsWith('zh');
+  const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { supports } = useBackendCapabilities();
@@ -824,7 +823,7 @@ export function PluginCatalogPage() {
                 >
                   <div className="dsh-plugin-group-head">
                     <h3 className="dsh-plugin-group-title">
-                      {pluginCategoryLabel(category, t, isZh)}
+                      {pluginCategoryLabel(category, t)}
                     </h3>
                   </div>
                   <div className="dsh-plugin-group-cards">
@@ -1104,6 +1103,7 @@ function CoreFoundationRow({
   onToggle: () => void;
   onOpenSettings?: () => void;
 }) {
+  const { t } = useTranslation('settings');
   const { descriptor, active, liveRegistrationCount } = snapshot;
   const title = isZh ? descriptor.titleZh : descriptor.titleEn;
   const summary = isZh ? descriptor.summaryZh : descriptor.summaryEn;
@@ -1144,7 +1144,7 @@ function CoreFoundationRow({
               className="dsh-state-dot"
               data-state={active ? 'done' : 'idle'}
             />
-            {isZh ? '运行中' : 'Running'}
+            {t('pluginsUi.core.running')}
           </span>
           <button
             type="button"
@@ -1164,45 +1164,43 @@ function CoreFoundationRow({
         <div className="dsh-inventory-card-details dsh-core-row-details">
           <dl className="dsh-card-facts">
             <div>
-              <dt>{isZh ? '插件标识 (Entry ID)' : 'Entry ID'}</dt>
+              <dt>{t('pluginsUi.core.entryId')}</dt>
               <dd>
                 <code>{descriptor.id}</code>
               </dd>
             </div>
             <div>
-              <dt>{isZh ? '模块包名 (Module)' : 'Module'}</dt>
+              <dt>{t('pluginsUi.core.module')}</dt>
               <dd>
                 <code>{descriptor.packageName}</code>
               </dd>
             </div>
             <div>
-              <dt>{isZh ? '提供服务 (Provides)' : 'Provides'}</dt>
+              <dt>{t('pluginsUi.core.provides')}</dt>
               <dd>
                 <code>{descriptor.provides.join(', ')}</code>
               </dd>
             </div>
             <div>
-              <dt>{isZh ? '注入依赖 (Injects)' : 'Injects'}</dt>
+              <dt>{t('pluginsUi.core.injects')}</dt>
               <dd>
                 <code>
                   {descriptor.injects.length > 0
                     ? descriptor.injects.join(', ')
-                    : isZh
-                      ? '无 (内核根插件)'
-                      : 'None (Root plugin)'}
+                    : t('pluginsUi.core.noInjects')}
                 </code>
               </dd>
             </div>
             <div>
-              <dt>{isZh ? '已激活贡献项' : 'Active registrations'}</dt>
+              <dt>{t('pluginsUi.core.activeRegistrations')}</dt>
               <dd>{liveRegistrationCount}</dd>
             </div>
           </dl>
           <div className="dsh-inventory-parts">
             <h5>
-              {isZh
-                ? `拆解子模块 (${descriptor.parts.length})`
-                : `Decomposed Components (${descriptor.parts.length})`}
+              {t('pluginsUi.core.decomposedParts', {
+                count: descriptor.parts.length,
+              })}
             </h5>
             <ul className="dsh-detail-rows">
               {descriptor.parts.map((part) => (
@@ -1221,7 +1219,7 @@ function CoreFoundationRow({
                   </div>
                   <span className="dsh-row-state">
                     <span className="dsh-state-dot" data-state="done" />
-                    <span>{isZh ? '运行中' : 'Running'}</span>
+                    <span>{t('pluginsUi.core.running')}</span>
                   </span>
                 </li>
               ))}
@@ -1236,7 +1234,7 @@ function CoreFoundationRow({
                 onClick={onOpenSettings}
               >
                 <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
-                {isZh ? '前往关联设置面板' : 'Open Settings Panel'}
+                {t('pluginsUi.core.openSettingsPanel')}
               </Button>
             </div>
           ) : null}

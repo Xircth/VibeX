@@ -676,10 +676,11 @@ describe('KanbanSessionConversationView', () => {
   });
 
   it('pins an embedded session and keeps the composer from auto-selecting another', () => {
+    const otherSession = createSession('other-session', 'workspace-other');
     useWorkspaceSessionsMock.mockClear();
     useWorkspaceSessionsMock.mockReturnValue({
-      sessions: [{ id: 'other-session' }],
-      selectedSession: { id: 'other-session' },
+      sessions: [otherSession],
+      selectedSession: otherSession,
       selectedSessionId: 'other-session',
       selectSession: vi.fn(),
       selectLatestSession: vi.fn(),

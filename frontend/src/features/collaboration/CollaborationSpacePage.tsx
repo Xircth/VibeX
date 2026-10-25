@@ -6465,7 +6465,7 @@ export function CollaborationSpacePage({
                               <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
                                 <span className="inline-flex items-center gap-1">
                                   <Clock
-                                    className="h-3 w-3 text-blue-500"
+                                    className="h-3 w-3 text-primary"
                                     aria-hidden="true"
                                   />
                                   <span>定时消息队列</span>

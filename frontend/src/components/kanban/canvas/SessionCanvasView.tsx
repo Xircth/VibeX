@@ -1359,7 +1359,11 @@ function SessionCanvasFlow({
     let focusY = 0;
     updateNodes((items) => {
       const origin = findEmptyCanvasPlacement(items, footprint, preferred);
-      const next = createEmptyGroup(items, origin);
+      const next = createEmptyGroup(
+        items,
+        origin,
+        t('settings:kanbanUi.defaultGroupName')
+      );
       const created = next.find(
         (node) =>
           isGroupNode(node) && !items.some((item) => item.id === node.id)
@@ -1381,7 +1385,7 @@ function SessionCanvasFlow({
         });
       }, 40);
     }
-  }, [currentCanvasZoom, flowOriginAtCanvasCenter, setCenter, updateNodes]);
+  }, [currentCanvasZoom, flowOriginAtCanvasCenter, setCenter, t, updateNodes]);
 
   const deleteSelection = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -1513,7 +1517,13 @@ function SessionCanvasFlow({
         label: t('hubCanvas.groupSelection'),
         disabled: !canGroup,
         onSelect: () => {
-          updateNodes((items) => groupSelection(items, selectedIds));
+          updateNodes((items) =>
+            groupSelection(
+              items,
+              selectedIds,
+              t('settings:kanbanUi.defaultGroupName')
+            )
+          );
         },
       },
       {

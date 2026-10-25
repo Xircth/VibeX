@@ -1556,7 +1556,8 @@ function formatShortDate(dateStr: string): string {
 
 function formatTrendTooltipDate(
   dateStr: string,
-  weekdayLabels: string[]
+  weekdayLabels: string[],
+  t: (key: string, options?: Record<string, unknown>) => string
 ): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
   const date = match
@@ -1567,7 +1568,7 @@ function formatTrendTooltipDate(
   const day = date.getDate();
   const weekdayIdx = (date.getDay() + 6) % 7;
   const weekday = weekdayLabels[weekdayIdx] ?? '';
-  return `${month}月${day}日周${weekday}`;
+  return t('settings:kanbanUi.trendTooltipDate', { month, day, weekday });
 }
 
 function getUsageTargetScope(target: string): 'global' | 'project' {
@@ -2793,59 +2794,61 @@ export function KanbanUsageDashboard() {
                         key={folder.workspace_id}
                         expanded={isExpanded}
                         onToggle={() =>
-                            setExpandedFolderId((prev) =>
-                              prev === folder.workspace_id
-                                ? null
-                                : folder.workspace_id
-                            )
+                          setExpandedFolderId((prev) =>
+                            prev === folder.workspace_id
+                              ? null
+                              : folder.workspace_id
+                          )
                         }
                         detail={
-                          folderBreakdown ? renderDimensionDetailCard(folderBreakdown, 'folder') : null
+                          folderBreakdown
+                            ? renderDimensionDetailCard(
+                                folderBreakdown,
+                                'folder'
+                              )
+                            : null
                         }
                       >
-                          <span
-                            className={cn(
-                              'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
-                              index === 0 && 'kanban-rank-first',
-                              index === 1 && 'kanban-rank-second',
-                              index === 2 && 'kanban-rank-third',
-                              index >= 3 && 'text-muted-foreground'
-                            )}
-                          >
-                            {index + 1}
+                        <span
+                          className={cn(
+                            'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
+                            index === 0 && 'kanban-rank-first',
+                            index === 1 && 'kanban-rank-second',
+                            index === 2 && 'kanban-rank-third',
+                            index >= 3 && 'text-muted-foreground'
+                          )}
+                        >
+                          {index + 1}
+                        </span>
+
+                        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                          <span className="truncate text-sm font-semibold text-foreground">
+                            {projectName}
                           </span>
+                          <span
+                            className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                            title={folderPath}
+                          >
+                            {folderPath}
+                          </span>
+                        </div>
 
-                          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {projectName}
-                            </span>
-                            <span
-                              className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-                              title={folderPath}
-                            >
-                              {folderPath}
-                            </span>
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <UsageRankingMetricPill
-                              value={formatOptionalCost(
-                                folder.cost,
-                                notProvided
-                              )}
-                            />
-                            <UsageRankingMetricPill
-                              value={`${formatOptionalNumber(
-                                preferredTokenTotal(folder.tokens),
-                                notProvided
-                              )} ${t('usageDashboard.tokens')}`}
-                            />
-                            <UsageRankingMetricPill
-                              value={t('usageDashboard.sessionsCount', {
-                                count: folder.session_count,
-                              })}
-                            />
-                          </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <UsageRankingMetricPill
+                            value={formatOptionalCost(folder.cost, notProvided)}
+                          />
+                          <UsageRankingMetricPill
+                            value={`${formatOptionalNumber(
+                              preferredTokenTotal(folder.tokens),
+                              notProvided
+                            )} ${t('usageDashboard.tokens')}`}
+                          />
+                          <UsageRankingMetricPill
+                            value={t('usageDashboard.sessionsCount', {
+                              count: folder.session_count,
+                            })}
+                          />
+                        </div>
                       </UsageExpandableRow>
                     );
                   })}
@@ -2896,56 +2899,55 @@ export function KanbanUsageDashboard() {
                         key={agent.agent_id}
                         expanded={isExpanded}
                         onToggle={() =>
-                            setExpandedAgentId((prev) =>
-                              prev === agent.agent_id ? null : agent.agent_id
-                            )
+                          setExpandedAgentId((prev) =>
+                            prev === agent.agent_id ? null : agent.agent_id
+                          )
                         }
                         detail={
-                          agentBreakdown ? renderDimensionDetailCard(agentBreakdown, 'agent') : null
+                          agentBreakdown
+                            ? renderDimensionDetailCard(agentBreakdown, 'agent')
+                            : null
                         }
                       >
-                          <span
-                            className={cn(
-                              'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
-                              index === 0 && 'kanban-rank-first',
-                              index === 1 && 'kanban-rank-second',
-                              index === 2 && 'kanban-rank-third',
-                              index >= 3 && 'text-muted-foreground'
-                            )}
-                          >
-                            {index + 1}
+                        <span
+                          className={cn(
+                            'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
+                            index === 0 && 'kanban-rank-first',
+                            index === 1 && 'kanban-rank-second',
+                            index === 2 && 'kanban-rank-third',
+                            index >= 3 && 'text-muted-foreground'
+                          )}
+                        >
+                          {index + 1}
+                        </span>
+
+                        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                          <span className="truncate text-sm font-semibold text-foreground">
+                            {displayUsageLabel(agent.agent_id, notProvided)}
                           </span>
-
-                          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {displayUsageLabel(agent.agent_id, notProvided)}
+                          {preferredTokenCounts(agent.tokens) == null ? (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {t('usageDashboard.notProvidedReason')}
                             </span>
-                            {preferredTokenCounts(agent.tokens) == null ? (
-                              <span className="truncate text-xs text-muted-foreground">
-                                {t('usageDashboard.notProvidedReason')}
-                              </span>
-                            ) : null}
-                          </div>
+                          ) : null}
+                        </div>
 
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <UsageRankingMetricPill
-                              value={formatOptionalCost(
-                                agent.cost,
-                                notProvided
-                              )}
-                            />
-                            <UsageRankingMetricPill
-                              value={`${formatOptionalNumber(
-                                preferredTokenTotal(agent.tokens),
-                                notProvided
-                              )} ${t('usageDashboard.tokens')}`}
-                            />
-                            <UsageRankingMetricPill
-                              value={t('usageDashboard.sessionsCount', {
-                                count: agent.session_count,
-                              })}
-                            />
-                          </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <UsageRankingMetricPill
+                            value={formatOptionalCost(agent.cost, notProvided)}
+                          />
+                          <UsageRankingMetricPill
+                            value={`${formatOptionalNumber(
+                              preferredTokenTotal(agent.tokens),
+                              notProvided
+                            )} ${t('usageDashboard.tokens')}`}
+                          />
+                          <UsageRankingMetricPill
+                            value={t('usageDashboard.sessionsCount', {
+                              count: agent.session_count,
+                            })}
+                          />
+                        </div>
                       </UsageExpandableRow>
                     );
                   })}
@@ -2997,66 +2999,65 @@ export function KanbanUsageDashboard() {
                         key={model.model}
                         expanded={isExpanded}
                         onToggle={() =>
-                            setExpandedModelId((prev) =>
-                              prev === model.model ? null : model.model
-                            )
+                          setExpandedModelId((prev) =>
+                            prev === model.model ? null : model.model
+                          )
                         }
                         detail={
-                          modelBreakdown ? renderDimensionDetailCard(modelBreakdown, 'model') : null
+                          modelBreakdown
+                            ? renderDimensionDetailCard(modelBreakdown, 'model')
+                            : null
                         }
                       >
-                          <span
-                            className={cn(
-                              'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
-                              index === 0 && 'kanban-rank-first',
-                              index === 1 && 'kanban-rank-second',
-                              index === 2 && 'kanban-rank-third',
-                              index >= 3 && 'text-muted-foreground'
-                            )}
-                          >
-                            {index + 1}
+                        <span
+                          className={cn(
+                            'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
+                            index === 0 && 'kanban-rank-first',
+                            index === 1 && 'kanban-rank-second',
+                            index === 2 && 'kanban-rank-third',
+                            index >= 3 && 'text-muted-foreground'
+                          )}
+                        >
+                          {index + 1}
+                        </span>
+
+                        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                          <span className="truncate text-sm font-semibold text-foreground">
+                            {displayUsageLabel(model.model, notProvided)}
                           </span>
-
-                          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {displayUsageLabel(model.model, notProvided)}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {t('usageDashboard.modelInput', {
-                                value: formatOptionalNumber(
-                                  modelCounts?.input_tokens,
-                                  notProvided
-                                ),
-                              })}
-                              {' · '}
-                              {t('usageDashboard.modelOutput', {
-                                value: formatOptionalNumber(
-                                  modelCounts?.output_tokens,
-                                  notProvided
-                                ),
-                              })}
-                            </span>
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            <UsageRankingMetricPill
-                              value={formatOptionalCost(
-                                model.cost,
+                          <span className="truncate text-xs text-muted-foreground">
+                            {t('usageDashboard.modelInput', {
+                              value: formatOptionalNumber(
+                                modelCounts?.input_tokens,
                                 notProvided
-                              )}
-                            />
-                            <UsageRankingMetricPill
-                              value={`${formatOptionalNumber(
-                                preferredTokenTotal(model.tokens),
+                              ),
+                            })}
+                            {' · '}
+                            {t('usageDashboard.modelOutput', {
+                              value: formatOptionalNumber(
+                                modelCounts?.output_tokens,
                                 notProvided
-                              )} ${t('usageDashboard.tokens')}`}
-                            />
-                            <UsageRankingMetricPill
-                              value={t('usageDashboard.sessionsCount', {
-                                count: model.session_count,
-                              })}
-                            />
-                          </div>
+                              ),
+                            })}
+                          </span>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <UsageRankingMetricPill
+                            value={formatOptionalCost(model.cost, notProvided)}
+                          />
+                          <UsageRankingMetricPill
+                            value={`${formatOptionalNumber(
+                              preferredTokenTotal(model.tokens),
+                              notProvided
+                            )} ${t('usageDashboard.tokens')}`}
+                          />
+                          <UsageRankingMetricPill
+                            value={t('usageDashboard.sessionsCount', {
+                              count: model.session_count,
+                            })}
+                          />
+                        </div>
                       </UsageExpandableRow>
                     );
                   })}
@@ -3229,7 +3230,11 @@ export function KanbanUsageDashboard() {
             >
               <div className="flex items-baseline justify-between gap-4">
                 <span className="text-xs font-semibold text-foreground">
-                  {formatTrendTooltipDate(tooltip.content.date, weekdayLabels)}
+                  {formatTrendTooltipDate(
+                    tooltip.content.date,
+                    weekdayLabels,
+                    t
+                  )}
                 </span>
                 <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
                   {formatNumber(tooltip.content.totalTokens)}

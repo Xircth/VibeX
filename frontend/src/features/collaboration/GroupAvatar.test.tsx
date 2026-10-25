@@ -5,6 +5,7 @@ import {
   GroupAvatar,
   GROUP_AVATAR_LAYOUTS,
   GROUP_AVATAR_TILT_DEG,
+  groupAvatarMemberSlotPx,
 } from './GroupAvatar';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
@@ -77,5 +78,15 @@ describe('botSilhouetteOutline', () => {
       color: '#ffffff',
       width: ((0.75 * 2) / 14) * 64,
     });
+  });
+});
+
+describe('groupAvatarMemberSlotPx', () => {
+  it('returns the inner member slot size at the rendered group size', () => {
+    expect(groupAvatarMemberSlotPx(28, 1)).toBe(20);
+    expect(groupAvatarMemberSlotPx(28, 2)).toBe(18);
+    expect(groupAvatarMemberSlotPx(28, 3)).toBe(17);
+    expect(groupAvatarMemberSlotPx(28, 4)).toBe(16);
+    expect(groupAvatarMemberSlotPx(56, 2)).toBe(36);
   });
 });

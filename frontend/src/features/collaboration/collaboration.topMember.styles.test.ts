@@ -51,6 +51,26 @@ describe('collaboration top assistant list chrome', () => {
     expect(item['box-shadow']?.value).toBe('none');
   });
 
+  it('stacks collapsed member avatars with more than a corner of overlap', () => {
+    const overlap = declarationsFor(
+      '.collaboration-top-member-stack-item + .collaboration-top-member-stack-item'
+    );
+    expect(overlap['margin-left']?.value).toBe(
+      'calc(var(--collaboration-list-avatar, 2.5rem) * -0.55)'
+    );
+  });
+
+  it('keeps the expanded details button and chevron in one chrome without chevron hover fill', () => {
+    const chrome = declarationsFor('.collaboration-top-member-chrome');
+    expect(chrome.display?.value).toBe('inline-flex');
+    expect(chrome['border-radius']?.value).toBe('999px');
+
+    const toggleHover = declarationsFor(
+      '.collaboration-top-member-toggle:hover, .collaboration-top-member-toggle:focus-visible'
+    );
+    expect(toggleHover.background?.value).toBe('transparent');
+  });
+
   it('renders expanded assistant chips without a rounded fill', () => {
     const chip = declarationsFor('.collaboration-top-member-chip');
     expect(chip.background?.value).toBe('transparent');

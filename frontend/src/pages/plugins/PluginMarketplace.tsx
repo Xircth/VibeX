@@ -295,14 +295,14 @@ export function PluginMarketplaceList({
             ))}
           </div>
         ) : (
-          <div className="product-plugin-empty">
-            <strong>{t('plugins.marketplaceEmpty')}</strong>
-            {query.trim() ? (
-              <span className="product-plugin-muted">
-                {t('plugins.productEmptySearchHint')}
-              </span>
-            ) : null}
-          </div>
+          <EmptyState
+            className="min-h-[220px]"
+            icon={<Store />}
+            title={t('plugins.marketplaceEmpty')}
+            description={
+              query.trim() ? t('plugins.productEmptySearchHint') : undefined
+            }
+          />
         )}
       </div>
     </div>

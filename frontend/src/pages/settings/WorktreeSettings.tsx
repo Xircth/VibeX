@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FolderGit2, GitFork } from 'lucide-react';
+import {
+  AlertTriangle,
+  FolderGit2,
+  GitFork,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from 'shared/types';
 
@@ -22,6 +26,7 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const EMPTY_SETTINGS: ProjectWorktreeSettings = {
   create_command: null,
@@ -356,9 +361,12 @@ export function WorktreeSettings() {
               aria-label={t('worktrees.projectLabel')}
             >
               {projects.length === 0 ? (
-                <p className="settings-worktree-board__empty">
-                  {t('worktrees.noProjects')}
-                </p>
+                <EmptyState
+                  size="compact"
+                  className="settings-worktree-board__empty"
+                  icon={<FolderGit2 />}
+                  title={t('worktrees.noProjects')}
+                />
               ) : (
                 projects.map((project) => (
                   <button

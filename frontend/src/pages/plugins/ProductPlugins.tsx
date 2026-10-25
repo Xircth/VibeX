@@ -100,6 +100,7 @@ import {
   useProductPluginCatalog,
   useProductPluginDetail,
 } from './pluginQueries';
+import { EmptyState } from '@/components/ui/empty-state';
 
 function usePluginControl() {
   const transport = useBackendTransport();
@@ -834,22 +835,25 @@ export function PluginCatalogPage() {
             </div>
           ) : null}
           {!loading && visible.length === 0 ? (
-            <div className="product-plugin-empty">
-              <Puzzle aria-hidden="true" />
-              <strong>{t('plugins.productEmpty')}</strong>
-              {query.trim() ? (
-                <span className="product-plugin-muted">
-                  {t('plugins.productEmptySearchHint')}
-                </span>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => setCatalogMode('marketplace')}
-                >
-                  {t('plugins.marketplaceTab')}
-                </Button>
-              )}
-            </div>
+            <EmptyState
+              className="product-plugin-empty-state min-h-[220px]"
+              icon={<Puzzle />}
+              title={t('plugins.productEmpty')}
+              description={
+                query.trim() ? t('plugins.productEmptySearchHint') : undefined
+              }
+              action={
+                query.trim() ? null : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCatalogMode('marketplace')}
+                  >
+                    {t('plugins.marketplaceTab')}
+                  </Button>
+                )
+              }
+            />
           ) : null}
         </section>
       )}
@@ -1286,9 +1290,11 @@ export function PluginDetailPage() {
           <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
           {t('plugins.backToPlugins')}
         </Button>
-        <div className="product-plugin-empty">
-          <strong>{t('plugins.productNotFound')}</strong>
-        </div>
+        <EmptyState
+          className="min-h-[220px]"
+          icon={<Puzzle />}
+          title={t('plugins.productNotFound')}
+        />
       </main>
     );
   }
@@ -1563,9 +1569,11 @@ export function MarketplacePluginDetailPage() {
           <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
           {t('plugins.backToPlugins')}
         </Button>
-        <div className="product-plugin-empty">
-          <strong>{t('plugins.productNotFound')}</strong>
-        </div>
+        <EmptyState
+          className="min-h-[220px]"
+          icon={<Puzzle />}
+          title={t('plugins.productNotFound')}
+        />
       </main>
     );
   }

@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  ScrollText,
   SlidersHorizontal,
   Trash2,
   X,
@@ -34,6 +35,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 
 import { applyLogBatch } from './logBuffer';
 import { SettingsSection } from './SettingsUi';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const CAPTURE_LEVELS: LogLevel[] = [
   'all',
@@ -596,9 +598,12 @@ export function LogsSettings() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 </p>
               ) : visible.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  {t('logs.empty')}
-                </p>
+                <EmptyState
+                  size="compact"
+                  className="font-sans"
+                  icon={<ScrollText />}
+                  title={t('logs.empty')}
+                />
               ) : (
                 visible.map((record) => (
                   <LogRow key={record.seq} record={record} />

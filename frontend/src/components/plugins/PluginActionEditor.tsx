@@ -1,3 +1,4 @@
+import { Puzzle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -5,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { BackendTransport } from '@/lib/backendTransport';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export type PluginPromptBlock = {
   type: 'text';
@@ -328,9 +330,11 @@ export function PluginActionEditor({
           </Button>
         </div>
       ) : actions.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {t('pluginActions.empty')}
-        </p>
+        <EmptyState
+          size="compact"
+          icon={<Puzzle />}
+          title={t('pluginActions.empty')}
+        />
       ) : null}
 
       <div className="flex flex-wrap gap-2">

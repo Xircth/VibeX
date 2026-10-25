@@ -27,9 +27,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 2px solid #111;
-  background: #fff;
-  color: #fff;
+  border: 2px solid hsl(var(--foreground));
+  background: var(--surface-card);
+  color: hsl(var(--background));
 }
 
 .astryx-step__dot {
@@ -37,7 +37,7 @@
   height: 8px;
   width: 8px;
   border-radius: 999px;
-  background: #111;
+  background: hsl(var(--foreground));
 }
 
 .astryx-step__item[data-status='current'] .astryx-step__dot {
@@ -45,15 +45,15 @@
 }
 
 .astryx-step__item[data-status='completed'] .astryx-step__indicator {
-  background: #111;
-  border-color: #111;
-  color: #fff;
+  background: hsl(var(--foreground));
+  border-color: hsl(var(--foreground));
+  color: hsl(var(--background));
 }
 
 .astryx-step__item[data-status='upcoming'] .astryx-step__indicator {
   border-width: 1.5px;
-  border-color: #cfcfcf;
-  background: #fff;
+  border-color: var(--border-strong);
+  background: var(--surface-card);
 }
 
 .astryx-step__body {
@@ -72,24 +72,24 @@
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 18px;
-  color: #111;
+  color: hsl(var(--foreground));
   white-space: nowrap;
 }
 
 .astryx-step__item[data-status='upcoming'] .astryx-step__label {
   font-weight: 500;
-  color: #737373;
+  color: var(--text-muted);
 }
 
 .astryx-step__description {
   font-size: 0.75rem;
   line-height: 1.35;
   font-weight: 400;
-  color: #737373;
+  color: var(--text-muted);
 }
 
 .astryx-step__item[data-status='upcoming'] .astryx-step__description {
-  color: #a3a3a3;
+  color: var(--text-subtle);
 }
 
 .astryx-step__separator {
@@ -98,7 +98,7 @@
   top: 18px;
   bottom: 0.15rem;
   width: 2px;
-  background: #111;
+  background: hsl(var(--foreground));
 }
 
 .astryx-step__item:last-child .astryx-step__separator {
@@ -201,8 +201,8 @@
 .basic-guide-panel__stack--framed {
   box-sizing: border-box;
   padding: 12px;
-  background: #f1f1f1;
-  border: 1px solid #111;
+  background: var(--surface-control);
+  border: 1px solid hsl(var(--foreground));
   border-radius: 8px;
 }
 
@@ -232,11 +232,11 @@
   z-index: 70;
   pointer-events: none;
   box-sizing: border-box;
-  border: 1px solid #111;
-  outline: 1px solid #111;
+  border: 1px solid hsl(var(--foreground));
+  outline: 1px solid hsl(var(--foreground));
   outline-offset: -1px;
   border-radius: 8px;
-  box-shadow: 0 0 0 1px #111;
+  box-shadow: 0 0 0 1px hsl(var(--foreground));
   animation: basic-guide-breathe 2.4s ease-in-out infinite;
 }
 
@@ -254,10 +254,10 @@
   pointer-events: none;
   max-width: 240px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #111;
+  background: var(--surface-card);
+  border: 1px solid hsl(var(--foreground));
   border-radius: 8px;
-  color: #111;
+  color: hsl(var(--foreground));
   box-sizing: border-box;
 }
 
@@ -274,12 +274,12 @@
   margin: 0;
   font-size: 0.8125rem;
   line-height: 1.45;
-  color: #111;
+  color: hsl(var(--foreground));
 }
 
 .basic-guide-callout__copy strong {
   font-weight: 600;
-  color: #111;
+  color: hsl(var(--foreground));
 }
 
 .basic-guide-callout__continue {
@@ -291,8 +291,8 @@
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
-  background: #111;
-  color: #fff;
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1;
@@ -301,17 +301,17 @@
 }
 
 .basic-guide-callout__continue:hover {
-  background: rgb(17 17 17 / 0.88);
+  background: hsl(var(--foreground) / 0.88);
 }
 
 .basic-guide-callout__continue:focus-visible {
-  outline: 2px solid #111;
+  outline: 2px solid hsl(var(--foreground));
   outline-offset: 2px;
 }
 
 .basic-guide-action {
   font-weight: 700;
-  color: hsl(142 72% 32%);
+  color: hsl(var(--success));
 }
 
 .basic-guide-connectors {
@@ -350,25 +350,25 @@
   border-radius: 4px;
   padding: 0;
   background: transparent;
-  color: #111;
+  color: hsl(var(--foreground));
   cursor: pointer;
 }
 
 .basic-guide-end__close:hover {
-  background: rgb(17 17 17 / 0.08);
+  background: hsl(var(--foreground) / 0.08);
 }
 
 @keyframes basic-guide-breathe {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px #111,
-      0 0 0 1px rgb(17 17 17 / 0);
+      0 0 0 1px hsl(var(--foreground)),
+      0 0 0 1px hsl(var(--foreground) / 0);
   }
   50% {
     box-shadow:
-      0 0 0 1px #111,
-      0 0 0 4px rgb(17 17 17 / 0.22);
+      0 0 0 1px hsl(var(--foreground)),
+      0 0 0 4px hsl(var(--foreground) / 0.22);
   }
 }
 

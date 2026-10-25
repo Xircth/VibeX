@@ -29,7 +29,7 @@ import {
   parseMemberSelectionKey,
   type SpaceMember,
   buildChatList,
-  nextDefaultGroupChatName,
+  defaultGroupChatNameFromMembers,
   resolvePrivateChatTarget,
   uniqueBotsForGroupMemberPicker,
 } from './spaceModel';
@@ -77,7 +77,6 @@ describe('collaboration space model', () => {
     expect(COPY.createMenu).toBe('创建');
     expect(COPY.spaceName).toBe('群聊名称');
     expect(COPY.spaceMembersLabel).toBe('群聊成员');
-    expect(COPY.defaultGroupChatName).toBe('群聊');
     expect(COPY.newMemberButton).toBe('新建助手');
     expect(COPY.createAssistantButton).toBe('创建助手');
     expect(COPY.createContactGroupButton).toBe('新建分组');
@@ -587,11 +586,13 @@ describe('memberTabTitle', () => {
 });
 
 describe('create group chat defaults', () => {
-  it('names an unnamed group 群聊, then 群聊 2', () => {
-    expect(nextDefaultGroupChatName([])).toBe('群聊');
-    expect(nextDefaultGroupChatName(['设计'])).toBe('群聊');
-    expect(nextDefaultGroupChatName(['群聊'])).toBe('群聊 2');
-    expect(nextDefaultGroupChatName(['群聊', '群聊 2', '设计'])).toBe('群聊 3');
+  it('names an unnamed group from member nicknames', () => {
+    expect(defaultGroupChatNameFromMembers([])).toBe('');
+    expect(defaultGroupChatNameFromMembers(['小A'])).toBe('小A');
+    expect(defaultGroupChatNameFromMembers(['小A', '小B'])).toBe('小A、小B');
+    expect(
+      defaultGroupChatNameFromMembers(['小A', '小B'], ['小A、小B'])
+    ).toBe('小A、小B 2');
   });
 
   it('flattens unique bots and skips ones already in the group', () => {

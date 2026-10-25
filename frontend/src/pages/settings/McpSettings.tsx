@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   TerminalSquare,
   Trash2,
+  Check,
 } from 'lucide-react';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Input } from '@/components/ui/input';
@@ -1057,24 +1058,25 @@ function LocalListPanel({
           servers.map((server) => {
             const active = server.id === activeId;
             return (
-              <div
+              <button
                 key={server.id}
-                role="button"
-                tabIndex={0}
+                type="button"
+                aria-current={active ? 'true' : undefined}
+                data-active={active ? 'true' : undefined}
                 onClick={() => onSelect(server.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelect(server.id);
-                  }
-                }}
                 className={cn(
-                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'relative block w-full cursor-pointer rounded-[var(--radius)] border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
                   active
-                    ? 'border-primary/60 bg-primary/5'
+                    ? 'border-primary/60 bg-primary/5 pr-7'
                     : 'border-transparent hover:bg-foreground/[0.05]'
                 )}
               >
+                {active ? (
+                  <Check
+                    aria-hidden="true"
+                    className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
+                  />
+                ) : null}
                 <div className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
                     {server.id}
@@ -1096,7 +1098,7 @@ function LocalListPanel({
                 <p className="mt-0.5 line-clamp-1 break-all text-[10px] text-muted-foreground">
                   {specSummary(server.spec)}
                 </p>
-              </div>
+              </button>
             );
           })
         )}
@@ -1195,24 +1197,25 @@ function MarketListPanel({
           results.map((item) => {
             const active = item.server_id === activeId;
             return (
-              <div
+              <button
                 key={`${item.provider_id}:${item.server_id}`}
-                role="button"
-                tabIndex={0}
+                type="button"
+                aria-current={active ? 'true' : undefined}
+                data-active={active ? 'true' : undefined}
                 onClick={() => onSelect(item.server_id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelect(item.server_id);
-                  }
-                }}
                 className={cn(
-                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'relative block w-full cursor-pointer rounded-[var(--radius)] border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
                   active
-                    ? 'border-primary/60 bg-primary/5'
+                    ? 'border-primary/60 bg-primary/5 pr-7'
                     : 'border-transparent hover:bg-foreground/[0.05]'
                 )}
               >
+                {active ? (
+                  <Check
+                    aria-hidden="true"
+                    className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
+                  />
+                ) : null}
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-md border bg-muted/40">
                     {item.icon_url ? (
@@ -1257,7 +1260,7 @@ function MarketListPanel({
                     </Badge>
                   ) : null}
                 </div>
-              </div>
+              </button>
             );
           })
         )}

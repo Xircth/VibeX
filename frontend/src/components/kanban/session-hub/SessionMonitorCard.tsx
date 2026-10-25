@@ -117,7 +117,7 @@ export function SessionMonitorCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <span className="mr-0.5 shrink-0 text-[11px] text-muted-foreground">
+          <span className="mr-0.5 shrink-0 text-xs text-muted-foreground">
             {formatTimeAgo(session.updatedAt)}
           </span>
 

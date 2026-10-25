@@ -1657,7 +1657,7 @@ function SessionCanvasFlow({
                     height: dropHint.rect.height,
                   }}
                 >
-                  <span className="mt-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
+                  <span className="mt-1 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
                     {t('hubCanvas.mergeIntoGroup')}
                   </span>
                 </div>

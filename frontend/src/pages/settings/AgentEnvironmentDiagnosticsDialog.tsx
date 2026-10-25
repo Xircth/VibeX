@@ -161,12 +161,12 @@ export function AgentEnvironmentDiagnosticsDialog({
                                 defaultValue: humanize(check.id),
                               })}
                             </strong>
-                            <code className="break-all text-[11px] text-muted-foreground">
+                            <code className="break-all text-xs text-muted-foreground">
                               {localizedDiagnosticValue(t, check.value)}
                             </code>
                           </div>
                           {check.detail_key ? (
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               {t(check.detail_key)}
                             </p>
                           ) : null}
@@ -176,7 +176,7 @@ export function AgentEnvironmentDiagnosticsDialog({
                   </ul>
                 </section>
               ))}
-              <p className="text-center text-[11px] text-muted-foreground">
+              <p className="text-center text-xs text-muted-foreground">
                 {new Intl.DateTimeFormat(undefined, {
                   dateStyle: 'medium',
                   timeStyle: 'medium',

@@ -198,13 +198,13 @@ export function AutomationCenter() {
                           <span className="truncate text-sm font-semibold">
                             {automation.name}
                           </span>
-                          <span className="rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                          <span className="rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                             {automation.target.kind === 'workflow'
                               ? t('automations.targetWorkflow')
                               : t('automations.targetTurn')}
                           </span>
                         </span>
-                        <span className="mt-1 block text-[11px] text-muted-foreground">
+                        <span className="mt-1 block text-xs text-muted-foreground">
                           {scheduleLabel(
                             automation,
                             t('automations.triggerManual')
@@ -253,7 +253,7 @@ export function AutomationCenter() {
                     </div>
                     <div className="mt-2 flex items-center gap-1">
                       {automation.unseenFailureCount ? (
-                        <span className="mr-auto text-[11px] font-medium text-destructive">
+                        <span className="mr-auto text-xs font-medium text-destructive">
                           {t('automations.unseenFailures', {
                             count: automation.unseenFailureCount,
                           })}

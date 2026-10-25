@@ -1338,13 +1338,13 @@ function AutomationList({
           </div>
           <div className="mt-2 flex items-center justify-end gap-1">
             {automation.unseenFailureCount > 0 ? (
-              <span className="mr-auto text-[11px] font-medium text-destructive">
+              <span className="mr-auto text-xs font-medium text-destructive">
                 {t('automations.unseenFailures', {
                   count: automation.unseenFailureCount,
                 })}
               </span>
             ) : automation.migrationRequired ? (
-              <span className="mr-auto text-[11px] font-medium text-destructive">
+              <span className="mr-auto text-xs font-medium text-destructive">
                 {t('automations.migrationRequired')}
               </span>
             ) : null}
@@ -1426,7 +1426,7 @@ function RunHistory({
 }) {
   if (runs.length === 0) {
     return (
-      <p className="mt-2 text-[11px] text-foreground">
+      <p className="mt-2 text-xs text-foreground">
         {t('automations.noRuns')}
       </p>
     );
@@ -1439,7 +1439,7 @@ function RunHistory({
       {runs.map((run) => (
         <li
           key={run.id}
-          className="flex items-start justify-between gap-2 rounded-md bg-muted/35 px-2 py-1.5 text-[11px]"
+          className="flex items-start justify-between gap-2 rounded-md bg-muted/35 px-2 py-1.5 text-xs"
         >
           <span className="min-w-0">
             <span className="block font-medium">
@@ -1464,7 +1464,7 @@ function RunHistory({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-[11px]"
+              className="h-6 px-2 text-xs"
               onClick={() => onCancel(run)}
             >
               {t('automations.cancelRun')}

@@ -584,7 +584,7 @@ function UsageHabitTile({ item }: { item: UsageHabitItem }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1.5">
-          <span className="truncate text-[11px] text-muted-foreground">
+          <span className="truncate text-xs text-muted-foreground">
             {item.label}
           </span>
           {item.badge ? (
@@ -647,7 +647,7 @@ function UsageRankingMetricPill({
   return (
     <span
       title={title}
-      className="kanban-usage-metric-pill inline-flex h-6 min-w-[72px] shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-center text-[11px] font-medium leading-none tabular-nums text-foreground/85"
+      className="kanban-usage-metric-pill inline-flex h-6 min-w-[72px] shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-center text-xs font-medium leading-none tabular-nums text-foreground/85"
     >
       {value}
     </span>
@@ -813,7 +813,7 @@ function TokenCompositionList({
               <span className="shrink-0 font-mono text-xs tabular-nums text-foreground">
                 {formatOptionalNumber(item.value, notProvided)}
               </span>
-              <span className="w-11 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+              <span className="w-11 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
                 {percentage.toFixed(1)}%
               </span>
             </div>
@@ -937,7 +937,7 @@ function OverviewSubscriptionPlansCard({
                     {agentLabel}
                   </span>
                   {planName ? (
-                    <span className="block truncate text-[11px] text-muted-foreground">
+                    <span className="block truncate text-xs text-muted-foreground">
                       {planName}
                     </span>
                   ) : null}
@@ -1004,7 +1004,7 @@ function OverviewSubscriptionPlansCard({
                         title={tooltipText}
                         className="flex min-w-0 items-center gap-2.5"
                       >
-                        <span className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-[11px] font-medium leading-none text-foreground/85">
+                        <span className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-xs font-medium leading-none text-foreground/85">
                           {windowLabel}
                         </span>
                         <ProgressBar
@@ -1032,7 +1032,7 @@ function OverviewSubscriptionPlansCard({
               ) : null}
 
               {usage.credits ? (
-                <span className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-[11px] font-medium leading-none tabular-nums text-foreground/85">
+                <span className="inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/90 px-2.5 text-xs font-medium leading-none tabular-nums text-foreground/85">
                   {usage.credits.unlimited
                     ? t('usageDashboard.planUsage.creditsUnlimited')
                     : t('usageDashboard.planUsage.creditsBalance', {
@@ -2424,7 +2424,7 @@ export function KanbanUsageDashboard() {
                         : notProvided
                     }
                     detail={
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {t('usageDashboard.avgTokensPerSession', {
                           value: formatOptionalNumber(
                             statistics.total_sessions > 0
@@ -2446,7 +2446,7 @@ export function KanbanUsageDashboard() {
                     label={t('usageDashboard.activeDays')}
                     value={activeDaysCount}
                     detail={
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {t('usageDashboard.daysCount', {
                           count: filteredDailyUsage.length,
                         })}
@@ -2469,7 +2469,7 @@ export function KanbanUsageDashboard() {
                     right={
                       <div className="flex flex-wrap items-center justify-end gap-4 text-xs text-muted-foreground">
                         {filteredDailyUsage.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-4 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-4 text-xs">
                             <span className="flex items-center gap-1.5">
                               <span className="h-2.5 w-2.5 rounded-[3px] bg-foreground/75" />
                               {t('usageDashboard.freshTokens')}
@@ -2652,11 +2652,11 @@ export function KanbanUsageDashboard() {
                             : 'ml-12 mt-1 flex justify-between'
                         }
                       >
-                        <span className="text-[9px] text-muted-foreground">
+                        <span className="text-[10px] text-muted-foreground">
                           {formatShortDate(filteredDailyUsage[0].date)}
                         </span>
                         {filteredDailyUsage.length > 2 ? (
-                          <span className="text-[9px] text-muted-foreground">
+                          <span className="text-[10px] text-muted-foreground">
                             {formatShortDate(
                               filteredDailyUsage[
                                 Math.floor(filteredDailyUsage.length / 2)
@@ -2665,7 +2665,7 @@ export function KanbanUsageDashboard() {
                           </span>
                         ) : null}
                         {filteredDailyUsage.length > 1 ? (
-                          <span className="text-[9px] text-muted-foreground">
+                          <span className="text-[10px] text-muted-foreground">
                             {formatShortDate(
                               filteredDailyUsage[filteredDailyUsage.length - 1]
                                 .date
@@ -3273,7 +3273,7 @@ export function KanbanUsageDashboard() {
                 </span>
               </div>
 
-              <div className="mt-2 space-y-1 text-[11px]">
+              <div className="mt-2 space-y-1 text-xs">
                 <div className="flex items-center justify-between gap-4">
                   <span className="flex items-center gap-1.5 text-muted-foreground">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-[3px] bg-foreground" />

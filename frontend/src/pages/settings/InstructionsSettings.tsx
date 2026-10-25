@@ -424,7 +424,7 @@ export function InstructionsSettings() {
             {leftTab === 'market' ? (
               <Badge
                 variant="secondary"
-                className="h-5 shrink-0 px-1.5 text-[9px]"
+                className="h-5 shrink-0 px-1.5 text-[10px]"
               >
                 {t('instructions.officialBadge')}
               </Badge>

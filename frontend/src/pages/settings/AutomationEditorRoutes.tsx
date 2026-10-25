@@ -1132,7 +1132,7 @@ function WorkflowAutomationEditor({
           value={sourcePath}
           onChange={setSourcePath}
           width="100%"
-          className="[&_input]:font-mono [&_input]:text-[11px]"
+          className="[&_input]:font-mono [&_input]:text-xs"
         />
       </div>
 
@@ -1614,7 +1614,7 @@ function WorkflowAutomationEditor({
                 <div className="truncate font-medium">
                   {workspace.name?.trim() || workspace.branch}
                 </div>
-                <div className="truncate font-mono text-[11px] text-muted-foreground">
+                <div className="truncate font-mono text-xs text-muted-foreground">
                   {workspace.container_ref ?? workspace.branch}
                 </div>
               </li>

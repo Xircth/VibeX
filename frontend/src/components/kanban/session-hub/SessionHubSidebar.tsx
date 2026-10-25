@@ -208,7 +208,7 @@ function SessionListNotice({
     <div
       role="status"
       className={cn(
-        'flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-4',
+        'flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs leading-4',
         variant === 'success'
           ? 'border-[hsl(var(--success)/0.32)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
           : 'border-[hsl(var(--destructive)/0.32)] bg-[hsl(var(--destructive)/0.1)] text-[hsl(var(--destructive))]'
@@ -935,7 +935,7 @@ export function SessionHubSidebar({
                           type="button"
                           variant="ghost"
                           size="xs"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-6 px-2 text-xs"
                           onClick={() => {
                             onWorkspaceFilterIdsChange([]);
                             onExecutorFilterValuesChange([]);
@@ -946,7 +946,7 @@ export function SessionHubSidebar({
                       </div>
 
                       <div className="space-y-2">
-                        <div className="text-[11px] font-medium text-muted-foreground">
+                        <div className="text-xs font-medium text-muted-foreground">
                           {t('hubSidebar.workspace')}
                         </div>
                         <ScrollArea className="max-h-32">
@@ -983,7 +983,7 @@ export function SessionHubSidebar({
                       </div>
 
                       <div className="space-y-2">
-                        <div className="text-[11px] font-medium text-muted-foreground">
+                        <div className="text-xs font-medium text-muted-foreground">
                           {t('hubSidebar.codingAgent')}
                         </div>
                         <ScrollArea className="max-h-32">
@@ -1075,7 +1075,7 @@ export function SessionHubSidebar({
           </div>
 
           {isFlatListMode || (isWorkspaceListView && hasActiveFilters) ? (
-            <div className="session-hub-drop-zone flex flex-wrap items-center gap-2 rounded-xl px-2.5 py-2 text-[11px] text-muted-foreground">
+            <div className="session-hub-drop-zone flex flex-wrap items-center gap-2 rounded-xl px-2.5 py-2 text-xs text-muted-foreground">
               {sortField && !isWorkspaceListView ? (
                 <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
                   {t('hubSidebar.sortChip', { label: getSortLabel(sortField) })}
@@ -1099,7 +1099,7 @@ export function SessionHubSidebar({
                 type="button"
                 variant="ghost"
                 size="xs"
-                className="ml-auto h-6 px-2 text-[11px]"
+                className="ml-auto h-6 px-2 text-xs"
                 onClick={onResetViewState}
               >
                 {t('hubSidebar.restoreDefault')}

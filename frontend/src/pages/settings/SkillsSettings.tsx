@@ -699,7 +699,7 @@ export function SkillsSettings() {
                 }
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('skills.installHostModeHint', {
                 mode:
                   hostMode === 'symlink'
@@ -804,7 +804,7 @@ export function SkillsSettings() {
                     </label>
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {t('skills.pluginAssignmentHint')}
                 </p>
               </div>
@@ -1035,7 +1035,7 @@ function SkillRow({
         {skill.global ? (
           <Badge
             variant="secondary"
-            className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
+            className="h-5 shrink-0 gap-1 px-1.5 text-[10px]"
           >
             <Globe className="h-2.5 w-2.5" />
             {t('skills.global')}
@@ -1076,7 +1076,7 @@ function MarketListPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
       <div className="space-y-2 p-2.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Globe className="h-3.5 w-3.5" />
           {t('skills.source')}
         </div>
@@ -1153,7 +1153,7 @@ function MarketListPanel({
                   {typeof item.installs === 'number' ? (
                     <Badge
                       variant="outline"
-                      className="h-4 shrink-0 px-1.5 text-[9px]"
+                      className="h-4 shrink-0 px-1.5 text-[10px]"
                     >
                       {t('skills.installs', { count: item.installs })}
                     </Badge>
@@ -1214,7 +1214,7 @@ function LocalDetail({
           <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate text-base font-semibold">{skill.id}</span>
           {skill.global ? (
-            <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[9px]">
+            <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
               <Globe className="h-2.5 w-2.5" />
               {t('skills.global')}
             </Badge>
@@ -1242,7 +1242,7 @@ function LocalDetail({
             <Badge
               key={app}
               variant="outline"
-              className="h-5 gap-1 px-1.5 text-[9px]"
+              className="h-5 gap-1 px-1.5 text-[10px]"
             >
               <AgentTypeIcon agentType={app} className="h-3 w-3" />
               {agentLabels[app] ?? app}
@@ -1294,7 +1294,7 @@ function LocalDetail({
         ) : (
           <div className="space-y-2">
             {frontmatter ? (
-              <pre className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+              <pre className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
                 {frontmatter}
               </pre>
             ) : null}
@@ -1309,7 +1309,7 @@ function LocalDetail({
             )}
           </div>
         )}
-        <p className="break-all text-[11px] text-muted-foreground">
+        <p className="break-all text-xs text-muted-foreground">
           {skill.path}
         </p>
       </div>
@@ -1410,7 +1410,7 @@ function MarketDetail({
           title={t('skills.clickToCopy')}
           className="raised-control flex w-full items-center gap-2 px-3 py-2 text-left"
         >
-          <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
+          <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">
             {installCommand}
           </code>
           {copied ? (

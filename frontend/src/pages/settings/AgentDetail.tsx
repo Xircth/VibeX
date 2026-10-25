@@ -563,7 +563,7 @@ export function AgentDetail({
                     )}
                   </p>
                   {diagnostic.redacted_output ? (
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
                       {diagnostic.redacted_output}
                     </pre>
                   ) : null}

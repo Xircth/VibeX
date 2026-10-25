@@ -950,7 +950,7 @@ export function ChatChannelSettings() {
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          <div className="mt-0.5 truncate text-xs text-muted-foreground">
                             {channelSummary(channel, t)}
                           </div>
                         </button>
@@ -1026,14 +1026,14 @@ export function ChatChannelSettings() {
                       {logChannelId === channel.id ? (
                         <div className="mb-1 ml-2.5 space-y-1 border-l border-border pl-2.5">
                           {logs.length === 0 ? (
-                            <p className="py-1 text-[11px] text-muted-foreground">
+                            <p className="py-1 text-xs text-muted-foreground">
                               {t('chatChannels.noLogs')}
                             </p>
                           ) : (
                             logs.map((log) => (
                               <div
                                 key={log.id}
-                                className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
+                                className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
                               >
                                 <span className="truncate">
                                   {log.direction === 'inbound' ? '⬇' : '⬆'}{' '}
@@ -1569,7 +1569,7 @@ export function ChatChannelSettings() {
                 placeholder={t('chatChannels.allowlistPlaceholder')}
                 rows={2}
               />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('chatChannels.allowlistHint')}
               </p>
             </div>
@@ -1648,7 +1648,7 @@ export function ChatChannelSettings() {
               </Button>
             ) : null}
             {draft.kind === 'weixin' ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {draft.weixin_mode === 'ilink'
                   ? t('chatChannels.weixinIlinkHint')
                   : t('chatChannels.weixinHint')}

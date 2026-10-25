@@ -116,7 +116,7 @@ function ShortcutRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {capturing ? (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {captureError
               ? t('shortcuts.unsupportedKey')
               : t('shortcuts.capturing')}
@@ -126,7 +126,7 @@ function ShortcutRow({
             {binding.keys.map((key) => (
               <kbd
                 key={key}
-                className="settings-kbd px-2 py-1 text-[11px] font-mono"
+                className="settings-kbd px-2 py-1 text-xs font-mono"
               >
                 {formatChord(key)}
               </kbd>
@@ -354,7 +354,7 @@ export function ShortcutSettings() {
           <div className="space-y-4">
             {groupedBindings.map(([group, bindings]) => (
               <div key={group} className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {groupLabel(t, group)}
                 </div>
                 <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
@@ -404,7 +404,7 @@ export function ShortcutSettings() {
                     </span>
                   </div>
                 </div>
-                <kbd className="settings-kbd shrink-0 px-2 py-1 text-[11px] font-mono">
+                <kbd className="settings-kbd shrink-0 px-2 py-1 text-xs font-mono">
                   {formatSequentialKeys(binding.keys)}
                 </kbd>
               </div>

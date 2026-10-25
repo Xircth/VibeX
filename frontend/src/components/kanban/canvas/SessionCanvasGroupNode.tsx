@@ -115,7 +115,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
         !collapsed &&
         typeof data.placeholderX !== 'number' ? (
           <div className="flex flex-1 items-center justify-center p-4">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('hubCanvas.emptyGroup')}
             </p>
           </div>
@@ -125,7 +125,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
         {data.overflow > 0 && !collapsed ? (
           <button
             type="button"
-            className="nodrag nopan flex h-8 shrink-0 items-center justify-center text-[11px] text-muted-foreground hover:text-foreground"
+            className="nodrag nopan flex h-8 shrink-0 items-center justify-center text-xs text-muted-foreground hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               toggleGroupShowAll(data.instanceId);

@@ -30,7 +30,7 @@ export function AutomationTemplateList({
             <h4 className="text-sm font-semibold">
               {t('automations.templates')}
             </h4>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('automations.templatesDraft')}
             </p>
           </div>
@@ -55,7 +55,7 @@ export function AutomationTemplateList({
               <span className="block text-xs font-semibold text-foreground">
                 {t('automations.researchTemplateTitle')}
               </span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+              <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
                 {t('automations.researchTemplateDescription')}
               </span>
             </span>
@@ -83,7 +83,7 @@ export function AutomationTemplateList({
                     <span className="block truncate text-xs font-semibold text-foreground">
                       {template.draft.name}
                     </span>
-                    <span className="mt-0.5 block line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                    <span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-muted-foreground">
                       {template.draft.launch.displayText}
                     </span>
                   </span>

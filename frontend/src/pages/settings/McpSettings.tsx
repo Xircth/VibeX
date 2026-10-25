@@ -949,7 +949,7 @@ export function McpSettings() {
                         />
                       )}
                       {field.description ? (
-                        <p className="text-[11px] leading-5 text-muted-foreground">
+                        <p className="text-xs leading-5 text-muted-foreground">
                           {field.description}
                         </p>
                       ) : null}
@@ -1082,7 +1082,7 @@ function LocalListPanel({
                   {server.global ? (
                     <Badge
                       variant="secondary"
-                      className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
+                      className="h-5 shrink-0 gap-1 px-1.5 text-[10px]"
                     >
                       <Globe className="h-2.5 w-2.5" />
                       {t('mcp.global')}
@@ -1222,7 +1222,7 @@ function MarketListPanel({
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
+                      <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
                         MCP
                       </div>
                     )}
@@ -1241,18 +1241,18 @@ function MarketListPanel({
                     <Badge
                       key={protocol}
                       variant="secondary"
-                      className="h-4 px-1.5 text-[9px]"
+                      className="h-4 px-1.5 text-[10px]"
                     >
                       {protocolLabel(protocol)}
                     </Badge>
                   ))}
                   {item.verified ? (
-                    <Badge className="h-4 px-1.5 text-[9px]">
+                    <Badge className="h-4 px-1.5 text-[10px]">
                       {t('mcp.verified')}
                     </Badge>
                   ) : null}
                   {typeof item.downloads === 'number' ? (
-                    <Badge variant="outline" className="h-4 px-1.5 text-[9px]">
+                    <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
                       {t('mcp.downloadsCount', { count: item.downloads })}
                     </Badge>
                   ) : null}
@@ -1408,7 +1408,7 @@ function MarketDetailPanel({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t('mcp.currentOptionParamCount', {
             count: selectedOption?.parameters.length ?? 0,
           })}

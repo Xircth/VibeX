@@ -8,7 +8,6 @@ import {
   Eye,
   Infinity as InfinityIcon,
   LayoutGrid,
-  Loader2,
   Monitor,
   Moon,
   Palette,
@@ -76,6 +75,7 @@ import {
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
 } from './LayoutArrangementSchematic';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 const THEME_CHOICES: {
   value: ThemeMode;
@@ -270,9 +270,7 @@ export function AppearanceSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

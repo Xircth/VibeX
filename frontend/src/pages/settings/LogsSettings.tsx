@@ -36,6 +36,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { applyLogBatch } from './logBuffer';
 import { SettingsSection } from './SettingsUi';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const CAPTURE_LEVELS: LogLevel[] = [
   'all',
@@ -594,9 +595,16 @@ export function LogsSettings() {
               className="max-h-[60vh] overflow-auto rounded-md border bg-background/50 font-mono text-xs leading-5"
             >
               {loading ? (
-                <p className="flex items-center justify-center px-3 py-6 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                </p>
+                <div
+                  role="status"
+                  aria-busy="true"
+                  aria-label={t('logs.loading', { defaultValue: 'Loading' })}
+                  className="flex flex-col gap-1.5 p-1"
+                >
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <Skeleton key={index} className="h-5 w-full rounded-[var(--radius)]" />
+                  ))}
+                </div>
               ) : visible.length === 0 ? (
                 <EmptyState
                   size="compact"

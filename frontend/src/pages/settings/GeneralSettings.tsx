@@ -3,7 +3,6 @@ import {
   Bell,
   History,
   Lightbulb,
-  Loader2,
   Terminal,
   Users,
   Volume2,
@@ -44,6 +43,7 @@ import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
 import { MultiAgentSettings } from '@/features/collaboration/MultiAgentSettings';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
 
@@ -137,9 +137,7 @@ export function GeneralSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

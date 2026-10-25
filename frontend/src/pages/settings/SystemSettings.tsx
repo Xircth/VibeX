@@ -40,6 +40,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 type SystemSettingsConfig = Config;
 
@@ -456,9 +457,7 @@ export function SystemSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

@@ -6,7 +6,6 @@ import {
   EyeOff,
   Globe,
   KeyRound,
-  Loader2,
   RefreshCw,
   Shield,
 } from 'lucide-react';
@@ -37,6 +36,7 @@ import { DevicePairingPanel } from './DevicePairingPanel';
 import { HostTunnelPanel } from './HostTunnelPanel';
 import { presentRemoteAccess, type RemoteAccessRowKind } from './hostEndpoints';
 import { RemoteClientSettings } from './RemoteClientSettings';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 type RemoteRoleTab = 'server' | 'client';
 
@@ -318,9 +318,7 @@ export function WebServiceSettings({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

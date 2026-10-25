@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Loader2, RotateCcw } from 'lucide-react';
+import { Keyboard, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
   type EffectiveKeyBinding,
 } from '@/keyboard/registry';
 import { useKeyBindingOverridesStore } from '@/keyboard/useKeyBindingOverrides';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
   const map = new Map<string, T[]>();
@@ -276,9 +277,7 @@ export function ShortcutSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

@@ -38,6 +38,7 @@ import { useBackendTransport } from '@/lib/transport';
 import { SettingsSection } from './SettingsUi';
 import { AutomationTemplateList } from './AutomationTemplateList';
 import { AutomationTypeDialog } from './AutomationTypeDialog';
+import { Skeleton } from '@/components/ui/skeleton';
 
 function scheduleLabel(automation: AutomationView, manualLabel: string) {
   return automation.trigger.kind === 'schedule'
@@ -162,11 +163,15 @@ export function AutomationCenter() {
               </div>
             ) : null}
             {loading ? (
-              <div className="grid min-h-60 place-items-center text-xs text-muted-foreground">
-                <span className="flex items-center gap-2">
-                  <Loader2 className="size-3.5 animate-spin" />{' '}
-                  {t('automations.loading')}
-                </span>
+              <div
+                role="status"
+                aria-busy="true"
+                aria-label={t('automations.loading')}
+                className="flex flex-col gap-1.5 p-3"
+              >
+                {Array.from({ length: 3 }, (_, index) => (
+                  <Skeleton key={index} className="h-14 w-full rounded-[var(--radius)]" />
+                ))}
               </div>
             ) : automations.length === 0 ? (
               <div className="grid min-h-72 place-items-center px-6 text-center">

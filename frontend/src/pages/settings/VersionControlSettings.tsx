@@ -40,6 +40,7 @@ import {
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);
@@ -376,9 +377,7 @@ export function VersionControlSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 
@@ -437,7 +436,7 @@ export function VersionControlSettings() {
                     disabled={gitLoading}
                   >
                     {gitLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
@@ -451,7 +450,7 @@ export function VersionControlSettings() {
                     disabled={gitSaving}
                   >
                     {gitSaving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     ) : null}
                     {t('common:save')}
                   </Button>
@@ -690,7 +689,7 @@ export function VersionControlSettings() {
                     disabled={githubInstalling}
                   >
                     {githubInstalling ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <Download className="mr-2 h-4 w-4" />
                     )}
@@ -728,7 +727,7 @@ export function VersionControlSettings() {
                     disabled={githubLoading || githubInstalling}
                   >
                     {githubLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}

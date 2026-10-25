@@ -48,6 +48,7 @@ import {
   type SavedHostSource,
 } from './savedHostAddress';
 import { SettingsSection } from './SettingsUi';
+import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 function isNeedsToken(error: unknown): boolean {
   return getErrorMessage(error).includes('needs_token');
@@ -547,9 +548,7 @@ export function RemoteClientSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SurfaceLoading />
     );
   }
 

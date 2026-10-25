@@ -67,6 +67,7 @@ import {
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
 import { pluginControlApi, type PluginControlItem } from '@/lib/api/plugins';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /* ── constants & helpers ─────────────────────────────────── */
 
@@ -1043,9 +1044,15 @@ function LocalListPanel({
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('mcp.loading')}
+          <div
+            role="status"
+            aria-busy="true"
+            aria-label={t('mcp.loading')}
+            className="flex flex-col gap-1.5 p-1"
+          >
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-11 w-full rounded-[var(--radius)]" />
+            ))}
           </div>
         ) : servers.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
@@ -1182,9 +1189,15 @@ function MarketListPanel({
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
         {searching ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('mcp.searching')}
+          <div
+            role="status"
+            aria-busy="true"
+            aria-label={t('mcp.searching')}
+            className="flex flex-col gap-1.5 p-1"
+          >
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-11 w-full rounded-[var(--radius)]" />
+            ))}
           </div>
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">

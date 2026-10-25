@@ -55,7 +55,7 @@ describe('workspace tab drag', () => {
       />
     );
 
-    const title = screen.getByText('Notes');
+    const title = screen.getByText('笔记');
     const surface = title.closest('.workspace-tab-surface');
     const tab = surface?.closest('.dv-tab');
     expect(surface).not.toHaveAttribute('draggable');

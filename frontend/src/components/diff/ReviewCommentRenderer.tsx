@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { useReview, type ReviewComment } from '@/contexts/ReviewProvider';
+import i18n from '@/i18n';
 
 interface ReviewCommentRendererProps {
   comment: ReviewComment;
@@ -44,7 +45,7 @@ export function ReviewCommentRenderer({
         <InlineMarkdownComposer
           value={editText}
           onChange={setEditText}
-          placeholder="Edit comment... (type # to search tags or files)"
+          placeholder={i18n.t('panels:ui.review.editCommentTypeToSearch')}
           className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
           projectId={projectId}
           onSubmit={handleSave}
@@ -52,7 +53,7 @@ export function ReviewCommentRenderer({
         />
         <div className="mt-2 flex gap-2">
           <Button size="xs" onClick={handleSave} disabled={!editText.trim()}>
-            Save changes
+            {i18n.t('panels:ui.review.saveChanges')}
           </Button>
           <Button
             size="xs"

@@ -894,7 +894,9 @@ function SessionCreationStatusCard({
       >
         <div className="composer-status-header">
           <div className="composer-status-heading">
-            <p className="composer-status-title text-foreground">{title}</p>
+            <p className="composer-status-title whitespace-normal text-foreground [overflow-wrap:anywhere]">
+              {title}
+            </p>
             <Badge
               className="composer-status-badge"
               variant="error"

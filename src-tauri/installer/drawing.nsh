@@ -271,16 +271,16 @@ Function ${UN}VibeXInitResources
   !insertmacro VibeXMakeFont $VibeXFontTitle 12 400 $VibeXFaceUi
   !insertmacro VibeXMakeFont $VibeXFontName 20 600 $VibeXFaceLatin
   !insertmacro VibeXMakeFont $VibeXFontNameSm 18 600 $VibeXFaceLatin
-  !insertmacro VibeXMakeFont $VibeXFontSub 12 400 $VibeXFaceUi
+  !insertmacro VibeXMakeFont $VibeXFontSub 13 400 $VibeXFaceUi
   !insertmacro VibeXMakeFont $VibeXFontBody 13 400 $VibeXFaceUi
   !insertmacro VibeXMakeFont $VibeXFontBtn 13 600 $VibeXFaceUi
   !insertmacro VibeXMakeFont $VibeXFontBtnLg 14 600 $VibeXFaceUi
   ; GDI has no per-glyph font fallback: monospace faces (Cascadia/Consolas)
   ; lack CJK glyphs, and the detail lines mix localized text with paths.
   ${If} $LANGUAGE = 2052
-    !insertmacro VibeXMakeFont $VibeXFontMono 11 400 $VibeXFaceUi
+    !insertmacro VibeXMakeFont $VibeXFontMono 12 400 $VibeXFaceUi
   ${Else}
-    !insertmacro VibeXMakeFont $VibeXFontMono 11 400 $VibeXFaceMono
+    !insertmacro VibeXMakeFont $VibeXFontMono 12 400 $VibeXFaceMono
   ${EndIf}
 
   System::Call '*(i 1, p 0, i 0, i 0) p.s'

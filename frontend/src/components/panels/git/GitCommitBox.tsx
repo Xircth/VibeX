@@ -4,6 +4,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
 import type { GitFileStatusEntry, GitFileDiffEntry } from 'shared/types';
 import { generateCommitMessage } from './generateCommitMessage';
+import i18n from '@/i18n';
 
 interface GitCommitBoxProps {
   commitMessage: string;
@@ -102,7 +103,7 @@ export const GitCommitBox = memo(function GitCommitBox({
           ref={textareaRef}
           data-auto-resize=""
           className="bg-transparent min-w-0 flex-1 resize-none border-0 p-0 text-xs leading-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
-          placeholder="Commit message..."
+          placeholder={i18n.t('panels:ui.gitCommit.commitMessage')}
           rows={1}
           value={commitMessage}
           onChange={(e) => onCommitMessageChange(e.target.value)}
@@ -116,7 +117,7 @@ export const GitCommitBox = memo(function GitCommitBox({
               e.stopPropagation();
               handleGenerateMessage();
             }}
-            title="Generate commit message from staged changes"
+            title={i18n.t('panels:ui.gitCommit.generateCommitMessageFromStaged')}
             type="button"
           >
             <Sparkles className="h-3.5 w-3.5" />

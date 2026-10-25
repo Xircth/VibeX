@@ -4,6 +4,7 @@ import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer
 import { useReview, type ReviewDraft } from '@/contexts/ReviewProvider';
 import { Scope, useKeyExit, useKeySubmitComment } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
+import i18n from '@/i18n';
 
 interface CommentWidgetLineProps {
   draft: ReviewDraft;
@@ -79,7 +80,7 @@ export function CommentWidgetLine({
       <InlineMarkdownComposer
         value={value}
         onChange={setValue}
-        placeholder="Add a comment... (type # to search tags or files)"
+        placeholder={i18n.t('panels:ui.review.addACommentTypeTo')}
         className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
         projectId={projectId}
         onSubmit={handleSave}
@@ -87,7 +88,7 @@ export function CommentWidgetLine({
       />
       <div className="mt-2 flex gap-2">
         <Button size="xs" onClick={handleSave} disabled={!value.trim()}>
-          Add review comment
+          {i18n.t('panels:ui.review.addReviewComment')}
         </Button>
         <Button
           size="xs"

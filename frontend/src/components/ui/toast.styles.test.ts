@@ -10,54 +10,52 @@ const css = readFileSync(
 );
 
 describe('toast surface contract', () => {
-  it('uses an opaque 400px dialog card with overlay shadow', () => {
-    expect(css).toContain('width: min(444px, 100vw);');
-    expect(css).toContain('padding: 36px 12px 12px 32px;');
-    expect(css).toContain('background: var(--surface-dialog);');
-    expect(css).toContain('var(--toast-shadow)');
-    expect(css).not.toContain('backdrop-filter:');
-    expect(css).not.toContain('vu-toast-icon-tile');
-    expect(css).not.toContain('vu-toast-summary');
+  it('uses an opaque dialog surface with the shared toast shadow', () => {
+    expect(css).toContain('width: min(420px, calc(100vw - 24px));');
+    expect(css).toMatch(
+      /\.vu-toast-viewport \.vu-toast-surface \{[\s\S]*?background: var\(--surface-dialog\);/
+    );
+    expect(css).toContain('box-shadow: var(--toast-shadow), var(--vu-toast-inner);');
+    expect(css).not.toMatch(/^\s*(?:-webkit-)?backdrop-filter:\s*blur/m);
+    expect(css).not.toContain('--vu-toast-glass');
+    expect(css).not.toContain('#fafafa');
   });
 
-  it('keeps the drop shadow outside the rounded card', () => {
-    expect(css).toMatch(/\.vu-toast-surface \{[\s\S]*?overflow: visible;/);
+  it('keeps the drop shadow outside the scroll clip', () => {
     expect(css).toMatch(
-      /\.vu-toast-viewport \{[\s\S]*?padding: 36px 12px 12px 32px;/
+      /\.vu-toast-viewport \{[\s\S]*?padding: 48px 16px 16px;/
     );
-    expect(css).toContain(
-      'animation: vu-toast-enter 180ms ease-out backwards;'
-    );
-    expect(css).not.toContain('ease-out both');
-    expect(css).toContain('html.desktop-toast-shell .vu-toast-surface {');
-    expect(css).toContain('box-shadow: none;');
-    expect(css).toContain('drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16))');
+    expect(css).toMatch(/\.vu-toast-host \{[\s\S]*?overflow: visible;/);
   });
 
-  it('lets the title wrap to three lines at regular weight', () => {
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?font-weight: 400;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?min-width: 0;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?-webkit-line-clamp: 3;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?line-clamp: 3;/);
-    expect(css).not.toContain('white-space: nowrap;');
+  it('derives card radius from --radius and keeps the capsule pill', () => {
+    expect(css).toMatch(
+      /\[data-layout='card'\] \{[\s\S]*?border-radius: var\(--radius\);/
+    );
+    expect(css).toMatch(
+      /\[data-layout='capsule'\] \{[\s\S]*?border-radius: 999px;/
+    );
   });
 
-  it('expands details across the icon column and keeps compact compose type', () => {
-    expect(css).toContain('.vu-toast-details {');
-    expect(css).toMatch(/\.vu-toast-details \{[\s\S]*?margin: 0 14px 12px;/);
-    expect(css).toContain(
-      '.vu-desktop-toast-compose .astryx-text-input input {'
-    );
-    expect(css).toContain('font-size: 12px !important;');
-    expect(css).toContain('line-height: 18px !important;');
+  it('lets long titles wrap instead of truncating', () => {
     expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?--font-size-base: 12px;/
+      /\.vu-toast-viewport \.vu-toast-title \{[\s\S]*?overflow-wrap: anywhere;/
+    );
+  });
+
+  it('keeps technical details in a bounded scrollable disclosure', () => {
+    expect(css).toMatch(
+      /\.vu-toast-details \{[\s\S]*?max-height: min\(42dvh, 360px\);/
+    );
+    expect(css).toMatch(/\.vu-toast-details \{[\s\S]*?overflow-y: auto;/);
+  });
+
+  it('puts the details toggle on the title row with token chrome', () => {
+    expect(css).toMatch(
+      /\.vu-toast-disclosure-inline \{[\s\S]*?flex: 0 0 auto;[\s\S]*?white-space: nowrap;[\s\S]*?border-radius: var\(--radius\);/
     );
     expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?font-size: 12px;/
-    );
-    expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?line-height: 16px;/
+      /\.vu-toast-disclosure-inline:hover \{[\s\S]*?background: var\(--surface-control\);/
     );
   });
 });

@@ -45,6 +45,7 @@ import {
   tabIdFromEditorTerminalPanelId,
 } from '@/lib/workspaceTerminalTabs';
 import type { TerminalPanelParams } from '@/types/panels';
+import i18n from '@/i18n';
 
 type TerminalCloseEvent = Pick<React.SyntheticEvent, 'stopPropagation'>;
 
@@ -354,7 +355,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
         <TerminalIcon className="h-8 w-8 opacity-40" />
         <div className="text-center space-y-1">
           <p className="font-medium">Terminal</p>
-          <p className="text-xs">Select a workspace to open the terminal.</p>
+          <p className="text-xs">{i18n.t('panels:ui.terminal.selectAWorkspaceToOpen')}</p>
         </div>
       </div>
     );
@@ -453,7 +454,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
                     onClick={() => void handleCreateTab()}
                     disabled={!workspaceId}
                     className="raised-control flex h-6 w-6 shrink-0 items-center justify-center disabled:opacity-50"
-                    title="New terminal"
+                    title={i18n.t('panels:ui.terminal.newTerminal')}
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -700,7 +701,7 @@ function LogViewerTab({
         >
           {logs.length === 0 && !error && (
             <span className="text-muted-foreground">
-              Waiting for dev server output...
+              {i18n.t('panels:ui.terminal.waitingForDevServerOutput')}
             </span>
           )}
           {logs.map((entry, index) => (

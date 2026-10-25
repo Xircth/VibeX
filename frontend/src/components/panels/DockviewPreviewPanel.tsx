@@ -84,6 +84,7 @@ import {
 } from '@/lib/api/plugins';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import '@/components/previews/markdownFileProse.css';
+import i18n from '@/i18n';
 
 const LazyMarkdownRichTextEditor = lazy(
   () => import('@/components/previews/MarkdownRichTextEditor')
@@ -251,7 +252,7 @@ class PreviewSubviewErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <PreviewPlaceholder icon={FileWarning} title="File preview failed" />
+        <PreviewPlaceholder icon={FileWarning} title={i18n.t('panels:ui.preview.filePreviewFailed')} />
       );
     }
     return this.props.children;
@@ -791,7 +792,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         >
           <PreviewPlaceholder
             icon={ImageIcon}
-            title="Image preview expired"
+            title={i18n.t('panels:ui.preview.imagePreviewExpired')}
             description="Open the image from the conversation again to restore this transient preview."
           />
         </div>
@@ -808,7 +809,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           <div className="space-y-1 text-center">
             <p className="font-medium">Preview</p>
             <p className="text-xs">
-              Select a file from the file tree to preview
+              {i18n.t('panels:ui.preview.selectAFileFromThe')}
             </p>
           </div>
         </div>
@@ -907,7 +908,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : canToggleView ? (
           <button
             className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
-            title="Click to toggle preview"
+            title={i18n.t('panels:ui.preview.clickToTogglePreview')}
             onClick={() => setRenderedView(!isRendered)}
           >
             {isRendered ? (
@@ -1009,25 +1010,25 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           effectivePreviewKind === 'binary' ? (
             <PreviewPlaceholder
               icon={FileWarning}
-              title="Binary diff is not supported here"
+              title={i18n.t('panels:ui.preview.binaryDiffIsNotSupported')}
               description="This file cannot be rendered as a text diff in the preview panel."
             />
           ) : effectivePreviewKind === 'image' ? (
             <PreviewPlaceholder
               icon={ImageIcon}
-              title="Image diff is not supported here"
+              title={i18n.t('panels:ui.preview.imageDiffIsNotSupported')}
               description="Open this asset in a dedicated image diff flow instead of the text preview panel."
             />
           ) : effectivePreviewKind === 'pdf' ? (
             <PreviewPlaceholder
               icon={FileText}
-              title="PDF diff is not supported here"
+              title={i18n.t('panels:ui.preview.pdfDiffIsNotSupported')}
               description="Open the PDF in read-only preview mode instead of the text diff panel."
             />
           ) : pluginOpener ? (
             <PreviewPlaceholder
               icon={FileText}
-              title="Office document diff is not supported here"
+              title={i18n.t('panels:ui.preview.officeDocumentDiffIsNot')}
               description="Open this document in read-only preview mode instead of the text diff panel."
             />
           ) : isDiffLoading ? (
@@ -1091,7 +1092,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           ) : (
             <PreviewPlaceholder
               icon={ImageIcon}
-              title="Image preview is unavailable"
+              title={i18n.t('panels:ui.preview.imagePreviewIsUnavailable')}
               description={
                 binaryAssetErrorMessage ??
                 'The image data could not be loaded for this file.'
@@ -1121,7 +1122,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               ) : (
                 <PreviewPlaceholder
                   icon={FileText}
-                  title="PDF preview is unavailable"
+                  title={i18n.t('panels:ui.preview.pdfPreviewIsUnavailable')}
                   description={
                     binaryAssetErrorMessage ??
                     'The PDF data could not be loaded for this file.'
@@ -1144,7 +1145,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : contentErrorMessage ? (
           <PreviewPlaceholder
             icon={FileWarning}
-            title="File preview failed"
+            title={i18n.t('panels:ui.preview.filePreviewFailed')}
             description={contentErrorMessage}
           />
         ) : showingMarkdownRichtext ? (

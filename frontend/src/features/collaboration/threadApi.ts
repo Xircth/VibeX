@@ -12,11 +12,11 @@ export type CollaborationCaller = <T>(
  * command (or errors) so callers fall back to deriving the list locally.
  */
 export async function loadSidebarItems(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   workspaceId: string
 ): Promise<SidebarItem[] | null> {
   try {
-    const page = await call<{ items?: SidebarItem[] }>(
+    const page = await collab<{ items?: SidebarItem[] }>(
       'collaboration',
       'thread.listSidebar',
       { workspaceId }
@@ -33,12 +33,12 @@ function threadTarget(id: string): { threadId: string } | { spaceId: string } {
 
 /** `thread.markRead`; best effort, never throws. */
 export async function markThreadRead(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   id: string,
   seq?: number
 ): Promise<boolean> {
   try {
-    await call('collaboration', 'thread.markRead', {
+    await collab('collaboration', 'thread.markRead', {
       ...threadTarget(id),
       ...(typeof seq === 'number' ? { seq } : {}),
     });
@@ -50,11 +50,11 @@ export async function markThreadRead(
 
 /** `thread.markUnread`; best effort, never throws. */
 export async function markThreadUnread(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   id: string
 ): Promise<boolean> {
   try {
-    await call('collaboration', 'thread.markUnread', threadTarget(id));
+    await collab('collaboration', 'thread.markUnread', threadTarget(id));
     return true;
   } catch {
     return false;
@@ -63,12 +63,12 @@ export async function markThreadUnread(
 
 /** `thread.update` tag colour ('' clears). False means use the local fallback. */
 export async function updateThreadTagColor(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   id: string,
   tagColor: string
 ): Promise<boolean> {
   try {
-    await call('collaboration', 'thread.update', {
+    await collab('collaboration', 'thread.update', {
       ...threadTarget(id),
       tagColor,
     });
@@ -80,12 +80,12 @@ export async function updateThreadTagColor(
 
 /** `member.session.resolve`; null when unavailable. */
 export async function resolveMemberSession(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   memberId: string,
   threadId: string
 ): Promise<string | null> {
   try {
-    const result = await call<{ conversationId?: string }>(
+    const result = await collab<{ conversationId?: string }>(
       'collaboration',
       'member.session.resolve',
       { memberId, threadId }
@@ -100,12 +100,12 @@ export type DirectMessagePage<M> = { messages: M[] };
 
 /** `space.listMessages` for a private chat (`direct:<id>`); null on failure. */
 export async function loadDirectMessages<M>(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   threadId: string,
   sinceSeq?: number
 ): Promise<DirectMessagePage<M> | null> {
   try {
-    const page = await call<{ messages?: M[] }>(
+    const page = await collab<{ messages?: M[] }>(
       'collaboration',
       'space.listMessages',
       sinceSeq && sinceSeq > 0
@@ -120,12 +120,12 @@ export async function loadDirectMessages<M>(
 
 /** `space.post` to a private chat. No `to`/`delaySeconds` (unsupported for DMs). */
 export async function postDirectMessage(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   threadId: string,
   content: string,
   operationId: string
 ): Promise<{ seq?: number }> {
-  const result = await call<{ seq?: number } | null>(
+  const result = await collab<{ seq?: number } | null>(
     'collaboration',
     'space.post',
     { spaceId: threadId, content, operationId }

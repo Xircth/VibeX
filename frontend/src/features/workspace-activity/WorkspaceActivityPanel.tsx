@@ -32,6 +32,7 @@ import { backendCall } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import { SessionFlameGraph } from './SessionFlameGraph';
+import { localizeBackendNoticeTitle } from '@/features/conversation/sessionNoticeCopy';
 import {
   activityChartsFromTurns,
   collectWorkspaceActivityNotices,
@@ -486,7 +487,7 @@ export function WorkspaceActivityPanel({
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-medium text-foreground">
-                            {notice.title}
+                            {localizeBackendNoticeTitle(notice.title, t)}
                           </span>
                           {notice.sessionName &&
                           notice.sessionName !== notice.title ? (

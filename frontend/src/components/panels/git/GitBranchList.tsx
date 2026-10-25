@@ -11,6 +11,7 @@ import {
 import type { GitBranch, GitRemote } from 'shared/types';
 import { toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import i18n from '@/i18n';
 
 interface GitBranchListProps {
   branches: GitBranch[];
@@ -364,7 +365,7 @@ export const GitBranchList = memo(function GitBranchList({
         {isLoading && branches.length === 0 && (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading branches...
+            {i18n.t('panels:ui.gitBranches.loadingBranches')}
           </div>
         )}
 
@@ -404,7 +405,7 @@ export const GitBranchList = memo(function GitBranchList({
                     setShowCreateInput(next);
                     if (next) setLocalCollapsed(false);
                   }}
-                  title="Create new branch"
+                  title={i18n.t('panels:ui.gitBranches.createNewBranch')}
                 >
                   <Plus className="h-3 w-3" />
                 </button>
@@ -427,7 +428,7 @@ export const GitBranchList = memo(function GitBranchList({
                   <div className="my-0.5 flex items-center gap-1 rounded-md bg-muted/30 px-2 py-1.5">
                     <input
                       className="flex-1 bg-background/50 border border-border/50 rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
-                      placeholder="New branch name..."
+                      placeholder={i18n.t('panels:ui.gitBranches.newBranchName')}
                       value={newBranchName}
                       onChange={(e) => setNewBranchName(e.target.value)}
                       onKeyDown={handleKeyDown}
@@ -533,7 +534,7 @@ export const GitBranchList = memo(function GitBranchList({
 
         {!isLoading && branches.length === 0 && (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
-            No branches found
+            {i18n.t('panels:ui.gitBranches.noBranchesFound')}
           </div>
         )}
       </div>

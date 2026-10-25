@@ -9,6 +9,7 @@ import { useAppContextMenu } from '@/components/context-menu';
 import { requestComposerInsert } from '@/lib/composerInsert';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { NotesSelectionToolbar } from './NotesSelectionToolbar';
+import i18n from '@/i18n';
 
 function DockviewNotesPanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation('panels');
@@ -69,7 +70,7 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
           <span className="text-sm font-medium">Notes</span>
         </div>
         <div className="flex h-[calc(100%-2rem)] items-center justify-center text-sm text-muted-foreground">
-          Select a workspace to edit notes.
+          {i18n.t('panels:ui.notes.selectAWorkspaceToEdit')}
         </div>
       </div>
     );

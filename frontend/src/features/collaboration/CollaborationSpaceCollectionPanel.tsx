@@ -55,6 +55,7 @@ import {
   surfaceErrorCopy,
   type SpaceMember,
 } from './spaceModel';
+import i18n from '@/i18n';
 
 export function CollaborationSpaceIcon({
   avatars,
@@ -233,7 +234,7 @@ export function SpaceCollectionImagePreview({
       <button
         type="button"
         className="collaboration-collection-image-btn"
-        aria-label={`预览图片 ${name}`}
+        aria-label={i18n.t('panels:ui.collection.previewImageName', { name: name })}
         onClick={() => {
           panelActions?.openImagePreview(src || filePath, { title: name });
         }}
@@ -492,7 +493,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
       setError('');
       for (const file of files) {
         if (file.size > SPACE_COLLECTION_MAX_BYTES) {
-          setError('文件大小不能超过 200MB');
+          setError(i18n.t('panels:ui.collection.fileMustBe200mbOr'));
           return;
         }
       }
@@ -622,7 +623,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
         <button
           type="button"
           className="collaboration-group-details-close"
-          aria-label="关闭"
+          aria-label={i18n.t('panels:ui.collection.close')}
           onClick={() => props.api.close()}
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -757,7 +758,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 onClick={() => setAddFormOpen((current) => !current)}
               >
                 <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
-                添加文本
+                {i18n.t('panels:ui.collection.addText')}
               </Button>
               <Button
                 type="button"
@@ -769,7 +770,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
-                上传文件
+                {i18n.t('panels:ui.collection.uploadFile')}
               </Button>
             </div>
           </div>
@@ -780,25 +781,25 @@ export function CollaborationSpaceCollectionDockviewPanel(
               data-testid="collaboration-collection-add-form"
             >
               <Input
-                aria-label="收藏名称"
+                aria-label={i18n.t('panels:ui.collection.savedItemName')}
                 value={textName}
                 onChange={(event) => setTextName(event.target.value)}
-                placeholder="名称（可选，如 api-spec.md）"
+                placeholder={i18n.t('panels:ui.collection.nameOptionalEGApi')}
                 className="h-7 px-2 text-xs"
               />
               <Textarea
-                aria-label="收藏文本内容"
+                aria-label={i18n.t('panels:ui.collection.savedTextContent')}
                 value={textContent}
                 onChange={(event) => setTextContent(event.target.value)}
-                placeholder="输入要收藏的文本内容..."
+                placeholder={i18n.t('panels:ui.collection.enterTextToSave')}
                 rows={3}
                 className="text-xs"
               />
               <Input
-                aria-label="收藏备注"
+                aria-label={i18n.t('panels:ui.collection.savedItemNote')}
                 value={noteInput}
                 onChange={(event) => setNoteInput(event.target.value)}
-                placeholder="备注（可选）"
+                placeholder={i18n.t('panels:ui.collection.noteOptional')}
                 className="h-7 px-2 text-xs"
               />
               <div className="flex justify-end gap-1.5">
@@ -808,7 +809,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                   size="xs"
                   onClick={() => setAddFormOpen(false)}
                 >
-                  取消
+                  {i18n.t('panels:ui.collection.cancel')}
                 </Button>
                 <Button
                   type="button"
@@ -820,7 +821,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                     void handleAddTextSubmit();
                   }}
                 >
-                  添加到群收藏
+                  {i18n.t('panels:ui.collection.addToGroupSaved')}
                 </Button>
               </div>
             </div>
@@ -840,10 +841,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
             data-testid="collaboration-collection-list"
           >
             {loading ? (
-              <p className="collaboration-preview-empty">加载中</p>
+              <p className="collaboration-preview-empty">{i18n.t('panels:ui.collection.loading')}</p>
             ) : items.length === 0 ? (
               <p className="collaboration-preview-empty">
-                暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里
+                {i18n.t('panels:ui.collection.nothingSavedInThisGroup')}
               </p>
             ) : (
               items.map((item) => {
@@ -855,10 +856,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 const itemReads = item.read_receipts ?? item.reads ?? [];
                 const kindLabel =
                   itemKind === 'image'
-                    ? '图片'
+                    ? i18n.t('panels:ui.collection.image')
                     : itemKind === 'file'
-                      ? '文件'
-                      : '文本';
+                      ? i18n.t('panels:ui.collection.file')
+                      : i18n.t('panels:ui.collection.text');
                 const creatorIsUser =
                   !item.creator_conversation_id &&
                   (item.creator_nickname === 'user' ||
@@ -910,7 +911,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           data-testid={`collection-item-collapse-toggle-${item.id}`}
                           aria-expanded={!isCollapsed}
                           aria-label={
-                            isCollapsed ? '展开收藏记录' : '折叠收藏记录'
+                            isCollapsed ? i18n.t('panels:ui.collection.expandSavedItem') : i18n.t('panels:ui.collection.collapseSavedItem')
                           }
                           onClick={(event) => {
                             event.stopPropagation();
@@ -960,17 +961,17 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           data-testid={`collection-item-note-${item.id}`}
                         >
                           <span className="collaboration-collection-meta-label">
-                            备注：
+                            {i18n.t('panels:ui.collection.note')}
                           </span>
                           {isEditingNote ? (
                             <div className="collaboration-collection-note-editor">
                               <Input
-                                aria-label="编辑收藏备注"
+                                aria-label={i18n.t('panels:ui.collection.editSavedItemNote')}
                                 data-testid={`collection-item-note-input-${item.id}`}
                                 value={editingNoteDraft}
                                 disabled={savingNoteItemId === item.id}
                                 autoFocus
-                                placeholder="输入备注..."
+                                placeholder={i18n.t('panels:ui.collection.enterANote')}
                                 className="h-6 flex-1 px-2 text-xs"
                                 onChange={(event) =>
                                   setEditingNoteDraft(event.target.value)
@@ -993,7 +994,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
-                                aria-label="保存备注"
+                                aria-label={i18n.t('panels:ui.collection.saveNote')}
                                 data-testid={`collection-item-note-save-${item.id}`}
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => {
@@ -1013,7 +1014,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
-                                aria-label="取消编辑备注"
+                                aria-label={i18n.t('panels:ui.collection.cancelNoteEdit')}
                                 data-testid={`collection-item-note-cancel-${item.id}`}
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => setEditingNoteItemId(null)}
@@ -1026,14 +1027,14 @@ export function CollaborationSpaceCollectionDockviewPanel(
                               type="button"
                               className="collaboration-collection-note-display"
                               data-testid={`collection-item-note-edit-${item.id}`}
-                              aria-label="编辑备注"
-                              title="点击编辑备注"
+                              aria-label={i18n.t('panels:ui.collection.editNote')}
+                              title={i18n.t('panels:ui.collection.clickToEditNote')}
                               onClick={() => {
                                 setEditingNoteItemId(item.id);
                                 setEditingNoteDraft(item.note || '');
                               }}
                             >
-                              <span>{item.note || '无'}</span>
+                              <span>{item.note || i18n.t('panels:ui.collection.none')}</span>
                               <Pencil
                                 className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
                                 aria-hidden="true"
@@ -1044,7 +1045,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
 
                         <div className="collaboration-collection-card-footer">
                           <span data-testid={`collection-item-time-${item.id}`}>
-                            创建时间：{formatCollectionTime(item.created_at)}
+                            {i18n.t('panels:ui.collection.createdAt', { time: formatCollectionTime(item.created_at) })}
                           </span>
                           <button
                             type="button"
@@ -1053,7 +1054,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                             aria-expanded={isReadsExpanded}
                             onClick={() => toggleReadLog(item.id)}
                           >
-                            <span>读取记录 ({itemReads.length})</span>
+                            <span>{i18n.t('panels:ui.collection.readsCount', { count: itemReads.length })}</span>
                             <ChevronDown
                               className={cn(
                                 'h-3 w-3 transition-transform',
@@ -1071,7 +1072,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           >
                             {itemReads.length === 0 ? (
                               <p className="collaboration-collection-reads-empty">
-                                暂无助手读取记录
+                                {i18n.t('panels:ui.collection.noBotReadsYet')}
                               </p>
                             ) : (
                               <ul className="collaboration-collection-reads-list">
@@ -1097,7 +1098,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                       </span>
                                     </span>
                                     <span className="collaboration-collection-read-meta">
-                                      读取 {read.read_count ?? 1} 次 ·{' '}
+                                      {i18n.t('panels:ui.collection.readTimes', { count: read.read_count ?? 1 })} ·{' '}
                                       {formatCollectionTime(
                                         read.last_read_at ?? read.read_at ?? ''
                                       )}
@@ -1130,7 +1131,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
             }}
           >
             <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>拖拽文件到此处或点击上传（单文件最大 200MB）</span>
+            <span>{i18n.t('panels:ui.collection.dragAFileHereOr')}</span>
           </div>
         </div>
       ) : null}

@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 function normalizedControlLabel(value: string): string {
   return value.replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
@@ -10,5 +11,5 @@ export function compactSessionControlLabel(
   const isAgentFullAccess =
     normalizedControlLabel(value) === 'agentfullaccess' ||
     normalizedControlLabel(advertisedLabel) === 'agentfullaccess';
-  return isAgentFullAccess ? '完全访问' : advertisedLabel;
+  return isAgentFullAccess ? i18n.t('panels:ui.sessionControl.fullAccess') : advertisedLabel;
 }

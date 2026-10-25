@@ -76,7 +76,7 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
           <FolderOpen className="mr-2 h-4 w-4" />
           {t('toolbar.backToHome')}
         </DropdownMenuItem>
-        <div className="px-2 py-1 text-[11px] text-muted-foreground">
+        <div className="px-2 py-1 text-xs text-muted-foreground">
           {t('toolbar.recentProjects')}
         </div>
         {recentProjects.length > 0 ? (

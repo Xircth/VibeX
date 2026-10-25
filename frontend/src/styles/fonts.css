@@ -49,8 +49,8 @@
     'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
     'Segoe UI', sans-serif;
   --font-mono:
-    'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    monospace;
+    'IBM Plex Mono', 'Noto Emoji', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
 }
 
 html[data-host-platform='windows'],

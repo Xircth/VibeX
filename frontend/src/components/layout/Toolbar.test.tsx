@@ -71,7 +71,7 @@ describe('BranchStatusBadge', () => {
     );
 
     expect(
-      screen.getByRole('group', { name: 'Workspace and target branches' })
+      screen.getByRole('group', { name: '工作区与目标分支' })
     ).toHaveClass('gap-2');
     const badge = screen.getByText('main').closest('div');
     expect(badge).toHaveClass('raised-control', 'h-7', 'gap-1', 'rounded-lg');
@@ -159,7 +159,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     );
 
     const group = screen.getByRole('group', {
-      name: 'Workspace and target branches',
+      name: '工作区与目标分支',
     });
     const buttons = group.querySelectorAll('button');
     expect(buttons[0]).toHaveAttribute('aria-label', '隐藏会话列表');

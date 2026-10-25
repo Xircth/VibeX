@@ -576,7 +576,15 @@
     "search": "搜索",
     "sessionList": "会话列表",
     "loadFailed": "面板无法加载",
-    "retry": "重试"
+    "retry": "重试",
+    "kanban": "看板",
+    "preview": "预览",
+    "diffs": "差异",
+    "terminal": "终端",
+    "aiChat": "AI 对话",
+    "git": "Git",
+    "merge": "合并",
+    "logs": "日志"
   },
   "ideIcon": {
     "fileManager": "文件资源管理器"
@@ -688,6 +696,513 @@
     "contactGroupMoveTo": "移动到分组",
     "contactGroupToggle": "折叠或展开 {{name}}",
     "contactGroupFailed": "分组操作失败",
+    "unknownMember": "未知成员",
     "memberAlreadyInGroup": "{{name}} 已在该群中"
+  },
+  "shellA11y": {
+    "settings": "设置",
+    "workspaceBranches": "工作区与目标分支",
+    "closeTab": "关闭 {{title}}",
+    "selectFolder": "选择文件夹",
+    "selectFolderHint": "为项目选择一个文件夹"
+  },
+  "collabCopy": {
+    "emptyRoles": "还没有角色",
+    "newRole": "新建角色",
+    "emptyTeams": "还没有团队",
+    "newTeam": "新建团队",
+    "emptySpaces": "还没有协作空间",
+    "newSpace": "创建群聊",
+    "newSpaceButton": "创建群聊",
+    "newMemberButton": "新建助手",
+    "createAssistantButton": "创建助手",
+    "createContactGroupButton": "新建分组",
+    "newMemberFromSessionButton": "从会话新建助手",
+    "defaultSpaceName": "默认空间",
+    "unassignedSpaceName": "未定空间",
+    "noMemberSessions": "暂无助手会话",
+    "memberNameLabel": "助手名称",
+    "memberSourceLabel": "创建方式",
+    "memberSourceRole": "基于角色",
+    "memberSourceSession": "基于会话",
+    "memberSourceCustom": "自定义",
+    "chooseRole": "选择角色",
+    "chooseAgent": "选择 Agent",
+    "personaPromptLabel": "人设提示词（可选）",
+    "teamLabel": "归属团队（可选）",
+    "noTeam": "不属于任何团队",
+    "spaceMembersLabel": "群聊成员",
+    "spaceTagLabel": "颜色标签",
+    "memberSessionsGroup": "可选助手",
+    "otherSessionsGroup": "非助手会话",
+    "addMember": "加入助手",
+    "addSpaceMember": "添加成员",
+    "removeSpaceMember": "移除",
+    "groupDetailsButton": "群组详情",
+    "groupDetailsTab": "详情",
+    "groupCollectionTab": "群收藏",
+    "groupMembersTab": "成员",
+    "assistantDetailsButton": "助手详情",
+    "assistantDetailsTab": "详情",
+    "assistantCollectionTab": "收藏",
+    "assistantCustomizeTab": "自定义",
+    "saveAssistant": "保存",
+    "tokenOverview": "Token 概览",
+    "totalTokens": "总 Token",
+    "unlabeledModel": "未标记模型",
+    "renameMember": "修改昵称",
+    "chooseConversation": "选择会话",
+    "globalSearchPlaceholder": "搜索",
+    "filterLabel": "筛选",
+    "filterByName": "按名称",
+    "filterByType": "按类型",
+    "filterTypeGroup": "群聊",
+    "filterTypeAssistant": "助手",
+    "filterByActiveTime": "按活跃时间",
+    "batchDeleteLabel": "批量删除",
+    "emptyMessages": "还没有消息",
+    "previewEmpty": "暂无助手会话",
+    "noSession": "没有会话",
+    "backToSession": "返回会话",
+    "attachmentsUnsupported": "空间消息只发送文字",
+    "deleteRole": "删除后，已创建的会话仍保留。",
+    "openWorkspace": "在工作区打开",
+    "you": "你",
+    "notAMember": "不在这个空间",
+    "nicknameMissing": "昵称不存在",
+    "nicknameTaken": "昵称已被使用",
+    "openWorkspaceFirst": "先打开一个工作区",
+    "emptyAgents": "还没有已启用的 Agent",
+    "controlsUnavailable": "暂不可用",
+    "noneDelivered": "没有送达",
+    "partialDelivered": "部分助手没有送达",
+    "receiptQueued": "已收到",
+    "receiptClaimed": "已收到",
+    "receiptFailed": "失败",
+    "requestFailed": "请求失败",
+    "rangeError": "深度 1–8，缓存不少于 0，查询窗口 1–90，延时上限 1–168。",
+    "createMenu": "创建",
+    "spaceName": "群聊名称",
+    "defaultContactGroupName": "新分组"
+  },
+  "spaceTag": {
+    "blue": "蓝色",
+    "emerald": "绿色",
+    "amber": "琥珀",
+    "violet": "紫色",
+    "rose": "玫红",
+    "cyan": "青色"
+  },
+  "contactRowMenu": {
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "moveTo": "移至",
+    "markUnread": "标为未读",
+    "markRead": "标为已读",
+    "renameAssistant": "重命名助手",
+    "renameGroup": "重命名群组",
+    "copyThreadId": "复制对话 ID",
+    "hideFromSidebar": "从侧边栏隐藏",
+    "showInSidebar": "在侧边栏显示",
+    "delete": "删除"
+  },
+  "botAvatar": {
+    "color": {
+      "ink": "炭黑",
+      "brown": "暖棕",
+      "red": "珊瑚红",
+      "orange": "活力橙",
+      "amber": "琥珀黄",
+      "green": "薄荷绿",
+      "turquoise": "松石青",
+      "blue": "电光蓝",
+      "purple": "紫罗兰",
+      "pink": "樱花粉",
+      "grey": "岩石灰"
+    },
+    "shape": {
+      "circle": "圆形",
+      "cloud": "云朵",
+      "squircle": "超椭圆",
+      "sparkle": "星芒",
+      "clover": "四叶草",
+      "heart": "心形",
+      "pebble": "花朵",
+      "droplet": "水滴",
+      "capsule": "胶囊",
+      "triangle": "三角形",
+      "pentagon": "五边形",
+      "star": "波浪星",
+      "hexagon": "六边形"
+    },
+    "expression": {
+      "neutral": "默认",
+      "attentive": "专注",
+      "happy": "开心",
+      "laughing": "大笑",
+      "excited": "兴奋",
+      "surprised": "惊讶",
+      "confused": "困惑",
+      "curious": "好奇",
+      "suspicious": "怀疑",
+      "sleepy": "困倦",
+      "sad": "难过",
+      "scared": "害怕",
+      "angry": "生气",
+      "proud": "得意",
+      "shy": "害羞",
+      "unimpressed": "无语"
+    },
+    "ui": {
+      "avatar": "头像",
+      "avatarProperties": "头像属性",
+      "color": "颜色",
+      "shape": "形状",
+      "clickToPreviewTheAvatar": "点击预览头像动态效果"
+    }
+  },
+  "ui": {
+    "select": {
+      "arialabelClear": "{{ariaLabel}}（清除）",
+      "clear": "清除"
+    },
+    "git": {
+      "gitRepository": "Git 仓库",
+      "thisFolderIsNotA": "这个文件夹不是 Git 仓库。",
+      "fetchAllRemotes": "拉取所有远程仓库",
+      "loadingGitStatus": "正在加载 Git 状态..."
+    },
+    "gitIssues": {
+      "githubCliSetupAndSign": "GitHub CLI 设置与登录",
+      "githubCliGhWasNot": "未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 Issue。",
+      "installSignInToGithub": "安装 / 登录 GitHub CLI",
+      "noIssuesAvailable": "暂无可用 Issue",
+      "refreshIssues": "刷新 Issue",
+      "loadingIssues": "正在加载 Issue..."
+    },
+    "gitPrs": {
+      "githubCliSetupAndSign": "GitHub CLI 设置与登录",
+      "githubCliGhWasNot": "未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 PR。",
+      "installSignInToGithub": "安装 / 登录 GitHub CLI",
+      "noPullRequestsAvailable": "暂无可用 Pull Request",
+      "refresh": "刷新",
+      "pullRequests": "Pull Request",
+      "loadingPullRequests": "正在加载 Pull Request...",
+      "noOpenPullRequests": "暂无打开的 Pull Request"
+    },
+    "ghSetup": {
+      "signedInToGithubUsername": "已成功登录 GitHub ({{username}})",
+      "installedGhPath": "已安装：{{gh_path}}",
+      "signedInAsUsername": "当前已登录账号：{{username}}",
+      "copySignInCommand": "复制登录命令",
+      "signedInToGithub": "已成功登录 GitHub",
+      "failedToCheckGithubCli": "检查 GitHub CLI 状态失败",
+      "githubCliGhInstalledContinue": "GitHub CLI (gh) 安装成功，请继续完成 GitHub 登录。",
+      "automaticInstallDidNotFinish": "自动安装未能完成，请参考下方命令手动安装 GitHub CLI。",
+      "failedToInstallGithubCli": "安装 GitHub CLI 失败，请手动安装后点击重新检查。",
+      "aSignInTerminalIs": "已打开登录终端，请在弹出的终端或浏览器中完成授权，完成后将自动同步状态。",
+      "couldnTOpenASign": "无法自动打开登录终端，请复制下方命令在终端中执行登录。",
+      "installing": "安装中...",
+      "installGh": "安装 gh",
+      "githubCliNotFoundClick": "尚未检测到 GitHub CLI，可点击「安装 gh」自动安装，或访问 cli.github.com 安装。",
+      "signInAgain": "重新登录",
+      "signInToGithub": "登录 GitHub",
+      "authorized": "已授权",
+      "clickSignInToGithub": "点击「登录 GitHub」启动浏览器授权流程，或在终端运行下方登录命令：",
+      "setUpGithubCliAnd": "配置 GitHub CLI 与登录",
+      "check": "检查",
+      "2SignInToGithub": "2. GitHub 账号登录",
+      "close": "关闭",
+      "doneAndRefresh": "完成并刷新"
+    },
+    "effort": {
+      "extraHigh": "超高",
+      "default": "默认",
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    },
+    "branch": {
+      "currentBranchBranch": "当前分支：{{branch}}",
+      "targetBranchTargetBranchName": "目标分支：{{target_branch_name}}",
+      "currentBranchLabel": "当前分支：{{branch}}",
+      "targetBranchLabel": "目标分支：{{branch}}",
+      "gitWorkspaceControls": "Git 工作区控制",
+      "rebaseInProgress": "正在变基",
+      "gitActions": "Git 操作"
+    },
+    "sessionControl": {
+      "fullAccess": "完全访问"
+    },
+    "selection": {
+      "quote": "引用",
+      "addToGroupSaved": "添加到群收藏",
+      "copyText": "复制文本"
+    },
+    "multiAgent": {
+      "editRoleName": "编辑角色 {{name}}",
+      "deleteRoleName": "删除角色 {{name}}",
+      "roleName": "角色名称",
+      "frontendEngineer": "前端工程师",
+      "chooseRoleAgent": "选择角色 Agent",
+      "personaPromptOptional": "人设提示词（可选）",
+      "editRole": "编辑角色",
+      "newRole": "新建角色",
+      "chooseAgent": "选择 Agent",
+      "save": "保存",
+      "customRoles": "自定义角色",
+      "sessionSettings": "会话配置",
+      "chooseAnAgentFirst": "请先选择 Agent",
+      "defaultSessionSettings": "默认会话配置",
+      "cancel": "取消"
+    },
+    "collab": {
+      "openBotMembername": "打开助手 {{memberName}}"
+    },
+    "collabPage": {
+      "selectBotName": "选择助手 {{name}}",
+      "selectSpaceName": "选择空间 {{name}}",
+      "tagName": "标签名称",
+      "renameName": "修改名称 {{name}}",
+      "removeBotMembername": "移除助手 {{memberName}}",
+      "selecteddeletecountSelected": "已选择 {{selectedDeleteCount}} 项",
+      "openNickSession": "打开 {{nick}} 会话",
+      "previewNameSession": "预览 {{name}} 会话",
+      "spaceBotsVisibleroster": "空间助手数量 {{visibleRoster}}",
+      "cancelNicknameEdit": "取消修改昵称",
+      "spaceNameInput": "修改空间名称输入框",
+      "cancelSpaceRename": "取消修改空间名称",
+      "confirmSpaceRename": "确认修改空间名称",
+      "tagNameOptional": "标签名称（可选）",
+      "addOrCreateASpace": "添加或新建协作空间助手",
+      "selectSpacesOrBots": "选择协作空间或助手",
+      "confirmDelete": "确认删除",
+      "deleting": "删除中...",
+      "cancel": "取消",
+      "searchSpacesOrBots": "搜索协作空间或助手",
+      "contactMenu": "联系人菜单",
+      "resizeSpaceList": "调整协作空间列表宽度",
+      "collapseBotList": "收起助手列表",
+      "expandBotList": "展开助手列表",
+      "chooseFile": "选择文件",
+      "bot": "@助手",
+      "resizePreview": "调整预览区宽度",
+      "spaces": "协作空间",
+      "addedToGroupSaved": "已添加到群收藏",
+      "justNow": "刚刚",
+      "addBot": "添加助手",
+      "scheduledMessageQueue": "定时消息队列",
+      "spaceBots": "空间助手",
+      "workspace": "工作区",
+      "team": "所属团队",
+      "chooseBot": "选择助手",
+      "back": "返回",
+      "done": "完成",
+      "hidden": "已隐藏",
+      "thisSpaceHasNoBots": "当前协作空间暂无助手，请先添加助手",
+      "tagFor": "标签 {{name}}"
+    },
+    "spaceMessage": {
+      "questionBody": "提问：{{body}}",
+      "answeredOption": "已回答：{{option}}",
+      "answeredValue": "已回答：{{value}}",
+      "typeAnAnswer": "输入回答",
+      "answer": "回答",
+      "approvalRequest": "审批请求",
+      "question": "提问",
+      "handled": "已处理",
+      "approved": "已批准",
+      "rejected": "已拒绝",
+      "approve": "批准",
+      "reject": "拒绝"
+    },
+    "globalSearch": {
+      "searchSpacesOrBots": "搜索协作空间或助手",
+      "searchSpacesOrBotsInput": "搜索协作空间或助手输入框",
+      "clearSearch": "清空搜索",
+      "noMatchingBotsOrGroups": "未找到匹配的助手或群聊"
+    },
+    "collabPreview": {
+      "splitRight": "向右拆分",
+      "splitDown": "向下拆分",
+      "preview": "预览",
+      "close": "关闭",
+      "closeTab": "关闭当前标签页",
+      "closeOtherTabs": "关闭其他标签页",
+      "closeTabsToTheRight": "关闭右侧标签页",
+      "split": "拆分",
+      "splitLeft": "向左拆分",
+      "changes": "变更",
+      "notes": "笔记",
+      "terminal": "终端",
+      "plugin": "插件",
+      "loading": "加载中"
+    },
+    "collection": {
+      "previewImageName": "预览图片 {{name}}",
+      "close": "关闭",
+      "savedItemName": "收藏名称",
+      "nameOptionalEGApi": "名称（可选，如 api-spec.md）",
+      "savedTextContent": "收藏文本内容",
+      "enterTextToSave": "输入要收藏的文本内容...",
+      "savedItemNote": "收藏备注",
+      "noteOptional": "备注（可选）",
+      "editSavedItemNote": "编辑收藏备注",
+      "enterANote": "输入备注...",
+      "saveNote": "保存备注",
+      "cancelNoteEdit": "取消编辑备注",
+      "editNote": "编辑备注",
+      "clickToEditNote": "点击编辑备注",
+      "fileMustBe200mbOr": "文件大小不能超过 200MB",
+      "image": "图片",
+      "file": "文件",
+      "text": "文本",
+      "expandSavedItem": "展开收藏记录",
+      "collapseSavedItem": "折叠收藏记录",
+      "none": "无",
+      "loading": "加载中",
+      "dragAFileHereOr": "拖拽文件到此处或点击上传（单文件最大 200MB）",
+      "addText": "添加文本",
+      "uploadFile": "上传文件",
+      "cancel": "取消",
+      "addToGroupSaved": "添加到群收藏",
+      "nothingSavedInThisGroup": "暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里",
+      "note": "备注：",
+      "noBotReadsYet": "暂无助手读取记录",
+      "createdAt": "创建时间：{{time}}",
+      "readsCount": "读取记录 ({{count}})",
+      "readTimes": "读取 {{count}} 次"
+    },
+    "diffsReview": {
+      "copyFullSha": "复制完整 SHA"
+    },
+    "terminal": {
+      "newTerminal": "新建终端",
+      "selectAWorkspaceToOpen": "请选择一个工作区以打开终端。",
+      "waitingForDevServerOutput": "正在等待开发服务器输出..."
+    },
+    "navbar": {
+      "selectProject": "选择项目",
+      "mainNavigation": "主导航",
+      "noProjects": "暂无项目"
+    },
+    "folderPicker": {
+      "filterFoldersAndFiles": "筛选文件夹和文件..."
+    },
+    "gitBranches": {
+      "createNewBranch": "新建分支",
+      "newBranchName": "新分支名称...",
+      "loadingBranches": "正在加载分支...",
+      "noBranchesFound": "未找到分支"
+    },
+    "gitCommit": {
+      "commitMessage": "提交信息...",
+      "generateCommitMessageFromStaged": "根据暂存的更改生成提交信息"
+    },
+    "releaseNotes": {
+      "releaseNotes": "更新说明",
+      "unableToLoadReleaseNotes": "无法加载更新说明",
+      "openReleaseNotesInBrowser": "在浏览器中打开更新说明",
+      "openInBrowser": "在浏览器中打开"
+    },
+    "gitLog": {
+      "copyFullSha": "复制完整 SHA",
+      "searchCommits": "搜索提交...",
+      "searchCommits2": "搜索提交",
+      "loadingCommits": "正在加载提交...",
+      "noCommitsFound": "未找到提交"
+    },
+    "gitDiscard": {
+      "close": "关闭",
+      "thisActionCannotBeUndone": "此操作无法撤销。"
+    },
+    "gitStaging": {
+      "stageSelected": "暂存所选",
+      "unstageSelected": "取消暂存所选",
+      "discardSelected": "丢弃所选",
+      "clearSelection": "清除选择",
+      "unstageAll": "全部取消暂存",
+      "stageAll": "全部暂存",
+      "discardAll": "全部丢弃",
+      "noChangesDetected": "未检测到更改"
+    },
+    "preview": {
+      "filePreviewFailed": "文件预览失败",
+      "imagePreviewExpired": "图片预览已过期",
+      "clickToTogglePreview": "点击切换预览",
+      "binaryDiffIsNotSupported": "此处不支持二进制差异",
+      "imageDiffIsNotSupported": "此处不支持图片差异",
+      "pdfDiffIsNotSupported": "此处不支持 PDF 差异",
+      "officeDocumentDiffIsNot": "此处不支持 Office 文档差异",
+      "imagePreviewIsUnavailable": "图片预览不可用",
+      "pdfPreviewIsUnavailable": "PDF 预览不可用",
+      "selectAFileFromThe": "从文件树中选择要预览的文件"
+    },
+    "merge": {
+      "ours": "我方",
+      "theirs": "对方",
+      "takeOurs": "采用我方",
+      "takeTheirs": "采用对方",
+      "askAgent": "询问 Agent",
+      "thisSideIsMissing": "此侧缺失",
+      "selectAConflictedFile": "选择一个冲突文件"
+    },
+    "diffCard": {
+      "openDiffInTab": "在标签页中打开差异"
+    },
+    "attachment": {
+      "previewImage": "预览图片"
+    },
+    "review": {
+      "editCommentTypeToSearch": "编辑评论...（输入 # 搜索标签或文件）",
+      "saveChanges": "保存更改",
+      "addACommentTypeTo": "添加评论...（输入 # 搜索标签或文件）",
+      "addReviewComment": "添加评审评论"
+    },
+    "conflictDialog": {
+      "promptTemplate": "提示词模板",
+      "resolveRebaseConflictsWithAi": "使用 AI 解决变基冲突"
+    },
+    "childConversation": {
+      "feedbackRequested": "需要反馈"
+    },
+    "rightPanel": {
+      "loadingSession": "正在加载会话",
+      "preparingTheConversationPanel": "正在准备对话面板..."
+    },
+    "projectDetail": {
+      "projectNotFound": "未找到项目",
+      "loadingProject": "正在加载项目...",
+      "backToProjects": "返回项目列表",
+      "projectDetailsAndSettings": "项目详情与设置",
+      "viewSessions": "查看会话",
+      "projectInformation": "项目信息",
+      "technicalInformationAboutThisProject": "此项目的技术信息",
+      "projectId": "项目 ID",
+      "createdAt": "创建时间",
+      "lastModified": "最后修改"
+    },
+    "logs": {
+      "logsUnavailableForThisWorkspace": "此工作区暂无日志。"
+    },
+    "followUpConflict": {
+      "conflictResolutionInstructions": "冲突解决说明"
+    },
+    "diff": {
+      "binaryDiffIsNotSupported": "不支持二进制差异",
+      "imageDiffIsNotSupported": "此处不支持图片差异",
+      "openThisAssetInA": "请在专用的图片差异流程中打开此资源。",
+      "loadingDiff": "正在加载差异..."
+    },
+    "pluginPreview": {
+      "pluginPreviewUnavailable": "插件预览不可用",
+      "startingPluginPreview": "正在启动插件预览…"
+    },
+    "notes": {
+      "selectAWorkspaceToEdit": "请选择一个工作区以编辑笔记。"
+    },
+    "workflow": {
+      "workflowRun": "工作流运行"
+    }
   }
 }

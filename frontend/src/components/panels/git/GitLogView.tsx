@@ -21,6 +21,7 @@ import { GitContextMenu, type ContextMenuAction } from './GitContextMenu';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import i18n from '@/i18n';
 
 interface GitLogViewProps {
   entries: GitLogEntry[];
@@ -146,7 +147,7 @@ const LogEntry = memo(function LogEntry({
           <button
             className="font-mono text-primary transition-colors hover:text-primary/80 flex items-center gap-0.5"
             onClick={handleCopyClick}
-            title="Copy full SHA"
+            title={i18n.t('panels:ui.gitLog.copyFullSha')}
           >
             {entry.sha.slice(0, 7)}
             <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
@@ -620,12 +621,12 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
       <div className="px-2 py-1 border-b border-border/30 shrink-0">
         <TextInput
           ref={searchInputRef}
-          label="Search commits"
+          label={i18n.t('panels:ui.gitLog.searchCommits2')}
           isLabelHidden
           size="sm"
           width="100%"
           className="git-log-search-input"
-          placeholder="Search commits..."
+          placeholder={i18n.t('panels:ui.gitLog.searchCommits')}
           value={searchQuery}
           onChange={(val) => setSearchQuery(val)}
           hasClear
@@ -634,8 +635,8 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
               type="button"
               className="flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
               onClick={() => searchInputRef.current?.focus()}
-              title="Search commits"
-              aria-label="Search commits"
+              title={i18n.t('panels:ui.gitLog.searchCommits2')}
+              aria-label={i18n.t('panels:ui.gitLog.searchCommits2')}
             >
               <Search className="h-3 w-3" />
             </button>
@@ -680,12 +681,12 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         {loading && entries.length === 0 && (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading commits...
+            {i18n.t('panels:ui.gitLog.loadingCommits')}
           </div>
         )}
         {!loading && entries.length === 0 && (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
-            No commits found
+            {i18n.t('panels:ui.gitLog.noCommitsFound')}
           </div>
         )}
 

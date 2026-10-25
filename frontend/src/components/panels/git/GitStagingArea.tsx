@@ -10,6 +10,7 @@ import {
   buildFileContextActions,
   type ContextMenuAction,
 } from './GitContextMenu';
+import i18n from '@/i18n';
 
 interface GitStagingAreaProps {
   stagedFiles: GitFileStatusEntry[];
@@ -218,7 +219,7 @@ export const GitStagingArea = memo(function GitStagingArea({
           <button
             className="px-1.5 py-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={() => selectedPaths.forEach((p) => onStageFile(p))}
-            title="Stage selected"
+            title={i18n.t('panels:ui.gitStaging.stageSelected')}
           >
             <Plus className="h-3 w-3 inline mr-0.5" />
             Stage
@@ -226,7 +227,7 @@ export const GitStagingArea = memo(function GitStagingArea({
           <button
             className="px-1.5 py-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={() => selectedPaths.forEach((p) => onUnstageFile(p))}
-            title="Unstage selected"
+            title={i18n.t('panels:ui.gitStaging.unstageSelected')}
           >
             <Minus className="h-3 w-3 inline mr-0.5" />
             Unstage
@@ -236,7 +237,7 @@ export const GitStagingArea = memo(function GitStagingArea({
             onClick={() =>
               setDiscardTarget({ type: 'files', paths: [...selectedPaths] })
             }
-            title="Discard selected"
+            title={i18n.t('panels:ui.gitStaging.discardSelected')}
           >
             <Undo2 className="h-3 w-3 inline mr-0.5" />
             Discard
@@ -244,7 +245,7 @@ export const GitStagingArea = memo(function GitStagingArea({
           <button
             className="px-1.5 py-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={() => setSelectedPaths(new Set())}
-            title="Clear selection"
+            title={i18n.t('panels:ui.gitStaging.clearSelection')}
           >
             Clear
           </button>
@@ -266,7 +267,7 @@ export const GitStagingArea = memo(function GitStagingArea({
               <button
                 className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
                 onClick={onStageAll}
-                title="Unstage all"
+                title={i18n.t('panels:ui.gitStaging.unstageAll')}
               >
                 <Minus className="h-3 w-3" />
               </button>
@@ -324,14 +325,14 @@ export const GitStagingArea = memo(function GitStagingArea({
                 <button
                   className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
                   onClick={onStageAll}
-                  title="Stage all"
+                  title={i18n.t('panels:ui.gitStaging.stageAll')}
                 >
                   <Plus className="h-3 w-3" />
                 </button>
                 <button
                   className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-destructive"
                   onClick={handleRevertAll}
-                  title="Discard all"
+                  title={i18n.t('panels:ui.gitStaging.discardAll')}
                 >
                   <Undo2 className="h-3 w-3" />
                 </button>
@@ -381,7 +382,7 @@ export const GitStagingArea = memo(function GitStagingArea({
       {/* Empty state */}
       {stagedFiles.length === 0 && unstagedFiles.length === 0 && (
         <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
-          No changes detected
+          {i18n.t('panels:ui.gitStaging.noChangesDetected')}
         </div>
       )}
 

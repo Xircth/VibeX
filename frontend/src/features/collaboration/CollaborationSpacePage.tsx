@@ -262,6 +262,7 @@ import {
   messagePreviewText,
 } from './SpaceMessageBody';
 import './collaboration.css';
+import i18n from '@/i18n';
 
 if (
   typeof globalThis !== 'undefined' &&
@@ -1081,7 +1082,8 @@ export function CollaborationSpacePage({
           return {
             id: member.member_id ?? member.conversation_id ?? nick,
             nickname: nick,
-            detail: conv?.title || member.conversation_id || undefined,
+            // Never surface the internal conversation id as a subtitle.
+            detail: conv?.title || undefined,
           };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item)),
@@ -1435,10 +1437,6 @@ export function CollaborationSpacePage({
       setAgents(nextAgents);
       setNewMemberRoleId((current) => current || nextRoles[0]?.id || '');
       setNewMemberAgentId(
-        (current) => current || nextAgents[0]?.agent_id || ''
-      );
-      setInlineMemberRoleId((current) => current || nextRoles[0]?.id || '');
-      setInlineMemberAgentId(
         (current) => current || nextAgents[0]?.agent_id || ''
       );
     } catch {
@@ -2570,7 +2568,7 @@ export function CollaborationSpacePage({
       }
     };
     if (await alreadyInGroup()) {
-      toast.error(
+      toast.info(
         t('collaborationSpace.memberAlreadyInGroup', {
           name: fallbackNickname || conversationId,
           defaultValue: '{{name}} 已在该群中',
@@ -2988,7 +2986,7 @@ export function CollaborationSpacePage({
         title: COPY.groupDetailsButton,
         params: {
           spaceId,
-          spaceName: name ?? '协作空间',
+          spaceName: name ?? i18n.t('panels:ui.collabPage.spaces'),
           spaceAvatars,
           tagColorId,
           projectId: projectContext?.projectId ?? undefined,
@@ -3074,7 +3072,7 @@ export function CollaborationSpacePage({
           content: trimmed,
           creatorNickname: 'User',
         });
-        toast.success('已添加到群收藏');
+        toast.success(i18n.t('panels:ui.collabPage.addedToGroupSaved'));
         openSpaceCollectionTab(selected.space_id, selected.name);
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
@@ -3946,7 +3944,7 @@ export function CollaborationSpacePage({
     });
     const compactAge = conv?.updated_at
       ? formatCompactSessionAge(conv.updated_at)
-      : '刚刚';
+      : i18n.t('panels:ui.collabPage.justNow');
     const rawWorkspaceLabel = (
       conv?.workspace_name ||
       defaultWorkspaceName ||
@@ -3983,7 +3981,7 @@ export function CollaborationSpacePage({
         {isDeleteMode && member.kind === 'agent' && conversationId ? (
           <Checkbox
             className="collaboration-delete-checkbox"
-            aria-label={`选择助手 ${name}`}
+            aria-label={i18n.t('panels:ui.collabPage.selectBotName', { name: name })}
             checked={isMemberCheckedForDelete}
             onCheckedChange={() =>
               handleToggleMemberDelete(spaceId, conversationId)
@@ -4073,6 +4071,10 @@ export function CollaborationSpacePage({
                       'workspace-session-status',
                       `workspace-session-status--${tone}`
                     )}
+                  data-status={tone}
+                  title={t('conversation:children.status.' + tone, {
+                    defaultValue: tone,
+                  })}
                   />
                 </span>
                 <Input
@@ -4099,7 +4101,7 @@ export function CollaborationSpacePage({
                   variant="icon"
                   size="icon"
                   className="collaboration-expand h-6 w-6 shrink-0"
-                  aria-label="取消修改昵称"
+                  aria-label={i18n.t('panels:ui.collabPage.cancelNicknameEdit')}
                   onClick={() => {
                     setRenameOpen(false);
                     setRenameError('');
@@ -4194,6 +4196,10 @@ export function CollaborationSpacePage({
                             'workspace-session-status',
                             `workspace-session-status--${tone}`
                           )}
+                        data-status={tone}
+                        title={t('conversation:children.status.' + tone, {
+                          defaultValue: tone,
+                        })}
                         />
                       </span>
                       <span className="collaboration-member-title-group">
@@ -4295,7 +4301,7 @@ export function CollaborationSpacePage({
                         <div className="session-card-hover-meta">
                           <div className="session-card-hover-field">
                             <div className="session-card-hover-label">
-                              工作区
+                              {i18n.t('panels:ui.collabPage.workspace')}
                             </div>
                             <div
                               className={cn(
@@ -4309,7 +4315,7 @@ export function CollaborationSpacePage({
                           </div>
                           <div className="session-card-hover-field">
                             <div className="session-card-hover-label">
-                              所属团队
+                              {i18n.t('panels:ui.collabPage.team')}
                             </div>
                             <div
                               className={cn(
@@ -4799,7 +4805,7 @@ export function CollaborationSpacePage({
           setPointerDragCursor(null);
           if (payload && payload.fromSpaceId !== space.space_id) {
             if (isSpaceMember(space.space_id, payload.conversationId)) {
-              toast.error(
+              toast.info(
                 t('collaborationSpace.memberAlreadyInGroup', {
                   name: payload.nickname,
                   defaultValue: '{{name}} 已在该群中',
@@ -4820,7 +4826,7 @@ export function CollaborationSpacePage({
           {isDeleteMode && !isUnassigned && !isVirtualDefault ? (
             <Checkbox
               className="collaboration-delete-checkbox"
-              aria-label={`选择空间 ${space.name}`}
+              aria-label={i18n.t('panels:ui.collabPage.selectSpaceName', { name: space.name })}
               checked={isSpaceCheckedForDelete}
               onCheckedChange={() =>
                 handleToggleSpaceDelete(space.space_id, rawSpaceMembers)
@@ -4849,7 +4855,7 @@ export function CollaborationSpacePage({
                   size={CONTACT_AVATAR_PX}
                 />
                 <Input
-                  aria-label="修改空间名称输入框"
+                  aria-label={i18n.t('panels:ui.collabPage.spaceNameInput')}
                   value={renameSpaceName}
                   onChange={(event) => setRenameSpaceName(event.target.value)}
                   onKeyDown={(event) => {
@@ -4869,7 +4875,7 @@ export function CollaborationSpacePage({
                   variant="icon"
                   size="icon"
                   className="collaboration-expand h-6 w-6 shrink-0"
-                  aria-label="取消修改空间名称"
+                  aria-label={i18n.t('panels:ui.collabPage.cancelSpaceRename')}
                   onClick={() => {
                     setRenameSpaceOpen(false);
                     setRenameSpaceError('');
@@ -4882,7 +4888,7 @@ export function CollaborationSpacePage({
                   variant="icon"
                   size="icon"
                   className="collaboration-expand h-6 w-6 shrink-0"
-                  aria-label="确认修改空间名称"
+                  aria-label={i18n.t('panels:ui.collabPage.confirmSpaceRename')}
                   disabled={!renameSpaceName.trim()}
                 >
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
@@ -4949,7 +4955,7 @@ export function CollaborationSpacePage({
                           variant="icon"
                           size="icon"
                           className="collaboration-expand"
-                          aria-label={`标签 ${space.name}`}
+                          aria-label={i18n.t('panels:ui.collabPage.tagFor', { name: space.name })}
                         >
                           <Tag className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
@@ -5002,7 +5008,7 @@ export function CollaborationSpacePage({
                       variant="icon"
                       size="icon"
                       className="collaboration-expand collaboration-edit-name-btn"
-                      aria-label={`修改名称 ${space.name}`}
+                      aria-label={i18n.t('panels:ui.collabPage.renameName', { name: space.name })}
                       onClick={(event) => {
                         event.stopPropagation();
                         setRenameSpaceTargetId(space.space_id);
@@ -5057,7 +5063,7 @@ export function CollaborationSpacePage({
               variant="icon"
               size="icon"
               className="collaboration-expand h-7 w-7"
-              aria-label="Close"
+              aria-label={t('tabCreation.close', '关闭')}
               onClick={closeAllOverlays}
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -5121,12 +5127,12 @@ export function CollaborationSpacePage({
                 </div>
                 {spaceTagColorId ? (
                   <Input
-                    aria-label="标签名称"
+                    aria-label={i18n.t('panels:ui.collabPage.tagName')}
                     value={spaceTagCustomLabel}
                     onChange={(event) =>
                       setSpaceTagCustomLabel(event.target.value)
                     }
-                    placeholder="标签名称（可选）"
+                    placeholder={i18n.t('panels:ui.collabPage.tagNameOptional')}
                     className="h-8 px-2.5 text-[13px]"
                   />
                 ) : null}
@@ -5161,7 +5167,7 @@ export function CollaborationSpacePage({
                           <button
                             type="button"
                             className="collaboration-member-chip-remove"
-                            aria-label={`移除助手 ${memberName}`}
+                            aria-label={i18n.t('panels:ui.collabPage.removeBotMembername', { memberName: memberName })}
                             onClick={() => removeDraftSpaceMember(convId)}
                           >
                             <X className="h-3 w-3" aria-hidden="true" />
@@ -5431,11 +5437,11 @@ export function CollaborationSpacePage({
                   <SessionListDeleteControl
                     selectedCount={selectedDeleteCount}
                     isDeleting={isDeletingBatch}
-                    selectLabel="选择协作空间或助手"
-                    selectedCountLabel={`已选择 ${selectedDeleteCount} 项`}
-                    deleteLabel="确认删除"
-                    deletingLabel="删除中..."
-                    cancelLabel="取消"
+                    selectLabel={i18n.t('panels:ui.collabPage.selectSpacesOrBots')}
+                    selectedCountLabel={i18n.t('panels:ui.collabPage.selecteddeletecountSelected', { selectedDeleteCount: selectedDeleteCount })}
+                    deleteLabel={i18n.t('panels:ui.collabPage.confirmDelete')}
+                    deletingLabel={i18n.t('panels:ui.collabPage.deleting')}
+                    cancelLabel={i18n.t('panels:ui.collabPage.cancel')}
                     onDelete={() => {
                       void confirmBatchDelete();
                     }}
@@ -5450,7 +5456,7 @@ export function CollaborationSpacePage({
                         variant="ghost"
                         data-testid="collaboration-global-search-button"
                         className={SESSION_LIST_ACTION_BUTTON_CLASS}
-                        aria-label="搜索协作空间或助手"
+                        aria-label={i18n.t('panels:ui.collabPage.searchSpacesOrBots')}
                         onClick={() => {
                           setSearchQuery('');
                           setSearchOpen(true);
@@ -5661,7 +5667,7 @@ export function CollaborationSpacePage({
                   >
                     <div className="collaboration-contact-section-header">
                       <span className="collaboration-contact-section-name">
-                        已隐藏
+                        {i18n.t('panels:ui.collabPage.hidden')}
                       </span>
                       <span className="collaboration-contact-section-count">
                         {hiddenChatList.length}
@@ -5678,7 +5684,7 @@ export function CollaborationSpacePage({
                     y={contactMenu.y}
                     items={contactMenu.items}
                     onClose={() => setContactMenu(null)}
-                    ariaLabel="联系人菜单"
+                    ariaLabel={i18n.t('panels:ui.collabPage.contactMenu')}
                   />
                 ) : null}
               </div>
@@ -5687,7 +5693,7 @@ export function CollaborationSpacePage({
               <div
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="调整协作空间列表宽度"
+                aria-label={i18n.t('panels:ui.collabPage.resizeSpaceList')}
                 data-testid="collaboration-spaces-resizer"
                 data-side={spacesResizerSide}
                 className="workspace-resize-handle collaboration-pane-resizer"
@@ -5779,8 +5785,8 @@ export function CollaborationSpacePage({
                     <button
                       type="button"
                       className="collaboration-top-member-toggle"
-                      aria-label="收起助手列表"
-                      title="收起助手列表"
+                      aria-label={i18n.t('panels:ui.collabPage.collapseBotList')}
+                      title={i18n.t('panels:ui.collabPage.collapseBotList')}
                       onClick={() => setTopMemberBarExpanded(false)}
                     >
                       <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -5831,7 +5837,7 @@ export function CollaborationSpacePage({
                                 'collaboration-top-member-chip',
                                 hasDelayedMessages && 'has-delayed-messages'
                               )}
-                              aria-label={`打开 ${nick} 会话`}
+                              aria-label={i18n.t('panels:ui.collabPage.openNickSession', { nick: nick })}
                               data-testid={`top-member-filter-${nick}`}
                               data-has-delayed-messages={
                                 hasDelayedMessages ? 'true' : 'false'
@@ -5900,13 +5906,13 @@ export function CollaborationSpacePage({
                               data-testid={`member-delayed-queue-${nick}`}
                               className="collaboration-member-delayed-queue-popover rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
                             >
-                              <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
+                              <div className="mb-1.5 flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
                                 <span className="inline-flex items-center gap-1">
                                   <Clock
-                                    className="h-3 w-3 text-blue-500"
+                                    className="h-3 w-3 text-primary"
                                     aria-hidden="true"
                                   />
-                                  <span>定时消息队列</span>
+                                  <span>{i18n.t('panels:ui.collabPage.scheduledMessageQueue')}</span>
                                 </span>
                                 <span>{memberScheduledMessages.length}</span>
                               </div>
@@ -5999,8 +6005,8 @@ export function CollaborationSpacePage({
                   <button
                     type="button"
                     className="collaboration-top-member-expand-trigger"
-                    aria-label="展开助手列表"
-                    title="展开助手列表"
+                    aria-label={i18n.t('panels:ui.collabPage.expandBotList')}
+                    title={i18n.t('panels:ui.collabPage.expandBotList')}
                     data-testid="collaboration-top-member-collapsed-stack"
                     onClick={() => setTopMemberBarExpanded(true)}
                   >
@@ -6079,7 +6085,7 @@ export function CollaborationSpacePage({
                       className="collaboration-empty-member-pill"
                       data-testid="collaboration-empty-member-pill"
                     >
-                      当前协作空间暂无助手，请先添加助手
+                      {i18n.t('panels:ui.collabPage.thisSpaceHasNoBots')}
                     </div>
                     <div className="collaboration-empty-member-actions">
                       <Button
@@ -6087,7 +6093,7 @@ export function CollaborationSpacePage({
                         variant="primary"
                         onClick={() => openCreateMemberDialog()}
                       >
-                        添加助手
+                        {i18n.t('panels:ui.collabPage.addBot')}
                       </Button>
                       <Button
                         type="button"
@@ -6104,7 +6110,8 @@ export function CollaborationSpacePage({
                     const fromYou = author === COPY.you;
                     const name = fromYou
                       ? t('collaborationSpace.you', COPY.you)
-                      : author || COPY.you;
+                      : author ||
+                        t('collaborationSpace.unknownMember', '未知成员');
                     const authorConversationId = resolveMessageConversationId(
                       message.envelope,
                       members
@@ -6157,7 +6164,7 @@ export function CollaborationSpacePage({
                                 <button
                                   type="button"
                                   className="collaboration-message-avatar"
-                                  aria-label={`预览 ${name} 会话`}
+                                  aria-label={i18n.t('panels:ui.collabPage.previewNameSession', { name: name })}
                                   onClick={openAuthorPreview}
                                 >
                                   <MemberBotAvatar
@@ -6359,7 +6366,7 @@ export function CollaborationSpacePage({
                         <button
                           type="button"
                           data-testid="composer-space-stats"
-                          aria-label={`空间助手数量 ${visibleRoster.length}`}
+                          aria-label={i18n.t('panels:ui.collabPage.spaceBotsVisibleroster', { visibleRoster: visibleRoster.length })}
                           onMouseEnter={openComposerMembersMenu}
                           onMouseLeave={scheduleCloseComposerMembersMenu}
                           className="workspace-session-group-count cursor-pointer border-0"
@@ -6377,8 +6384,8 @@ export function CollaborationSpacePage({
                         onCloseAutoFocus={(event) => event.preventDefault()}
                         className="w-60 rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
                       >
-                        <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
-                          <span>空间助手</span>
+                        <div className="mb-1.5 flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
+                          <span>{i18n.t('panels:ui.collabPage.spaceBots')}</span>
                           <span>{visibleRoster.length}</span>
                         </div>
                         {visibleRoster.length === 0 ? (
@@ -6417,7 +6424,7 @@ export function CollaborationSpacePage({
                                     {nick}
                                   </span>
                                   {agentId ? (
-                                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    <span className="shrink-0 text-xs text-muted-foreground">
                                       {getAgentName(agentId) || agentId}
                                     </span>
                                   ) : null}
@@ -6465,8 +6472,8 @@ export function CollaborationSpacePage({
                       size="sm"
                       variant="ghost"
                       className="collaboration-icon-btn h-7 w-7 p-0"
-                      title="选择文件"
-                      aria-label="选择文件"
+                      title={i18n.t('panels:ui.collabPage.chooseFile')}
+                      aria-label={i18n.t('panels:ui.collabPage.chooseFile')}
                     >
                       <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
@@ -6489,8 +6496,8 @@ export function CollaborationSpacePage({
                       size="sm"
                       variant="ghost"
                       className="collaboration-icon-btn h-7 w-7 p-0"
-                      title="@助手"
-                      aria-label="@助手"
+                      title={i18n.t('panels:ui.collabPage.bot')}
+                      aria-label={i18n.t('panels:ui.collabPage.bot')}
                     >
                       <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
@@ -6533,7 +6540,7 @@ export function CollaborationSpacePage({
               <div
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="调整预览区宽度"
+                aria-label={i18n.t('panels:ui.collabPage.resizePreview')}
                 data-testid="collaboration-preview-resizer"
                 data-side={previewResizerSide}
                 className="workspace-resize-handle collaboration-preview-resizer"

@@ -164,6 +164,14 @@ describe('unified toast', () => {
     ).not.toBeInTheDocument();
     const disclosure = screen.getByRole('button', { name: '查看详情' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    // Toggle sits on the title row, immediately left of the close button.
+    const heading = disclosure.closest('.vu-toast-heading');
+    expect(heading).not.toBeNull();
+    expect(heading?.querySelector('.vu-toast-title')).toHaveTextContent(
+      '依赖需要更新'
+    );
+    expect(disclosure.nextElementSibling).toHaveClass('vu-toast-close');
+    expect(document.querySelector('.vu-toast-details-section')).toBeNull();
     expect(screen.queryByText('Codex CLI')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
 
@@ -171,6 +179,9 @@ describe('unified toast', () => {
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('可在 VibeX 内完成更新。')).toBeInTheDocument();
     expect(screen.getByText('Codex CLI')).toBeInTheDocument();
+    expect(
+      screen.getByText('Codex CLI').closest('.vu-toast-heading')
+    ).toBeNull();
     expect(screen.getByText(/\.local\/bin\/codex/)).toHaveClass(
       'vu-toast-detail-copy-mono'
     );
@@ -217,5 +228,29 @@ describe('unified toast', () => {
     expect(screen.getByText('第三条')).toBeInTheDocument();
     expect(screen.getByText('第四条')).toBeInTheDocument();
     expect(document.querySelectorAll('.vu-toast-host')).toHaveLength(3);
+  });
+
+  it('evicts older non-error toasts before an unread error', () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('保存失败');
+      toast.info('第二条');
+      toast.info('第三条');
+      toast.info('第四条');
+    });
+
+    expect(screen.getByText('保存失败')).toBeInTheDocument();
+    expect(screen.queryByText('第二条')).not.toBeInTheDocument();
+    expect(screen.getByText('第四条')).toBeInTheDocument();
+    expect(document.querySelectorAll('.vu-toast-host')).toHaveLength(3);
+  });
+
+  it('shows a translated fallback title instead of a raw key', () => {
+    render(<Toaster />);
+    act(() => {
+      toast.error('磁盘已满');
+    });
+    expect(document.body.textContent).not.toContain('app:toast');
   });
 });

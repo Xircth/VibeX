@@ -79,21 +79,21 @@ describe('collaboration assistant list and message cluster chrome', () => {
       ".collaboration-message[data-cluster='start'] .conv-assistant-msg"
     );
     expect(collapse(start['border-radius']?.value)).toBe(
-      'var(--radius) var(--radius) var(--collaboration-cluster-radius, 0.25rem) var(--collaboration-cluster-radius, 0.25rem)'
+      'var(--radius) var(--radius) var(--collaboration-cluster-radius) var(--collaboration-cluster-radius)'
     );
 
     const middle = declarationsFor(
       ".collaboration-message[data-cluster='middle'] .conv-assistant-msg"
     );
     expect(collapse(middle['border-radius']?.value)).toBe(
-      'var(--collaboration-cluster-radius, 0.25rem)'
+      'var(--collaboration-cluster-radius)'
     );
 
     const end = declarationsFor(
       ".collaboration-message[data-cluster='end'] .conv-assistant-msg"
     );
     expect(collapse(end['border-radius']?.value)).toBe(
-      'var(--collaboration-cluster-radius, 0.25rem) var(--collaboration-cluster-radius, 0.25rem) var(--radius) var(--radius)'
+      'var(--collaboration-cluster-radius) var(--collaboration-cluster-radius) var(--radius) var(--radius)'
     );
   });
 

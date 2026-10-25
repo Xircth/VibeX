@@ -22,6 +22,7 @@ import {
 } from '@/lib/terminalPreferences';
 import { terminalHostPlatform } from '@/utils/platform';
 import { desktopShellCall } from '@/lib/desktopShell';
+import i18n from '@/i18n';
 
 /**
  * Renders shell selector + "new terminal" button in the dockview group
@@ -108,7 +109,7 @@ function TerminalHeaderActionsInner() {
         }}
         disabled={!workspaceKey}
         className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-        title="New terminal"
+        title={i18n.t('panels:ui.terminal.newTerminal')}
       >
         <Plus className="h-3.5 w-3.5" />
       </button>

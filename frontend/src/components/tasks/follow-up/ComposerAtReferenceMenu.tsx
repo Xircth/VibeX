@@ -84,7 +84,7 @@ export function ComposerAtReferenceMenu({
             >
               <span>{t(`composer.atReference.tabs.${tab}`)}</span>
               {!loading && count > 0 ? (
-                <span className="text-[0.7rem] tabular-nums opacity-80">
+                <span className="text-xs tabular-nums opacity-80">
                   {count}
                 </span>
               ) : null}
@@ -119,9 +119,11 @@ export function ComposerAtReferenceMenu({
                   aria-selected={active}
                   data-active={active}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start',
+                    'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start',
+                    // Never color alone: the active option also gets a
+                    // leading accent bar.
                     active
-                      ? 'bg-primary/10 text-foreground'
+                      ? 'bg-primary/10 text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
                       : 'hover:bg-[var(--surface-control)]'
                   )}
                   onMouseDown={(event) => {
@@ -138,7 +140,7 @@ export function ComposerAtReferenceMenu({
                     {item.label}
                   </span>
                   {item.detail ? (
-                    <span className="min-w-0 grow basis-24 truncate text-[0.625rem] leading-[0.875rem] text-muted-foreground">
+                    <span className="min-w-0 grow basis-24 truncate text-[10px] leading-[0.875rem] text-muted-foreground">
                       {item.detail}
                     </span>
                   ) : null}

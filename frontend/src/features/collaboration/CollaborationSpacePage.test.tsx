@@ -19,6 +19,7 @@ import { deriveMemberBotAvatar } from './MemberBotAvatar';
 const collaborationCall = vi.hoisted(() => vi.fn());
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
+const toastInfo = vi.hoisted(() => vi.fn());
 const spaceEventListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
@@ -49,7 +50,7 @@ vi.mock('@/components/ui/toast', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/toast')>();
   return {
     ...actual,
-    toast: { ...actual.toast, error: toastError },
+    toast: { ...actual.toast, error: toastError, info: toastInfo },
   };
 });
 
@@ -521,7 +522,7 @@ describe('CollaborationSpacePage', () => {
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
     ).not.toBeDisabled();
 
-    const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
+    const closeDialogBtn = screen.getByRole('button', { name: /^(关闭|Close)$/ });
     expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
     await user.click(closeDialogBtn);
     await waitFor(() => {
@@ -865,7 +866,7 @@ describe('CollaborationSpacePage', () => {
     expect(unassignedGroup).not.toHaveClass('is-drop-target');
     fireEvent.drop(unassignedGroup);
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith('小A 已在该群中')
+      expect(toastInfo).toHaveBeenCalledWith('小A 已在该群中')
     );
     expect(collaborationCall).not.toHaveBeenCalledWith(
       'collaboration',
@@ -1148,7 +1149,7 @@ describe('CollaborationSpacePage', () => {
 
     // Closing 创建群聊 dialog when no spaces exist opens Default Space message area with empty-state capsule and 2 action buttons
     await user.click(
-      within(initialSpaceDialog).getByRole('button', { name: 'Close' })
+      within(initialSpaceDialog).getByRole('button', { name: /^(关闭|Close)$/ })
     );
     expect(
       await screen.findByTestId('collaboration-empty-member-pill')

@@ -1,3 +1,4 @@
+import { builtinPanelTitle } from '@/lib/builtinPanelTitles';
 import type { DockviewApi } from 'dockview-react';
 import {
   slotOfZone,
@@ -523,7 +524,7 @@ export function ensureWelcomeEditorGroup(
       api.addPanel({
         id: PANEL_IDS.WELCOME,
         component: PANEL_IDS.WELCOME,
-        title: 'Welcome',
+        title: builtinPanelTitle(PANEL_IDS.WELCOME),
         position: { referenceGroup: existing, direction: 'within' },
         inactive: true,
       });
@@ -585,7 +586,7 @@ export function ensureWelcomeEditorGroup(
   const welcomePanel = api.addPanel({
     id: PANEL_IDS.WELCOME,
     component: PANEL_IDS.WELCOME,
-    title: 'Welcome',
+    title: builtinPanelTitle(PANEL_IDS.WELCOME),
     initialWidth,
     ...(referencePanel
       ? {

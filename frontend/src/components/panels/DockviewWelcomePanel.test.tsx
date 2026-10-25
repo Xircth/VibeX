@@ -218,6 +218,7 @@ function session(
     isErrored: false,
     pinnedAt: null,
     ...overrides,
+    collaboration: overrides.collaboration ?? null,
   };
 }
 

@@ -189,6 +189,7 @@ import {
   type PreviewTabItem,
 } from './CollaborationPreviewDockview';
 import { spaceCollectionPreviewPanelId } from './CollaborationSpaceCollectionPanel';
+import { CollaborationWorkingStatus } from './CollaborationWorkingStatus';
 import {
   COLLABORATION_ADD_MEMBER_EVENT,
   COLLABORATION_MEMBERS_CHANGED_EVENT,
@@ -242,6 +243,7 @@ import {
   buildCollabDmBootstrapPrompt,
   isCollabDmBootstrapPrompt,
   contactLastMessagePreview,
+  isMemberWorking,
 } from './spaceModel';
 
 const COLLABORATION_FALLBACK_POLL_INTERVAL_MS = 15000;
@@ -3997,6 +3999,23 @@ export function CollaborationSpacePage({
     sidebarItems,
   ]);
 
+  const workingMembers = useMemo(
+    () =>
+      visibleRoster
+        .filter((member) => {
+          const convId = member.conversation_id ?? '';
+          return isMemberWorking(
+            convId ? conversationById.get(convId) : undefined
+          );
+        })
+        .map((member) => {
+          const nick = displayName(member);
+          const convId = member.conversation_id ?? '';
+          return { name: nick, avatar: getMemberAvatar(convId, nick) };
+        }),
+    [conversationById, getMemberAvatar, visibleRoster]
+  );
+
   const filteredMessages = useMemo(
     () =>
       messages.filter(
@@ -6953,6 +6972,9 @@ export function CollaborationSpacePage({
                         </article>
                       ))
                   : null}
+                {selected ? (
+                  <CollaborationWorkingStatus members={workingMembers} />
+                ) : null}
               </div>
 
               <ConversationSelectionToolbar

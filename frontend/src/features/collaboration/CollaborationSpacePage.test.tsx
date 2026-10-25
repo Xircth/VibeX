@@ -2892,6 +2892,124 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('shows working status for in-flight bots in the current group chat', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: '设计' });
+    const status = await screen.findByTestId('collaboration-working-status');
+    expect(status).toHaveTextContent('小A正在工作...');
+    expect(
+      within(status).getByTestId('collaboration-working-avatar')
+    ).toHaveAttribute('data-working-name', '小A');
+  });
+
+  it('joins every in-flight bot in the working-status copy', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+              {
+                member_id: 'm2',
+                nickname: '小B',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-2',
+              },
+              {
+                member_id: 'm3',
+                nickname: '小C',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-3',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listConversations') {
+          return {
+            conversations: [
+              {
+                conversation_id: 'conv-1',
+                title: '设计会话',
+                turn_in_flight: true,
+              },
+              {
+                conversation_id: 'conv-2',
+                title: '前端会话',
+                turn_in_flight: true,
+              },
+              {
+                conversation_id: 'conv-3',
+                title: '后端会话',
+                turn_in_flight: true,
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await screen.findByRole('button', { name: '设计' });
+    expect(
+      await screen.findByTestId('collaboration-working-status')
+    ).toHaveTextContent('小A、小B和小C正在工作...');
+  });
+
+  it('shows working status in a private chat', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (
+          input?.spaceId === 'direct:mem-a' &&
+          method === 'space.listMessages'
+        ) {
+          return { messages: [] };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    expect(
+      await screen.findByTestId('collaboration-working-status')
+    ).toHaveTextContent('小A正在工作...');
+  });
+
   it('opens the current-chat bot session from the assistant list and the message sender', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();

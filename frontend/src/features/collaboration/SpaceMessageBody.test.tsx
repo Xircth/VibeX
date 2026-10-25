@@ -154,6 +154,15 @@ describe('messagePreviewText', () => {
     expect(svgs[0].getAttribute('width')).toBe('11');
     expect(svgs[0].getAttribute('height')).toBe('11');
     expect(deliveredTicks.closest('.conv-user-bubble')).toBeNull();
-    expect(deliveredTicks.closest('.collaboration-bubble-outer-row')).not.toBeNull();
+    const userRow = deliveredTicks.closest(
+      '.collaboration-bubble-outer-row--user'
+    );
+    expect(userRow).not.toBeNull();
+    expect(userRow?.querySelector('.conv-user-bubble')).not.toBeNull();
+    expect(
+      deliveredTicks.compareDocumentPosition(
+        userRow!.querySelector('.conv-user-bubble') as Node
+      ) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy();
   });
 });

@@ -68,6 +68,8 @@ bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_valu
 | `20261024100000` | bot 会话配置列 |
 | `20261024110000` | sidebar 相关 |
 | `20261024120000` | `collaboration_contact_groups` + thread.`group_id` |
+| `20261027010000` | 群组 `lead_member_id`、消息 `root_id` / `hop` |
+| `20261027020000` | `collaboration_space_prompt_injections`（会话 × 群组的开场注入标记） |
 
 `collaboration_space_members` 仍是投递/回执/去重读取的座位投影；座位的 `conversation_id` 与对应 `(member, thread)` 绑定一致。
 
@@ -77,9 +79,10 @@ bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_valu
 
 - `resolve_session(member_id, thread_id) -> conversation_id`：缺则创建（db 写行；conversations 加人设与配置）。
 - 空间投递经身份解析后再提交；delivery/receipt/dedupe 逻辑不变。
+- 群组投递信封：规则、工具说明和人设只在该助手在该群组的 ACP 会话里第一次投递时注入（表 `collaboration_space_prompt_injections`，会话 × 群组）；重建或恢复后重新注入。之后的信封只保留来源、收件人、序号、`root_id`、正文和引用消息。名单与历史用 `list_space_members` / `list_space_messages` 按需拉取。格式与前后对比见 [collaboration-delivery-envelope.md](collaboration-delivery-envelope.md)。
 - `send_session_input` 可接受 `member_id` + `thread_id`，由宿主解析后发送。
 - bot可同时在多个群组；每个群组一条会话。
-- **回执**：`receipt_state`：`queued` → `processing` → `replied`。群投递可带 `<missed_group_messages>`（最多 30 条）。
+- **回执**：`receipt_state`：`queued` → `processing` → `replied`。未读游标 `last_seen` 仍随投递推进；更早历史由助手按需调用 `list_space_messages`，不再打进投递信封。
 - **Sleep / wake**：空闲会话可睡；唤醒有 cap（见环境变量 `VIBEX_MEMBER_*`）。
 - **Handoffs / write_access / bot记忆**：见历史 Phase 2 / Phase 4 实现；Agent 工具见 `crates/agents/src/skills/vibex-multi-agent/MEMORY.md`。
 

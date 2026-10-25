@@ -2724,9 +2724,6 @@ pub(crate) async fn member_identity_context_text(
             space_names.insert(id, name);
         }
     }
-    let mut members_by_space =
-        batch_load_space_members_by_space(pool, &space_ids, MessageAudience::User).await?;
-
     let mut sections = Vec::new();
     for (space_id, my_nickname) in group_memberships {
         let space_name = space_names.remove(&space_id).unwrap_or_else(|| {
@@ -2736,25 +2733,8 @@ pub(crate) async fn member_identity_context_text(
                 space_id.clone()
             }
         });
-        let members = members_by_space.remove(&space_id).unwrap_or_default();
-        let peers: Vec<String> = members
-            .into_iter()
-            .filter(|m| m.kind == "agent" && m.visible_to_agents != 0)
-            .map(|m| match m.conversation_id.as_deref() {
-                Some(cid) if cid == conversation_id.to_string() => {
-                    format!("{}（你自己, conversation_id: {}）", m.nickname, cid)
-                }
-                Some(cid) => format!("{} (conversation_id: {})", m.nickname, cid),
-                None => m.nickname,
-            })
-            .collect();
-        let peers_label = if peers.is_empty() {
-            "User（用户）".to_string()
-        } else {
-            format!("{}，以及 User（用户）", peers.join("、"))
-        };
         sections.push(format!(
-            "- 所属协作空间：{space_name} (space_id: {space_id})\n  你的成员昵称：{my_nickname} (conversation_id: {conversation_id})\n  同空间成员：{peers_label}"
+            "- 所属协作空间：{space_name} (space_id: {space_id})\n  你的成员昵称：{my_nickname} (conversation_id: {conversation_id})\n  需要成员名单时调用 `list_space_members`（`space_id`）；需要更早历史时调用 `list_space_messages`（`space_id`、`since_seq`、`limit`）"
         ));
     }
 

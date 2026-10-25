@@ -49,9 +49,9 @@ pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
     load_stored_operation, seat_binding, store_operation, user_actor,
 };
-pub use prompt::prefix_persona_prompt;
+pub use prompt::{invalidate_space_delivery_prompt_injections, prefix_persona_prompt};
 pub(crate) use prompt::{
-    COLLABORATION_MCP_TOOLS_SUMMARY, build_space_delivery_prompt, format_collaboration_space_rules,
+    COLLABORATION_MCP_TOOLS_SUMMARY, compose_space_delivery_prompt, format_collaboration_space_rules,
 };
 pub use roles::{
     BatchDeleteMemberTarget, BatchDeleteResult, CollaborationSpaceChangedEvent,

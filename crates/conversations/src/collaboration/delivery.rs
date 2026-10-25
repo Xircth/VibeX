@@ -101,7 +101,7 @@ pub async fn send_user_text_to_conversation(
     .await
     .map_err(db)?;
     let (agent_text, display_text, origin, principal) =
-        if let Some((thread_id, member_id, nickname)) = binding {
+        if let Some((thread_id, _member_id, nickname)) = binding {
             let origin = CollaborationSpaceOrigin {
                 space_id: thread_id.clone(),
                 thread_kind: space_thread_kind(&thread_id).to_string(),
@@ -110,35 +110,23 @@ pub async fn send_user_text_to_conversation(
                 sender_conversation_id: None,
                 sender_member_id: None,
             };
-            let members = vec![MemberRecord {
-                member_id,
-                conversation_id: Some(conversation_id.to_string()),
-                nickname: nickname.clone(),
-                kind: "agent".to_string(),
-                visible_to_agents: 1,
-            }];
             let envelope = json!({
                 "actor": user_actor(&thread_id),
                 "to": [member_actor(&thread_id, &nickname)],
                 "content": text,
             });
-            let space_name = if thread_id.starts_with(identity::DIRECT_PREFIX) {
-                "私聊".to_string()
-            } else {
-                thread_id.clone()
-            };
             let display = clean_space_display_text(text, std::slice::from_ref(&nickname));
-            let packed = build_space_delivery_prompt(
+            let packed = compose_space_delivery_prompt(
+                pool,
+                conversation_id,
                 &thread_id,
-                &space_name,
-                &operation_id.to_string(),
                 0,
                 &envelope,
-                &members,
-                "",
+                None,
                 text,
                 &display,
-            );
+            )
+            .await?;
             (
                 packed,
                 Some(display),
@@ -1109,25 +1097,13 @@ pub(crate) async fn deliver_pending(
     turn_delivery: &DeliveryContext,
 ) -> Result<SpacePostResult, CollaborationError> {
     let envelope = load_envelope(pool, message_id).await?;
-    let seq: i64 = sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
-        .bind(message_id)
-        .fetch_one(pool)
-        .await
-        .map_err(db)?;
-    let space_name = sqlx::query_scalar::<_, String>(
-        "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
+    let (seq, root_id): (i64, Option<String>) = sqlx::query_as(
+        "SELECT seq, root_id FROM collaboration_space_messages WHERE id = ?",
     )
-    .bind(space_id)
-    .fetch_optional(pool)
+    .bind(message_id)
+    .fetch_one(pool)
     .await
-    .map_err(db)?
-    .unwrap_or_else(|| {
-        if parse_unassigned_space_id(space_id).is_some() {
-            "未定空间".to_string()
-        } else {
-            space_id.to_string()
-        }
-    });
+    .map_err(db)?;
     let space_members = list_space_members(pool, space_id, MessageAudience::Agent)
         .await
         .unwrap_or_default();
@@ -1135,26 +1111,11 @@ pub(crate) async fn deliver_pending(
         .iter()
         .map(|member| member.nickname.clone())
         .collect();
-    let summary = envelope
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     let content = envelope
         .get("content")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let display_text = clean_space_display_text(content, &member_nicknames);
-    let attention = build_space_delivery_prompt(
-        space_id,
-        &space_name,
-        message_id,
-        seq,
-        &envelope,
-        &space_members,
-        summary,
-        content,
-        &display_text,
-    );
     let pending = sqlx::query_as::<_, PendingDelivery>(
         r#"SELECT conversation_id, operation_id, input_id, status, receipt_state, context_from_seq,
                   wake_deferred_turn_key
@@ -1313,29 +1274,30 @@ pub(crate) async fn deliver_pending(
             });
             continue;
         }
-        let context_from = match delivery.context_from_seq {
-            Some(from) => from,
-            None => {
-                let from = context_window_start(pool, space_id, conversation_id, seq).await?;
-                sqlx::query(
-                    r#"UPDATE collaboration_space_deliveries SET context_from_seq = ?
-                       WHERE space_message_id = ? AND conversation_id = ?"#,
-                )
-                .bind(from)
-                .bind(message_id)
-                .bind(conversation_id.to_string())
-                .execute(pool)
-                .await
-                .map_err(db)?;
-                from
-            }
-        };
-        let missed =
-            missed_group_context(pool, space_id, conversation_id, context_from, seq).await?;
-        let packed = match missed {
-            Some(missed) => format!("{missed}\n\n{attention}"),
-            None => attention.clone(),
-        };
+        if delivery.context_from_seq.is_none() {
+            let from = context_window_start(pool, space_id, conversation_id, seq).await?;
+            sqlx::query(
+                r#"UPDATE collaboration_space_deliveries SET context_from_seq = ?
+                   WHERE space_message_id = ? AND conversation_id = ?"#,
+            )
+            .bind(from)
+            .bind(message_id)
+            .bind(conversation_id.to_string())
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        }
+        let packed = compose_space_delivery_prompt(
+            pool,
+            conversation_id,
+            space_id,
+            seq,
+            &envelope,
+            root_id.as_deref(),
+            content,
+            &display_text,
+        )
+        .await?;
         let origin = origin_from_envelope(space_id, &envelope, &space_members);
         match deliver_text(
             pool,
@@ -2881,9 +2843,37 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(texts.len(), 2);
-        assert!(texts.iter().all(|text| text.contains("请评审当前 diff")));
-        assert!(texts.iter().all(|text| text.contains("auth.ts")));
-        assert_eq!(texts[0], texts[1]);
+        let payloads: Vec<Value> = texts
+            .iter()
+            .map(|text| serde_json::from_str(text).unwrap())
+            .collect();
+        let slim_of = |payload: &Value| -> String {
+            payload["text"]
+                .as_str()
+                .unwrap()
+                .split_once("[协作空间消息]")
+                .map(|(_, rest)| rest.to_string())
+                .unwrap_or_default()
+        };
+        for payload in &payloads {
+            assert_eq!(
+                payload["displayText"].as_str(),
+                Some("请评审当前 diff。关注 auth.ts 的错误处理。")
+            );
+            let text = payload["text"].as_str().unwrap();
+            assert!(text.contains("请评审当前 diff"));
+            assert!(text.contains("auth.ts"));
+            assert!(text.contains("[协作空间消息]"));
+            assert!(text.contains("来源：小A"));
+            assert!(
+                text.contains("协同交互规则") || text.contains("协作空间交互规则"),
+                "{text}"
+            );
+        }
+        assert_eq!(slim_of(&payloads[0]), slim_of(&payloads[1]));
+        let joined = texts.join("\n");
+        assert!(joined.contains("你的成员昵称：小B"));
+        assert!(joined.contains("你的成员昵称：小C"));
     }
 
     #[tokio::test]
@@ -3180,14 +3170,17 @@ mod tests {
         let packed: Value = serde_json::from_str(to_b.last().unwrap()).unwrap();
         let packed = packed["text"].as_str().unwrap();
         assert!(
-            packed.contains("count=\"25\""),
-            "{} inputs; last: {packed}",
-            to_b.len()
+            !packed.contains("missed_group_messages"),
+            "history is on-demand via list_space_messages: {packed}"
         );
-        assert_eq!(packed.matches("] User: ").count(), MISSED_CONTEXT_VERBATIM);
-        assert!(packed.contains("5 earlier messages from User (collapsed"));
-        assert!(!packed.contains("第05条"), "older ones are collapsed");
-        assert!(packed.contains("第06条") && packed.contains("第25条"));
+        assert!(!packed.contains("第06条") && !packed.contains("第25条"));
+        let helper = missed_group_context(&pool, &space, b, 0, 26)
+            .await
+            .unwrap()
+            .expect("helper still renders a backlog");
+        assert!(helper.contains("count=\"25\""), "{helper}");
+        assert_eq!(helper.matches("] User: ").count(), MISSED_CONTEXT_VERBATIM);
+        assert!(helper.contains("5 earlier messages from User (collapsed"));
     }
 
     #[tokio::test]
@@ -3233,19 +3226,30 @@ mod tests {
         let mention = post_as(&pool, None, &space, "@小B 你来总结", &[]).await;
         let to_b = inputs_of(&pool, b).await;
         assert_eq!(to_b.len(), 1);
-        assert!(to_b[0].contains("missed_group_messages"));
-        assert!(to_b[0].contains("先看接口"));
-        assert!(to_b[0].contains("接口没问题"));
+        assert!(
+            !to_b[0].contains("missed_group_messages"),
+            "history is pulled with list_space_messages: {}",
+            to_b[0]
+        );
+        assert!(to_b[0].contains("你来总结") || to_b[0].contains("来总结"), "{}", to_b[0]);
         assert_eq!(
             seen(member_b.clone()).await,
             Some(mention.message_id.clone())
         );
 
-        // Nothing new since: the next mention packs no backlog.
         post_as(&pool, None, &space, "@小B 再补一句", &[]).await;
         let to_b = inputs_of(&pool, b).await;
         assert_eq!(to_b.len(), 2);
         assert!(!to_b[1].contains("missed_group_messages"));
+        let first: Value = serde_json::from_str(&to_b[0]).unwrap();
+        let second: Value = serde_json::from_str(&to_b[1]).unwrap();
+        let first = first["text"].as_str().unwrap();
+        let second = second["text"].as_str().unwrap();
+        assert!(first.contains("协同交互规则") || first.contains("协作空间交互规则"), "{first}");
+        assert!(
+            !second.contains("协同交互规则") && !second.contains("协作空间交互规则"),
+            "{second}"
+        );
     }
 
     #[tokio::test]
@@ -3673,7 +3677,9 @@ mod tests {
         assert!(text.contains("[协作空间消息]"));
         assert!(text.contains("评审工作"));
         assert!(text.contains(&space));
-        assert!(text.contains("User（用户）"));
+        assert!(text.contains("来源：User"));
+        assert!(text.contains("协同交互规则") || text.contains("协作空间交互规则"));
+        assert!(!text.contains("空间内成员"));
         assert_eq!(text.matches("请你分析我当前项目的性能").count(), 1);
         assert_eq!(payload["collaborationOrigin"]["threadKind"], "group");
         assert_eq!(payload["collaborationOrigin"]["senderKind"], "user");

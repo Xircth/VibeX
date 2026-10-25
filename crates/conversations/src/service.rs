@@ -1193,16 +1193,20 @@ impl ConversationSessionService {
             origin,
         )
         .await?;
-        let persona = crate::collaboration::persona_prompt_text_for_turn(
-            pool,
-            input.conversation_id,
-            Some(&display_text),
-        )
-        .await
-        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
-        let prompt_text = match persona.as_deref() {
-            Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
-            None => input.text.clone(),
+        let prompt_text = if input.collaboration_origin.is_some() {
+            input.text.clone()
+        } else {
+            let persona = crate::collaboration::persona_prompt_text_for_turn(
+                pool,
+                input.conversation_id,
+                Some(&display_text),
+            )
+            .await
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+            match persona.as_deref() {
+                Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
+                None => input.text.clone(),
+            }
         };
         let mut agent_text = match smart_reminder.as_deref() {
             Some(reminder) if !prompt_text.trim().is_empty() => {
@@ -2685,6 +2689,18 @@ impl ConversationSessionService {
             .agent_runtime
             .commit_prepared_session(runtime_session_id)
             .await;
+        if let Err(error) = crate::collaboration::invalidate_space_delivery_prompt_injections(
+            pool,
+            conversation_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                error = %error.message,
+                %conversation_id,
+                "failed to reset collaboration prompt injection after session bind"
+            );
+        }
         self.update_runtime_state(conversation_id, |state| {
             state.conversation_id = Some(conversation_id);
             state.acp_session_id = Some(runtime_snapshot.acp_session_id.clone());

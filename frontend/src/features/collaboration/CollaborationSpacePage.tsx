@@ -2696,7 +2696,7 @@ export function CollaborationSpacePage({
       }
     };
     if (await alreadyInGroup()) {
-      toast.error(
+      toast.info(
         t('collaborationSpace.memberAlreadyInGroup', {
           name: fallbackNickname || conversationId,
           defaultValue: '{{name}} 已在该群中',
@@ -5076,7 +5076,7 @@ export function CollaborationSpacePage({
           setPointerDragCursor(null);
           if (payload && payload.fromSpaceId !== space.space_id) {
             if (isSpaceMember(space.space_id, payload.conversationId)) {
-              toast.error(
+              toast.info(
                 t('collaborationSpace.memberAlreadyInGroup', {
                   name: payload.nickname,
                   defaultValue: '{{name}} 已在该群中',

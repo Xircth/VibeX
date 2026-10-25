@@ -19,6 +19,7 @@ import { deriveMemberBotAvatar } from './MemberBotAvatar';
 const collaborationCall = vi.hoisted(() => vi.fn());
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
+const toastInfo = vi.hoisted(() => vi.fn());
 const spaceEventListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
@@ -49,7 +50,7 @@ vi.mock('@/components/ui/toast', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/toast')>();
   return {
     ...actual,
-    toast: { ...actual.toast, error: toastError },
+    toast: { ...actual.toast, error: toastError, info: toastInfo },
   };
 });
 
@@ -830,7 +831,7 @@ describe('CollaborationSpacePage', () => {
     expect(unassignedGroup).not.toHaveClass('is-drop-target');
     fireEvent.drop(unassignedGroup);
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith('小A 已在该群中')
+      expect(toastInfo).toHaveBeenCalledWith('小A 已在该群中')
     );
     expect(collaborationCall).not.toHaveBeenCalledWith(
       'collaboration',

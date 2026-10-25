@@ -8,6 +8,7 @@ import {
   KeyRound,
   RefreshCw,
   Shield,
+  Loader2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';

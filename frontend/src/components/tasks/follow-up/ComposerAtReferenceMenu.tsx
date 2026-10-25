@@ -119,9 +119,11 @@ export function ComposerAtReferenceMenu({
                   aria-selected={active}
                   data-active={active}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start',
+                    'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start',
+                    // Never color alone: the active option also gets a
+                    // leading accent bar.
                     active
-                      ? 'bg-primary/10 text-foreground'
+                      ? 'bg-primary/10 text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
                       : 'hover:bg-[var(--surface-control)]'
                   )}
                   onMouseDown={(event) => {

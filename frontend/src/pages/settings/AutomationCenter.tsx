@@ -155,7 +155,7 @@ export function AutomationCenter() {
         }
       >
         <div className="flex min-h-[520px] items-start gap-3">
-          <div className="settings-surface min-w-0 flex-1 overflow-hidden rounded-lg">
+          <div className="settings-surface min-w-0 flex-1 overflow-hidden">
             {!engineActive ? (
               <div className="border-b bg-amber-500/[0.07] px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
                 {t('automations.nonOwnerDescription')}
@@ -181,7 +181,10 @@ export function AutomationCenter() {
                 </div>
               </div>
             ) : (
-              <ul className="divide-y" aria-label={t('automations.listAria')}>
+              <ul
+                className="flex flex-col gap-3 py-1"
+                aria-label={t('automations.listAria')}
+              >
                 {automations.map((automation) => (
                   <li key={automation.id} className="px-4 py-3.5">
                     <div className="flex items-start gap-3">
@@ -336,7 +339,7 @@ export function AutomationCenter() {
                       </Button>
                     </div>
                     {historyId === automation.id ? (
-                      <div className="mt-3 divide-y rounded-lg border bg-muted/15 px-3">
+                      <div className="mt-3 flex flex-col gap-3 rounded-[var(--radius)] border bg-muted/15 px-3">
                         {(runs[automation.id] ?? []).length === 0 ? (
                           <p className="py-3 text-xs text-muted-foreground">
                             {t('automations.noRuns')}

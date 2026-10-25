@@ -357,7 +357,7 @@ export function ShortcutSettings() {
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {groupLabel(t, group)}
                 </div>
-                <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
+                <div className="settings-card flex flex-col gap-3 overflow-hidden rounded-[var(--radius)] border py-1">
                   {bindings.map((binding) => (
                     <ShortcutRow
                       key={binding.id}
@@ -388,7 +388,7 @@ export function ShortcutSettings() {
               {t('shortcuts.sequentialDescription')}
             </p>
           </div>
-          <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
+          <div className="settings-card flex flex-col gap-3 overflow-hidden rounded-[var(--radius)] border py-1">
             {sequentialBindings.map((binding) => (
               <div
                 key={binding.id}

@@ -1282,7 +1282,7 @@ function AutomationList({
   return (
     <ul
       aria-label={t('automations.listAria')}
-      className="divide-y divide-border"
+      className="flex flex-col gap-3"
     >
       {automations.map((automation) => (
         <li

@@ -147,7 +147,7 @@ export function AgentEnvironmentDiagnosticsDialog({
                       defaultValue: humanize(section.id),
                     })}
                   </h4>
-                  <ul className="divide-y">
+                  <ul className="flex flex-col gap-3 py-1">
                     {section.checks.map((check) => (
                       <li
                         className="flex items-start gap-2.5 px-3 py-2"

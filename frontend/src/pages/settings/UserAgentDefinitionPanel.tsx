@@ -130,7 +130,7 @@ export function UserAgentDefinitionPanel({
         </div>
       ) : null}
 
-      <div className="grid divide-y divide-border/70 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)] md:divide-x md:divide-y-0">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)]">
         <div className="space-y-4 px-4 py-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

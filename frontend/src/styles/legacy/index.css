@@ -12970,18 +12970,33 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin-top: 12px;
 }
 
-.settings-page .plugin-product-capability-actions :is(button, span) {
+.settings-page .plugin-product-capability-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   min-height: 26px;
-  padding: 4px 8px;
+  padding: 4px 6px 4px 8px;
   border: 1px solid var(--border-content);
   border-radius: 999px;
   background: var(--surface-content);
   color: var(--text-default);
   font-size: 0.75rem;
+  cursor: pointer;
 }
 
-.settings-page .plugin-product-capability-actions button {
-  cursor: pointer;
+.settings-page .plugin-product-capability-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Non-interactive counts are plain labels, not pills. */
+.settings-page .plugin-product-capability-actions > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 2px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .settings-page .plugin-product-capability-actions button:hover {

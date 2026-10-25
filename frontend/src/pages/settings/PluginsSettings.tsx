@@ -593,6 +593,7 @@ function PluginDetail({
                   onClick={() => void openContributions('skills')}
                 >
                   {t('plugins.skillsCount', { count: plugin.skills.length })}
+                  <ChevronRight aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>
               ) : null}
               {uniqueInvocations.length ? (
@@ -608,6 +609,7 @@ function PluginDetail({
                   onClick={() => void openContributions('mcp')}
                 >
                   {t('plugins.mcpCount', { count: plugin.mcpCount })}
+                  <ChevronRight aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>
               ) : null}
             </div>

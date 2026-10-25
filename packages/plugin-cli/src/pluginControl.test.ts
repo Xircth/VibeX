@@ -52,13 +52,13 @@ async function fixture() {
     join(root, ".vibex-plugin", "plugin.json"),
     JSON.stringify({
       manifestVersion: 4,
-      apiVersion: "1.0",
+      apiVersion: "2.0",
       id: "notes",
       publisher: "tests",
       version: "1.0.0",
       name: "Notes",
       readme: "README.md",
-      engines: { vibex: ">=0.1.3", pluginSdk: "^1.0.0" },
+      engines: { vibex: ">=0.1.3", pluginSdk: "^2.0.0" },
       content: {
         root: "contents",
         index: ".vibex-plugin/content.index.json",

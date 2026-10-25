@@ -1,4 +1,8 @@
-import { type HostCallTransport } from '@vibex/plugin-sdk';
+import {
+  type HostCallTransport,
+  type JsonValue,
+  notifyPluginConfigUpdated,
+} from '@vibex/plugin-sdk';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -126,6 +130,7 @@ export function PluginSchemaSettingsForm({
             ? loaded
             : {}),
         };
+        notifyPluginConfigUpdated(pluginId, merged as Record<string, JsonValue>);
         setValues(merged);
         setSavedValues(merged);
         setLoading(false);
@@ -140,7 +145,7 @@ export function PluginSchemaSettingsForm({
     return () => {
       cancelled = true;
     };
-  }, [defaults, invokeHost]);
+  }, [defaults, invokeHost, pluginId]);
 
   const isDirty = useMemo(
     () => JSON.stringify(values) !== JSON.stringify(savedValues),
@@ -153,6 +158,7 @@ export function PluginSchemaSettingsForm({
     setSavedNotice(false);
     try {
       await invokeHost('settings.put', values);
+      notifyPluginConfigUpdated(pluginId, values as Record<string, JsonValue>);
       setSavedValues(values);
       setSavedNotice(true);
     } catch (err) {
@@ -160,7 +166,7 @@ export function PluginSchemaSettingsForm({
     } finally {
       setSaving(false);
     }
-  }, [invokeHost, values]);
+  }, [invokeHost, pluginId, values]);
 
   const handleReset = useCallback(() => {
     setValues(defaults);

@@ -294,8 +294,13 @@ impl CollaborationHost for HostCollaborationHost {
             }
             ("collaboration", "member.update") => {
                 let member_id = required_text(&input, &["memberId", "member_id"])?;
-                let field =
-                    |key: &str| input.get(key).map(|v| v.as_str().unwrap_or("").to_string());
+                let field = |key: &str| {
+                    input.get(key).map(|v| match v {
+                        Value::String(s) => s.clone(),
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    })
+                };
                 sidebar::update_member_profile(
                     &self.pool,
                     &member_id,
@@ -305,6 +310,20 @@ impl CollaborationHost for HostCollaborationHost {
                 )
                 .await
                 .map_err(host_error)?;
+                self.emit_space_changed(&format!("direct:{member_id}"), Some(&member_id))
+                    .await;
+                let group_threads: Vec<String> = sqlx::query_scalar(
+                    r#"SELECT DISTINCT thread_id
+                       FROM collaboration_thread_members
+                       WHERE member_id = ? AND status = 'active' AND thread_id NOT LIKE 'direct:%'"#,
+                )
+                .bind(&member_id)
+                .fetch_all(&self.pool)
+                .await
+                .unwrap_or_default();
+                for tid in group_threads {
+                    self.emit_space_changed(&tid, Some(&member_id)).await;
+                }
                 Ok(json!({ "memberId": member_id, "updated": true }))
             }
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
@@ -633,54 +652,6 @@ impl HostCollaborationHost {
                 .await
                 .map_err(host_error)?;
             }
-            // Map the unchanged create-member form onto the member definition:
-            // later sessions of this member (other threads) use this config.
-            let mut config = collaboration::MemberSessionConfig {
-                agent_id: agent_id.clone(),
-                mode_id: optional_text(input, &["modeId", "mode_id"]),
-                config_values: input
-                    .get("configValues")
-                    .or_else(|| input.get("config_values"))
-                    .cloned()
-                    .filter(Value::is_object)
-                    .unwrap_or_else(|| json!({})),
-                persona_prompt: optional_text(input, &["personaPrompt", "persona_prompt"]),
-            };
-            if let Some(role_id) = role_id.as_deref() {
-                let roles = collaboration::list_roles(&self.pool)
-                    .await
-                    .map_err(host_error)?;
-                if let Some(role) = serde_json::to_value(roles)
-                    .ok()
-                    .and_then(|v| v.as_array().cloned())
-                    .and_then(|roles| {
-                        roles
-                            .into_iter()
-                            .find(|r| r.get("id").and_then(Value::as_str) == Some(role_id))
-                    })
-                {
-                    let text = |key: &str| {
-                        role.get(key)
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|v| !v.is_empty())
-                            .map(str::to_string)
-                    };
-                    config = collaboration::MemberSessionConfig {
-                        agent_id: text("agent_id").or(config.agent_id),
-                        mode_id: text("mode_id"),
-                        config_values: role
-                            .get("config_values")
-                            .cloned()
-                            .filter(Value::is_object)
-                            .unwrap_or_else(|| json!({})),
-                        persona_prompt: text("persona_prompt"),
-                    };
-                }
-            }
-            collaboration::set_member_session_config(&self.pool, &identity_id, config)
-                .await
-                .map_err(host_error)?;
             if let Some(object) = value.as_object_mut() {
                 object.insert("identity_member_id".into(), json!(identity_id));
                 object.insert("direct_thread_id".into(), json!(format!("direct:{identity_id}")));
@@ -983,7 +954,15 @@ impl HostCollaborationHost {
                     "seq": message.seq,
                     "origin": message.origin,
                     "in_reply_to": Value::Null,
-                    "receipts": [],
+                    "operationId": message.operation_id,
+                    "operation_id": message.operation_id,
+                    "receipts": if from_user {
+                        json!([{
+                            "delivered": message.delivered.as_deref().unwrap_or("dispatched"),
+                        }])
+                    } else {
+                        json!([])
+                    },
                     "envelope": {
                         "type": "Note",
                         "id": format!("vibex://space-message/{}", message.id),
@@ -1442,6 +1421,20 @@ impl HostCollaborationHost {
 }
 
 impl HostCollaborationHost {
+    async fn emit_space_changed(&self, space_id: &str, member_id: Option<&str>) {
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id: space_id.to_string(),
+                    seq: None,
+                    member_id: member_id.map(str::to_string),
+                },
+            );
+        }
+    }
+
     /// Default agent for a member created without role or agent (compat path).
     async fn default_member_agent(&self) -> String {
         sqlx::query_scalar::<_, String>(
@@ -3145,6 +3138,25 @@ mod tests {
         let since = call(&host, "space.listMessages", json!({ "spaceId": thread, "sinceSeq": 3 })).await;
         assert_eq!(since["messages"].as_array().unwrap().len(), 3);
 
+        dm_event(
+            &pool,
+            conversation,
+            9,
+            "user_turn_created",
+            user("<vibex-private-bootstrap>\n你是我创建的一个助手\n</vibex-private-bootstrap>"),
+        )
+        .await;
+        let after_bootstrap = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;
+        let after_texts: Vec<&str> = after_bootstrap["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["envelope"]["content"].as_str())
+            .collect();
+        assert!(!after_texts.iter().any(|text| text.contains("vibex-private-bootstrap")));
+        let last = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert_eq!(last["last_message"]["seq"], json!(8));
+
         // space.post / space.submit with a direct thread queue user input on the DM session.
         let operation = Uuid::new_v4();
         let posted = call(&host, "space.post", json!({
@@ -3160,6 +3172,71 @@ mod tests {
         let group_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(group_rows, 0);
+    }
+
+    #[tokio::test]
+    async fn dm_post_lists_queued_text_and_member_session_appears_in_workspace_list() {
+        let (pool, host, workspace) = sidebar_host().await;
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace,
+                "nickname": "Alice",
+                "source": "agent",
+                "agentId": "codex",
+                "modeId": "",
+                "configValues": {},
+                "personaPrompt": "",
+                "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
+        let thread = created["direct_thread_id"].as_str().unwrap().to_string();
+        let conversation =
+            Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
+
+        let sessions = Session::find_by_workspace_id(&pool, workspace)
+            .await
+            .expect("workspace sessions");
+        assert!(
+            sessions.iter().any(|session| session.id == conversation),
+            "createMember's private-chat session must appear in the workspace session list"
+        );
+
+        let operation = Uuid::new_v4();
+        let posted = call(
+            &host,
+            "space.post",
+            json!({
+                "spaceId": thread,
+                "content": "hello from im",
+                "operationId": operation,
+            }),
+        )
+        .await;
+        assert!(posted["inputId"].is_string());
+
+        let listed = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;
+        let messages = listed["messages"].as_array().expect("messages");
+        let ping = messages
+            .iter()
+            .find(|message| message["envelope"]["content"].as_str() == Some("hello from im"))
+            .expect("queued DM must list as a user message before the turn starts");
+        assert_eq!(ping["origin"], json!("user"));
+        assert_eq!(ping["operationId"], json!(operation.to_string()));
+        let receipts = ping["receipts"].as_array().expect("receipts");
+        assert_eq!(receipts[0]["delivered"], json!("queued"));
+
+        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        let item = sidebar["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["thread_id"] == json!(thread))
+            .expect("dm sidebar row");
+        assert_eq!(item["last_message"]["preview"], json!("hello from im"));
+        assert_eq!(item["last_message"]["origin"], json!("user"));
     }
 
     #[tokio::test]

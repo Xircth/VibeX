@@ -49,6 +49,31 @@ describe('unified toast', () => {
     );
   });
 
+  it('folds colon-chained worktree / git stderr errors into expandable details', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error(
+        "Internal error: failed to create isolated member session worktree: Invalid repository: git command failed: --- stderr Preparing worktree (checking out 'member/c6820fd2-93aa-5a16-a2b6-aef5e8c1814a/2380a641-c09a-5c99-9216-e25b2e256ce5') error: unable to create file dist/assets/_virtual_mf.js: Filename too long fatal: Could not reset index file to revision 'HEAD'."
+      );
+    });
+
+    const title = await screen.findByText(
+      'failed to create isolated member session worktree'
+    );
+    expect(title).toBeInTheDocument();
+    expect(title.closest('.vu-toast-surface')).toHaveAttribute(
+      'data-layout',
+      'card'
+    );
+    expect(screen.queryByText(/Filename too long/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText(/Filename too long/)).toHaveClass(
+      'vu-toast-detail-copy-mono'
+    );
+  });
+
   it('keeps ordinary parenthetical copy in the warning title', async () => {
     render(<Toaster />);
 

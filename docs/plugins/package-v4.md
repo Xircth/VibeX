@@ -36,12 +36,13 @@ my-plugin/
 │  ├─ runtimes/
 │  │  └─ example-cli.json
 │  └─ packages/
-├─ runtime/                     # 作者源码入口，不进入发布包
+├─ app/                         # 宿主内 / 联邦模块 App 入口（protocol: "2.0"，如 app/main.js）
+├─ runtime/                     # Worker / 独立 Surface App 源码入口，不进入发布包
 │  ├─ main.mjs
 │  └─ app.html
 └─ dist/                        # build 产生的确定性执行物
    ├─ worker.mjs
-   └─ app.html
+   └─ app/index.html
 ```
 
 所有路径使用相对 package root 的 `/` 路径。包拒绝绝对路径、`..`、symlink/hardlink、
@@ -147,14 +148,14 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
 {
   "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
   "manifestVersion": 4,
-  "apiVersion": "1.0",
+  "apiVersion": "2.0",
   "id": "office",
   "publisher": "vibex",
   "version": "4.0.0",
   "name": "VibeX Office",
   "engines": {
-    "vibex": ">=0.20.0 <0.22.0",
-    "pluginSdk": "^1.0.0"
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
   },
   "readme": "README.md",
   "content": {
@@ -162,7 +163,6 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
     "index": ".vibex-plugin/content.index.json"
   },
   "config": {
-    "file": "config.json",
     "schema": {
       "type": "object",
       "properties": {},
@@ -174,6 +174,10 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
       "path": "dist/worker.mjs",
       "runtime": "node",
       "protocol": "1.1"
+    },
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
     }
   },
   "dependencies": [],
@@ -182,8 +186,29 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
 ```
 
 `readme` 固定为根 `README.md`，`content.root` 固定为 `contents`；配置文件按约定固定为根
-`config.json`，不再提供可改路径的 manifest 字段。固定约定避免同一种产品概念出现多套路径配置。
-Worker 的 `maxFrameMiB` 可选，不写就是 32，范围是 1 到 128。
+`config.json`，`plugin.json` 中只写 `"config": { "schema": ... }`，不再提供可改路径的 `"file"` 字段。固定约定避免同一种产品概念出现多套路径配置。
+
+Worker 的 `maxFrameMiB` 可选，默认单帧 `32 MiB`，可配置范围为 `1..128 MiB`；逻辑消息上限 `64 MiB`，超出单帧自动通过 `frame.chunk` 分片传输与重组。
+
+### App 入口的两种协议（`entrypoints.app`）
+
+1. **`protocol: "2.0"`（宿主内 / 联邦模块 App）**：
+   ```json
+   "app": {
+     "entry": "app/main.js",
+     "protocol": "2.0"
+   }
+   ```
+   配合 `@vibex/plugin-sdk` 的 `defineVibeXPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）在宿主 React 树内直接注册 UI 槽位、命令、面板、Turn Hook 与 IoC 服务，并通过 1-hop `HostCapabilityBroker` 调用宿主能力。
+2. **`protocol: "1.0"`（独立 HTML Surface App）**：
+   ```json
+   "app": {
+     "root": "dist/app",
+     "document": "index.html",
+     "protocol": "1.0"
+   }
+   ```
+   配合 `@vibex/plugin-sdk/app` 的 `definePluginApp(({ root, bridge, signal }) => ...)`，用于挂载独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor` 可编辑文件 Tab）。
 
 ### integrations
 

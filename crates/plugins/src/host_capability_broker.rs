@@ -16,6 +16,9 @@ use tokio::{
 };
 
 const ARTIFACT_HANDLE_TTL: Duration = Duration::from_secs(30);
+const NETWORK_RESPONSE_MAX_BYTES: usize = 32 * 1024 * 1024;
+const NETWORK_BODY_BASE64_ALWAYS_BELOW: usize = 4 * 1024 * 1024;
+const MAX_SPAWNED_PROCESSES_PER_PLUGIN: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -313,7 +316,7 @@ impl HostCapabilityBroker {
         let mut killed = 0usize;
         for id in ids {
             if let Some(mut proc) = processes.remove(&id) {
-                let _ = proc.child.kill().await;
+                kill_spawned_plugin_process(&mut proc).await;
                 killed += 1;
             }
         }
@@ -1169,6 +1172,11 @@ impl HostCapabilityBroker {
                 plugin
                     .write_config(input.clone())
                     .map_err(|error| broker_error("config_schema_invalid", error))?;
+                let refreshed =
+                    crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+                        .map(|pkg| pkg.config)
+                        .unwrap_or_else(|_| input.clone());
+                let _ = self.plugins.notify_config_updated(plugin_id, refreshed).await;
                 let hook = self
                     .settings_saved
                     .lock()
@@ -1418,6 +1426,8 @@ impl HostCapabilityBroker {
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .kill_on_drop(true);
+                #[cfg(unix)]
+                cmd.process_group(0);
                 if let Some(cwd) = input
                     .get("cwd")
                     .and_then(Value::as_str)
@@ -1432,19 +1442,34 @@ impl HostCapabilityBroker {
                         }
                     }
                 }
-                let child = cmd
-                    .spawn()
-                    .map_err(|error| broker_error("exec_spawn_failed", error))?;
-                let pid = child.id();
                 let process_id = uuid::Uuid::new_v4().to_string();
-                self.spawned_processes.lock().await.insert(
-                    process_id.clone(),
-                    SpawnedPluginProcess {
-                        plugin_id: plugin_id.to_owned(),
-                        pid,
-                        child,
-                    },
-                );
+                let pid = {
+                    let mut processes = self.spawned_processes.lock().await;
+                    reap_exited_spawned_processes(&mut processes);
+                    let running = processes
+                        .values()
+                        .filter(|proc| proc.plugin_id == plugin_id)
+                        .count();
+                    if running >= MAX_SPAWNED_PROCESSES_PER_PLUGIN {
+                        return Err(broker_error(
+                            "exec_limit_exceeded",
+                            "Plugin reached maximum concurrent spawned processes limit",
+                        ));
+                    }
+                    let child = cmd
+                        .spawn()
+                        .map_err(|error| broker_error("exec_spawn_failed", error))?;
+                    let pid = child.id();
+                    processes.insert(
+                        process_id.clone(),
+                        SpawnedPluginProcess {
+                            plugin_id: plugin_id.to_owned(),
+                            pid,
+                            child,
+                        },
+                    );
+                    pid
+                };
                 self.audit(
                     plugin_id,
                     "exec_spawn",
@@ -1473,7 +1498,7 @@ impl HostCapabilityBroker {
                         ));
                     }
                     if let Some(mut proc) = processes.remove(process_id) {
-                        let _ = proc.child.kill().await;
+                        kill_spawned_plugin_process(&mut proc).await;
                     }
                     self.audit(plugin_id, "exec_kill", json!({ "processId": process_id }))
                         .await;
@@ -2568,9 +2593,38 @@ fn verify_candidate_under_roots(
     }
 }
 
+fn reap_exited_spawned_processes(processes: &mut HashMap<String, SpawnedPluginProcess>) {
+    processes.retain(|_, proc| matches!(proc.child.try_wait(), Ok(None)));
+}
+
+async fn kill_spawned_plugin_process(proc: &mut SpawnedPluginProcess) {
+    if let Some(pid) = proc.pid.or_else(|| proc.child.id()) {
+        crate::worker_host::kill_os_process_tree(pid);
+    }
+    let _ = proc.child.kill().await;
+}
+
+fn include_network_body_base64(explicit: bool, valid_utf8: bool, byte_len: usize) -> bool {
+    if explicit {
+        return true;
+    }
+    if !valid_utf8 {
+        return true;
+    }
+    byte_len < NETWORK_BODY_BASE64_ALWAYS_BELOW
+}
+
 async fn execute_network_fetch(
     client: &reqwest::Client,
     input: Value,
+) -> Result<Value, crate::WorkerHostError> {
+    execute_network_fetch_limited(client, input, NETWORK_RESPONSE_MAX_BYTES).await
+}
+
+async fn execute_network_fetch_limited(
+    client: &reqwest::Client,
+    input: Value,
+    max_bytes: usize,
 ) -> Result<Value, crate::WorkerHostError> {
     use base64::Engine as _;
     let url = input
@@ -2623,7 +2677,7 @@ async fn execute_network_fetch(
             }
         }
     }
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|error| broker_error("network_request_failed", error))?;
@@ -2643,27 +2697,68 @@ async fn execute_network_fetch(
             );
         }
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| broker_error("network_request_failed", error))?;
-    if bytes.len() > 32 * 1024 * 1024 {
+    if let Some(len) = response.content_length()
+        && len > max_bytes as u64
+    {
         return Err(broker_error(
             "network_response_too_large",
             "Network response exceeds 32 MiB limit",
         ));
     }
-    let body = String::from_utf8_lossy(&bytes).into_owned();
-    let body_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(json!({
-        "status": status,
-        "ok": ok,
-        "statusText": status_text,
-        "headers": response_headers,
-        "body": body,
-        "bodyText": body,
-        "bodyBase64": body_base64,
-    }))
+    let mut buf = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| broker_error("network_request_failed", error))?
+    {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(broker_error(
+                "network_response_too_large",
+                "Network response exceeds 32 MiB limit",
+            ));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let explicit_base64 = input
+        .get("responseEncoding")
+        .and_then(Value::as_str)
+        .is_some_and(|value| matches!(value, "base64" | "bodyBase64"));
+    let byte_len = buf.len();
+    match String::from_utf8(buf) {
+        Ok(text) => {
+            let body_base64 = include_network_body_base64(explicit_base64, true, byte_len)
+                .then(|| base64::engine::general_purpose::STANDARD.encode(text.as_bytes()));
+            let mut result = json!({
+                "status": status,
+                "ok": ok,
+                "statusText": status_text,
+                "headers": response_headers,
+                "body": text.clone(),
+                "bodyText": text,
+            });
+            if let Some(body_base64) = body_base64 {
+                result["bodyBase64"] = Value::String(body_base64);
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            let bytes = error.into_bytes();
+            let body = String::from_utf8_lossy(&bytes).into_owned();
+            let mut result = json!({
+                "status": status,
+                "ok": ok,
+                "statusText": status_text,
+                "headers": response_headers,
+                "body": body.clone(),
+                "bodyText": body,
+            });
+            if include_network_body_base64(explicit_base64, false, byte_len) {
+                result["bodyBase64"] =
+                    Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes));
+            }
+            Ok(result)
+        }
+    }
 }
 
 fn schedule_preview_lease_drop(
@@ -2892,6 +2987,187 @@ mod tests {
         assert_eq!(response["bodyText"], "{\"hello\":\"ok!\"}");
         assert!(response["bodyBase64"].as_str().is_some());
         server.await.expect("server task");
+    }
+
+    #[test]
+    fn network_body_base64_policy_avoids_triple_copy_on_large_text() {
+        assert!(super::include_network_body_base64(false, true, 15));
+        assert!(super::include_network_body_base64(
+            false,
+            true,
+            super::NETWORK_BODY_BASE64_ALWAYS_BELOW - 1
+        ));
+        assert!(!super::include_network_body_base64(
+            false,
+            true,
+            super::NETWORK_BODY_BASE64_ALWAYS_BELOW
+        ));
+        assert!(!super::include_network_body_base64(
+            false,
+            true,
+            9 * 1024 * 1024
+        ));
+        assert!(super::include_network_body_base64(
+            true,
+            true,
+            9 * 1024 * 1024
+        ));
+        assert!(super::include_network_body_base64(
+            false,
+            false,
+            9 * 1024 * 1024
+        ));
+    }
+
+    #[tokio::test]
+    async fn network_fetch_rejects_content_length_over_limit() {
+        let broker = sqlite_broker().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let too_large = super::NETWORK_RESPONSE_MAX_BYTES as u64 + 1;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0u8; 512];
+            let _ = stream.read(&mut buf).await;
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {too_large}\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(header.as_bytes()).await.expect("write");
+            let _ = stream.shutdown().await;
+        });
+
+        let error = broker
+            .call(
+                "vibex.git",
+                1,
+                "network",
+                "fetch",
+                json!({ "url": format!("http://{addr}/big") }),
+            )
+            .await
+            .expect_err("oversize Content-Length must be rejected");
+        assert_eq!(error.code(), "network_response_too_large");
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn network_fetch_aborts_streamed_body_over_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf).await;
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("headers");
+            for _ in 0..8 {
+                stream
+                    .write_all(b"20\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n")
+                    .await
+                    .expect("chunk");
+            }
+            stream.write_all(b"0\r\n\r\n").await.expect("end");
+            let _ = stream.shutdown().await;
+        });
+
+        let client = reqwest::Client::new();
+        let error = super::execute_network_fetch_limited(
+            &client,
+            json!({ "url": format!("http://{addr}/stream") }),
+            64,
+        )
+        .await
+        .expect_err("streamed body over the limit must abort");
+        assert_eq!(error.code(), "network_response_too_large");
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn exec_spawn_reaps_exited_processes_and_enforces_concurrency_limit() {
+        let broker = sqlite_broker().await;
+        let plugin = "vibex.exec-limit";
+        let (program, short_args, long_args): (&str, Vec<&str>, Vec<&str>) = if cfg!(windows) {
+            (
+                "cmd",
+                vec!["/C", "exit", "0"],
+                vec!["/C", "ping", "-n", "30", "127.0.0.1"],
+            )
+        } else {
+            ("sh", vec!["-c", "exit 0"], vec!["-c", "sleep 30"])
+        };
+
+        for _ in 0..super::MAX_SPAWNED_PROCESSES_PER_PLUGIN {
+            broker
+                .call(
+                    plugin,
+                    1,
+                    "exec",
+                    "spawn",
+                    json!({ "program": program, "args": short_args }),
+                )
+                .await
+                .expect("short-lived spawn");
+        }
+
+        let mut running = 0usize;
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(5);
+        while running < super::MAX_SPAWNED_PROCESSES_PER_PLUGIN {
+            match broker
+                .call(
+                    plugin,
+                    1,
+                    "exec",
+                    "spawn",
+                    json!({ "program": program, "args": long_args }),
+                )
+                .await
+            {
+                Ok(_) => running += 1,
+                Err(error) if error.code() == "exec_limit_exceeded" => {
+                    if tokio::time::Instant::now() >= deadline {
+                        panic!("short-lived processes were not reaped before spawn limit");
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+                Err(error) => panic!("unexpected spawn error: {error}"),
+            }
+        }
+
+        let exceeded = broker
+            .call(
+                plugin,
+                1,
+                "exec",
+                "spawn",
+                json!({ "program": program, "args": long_args }),
+            )
+            .await
+            .expect_err("17th concurrent process must be rejected");
+        assert_eq!(exceeded.code(), "exec_limit_exceeded");
+
+        broker
+            .call(
+                "vibex.other-exec",
+                1,
+                "exec",
+                "spawn",
+                json!({ "program": program, "args": long_args }),
+            )
+            .await
+            .expect("limit is per plugin");
+
+        broker
+            .call(plugin, 1, "exec", "kill", json!({}))
+            .await
+            .expect("kill plugin processes");
+        broker
+            .call("vibex.other-exec", 1, "exec", "kill", json!({}))
+            .await
+            .expect("kill other plugin processes");
     }
 
     #[tokio::test]

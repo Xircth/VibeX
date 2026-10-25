@@ -1,5 +1,6 @@
 import { commandRegistry, conversationModeRegistry, disposePluginRegistrations, internalMessageCaptureRegistry, kanbanViewRegistry, markdownRegistry, overlayRegistry, panelRegistry, promptContextRegistry, providerRegistry, settingRegistry, settingsPageRegistry, slashCommandRegistry, slotRegistry, themeRegistry, viewRegistry, } from './registry.js';
 import { EffectScope, serviceContainer, } from './services.js';
+import { getPluginVolatileConfig, notifyPluginConfigUpdated, } from './volatile.js';
 let defaultHostCallTransport = null;
 let defaultWorkerInvokeTransport = null;
 export function setDefaultHostCallTransport(transport) {
@@ -16,8 +17,12 @@ export function qualifyPluginContributionId(pluginId, rawId) {
     return `${prefix}${rawId}`;
 }
 export function createPluginContext(options) {
-    const { pluginId, generation = 1 } = options;
+    const { pluginId, generation = 1, initialConfig } = options;
     const scope = new EffectScope();
+    const volatileConfig = getPluginVolatileConfig(pluginId, initialConfig);
+    if (initialConfig) {
+        notifyPluginConfigUpdated(pluginId, initialConfig);
+    }
     const hostCall = async (capability, operation, input) => {
         const transport = options.hostCall ?? options.callHost ?? defaultHostCallTransport;
         if (!transport) {
@@ -83,13 +88,30 @@ export function createPluginContext(options) {
     };
     const settingsClient = {
         async get() {
-            return await hostCall('storage', 'settings.get', {});
+            const result = await hostCall('storage', 'settings.get', {});
+            if (result && typeof result === 'object' && !Array.isArray(result)) {
+                notifyPluginConfigUpdated(pluginId, result);
+            }
+            return result;
         },
         async put(value) {
-            return await hostCall('storage', 'settings.put', value);
+            const result = await hostCall('storage', 'settings.put', value);
+            const next = result && typeof result === 'object' && !Array.isArray(result)
+                ? result
+                : value;
+            if (next && typeof next === 'object' && !Array.isArray(next)) {
+                notifyPluginConfigUpdated(pluginId, next);
+            }
+            return result;
         },
         async set(value) {
-            return await hostCall('storage', 'settings.put', value);
+            return await settingsClient.put(value);
+        },
+        volatile(defaults) {
+            return getPluginVolatileConfig(pluginId, defaults);
+        },
+        onChange(listener) {
+            return track(getPluginVolatileConfig(pluginId).subscribe(listener));
         },
     };
     const networkClient = {
@@ -523,6 +545,7 @@ export function createPluginContext(options) {
         generation,
         scope,
         effects: scope,
+        config: volatileConfig,
         ui,
         hooks,
         services,
@@ -531,8 +554,12 @@ export function createPluginContext(options) {
             invoke: invokeWorker,
         },
         events: {
-            emit() {
-                // No-op default event emitter for in-process notifications
+            emit(event, payload) {
+                void hostCall('events', 'publish', {
+                    topic: 'default',
+                    eventType: event,
+                    payload: (payload ?? null),
+                }).catch(() => undefined);
             },
         },
         effect(setup) {
@@ -579,7 +606,7 @@ export function defineVibeXPlugin(definition) {
     }
     return {
         ...definition,
-        apiVersion: '2.0',
+        apiVersion: definition.apiVersion ?? '2.0',
     };
 }
 export const definePlugin = defineVibeXPlugin;
@@ -588,5 +615,6 @@ export function isVibeXPluginDefinition(value) {
         return false;
     }
     const candidate = value;
-    return (candidate.apiVersion === '2.0' && typeof candidate.activate === 'function');
+    return ((candidate.apiVersion === '2.0' || candidate.apiVersion === '1.0') &&
+        typeof candidate.activate === 'function');
 }

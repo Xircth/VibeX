@@ -1,5 +1,6 @@
 import { FrameReassembler, ProtocolFrameError, VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION, encodeProtocolMessage, frameLimitsFromAdvertised, protocolFrameLimits, } from "./protocol.js";
 import { activatePluginWorker, PluginSdkError, } from "./worker.js";
+const DEFAULT_HOST_CALL_TIMEOUT_MS = 30_000;
 export async function runStdioPluginWorker(definition) {
     const readlineModuleId = `node:${"readline"}`;
     const { createInterface } = (await import(
@@ -7,10 +8,19 @@ export async function runStdioPluginWorker(definition) {
     const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
     let worker = null;
     let hostSequence = 0;
+    let hostCallTimeoutMs = DEFAULT_HOST_CALL_TIMEOUT_MS;
     const hostPending = new Map();
     const inFlight = new Set();
     const limits = protocolFrameLimits();
     const frames = new FrameReassembler(limits);
+    const rejectAllHostPending = (code, message) => {
+        const pending = [...hostPending.values()];
+        hostPending.clear();
+        for (const item of pending) {
+            clearTimeout(item.timer);
+            item.reject(new PluginSdkError(code, message));
+        }
+    };
     const send = (message) => {
         let encoded;
         try {
@@ -28,7 +38,24 @@ export async function runStdioPluginWorker(definition) {
         call(capability, operation, value = null) {
             const id = `host:${++hostSequence}`;
             return new Promise((resolve, reject) => {
-                hostPending.set(id, { resolve, reject });
+                const timer = setTimeout(() => {
+                    const pending = hostPending.get(id);
+                    if (!pending)
+                        return;
+                    hostPending.delete(id);
+                    pending.reject(new PluginSdkError("host_timeout", `Host call ${capability}.${operation} timed out`));
+                }, hostCallTimeoutMs);
+                hostPending.set(id, {
+                    resolve: (result) => {
+                        clearTimeout(timer);
+                        resolve(result);
+                    },
+                    reject: (error) => {
+                        clearTimeout(timer);
+                        reject(error);
+                    },
+                    timer,
+                });
                 send({
                     id,
                     method: "host.call",
@@ -80,6 +107,12 @@ export async function runStdioPluginWorker(definition) {
                         limits.maxLogicalBytes = next.maxLogicalBytes;
                         frames.setLimits(limits);
                     }
+                    const requestTimeoutMs = advertised?.requestTimeoutMs;
+                    if (typeof requestTimeoutMs === "number" &&
+                        Number.isFinite(requestTimeoutMs) &&
+                        requestTimeoutMs > 0) {
+                        hostCallTimeoutMs = requestTimeoutMs;
+                    }
                     send({
                         id: message.id,
                         ok: true,
@@ -103,6 +136,9 @@ export async function runStdioPluginWorker(definition) {
                             generation: message.params.generation,
                             packageClass: message.params.packageClass ?? "full-trust",
                             grantedCapabilities: message.params.grantedCapabilities ?? ["*"],
+                            ...(message.params.config !== undefined
+                                ? { config: message.params.config }
+                                : {}),
                         },
                         host,
                         log: createStderrLogger(),
@@ -111,6 +147,20 @@ export async function runStdioPluginWorker(definition) {
                         id: message.id,
                         ok: true,
                         result: { handlers: [...worker.handlers] },
+                    });
+                    break;
+                }
+                case "config.volatile-update": {
+                    const nextConfig = message.params?.config &&
+                        typeof message.params.config === "object" &&
+                        !Array.isArray(message.params.config)
+                        ? message.params.config
+                        : {};
+                    const updated = worker ? worker.updateConfig(nextConfig) : false;
+                    send({
+                        id: message.id,
+                        ok: true,
+                        result: { updated },
                     });
                     break;
                 }
@@ -134,14 +184,21 @@ export async function runStdioPluginWorker(definition) {
                     void invocation.finally(() => inFlight.delete(invocation));
                     break;
                 }
-                case "dispose": {
+                case "dispose":
+                case "plugin.unload": {
+                    rejectAllHostPending("host_closed", "Plugin worker is unloading");
+                    await Promise.allSettled(inFlight);
                     await worker?.dispose();
                     worker = null;
                     send({ id: message.id, ok: true, result: null });
                     break;
                 }
                 case "ping":
-                    send({ id: message.id, ok: true, result: { apiVersion: "1.0" } });
+                    send({
+                        id: message.id,
+                        ok: true,
+                        result: { apiVersion: VIBEX_PLUGIN_API_VERSION },
+                    });
                     break;
                 default: {
                     const method = String(message.method ?? "");
@@ -157,11 +214,9 @@ export async function runStdioPluginWorker(definition) {
             send(errorResponse(message.id, code, errorMessage));
         }
     }
+    rejectAllHostPending("host_closed", "Host connection closed");
     await Promise.allSettled(inFlight);
     await worker?.dispose();
-    for (const pending of hostPending.values()) {
-        pending.reject(new PluginSdkError("host_closed", "Host connection closed"));
-    }
 }
 function workerFrameErrorCode(code) {
     switch (code) {

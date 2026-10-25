@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -75,8 +75,10 @@ describe("host session file", () => {
         { url: "http://127.0.0.1:17891", token: "vbx_secret" },
         file,
       );
-      chmodSync(file, 0o600);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(file).isFile()).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

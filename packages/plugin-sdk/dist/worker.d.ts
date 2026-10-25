@@ -1,6 +1,7 @@
-import type { JsonValue, PluginContext } from './protocol.js';
+import { type JsonValue, type PluginApiVersion, type PluginContext } from './protocol.js';
 import type { Disposer } from './registry.js';
 import { type InjectedServicesRecord, type ServiceContainer, type ServiceDecorator, type ServiceKey, type WaterfallInterceptor } from './services.js';
+import { type MutableVolatile, type Volatile, type VolatileListener } from './volatile.js';
 export interface Disposable {
     dispose(): void | Promise<void>;
 }
@@ -21,6 +22,7 @@ export interface PluginWorkerServiceRegistry {
 export declare function createWorkerServiceRegistry(pluginId: string, container?: ServiceContainer): PluginWorkerServiceRegistry;
 export interface PluginWorkerEnvironment {
     context: PluginContext;
+    config: Volatile<Record<string, JsonValue>>;
     host: PluginHostClient;
     services: PluginWorkerServiceRegistry;
     signal: AbortSignal;
@@ -35,19 +37,28 @@ export declare function normalizePluginContext(context: Partial<PluginContext> &
 export type PluginHandler = (input: JsonValue, environment: PluginWorkerEnvironment) => JsonValue | Promise<JsonValue>;
 export interface PluginWorkerRegistrar {
     handle(id: string, handler: PluginHandler): void;
+    onConfigUpdate(listener: VolatileListener<Record<string, JsonValue>>): Disposer;
     onDispose(disposable: Disposable | (() => void | Promise<void>)): void;
 }
 export interface PluginWorkerDefinition {
-    readonly apiVersion: '1.0';
+    readonly apiVersion: PluginApiVersion;
     readonly setup: (registrar: PluginWorkerRegistrar, environment: PluginWorkerEnvironment) => void | Disposable | Promise<void | Disposable>;
 }
 export interface ActivatedPluginWorker extends Disposable {
     readonly handlers: readonly string[];
+    readonly config: Volatile<Record<string, JsonValue>>;
+    updateConfig(nextConfig: Record<string, JsonValue>): boolean;
     invoke(handler: string, input: JsonValue): Promise<JsonValue>;
 }
 export declare function definePluginWorker(setup: PluginWorkerDefinition['setup']): PluginWorkerDefinition;
-export declare function activatePluginWorker(definition: PluginWorkerDefinition, environment: Omit<PluginWorkerEnvironment, 'signal' | 'services'> & {
+export declare function definePluginWorker(definition: PluginWorkerDefinition): PluginWorkerDefinition;
+export declare function activatePluginWorker(definition: PluginWorkerDefinition, environment: Omit<PluginWorkerEnvironment, 'signal' | 'services' | 'config'> & {
     services?: PluginWorkerServiceRegistry;
+    config?: MutableVolatile<Record<string, JsonValue>>;
+}): Promise<ActivatedPluginWorker>;
+export declare function createWorkerHost(definition: PluginWorkerDefinition, environment: Omit<PluginWorkerEnvironment, 'signal' | 'services' | 'config'> & {
+    services?: PluginWorkerServiceRegistry;
+    config?: MutableVolatile<Record<string, JsonValue>>;
 }): Promise<ActivatedPluginWorker>;
 export declare class PluginSdkError extends Error {
     readonly code: string;

@@ -310,14 +310,14 @@ pub async fn transfer_conversation_in(
     .bind(&member_id)
     .fetch_optional(&mut *conn)
     .await?;
-    if occupied.is_some_and(|existing| existing != conversation_id.to_string()) {
-        // The member already has its own conversation in that thread.
-        return Ok(());
-    }
     sqlx::query("DELETE FROM collaboration_thread_members WHERE conversation_id = ?")
         .bind(conversation_id.to_string())
         .execute(&mut *conn)
         .await?;
+    if occupied.is_some_and(|existing| existing != conversation_id.to_string()) {
+        // The member already has its own conversation in that thread.
+        return Ok(());
+    }
     sqlx::query(
         "INSERT INTO collaboration_thread_members
            (thread_id, member_id, conversation_id, last_seen_message_id, status, joined_at)

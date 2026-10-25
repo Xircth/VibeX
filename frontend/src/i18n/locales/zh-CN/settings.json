@@ -974,7 +974,10 @@
       "incompatible": "不兼容",
       "unavailable": "不可用",
       "degraded": "降级"
-    }
+    },
+    "statusQuarantined": "已隔离",
+    "recoverQuarantined": "解除隔离",
+    "quarantinedBannerTitle": "此插件因连续崩溃已被自动隔离"
   },
   "webService": {
     "title": "远程连接",

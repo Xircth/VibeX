@@ -2121,7 +2121,13 @@ export type ConversationForkResult = { conversationId: string, importedEventCoun
 
 export type ConversationInputEvent = { "kind": "submitted", input_id: string, operation_id: string, revision: bigint, sort_key: bigint, payload_digest: string, payload: ConversationInputPayload, principal: JsonValue, } | { "kind": "updated", input_id: string, revision: bigint, payload_digest: string, payload: ConversationInputPayload, } | { "kind": "reordered", input_id: string, revision: bigint, sort_key: bigint, } | { "kind": "claimed", input_id: string, claim_token: string, claim_deadline: string, } | { "kind": "claim_released", input_id: string, claim_token: string, } | { "kind": "dispatched", input_id: string, claim_token: string, turn_id: string, } | { "kind": "cancelled", input_id: string, revision: bigint, };
 
-export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, internalPromptContributions?: Array<InternalPromptBlock>, };
+export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, internalPromptContributions?: Array<InternalPromptBlock>,
+/**
+ * Space-originated turn: agent prompt is `text`, the session bubble is
+ * `display_text`, and this origin labels the sender for group member
+ * sessions.
+ */
+collaborationOrigin?: CollaborationSpaceOrigin | null, };
 
 export type ConversationInputStatus = "queued" | "scheduled" | "claimed" | "dispatched" | "cancelled";
 
@@ -2302,3 +2308,13 @@ export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: 
 export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, };
 
 export type SessionCollaborationRef = { member_id: string, member_name: string, thread_id: string, thread_kind: string, thread_name: string, };
+
+export type CollaborationSpaceOrigin = { spaceId: string,
+/**
+ * `"group"` or `"dm"`.
+ */
+threadKind: string,
+/**
+ * `"user"` or `"member"`.
+ */
+senderKind: string, senderNickname: string, senderConversationId?: string | null, senderMemberId?: string | null, };

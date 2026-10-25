@@ -1,4 +1,4 @@
-﻿# codeg Computer Use 娣卞叆鐮旂┒
+# codeg Computer Use 娣卞叆鐮旂┒
 
 鐮旂┒鏃ユ湡锛?026-10-08  
 鐮旂┒瀵硅薄锛歚https://github.com/xintaofei/codeg`锛宍main` 涓?`origin/main` 鍚屾锛孒EAD `592131c72e2a05478e7f8398a91cb653c8e3996f`锛坄v0.34.0`锛?026-10-07锛夈€傜爺绌惰繃绋嬩腑鏈敼鍔?codeg 浠撳簱銆?

@@ -24,7 +24,7 @@ use agents::{
     PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
-        AgentPromptCapabilities, CapturedInternalMessage, ContentBlock,
+        AgentPromptCapabilities, CapturedInternalMessage, CollaborationSpaceOrigin, ContentBlock,
         ConversationAgentConnectionStatus, ConversationArtifactPreviewReference,
         ConversationArtifactReference, ConversationBundleChecksum, ConversationBundleManifest,
         ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
@@ -803,6 +803,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<InternalPromptBlock>(&mut decls);
     insert_declaration::<CapturedInternalMessage>(&mut decls);
     insert_declaration::<ConversationInputPayload>(&mut decls);
+    insert_declaration::<CollaborationSpaceOrigin>(&mut decls);
     insert_declaration::<ConversationFileRef>(&mut decls);
     insert_declaration::<ConversationInputEvent>(&mut decls);
     insert_declaration::<ConversationInputStatus>(&mut decls);

@@ -27,6 +27,8 @@ mod update;
 mod weixin_ilink;
 mod ws;
 
+pub use conversations as vibex_conversations;
+
 pub use agent_install::{
     AgentCatalogEntry, AgentCatalogGroup, install_agent_unattended, install_resolved_plan,
     plan_host_agent_install, plan_host_agent_install_with_overlay, run_agents_command,
@@ -40,7 +42,7 @@ pub use auth::{
 pub use automation_runtime::HeadlessAutomationRuntime;
 pub use chat_inbound::{
     chat_channel_connection_states, connect_chat_channel, disconnect_chat_channel,
-    post_event_webhooks, start_chat_inbound,
+    post_event_webhooks,
 };
 pub use chat_notify::{ChatDeliveryPublisher, notify_conversation_event};
 pub use cli::{
@@ -78,6 +80,17 @@ pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
 pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
+
+pub fn start_chat_inbound(
+    pool: sqlx::SqlitePool,
+    conversations: conversations::ConversationContext,
+) -> tokio::task::JoinHandle<()> {
+    vibex_conversations::member_memory::spawn_memory_distiller(
+        pool.clone(),
+        std::time::Duration::from_secs(120),
+    );
+    chat_inbound::start_chat_inbound(pool, conversations)
+}
 
 pub async fn refresh_official_product_runtime(
     plane: &plugins::PluginControlPlane,

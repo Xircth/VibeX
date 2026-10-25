@@ -26,6 +26,11 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import {
+  clearPluginCrashState,
+  getPluginQuarantineReason,
+  isPluginQuarantined,
+} from '@/components/plugins/PluginBoundary';
 import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import {
@@ -109,6 +114,22 @@ function usePluginControl() {
   return { api, ...catalog };
 }
 
+function resolvePluginQuarantine(plugin: PluginControlItem): {
+  quarantined: boolean;
+  reason: string | null;
+} {
+  const localQuarantined = isPluginQuarantined(plugin.id);
+  const localReason = getPluginQuarantineReason(plugin.id);
+  const quarantined = Boolean(
+    plugin.quarantined || plugin.quarantineReason || localQuarantined
+  );
+  const reason =
+    plugin.quarantineReason ??
+    localReason ??
+    (quarantined ? (plugin.warnings?.[0]?.message ?? null) : null);
+  return { quarantined, reason };
+}
+
 function replacePlugin(
   plugins: PluginControlItem[],
   replacement: PluginControlItem
@@ -154,9 +175,17 @@ async function activateInstalledPlugin(
   if (plugin.enableSupported === false) {
     return { plugin };
   }
-  const updated = plugin.enabled
-    ? plugin
-    : await deps.api.setEnabled(plugin.id, true);
+  const wasQuarantined = resolvePluginQuarantine(plugin).quarantined;
+  clearPluginCrashState(plugin.id);
+  const rawUpdated =
+    plugin.enabled && !wasQuarantined
+      ? plugin
+      : await deps.api.setEnabled(plugin.id, true);
+  const updated: PluginControlItem = {
+    ...rawUpdated,
+    quarantined: false,
+    quarantineReason: null,
+  };
   await syncMonorepoPluginRuntime(plugin.id, true);
   try {
     if (deps.supports('plugin.write')) {
@@ -649,12 +678,15 @@ export function PluginCatalogPage() {
   ]);
 
   const renderInstalledPluginRow = (plugin: PluginControlItem) => {
-    const hasWarning = (plugin.warnings?.length ?? 0) > 0;
+    const { quarantined: isQuarantined, reason: quarantineReason } =
+      resolvePluginQuarantine(plugin);
+    const hasWarning = !isQuarantined && (plugin.warnings?.length ?? 0) > 0;
     return (
       <div
         key={`${plugin.publisher ?? 'local'}:${plugin.id}`}
         className="product-plugin-row dsh-plugin-card"
         data-plugin-card={plugin.id}
+        data-quarantined={isQuarantined ? 'true' : undefined}
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -674,7 +706,16 @@ export function PluginCatalogPage() {
           <span className="product-plugin-row-copy">
             <span className="product-plugin-row-title">
               <strong>{officialPluginName(plugin.id, plugin.name, t)}</strong>
-              {hasWarning ? (
+              {isQuarantined ? (
+                <span
+                  className="dsh-status-tag"
+                  data-tone="danger"
+                  data-plugin-quarantined-badge={plugin.id}
+                  title={quarantineReason ?? undefined}
+                >
+                  {t('plugins.statusQuarantined')}
+                </span>
+              ) : hasWarning ? (
                 <span className="dsh-status-tag" data-tone="danger">
                   {t('plugins.statusProblem')}
                 </span>
@@ -683,6 +724,14 @@ export function PluginCatalogPage() {
             <span className="product-plugin-row-summary">
               {officialPluginSummary(plugin.id, plugin.description, t)}
             </span>
+            {isQuarantined && quarantineReason ? (
+              <span
+                className="product-plugin-row-quarantine-reason text-xs text-destructive"
+                data-plugin-quarantine-reason={plugin.id}
+              >
+                {quarantineReason}
+              </span>
+            ) : null}
           </span>
         </button>
         <PluginRowMetaColumns
@@ -697,6 +746,22 @@ export function PluginCatalogPage() {
               className="product-plugin-row-spinner"
               aria-hidden="true"
             />
+          ) : null}
+          {isQuarantined ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-plugin-recover={plugin.id}
+              disabled={
+                busyId === plugin.id ||
+                !supports('plugin.write') ||
+                !plugin.enableSupported
+              }
+              onClick={() => requestEnabled(plugin, true)}
+            >
+              {t('plugins.recoverQuarantined')}
+            </Button>
           ) : null}
           {updates.some(
             (item) => item.pluginId === plugin.id && item.updateAvailable
@@ -1252,7 +1317,7 @@ export function PluginDetailPage() {
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
   const queryClient = useQueryClient();
-  const { api, plugins, loading } = usePluginControl();
+  const { api, plugins, setPlugins, loading } = usePluginControl();
   const plugin = plugins.find((candidate) => candidate.id === decodedId);
   const detailQuery = useProductPluginDetail(api, decodedId);
   const contributionsQuery = usePluginContributionCatalog(api);
@@ -1260,6 +1325,7 @@ export function PluginDetailPage() {
   const [openedTabs, setOpenedTabs] = useState<Set<PluginInspectTab>>(
     () => new Set(['readme'])
   );
+  const [recovering, setRecovering] = useState(false);
   const showTree = isOpenSourcePluginOrigin(plugin ?? {});
   const inspectTabs: PluginInspectTab[] = showTree
     ? ['readme', 'contents', 'tree', 'config']
@@ -1270,6 +1336,29 @@ export function PluginDetailPage() {
     () => createBackendAppSurfaceTransport(transport),
     [transport]
   );
+
+  const handleRecover = useCallback(async () => {
+    if (!plugin) return;
+    const name = officialPluginName(plugin.id, plugin.name, t);
+    setRecovering(true);
+    try {
+      const result = await activateInstalledPlugin(plugin, { api, supports });
+      setPlugins((current) => replacePlugin(current, result.plugin));
+      if (result.configureError) {
+        toast.error(t('plugins.productEnableFailed', { name }), {
+          description: errorMessage(result.configureError),
+        });
+        return;
+      }
+      toast.success(t('plugins.productEnabled', { name }));
+    } catch (error) {
+      toast.error(t('plugins.productEnableFailed', { name }), {
+        description: errorMessage(error),
+      });
+    } finally {
+      setRecovering(false);
+    }
+  }, [api, plugin, setPlugins, supports, t]);
 
   const openTab = (next: PluginInspectTab) => {
     setTab(next);
@@ -1297,6 +1386,10 @@ export function PluginDetailPage() {
     );
   }
 
+  const quarantineState = plugin
+    ? resolvePluginQuarantine(plugin)
+    : { quarantined: false, reason: null };
+
   return (
     <main className="product-plugins-page product-plugin-detail-page dsh-detail-page">
       <div className="product-plugin-detail-nav">
@@ -1313,6 +1406,15 @@ export function PluginDetailPage() {
               <div className="product-plugin-detail-copy">
                 <div className="product-plugin-detail-title-row">
                   <h1>{officialPluginName(plugin.id, plugin.name, t)}</h1>
+                  {quarantineState.quarantined ? (
+                    <span
+                      className="dsh-status-tag"
+                      data-tone="danger"
+                      data-plugin-quarantined-badge={plugin.id}
+                    >
+                      {t('plugins.statusQuarantined')}
+                    </span>
+                  ) : null}
                   <PluginIdentityMeta plugin={plugin} />
                 </div>
                 <code className="dsh-detail-package-id" data-plugin-name>
@@ -1328,6 +1430,49 @@ export function PluginDetailPage() {
               </div>
             </div>
           </header>
+
+          {quarantineState.quarantined ? (
+            <div
+              role="alert"
+              data-testid="plugin-quarantine-banner"
+              className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs text-destructive"
+            >
+              <div className="flex min-w-0 items-start gap-2.5">
+                <AlertTriangle
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                />
+                <div className="min-w-0 space-y-0.5">
+                  <strong className="block font-medium">
+                    {t('plugins.quarantinedBannerTitle')}
+                  </strong>
+                  {quarantineState.reason ? (
+                    <p className="truncate text-destructive/90">
+                      {quarantineState.reason}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-plugin-recover={plugin.id}
+                disabled={
+                  recovering ||
+                  !supports('plugin.write') ||
+                  !plugin.enableSupported
+                }
+                onClick={() => void handleRecover()}
+              >
+                {recovering ? (
+                  <Loader2 className="animate-spin" aria-hidden="true" />
+                ) : null}
+                {t('plugins.recoverQuarantined')}
+              </Button>
+            </div>
+          ) : null}
+
           <PluginInspectTabs
             value={tab}
             tabs={inspectTabs}

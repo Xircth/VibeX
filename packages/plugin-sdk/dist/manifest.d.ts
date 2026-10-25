@@ -2,7 +2,7 @@
 export interface VibeXPluginManifest {
     $schema?: string;
     manifestVersion: 4;
-    apiVersion: '2.0';
+    apiVersion: '1.0' | '2.0';
     id: string;
     publisher: string;
     version: string;
@@ -36,12 +36,19 @@ export interface WorkerEntrypointManifest {
     path: string;
     runtime: WorkerRuntime;
     protocol: '1.1';
+    readonly maxFrameMiB?: number;
+    readonly sharedWorker?: boolean;
+    readonly isolation?: 'shared' | 'process';
 }
-export interface AppEntrypointManifest {
-    entry: string;
-    styles?: string;
-    protocol: '2.0';
-}
+export type AppEntrypointManifest = {
+    readonly root: string;
+    readonly document: string;
+    readonly protocol?: '1.0';
+} | {
+    readonly entry: string;
+    readonly styles?: string;
+    readonly protocol: '2.0';
+};
 export interface PermissionManifest {
     /** @deprecated Full-trust packages do not require capability consent. */
     id: string;
@@ -376,7 +383,7 @@ export declare const pluginManifestSchema: {
             readonly const: 4;
         };
         readonly apiVersion: {
-            readonly const: "2.0";
+            readonly enum: readonly ["1.0", "2.0"];
         };
         readonly id: {
             readonly type: "string";
@@ -490,27 +497,58 @@ export declare const pluginManifestSchema: {
                         readonly protocol: {
                             readonly const: "1.1";
                         };
+                        readonly maxFrameMiB: {
+                            readonly type: "integer";
+                            readonly minimum: 1;
+                            readonly maximum: 128;
+                        };
+                        readonly sharedWorker: {
+                            readonly type: "boolean";
+                        };
+                        readonly isolation: {
+                            readonly enum: readonly ["shared", "process"];
+                        };
                     };
                 };
                 readonly app: {
-                    readonly type: "object";
-                    readonly additionalProperties: false;
-                    readonly required: readonly ["entry", "protocol"];
-                    readonly properties: {
-                        readonly entry: {
-                            readonly type: "string";
-                            readonly minLength: 1;
-                            readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
+                    readonly oneOf: readonly [{
+                        readonly type: "object";
+                        readonly additionalProperties: false;
+                        readonly required: readonly ["root", "document"];
+                        readonly properties: {
+                            readonly root: {
+                                readonly type: "string";
+                                readonly minLength: 1;
+                                readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
+                            };
+                            readonly document: {
+                                readonly type: "string";
+                                readonly minLength: 1;
+                            };
+                            readonly protocol: {
+                                readonly const: "1.0";
+                            };
                         };
-                        readonly styles: {
-                            readonly type: "string";
-                            readonly minLength: 1;
-                            readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
+                    }, {
+                        readonly type: "object";
+                        readonly additionalProperties: false;
+                        readonly required: readonly ["entry", "protocol"];
+                        readonly properties: {
+                            readonly entry: {
+                                readonly type: "string";
+                                readonly minLength: 1;
+                                readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
+                            };
+                            readonly styles: {
+                                readonly type: "string";
+                                readonly minLength: 1;
+                                readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
+                            };
+                            readonly protocol: {
+                                readonly const: "2.0";
+                            };
                         };
-                        readonly protocol: {
-                            readonly const: "2.0";
-                        };
-                    };
+                    }];
                 };
             };
         };

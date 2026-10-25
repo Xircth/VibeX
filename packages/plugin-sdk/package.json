@@ -35,6 +35,10 @@
       "types": "./src/hooks.ts",
       "default": "./dist/hooks.js"
     },
+    "./volatile": {
+      "types": "./src/volatile.ts",
+      "default": "./dist/volatile.js"
+    },
     "./testing": {
       "types": "./src/testing.ts",
       "default": "./dist/testing.js"

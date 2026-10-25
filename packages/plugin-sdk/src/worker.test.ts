@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createWorkerHarness } from './testing.js';
-import { definePluginWorker, PluginSdkError } from './worker.js';
+import {
+  activatePluginWorker,
+  createWorkerHost,
+  definePluginWorker,
+  PluginSdkError,
+} from './worker.js';
 
 describe('VibeX plugin worker SDK', () => {
   it('registers typed handlers and disposes them in reverse order', async () => {
@@ -16,6 +21,7 @@ describe('VibeX plugin worker SDK', () => {
         disposal.push('second');
       });
     });
+    expect(worker.apiVersion).toBe('2.0');
     const harness = await createWorkerHarness(worker);
 
     await expect(
@@ -67,7 +73,8 @@ describe('VibeX plugin worker SDK', () => {
           const product = svc ? svc.multiply(input.a, input.b) : null;
           const text = await env.services.runWaterfall(
             'text.transform',
-            input.text
+            input.text,
+            async (payload) => payload
           );
           return {
             hasService: env.services.has('calc.multiply'),
@@ -104,5 +111,62 @@ describe('VibeX plugin worker SDK', () => {
     });
 
     await consumerHarness.dispose();
+  });
+
+  it('activates workers that declare apiVersion 1.0 or 2.0', async () => {
+    const v1 = definePluginWorker({
+      apiVersion: '1.0',
+      setup(plugin) {
+        plugin.handle('echo.v1', (input) => input);
+      },
+    });
+    const v2 = definePluginWorker({
+      apiVersion: '2.0',
+      setup(plugin) {
+        plugin.handle('echo.v2', (input) => input);
+      },
+    });
+    const v1Harness = await createWorkerHarness(v1);
+    const v2Harness = await createWorkerHost(v2, {
+      context: {
+        pluginId: 'dev.vibex.v2',
+        pluginVersion: '0.0.0-test',
+        generation: 1,
+        packageClass: 'full-trust',
+        grantedCapabilities: ['*'],
+      },
+      host: { async call() { return null; } },
+      log: { debug() {}, info() {}, warn() {}, error() {} },
+    });
+    await expect(v1Harness.invoke('echo.v1', { n: 1 })).resolves.toEqual({ n: 1 });
+    await expect(v2Harness.invoke('echo.v2', { n: 2 })).resolves.toEqual({ n: 2 });
+    await v1Harness.dispose();
+    await v2Harness.dispose();
+  });
+
+  it('rejects unsupported worker api versions', async () => {
+    await expect(
+      activatePluginWorker(
+        {
+          apiVersion: '3.0' as '1.0',
+          setup() {},
+        },
+        {
+          context: {
+            pluginId: 'dev.vibex.bad',
+            pluginVersion: '0.0.0-test',
+            generation: 1,
+            packageClass: 'full-trust',
+            grantedCapabilities: ['*'],
+          },
+          host: { async call() { return null; } },
+          log: { debug() {}, info() {}, warn() {}, error() {} },
+        }
+      )
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<PluginSdkError>>({
+        code: 'sdk_incompatible',
+      })
+    );
   });
 });

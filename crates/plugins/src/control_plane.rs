@@ -1143,7 +1143,14 @@ impl PluginRegistry for SqlitePluginRegistry {
         .fetch_all(&self.pool)
         .await
         .map_err(registry_error)?;
-        rows.into_iter().map(decode_plugin_row).collect()
+        let plugins: Vec<InstalledPlugin> = rows
+            .into_iter()
+            .map(decode_plugin_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(plugins
+            .into_iter()
+            .filter(|plugin| !crate::catalog::is_retired_plugin_id(plugin.id()))
+            .collect())
     }
 
     async fn rollback_package(
@@ -1494,10 +1501,14 @@ impl PluginRegistry for SqlitePluginRegistry {
         .fetch_all(&self.pool)
         .await
         .map_err(registry_error)?;
-        declarations
+        let descriptors: Vec<crate::ContributionDescriptor> = declarations
             .into_iter()
             .map(|value| serde_json::from_str(&value).map_err(registry_error))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(descriptors
+            .into_iter()
+            .filter(|descriptor| !crate::catalog::is_retired_plugin_id(&descriptor.plugin_id))
+            .collect())
     }
 
     async fn create_candidate(&self, plugin_id: &str) -> Result<u64, PluginError> {
@@ -2246,6 +2257,7 @@ impl PluginControlPlane {
         _activation: Option<BundledPluginActivation>,
     ) -> Result<Vec<PathBuf>, PluginError> {
         let roots = utils::assets::existing_official_plugin_roots(data_root);
+        self.retire_replaced_builtins().await?;
         self.migrate_builtin_memberships(&roots).await?;
         Ok(roots)
     }
@@ -2865,6 +2877,12 @@ impl PluginControlPlane {
         package: PluginPackage,
         decision: ConflictDecision,
     ) -> Result<ImportResult, PluginError> {
+        if crate::catalog::is_retired_plugin_id(package.id.as_str()) {
+            return Err(PluginError::invalid_manifest(format!(
+                "plugin '{}' has been retired and its capability is now built into VibeX",
+                package.id.as_str()
+            )));
+        }
         let existing = self.registry.plugin(package.id.as_str()).await?;
         if let Some(ref installed) = existing {
             if package_publisher(&installed.package) != package_publisher(&package) {
@@ -3335,6 +3353,7 @@ impl PluginControlPlane {
             self.publish_live_generation(plugin_id, None)
                 .await
                 .map_err(|error| PluginError::registry(format!("{}: {error}", error.code())))?;
+            crate::clear_plugin_crashes(plugin_id);
             self.reconcile_enabled().await?;
         } else {
             self.withdraw_with_dependents(plugin_id).await?;
@@ -3401,6 +3420,7 @@ impl PluginControlPlane {
                 .is_some()
                 .then_some((node_executable, grants, broker));
         self.publish_live_generation(plugin_id, worker).await?;
+        crate::clear_plugin_crashes(plugin_id);
         self.reconcile_enabled()
             .await
             .map_err(|error| WorkerHostError::external(error.code(), error))?;
@@ -4351,6 +4371,31 @@ impl PluginControlPlane {
         self.registry.quarantine_reason(plugin_id).await
     }
 
+    /// Updates the persisted package configuration in the registry and pushes a
+    /// live `config.volatile-update` notification to the active Worker slot (if
+    /// one is currently running) without rebuilding the plugin generation.
+    pub async fn notify_config_updated(
+        &self,
+        plugin_id: &str,
+        config: serde_json::Value,
+    ) -> Result<bool, PluginError> {
+        if let Some(mut installed) = self.registry.plugin(plugin_id).await? {
+            installed.package.config = config.clone();
+            self.registry.put_plugin(installed).await?;
+        }
+        match self.activations.update_config(plugin_id, config).await {
+            Ok(updated) => Ok(updated),
+            Err(error) => {
+                tracing::warn!(
+                    plugin_id = %plugin_id,
+                    %error,
+                    "failed to push volatile config update to active plugin worker"
+                );
+                Ok(false)
+            }
+        }
+    }
+
     /// Display name for a plugin, for Host prompts that must tell the user who
     /// is asking. Falls back to `None` so callers show the id rather than an
     /// empty string.
@@ -4392,6 +4437,13 @@ impl PluginControlPlane {
                 self.set_enabled(successor_id, true).await?;
             }
             self.uninstall(retired_id).await?;
+        }
+        for retired_id in crate::catalog::RETIRED_PLUGIN_IDS {
+            if self.registry.plugin(retired_id).await?.is_some() {
+                self.uninstall(retired_id).await?;
+            } else {
+                let _ = self.registry.delete_plugin(retired_id).await;
+            }
         }
         Ok(())
     }

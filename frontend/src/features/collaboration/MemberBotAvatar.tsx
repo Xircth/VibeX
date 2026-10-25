@@ -61,6 +61,12 @@ export interface MemberBotAvatarConfig {
   expression: BotAvatarExpression;
 }
 
+export const DEFAULT_MASTER_BOT_AVATAR: MemberBotAvatarConfig = {
+  color: '#000000',
+  shape: 'circle',
+  expression: 'neutral',
+};
+
 export const BOT_AVATAR_COLOR_PRESETS: ReadonlyArray<{
   id: string;
   label: string;
@@ -131,6 +137,9 @@ function hashSeed(input: string): number {
 
 export function deriveMemberBotAvatar(seed: string): MemberBotAvatarConfig {
   const normalized = seed.trim() || 'vibex-bot';
+  if (normalized.toLowerCase() === 'master') {
+    return { ...DEFAULT_MASTER_BOT_AVATAR };
+  }
   const h1 = hashSeed(normalized);
   const h2 = hashSeed(`${normalized}:shape`);
   return {

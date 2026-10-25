@@ -4,16 +4,17 @@
 
 当前公共 SDK 与 Host 一起版本化发布：
 
-| Package                      | 用途                                                      |
-| ---------------------------- | --------------------------------------------------------- |
-| `@vibex/plugin-sdk/worker`   | Worker lifecycle、handler 注册与 Capability Broker client |
-| `@vibex/plugin-sdk/app`      | Full Trust App bridge 与 surface lifecycle                |
-| `@vibex/plugin-sdk/testing`  | generation、Worker 与 App harness                         |
-| `@vibex/plugin-sdk/protocol` | wire DTO、JSON value 与 context 类型                      |
-| `@vibex/plugin-cli`          | build、validate、test、linked install、dev 与确定性 pack  |
+| Package                      | 用途                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `@vibex/plugin-sdk`          | v2 宿主内 / 联邦模块插件入口（`defineVibeXPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`） |
+| `@vibex/plugin-sdk/worker`   | Worker lifecycle、handler 注册与 Capability Broker client                                  |
+| `@vibex/plugin-sdk/app`      | 独立 HTML Surface App bridge（`definePluginApp`）与 surface lifecycle                      |
+| `@vibex/plugin-sdk/testing`  | `createPluginTestHarness`、`createWorkerHarness`、`createGenerationHarness`、`createAppHarness` |
+| `@vibex/plugin-sdk/protocol` | wire DTO、JSON value、分片重组（`frame.chunk`）与 context 类型                             |
+| `@vibex/plugin-cli`          | build、validate、test、linked install、dev 与确定性 pack                                   |
 
 SDK 不导出 Tauri command、Axum route、SQLite schema、Host 文件路径或内部 Rust enum。Full Trust
-Worker 仍可直接使用 Node 标准库；Broker client 用于结构化 Runtime/Artifact/App lifecycle API。
+Worker 仍可直接使用 Node 标准库；Broker client 用于结构化 Host/Runtime/Artifact/App lifecycle API。
 
 ## 2. Worker authoring interface
 
@@ -57,21 +58,24 @@ export interface PluginLifecycle {
 前置条件；Host 在 deadline 后强制撤销 token、关闭 transport 和终止进程。Plugin 不能依靠
 dispose 写入唯一状态，持久状态应在正常操作中事务提交。
 
-### 2.3 Host API clients
+### 2.3 Host API clients（`HostCapabilityBroker` 实现状态）
 
-长期 Host API namespace 包括下列 clients。当前 SDK 已实现 `runtime.execute`、`runtime.lock` 与
-`artifact.preview`；其余名称是设计保留，不是已经可调用的兼容承诺：
+HostCapabilityBroker（`crates/plugins/src/host_capability_broker.rs`）与 SDK 已实现以下能力，供 Worker（`environment.host.call`）与 `protocol: "2.0"` 插件（`ctx.host.*`）直接调用：
 
-- `context.storage.settings/kv/database`
-- `context.secrets`
-- `context.files`
-- `context.network`
-- `context.runtime`
-- `context.artifacts/previews`
-- `context.agent`
-- `context.conversations`
-- `context.events`
-- `context.log`
+| 能力域 (`capability`) | 操作 (`operation`) | 实现状态与行为 |
+| --- | --- | --- |
+| `storage.kv` | `get` \| `put` \| `set` \| `delete` \| `list` \| `clear` | **SQLite 持久化 KV**：按插件 ID 隔离存储，支持前缀列举与批量清空 |
+| `storage.settings` | `get` \| `put` \| `set` | 读写插件根 `config.json` 并按 `config.schema` 校验 |
+| `secrets` | `get` \| `put` \| `delete` | **OS Keychain / 加密 Secrets**：按插件 ID 隔离存取敏感凭据 |
+| `files` | `read` \| `write` \| `stat` \| `list` | **基于授权根目录的文件操作**：在授权根目录（workspace / plugin_data）内读写、stat 与列举目录，越界或路径逃逸返回 `files_root_denied` |
+| `network.fetch` | `fetch` | **支持 HTTP/HTTPS 的网络请求**：支持自定义 method、headers、body 与 timeout |
+| `exec` | `run` \| `spawn` \| `kill` \| `status` | **子进程执行与后台进程管理**：支持单次执行（`run`）与长生命周期后台进程/Sidecar 管理（`spawn`、`kill`、`status`） |
+| `runtime.execute` / `runtime.lock` | `run` \| `get` | 按 Runtime lock 启动受管依赖进程并查询锁状态 |
+| `artifact.preview` | `open` | 为只读预览 provider 签发短期 loopback 预览租约 |
+| `conversation.*` | `create` \| `list` \| `read.get` \| `append.enqueueInput` \| `steer` \| `cancel` \| `cancelInput` \| `listInputs` \| `respondPermission` \| `respondQuestion` \| `setMode` \| `setConfigOption` \| `catalog` \| `archive` \| `events.since` | 会话创建、读取、追加输入、在途纠偏与事件流读取（未授权会话返回 `conversation_scope_denied`） |
+| `events` | `subscribe` \| `ack` \| `publish` | 插件事件订阅、游标确认与发布 |
+| `app.notify.toast` | `toast` \| `notify` | 在宿主界面显示 Toast 通知 |
+| `remote.profile` / `provider.presets` / `log.*` / `plugin.self` | `list` \| `save` \| `bind` \| `doctor` 等 | 远程 Host 配置、模型预设管理、结构化日志与插件自检 |
 
 Client method 返回 typed error；unsupported、resource missing、timeout 与 cancellation 不合并成
 普通异常文本。SDK 提供 feature detection 只用于兼容降级，不触发授权弹窗。
@@ -79,18 +83,44 @@ Client method 返回 typed error；unsupported、resource missing、timeout 与 
 ### 2.4 Settings、storage 与 migrations
 
 - settings schema 来自 manifest，Worker 读取已验证值；
-- secret 只在 Worker 中通过 named handle 读取，不下发 App；
-- KV entry 和总空间有 Host quota；
+- secret 通过 `secrets.get|put|delete` 存储在 OS Keychain / 加密存储中；
+- KV entry 和总空间由 SQLite 持久化并受 Host 配额保护；
 - SQLite 只属于当前 Plugin identity；
 - migration 是编号、append-only、事务执行的静态资源；
 - candidate activation 的 migration 先创建 snapshot，失败时恢复；
 - downgrade/rollback 若无法读取新 schema，必须在 package metadata 中明确阻止或提供 down
   migration，不能让旧 Worker 直接打开未知数据库。
 
-## 3. App authoring interface
+## 3. App authoring interface（双协议：`2.0` 与 `1.0`）
 
-Full Trust App 使用 `definePluginApp` 建立 bridge。当前稳定面刻意保持为 DOM root、
-generation-bound bridge 与 lifecycle signal：
+`entrypoints.app` 支持两种协议：
+
+### 3.1 `protocol: "2.0"` — 宿主内 / 联邦模块 App（`{ "entry": "app/main.js", "protocol": "2.0" }`）
+
+适用于同树 React UI 槽位、命令、面板、Turn Hook、InternalMessageCapture 与 Cordis 风格 IoC 服务。在 `app/main.js` 中使用 `defineVibeXPlugin((ctx) => ...)`，并统一使用命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`；顶层扁平方法仅为向后兼容保留）：
+
+```ts
+import { defineVibeXPlugin } from '@vibex/plugin-sdk';
+
+export default defineVibeXPlugin((ctx) => {
+  ctx.ui.registerCommand({
+    id: 'refresh-dashboard',
+    title: 'Refresh Dashboard',
+    async handler() {
+      await ctx.host.storage.kv.set('lastRefreshAt', Date.now());
+      await ctx.host.ui.notify({
+        title: 'Dashboard',
+        message: 'Refreshed!',
+        variant: 'info',
+      });
+    },
+  });
+});
+```
+
+### 3.2 `protocol: "1.0"` — 独立 HTML Surface App（`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`）
+
+适用于独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor` 可编辑文件 Tab），使用 `definePluginApp(({ root, bridge, signal }) => ...)` 建立 bridge：
 
 ```ts
 import { definePluginApp } from '@vibex/plugin-sdk/app';
@@ -110,28 +140,21 @@ export default definePluginApp(({ bridge, root, signal }) => {
 });
 ```
 
-当前 App interface 只提供：
+`protocol: "1.0"` App interface 提供：
 
 - `bridge.pluginId` 与 `bridge.generation`；
-- generation-bound Worker RPC；
+- generation-bound Worker RPC（`bridge.invoke`）与 1-hop Host RPC（`bridge.hostCall`）；
+- `bridge.artifact`（在 `artifact.editor` 槽位下读写文本与校验 revision）；
 - allowlisted realtime signal subscription；
 - `ready()` 握手；
 - DOM root 与 abort/dispose。
-
-theme、locale、route 与 accessibility context 由 Host bootstrap protocol 提供，但 SDK 暂不把
-navigation、settings 或 Host component kit 声明为稳定 API。需要这些能力的贡献必须等待对应
-Broker contract，不能直接调用内部 Tauri/React API。
-
-App 不能获得 Host filesystem path、Bearer/device token、Tauri invoke、主 React context、主
-router object 或任意 DOM selector。Host-owned component 只开放长期能兼容的深模块，不把
-整个内部 UI kit 变成 SDK 稳定面。
 
 ## 4. Worker ↔ Host protocol
 
 ### 4.1 Transport
 
 - 每个 Worker 一个 stdio framed JSON-RPC 2.0 connection；
-- 单帧默认 32 MiB。插件用 `entrypoints.worker.maxFrameMiB` 改成 1 到 128。更大的 JSON（上限 128 MiB，例如图片的 base64）用 `frame.chunk` 分片，对端拼回。自造的分片格式会被拒绝，且不会因此卸载 Worker；
+- 默认单帧上限 `32 MiB`（可通过 `entrypoints.worker.maxFrameMiB` 配置 `1..128 MiB`），逻辑消息上限 `64 MiB`；超出单帧上限的消息自动通过 `frame.chunk` 分片传输与重组。自造的分片格式会被拒绝，且不会因此卸载 Worker；
 - 视频等更大的二进制走 `blob.*`（单文件 4 GiB，每次 512 KiB），不进 JSON 消息；
 - 总并发、日志和二进制 payload 仍有硬限制；
 - request 有 ID、deadline、generation、invocation context；
@@ -232,8 +255,6 @@ const saved = await bridge.artifact?.writeText(xml, document.revision);
 Host 校验 opener/surface/generation 绑定，保管文件路径并执行 revision conflict detection。该 seam
 只定义文本读写，不包含任何具体格式的解析、渲染或编辑逻辑。
 
-开发模式也必须保留 origin 与 bridge 隔离，不能因为 HMR 将 App bundle 注入主页面。
-
 ## 6. CLI
 
 当前 CLI 命令与预期结果（以 `vibex plugin --help` 为准）：
@@ -251,13 +272,12 @@ vibex plugin pack [dir] [--output file.vxp]
 vibex-plugin doctor [dir]
 ```
 
-普通 `.vxp` 产品安装仍由 VibeX UI 完成。registry publish、签名和独立
-`reload` 命令属于 Marketplace 阶段，不是当前 CLI 的伪实现；开发期 reload 由 `dev` 的
+普通 `.vxp` 产品安装仍由 VibeX UI 或 `vibex plugin add --profile` 完成。开发期 reload 由 `dev` 的
 candidate activation 完成。
 
 ### 6.1 `init`
 
-用 `--template full|app|agent` 选择当前支持的可执行模板；生成：
+用 `--template full|skill|mcp|hooks|file-tab|editor-tab|host-chrome|panel|kanban-view|…` 选择当前支持的可执行或声明式模板；生成：
 
 - v4 manifest；
 - ESM package scripts 与 SDK major dependency；
@@ -281,7 +301,7 @@ candidate activation 完成。
 - contribution 引用图；
 - handler 与 integration 引用完整性；
 - runtime target、版本与 integrity；
-- App document/assets；
+- App document/assets 或 `app/main.js` 入口校验；
 - SDK/artifact metadata；
 - package size、重复文件、symlink escape；
 - marketplace policy lint（可选 profile）。
@@ -301,7 +321,7 @@ Linked installation：
 - 每次 build 形成新 digest/generation；
 - Host 不删除用户 source directory；
 - symlink 和 package root escape 规则与 snapshot 一致；
-- App reload 仍经过 generation lifecycle，不直接注入 VibeX React tree。
+- App reload 仍经过 generation lifecycle 与 `EffectScope` 清理。
 
 ### 6.4 `build` / `pack`
 
@@ -315,7 +335,7 @@ Build：
 - 相同输入产生相同 bytes。
 
 `test` 会先 build，再由 CLI 把插件测试与当前 SDK 打包到临时目录，并交给 Node test runner
-执行。`init` 生成的 clean-room 项目无需先安装 workspace 依赖或创建符号链接即可验证。
+执行。非 Worker 插件测试直接读取真实的 `.vibex-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
 
 Pack 验证完整 package、写 lock/SBOM/signature input 并生成 `.vxp`。Install 从不运行包内
 build script。
@@ -328,17 +348,22 @@ rollback 或 reinstall。
 
 ## 7. Testing package
 
-### 7.1 Worker harness
+### 7.1 In-Host Plugin & Worker harness
 
 ```ts
-import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
+import { createPluginTestHarness, createWorkerHarness } from '@vibex/plugin-sdk/testing';
+
+const harness = createPluginTestHarness({ pluginId: 'acme.my-plugin' });
+await harness.activate(myPlugin);
+await harness.dispose();
 
 const plugin = await createWorkerHarness(worker, { host: fakeHost });
 const result = await plugin.invoke('office-preview', input);
 ```
 
-Harness 必须支持：
+Harness 支持：
 
+- UI 槽位、命令、Hook、IoC 服务注册与 `dispose()` 零残留验证；
 - declared/undeclared handler matching；
 - Host API success/error/unsupported；
 - virtual filesystem 与 Artifact identity；
@@ -382,8 +407,8 @@ projection 仍需要 VibeX integration suite，不能由 fake green 代替。
 2. 读取目标仓库和适用平台，不猜 SDK 最新版本；
 3. 从用户想要的 contribution 与 Runtime/Host API 需求反推包结构；
 4. 使用 `vibex plugin init/validate/test/build`，不手写生成 metadata；
-5. 为 Worker 与 App 编写 contract tests；
-6. 通过 `install --link` 和 candidate reload 验证真实 Host；
+5. 为插件编写 contract tests（直接读取真实 `.vibex-plugin/plugin.json` 并覆盖 UI/Worker/App 路径）；
+6. 通过 `add --dev` 和 candidate reload 验证真实 Host；
 7. 明确记录插件使用的 shell、native、filesystem/network 等 Full Trust 行为；
 8. 在完成前运行 `doctor` 与可复现 pack；
 9. 产出 installation、usage、data retention 与 troubleshooting 文档；

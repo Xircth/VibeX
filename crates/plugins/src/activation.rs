@@ -85,6 +85,10 @@ impl ActivationLease {
         self.host.is_terminal().await
     }
 
+    pub async fn update_config(&self, config: Value) -> Result<bool, WorkerHostError> {
+        self.host.update_config(config).await
+    }
+
     pub async fn invoke(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
         self.host.invoke(handler, input).await
     }
@@ -291,6 +295,20 @@ impl ActivationManager {
             .get(plugin_id)
             .cloned()
             .map(|host| ActivationLease { host })
+    }
+
+    pub async fn update_config(
+        &self,
+        plugin_id: &str,
+        config: Value,
+    ) -> Result<bool, WorkerHostError> {
+        let Some(lease) = self.lease(plugin_id).await else {
+            return Ok(false);
+        };
+        if lease.is_lightweight() || lease.is_terminal().await {
+            return Ok(false);
+        }
+        lease.update_config(config).await
     }
 
     pub async fn deactivate(&self, plugin_id: &str) -> Result<bool, WorkerHostError> {

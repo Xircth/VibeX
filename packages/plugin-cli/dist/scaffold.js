@@ -34,13 +34,13 @@ export async function scaffoldPlugin(target, publisher = "local", template = "fu
     await writeJson(join(root, ".vibex-plugin", "plugin.json"), {
         $schema: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
         manifestVersion: 4,
-        apiVersion: "1.0",
+        apiVersion: "2.0",
         id,
         publisher,
         version: "0.1.0",
         name: id,
         readme: "README.md",
-        engines: { vibex: ">=0.1.3 <1.0.0", pluginSdk: "^1.0.0" },
+        engines: { vibex: ">=0.1.3 <1.0.0", pluginSdk: "^2.0.0" },
         content: {
             root: "contents",
             index: ".vibex-plugin/content.index.json",
@@ -76,7 +76,7 @@ export async function scaffoldPlugin(target, publisher = "local", template = "fu
         ...(spec.usesJsSdk
             ? {
                 dependencies: {
-                    "@vibex/plugin-sdk": "^1.0.0",
+                    "@vibex/plugin-sdk": "^2.0.0",
                     ...((template === "panel" || template === "kanban-view")
                         ? { react: "^19.2.8", "react-dom": "^19.2.8" }
                         : {}),
@@ -84,7 +84,7 @@ export async function scaffoldPlugin(target, publisher = "local", template = "fu
             }
             : {}),
         devDependencies: {
-            "@vibex/plugin-cli": "^1.0.0",
+            "@vibex/plugin-cli": "^2.0.0",
             ...((template === "panel" || template === "kanban-view")
                 ? {
                     "@module-federation/vite": "^1.9.0",
@@ -784,9 +784,31 @@ export default defineConfig({
 async function writeAppSurface(root, handlers) {
     await mkdir(join(root, "runtime"), { recursive: true });
     const app = handlers?.includes("hello")
-        ? `import { defineVibeXPlugin } from '@vibex/plugin-sdk';\nimport './app.css';\n\nexport default defineVibeXPlugin(({ root, bridge }) => {\n  const button = document.createElement('button');\n  button.textContent = 'Hello from VibeX';\n  button.addEventListener('click', () => void bridge.invoke('hello'));
-  root.append(button);\n  bridge.ready();\n  return () => button.remove();\n});\n`
-        : `import { defineVibeXPlugin } from '@vibex/plugin-sdk';\nimport './app.css';\n\nexport default defineVibeXPlugin(({ root, bridge }) => {\n  root.innerHTML = '<section class="surface"><p>Ready.</p></section>';\n  bridge.ready();\n  return () => {\n    root.innerHTML = '';\n  };\n});\n`;
+        ? `import './app.css';
+
+export default {
+  async mount({ root, bridge }) {
+    const button = document.createElement('button');
+    button.textContent = 'Hello from VibeX';
+    button.addEventListener('click', () => void bridge.invoke('hello'));
+    root.append(button);
+    bridge.ready();
+    return () => button.remove();
+  },
+};
+`
+        : `import './app.css';
+
+export default {
+  async mount({ root, bridge }) {
+    root.innerHTML = '<section class="surface"><p>Ready.</p></section>';
+    bridge.ready();
+    return () => {
+      root.innerHTML = '';
+    };
+  },
+};
+`;
     await writeFile(join(root, "runtime", "app.mjs"), app);
     await writeFile(join(root, "runtime", "app.css"), `:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }\nbody { margin: 0; }\nbutton { font: inherit; }\n`);
     await writeFile(join(root, "runtime", "app.html"), '<!doctype html><html><body><main id="app"></main><script type="module" src="./app.mjs"></script></body></html>\n');
@@ -810,7 +832,7 @@ if __name__ == "__main__":
 name = "${pythonProjectName(id)}"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["vibex-plugin>=1.0.0"]
+dependencies = ["vibex-plugin>=2.0.0"]
 
 [tool.vibex.plugin]
 worker = "runtime/worker.py"
@@ -826,7 +848,7 @@ rust-version = "1.85"
 
 [dependencies]
 serde_json = "1"
-vibex-plugin-sdk = "1.0.0"
+vibex-plugin-sdk = "2.0.0"
 `);
     await writeFile(join(root, "runtime", "src", "main.rs"), `use serde_json::json;
 use vibex_plugin_sdk::{define_plugin_worker, run_stdio_plugin_worker_blocking};
@@ -850,14 +872,22 @@ fn main() {
 async function writePluginTest(root, handlers) {
     await mkdir(join(root, "test"), { recursive: true });
     if (!handlers) {
-        await writeFile(join(root, "test", "fixture.mjs"), `export const MANIFEST = ${JSON.stringify(JSON.parse(await (await import("node:fs/promises")).readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8")), null, 2)};
-`);
         await writeFile(join(root, "test", "plugin.test.mjs"), `import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MANIFEST } from './fixture.mjs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const pluginRoot =
+  process.env.VIBEX_PLUGIN_ROOT ??
+  fileURLToPath(new URL('..', import.meta.url));
+const MANIFEST = JSON.parse(
+  await readFile(join(pluginRoot, '.vibex-plugin/plugin.json'), 'utf8'),
+);
 
 test('plugin.json is a v4 manifest', () => {
   assert.equal(MANIFEST.manifestVersion, 4);
+  assert.equal(MANIFEST.apiVersion, '2.0');
 });
 `);
         return;

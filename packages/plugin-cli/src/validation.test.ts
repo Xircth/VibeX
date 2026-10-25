@@ -241,6 +241,143 @@ describe('validatePlugin product package', () => {
     expect(result).toMatchObject({ valid: true, diagnostics: [] });
   });
 
+  it('accepts worker sharedWorker and isolation fields', async () => {
+    const root = await fixture({
+      entrypoints: {
+        worker: {
+          path: 'runtime/main.mjs',
+          runtime: 'node',
+          protocol: '1.1',
+          sharedWorker: true,
+          isolation: 'shared',
+          maxFrameMiB: 8,
+        },
+      },
+    });
+    await mkdir(join(root, 'runtime'), { recursive: true });
+    await writeFile(join(root, 'runtime/main.mjs'), 'export default {};');
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('accepts a process-isolated worker', async () => {
+    const root = await fixture({
+      entrypoints: {
+        worker: {
+          path: 'runtime/main.mjs',
+          runtime: 'node',
+          protocol: '1.1',
+          sharedWorker: false,
+          isolation: 'process',
+        },
+      },
+    });
+    await mkdir(join(root, 'runtime'), { recursive: true });
+    await writeFile(join(root, 'runtime/main.mjs'), 'export default {};');
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('rejects invalid worker sharedWorker and isolation values', async () => {
+    const root = await fixture({
+      entrypoints: {
+        worker: {
+          path: 'runtime/main.mjs',
+          runtime: 'node',
+          protocol: '1.1',
+          sharedWorker: 'yes',
+          isolation: 'thread',
+        },
+      },
+    });
+    await mkdir(join(root, 'runtime'), { recursive: true });
+    await writeFile(join(root, 'runtime/main.mjs'), 'export default {};');
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'worker_entrypoint_invalid' }),
+      ])
+    );
+  });
+
+  it('accepts a protocol 2.0 app without integrations', async () => {
+    const root = await fixture({
+      integrations: [],
+      entrypoints: {
+        app: { entry: 'app/main.js', protocol: '2.0' },
+      },
+    });
+    await mkdir(join(root, 'app'), { recursive: true });
+    await writeFile(join(root, 'app/main.js'), 'export default {};');
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('accepts a protocol 2.0 app with omitted integrations', async () => {
+    const root = await fixture({
+      integrations: undefined,
+      entrypoints: {
+        app: { entry: 'app/main.js', styles: 'app/style.css', protocol: '2.0' },
+      },
+    });
+    await mkdir(join(root, 'app'), { recursive: true });
+    await writeFile(join(root, 'app/main.js'), 'export default {};');
+    await writeFile(join(root, 'app/style.css'), ':root { color: teal; }');
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('accepts declarative v2 fields without integrations', async () => {
+    const root = await fixture({
+      integrations: [],
+      themes: [
+        {
+          id: 'ocean',
+          label: 'Ocean',
+          scheme: 'dark',
+          cssVariables: { '--background': '210 35% 9%' },
+        },
+      ],
+      slashCommands: [
+        { name: 'review', description: 'Review', prompt: 'Review this.' },
+      ],
+      commands: [{ id: 'open', title: 'Open' }],
+      panels: [{ id: 'board', title: 'Board' }],
+      settingsSchema: {
+        type: 'object',
+        properties: { strict: { type: 'boolean' } },
+      },
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('still requires integrations when a v4 package has no app or declarative fields', async () => {
+    const root = await fixture({ integrations: [] });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'integration_required' }),
+      ])
+    );
+  });
+
   it('rejects ambiguous and orphaned file editor declarations', async () => {
     const root = await fixture({
       integrations: [
@@ -445,13 +582,13 @@ async function fixture(extra: Record<string, unknown> = {}) {
     join(root, '.vibex-plugin/plugin.json'),
     JSON.stringify({
       manifestVersion: 4,
-      apiVersion: '1.0',
+      apiVersion: '2.0',
       id: 'test.app',
       publisher: 'tests',
       version: '1.0.0',
       name: 'Test',
       readme: 'README.md',
-      engines: { vibex: '>=0.1.3', pluginSdk: '^1.0.0' },
+      engines: { vibex: '>=0.1.3', pluginSdk: '^2.0.0' },
       content: {
         root: 'contents',
         index: '.vibex-plugin/content.index.json',

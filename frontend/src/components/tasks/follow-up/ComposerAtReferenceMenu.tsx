@@ -10,6 +10,10 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  MemberBotAvatar,
+  deriveMemberBotAvatar,
+} from '@/features/collaboration/MemberBotAvatar';
 import { cn } from '@/lib/utils';
 import {
   atReferenceTabOrder,
@@ -111,6 +115,10 @@ export function ComposerAtReferenceMenu({
             {items.map((item, index) => {
               const Icon = TAB_ICON[item.tab];
               const active = index === selectedIndex;
+              const memberAvatar =
+                item.tab === 'member'
+                  ? (item.memberAvatar ?? deriveMemberBotAvatar(item.label))
+                  : null;
               return (
                 <button
                   key={item.id}
@@ -132,11 +140,25 @@ export function ComposerAtReferenceMenu({
                   }}
                   onMouseEnter={() => onHighlight(index)}
                 >
-                  <Icon
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 truncate text-xs font-medium">
+                  {memberAvatar ? (
+                    <MemberBotAvatar
+                      config={memberAvatar}
+                      className="h-4 w-4 shrink-0"
+                    />
+                  ) : (
+                    <Icon
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span
+                    className="min-w-0 truncate text-xs font-semibold"
+                    style={
+                      memberAvatar?.color
+                        ? { color: memberAvatar.color }
+                        : undefined
+                    }
+                  >
                     {item.label}
                   </span>
                   {item.detail ? (

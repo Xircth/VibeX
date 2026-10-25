@@ -327,6 +327,64 @@ impl ConversationAgentEventRecorder {
             // input on a separate task: this recorder owns the Agent event
             // stream, and `dispatch_next_queued_input` performs Agent I/O that
             // must not wait on the same consumer.
+            if terminal {
+                let conversation_id = mapped.conversation_id;
+                let is_completed = matches!(&mapped.event, ConversationEvent::TurnCompleted { .. });
+                let pool_for_collab = self.pool.clone();
+                tokio::spawn(async move {
+                    if is_completed {
+                        let reply = crate::jsonl_history::load_all_turns(&pool_for_collab, conversation_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .and_then(|turns| {
+                                turns
+                                    .into_iter()
+                                    .rev()
+                                    .find(|turn| turn.role == agents::TurnRole::Assistant)
+                                    .map(|turn| {
+                                        turn.blocks
+                                            .into_iter()
+                                            .filter_map(|block| match block {
+                                                agents::ContentBlock::Text { text } => Some(text),
+                                                _ => None,
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join("\n")
+                                    })
+                            })
+                            .unwrap_or_default();
+                        if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
+                            &pool_for_collab,
+                            conversation_id,
+                            &reply,
+                            &crate::collaboration::DeliveryContext::default(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                %conversation_id,
+                                %error,
+                                "failed to finalize collaboration space turn deliveries"
+                            );
+                        }
+                    }
+                    let _ = crate::collaboration::release_member_write(&pool_for_collab, conversation_id).await;
+                    if let Err(error) = crate::collaboration::redeliver_deferred(
+                        &pool_for_collab,
+                        &crate::collaboration::DeliveryContext::default(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            %conversation_id,
+                            %error,
+                            "failed to redeliver deferred collaboration space messages on turn end"
+                        );
+                    }
+                });
+            }
+
             if terminal && let Some(context) = self.conversation_context.clone() {
                 let conversation_id = mapped.conversation_id;
                 tokio::spawn(async move {

@@ -368,7 +368,17 @@ async fn linked_worker_refreezes_source_when_its_candidate_snapshot_is_lost() {
         .await
         .unwrap();
     drop(first);
-    std::fs::remove_dir_all(&lost_snapshot).unwrap();
+    // HostedChild reaps the worker asynchronously so Windows may still hold
+    // the snapshot directory for a short time after Drop returns.
+    for attempt in 0..50 {
+        match std::fs::remove_dir_all(&lost_snapshot) {
+            Ok(()) => break,
+            Err(error) if attempt + 1 == 50 => {
+                panic!("failed to remove lost snapshot after worker drop: {error}");
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+        }
+    }
 
     let restored = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool)));
     let failures = restored

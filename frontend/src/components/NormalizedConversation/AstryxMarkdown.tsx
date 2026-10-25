@@ -28,6 +28,12 @@ import { atReferenceChipLabel } from '@/components/tasks/follow-up/sessionCompos
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  MEMBER_PLACEHOLDER_PATTERN,
+  MemberMentionChip,
+  protectMemberMentions,
+  useCollaborationMemberMention,
+} from '@/features/collaboration/MemberMentionChip';
 import { findMarkdownRenderer, useMarkdownRenderers } from '@vibex/plugin-sdk';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
@@ -453,6 +459,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   isStreaming,
   rawHtml,
 }: AstryxMarkdownProps) {
+  const memberMentionCtx = useCollaborationMemberMention();
   const prepareCacheRef = useRef<ConversationMarkdownPrepareCache | null>(null);
   const normalizedValue = useMemo(() => {
     const { text: prepared, cache } = prepareConversationMarkdownCached(
@@ -473,12 +480,22 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         ? protectRawHtml(withLinks)
         : { text: withLinks, html: [] };
     const withMath = protectConversationMath(protectedHtml.text);
+    const withMentions = memberMentionCtx.enableMemberMentions
+      ? protectMemberMentions(withMath.text, memberMentionCtx.knownNicknames)
+      : { text: withMath.text, mentions: [] };
     return {
-      text: encodeFenceInfoLanguages(withMath.text),
+      text: encodeFenceInfoLanguages(withMentions.text),
       math: withMath.math,
       html: protectedHtml.html,
+      mentions: withMentions.mentions,
     };
-  }, [rawHtml, softBreaks, value]);
+  }, [
+    memberMentionCtx.enableMemberMentions,
+    memberMentionCtx.knownNicknames,
+    rawHtml,
+    softBreaks,
+    value,
+  ]);
 
   const inlinePlugins = useMemo(
     () => [
@@ -507,8 +524,28 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
           );
         },
       },
+      {
+        pattern: MEMBER_PLACEHOLDER_PATTERN,
+        render: (match: RegExpMatchArray, key: string) => {
+          const nickname = normalizedValue.mentions[Number(match[1])];
+          if (!nickname) return null;
+          return (
+            <MemberMentionChip
+              key={key}
+              nickname={nickname}
+              avatar={memberMentionCtx.resolveMemberAvatar(nickname)}
+            />
+          );
+        },
+      },
     ],
-    [normalizedValue.html, normalizedValue.math, workspacePath]
+    [
+      memberMentionCtx,
+      normalizedValue.html,
+      normalizedValue.math,
+      normalizedValue.mentions,
+      workspacePath,
+    ]
   );
 
   const components = useMemo<MarkdownProps['components']>(
@@ -537,5 +574,3 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
     </div>
   );
 }, arePropsEqual);
-
-export default AstryxMarkdown;

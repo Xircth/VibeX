@@ -42,8 +42,18 @@ async function createLockForFiles(
 }
 
 export async function packPlugin(root: string, output?: string) {
-  const releaseFiles = (await packageFiles(root)).filter(
-    (path) =>
+  const manifest = JSON.parse(
+    await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8')
+  ) as {
+    id: string;
+    version: string;
+    entrypoints?: { app?: { entry?: string; styles?: string; protocol?: string } };
+  };
+  const keptRuntime = protocol2AppArtifacts(manifest.entrypoints?.app);
+  const releaseFiles = (await packageFiles(root)).filter((path) => {
+    if (path.split('/').includes('.test-dist')) return false;
+    if (keptRuntime.has(path)) return true;
+    return (
       path !== 'runtime' &&
       !path.startsWith('runtime/') &&
       path !== 'test' &&
@@ -53,7 +63,8 @@ export async function packPlugin(root: string, output?: string) {
       path !== 'package-lock.json' &&
       path !== 'yarn.lock' &&
       !path.endsWith('.map')
-  );
+    );
+  });
   const lock = await createLockForFiles(root, releaseFiles);
   const lockPath = join(root, '.vibex-plugin', 'package.lock.json');
   await mkdir(dirname(lockPath), { recursive: true });
@@ -77,9 +88,6 @@ export async function packPlugin(root: string, output?: string) {
   );
   const lockEntry = zip.getEntry('.vibex-plugin/package.lock.json');
   if (lockEntry) lockEntry.header.time = new Date('1980-01-01T00:00:00.000Z');
-  const manifest = JSON.parse(
-    await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8')
-  ) as { id: string; version: string };
   const target = resolve(
     output ?? join(root, 'dist', `${manifest.id}-${manifest.version}.vxp`)
   );
@@ -105,7 +113,12 @@ async function packageFiles(root: string) {
   async function visit(directory: string) {
     const entries = await readdir(directory, { withFileTypes: true });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === '.git' ||
+        entry.name === '.test-dist'
+      )
+        continue;
       const absolute = join(directory, entry.name);
       const path = relative(root, absolute).replaceAll('\\', '/');
       if (path === 'config.json') continue;
@@ -119,6 +132,22 @@ async function packageFiles(root: string) {
   }
   await visit(root);
   return paths.sort();
+}
+
+function protocol2AppArtifacts(app?: {
+  entry?: string;
+  styles?: string;
+  protocol?: string;
+}) {
+  const kept = new Set<string>();
+  if (app?.protocol !== '2.0') return kept;
+  if (typeof app.entry === 'string' && app.entry) {
+    kept.add(app.entry.replaceAll('\\', '/'));
+  }
+  if (typeof app.styles === 'string' && app.styles) {
+    kept.add(app.styles.replaceAll('\\', '/'));
+  }
+  return kept;
 }
 
 function hash(data: Uint8Array) {

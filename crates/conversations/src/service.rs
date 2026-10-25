@@ -749,6 +749,69 @@ pub(crate) fn emit_after_turn_event(event: AfterTurnEvent) {
     }
 }
 
+pub(crate) fn spawn_turn_end_collaboration_cleanup(
+    pool: SqlitePool,
+    conversation_id: Uuid,
+    turn_completed: bool,
+    turn_assistant_text: Option<String>,
+) {
+    tokio::spawn(async move {
+        if turn_completed {
+            let reply = match turn_assistant_text {
+                Some(text) => text,
+                None => crate::jsonl_history::load_all_turns(&pool, conversation_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|turns| {
+                        turns
+                            .into_iter()
+                            .rev()
+                            .find(|turn| turn.role == agents::TurnRole::Assistant)
+                            .map(|turn| {
+                                turn.blocks
+                                    .into_iter()
+                                    .filter_map(|block| match block {
+                                        agents::ContentBlock::Text { text } => Some(text),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            })
+                    })
+                    .unwrap_or_default(),
+            };
+            if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
+                &pool,
+                conversation_id,
+                &reply,
+                &crate::collaboration::DeliveryContext::default(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "finalize_space_turn_deliveries failed in service cleanup"
+                );
+            }
+        }
+        let _ = crate::collaboration::release_member_write(&pool, conversation_id).await;
+        if let Err(error) = crate::collaboration::redeliver_deferred(
+            &pool,
+            &crate::collaboration::DeliveryContext::default(),
+        )
+        .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "redeliver_deferred failed in service cleanup"
+            );
+        }
+    });
+}
+
 /// Injected src-tauri-coupled operations the turn lifecycle needs but that don't
 /// belong in this crate (workspace path resolution, prompt-block building from the
 /// workspace, agent launch settings). Implemented in the shell (`AppState`).
@@ -900,6 +963,8 @@ pub struct ConversationStartTurnInput {
     pub queued_input_claim: Option<QueuedConversationInputClaim>,
     /// Optional client operation id so a retried start/submit stays one input.
     pub operation_id: Option<Uuid>,
+    /// Present when this turn was delivered from a collaboration space.
+    pub collaboration_origin: Option<agents::CollaborationSpaceOrigin>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1133,8 +1198,8 @@ impl ConversationSessionService {
             input.conversation_id,
             Some(&display_text),
         )
-            .await
-            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let prompt_text = match persona.as_deref() {
             Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
             None => input.text.clone(),
@@ -1183,8 +1248,11 @@ impl ConversationSessionService {
             .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
             .await?;
         let display_blocks = agent_blocks_with_display_text(&agent_blocks, &display_text);
-        let conversation_blocks =
-            conversation_input_blocks_with_display_text(&agent_blocks, &display_text);
+        let conversation_blocks = conversation_input_blocks_with_display_text(
+            &agent_blocks,
+            &display_text,
+            input.collaboration_origin.as_ref(),
+        );
 
         let conversation = self
             .ensure_conversation(pool, &input, &display_text)
@@ -1688,6 +1756,7 @@ impl ConversationSessionService {
                         claim_token,
                     }),
                     operation_id: None,
+                    collaboration_origin: payload.collaboration_origin,
                 },
                 crate::commit_reminder::LOCAL_USER_ORIGIN,
             )
@@ -1843,7 +1912,7 @@ impl ConversationSessionService {
             .await?;
         let display_blocks = agent_blocks_with_display_text(&agent_blocks, &input.text);
         let visible_blocks =
-            conversation_input_blocks_with_display_text(&agent_blocks, &input.text);
+            conversation_input_blocks_with_display_text(&agent_blocks, &input.text, None);
         let steering_id = Uuid::new_v4();
         self.append_event(
             input.conversation_id,
@@ -2353,6 +2422,7 @@ impl ConversationSessionService {
                 internal_prompt_contributions: Vec::new(),
                 queued_input_claim: None,
                 operation_id: None,
+                collaboration_origin: None,
             },
             crate::commit_reminder::USER_ORIGIN,
         )
@@ -2750,6 +2820,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
         self.update_runtime_state(conversation_id, |state| {
             state.turn_in_flight = false;
             state.active_turn_id = None;
@@ -3019,6 +3090,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
         self.drop_live_agent_connection(conversation_id).await;
         self.update_runtime_state(conversation_id, |state| {
             state.turn_in_flight = false;
@@ -3067,6 +3139,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
         self.forget_conversation_runtime(conversation_id).await;
         Ok(())
     }
@@ -4184,6 +4257,7 @@ fn start_turn_input_payload(
         workflow_refs: input.workflow_refs.clone(),
         file_refs: input.file_refs.clone(),
         internal_prompt_contributions: input.internal_prompt_contributions.clone(),
+        collaboration_origin: input.collaboration_origin.clone(),
     })
 }
 
@@ -4243,8 +4317,22 @@ fn agent_blocks_with_display_text(
 fn conversation_input_blocks_with_display_text(
     blocks: &[AgentContentBlock],
     display_text: &str,
+    origin: Option<&agents::CollaborationSpaceOrigin>,
 ) -> Vec<ConversationInputBlock> {
-    let mut visible = Vec::with_capacity(blocks.len());
+    let mut visible = Vec::with_capacity(blocks.len() + 1);
+    if let Some(origin) = origin {
+        visible.push(ConversationInputBlock::Protocol {
+            content: serde_json::json!({
+                "kind": "collaboration_space_origin",
+                "spaceId": origin.space_id,
+                "threadKind": origin.thread_kind,
+                "senderKind": origin.sender_kind,
+                "senderNickname": origin.sender_nickname,
+                "senderConversationId": origin.sender_conversation_id,
+                "senderMemberId": origin.sender_member_id,
+            }),
+        });
+    }
     if !display_text.trim().is_empty() {
         visible.push(ConversationInputBlock::Text {
             text: display_text.to_string(),
@@ -5421,6 +5509,7 @@ mod tests {
                 },
             ],
             "hello",
+            None,
         );
 
         assert_eq!(blocks.len(), 2);
@@ -5440,6 +5529,7 @@ mod tests {
                 },
             ],
             "visible request",
+            None,
         );
 
         assert!(matches!(
@@ -5448,6 +5538,37 @@ mod tests {
                 if text == "visible request"
         ));
         assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn space_origin_is_a_protocol_block_ahead_of_display_text() {
+        let origin = agents::CollaborationSpaceOrigin {
+            space_id: "space-1".to_string(),
+            thread_kind: "group".to_string(),
+            sender_kind: "member".to_string(),
+            sender_nickname: "小A".to_string(),
+            sender_conversation_id: Some("conv-a".to_string()),
+            sender_member_id: Some("member-a".to_string()),
+        };
+        let blocks = conversation_input_blocks_with_display_text(
+            &[AgentContentBlock::Text {
+                text: "full wrapper".to_string(),
+            }],
+            "请核对接口",
+            Some(&origin),
+        );
+        assert!(matches!(
+            &blocks[0],
+            agents::conversation::ConversationInputBlock::Protocol { content }
+                if content["kind"] == "collaboration_space_origin"
+                    && content["senderNickname"] == "小A"
+                    && content["threadKind"] == "group"
+        ));
+        assert!(matches!(
+            &blocks[1],
+            agents::conversation::ConversationInputBlock::Text { text }
+                if text == "请核对接口"
+        ));
     }
 
     #[test]

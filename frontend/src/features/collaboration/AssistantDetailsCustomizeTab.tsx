@@ -110,6 +110,7 @@ export function AssistantDetailsCustomizeTab({
       await collaborationCall('collaboration', 'member.update', {
         memberId,
         name: trimmed,
+        avatar,
         color: avatar.color,
       });
       await collaborationCall('collaboration', 'member.config.update', {

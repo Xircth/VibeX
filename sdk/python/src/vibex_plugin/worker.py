@@ -7,9 +7,9 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-PLUGIN_API_VERSION = "1.0"
+PLUGIN_API_VERSION = "2.0"
 PLUGIN_PROTOCOL_VERSION = "1.1"
-PLUGIN_SDK_VERSION = "1.0.0"
+PLUGIN_SDK_VERSION = "2.0.0"
 
 HANDLER_ID = re.compile(r"^[a-z][A-Za-z0-9]*(?:[.-][a-z][A-Za-z0-9]*)*$")
 
@@ -209,7 +209,7 @@ async def activate_plugin_worker(
     host: PluginHostClient,
     log: PluginLogger,
 ) -> ActivatedPluginWorker:
-    if definition.api_version != PLUGIN_API_VERSION:
+    if definition.api_version not in ("1.0", "2.0"):
         raise PluginSdkError(
             "sdk_incompatible",
             f"Unsupported worker API {definition.api_version}",

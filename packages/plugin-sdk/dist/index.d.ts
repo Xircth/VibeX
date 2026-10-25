@@ -1,6 +1,7 @@
 export * from "./blob.js";
 export * from "./manifest.js";
 export * from "./protocol.js";
+export * from "./volatile.js";
 export * from "./stdio.js";
 export * from "./worker.js";
 export * from "./registry.js";

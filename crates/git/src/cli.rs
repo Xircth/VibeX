@@ -249,7 +249,13 @@ impl GitCli {
         }
         args.push(worktree_path.as_os_str().into());
         args.push(OsString::from(branch));
-        self.git(repo_path, args)?;
+        if let Err(error) = self.git(repo_path, args) {
+            self.cleanup_failed_worktree(repo_path, worktree_path);
+            if create_branch {
+                let _ = self.delete_branch(repo_path, branch);
+            }
+            return Err(error);
+        }
 
         // Good practice: reapply sparse-checkout in the new worktree to ensure materialization matches
         // Non-fatal if it fails or not configured.
@@ -286,10 +292,11 @@ impl GitCli {
         );
 
         if let Err(error) = add_with_branch {
+            self.cleanup_failed_worktree(repo_path, worktree_path);
             if worktree_add_error_is_fatal_without_retry(&error) {
                 return Err(error);
             }
-            self.cleanup_failed_worktree(repo_path, worktree_path);
+            let _ = self.delete_branch(repo_path, branch);
             self.add_detached_worktree_then_branch(repo_path, worktree_path, branch, &oid)?;
         }
 
@@ -331,6 +338,7 @@ impl GitCli {
         if worktree_path.exists() {
             let _ = std::fs::remove_dir_all(worktree_path);
         }
+        let _ = self.worktree_prune(repo_path);
     }
 
     /// Working-tree diff vs HEAD as raw bytes so binary patches stay intact.
@@ -1534,8 +1542,11 @@ impl GitCli {
             .arg(format!("core.hooksPath={}", empty_hooks_dir().display()));
         cmd.arg("-c").arg("core.fsmonitor=");
         cmd.arg("-c").arg("core.useBuiltinFSMonitor=false");
+        cmd.arg("-c").arg("core.longpaths=true");
         cmd.arg("-c").arg("submodule.recurse=false");
         cmd.arg("-c").arg("gc.auto=0");
+        // Windows: allow paths > MAX_PATH (e.g. deep build output in member worktrees).
+        cmd.arg("-c").arg("core.longpaths=true");
         cmd.arg("-C").arg(repo_path);
         cmd.arg("--no-pager");
         isolate_std_process_group(&mut cmd);
@@ -1858,6 +1869,40 @@ mod tests {
             }),
             "GIT_DIR pointed at repo A, but -C must still list repo B; got {entries:?}"
         );
+    }
+
+    #[test]
+    fn worktree_add_supports_long_filenames() {
+        let repo = init_temp_repo();
+        let git = GitCli::new();
+        let nested_dir = repo.path().join("dist").join("assets");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let long_name = format!(
+            "_virtual_mf___mfe_internal__vibex_computer_use__mf_owner__57630545953823__loadShare__react_mf_1_jsx_mf_2_runtime__loadShare__{}.js",
+            "x".repeat(80)
+        );
+        let relative_path = format!("dist/assets/{long_name}");
+        fs::write(nested_dir.join(&long_name), "export default 1;
+").unwrap();
+        git.git(repo.path(), ["add", &relative_path]).unwrap();
+        git.git(repo.path(), ["commit", "-m", "long filename"]).unwrap();
+
+        let wt_parent = tempfile::TempDir::new().unwrap();
+        let wt_path = wt_parent
+            .path()
+            .join("worktrees")
+            .join("f103-member-session-2")
+            .join("vibex-plugin-computer-use");
+        fs::create_dir_all(wt_path.parent().unwrap()).unwrap();
+
+        git.worktree_add_from_ref(
+            repo.path(),
+            &wt_path,
+            "member/c6820fd2-93aa-5a16-a2b6-aef5e8c1814a/2380a641-c09a-5c99-9216-e25b2e256ce5",
+            "HEAD",
+        )
+        .expect("worktree_add_from_ref should succeed with long paths");
+        assert!(wt_path.join("dist").join("assets").join(&long_name).is_file());
     }
 }
 

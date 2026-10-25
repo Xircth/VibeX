@@ -159,7 +159,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 });
 
 vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
-  default: ({
+  AstryxMarkdown: ({
     value,
     workspacePath,
     className,

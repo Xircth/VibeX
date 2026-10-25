@@ -35,6 +35,24 @@
   padding: 0 4px;
 }
 
+.conv-user-space-sender {
+  display: inline-flex;
+  max-width: 82%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.conv-user-space-sender-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .conv-user-bubble-wrap {
   position: relative;
   min-width: 0;
@@ -255,14 +273,18 @@
   background: var(--conv-user-action-button-hover-bg);
 }
 
-.conv-user-bubble [contenteditable='false']:not(.session-composer-token-chip),
+.conv-user-bubble [contenteditable='false']:not(.session-composer-token-chip):not(.collaboration-member-mention-chip),
 .conv-user-bubble
   [class*='text-foreground']:not(.session-composer-token-chip):not(
     .session-composer-token-chip *
+  ):not(.collaboration-member-mention-chip):not(
+    .collaboration-member-mention-chip *
   ),
 .conv-user-bubble
   [class*='text-muted-foreground']:not(.session-composer-token-chip):not(
     .session-composer-token-chip *
+  ):not(.collaboration-member-mention-chip):not(
+    .collaboration-member-mention-chip *
   ),
 .conv-user-bubble strong,
 .conv-user-bubble u {
@@ -276,6 +298,8 @@
   .conv-markdown
   :where(p, li, span, strong, u):not(.session-composer-token-chip):not(
     .session-composer-token-chip *
+  ):not(.collaboration-member-mention-chip):not(
+    .collaboration-member-mention-chip *
   ) {
   color: var(--conv-user-text) !important;
 }

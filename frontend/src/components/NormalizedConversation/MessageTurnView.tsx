@@ -39,6 +39,16 @@ import { AstryxMarkdown } from './AstryxMarkdown';
 import { UserMessageAttachments } from './UserMessageImageAttachment';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { splitUserTurnContent } from './userMessageImages';
+import {
+  collaborationSpaceOriginFromBlocks,
+  shouldShowGroupMemberSender,
+  type CollaborationSpaceOriginView,
+} from '@/features/collaboration/collaborationSpaceOrigin';
+import {
+  deriveMemberBotAvatar,
+  MemberBotAvatar,
+  readMemberBotAvatars,
+} from '@/features/collaboration/MemberBotAvatar';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
 import { ConversationPlanCard } from './ConversationPlanCard';
@@ -86,6 +96,48 @@ export interface ContextCompactPresentation {
   status: ContextCompactStatusKind;
   durationMs: number | null;
   contextTokens: number | null;
+}
+
+function GroupMemberSpaceSender({
+  origin,
+}: {
+  origin: CollaborationSpaceOriginView;
+}) {
+  const avatar = useMemo(() => {
+    const stored = readMemberBotAvatars();
+    const convKey = origin.senderConversationId?.trim() ?? '';
+    const memberKey = origin.senderMemberId?.trim() ?? '';
+    const nickKey = origin.senderNickname.trim();
+    return (
+      (convKey ? stored[convKey] : undefined) ||
+      (memberKey ? stored[memberKey] : undefined) ||
+      (nickKey ? stored[nickKey] : undefined) ||
+      deriveMemberBotAvatar(convKey || memberKey || nickKey || 'bot')
+    );
+  }, [
+    origin.senderConversationId,
+    origin.senderMemberId,
+    origin.senderNickname,
+  ]);
+
+  return (
+    <div
+      className="conv-user-space-sender"
+      data-testid="user-message-space-sender"
+    >
+      <MemberBotAvatar
+        config={avatar}
+        animated={false}
+        className="h-5 w-5 shrink-0"
+      />
+      <span
+        className="conv-user-space-sender-name"
+        style={{ color: avatar.color }}
+      >
+        {origin.senderNickname}
+      </span>
+    </div>
+  );
 }
 
 type MessageTurnPhase =
@@ -571,6 +623,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   if (turn.role === 'user') {
     const { text, images, files } = splitUserTurnContent(turn.blocks);
     const hasText = text.trim().length > 0;
+    const spaceOrigin = collaborationSpaceOriginFromBlocks(turn.blocks);
+    const showSpaceSender = shouldShowGroupMemberSender(spaceOrigin);
     if (editing && onEditRetry) {
       return (
         <div className="conv-entry-item conv-user-turn conv-user-turn-editing">
@@ -591,6 +645,9 @@ export const MessageTurnView = memo(function MessageTurnView({
             taskAttemptId={attempt.id}
             workspacePath={resolvedWorkspacePath}
           />
+          {showSpaceSender ? (
+            <GroupMemberSpaceSender origin={spaceOrigin} />
+          ) : null}
           {hasText || onRetry || onEditRetry ? (
             <div className="conv-user-bubble-wrap">
               <UserMessageActions

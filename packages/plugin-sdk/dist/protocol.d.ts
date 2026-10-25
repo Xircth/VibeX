@@ -1,5 +1,7 @@
-export declare const VIBEX_PLUGIN_API_VERSION: "1.0";
+export declare const VIBEX_PLUGIN_API_VERSION: "2.0";
 export declare const VIBEX_PLUGIN_PROTOCOL_VERSION: "1.1";
+export type PluginApiVersion = "1.0" | "2.0";
+export declare function isSupportedPluginApiVersion(version: unknown): version is PluginApiVersion;
 export declare const MIN_FRAME_BYTES: number;
 export declare const MAX_FRAME_BYTES: number;
 export declare const MAX_LOGICAL_MESSAGE_BYTES: number;
@@ -46,6 +48,7 @@ export interface PluginContext {
     generation: number;
     packageClass: PackageClass;
     grantedCapabilities: string[];
+    config?: Record<string, JsonValue>;
 }
 export type WorkerRequest = {
     id: string;
@@ -64,9 +67,21 @@ export type WorkerRequest = {
     };
 } | {
     id: string;
+    method: "config.volatile-update";
+    params: {
+        config: Record<string, JsonValue>;
+    };
+} | {
+    id: string;
     method: "dispose";
     params: {
         reason: string;
+    };
+} | {
+    id: string;
+    method: "plugin.unload";
+    params?: {
+        reason?: string;
     };
 } | {
     id: string;
@@ -128,6 +143,7 @@ export declare class FrameReassembler {
     setLimits(limits: FrameLimits): void;
     pushLine(line: string): DecodedFrame;
     private pushChunk;
+    private discardInterrupted;
     private reset;
 }
 export {};

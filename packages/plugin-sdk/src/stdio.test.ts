@@ -265,4 +265,141 @@ describe("stdio worker protocol", () => {
         .__VIBEX_SHARED_PLUGIN_HOST__;
     }
   });
+
+  it("times out unanswered host.call requests", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const messages: Array<Record<string, unknown>> = [];
+    Object.defineProperty(process, "stdin", { value: input });
+    Object.defineProperty(process, "stdout", { value: output });
+    output.on("data", (chunk) => {
+      for (const line of chunk.toString().trim().split("\n").filter(Boolean)) {
+        messages.push(JSON.parse(line) as Record<string, unknown>);
+        const message = messages.at(-1)!;
+        if (message.id === "2") input.end();
+      }
+    });
+    const { runStdioPluginWorker } = await import("./stdio.js");
+    const run = runStdioPluginWorker(
+      definePluginWorker((plugin, environment) => {
+        plugin.handle("broker.run", () =>
+          environment.host.call("runtime.execute", "preview", {}),
+        );
+      }),
+    );
+    input.write(
+      `${JSON.stringify({
+        id: "0",
+        method: "initialize",
+        params: {
+          protocolRange: ["1.1"],
+          hostVersion: "0.2.8",
+          pluginIdentity: { publisher: "studio", id: "broker" },
+          packageVersion: "1.0.0",
+          packageDigest: "sha256:test",
+          generationId: 1,
+          declaredContributions: [],
+          packageClass: "full-trust",
+          features: [],
+          limits: {
+            maxFrameBytes: 1024 * 1024,
+            requestTimeoutMs: 30,
+          },
+          runtime: {
+            id: "node",
+            version: "22.22.3",
+            target: "test",
+            digest: "sha256:host",
+          },
+        },
+      })}\n`,
+    );
+    input.write(
+      `${JSON.stringify({
+        id: "1",
+        method: "activate",
+        params: {
+          pluginId: "dev.vibex.broker",
+          pluginVersion: "1.0.0",
+          generation: 1,
+          grantedCapabilities: ["runtime.execute"],
+        },
+      })}\n`,
+    );
+    input.write(
+      `${JSON.stringify({
+        id: "2",
+        method: "invoke",
+        params: { handler: "broker.run", input: null },
+      })}\n`,
+    );
+    await run;
+    expect(messages.find((message) => message.id === "2")).toMatchObject({
+      id: "2",
+      ok: false,
+      error: { code: "host_timeout" },
+    });
+  });
+
+  it("rejects pending host.call requests when the worker unloads", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const messages: Array<Record<string, unknown>> = [];
+    Object.defineProperty(process, "stdin", { value: input });
+    Object.defineProperty(process, "stdout", { value: output });
+    output.on("data", (chunk) => {
+      for (const line of chunk.toString().trim().split("\n").filter(Boolean)) {
+        messages.push(JSON.parse(line) as Record<string, unknown>);
+        const message = messages.at(-1)!;
+        if (message.method === "host.call") {
+          input.write(
+            `${JSON.stringify({
+              id: "3",
+              method: "plugin.unload",
+              params: { reason: "test" },
+            })}\n`,
+          );
+        }
+        if (message.id === "3") input.end();
+      }
+    });
+    const { runStdioPluginWorker } = await import("./stdio.js");
+    const run = runStdioPluginWorker(
+      definePluginWorker((plugin, environment) => {
+        plugin.handle("broker.run", () =>
+          environment.host.call("runtime.execute", "preview", {}),
+        );
+      }),
+    );
+    input.write(
+      `${JSON.stringify({
+        id: "1",
+        method: "activate",
+        params: {
+          pluginId: "dev.vibex.broker",
+          pluginVersion: "1.0.0",
+          generation: 1,
+          grantedCapabilities: ["runtime.execute"],
+        },
+      })}\n`,
+    );
+    input.write(
+      `${JSON.stringify({
+        id: "2",
+        method: "invoke",
+        params: { handler: "broker.run", input: null },
+      })}\n`,
+    );
+    await run;
+    expect(messages.find((message) => message.id === "2")).toMatchObject({
+      id: "2",
+      ok: false,
+      error: { code: "host_closed" },
+    });
+    expect(messages.find((message) => message.id === "3")).toMatchObject({
+      id: "3",
+      ok: true,
+      result: null,
+    });
+  });
 });

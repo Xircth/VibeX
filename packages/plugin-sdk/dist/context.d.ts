@@ -1,6 +1,7 @@
 import type { JsonValue } from './protocol.js';
 import { type CapturedInternalMessage, type CommandContribution, type ConversationModeContribution, type Disposer, type InternalMessageCaptureContribution, type InternalPromptContributionBlock, type KanbanViewContribution, type MarkdownRendererContribution, type OverlayContribution, type PanelContribution, type PromptContextContribution, type PromptTurnContextInput, type PromptTurnContributionResult, type ProviderContribution, type SettingSectionContribution, type SettingsPageContribution, type SlashCommandContribution, type SlotContribution, type ThemeContribution, type ViewContribution } from './registry.js';
 import { EffectScope, type InjectedServicesRecord, type ServiceDecorator, type ServiceKey, type WaterfallInterceptor } from './services.js';
+import { type Volatile, type VolatileListener } from './volatile.js';
 export interface HostCallRequestObject {
     readonly pluginId: string;
     readonly capability: string;
@@ -26,6 +27,16 @@ export interface PluginSettingsClient {
     get<T = JsonValue>(): Promise<T>;
     put<T extends JsonValue = JsonValue>(value: T): Promise<T>;
     set<T extends JsonValue = JsonValue>(value: T): Promise<T>;
+    /**
+     * Returns a reactive `Volatile<T>` reference to the plugin's configuration
+     * that updates in-place whenever `config.json` is saved—without restarting
+     * or rebuilding the plugin generation.
+     */
+    volatile<T extends Record<string, unknown> = Record<string, JsonValue>>(defaults?: T): Volatile<T>;
+    /**
+     * Subscribes to live configuration updates for this plugin.
+     */
+    onChange<T extends Record<string, unknown> = Record<string, JsonValue>>(listener: VolatileListener<T>): Disposer;
 }
 export interface PluginNetworkFetchInput {
     readonly url: string;
@@ -228,6 +239,12 @@ export interface VibeXPluginContext {
     readonly generation: number;
     readonly scope: EffectScope;
     readonly effects: EffectScope;
+    /**
+     * Fine-grained reactive configuration reference (`Volatile<T>`).
+     * Updates in-place when `config.json` is saved without requiring a full
+     * plugin generation rebuild.
+     */
+    readonly config: Volatile<Record<string, JsonValue>>;
     readonly ui: PluginUiNamespace;
     readonly hooks: PluginHooksNamespace;
     readonly services: PluginServicesNamespace;
@@ -283,18 +300,19 @@ export interface VibeXPluginContext {
 export interface CreatePluginContextOptions {
     readonly pluginId: string;
     readonly generation?: number;
+    readonly initialConfig?: Record<string, JsonValue>;
     readonly hostCall?: HostCallTransport;
     readonly callHost?: HostCallTransport;
     readonly invokeWorker?: WorkerInvokeTransport;
 }
 export declare function createPluginContext(options: CreatePluginContextOptions): VibeXPluginContext;
 export interface VibeXPluginDefinition {
-    readonly apiVersion: '2.0';
+    readonly apiVersion?: '2.0' | '1.0';
     readonly id?: string;
     readonly activate: (ctx: VibeXPluginContext) => void | Disposer | Promise<void | Disposer>;
     readonly deactivate?: () => void | Promise<void>;
 }
-export declare function defineVibeXPlugin(definition: VibeXPluginDefinition | Omit<VibeXPluginDefinition, 'apiVersion'> | VibeXPluginDefinition['activate']): VibeXPluginDefinition;
+export declare function defineVibeXPlugin(definition: VibeXPluginDefinition | VibeXPluginDefinition['activate']): VibeXPluginDefinition;
 export declare const definePlugin: typeof defineVibeXPlugin;
 export type VibexPluginModule = VibeXPluginDefinition;
 export declare function isVibeXPluginDefinition(value: unknown): value is VibeXPluginDefinition;

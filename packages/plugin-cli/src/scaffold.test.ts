@@ -86,6 +86,7 @@ describe("scaffoldPlugin templates", () => {
 
     expect(await manifest(implicit)).toMatchObject({
       manifestVersion: 4,
+      apiVersion: "2.0",
       entrypoints: {
         worker: { runtime: "node", protocol: "1.1" },
         app: { protocol: "1.0" },
@@ -147,6 +148,31 @@ describe("scaffoldPlugin templates", () => {
         protocol: "1.1",
       });
     }
+  });
+
+  it("exports a protocol 1.0 surface mount without mixing defineVibeXPlugin", async () => {
+    const root = await scaffold("full");
+    const app = await readFile(join(root, "runtime", "app.mjs"), "utf8");
+
+    expect(app).toContain("async mount({ root, bridge })");
+    expect(app).toContain("bridge.ready()");
+    expect(app).not.toContain("defineVibeXPlugin");
+    expect(app).not.toContain("definePluginApp");
+  });
+
+  it("reads live plugin.json from tests instead of a frozen fixture snapshot", async () => {
+    const root = await scaffold("skill");
+    const testSource = await readFile(
+      join(root, "test", "plugin.test.mjs"),
+      "utf8",
+    );
+
+    await expect(access(join(root, "test", "fixture.mjs"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+    expect(testSource).toContain("VIBEX_PLUGIN_ROOT");
+    expect(testSource).toContain(".vibex-plugin/plugin.json");
+    expect(testSource).not.toContain("export const MANIFEST");
   });
 
   it("keeps App surfaces on protocol 1.0", async () => {
@@ -223,7 +249,7 @@ describe("scaffoldPlugin templates", () => {
     );
     expect((await manifest(node)).engines).toEqual({
       vibex: ">=0.1.3 <1.0.0",
-      pluginSdk: "^1.0.0",
+      pluginSdk: "^2.0.0",
     });
 
     const rust = await scaffold("rust-worker");
@@ -247,6 +273,7 @@ async function manifest(root: string) {
     await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8"),
   ) as {
     manifestVersion: number;
+    apiVersion: string;
     entrypoints?: {
       worker?: { path: string; runtime: string; protocol: string };
       app?: { root: string; document: string; protocol: string };

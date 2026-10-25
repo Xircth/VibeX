@@ -90,6 +90,68 @@ describe("clean-room App + Agent build", () => {
     },
   );
 
+  it("bundles a protocol 2.0 app source to the declared entry", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-app20-"));
+    roots.push(parent);
+    const root = await scaffoldPlugin(join(parent, "v2-app"), "cleanroom", "skill");
+    const manifestPath = join(root, ".vibex-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      integrations?: unknown;
+      entrypoints?: unknown;
+    };
+    manifest.integrations = [];
+    manifest.entrypoints = {
+      app: { entry: "dist/app/main.js", protocol: "2.0" },
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await mkdir(join(root, "runtime"), { recursive: true });
+    await writeFile(
+      join(root, "runtime/app.tsx"),
+      `export default function App() {
+  return <p>Hello from protocol 2</p>;
+}
+`,
+    );
+
+    await buildPlugin(root);
+
+    const bundled = await readFile(join(root, "dist/app/main.js"), "utf8");
+    expect(bundled).toContain("Hello from protocol 2");
+    expect(bundled).toMatch(/from\s*["']react\/jsx-runtime["']/);
+    expect((await validatePlugin(root)).valid).toBe(true);
+  });
+
+  it("keeps an already-built protocol 2.0 app entry without a source tree", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-app20-ready-"));
+    roots.push(parent);
+    const root = await scaffoldPlugin(
+      join(parent, "prebuilt-app"),
+      "cleanroom",
+      "skill",
+    );
+    const manifestPath = join(root, ".vibex-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      integrations?: unknown;
+      entrypoints?: unknown;
+    };
+    manifest.integrations = [];
+    manifest.entrypoints = {
+      app: { entry: "app/main.js", protocol: "2.0" },
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await mkdir(join(root, "app"), { recursive: true });
+    await writeFile(
+      join(root, "app/main.js"),
+      "export default { activate() { return; } };\n",
+    );
+
+    await expect(buildPlugin(root)).resolves.toBeUndefined();
+    expect(await readFile(join(root, "app/main.js"), "utf8")).toContain(
+      "activate",
+    );
+    expect((await validatePlugin(root)).valid).toBe(true);
+  });
+
   it("bundles a Host-managed MCP into its declared package entrypoint", async () => {
     const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-mcp-"));
     roots.push(parent);

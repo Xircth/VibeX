@@ -25,14 +25,14 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-const helpText = `VibeX Plugin CLI 1.0
+export const helpText = `VibeX Plugin CLI 1.0
 
 Commands:
   run server [--http://127.0.0.1:17891] [--token <token>]
   run dev [dir]
   run build [dir]
   run test [dir] [--host]
-  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import|panel|kanban-view]
+  init [dir] [--publisher id] [--template skill|mcp|file-tab|editor-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks|host-chrome|provider-import|provider-catalog|panel|kanban-view]
   validate [dir] [--json]
   build [dir]
   test [dir] [--host]
@@ -49,8 +49,9 @@ Prefer \`vibex plugin run server\` then \`vibex plugin run dev\` from a plugin d
 test --host installs, enables Host contributions, asserts they appear then vanish on disable, reloads a Skill when one exists, and uninstalls.`;
 const [command = "help", ...args] = process.argv.slice(2);
 
-try {
-  switch (command) {
+async function main() {
+  try {
+    switch (command) {
     case "init": {
       const root = await scaffoldPlugin(
         positional(args) ?? "vibex-plugin",
@@ -201,6 +202,21 @@ try {
 } catch (error) {
   console.error(formatError(error));
   process.exitCode = 1;
+}
+}
+
+function isDirectCliRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return resolve(fileURLToPath(import.meta.url)) === resolve(entry);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCliRun()) {
+  await main();
 }
 
 async function ensureValid(root: string) {

@@ -1,3 +1,4 @@
+export declare const PLUGIN_WATCH_IGNORED_DIRECTORIES: Set<string>;
 export type PluginSourceWatcher = {
     close(): void;
 };

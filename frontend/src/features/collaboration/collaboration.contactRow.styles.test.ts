@@ -26,28 +26,28 @@ function declarationsFor(
 }
 
 describe('collaboration contact row chrome', () => {
-  it('shares a 72px avatar token for DM and group-chat rows', () => {
+  it('shares a 40px avatar token for DM and group-chat rows', () => {
     const shell = declarationsFor('.collaboration-shell');
-    expect(shell['--collaboration-contact-avatar']?.value).toBe('4.5rem');
+    expect(shell['--collaboration-contact-avatar']?.value).toBe('2.5rem');
 
     const memberIcon = declarationsFor(
       '.collaboration-shell .collaboration-member-row .workspace-session-icon'
     );
     expect(memberIcon.width?.value).toBe(
-      'var(--collaboration-contact-avatar, 4.5rem)'
+      'var(--collaboration-contact-avatar, 2.5rem)'
     );
     expect(memberIcon.height?.value).toBe(
-      'var(--collaboration-contact-avatar, 4.5rem)'
+      'var(--collaboration-contact-avatar, 2.5rem)'
     );
 
     const shared = declarationsFor(
       '.collaboration-member-row .workspace-session-icon, .collaboration-contact-row-main > .collaboration-group-avatar'
     );
     expect(shared.width?.value).toBe(
-      'var(--collaboration-contact-avatar, 4.5rem)'
+      'var(--collaboration-contact-avatar, 2.5rem)'
     );
     expect(shared.height?.value).toBe(
-      'var(--collaboration-contact-avatar, 4.5rem)'
+      'var(--collaboration-contact-avatar, 2.5rem)'
     );
   });
 
@@ -87,6 +87,31 @@ describe('collaboration contact row chrome', () => {
     expect(input.background).toBeUndefined();
     expect(input['box-shadow']).toBeUndefined();
     expect(input.flex?.value).toBe('1 1 0%');
+
+    const bare = declarationsFor('.collaboration-global-search-input');
+    expect(bare.border).toBeUndefined();
+    expect(bare.background).toBeUndefined();
+    expect(bare['box-shadow']).toBeUndefined();
+    expect(bare.outline).toBeUndefined();
+  });
+
+  it('enlarges contact names and insets them from the row top', () => {
+    const memberName = declarationsFor('.collaboration-member-name');
+    expect(memberName['font-size']?.value).toBe('15px');
+    const groupName = declarationsFor(
+      '.collaboration-contact-name-line > .workspace-session-title'
+    );
+    expect(groupName['font-size']?.value).toBe('15px');
+
+    const rowMain = declarationsFor('.collaboration-contact-row-main');
+    expect(rowMain['padding-top']?.value).toBe('0.5rem');
+    expect(rowMain['padding-bottom']?.value).toBe('0.3125rem');
+
+    const nameCell = declarationsFor(
+      '.collaboration-contact-row-main .collaboration-member-name, .collaboration-contact-row-main > .collaboration-contact-name-line'
+    );
+    expect(nameCell['padding-top']?.value).toBe('0.1875rem');
+    expect(nameCell['align-self']?.value).toBe('start');
   });
 
   it('keeps member and group contact rows on the same outer box', () => {
@@ -97,5 +122,33 @@ describe('collaboration contact row chrome', () => {
     expect(rows['min-height']?.value).toBe('0');
     expect(rows.border?.value).toBe('0');
     expect(rows.overflow?.value).toBe('visible');
+  });
+
+  it('vertically centers bot age and agent icon against the avatar', () => {
+    const meta = declarationsFor(
+      '.collaboration-contact-row-main > .workspace-session-meta-idle'
+    );
+    expect(meta['grid-row']?.value).toBe('1 / span 2');
+    expect(meta['align-self']?.value).toBe('stretch');
+    expect(meta.display?.value).toBe('inline-flex');
+    expect(meta['align-items']?.value).toBe('center');
+  });
+
+  it('defaults the left contact pane to 16.65rem', () => {
+    const twoColumn = declarationsFor(
+      ".collaboration-shell[data-spaces='true'][data-thread='true'][data-preview='false'], .collaboration-shell[data-spaces='true'][data-thread='false'][data-preview='true']"
+    );
+    expect(twoColumn['grid-template-columns']?.value).toContain(
+      'var(--collaboration-spaces-width, 16.65rem)'
+    );
+  });
+
+  it('tightens the gap between contact rows', () => {
+    const list = declarationsFor('.collaboration-pane-list-container');
+    expect(list.gap?.value).toBe('0.25rem');
+    const spaceList = declarationsFor('.collaboration-space-list');
+    expect(spaceList.gap?.value).toBe('0.25rem');
+    const body = declarationsFor('.collaboration-contact-section-body');
+    expect(body.gap?.value).toBe('0.125rem');
   });
 });

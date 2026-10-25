@@ -77,10 +77,10 @@ describe('kanbanViewCatalog', () => {
     ]);
     expect(views).toHaveLength(5);
     expect(views.slice(0, 4).map((v) => v.id)).toEqual([
-      'columns',
-      'sessions',
-      'canvas',
-      'usage',
+      'builtin:columns',
+      'builtin:sessions',
+      'builtin:canvas',
+      'builtin:usage',
     ]);
     expect(views[4]).toMatchObject({
       id: 'plugin:vibex.host-surface/sample-view',
@@ -91,10 +91,10 @@ describe('kanbanViewCatalog', () => {
 
   it('uses kanbanViewRegistry as the single source of truth and removes built-in views when vibex.webui.kanban is unloaded', async () => {
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
-      'columns',
-      'sessions',
-      'canvas',
-      'usage',
+      'builtin:columns',
+      'builtin:sessions',
+      'builtin:canvas',
+      'builtin:usage',
     ]);
 
     unloadPluginRuntime('vibex.webui.kanban');
@@ -119,10 +119,10 @@ describe('kanbanViewCatalog', () => {
       getCoreFoundationPluginSource('vibex.webui.kanban')
     );
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
-      'columns',
-      'sessions',
-      'canvas',
-      'usage',
+      'builtin:columns',
+      'builtin:sessions',
+      'builtin:canvas',
+      'builtin:usage',
     ]);
   });
 });

@@ -32,6 +32,16 @@
         "claude-code",
         "acp"
       ]
+    },
+    {
+      "id": "vibex-plugin-creator",
+      "kind": "content.skill",
+      "resource": "contents/skills/vibex-plugin-creator",
+      "targets": [
+        "codex",
+        "claude-code",
+        "acp"
+      ]
     }
   ],
   "interface": {

@@ -155,6 +155,7 @@ impl Session {
     }
 
     /// Find all sessions for a workspace, ordered by recent session activity.
+    /// Includes collaboration member sessions so the list can show bot badges.
     pub async fn find_by_workspace_id(
         pool: &SqlitePool,
         workspace_id: Uuid,
@@ -176,6 +177,7 @@ impl Session {
                       s.updated_at
                FROM sessions s
                WHERE s.workspace_id = ?
+                 AND s.deleted_at IS NULL
                ORDER BY s.updated_at DESC,
                         s.created_at DESC"#,
         )
@@ -184,6 +186,9 @@ impl Session {
         .await
     }
 
+    /// Workspace default / container session. Collaboration member sessions
+    /// stay on the session list (`find_by_workspace_id`) but do not steal this
+    /// "latest" pointer.
     pub async fn find_latest_by_workspace_id(
         pool: &SqlitePool,
         workspace_id: Uuid,
@@ -205,6 +210,15 @@ impl Session {
                       s.updated_at
                FROM sessions s
                WHERE s.workspace_id = ?
+                 AND s.deleted_at IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM collaboration_thread_members tm
+                     WHERE replace(tm.conversation_id, '-', '') = lower(hex(s.id))
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM collaboration_space_members sm
+                     WHERE replace(sm.conversation_id, '-', '') = lower(hex(s.id))
+                 )
                ORDER BY s.updated_at DESC,
                         s.created_at DESC
                LIMIT 1"#,
@@ -689,5 +703,59 @@ mod tests {
                 .expect("query by call id")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn workspace_session_list_includes_collaboration_member_sessions() {
+        let pool = setup_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let regular_id = Uuid::new_v4();
+        let member_session_id = Uuid::new_v4();
+
+        Session::create(&pool, &sample("CODEX"), regular_id, workspace_id)
+            .await
+            .expect("create regular session");
+        Session::create(&pool, &sample("CODEX"), member_session_id, workspace_id)
+            .await
+            .expect("create member backing session");
+
+        sqlx::query(
+            "INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, joined_at) VALUES (?, ?, ?, '2026-10-24T00:00:00Z')",
+        )
+        .bind("thread-1")
+        .bind("member-1")
+        .bind(member_session_id.to_string())
+        .execute(&pool)
+        .await
+        .expect("bind member session");
+
+        let sessions = Session::find_by_workspace_id(&pool, workspace_id)
+            .await
+            .expect("find_by_workspace_id");
+        let listed: Vec<Uuid> = sessions.iter().map(|session| session.id).collect();
+        assert!(listed.contains(&regular_id));
+        assert!(
+            listed.contains(&member_session_id),
+            "workspace session lists show collaboration member sessions"
+        );
+
+        let latest = Session::find_latest_by_workspace_id(&pool, workspace_id)
+            .await
+            .expect("find_latest_by_workspace_id")
+            .expect("latest session");
+        assert_eq!(
+            latest.id, regular_id,
+            "workspace default session stays a non-collaboration row"
+        );
+
+        let summaries = crate::models::conversation::DbConversationSummary::list_for_workspace(
+            &pool,
+            workspace_id,
+        )
+        .await
+        .expect("list_for_workspace");
+        let summary_ids: Vec<Uuid> = summaries.iter().map(|summary| summary.id).collect();
+        assert!(summary_ids.contains(&regular_id));
+        assert!(summary_ids.contains(&member_session_id));
     }
 }

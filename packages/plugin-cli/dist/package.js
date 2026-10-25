@@ -22,15 +22,23 @@ async function createLockForFiles(root, files) {
     };
 }
 export async function packPlugin(root, output) {
-    const releaseFiles = (await packageFiles(root)).filter((path) => path !== 'runtime' &&
-        !path.startsWith('runtime/') &&
-        path !== 'test' &&
-        !path.startsWith('test/') &&
-        path !== 'package.json' &&
-        path !== 'pnpm-lock.yaml' &&
-        path !== 'package-lock.json' &&
-        path !== 'yarn.lock' &&
-        !path.endsWith('.map'));
+    const manifest = JSON.parse(await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8'));
+    const keptRuntime = protocol2AppArtifacts(manifest.entrypoints?.app);
+    const releaseFiles = (await packageFiles(root)).filter((path) => {
+        if (path.split('/').includes('.test-dist'))
+            return false;
+        if (keptRuntime.has(path))
+            return true;
+        return (path !== 'runtime' &&
+            !path.startsWith('runtime/') &&
+            path !== 'test' &&
+            !path.startsWith('test/') &&
+            path !== 'package.json' &&
+            path !== 'pnpm-lock.yaml' &&
+            path !== 'package-lock.json' &&
+            path !== 'yarn.lock' &&
+            !path.endsWith('.map'));
+    });
     const lock = await createLockForFiles(root, releaseFiles);
     const lockPath = join(root, '.vibex-plugin', 'package.lock.json');
     await mkdir(dirname(lockPath), { recursive: true });
@@ -52,7 +60,6 @@ export async function packPlugin(root, output) {
     const lockEntry = zip.getEntry('.vibex-plugin/package.lock.json');
     if (lockEntry)
         lockEntry.header.time = new Date('1980-01-01T00:00:00.000Z');
-    const manifest = JSON.parse(await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8'));
     const target = resolve(output ?? join(root, 'dist', `${manifest.id}-${manifest.version}.vxp`));
     const signature = {
         algorithm: 'sha256',
@@ -70,7 +77,9 @@ async function packageFiles(root) {
     async function visit(directory) {
         const entries = await readdir(directory, { withFileTypes: true });
         for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-            if (entry.name === 'node_modules' || entry.name === '.git')
+            if (entry.name === 'node_modules' ||
+                entry.name === '.git' ||
+                entry.name === '.test-dist')
                 continue;
             const absolute = join(directory, entry.name);
             const path = relative(root, absolute).replaceAll('\\', '/');
@@ -90,6 +99,18 @@ async function packageFiles(root) {
     }
     await visit(root);
     return paths.sort();
+}
+function protocol2AppArtifacts(app) {
+    const kept = new Set();
+    if (app?.protocol !== '2.0')
+        return kept;
+    if (typeof app.entry === 'string' && app.entry) {
+        kept.add(app.entry.replaceAll('\\', '/'));
+    }
+    if (typeof app.styles === 'string' && app.styles) {
+        kept.add(app.styles.replaceAll('\\', '/'));
+    }
+    return kept;
 }
 function hash(data) {
     return createHash('sha256').update(data).digest('hex');

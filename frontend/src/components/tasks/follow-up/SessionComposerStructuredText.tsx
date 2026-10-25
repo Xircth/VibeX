@@ -2,6 +2,7 @@ import {
   forwardRef,
   useRef,
   useState,
+  type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
@@ -24,6 +25,10 @@ import {
   AgentIcon,
   getBuiltInAgentIconPaths,
 } from '@/components/agents/AgentIcon';
+import {
+  MemberBotAvatar,
+  deriveMemberBotAvatar,
+} from '@/features/collaboration/MemberBotAvatar';
 import { cn } from '@/lib/utils';
 import { QuoteTokenPreview } from './QuoteTokenPreview';
 import type {
@@ -43,6 +48,7 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
   plugin_action: 'pink',
   element: 'blue',
   agent_mention: 'purple',
+  member_mention: 'blue',
   conversation: 'blue',
   commit: 'blue',
   project: 'blue',
@@ -57,6 +63,7 @@ export function getSessionComposerTokenChipTitle(
   }
   if (
     token.kind === 'agent_mention' ||
+    token.kind === 'member_mention' ||
     token.kind === 'file' ||
     token.kind === 'plugin_action' ||
     token.kind === 'conversation' ||
@@ -72,6 +79,12 @@ export function getSessionComposerTokenChipClassName(
   token: SessionComposerStructuredToken,
   className?: string
 ): string {
+  if (token.kind === 'member_mention') {
+    return cn(
+      'session-composer-token-chip collaboration-member-mention-chip collaboration-composer-member-token inline cursor-text select-text align-baseline',
+      className
+    );
+  }
   return cn(
     'session-composer-token-chip inline-flex max-w-[220px] cursor-default select-none items-center gap-1 align-middle',
     (token.kind === 'file' ||
@@ -88,7 +101,10 @@ export function SessionComposerTokenIcon({
   token,
   className = 'h-3 w-3',
 }: {
-  token: Pick<SessionComposerStructuredToken, 'kind' | 'value'>;
+  token: Pick<
+    SessionComposerStructuredToken,
+    'kind' | 'value' | 'memberAvatar'
+  >;
   className?: string;
 }): ReactNode {
   switch (token.kind) {
@@ -100,6 +116,13 @@ export function SessionComposerTokenIcon({
       return <Puzzle className={className} />;
     case 'agent_mention':
       return <AgentIcon agent={token.value} className={className} />;
+    case 'member_mention':
+      return (
+        <MemberBotAvatar
+          config={token.memberAvatar ?? deriveMemberBotAvatar(token.value)}
+          className={cn('collaboration-member-mention-avatar', className)}
+        />
+      );
     case 'file':
       return <FileIcon className={className} />;
     case 'tag':
@@ -119,12 +142,52 @@ export function SessionComposerTokenIcon({
 
 export function toSessionComposerChatToken(
   token: SessionComposerStructuredToken
-): {
-  value: string;
-  label: string;
-  variant: BadgeVariant;
-  icon: ReactNode;
-} {
+):
+  | {
+      value: string;
+      label: string;
+      variant: BadgeVariant;
+      icon: ReactNode;
+    }
+  | {
+      value: string;
+      render: () => ReactNode;
+    } {
+  if (token.kind === 'member_mention') {
+    const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
+    const color = avatar.color || '#2563eb';
+    return {
+      value: token.raw,
+      render: () => (
+        <span
+          className="collaboration-member-mention-chip collaboration-composer-member-token"
+          data-member-mention={token.label}
+          style={
+            {
+              '--member-mention-color': color,
+              background: 'transparent',
+              backgroundColor: 'transparent',
+              padding: 0,
+              borderRadius: 0,
+              border: 0,
+              boxShadow: 'none',
+            } as CSSProperties
+          }
+        >
+          <MemberBotAvatar
+            config={avatar}
+            className="collaboration-member-mention-avatar"
+          />
+          <span
+            className="collaboration-member-mention-name"
+            style={{ color }}
+          >
+            {token.label}
+          </span>
+        </span>
+      ),
+    };
+  }
   return {
     value: token.raw,
     label: token.label,
@@ -136,6 +199,15 @@ export function toSessionComposerChatToken(
 function restoredSessionComposerTokenIconMarkup(
   token: SessionComposerStructuredToken
 ): string {
+  if (token.kind === 'member_mention') {
+    const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
+    return renderToStaticMarkup(
+      <MemberBotAvatar
+        config={avatar}
+        className="collaboration-member-mention-avatar"
+      />
+    );
+  }
   if (token.kind === 'agent_mention') {
     const paths = getBuiltInAgentIconPaths(token.value);
     if (paths) {
@@ -176,7 +248,16 @@ export function appendSessionComposerTokenContents(
     element.append(iconHost);
   }
   const label = document.createElement('span');
-  label.className = 'session-composer-token-label truncate font-medium';
+  if (token.kind === 'member_mention') {
+    const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
+    label.className =
+      'session-composer-token-label collaboration-member-mention-name truncate font-bold';
+    if (avatar.color) {
+      label.style.color = avatar.color;
+    }
+  } else {
+    label.className = 'session-composer-token-label truncate font-medium';
+  }
   label.textContent = token.label;
   element.append(label);
 }
@@ -192,6 +273,10 @@ export function SessionComposerTokenChip({
   const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
   const isQuote = token.kind === 'quote';
   const showsPreview = isQuote || token.kind === 'element';
+  const memberAvatar =
+    token.kind === 'member_mention'
+      ? (token.memberAvatar ?? deriveMemberBotAvatar(token.value))
+      : null;
 
   const showQuotePreview = () => {
     if (hideTimerRef.current != null) {
@@ -222,10 +307,35 @@ export function SessionComposerTokenChip({
         )}
         data-testid="session-composer-token-chip"
         data-token-kind={token.kind}
-        data-variant={SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]}
+        data-member-mention={
+          token.kind === 'member_mention' ? token.label : undefined
+        }
+        data-variant={
+          token.kind === 'member_mention'
+            ? undefined
+            : SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]
+        }
+        style={
+          token.kind === 'member_mention'
+            ? ({
+                '--member-mention-color': memberAvatar?.color,
+                background: 'transparent',
+                backgroundColor: 'transparent',
+                padding: 0,
+                borderRadius: 0,
+                border: 0,
+                boxShadow: 'none',
+                ...elementProps.style,
+              } as CSSProperties)
+            : elementProps.style
+        }
         data-structured-token-atomic="true"
         tabIndex={showsPreview ? 0 : elementProps.tabIndex}
-        onMouseDown={(event) => event.preventDefault()}
+        onMouseDown={
+          token.kind === 'member_mention'
+            ? elementProps.onMouseDown
+            : (event) => event.preventDefault()
+        }
         onPointerEnter={showsPreview ? showQuotePreview : undefined}
         onPointerLeave={showsPreview ? hideQuotePreview : undefined}
         onFocus={showsPreview ? showQuotePreview : undefined}
@@ -234,8 +344,26 @@ export function SessionComposerTokenChip({
           showsPreview ? undefined : getSessionComposerTokenChipTitle(token)
         }
       >
-        <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
-        <span className="truncate font-medium">{token.label}</span>
+        <SessionComposerTokenIcon
+          token={token}
+          className={
+            token.kind === 'member_mention'
+              ? 'collaboration-member-mention-avatar shrink-0'
+              : 'h-3 w-3 shrink-0'
+          }
+        />
+        <span
+          className={
+            token.kind === 'member_mention'
+              ? 'collaboration-member-mention-name truncate font-bold'
+              : 'truncate font-medium'
+          }
+          style={
+            memberAvatar?.color ? { color: memberAvatar.color } : undefined
+          }
+        >
+          {token.label}
+        </span>
       </span>
       {showsPreview && quotePreviewOpen && chipRef.current ? (
         <QuoteTokenPreview

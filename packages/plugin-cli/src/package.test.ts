@@ -63,4 +63,40 @@ describe('deterministic package boundary', () => {
     expect(names).not.toContain('package.json');
     expect(names).not.toContain('pnpm-lock.yaml');
   });
+
+  it('ships a protocol 2.0 app entry even when it lives under runtime', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-package-'));
+    roots.push(root);
+    await mkdir(join(root, '.vibex-plugin'), { recursive: true });
+    await mkdir(join(root, 'runtime'), { recursive: true });
+    await mkdir(join(root, '.vibex-plugin/.test-dist'), { recursive: true });
+    await writeFile(
+      join(root, '.vibex-plugin/plugin.json'),
+      JSON.stringify({
+        id: 'sample',
+        version: '1.0.0',
+        entrypoints: {
+          app: {
+            entry: 'runtime/app.mjs',
+            styles: 'runtime/app.css',
+            protocol: '2.0',
+          },
+        },
+      })
+    );
+    await writeFile(join(root, 'runtime/app.mjs'), 'export default {};');
+    await writeFile(join(root, 'runtime/app.css'), ':root{}');
+    await writeFile(join(root, 'runtime/secret.ts'), 'do not ship');
+    await writeFile(join(root, '.vibex-plugin/.test-dist/bundle.mjs'), 'tmp');
+    await writeFile(join(root, 'config.json'), '{}');
+
+    const { output } = await packPlugin(root, join(root, 'sample.vxp'));
+    const zip = new AdmZip(await readFile(output));
+    const names = zip.getEntries().map((entry) => entry.entryName);
+
+    expect(names).toContain('runtime/app.mjs');
+    expect(names).toContain('runtime/app.css');
+    expect(names).not.toContain('runtime/secret.ts');
+    expect(names).not.toContain('.vibex-plugin/.test-dist/bundle.mjs');
+  });
 });

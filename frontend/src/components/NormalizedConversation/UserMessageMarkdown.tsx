@@ -10,6 +10,12 @@ import {
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  MEMBER_PLACEHOLDER_PATTERN,
+  MemberMentionChip,
+  protectMemberMentions,
+  useCollaborationMemberMention,
+} from '@/features/collaboration/MemberMentionChip';
 import { applySoftBreaks } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
   deriveRelativeFilePath,
@@ -35,6 +41,7 @@ type RestrictedMarkdown = {
   tokens: SessionComposerStructuredToken[];
   underlines: string[];
   links: RestrictedLink[];
+  memberMentions: string[];
 };
 
 function escapeUnsupportedInline(value: string): string {
@@ -147,7 +154,11 @@ function escapeUnsupportedBlockPrefix(value: string): string {
   return value;
 }
 
-function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
+function prepareUserMessageMarkdown(
+  source: string,
+  enableMemberMentions = false,
+  knownNicknames: readonly string[] = []
+): RestrictedMarkdown {
   const tokens: SessionComposerStructuredToken[] = [];
   const underlines: string[] = [];
   const links: RestrictedLink[] = [];
@@ -166,7 +177,11 @@ function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
     })
     .join('');
 
-  const value = sourceWithTokenPlaceholders
+  const protectedMentions = enableMemberMentions
+    ? protectMemberMentions(sourceWithTokenPlaceholders, knownNicknames)
+    : { text: sourceWithTokenPlaceholders, mentions: [] };
+
+  const value = protectedMentions.text
     .split('\n')
     .map((line) => {
       if (/^\s*```/u.test(line)) {
@@ -192,7 +207,13 @@ function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
     })
     .join('\n');
 
-  return { value: applySoftBreaks(value), tokens, underlines, links };
+  return {
+    value: applySoftBreaks(value),
+    tokens,
+    underlines,
+    links,
+    memberMentions: protectedMentions.mentions,
+  };
 }
 
 function UserCodeBlock({
@@ -221,7 +242,20 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
   workspacePath,
 }: UserMessageMarkdownProps) {
   const panelActions = useOptionalPanelActionsContext();
-  const restricted = useMemo(() => prepareUserMessageMarkdown(value), [value]);
+  const memberMentionCtx = useCollaborationMemberMention();
+  const restricted = useMemo(
+    () =>
+      prepareUserMessageMarkdown(
+        value,
+        memberMentionCtx.enableMemberMentions,
+        memberMentionCtx.knownNicknames
+      ),
+    [
+      memberMentionCtx.enableMemberMentions,
+      memberMentionCtx.knownNicknames,
+      value,
+    ]
+  );
   const inlinePlugins = useMemo<MarkdownInlinePlugin[]>(
     () => [
       {
@@ -277,10 +311,26 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
           ) : null;
         },
       },
+      {
+        pattern: MEMBER_PLACEHOLDER_PATTERN,
+        render: (match, key): ReactNode => {
+          const nickname = restricted.memberMentions[Number(match[1])];
+          if (!nickname) return null;
+          return (
+            <MemberMentionChip
+              key={key}
+              nickname={nickname}
+              avatar={memberMentionCtx.resolveMemberAvatar(nickname)}
+            />
+          );
+        },
+      },
     ],
     [
+      memberMentionCtx,
       panelActions,
       restricted.links,
+      restricted.memberMentions,
       restricted.tokens,
       restricted.underlines,
       workspacePath,

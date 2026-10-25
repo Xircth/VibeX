@@ -1,6 +1,6 @@
 # VibeX 插件开发文档
 
-对照 Host 0.1.3、协议 1.1、SDK 1.0.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。
+对照 Host 0.1.3、协议 1.1、SDK 2.0 / 1.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。
 
 查工具链路径执行 `vibex-plugin toolchain`。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。先 `vibex plugin run server --http://127.0.0.1:17891 --token <token>`，再在插件目录里 `vibex plugin run dev`。
 
@@ -70,7 +70,8 @@ my-plugin/
 │  └─ resources/
 ├─ depends/
 │  └─ runtimes/
-├─ runtime/                      # 源码，不进发布物
+├─ app/                          # 宿主内 / 联邦模块 App 入口（protocol: "2.0"，如 app/main.js）
+├─ runtime/                      # Worker / 独立 Surface App 源码，不进发布物
 └─ dist/                         # build 输出
 ```
 
@@ -90,13 +91,13 @@ my-plugin/
 {
   "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
   "manifestVersion": 4,
-  "apiVersion": "1.0",
+  "apiVersion": "2.0",
   "id": "notes",
   "publisher": "you",
   "version": "0.1.0",
   "name": "Notes",
   "readme": "README.md",
-  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^2.0.0" },
   "content": {
     "root": "contents",
     "index": ".vibex-plugin/content.index.json"
@@ -115,9 +116,8 @@ my-plugin/
       "protocol": "1.1"
     },
     "app": {
-      "root": "dist/app",
-      "document": "index.html",
-      "protocol": "1.0"
+      "entry": "app/main.js",
+      "protocol": "2.0"
     }
   },
   "integrations": [],
@@ -127,7 +127,9 @@ my-plugin/
 
 `entrypoints.worker.runtime` 取 `node`、`python` 或 `native`。作者只写 `runtime`，不要再写已经废掉的 `format=javascript-esm`。`maxFrameMiB` 可选，不写就是 32。取值是 1 到 128 的整数，单位 MiB。Host 把它作为这个 Worker 的单帧上限，并在 `initialize` 的 `limits.maxFrameBytes` 里宣布。
 
-Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
+Worker 走协议 1.1（initialize 再 activate）。App 入口（`entrypoints.app`）支持两种协议：
+- **`protocol: "2.0"`（宿主内 / 联邦模块 App）**：`{ "entry": "app/main.js", "protocol": "2.0" }`，配合 `defineVibeXPlugin((ctx) => ...)` 与命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）。
+- **`protocol: "1.0"`（独立 HTML Surface App）**：`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`，配合 `definePluginApp(({ root, bridge, signal }) => ...)`。
 
 ### integrations
 
@@ -137,7 +139,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | --- | --- |
 | `content.skill` | 把 `contents/skills/...` 投影给兼容 Agent |
 | `content.mcp` | 托管 MCP。声明后由 Host MCP 管理器登记、列出工具，并投影给兼容 Agent |
-| `content.hook` | **尚未实现。** 清单能通过校验，但宿主没有 Hook 运行时，声明了也不会触发，inspect 会给出警告 |
+| `content.hook` | **尚未实现。** 清单能通过校验，但宿主没有静态 Hook 运行时（动态 Turn Hook 请用 `protocol: "2.0"` 的 `ctx.hooks.beforeTurn` / `afterTurn`） |
 | `workflow.binding` | 把 `contents/workflows/` 暴露给 Composer / Automation |
 | `file.opener` | 按扩展名、媒体类型或文件名后缀打开。只读预览写 `previewProvider`，可编辑页写 `editorSurface` |
 | `artifact.preview` | Broker 管的预览 provider，可带 process argv |
@@ -265,12 +267,12 @@ CLI 侧对应的是 `doctor`；崩溃与日志两边同源。
 
 stdio，一行一条 JSON。顺序是 `initialize`（谈成 `1.1`）→ `activate` → 之后 `invoke` / `ping` / `dispose`。Worker 调 Host 用 `host.call`，带 `capability`、`operation`、`input`。
 
-单帧默认 32 MiB，用 `entrypoints.worker.maxFrameMiB` 改成 1 到 128。一条消息超过单帧、不超过 128 MiB 时，协议把它拆成 `frame.chunk`，对端拼回后再交给 handler。图片放在这一条 JSON 里即可。视频和其他更大的二进制不要放进 JSON：用 `blob.create`、`blob.append`、`blob.finish` 写到 Host 磁盘，调用结果只带 blob id。单文件上限 4 GiB，每次读写 512 KiB。不要自己按别的格式拆行：那种分片会被拒绝，但只失败这一次调用，不会卸载 Worker。超时默认 30 秒。
+默认单帧上限 `32 MiB`（可通过 `entrypoints.worker.maxFrameMiB` 配置 `1..128 MiB`），逻辑消息上限 `64 MiB`；超出单帧上限的消息自动通过 `frame.chunk` 分片传输与重组。图片放在这一条 JSON 里即可。视频和其他更大的二进制不要放进 JSON：用 `blob.create`、`blob.append`、`blob.finish` 写到 Host 磁盘，调用结果只带 blob id。单文件上限 4 GiB，每次读写 512 KiB。不要自己按别的格式拆行：那种分片会被拒绝，但只失败这一次调用，不会卸载 Worker。超时默认 30 秒。
 
 handler id 正则
 
 ```text
-^[a-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]*)*$
+^[a-z][A-Za-z0-9]*(?:[.-][a-z][A-Za-z0-9]*)*$
 ```
 
 setup 阶段只注册，不在外面偷偷干活。注册完成就冻结。重复、未声明、缺必填 handler，候选代失败。
@@ -279,15 +281,15 @@ setup 阶段只注册，不在外面偷偷干活。注册完成就冻结。重�
 
 包名 `@vibex/plugin-sdk`。导出
 
-- `.` 与 `/protocol` 类型和常量
-- `/worker` 定义 Worker
-- `/app` 定义 App
-- `/stdio` 跑 stdio 循环
-- `/testing` harness
+- `.`：v2 宿主内 / 联邦模块插件入口（`defineVibeXPlugin`、`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）与协议类型
+- `/protocol`：类型和常量
+- `/worker`：定义 Worker
+- `/app`：定义独立 HTML Surface App（`definePluginApp`）
+- `/stdio`：跑 stdio 循环
+- `/testing`：harness（`createPluginTestHarness`、`createWorkerHarness`、`createGenerationHarness`、`createAppHarness`）
 
 常量
 
-- `VIBEX_PLUGIN_API_VERSION` 为 `"1.0"`
 - `VIBEX_PLUGIN_PROTOCOL_VERSION` 为 `"1.1"`
 
 ### definePluginWorker
@@ -330,47 +332,34 @@ export default definePluginWorker((registrar, environment) => {
 
 `activatePluginWorker(definition, environment)` 给测试或自托管用。`apiVersion` 不是 `1.0` 会抛 `sdk_incompatible`。已 dispose 再 `invoke` 抛 `worker_disposed`。找不到 handler 抛 `handler_not_found`。
 
-### host.call
+### host.call（HostCapabilityBroker 实现状态）
 
-签名 `host.call<T>(capability, operation, input?)`。
+签名 `host.call<T>(capability, operation, input?)`（`protocol: "2.0"` 插件也可直接通过 `ctx.host.*` 调用）。
 
-catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话。
+当前 `crates/plugins/src/host_capability_broker.rs` 已真实实现的能力：
 
-已经能当功能用的
-
-- `runtime.lock` 的 `get` `{ runtimeId }`，返回 Host 已锁定的 `{ executablePath, version, target, contentDigest }`。不 spawn。任意 sidecar Worker 用这个路径拉起二进制。
-- `artifact.preview` 的 `open` / `close`，打开要先拿到 Host 发的短命 handle（约 30 秒）
-- `storage.kv` 的 `get` / `put` / `delete` / `list`，按插件 ID 隔离，进程内存储
-- `storage.settings.get` / `put` 读写该插件的 `config.json`
-- `remote.profile.list` / `upsert` / `forget` 操作客户端已保存 Host。`provisionKind` 是 Host 拥有的来源标记（如 `ssh`），不是插件 ID。卸载插件不得调用 `forget`；已保存 Host 属于 Host。
-- `remote.connect` / `disconnect` 把应用壳接到某个已保存 Host。带 origin 的 connect 不再走供给器；从已保存列表只带 profileId 连接时，Host 按 `provisionKind` 调用匹配的 `provider.remote.provisioner`。
-- `conversation.create` `{ agentId, workspaceId?, title?, prompt? }` 创建一条 VibeX Conversation 并绑到这个插件。省略 `workspaceId` 时 Host 使用该插件自己的 scratch 工作区（独立 git 目录，不出现在项目列表），插件可以自建一套会话环境。传入当前窗口的 `workspaceId` 则挂到那个编码工作区。`prompt` 有值时立刻入队。
-- `conversation.list` 只返回这个插件创建或被 Host 授予的会话
-- `conversation.read.get` / `conversation.get` `{ conversationId }` 读摘要、最近 Turn、assistant 文本、排队输入和 sequence
-- `conversation.append.enqueueInput` `{ conversationId, text, images?, modeOverride? }` 走同一条 `submit` 控制面
-- `conversation.steer` `{ conversationId, expectedTurnId, text }` 向在途 Turn 纠偏，不创建新 Turn
-- `conversation.cancel` `{ conversationId }` 取消在途 Turn
-- `conversation.cancelInput` / `conversation.listInputs` 改排队输入
-- `conversation.respondPermission` / `conversation.respondQuestion` 应答权限与提问
-- `conversation.setMode` / `conversation.setConfigOption` 改会话配置
-- `conversation.catalog` 列出可选用的 Agent
-- `conversation.archive` 归档
-- `conversation.events.since` `{ conversationId, afterSequence? }` 拉变更过的时间线行
-- `log.*` 走 Worker 日志
-- `blob.create` `{ mediaType?, name? }` 建一个空文件，返回 `{ id }`。`blob.append` `{ id, data }` 的 `data` 是一段 base64，解码后不超过 512 KiB。`blob.finish` `{ id }` 返回 `{ id, byteLength, mediaType, name, finished }`。`blob.read` `{ id, offset?, length? }` 按同样的块读回。`blob.stat` 看元数据，`blob.delete` 删掉。单文件上限 4 GiB。JavaScript 用 `writeBlob` / `readBlob`（`@vibex/plugin-sdk`），Python 用 `vibex_plugin.write_blob` / `read_blob`，Rust 用 `write_blob` / `read_blob`。视频走这里，不要塞进 `invoke` 的 JSON。
+- `storage.kv` 的 `get` / `put` / `set` / `delete` / `list` / `clear`：按插件 ID 隔离的 **SQLite 持久化 KV 存储**（带进程内热缓存）
+- `storage.settings.get` / `put` / `set`：读写该插件的根 `config.json` 并按 `config.schema` 校验
+- `secrets` 的 `get` / `put` / `delete`：基于 **OS Keychain / 加密存储** 的按插件 ID 隔离凭据管理
+- `files` 的 `read` / `write` / `stat` / `list`：**基于授权根目录（workspace / plugin_data）的文件操作**，越界或路径逃逸时返回 `files_root_denied`
+- `network.fetch`：**支持 HTTP/HTTPS 的宿主代理网络请求**（支持自定义 method、headers、body、timeout）
+- `exec` 的 `run` / `spawn` / `kill` / `status`：**受管子进程执行与后台常驻进程管理**，插件停用时自动清理
+- `runtime.lock` 的 `get` `{ runtimeId }` 与 `runtime.execute` 的 `run`：返回已锁定的可执行文件路径或按锁拉起进程
+- `artifact.preview` 的 `open` / `close`：打开预览需要先拿到 Host 发的短命 handle（约 30 秒）
+- `remote.profile.list` / `upsert` / `forget` 与 `remote.connect` / `disconnect`：操作客户端已保存的远程 Host 并切换连接
+- `conversation.*`（`create`、`list`、`read.get`、`append.enqueueInput`、`steer`、`cancel`、`cancelInput`、`listInputs`、`respondPermission`、`respondQuestion`、`setMode`、`setConfigOption`、`catalog`、`archive`、`events.since`）：创建、查询与控制插件拥有或被授予的会话（对未绑定会话返回 `conversation_scope_denied`）
+- `events` 的 `subscribe` / `ack` / `publish` 与 `app.notify.toast`：插件事件订阅发布与宿主 Toast 通知
+- `log.*` 与 `plugin.self` / `doctor`：走插件诊断日志与自检状态查询
+- `blob.create` / `blob.append` / `blob.finish` / `blob.read` / `blob.stat` / `blob.delete`：大体积二进制流式读写（单文件上限 4 GiB，分块 512 KiB）
 
 结构面（`app.tab` / `app.panel` / `app.kanban.view` / `app.settings.page`）的 Federation `mount(root, environment)` 会带上 `workspaceId` 和 `invoke(handler, input)`。`invoke` 打到本插件 Worker，再由 Worker 调 `host.call`。不要从 App 里自己 `invoke` Tauri 命令。
 
-会明确失败的
+### App 入口的两种协议（`defineVibeXPlugin` 与 `definePluginApp`）
 
-- `network.fetch` 返回 `network_denied`。Full Trust 请用语言运行时自己访问网络。Isolated 默认没有 `socket`/`connect`
-- `files.*` 返回 `files_root_denied`，工作区根还没绑到这个 Worker
-- `conversation.*` 对未绑定会话返回 `conversation_scope_denied`
-- `agent.invoke` 返回 `handler_not_visible`
-
-占位或未做完的会 `capability_unimplemented`。`secrets.*` 目前只回 `{ "present": false }`。
-
-### definePluginApp
+1. **`protocol: "2.0"` — 宿主内 / 联邦模块 App（`{ "entry": "app/main.js", "protocol": "2.0" }`）**：
+   使用 `defineVibeXPlugin((ctx) => ...)`，通过命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）直接在宿主 React 树内注册槽位、命令、面板、Turn Hook 与 IoC 服务。
+2. **`protocol: "1.0"` — 独立 HTML Surface App（`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`）**：
+   使用 `definePluginApp(({ bridge, root, signal }) => ...)`：
 
 ```ts
 import { definePluginApp } from '@vibex/plugin-sdk/app';
@@ -396,6 +385,7 @@ export default definePluginApp(({ bridge, root, signal }) => {
 | `pluginId` | 插件 ID |
 | `generation` | 当前代 |
 | `invoke(handler, input?)` | 调本代 Worker |
+| `hostCall?(capability, operation, input?)` | 1-hop 调用 HostCapabilityBroker |
 | `subscribe(channel, listener)` | 订阅，返回取消函数 |
 | `ready()` | 告诉 Host 页面已挂上 |
 | `artifact` | 仅 `artifact.editor` 文件页存在 |
@@ -407,8 +397,6 @@ export default definePluginApp(({ bridge, root, signal }) => {
 | `name` | 文件名，不是本机绝对路径 |
 | `readText()` | 得到 `{ name, content, revision }` |
 | `writeText(content, expectedRevision)` | 按修订号写入。外部改过会冲突，不要盲覆盖 |
-
-App 协议是 1.0。不要在 App 里自己去读 Host 磁盘路径。
 
 ### testing
 
@@ -429,7 +417,7 @@ const next = await gen.activateCandidate(definition);
 await gen.dispose();
 ```
 
-`createGenerationHarness` 用来演候选代切换。缺 required handler 会在激活时失败。
+`createGenerationHarness` 用来演候选代切换。缺 required handler 会在激活时失败。非 Worker 插件测试直接读取真实的 `.vibex-plugin/plugin.json` 校验，无需改成静态 fixture 导出。
 
 ### stdio
 
@@ -465,8 +453,6 @@ if __name__ == "__main__":
 `environment.context` 是带属性的字典。`plugin_id`、`plugin_version`、`generation`、`package_class`。
 
 `environment.host.call(capability, operation, input=None)` 是 async。
-
-`HostClient` 另提供 `fetch_url`、`read_local_file`、`write_local_file`，给 Full Trust 本机 IO 用，不要和尚未接好的 `files.*` Broker 混为一谈。
 
 测试
 

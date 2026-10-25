@@ -240,7 +240,10 @@ pub async fn post_card(
             .iter()
             .find(|m| m.nickname == nick && m.member_id != seat.member_id)
             .ok_or_else(|| {
-                CollaborationError::new("not_a_member", format!("{nick} is not another member of this thread"))
+                CollaborationError::new(
+                    "not_a_member",
+                    format!("{nick} is not another member of this thread"),
+                )
             })?;
         payload["to"] = json!(member.nickname);
         payload["target_member_id"] = json!(member.member_id);
@@ -475,6 +478,9 @@ mod tests {
         let space = collaboration::create_collaboration_space(&pool, a, "群", Uuid::new_v4())
             .await
             .unwrap();
+        collaboration::add_space_member(&pool, a, &space.space_id, a, "小A", Uuid::new_v4())
+            .await
+            .unwrap();
         collaboration::add_space_member(&pool, a, &space.space_id, b, "小B", Uuid::new_v4())
             .await
             .unwrap();
@@ -612,8 +618,7 @@ mod tests {
                 .await
                 .is_err()
         );
-        let resolved =
-            resolve_card(&pool, &card.id, CardActor::User, None, Some(" dev "), &d)
+        let resolved = resolve_card(&pool, &card.id, CardActor::User, None, Some(" dev "), &d)
             .await
             .unwrap();
         assert_eq!(resolved.status, "resolved");
@@ -719,13 +724,14 @@ mod tests {
     async fn target_member_resolving_ask_succeeds_and_replies_as_that_member() {
         let (pool, space, a, b, _) = fixture().await;
         let d = DeliveryContext::default();
-        let card = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        let card = post_card(&pool, ask_to(a, &space, "小B"), &d)
+            .await
+            .unwrap();
         assert!(card.payload["target_member_id"].is_string());
         assert_eq!(card.payload["to"], json!("小B"));
-        let resolved =
-            resolve_card(&pool, &card.id, CardActor::Member(b), None, Some("dev"), &d)
-                .await
-                .unwrap();
+        let resolved = resolve_card(&pool, &card.id, CardActor::Member(b), None, Some("dev"), &d)
+            .await
+            .unwrap();
         assert_eq!(resolved.status, "resolved");
         assert_eq!(resolved.resolution, Some(json!({ "answer": "dev" })));
         let reply = resolved.reply_message_id.expect("reply posted");
@@ -749,7 +755,9 @@ mod tests {
     async fn user_can_resolve_ask_to_member_and_ask_to_user() {
         let (pool, space, a, _, _) = fixture().await;
         let d = DeliveryContext::default();
-        let to_member = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        let to_member = post_card(&pool, ask_to(a, &space, "小B"), &d)
+            .await
+            .unwrap();
         let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
             .await
             .unwrap();
@@ -765,13 +773,19 @@ mod tests {
     async fn non_target_member_cannot_resolve_ask() {
         let (pool, space, a, b, c) = fixture().await;
         let d = DeliveryContext::default();
-        let card = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        let card = post_card(&pool, ask_to(a, &space, "小B"), &d)
+            .await
+            .unwrap();
         // the asker itself is not the target
         let err = resolve_card(&pool, &card.id, CardActor::Member(a), None, Some("x"), &d)
             .await
             .unwrap_err();
         assert_eq!(err.code, "permission_denied");
-        assert!(err.message.contains("asked member or the user"), "{}", err.message);
+        assert!(
+            err.message.contains("asked member or the user"),
+            "{}",
+            err.message
+        );
         // a non-member is rejected too
         let err = resolve_card(&pool, &card.id, CardActor::Member(c), None, Some("x"), &d)
             .await
@@ -781,13 +795,23 @@ mod tests {
         let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
             .await
             .unwrap();
-        let err = resolve_card(&pool, &to_user.id, CardActor::Member(b), None, Some("x"), &d)
-            .await
-            .unwrap_err();
+        let err = resolve_card(
+            &pool,
+            &to_user.id,
+            CardActor::Member(b),
+            None,
+            Some("x"),
+            &d,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.code, "permission_denied");
         assert!(err.message.contains("only the user"), "{}", err.message);
         for id in [&card.id, &to_user.id] {
-            assert_eq!(load_card(&pool, id).await.unwrap().unwrap().status, "pending");
+            assert_eq!(
+                load_card(&pool, id).await.unwrap().unwrap().status,
+                "pending"
+            );
         }
     }
 
@@ -810,7 +834,10 @@ mod tests {
             assert_eq!(err.code, "permission_denied");
             assert!(err.message.contains("only the user"), "{}", err.message);
         }
-        assert_eq!(load_card(&pool, &card.id).await.unwrap().unwrap().status, "pending");
+        assert_eq!(
+            load_card(&pool, &card.id).await.unwrap().unwrap().status,
+            "pending"
+        );
         assert!(
             resolve_card(&pool, &card.id, CardActor::User, Some("deny"), None, &d)
                 .await

@@ -1,70 +1,55 @@
-# Member memory
+# 成员跨会话持久记忆规范（Member Memory Guide）
 
 > 术语：开发术语「bot」即本文的「成员」（代码 member，界面文案为「助手」），「群组」即协作空间/群（代码 space）。私聊指和 bot 一对一聊天，群聊指在群组里聊天。
 
-Every collaboration member keeps its own memory across all of its threads
-(group spaces and the private chat with the user).
+每位协作空间成员（身份）在所有线程（多个群聊空间以及与人类用户的一对一私聊）之间维护一套专属的持久记忆。成员身份与私聊/群聊隐藏会话的关系见仓库 `docs/collaboration-member-identity.md`。
 
-成员身份与私聊/群聊会话关系见仓库 `docs/collaboration-member-identity.md`。私聊活动与事实不会注入群聊上下文。
+---
 
-## What you get automatically
+## 一、每回合自动注入的记忆上下文（`[成员记忆]`）
 
-At the start of each turn your prompt carries a `[成员记忆]` block:
+在每个执行回合（Turn）开始时，宿主会自动向你的上下文注入 `[成员记忆]` 区块，包含两部分：
 
-- **Recent activity** — the latest 8 one-line summaries of your own turns,
-  labelled by where they happened (`群「…」`, `本对话`, `私聊`). Use it to answer
-  "what did you do in the other group?" without asking anyone.
-- **Relevant facts** — long-term facts ranked against the current request.
+1. **近期跨线程活动（Recent Activity）**
+   - 自动展示你最近 `8` 个回合（受 `VIBEX_MEMBER_ACTIVITY_LIMIT` 控制）的单行摘要，并标注发生位置（如 `群「…」`、`本对话`、`私聊`）。
+   - 当用户或群成员问起“你在另一个群里做了什么？”时，直接根据该区块回答，无需向他人打听。
+2. **相关长期事实（Relevant Facts）**
+   - 根据当前请求按 BM25 相关性检索并排序的长期事实记忆。
 
-## Privacy rules (enforced, not advisory)
+---
 
-- Anything from your private chat with the user is **never** shown, searched or
-  returned while you are working in a group thread. Do not repeat private
-  details into a group yourself either.
-- A fact scoped to one thread is only visible inside that thread.
+## 二、隐私隔离铁律（后端强制执行 + 行为准则）
 
-## Tools
+- **私聊记忆绝不外泄到群聊**：你在与用户的一对一私聊（`direct:<member_id>`）中产生的活动记录或写入的 `private` 级别事实，在群聊线程中**绝对不会被检索、展示或返回**。你自己在群聊发言时，也严禁主动复述私聊中的敏感细节。
+- **线程级记忆隔离**：作用域为 `thread` 的事实仅在写入它的那个群聊线程内可见，不会跨群串联。
 
-- `memory_search {query, limit?}` — BM25 search over your visible facts and
-  activity.
-- `memory_write {content, scope?}` — store a durable fact. `scope` is `thread`
-  (default), `global`, or `private`. In the private chat every write is stored
-  as `private`. Write short, self-contained, stable facts (decisions,
-  conventions, preferences); do not store secrets or transient status.
+---
 
-## When you MUST call `memory_write`
+## 三、记忆 MCP 工具
 
-Long-term memory is only as good as what you write. Nothing is distilled
-automatically yet (an auto-distillation hook exists but is future work), so
-call `memory_write` in the same turn whenever you learn:
+| 工具名称 | 参数说明 | 用途与说明 |
+|---|---|---|
+| `memory_search` | `query`（必填，检索词）、`limit`（可选，1~50，默认 8） | 使用 BM25 全文检索你名下对当前线程可见的长期事实（Facts）与近期活动（Activity）。 |
+| `memory_write` | `content`（必填，事实内容）、`scope`（可选：`thread` \| `global` \| `private`） | 写入一条持久事实。`scope` 默认为 `thread`（仅当前群可见）；`global` 为跨所有群可见；`private` 为仅私聊可见（在私聊会话中调用 `memory_write` 时，无论传什么 `scope` 都会被强制存为 `private`）。 |
 
-- **User preferences** — language, tone, formatting, tools they like or refuse.
-- **Project conventions** — package manager, branch/commit rules, code style,
-  test commands, directory layout.
-- **Decisions** — an approach the user or the group agreed on, and why.
-- **Recurring corrections** — anything the user had to correct you on, so it
-  does not happen twice.
-- **Stable facts about people and systems** — who owns what, endpoints,
-  environment quirks.
+---
 
-Before writing, `memory_search` for an existing fact and skip duplicates.
-Pick the narrowest correct scope: `thread` for this group only, `global` for
-things true everywhere, `private` for anything the user told you privately.
+## 四、何时必须调用 `memory_write`
 
-The user can list, edit and delete your facts and see your activity.
+长期记忆不会自动提炼，全靠你在回合内主动调用 `memory_write` 沉淀。当你在对话或协作中获知以下信息时，**必须在当前回合调用 `memory_write` 记录**：
 
-## Asking the user: `ask_person` / `request_approval`
+1. **用户偏好（User Preferences）**：语言风格、排版习惯、偏好的技术栈或明确拒绝的工具/写法。
+2. **项目约定（Project Conventions）**：包管理器、分支与提交规范、代码风格、测试命令、目录职责边界。
+3. **关键决策（Decisions）**：用户或团队拍板敲定的架构方案、接口契约及背后的原因。
+4. **反复纠正项（Recurring Corrections）**：用户纠正过你的错误做法，记入记忆以防下次再犯。
+5. **系统与分工事实（Stable Facts）**：模块负责人分工、服务端点、特定环境怪癖等稳定事实。
 
-When you are blocked on a decision only the user can make, call `ask_person`
-(`question`, optional `options`) instead of guessing. Before a risky or
-irreversible action (deleting files, force-pushing, running migrations), call
-`request_approval` (`action`, `command`, `reason`). Both post an inline card in
-the group chat, addressed to the user, and return straight away. Do not wait or
-poll for the answer. The answer comes back to you as an ordinary message
-(`[回复问题 <id>] …` or `[审批 <id>] allow_once|allow_always|deny`). Reuse the
-same `operation_id` on a retry so you don't post duplicate cards.
+### 写入规范
+- **先查重后写入**：写入前先用 `memory_search` 检查是否已有同类事实，避免重复堆积。
+- **精炼自包含**：每条 `content` 写成简短、自包含、稳定的陈述句；**严禁存入密钥/Token 或临时性的执行进度**。
+- **最小作用域原则**：仅本群适用的约定用 `thread`，全工作区通用的经验法则用 `global`，用户私下交代的偏好用 `private`。
+- 人类用户可以在界面中随时查看、编辑和删除你的记忆条目。
 
-To ask another member instead of the user, pass `to` (their nickname) to
-`ask_person`. If a member asks you that way, answer with `resolve_card`
-(`card_id`, `answer`). Only the asked member or the user can answer an ask
-card. Only the user can resolve an approval card.
+---
+
+> **交叉引用**：关于协作空间群内消息收发（`post_to_space`）、原生结构化交接（`handoff`）、内联提问卡（`ask_person`）、高危操作审批卡（`request_approval`）、卡片响应（`resolve_card`）以及群收藏夹（`*_space_collection*`）的使用规范，请查阅 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md)。

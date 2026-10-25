@@ -8,9 +8,9 @@ vibex-plugin init <dir> --publisher <id> --template <name>
 
 | 模板 | 清单 integrations | 源码 | 作者必须补齐 |
 | --- | --- | --- | --- |
-| `skill` | `content.skill` | `contents/skills/hello/SKILL.md` | 改 summary 与 Skill 正文。生成测试用 `import.meta.url`，改为 fixture 导出 |
+| `skill` | `content.skill` | `contents/skills/hello/SKILL.md` | 改 summary 与 Skill 正文；测试直接读取真实 `.vibex-plugin/plugin.json` 校验 |
 | `mcp` | `content.mcp` | `contents/mcps/hello.json` + `runtime/mcp.mjs` | 实现 MCP 进程。`init` 只写了一行 ready JSON |
-| `hooks` | `content.hook`（`session.before_prompt`） | `contents/hooks/before-prompt.md` | 改 Hook 正文。当前 Host 无 Hook 运行时 |
+| `hooks` | `content.hook`（`session.before_prompt`） | `contents/hooks/before-prompt.md` | 改 Hook 正文（若需运行时 Turn 拦截，改用 `protocol: "2.0"` 的 `ctx.hooks.beforeTurn`） |
 | `file-tab` | `.txt` 的 `file.opener`+`artifact.preview`，以及 `plugin.detail.panel` | Node Worker 定义 + stdio 入口、`runtime/app.mjs` | 这是只读预览 + 详情面板 |
 | `editor-tab` | UTF-8 文件的 `file.opener.editorSurface` + `artifact.editor` | Node Worker 定义 + stdio 入口、可编辑 App | 实现 `surface.createSession` 与 `bridge.artifact` |
 | `full` | `workflow.binding` + file-tab 那一组 | Node Worker 定义 + stdio 入口、App、workflow JSON | 改产品内容 |
@@ -25,8 +25,8 @@ vibex-plugin init <dir> --publisher <id> --template <name>
 | `panel` | `app.panel`（`defaultPosition: left`） | Node Worker + Vite Federation `src/views/view.tsx` | 改面板 UI；`run dev` 走 HMR |
 | `kanban-view` | `app.kanban.view` | Node Worker + Vite Federation | 改视图 UI；`run dev` 走 HMR |
 
-`init` 写入的 `engines` 为 `vibex: ">=0.1.3 <1.0.0"`、`pluginSdk: "^1.0.0"`。`package.json` 的脚本假定已安装 `vibex-plugin`；在 VibeX 源码树里改用 `node packages/plugin-cli/dist/cli.js`。
+`init` 写入的 `apiVersion` 统一为 `"2.0"`，`engines` 为 `vibex: ">=0.1.3 <1.0.0"`、`pluginSdk: "^2.0.0"`。`package.json` 的脚本假定已安装 `vibex-plugin`；在 VibeX 源码树里改用 `node packages/plugin-cli/dist/cli.js`。
 
-Node 模板测试从 `runtime/worker.mjs`（定义）导入。从 `dist/worker.mjs` 导入会启动协议循环。
+Node 模板测试从 `runtime/worker.mjs`（定义）导入。从 `dist/worker.mjs` 导入会启动协议循环。非 Worker 模板测试直接读取真实的 `.vibex-plugin/plugin.json` 校验。
 
 `host-chrome` 写出 `app.command` / `app.toolbar` / `app.status` / `app.composer.slash` / `app.timeline.card` / `app.settings.section`。chrome 槽位随激活代刷新。结构面 remote 在 `vibex plugin run dev` 期间由 Host `loadRemote` 指向 Vite。

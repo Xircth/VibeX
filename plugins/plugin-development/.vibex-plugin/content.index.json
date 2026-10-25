@@ -4,27 +4,44 @@
     {
       "path": "contents/skills/vibex-plugin-development/SKILL.md",
       "kind": "skill",
-      "title": "VibeX 插件开发"
+      "title": "VibeX 插件开发",
+      "size": 13886,
+      "sha256": "158be74802b8dad2969e16dd396329f52e28c1bb8467ee3c8b7cd76f865e2fc1"
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/contract.md",
       "kind": "reference",
-      "title": "产品包契约"
+      "title": "产品包契约",
+      "size": 8250,
+      "sha256": "d6807d49642689c300d16f086d6e41b19f0bd486c290a8925361e07dbe45b185"
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/templates.md",
       "kind": "reference",
-      "title": "init 模板产物"
+      "title": "init 模板产物",
+      "size": 3245,
+      "sha256": "2828d8dc90744e5513cbb7183b86d59f809709757687213a4163c6ad533e90fe"
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/runtime.md",
       "kind": "reference",
-      "title": "Worker 与 App 运行时"
+      "title": "Worker 与 App 运行时",
+      "size": 8768,
+      "sha256": "f964c5e924258e632728a60123272c3905417e80178e4fdfc5f62ca5385c6f15"
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/link.md",
       "kind": "reference",
-      "title": "链接运行中的 Host"
+      "title": "链接运行中的 Host",
+      "size": 2991,
+      "sha256": "ead00528af3632b2f7241494d88189e2800a35ca44f14b8a9fce2d4cca873c31"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-creator/SKILL.md",
+      "kind": "skill",
+      "title": "VibeX 插件创建器 (v2.0)",
+      "size": 13494,
+      "sha256": "b878acecebd064e7e5c3ae0ed676c108f2658ffc4a1ac42e26ba5549fe1926e9"
     }
   ]
 }

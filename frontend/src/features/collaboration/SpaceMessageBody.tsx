@@ -1,10 +1,15 @@
 import { useState } from 'react';
+import { Check } from 'lucide-react';
 import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
+import {
+  CollaborationMemberMentionContext,
+  useCollaborationMemberMention,
+} from './MemberMentionChip';
 import { UserMessageAttachments } from '@/components/NormalizedConversation/UserMessageImageAttachment';
 import { UserMessageMarkdown } from '@/components/NormalizedConversation/UserMessageMarkdown';
 import { splitDisplayContentImages } from '@/components/NormalizedConversation/userMessageImages';
@@ -204,62 +209,137 @@ export function bubbleText(envelope: {
   return `${summary}\n\n${content}`;
 }
 
+export type MessageDeliveryTickStatus = 'sent' | 'delivered' | null;
+
+export function MessageDeliveryTicks({
+  status,
+  testId,
+}: {
+  status: MessageDeliveryTickStatus;
+  testId?: string;
+}) {
+  if (!status) return null;
+  const isDelivered = status === 'delivered';
+  return (
+    <span
+      className={`collaboration-message-ticks collaboration-message-status-ticks ${isDelivered ? 'is-delivered' : 'is-sent'}`}
+      data-testid={testId ?? 'collaboration-message-ticks'}
+      data-status={isDelivered ? 'claimed' : 'queued'}
+      aria-label={isDelivered ? '已送达' : '已发送'}
+      title={isDelivered ? '已送达' : '已发送'}
+    >
+      <Check
+        size={11}
+        width={11}
+        height={11}
+        strokeWidth={2.4}
+        className="collaboration-message-tick collaboration-tick-icon collaboration-tick-first"
+        aria-hidden="true"
+      />
+      {isDelivered ? (
+        <Check
+          size={11}
+          width={11}
+          height={11}
+          strokeWidth={2.4}
+          className="collaboration-message-tick collaboration-message-tick--second collaboration-tick-icon collaboration-tick-second"
+          aria-hidden="true"
+        />
+      ) : null}
+    </span>
+  );
+}
+
 export function SpaceMessageBody({
   fromYou,
   text,
   workspacePath,
   workspaceId,
+  deliveryStatus = null,
+  deliveryTickTestId,
 }: {
   fromYou: boolean;
   text: string;
   workspacePath?: string;
   workspaceId?: string;
+  deliveryStatus?: MessageDeliveryTickStatus;
+  deliveryTickTestId?: string;
 }) {
+  const memberMentionCtx = useCollaborationMemberMention();
+  const effectiveMentionCtx = memberMentionCtx.enableMemberMentions
+    ? memberMentionCtx
+    : { ...memberMentionCtx, enableMemberMentions: true };
   if (fromYou) {
     const { text: cleanText, images, files } = splitDisplayContentImages(text);
     const hasText =
       cleanText.trim().length > 0 ||
       (images.length === 0 && files.length === 0);
     return (
-      <div className="conv-entry-item conv-user-msg">
-        {images.length > 0 || files.length > 0 ? (
-          <UserMessageAttachments
-            images={images}
-            files={files}
-            taskAttemptId={workspaceId}
-            workspacePath={workspacePath}
-          />
-        ) : null}
-        {hasText ? (
-          <ChatMessage
-            sender="user"
-            density="compact"
-            className="vibex-user-message"
-          >
-            <ChatMessageBubble className="conv-user-bubble">
-              <UserMessageMarkdown
-                value={cleanText}
-                workspacePath={workspacePath}
+      <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
+        <div className="conv-entry-item conv-user-msg">
+          {images.length > 0 || files.length > 0 ? (
+            <UserMessageAttachments
+              images={images}
+              files={files}
+              taskAttemptId={workspaceId}
+              workspacePath={workspacePath}
+            />
+          ) : null}
+          {hasText ? (
+            <ChatMessage
+              sender="user"
+              density="compact"
+              className="vibex-user-message"
+            >
+              <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
+                <ChatMessageBubble className="conv-user-bubble">
+                  <UserMessageMarkdown
+                    value={cleanText}
+                    workspacePath={workspacePath}
+                  />
+                </ChatMessageBubble>
+                <MessageDeliveryTicks
+                  status={deliveryStatus}
+                  testId={deliveryTickTestId}
+                />
+              </div>
+            </ChatMessage>
+          ) : deliveryStatus ? (
+            <div className="flex justify-end px-4">
+              <MessageDeliveryTicks
+                status={deliveryStatus}
+                testId={deliveryTickTestId}
               />
-            </ChatMessageBubble>
-          </ChatMessage>
-        ) : null}
-      </div>
+            </div>
+          ) : null}
+        </div>
+      </CollaborationMemberMentionContext.Provider>
     );
   }
   const card = parseCard(text);
   return (
-    <div className="conv-entry-item conv-assistant-msg px-4 py-2 text-sm">
-      <div className="conv-assistant-body">
-        <AstryxMarkdown
-          value={
-            card ? [card.before, card.body].filter(Boolean).join('\n\n') : text
-          }
-          workspacePath={workspacePath}
-          rawHtml={false}
-        />
-        {card ? <SpaceCardActions card={card} /> : null}
+    <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
+      <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
+        <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member">
+          <div
+            className="conv-assistant-body collaboration-member-bubble"
+            data-testid="collaboration-member-bubble"
+          >
+            <AstryxMarkdown
+              value={
+                card ? [card.before, card.body].filter(Boolean).join('\n\n') : text
+              }
+              workspacePath={workspacePath}
+              rawHtml={false}
+            />
+            {card ? <SpaceCardActions card={card} /> : null}
+          </div>
+          <MessageDeliveryTicks
+            status={deliveryStatus}
+            testId={deliveryTickTestId}
+          />
+        </div>
       </div>
-    </div>
+    </CollaborationMemberMentionContext.Provider>
   );
 }

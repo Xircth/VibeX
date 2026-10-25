@@ -180,6 +180,7 @@ pub async fn start_commit_reminder_if_needed(
                 config_overrides: Vec::new(),
                 queued_input_claim: None,
                 operation_id: None,
+                collaboration_origin: None,
             },
             COMMIT_REMINDER_ORIGIN,
         )

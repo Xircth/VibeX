@@ -24,6 +24,12 @@ export function isPluginQuarantined(pluginId: string): boolean {
   return crashLedger.get(pluginId)?.quarantined ?? false;
 }
 
+export function getPluginQuarantineReason(pluginId: string): string | null {
+  const entry = crashLedger.get(pluginId);
+  if (!entry?.quarantined) return null;
+  return entry.lastError?.message ?? 'Quarantined after repeated crashes';
+}
+
 export function getPluginCrashCount(pluginId: string): number {
   return crashLedger.get(pluginId)?.timestamps.length ?? 0;
 }

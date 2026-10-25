@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { SessionQuota } from '@/components/panels/session-details/SessionQuota';
 import { buildSessionDetails } from '@/components/panels/session-details/sessionDetailsModel';
@@ -59,9 +59,35 @@ function GroupMemberUsageCard({
   const nick = displayName(member);
   const memberKey = memberUsageKey(member);
   const conversationId = String(member.conversation_id ?? '').trim() || null;
-  const conversation = useConversationTimeline(conversationId);
-  const facts = useConversationSessionFacts(conversationId);
+  const cardRef = useRef<HTMLElement | null>(null);
   const [expanded, setExpanded] = useState(true);
+  const [inViewport, setInViewport] = useState(true);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setInViewport(entry.isIntersecting);
+        }
+      },
+      { rootMargin: '120px' }
+    );
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const shouldRetainTimeline = Boolean(conversationId && expanded && inViewport);
+  const conversation = useConversationTimeline(
+    shouldRetainTimeline ? conversationId : null,
+    { active: shouldRetainTimeline }
+  );
+  const facts = useConversationSessionFacts(conversationId);
   const model = useMemo(
     () =>
       buildSessionDetails({
@@ -101,6 +127,7 @@ function GroupMemberUsageCard({
 
   return (
     <section
+      ref={cardRef}
       className={CARD_CLASS}
       data-testid={`group-details-usage-${conversationId || nick}`}
       data-collapsed={expanded ? 'false' : 'true'}
@@ -241,7 +268,7 @@ export function GroupDetailsUsageTab({
             <strong className="kanban-usage-stat__value block font-semibold tabular-nums text-foreground">
               {overview.totalTokens != null
                 ? formatTokens(overview.totalTokens)
-                : '—'}
+                : '\u2014'}
             </strong>
             <div className="mt-1 text-xs text-muted-foreground">
               {COPY.totalTokens}

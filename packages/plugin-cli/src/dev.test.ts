@@ -1,10 +1,13 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { watchPluginSources } from './dev.js';
+import {
+  PLUGIN_WATCH_IGNORED_DIRECTORIES,
+  watchPluginSources,
+} from './dev.js';
 
 describe('watchPluginSources', () => {
   it('debounces changes, serializes reloads, and reruns when source changes during a reload', async () => {
@@ -71,5 +74,49 @@ describe('watchPluginSources', () => {
     expect(errors).toEqual([
       expect.objectContaining({ message: 'candidate rejected' }),
     ]);
+  });
+
+  it('ignores language toolchain caches while watching plugin sources', () => {
+    expect([...PLUGIN_WATCH_IGNORED_DIRECTORIES]).toEqual(
+      expect.arrayContaining([
+        '.git',
+        'dist',
+        'node_modules',
+        'target',
+        '.venv',
+        'venv',
+        '__pycache__',
+        '.pytest_cache',
+        '.test-dist',
+      ]),
+    );
+  });
+
+  it('does not reload when ignored compiler caches change', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-cache-'));
+    const source = join(root, 'worker.mjs');
+    await writeFile(source, 'export default 1;');
+    await mkdir(join(root, 'target'), { recursive: true });
+    await writeFile(join(root, 'target', 'cache.bin'), 'old');
+    const controller = new AbortController();
+    let reloads = 0;
+
+    const watching = watchPluginSources(root, {
+      signal: controller.signal,
+      debounceMs: 10,
+      async reload() {
+        reloads += 1;
+        controller.abort();
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeFile(join(root, 'target', 'cache.bin'), 'new');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reloads).toBe(0);
+    await writeFile(source, 'export default 2;');
+    await watching;
+
+    expect(reloads).toBe(1);
   });
 });

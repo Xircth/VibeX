@@ -1,5 +1,12 @@
-export const VIBEX_PLUGIN_API_VERSION = "1.0" as const;
+export const VIBEX_PLUGIN_API_VERSION = "2.0" as const;
 export const VIBEX_PLUGIN_PROTOCOL_VERSION = "1.1" as const;
+export type PluginApiVersion = "1.0" | "2.0";
+
+export function isSupportedPluginApiVersion(
+  version: unknown,
+): version is PluginApiVersion {
+  return version === "1.0" || version === "2.0";
+}
 export const MIN_FRAME_BYTES = 1024 * 1024;
 export const MAX_FRAME_BYTES = 32 * 1024 * 1024;
 export const MAX_LOGICAL_MESSAGE_BYTES = 128 * 1024 * 1024;
@@ -44,6 +51,7 @@ export interface PluginContext {
   generation: number;
   packageClass: PackageClass;
   grantedCapabilities: string[];
+  config?: Record<string, JsonValue>;
 }
 
 export type WorkerRequest =
@@ -54,7 +62,13 @@ export type WorkerRequest =
       method: "invoke";
       params: { handler: string; input: JsonValue };
     }
+  | {
+      id: string;
+      method: "config.volatile-update";
+      params: { config: Record<string, JsonValue> };
+    }
   | { id: string; method: "dispose"; params: { reason: string } }
+  | { id: string; method: "plugin.unload"; params?: { reason?: string } }
   | { id: string; method: "ping"; params: Record<string, never> };
 
 export type WorkerResponse =
@@ -247,7 +261,7 @@ export class FrameReassembler {
     const message = value as Record<string, unknown>;
     if (message.method !== FRAME_CHUNK_METHOD) {
       if (this.streamId !== null) {
-        this.reset();
+        this.discardInterrupted();
         throw new ProtocolFrameError(
           "frame_chunk_invalid",
           "Chunk sequence was interrupted",
@@ -284,7 +298,7 @@ export class FrameReassembler {
     }
     if (index === 0) {
       if (this.streamId !== null) {
-        this.reset();
+        this.discardInterrupted();
         throw new ProtocolFrameError(
           "frame_chunk_invalid",
           "Chunk sequence was interrupted",
@@ -301,7 +315,7 @@ export class FrameReassembler {
       index !== this.nextIndex ||
       count !== this.count
     ) {
-      this.reset();
+      this.discardInterrupted();
       throw new ProtocolFrameError(
         "frame_chunk_invalid",
         "Chunk index or count does not match the sequence",
@@ -309,7 +323,7 @@ export class FrameReassembler {
     }
     this.totalBytes += Buffer.byteLength(data, "utf8");
     if (this.totalBytes > this.limits.maxLogicalBytes) {
-      this.reset();
+      this.discardInterrupted();
       throw new ProtocolFrameError(
         "message_too_large",
         `message exceeds ${this.limits.maxLogicalBytes} bytes`,
@@ -345,6 +359,10 @@ export class FrameReassembler {
       kind: "message",
       message: assembled as Record<string, unknown>,
     };
+  }
+
+  private discardInterrupted() {
+    this.reset();
   }
 
   private reset() {

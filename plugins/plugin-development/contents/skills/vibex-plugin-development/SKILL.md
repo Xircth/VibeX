@@ -31,7 +31,7 @@ description: >
 
 随后阅读：
 
-- [references/contract.md](references/contract.md) — 目录、清单、integrations
+- [references/contract.md](references/contract.md) — 目录、清单、App 双协议（2.0 与 1.0）、integrations
 - [references/templates.md](references/templates.md) — `init` 实际写出的产物
 - [references/runtime.md](references/runtime.md) — Worker / App / stdio / `host.call` / 测试
 - [references/link.md](references/link.md) — 链接运行中的 Host 与发布
@@ -65,7 +65,7 @@ vibex-plugin init <dir> --publisher <publisher> --template <template>
 
 1. 把 README frontmatter 的 `summary` 改成第 1 步记下的那句话。
 2. 改 `plugin.json` 的 `id`、`name`。
-3. 确认 `engines` 为 `{ "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" }`。
+3. 确认 `apiVersion` 为 `"2.0"`，`engines` 为 `{ "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^2.0.0" }`。
 4. 确认 Node 包 `runtime/main.mjs` 调用 `runStdioPluginWorker`，测试从定义模块导入。
 
 ## 3. 组装产品包
@@ -74,9 +74,11 @@ vibex-plugin init <dir> --publisher <publisher> --template <template>
 
 固定约定：
 
-- `readme` = `README.md`；`content.root` = `contents`；配置文件 = 根 `config.json`。
+- `readme` = `README.md`；`content.root` = `contents`；配置文件 = 根 `config.json`（`plugin.json` 中只声明 `"config": { "schema": ... }`）。
 - Worker：`runtime` 为 `node` | `python` | `native`，`protocol` 为 `"1.1"`。字段使用 `runtime` 与 `protocol`。
-- App：`protocol` 为 `"1.0"`，`root` + `document` 指向 `dist/app/index.html`。
+- App 入口支持两种协议：
+  - `protocol: "2.0"`（宿主内 / 联邦模块 App）：`{ "entry": "app/main.js", "protocol": "2.0" }`，配合 `defineVibeXPlugin((ctx) => ...)` 并统一使用命名空间 API（`ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`）。
+  - `protocol: "1.0"`（独立 HTML Surface App）：`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`，配合 `definePluginApp(({ root, bridge, signal }) => ...)`。
 - `.vibex-plugin/content.index.json` 的 `items[].path` 必须是 `contents/` 下的真实文件。
 - `dependencies` 只声明 `kind: "runtime"`，descriptor 指向 `depends/` 下已存在的文件。CLI `validate` 与 Host inspect 都拒绝 `kind: "plugin"`。
 - `permissions` 可省略。安装或启用即 Full Trust。
@@ -85,7 +87,7 @@ vibex-plugin init <dir> --publisher <publisher> --template <template>
 
 把用户说明写进 README 正文：运行要求、离线与网络、排障、第三方许可、卸载后配置去留。持久设置只写 `config.json`，并在 `config.schema` 描述。
 
-官方包可对照：`vibex.office`、`vibex.workflow-creator`、`vibex.session-enhance`、`vibex.multi-agent`、`vibex.remote-ssh`、`vibex.host-chrome`、`vibex.host-surface`、`vibex.provider-import`。对照其公开清单与贡献点，复制内部实现以外的契约形状。
+官方包可对照：`vibex.office`、`vibex.workflow-creator`、`vibex.session-enhance`、`vibex.remote-ssh`、`vibex.host-chrome`、`vibex.host-surface`、`vibex.provider-import`。对照其公开清单与贡献点，复制内部实现以外的契约形状。
 
 ## 4. 实现可执行入口
 
@@ -97,7 +99,9 @@ vibex-plugin init <dir> --publisher <publisher> --template <template>
 
 **native Worker**：`entrypoints.worker.path` 必须指向**已编译二进制**。在与 Host 相同的 OS/CPU 上编译，把产物放到 `dist/`，再改清单 path。`vibex-plugin build` 编译 JS Worker 与托管 MCP 源。Rust 二进制由作者提供。
 
-**App**：`definePluginApp`。首屏挂上之后调用 `bridge.ready()`。可编辑文件使用 `bridge.artifact.readText()` / `writeText(content, expectedRevision)`。冲突码 `artifact_revision_conflict`。iframe surface 的 `app.surface.slot` 为 `plugin.detail.panel` 或 `artifact.editor`，`appEntrypoint` 为 `app`，`handler` 为 `surface.createSession`。
+**App（双协议）**：
+- `protocol: "2.0"`（宿主内 / 联邦模块 App）：在 `app/main.js` 中导出 `defineVibeXPlugin((ctx) => ...)`，通过 `ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*` 注册同树 UI 组件、Hook、IoC 服务并调用 Host 能力。
+- `protocol: "1.0"`（独立 HTML Surface App）：使用 `definePluginApp(({ root, bridge, signal }) => ...)`。首屏挂上之后调用 `bridge.ready()`。可编辑文件使用 `bridge.artifact.readText()` / `writeText(content, expectedRevision)`。冲突码 `artifact_revision_conflict`。iframe surface 的 `app.surface.slot` 为 `plugin.detail.panel` 或 `artifact.editor`，`appEntrypoint` 为 `app`，`handler` 为 `surface.createSession`。
 
 **结构面**：`app.panel` / `app.tab` / `app.kanban.view` / `app.settings.page` 默认 Federation remote。`mount(root, environment)` 使用 `environment.invoke` 打到本插件 Worker。`panel` / `kanban-view` 模板已写出 Vite 工程。
 
@@ -109,14 +113,13 @@ handler id 必须匹配 `^[a-z][A-Za-z0-9]*(?:[.-][a-z][A-Za-z0-9]*)*$`。合法
 
 在 `test/*.test.mjs` 覆盖适用路径：
 
-- 声明式：summary、schema、索引、integration 引用。
+- 声明式：直接读取真实的 `.vibex-plugin/plugin.json`、`README.md` 与 `.vibex-plugin/content.index.json`，校验 summary、schema、索引、integration 引用。
+- 宿主内 App（`protocol: "2.0"`）：使用 `createPluginTestHarness` 校验激活、UI 槽位/命令/Hook 注册、`hostCalls` 以及 `dispose()` 后零残留。
 - Worker：`createWorkerHarness` 注册、invoke、未声明 handler、dispose。
 - generation：`createGenerationHarness` 在缺 required handler 时回滚。
-- App / 文件 Tab：`createAppHarness` 的 read、write、revision 冲突、revoke。
+- 独立 HTML Surface App / 文件 Tab（`protocol: "1.0"`）：`createAppHarness` 的 read、write、revision 冲突、revoke。
 
-Worker 测试从**定义模块**导入（`runtime/worker.mjs`）。`dist/worker.mjs` 在 import 时会启动协议循环。`vibex-plugin test` 会先 `build`，再把测试打进临时目录；对照 JSON/句子写成模块导出。
-
-`init` 生成的无 Worker 测试若用 `import.meta.url` 读 `plugin.json`，在 `vibex-plugin test` 下会找不到文件。改成 fixture 导出。
+Worker 测试从**定义模块**导入（`runtime/worker.mjs`）。`dist/worker.mjs` 在 import 时会启动协议循环。非 Worker 插件测试直接读取真实的 `.vibex-plugin/plugin.json` 进行契约校验，无需将 `plugin.json` 改为静态 fixture 导出。
 
 ## 6. 本机校验
 
@@ -194,11 +197,4 @@ GitHub owner 必须与市场用户名相同。上传包默认隐藏包结构。�
 | `app_panel_invalid` | `defaultPosition` 为 `left` 或 `center`；`remote.name` 与 `remote.entry` 已填 |
 | `readme_summary_invalid` | frontmatter 独立 `summary`，单行 ≤200 字 |
 | `managed_mcp_invalid` | `protocolRevision` 为 `2026-07-28`；hostFamilyBinary 或包内 entrypoint |
-| Worker 进程立刻退出 | `runtime/main.mjs` 调用 `runStdioPluginWorker` |
-| `plugin_dev_host_missing` / `dev_link_host_only` | 改用 `vibex plugin add --dev .` |
-| `No running VibeX Host` | 先开 Desktop 或 `vibex serve`；或接受 `~/.vibex/imports` 排队 |
-| validate 通过但文件页空白 | 尚未链接/启用，或未在 Host 上打开该文件 |
-| chrome 槽位启用后看不见 | 确认已启用且 `test --host` 能在贡献目录看到对应 kind |
-| 结构面空白 | 先 `vibex plugin run dev`，确认 `dist/remoteEntry.js` 或 Vite 端点可达 |
-
-硬限制：密钥留在 `config.json` 与 README 之外；Host token 留在对话之外；校验成功之后仍要对着 Host 点用户路径；未经用户要求不要发布到市场。
+| Worker 进程立即退出 | `runtime/main.mjs` 调用 `runStdioPluginWorker` |

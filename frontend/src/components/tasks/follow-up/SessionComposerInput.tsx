@@ -843,7 +843,54 @@ function decorateStructuredTokenElement(
   token: SessionComposerStructuredToken
 ) {
   element.dataset.tokenKind = token.kind;
-  element.dataset.variant = SESSION_COMPOSER_TOKEN_VARIANTS[token.kind];
+  element.dataset.tokenValue = token.raw;
+  if (token.kind === 'member_mention') {
+    delete element.dataset.variant;
+    element.removeAttribute('contenteditable');
+    element.style.userSelect = 'text';
+    element.style.webkitUserSelect = 'text';
+    element.classList.add(
+      'collaboration-member-mention-chip',
+      'collaboration-composer-member-token'
+    );
+    element.dataset.memberMention = token.label;
+    element.style.background = 'transparent';
+    element.style.backgroundColor = 'transparent';
+    element.style.padding = '0';
+    element.style.borderRadius = '0';
+    element.style.border = '0';
+    element.style.boxShadow = 'none';
+    element.querySelectorAll<HTMLElement>('span').forEach((childSpan) => {
+      childSpan.style.background = 'transparent';
+      childSpan.style.backgroundColor = 'transparent';
+      childSpan.style.padding = '0';
+      childSpan.style.borderRadius = '0';
+      childSpan.style.border = '0';
+      childSpan.style.boxShadow = 'none';
+    });
+    if (token.memberAvatar?.color) {
+      element.style.setProperty(
+        '--member-mention-color',
+        token.memberAvatar.color
+      );
+      const labelEl =
+        element.querySelector<HTMLElement>(
+          '.collaboration-member-mention-name, .astryx-chat-composer__token-label, .session-composer-token-label'
+        ) ?? element.querySelector<HTMLElement>('span:last-of-type');
+      if (labelEl) {
+        labelEl.style.color = token.memberAvatar.color;
+        labelEl.style.fontWeight = '700';
+      }
+    }
+  } else {
+    element.dataset.variant = SESSION_COMPOSER_TOKEN_VARIANTS[token.kind];
+    element.classList.remove(
+      'collaboration-member-mention-chip',
+      'collaboration-composer-member-token'
+    );
+    delete element.dataset.memberMention;
+    element.style.removeProperty('--member-mention-color');
+  }
   if (token.kind === 'element') {
     element.removeAttribute('title');
   } else if (token.title) {
@@ -1034,13 +1081,15 @@ function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string,
   bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>,
-  savedCaretOffset?: number | null
+  savedCaretOffset?: number | null,
+  spaceMembers?: AtReferenceMember[]
 ): void {
   const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
 
   const segments = getSessionComposerStructuredTokenSegments(value, {
     bareAgentMentions,
+    spaceMembers,
   });
   const tokenSegments = segments.filter((segment) => segment.kind === 'token');
   if (tokenSegments.length === 0) return;
@@ -1052,7 +1101,9 @@ function restoreStructuredTokens(
     existingTokens.length === tokenSegments.length &&
     existingTokens.every(
       (element, index) =>
-        element.dataset.astryxTokenValue === tokenSegments[index].token.raw
+        (element.dataset.astryxTokenValue ||
+          element.getAttribute('data-astryx-token') ||
+          '') === tokenSegments[index].token.raw
     )
   ) {
     existingTokens.forEach((element, index) => {
@@ -1299,7 +1350,12 @@ export function SessionComposerInput({
       editor && document.activeElement === editor
         ? getEditorCaretOffset(editor)
         : null;
-  }, [agentMentions.candidates, agentMentions.capability, value]);
+  }, [
+    agentMentions.candidates,
+    agentMentions.capability,
+    spaceMembers,
+    value,
+  ]);
 
   useEffect(() => {
     const savedCaretOffset = preSyncCaretOffsetRef.current;
@@ -1311,10 +1367,16 @@ export function SessionComposerInput({
         agentMentions.capability === 'supported'
           ? agentMentions.candidates
           : undefined,
-        savedCaretOffset
+        savedCaretOffset,
+        spaceMembers
       );
     }
-  }, [agentMentions.candidates, agentMentions.capability, value]);
+  }, [
+    agentMentions.candidates,
+    agentMentions.capability,
+    spaceMembers,
+    value,
+  ]);
 
   useEffect(() => {
     if (!replaceValueRef) return;
@@ -1686,10 +1748,16 @@ export function SessionComposerInput({
       prepareEmptyComposerForTokenInsert(
         getSessionComposerEditable(composerRootRef.current)
       );
-      const structured = getTokenFromInsertText(token.value);
+      const structured = getSessionComposerStructuredTokenSegments(
+        token.value,
+        { spaceMembers }
+      ).find((candidate) => candidate.kind === 'token');
       handle.insertToken(
-        structured
-          ? { ...toSessionComposerChatToken(structured), value: token.value }
+        structured?.kind === 'token'
+          ? {
+              ...toSessionComposerChatToken(structured.token),
+              value: token.value,
+            }
           : {
               value: token.value,
               label: token.label,
@@ -1698,7 +1766,7 @@ export function SessionComposerInput({
       );
       onChange(handle.getValue());
     },
-    [onChange, value]
+    [onChange, spaceMembers, value]
   );
 
   const insertFileReferenceTokenAtCaret = useCallback(
@@ -2188,6 +2256,31 @@ export function SessionComposerInput({
             }
             if (atReference.handleKeyDown(event)) {
               return;
+            }
+            if (event.key === 'Backspace' || event.key === 'Delete') {
+              const selection = window.getSelection();
+              const editor = getSessionComposerEditable(composerRootRef.current);
+              if (editor && selection && selection.isCollapsed && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const startNode = range.startContainer;
+                const insideToken =
+                  startNode instanceof HTMLElement
+                    ? startNode.closest<HTMLElement>('[data-astryx-token]')
+                    : startNode.parentElement?.closest<HTMLElement>('[data-astryx-token]');
+                if (insideToken && editor.contains(insideToken)) {
+                  event.preventDefault();
+                  const next = insideToken.nextSibling;
+                  if (
+                    next?.nodeType === Node.TEXT_NODE &&
+                    /^[\u00A0\u200B\uFEFF]+$/.test(next.textContent ?? '')
+                  ) {
+                    next.remove();
+                  }
+                  insideToken.remove();
+                  onChange(composerHandleRef.current?.getValue() ?? '');
+                  return;
+                }
+              }
             }
             if (handleHistoryKeyDown(event)) {
               return;

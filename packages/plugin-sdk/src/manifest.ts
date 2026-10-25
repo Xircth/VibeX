@@ -2,7 +2,7 @@
 export interface VibeXPluginManifest {
   $schema?: string;
   manifestVersion: 4;
-  apiVersion: '2.0';
+  apiVersion: '1.0' | '2.0';
   id: string;
   publisher: string;
   version: string;
@@ -33,13 +33,22 @@ export interface WorkerEntrypointManifest {
   path: string;
   runtime: WorkerRuntime;
   protocol: '1.1';
+  readonly maxFrameMiB?: number;
+  readonly sharedWorker?: boolean;
+  readonly isolation?: 'shared' | 'process';
 }
 
-export interface AppEntrypointManifest {
-  entry: string;
-  styles?: string;
-  protocol: '2.0';
-}
+export type AppEntrypointManifest =
+  | {
+      readonly root: string;
+      readonly document: string;
+      readonly protocol?: '1.0';
+    }
+  | {
+      readonly entry: string;
+      readonly styles?: string;
+      readonly protocol: '2.0';
+    };
 
 export interface PermissionManifest {
   /** @deprecated Full-trust packages do not require capability consent. */
@@ -495,7 +504,7 @@ export const pluginManifestSchema = {
   properties: {
     $schema: { type: 'string' },
     manifestVersion: { const: 4 },
-    apiVersion: { const: '2.0' },
+    apiVersion: { enum: ['1.0', '2.0'] },
     id: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{1,62}$' },
     publisher: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,62}$' },
     version: {
@@ -557,17 +566,34 @@ export const pluginManifestSchema = {
             path: relativePath,
             runtime: { enum: ['node', 'python', 'native'] },
             protocol: { const: '1.1' },
+            maxFrameMiB: { type: 'integer', minimum: 1, maximum: 128 },
+            sharedWorker: { type: 'boolean' },
+            isolation: { enum: ['shared', 'process'] },
           },
         },
         app: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['entry', 'protocol'],
-          properties: {
-            entry: relativePath,
-            styles: relativePath,
-            protocol: { const: '2.0' },
-          },
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['root', 'document'],
+              properties: {
+                root: relativePath,
+                document: { type: 'string', minLength: 1 },
+                protocol: { const: '1.0' },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['entry', 'protocol'],
+              properties: {
+                entry: relativePath,
+                styles: relativePath,
+                protocol: { const: '2.0' },
+              },
+            },
+          ],
         },
       },
     },

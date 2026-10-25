@@ -1,7 +1,11 @@
 //! Flat collaboration sidebar: group chats and direct chats in one list,
 //! most recent activity first. Members are identities
-//! (`collaboration_members`); a member's per-thread session is hidden and is
-//! opened through `member.session.resolve`.
+//! (`collaboration_members`). Each thread has a per-member session: the
+//! contact list opens the chat; the workspace session list shows that
+//! session with a bot badge. `member.session.resolve` still opens the
+//! hidden conversation from a chat.
+
+use std::collections::HashMap;
 
 use ::db::models::collaboration_identity as identity;
 use serde::Serialize;
@@ -113,67 +117,49 @@ fn preview_text(envelope: &Value) -> Option<String> {
     Some(flat.chars().take(120).collect())
 }
 
-async fn last_message(
-    pool: &SqlitePool,
-    thread_id: &str,
-) -> Result<Option<SidebarLastMessage>, CollaborationError> {
-    let row = sqlx::query_as::<_, (String, i64, String, String, String)>(
-        r#"SELECT id, seq, envelope_json, origin, created_at
-           FROM collaboration_space_messages WHERE space_id = ?
-           ORDER BY seq DESC LIMIT 1"#,
-    )
-    .bind(thread_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)?;
-    Ok(row.map(|(id, seq, envelope, origin, created_at)| {
-        let envelope: Value = serde_json::from_str(&envelope).unwrap_or(Value::Null);
-        SidebarLastMessage {
-            id: Some(id),
-            seq: Some(seq),
-            preview: preview_text(&envelope),
-            origin: Some(origin),
-            created_at,
-        }
-    }))
+fn sidebar_last_from_group_row(
+    id: String,
+    seq: i64,
+    envelope: String,
+    origin: String,
+    created_at: String,
+) -> SidebarLastMessage {
+    let envelope: Value = serde_json::from_str(&envelope).unwrap_or(Value::Null);
+    SidebarLastMessage {
+        id: Some(id),
+        seq: Some(seq),
+        preview: preview_text(&envelope),
+        origin: Some(origin),
+        created_at,
+    }
 }
 
-/// Unread = agent messages after the user's read mark. A thread seen for the
-/// first time is baselined at its current tail, so upgrades start at zero.
-async fn unread_count(
+fn sidebar_last_from_dm(message: DmMessage) -> SidebarLastMessage {
+    SidebarLastMessage {
+        id: Some(message.id),
+        seq: Some(message.seq),
+        preview: Some(flatten_preview(&message.text)),
+        origin: Some(message.origin),
+        created_at: message.created_at,
+    }
+}
+
+async fn baseline_thread_read(
     pool: &SqlitePool,
     thread_id: &str,
     tail_seq: Option<i64>,
-) -> Result<i64, CollaborationError> {
-    let read: Option<i64> = sqlx::query_scalar(
-        "SELECT last_read_seq FROM collaboration_thread_reads WHERE thread_id = ?",
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"INSERT INTO collaboration_thread_reads (thread_id, last_read_seq, updated_at)
+           VALUES (?, ?, ?) ON CONFLICT(thread_id) DO NOTHING"#,
     )
     .bind(thread_id)
-    .fetch_optional(pool)
+    .bind(tail_seq.unwrap_or(0))
+    .bind(now_stamp())
+    .execute(pool)
     .await
     .map_err(db_err)?;
-    let Some(read) = read else {
-        sqlx::query(
-            r#"INSERT INTO collaboration_thread_reads (thread_id, last_read_seq, updated_at)
-               VALUES (?, ?, ?) ON CONFLICT(thread_id) DO NOTHING"#,
-        )
-        .bind(thread_id)
-        .bind(tail_seq.unwrap_or(0))
-        .bind(now_stamp())
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
-        return Ok(0);
-    };
-    sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM collaboration_space_messages
-           WHERE space_id = ? AND seq > ? AND origin = 'agent'"#,
-    )
-    .bind(thread_id)
-    .bind(read)
-    .fetch_one(pool)
-    .await
-    .map_err(db_err)
+    Ok(())
 }
 
 async fn session_updated_at(pool: &SqlitePool, conversation_id: &str) -> Option<String> {
@@ -198,9 +184,25 @@ pub struct DmMessage {
     pub origin: String,
     pub text: String,
     pub created_at: String,
+    /// Present on user messages that arrived through `conversation_input`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    /// User-message delivery: `queued`, `claimed`, or `dispatched`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivered: Option<String>,
 }
 
-const DM_SCAN_LIMIT: i64 = 4000;
+const DM_VISIBLE_EVENT_KINDS: &str =
+    "'user_turn_created', 'assistant_text_delta', 'conversation_input'";
+const DM_USER_EVENT_KINDS: &str = "'user_turn_created', 'conversation_input'";
+
+/// Hidden first user turn after creating a bot. Session tab keeps it; the
+/// collaboration message area and sidebar preview skip it so the bot greets first.
+pub const PRIVATE_BOOTSTRAP_PREFIX: &str = "<vibex-private-bootstrap>";
+
+fn is_private_bootstrap_prompt(text: &str) -> bool {
+    text.trim_start().starts_with(PRIVATE_BOOTSTRAP_PREFIX)
+}
 
 fn flatten_preview(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -223,16 +225,99 @@ pub async fn dm_conversation(
         .map(|conversation| (conversation, member)))
 }
 
-/// Group raw user-turn / assistant-delta events into visible messages.
-/// Tool calls, reasoning, usage and system events are never selected.
+fn visible_user_text(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty()
+        || crate::session_info::is_host_history_prompt(trimmed)
+        || is_private_bootstrap_prompt(trimmed)
+    {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn dm_user_message(
+    conversation_id: Uuid,
+    sequence: i64,
+    text: String,
+    created_at: String,
+    operation_id: Option<String>,
+    delivered: &str,
+) -> DmMessage {
+    DmMessage {
+        id: format!("{conversation_id}:{sequence}"),
+        seq: sequence,
+        origin: "user".into(),
+        text,
+        created_at,
+        operation_id,
+        delivered: Some(delivered.to_string()),
+    }
+}
+
+/// Group user-turn, queued conversation-input, and assistant-delta events
+/// into visible messages. Tool calls, reasoning, usage and system events
+/// are never selected. Bootstrap prompts stay off this list.
 fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec<DmMessage> {
-    use agents::{ConversationEvent, ConversationInputBlock};
-    let mut out: Vec<(DmMessage, Option<String>)> = Vec::new();
+    use agents::{ConversationEvent, ConversationInputBlock, ConversationInputEvent};
+
+    struct Grouped {
+        message: DmMessage,
+        assistant_id: Option<String>,
+        input_id: Option<Uuid>,
+        matched_turn: bool,
+    }
+
+    let mut out: Vec<Grouped> = Vec::new();
+    let mut by_input: HashMap<Uuid, usize> = HashMap::new();
     for (sequence, normalized, created_at) in rows {
         let Ok(event) = serde_json::from_str::<ConversationEvent>(&normalized) else {
             continue;
         };
         match event {
+            ConversationEvent::ConversationInput { event } => match event {
+                ConversationInputEvent::Submitted {
+                    input_id,
+                    operation_id,
+                    payload,
+                    ..
+                } => {
+                    let raw = payload
+                        .display_text
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .unwrap_or(payload.text.trim());
+                    let Some(text) = visible_user_text(raw) else {
+                        continue;
+                    };
+                    by_input.insert(input_id, out.len());
+                    out.push(Grouped {
+                        message: dm_user_message(
+                            conversation_id,
+                            sequence,
+                            text,
+                            created_at,
+                            Some(operation_id.to_string()),
+                            "queued",
+                        ),
+                        assistant_id: None,
+                        input_id: Some(input_id),
+                        matched_turn: false,
+                    });
+                }
+                ConversationInputEvent::Claimed { input_id, .. } => {
+                    if let Some(&idx) = by_input.get(&input_id) {
+                        out[idx].message.delivered = Some("claimed".into());
+                    }
+                }
+                ConversationInputEvent::Dispatched { input_id, .. } => {
+                    if let Some(&idx) = by_input.get(&input_id) {
+                        out[idx].message.delivered = Some("dispatched".into());
+                    }
+                }
+                _ => {}
+            },
             ConversationEvent::UserTurnCreated { blocks, .. } => {
                 let text = blocks
                     .into_iter()
@@ -240,40 +325,54 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
                         ConversationInputBlock::Text { text } => Some(text),
                         _ => None,
                     })
-                    .filter(|text| !crate::session_info::is_host_history_prompt(text))
                     .collect::<Vec<_>>()
                     .join("\n");
-                if text.trim().is_empty() {
+                let Some(text) = visible_user_text(&text) else {
+                    continue;
+                };
+                if let Some(row) = out.iter_mut().find(|row| {
+                    row.message.origin == "user"
+                        && row.input_id.is_some()
+                        && !row.matched_turn
+                        && row.message.text == text
+                }) {
+                    row.matched_turn = true;
+                    if row.message.delivered.as_deref() == Some("queued") {
+                        row.message.delivered = Some("dispatched".into());
+                    }
                     continue;
                 }
-                out.push((
-                    DmMessage {
-                        id: format!("{conversation_id}:{sequence}"),
-                        seq: sequence,
-                        origin: "user".into(),
-                        text: text.trim().to_string(),
+                out.push(Grouped {
+                    message: dm_user_message(
+                        conversation_id,
+                        sequence,
+                        text,
                         created_at,
-                    },
-                    None,
-                ));
+                        None,
+                        "dispatched",
+                    ),
+                    assistant_id: None,
+                    input_id: None,
+                    matched_turn: true,
+                });
             }
             ConversationEvent::AssistantTextDelta { text, message_id } => {
-                let append = out.last().is_some_and(|(current, current_id)| {
-                    current.origin == "agent"
+                let append = out.last().is_some_and(|current| {
+                    current.message.origin == "agent"
                         && (message_id.is_none()
-                            || current_id.is_none()
-                            || *current_id == message_id)
+                            || current.assistant_id.is_none()
+                            || current.assistant_id == message_id)
                 });
                 if append {
-                    let (current, current_id) = out.last_mut().expect("checked");
-                    current.text.push_str(&text);
-                    current.created_at = created_at;
-                    if current_id.is_none() {
-                        *current_id = message_id;
+                    let current = out.last_mut().expect("checked");
+                    current.message.text.push_str(&text);
+                    current.message.created_at = created_at;
+                    if current.assistant_id.is_none() {
+                        current.assistant_id = message_id;
                     }
                 } else {
-                    out.push((
-                        DmMessage {
+                    out.push(Grouped {
+                        message: DmMessage {
                             id: message_id
                                 .clone()
                                 .unwrap_or_else(|| format!("{conversation_id}:{sequence}")),
@@ -281,66 +380,134 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
                             origin: "agent".into(),
                             text,
                             created_at,
+                            operation_id: None,
+                            delivered: None,
                         },
-                        message_id,
-                    ));
+                        assistant_id: message_id,
+                        input_id: None,
+                        matched_turn: false,
+                    });
                 }
             }
             _ => {}
         }
     }
     out.into_iter()
-        .map(|(mut message, _)| {
-            message.text = message.text.trim().to_string();
-            message
+        .map(|mut row| {
+            row.message.text = row.message.text.trim().to_string();
+            row.message
         })
         .filter(|message| !message.text.is_empty())
         .collect()
 }
 
-async fn dm_rows(
+/// Fetch visible DM event rows in `(after_seq, upper_seq)` in ascending order.
+/// When `after_seq > 0` and new rows exist, prepends up to 8 preceding visible
+/// events so continuation deltas or `Submitted -> UserTurnCreated` pairs that
+/// straddle `after_seq` stay attached to their `<= after_seq` origin.
+async fn dm_rows_since(
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_seq: i64,
-    tail: bool,
+    upper_seq: Option<i64>,
 ) -> Result<Vec<(i64, String, String)>, CollaborationError> {
-    let order = if tail { "DESC" } else { "ASC" };
-    let sql = format!(
-        r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
-           FROM conversation_events
-           WHERE conversation_id = ? AND sequence > ?
-             AND event_kind IN ('user_turn_created', 'assistant_text_delta')
-           ORDER BY sequence {order} LIMIT ?"#
-    );
-    let mut rows = sqlx::query_as::<_, (i64, String, String)>(&sql)
-        .bind(conversation_id)
-        .bind(after_seq)
-        .bind(DM_SCAN_LIMIT)
-        .fetch_all(pool)
-        .await
-        .map_err(db_err)?;
-    if tail {
-        rows.reverse();
-    } else if after_seq > 0 {
-        // Include the event just before the cut so a message that started at
-        // or before `after_seq` absorbs its continuation deltas.
-        let previous = sqlx::query_as::<_, (i64, String, String)>(
+    let mut rows = match upper_seq {
+        Some(upper) => {
+            let sql = format!(
+                r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+                   FROM conversation_events
+                   WHERE conversation_id = ? AND sequence > ? AND sequence < ?
+                     AND event_kind IN ({DM_VISIBLE_EVENT_KINDS})
+                   ORDER BY sequence ASC"#
+            );
+            sqlx::query_as::<_, (i64, String, String)>(&sql)
+                .bind(conversation_id)
+                .bind(after_seq)
+                .bind(upper)
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        }
+        None => {
+            let sql = format!(
+                r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+                   FROM conversation_events
+                   WHERE conversation_id = ? AND sequence > ?
+                     AND event_kind IN ({DM_VISIBLE_EVENT_KINDS})
+                   ORDER BY sequence ASC"#
+            );
+            sqlx::query_as::<_, (i64, String, String)>(&sql)
+                .bind(conversation_id)
+                .bind(after_seq)
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+        }
+    };
+    if rows.is_empty() {
+        return Ok(rows);
+    }
+    if after_seq > 0 {
+        let previous_sql = format!(
             r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
                FROM conversation_events
                WHERE conversation_id = ? AND sequence <= ?
-                 AND event_kind IN ('user_turn_created', 'assistant_text_delta')
-               ORDER BY sequence DESC LIMIT 1"#,
-        )
-        .bind(conversation_id)
-        .bind(after_seq)
-        .fetch_optional(pool)
-        .await
-        .map_err(db_err)?;
-        if let Some(previous) = previous {
-            rows.insert(0, previous);
+                 AND event_kind IN ({DM_VISIBLE_EVENT_KINDS})
+               ORDER BY sequence DESC LIMIT 8"#
+        );
+        let mut previous = sqlx::query_as::<_, (i64, String, String)>(&previous_sql)
+            .bind(conversation_id)
+            .bind(after_seq)
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+        if !previous.is_empty() {
+            previous.reverse();
+            previous.extend(rows);
+            rows = previous;
         }
     }
     Ok(rows)
+}
+
+/// Locate the sequence boundary before the last `limit` messages by stepping
+/// back over non-streaming user events (`user_turn_created` / `conversation_input`),
+/// so streaming `assistant_text_delta` chunks never crowd out earlier turns.
+async fn dm_tail_window_start_seq(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    limit: usize,
+) -> Result<i64, CollaborationError> {
+    let user_event_offset = (limit.saturating_mul(4).saturating_add(4)) as i64;
+    let boundary_sql = format!(
+        r#"SELECT sequence
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind IN ({DM_USER_EVENT_KINDS})
+           ORDER BY sequence DESC
+           LIMIT 1 OFFSET ?"#
+    );
+    let Some(boundary_seq) = sqlx::query_scalar::<_, i64>(&boundary_sql)
+        .bind(conversation_id)
+        .bind(user_event_offset)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)?
+    else {
+        return Ok(0);
+    };
+    let prev_delta_seq: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ? AND sequence < ?
+             AND event_kind = 'assistant_text_delta'"#,
+    )
+    .bind(conversation_id)
+    .bind(boundary_seq)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(prev_delta_seq.unwrap_or(0))
 }
 
 /// DM history. `since_seq`: messages after that ordinal (oldest first);
@@ -354,67 +521,148 @@ pub async fn list_dm_messages(
     let limit = usize::try_from(limit.unwrap_or(200).clamp(1, 1000)).unwrap_or(200);
     match since_seq {
         Some(since) => {
+            let user_event_offset = (limit.saturating_mul(4).saturating_add(4)) as i64;
+            let upper_sql = format!(
+                r#"SELECT sequence
+                   FROM conversation_events
+                   WHERE conversation_id = ? AND sequence > ?
+                     AND event_kind IN ({DM_USER_EVENT_KINDS})
+                   ORDER BY sequence ASC
+                   LIMIT 1 OFFSET ?"#
+            );
+            let upper_seq = sqlx::query_scalar::<_, i64>(&upper_sql)
+                .bind(conversation_id)
+                .bind(since)
+                .bind(user_event_offset)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
             let mut messages = group_dm_rows(
                 conversation_id,
-                dm_rows(pool, conversation_id, since, false).await?,
+                dm_rows_since(pool, conversation_id, since, upper_seq).await?,
             );
-            // A message whose first event is at/before `since` is already known.
             messages.retain(|message| message.seq > since);
+            if messages.len() < limit && upper_seq.is_some() {
+                messages = group_dm_rows(
+                    conversation_id,
+                    dm_rows_since(pool, conversation_id, since, None).await?,
+                );
+                messages.retain(|message| message.seq > since);
+            }
             messages.truncate(limit);
             Ok(messages)
         }
         None => {
-            let messages = group_dm_rows(
+            let start_seq = dm_tail_window_start_seq(pool, conversation_id, limit).await?;
+            let mut messages = group_dm_rows(
                 conversation_id,
-                dm_rows(pool, conversation_id, 0, true).await?,
+                dm_rows_since(pool, conversation_id, start_seq, None).await?,
             );
+            if messages.len() < limit && start_seq > 0 {
+                messages = group_dm_rows(
+                    conversation_id,
+                    dm_rows_since(pool, conversation_id, 0, None).await?,
+                );
+            }
             let skip = messages.len().saturating_sub(limit);
             Ok(messages.into_iter().skip(skip).collect())
         }
     }
 }
 
+/// Assemble the last visible DM message by locating the latest user-turn
+/// boundary and reading only the trailing turn's events.
 async fn dm_last_message(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<SidebarLastMessage>, CollaborationError> {
-    // Scan back page by page until a visible message turns up.
-    let mut before = i64::MAX;
-    loop {
-        let rows = sqlx::query_as::<_, (i64, String, String)>(
-            r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
-               FROM conversation_events
-               WHERE conversation_id = ? AND sequence < ?
-                 AND event_kind IN ('user_turn_created', 'assistant_text_delta')
-               ORDER BY sequence DESC LIMIT 256"#,
-        )
+    let user_sql = format!(
+        r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind IN ({DM_USER_EVENT_KINDS})
+           ORDER BY sequence DESC
+           LIMIT 32"#
+    );
+    let user_rows = sqlx::query_as::<_, (i64, String, String)>(&user_sql)
         .bind(conversation_id)
-        .bind(before)
         .fetch_all(pool)
         .await
         .map_err(db_err)?;
-        let Some(oldest) = rows.last().map(|row| row.0) else {
-            return Ok(None);
-        };
-        // Extend back to the start of the oldest run so its text is whole.
-        let mut rows = rows;
-        rows.reverse();
-        if let Some(message) = group_dm_rows(conversation_id, rows).pop() {
-            let full = list_dm_messages(pool, conversation_id, Some(message.seq - 1), Some(1))
-                .await?
-                .into_iter()
-                .next()
-                .unwrap_or(message);
-            return Ok(Some(SidebarLastMessage {
-                id: Some(full.id),
-                seq: Some(full.seq),
-                preview: Some(flatten_preview(&full.text)),
-                origin: Some(full.origin),
-                created_at: full.created_at,
-            }));
-        }
-        before = oldest;
+    let latest_user_seq = user_rows.first().map(|row| row.0).unwrap_or(0);
+
+    let delta_rows = sqlx::query_as::<_, (i64, String, String)>(
+        r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+           FROM conversation_events
+           WHERE conversation_id = ? AND sequence > ?
+             AND event_kind = 'assistant_text_delta'
+           ORDER BY sequence ASC"#,
+    )
+    .bind(conversation_id)
+    .bind(latest_user_seq)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    if !delta_rows.is_empty()
+        && let Some(message) = group_dm_rows(conversation_id, delta_rows).pop()
+    {
+        return Ok(Some(sidebar_last_from_dm(message)));
     }
+    if user_rows.is_empty() {
+        return Ok(None);
+    }
+
+    let max_delta_seq = sqlx::query_scalar::<_, Option<i64>>(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ? AND event_kind = 'assistant_text_delta'"#,
+    )
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?
+    .unwrap_or(0);
+
+    let trailing_user_rows: Vec<(i64, String, String)> = user_rows
+        .iter()
+        .filter(|row| row.0 > max_delta_seq)
+        .cloned()
+        .rev()
+        .collect();
+    if !trailing_user_rows.is_empty()
+        && let Some(message) = group_dm_rows(conversation_id, trailing_user_rows).pop()
+    {
+        return Ok(Some(sidebar_last_from_dm(message)));
+    }
+
+    if max_delta_seq > 0 {
+        let prev_user_seq = user_rows
+            .iter()
+            .map(|row| row.0)
+            .find(|&seq| seq < max_delta_seq)
+            .unwrap_or(0);
+        let prev_deltas = sqlx::query_as::<_, (i64, String, String)>(
+            r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+               FROM conversation_events
+               WHERE conversation_id = ? AND sequence > ? AND sequence <= ?
+                 AND event_kind = 'assistant_text_delta'
+               ORDER BY sequence ASC"#,
+        )
+        .bind(conversation_id)
+        .bind(prev_user_seq)
+        .bind(max_delta_seq)
+        .fetch_all(pool)
+        .await
+        .map_err(db_err)?;
+        if let Some(message) = group_dm_rows(conversation_id, prev_deltas).pop() {
+            return Ok(Some(sidebar_last_from_dm(message)));
+        }
+    }
+
+    Ok(list_dm_messages(pool, conversation_id, None, Some(1))
+        .await?
+        .pop()
+        .map(sidebar_last_from_dm))
 }
 
 async fn read_mark(pool: &SqlitePool, thread_id: &str) -> Result<Option<i64>, CollaborationError> {
@@ -427,29 +675,25 @@ async fn read_mark(pool: &SqlitePool, thread_id: &str) -> Result<Option<i64>, Co
 
 /// DM unread = agent messages whose ordinal is past the read mark. First sight
 /// baselines at the current tail (upgrades start at zero), like groups.
-async fn dm_unread_count(
+async fn dm_unread_count_with_read(
     pool: &SqlitePool,
     thread_id: &str,
     conversation_id: Uuid,
+    read: Option<i64>,
     tail_seq: Option<i64>,
 ) -> Result<i64, CollaborationError> {
-    let Some(read) = read_mark(pool, thread_id).await? else {
-        sqlx::query(
-            r#"INSERT INTO collaboration_thread_reads (thread_id, last_read_seq, updated_at)
-               VALUES (?, ?, ?) ON CONFLICT(thread_id) DO NOTHING"#,
-        )
-        .bind(thread_id)
-        .bind(tail_seq.unwrap_or(0))
-        .bind(now_stamp())
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
+    let Some(read) = read else {
+        baseline_thread_read(pool, thread_id, tail_seq).await?;
         return Ok(0);
     };
-    let messages = group_dm_rows(
-        conversation_id,
-        dm_rows(pool, conversation_id, read, false).await?,
-    );
+    if tail_seq.is_some_and(|tail| tail <= read) {
+        return Ok(0);
+    }
+    let rows = dm_rows_since(pool, conversation_id, read, None).await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let messages = group_dm_rows(conversation_id, rows);
     Ok(messages
         .iter()
         .filter(|message| message.seq > read && message.origin == "agent")
@@ -457,35 +701,159 @@ async fn dm_unread_count(
 }
 
 async fn dm_tail_seq(pool: &SqlitePool, conversation_id: Uuid) -> Result<i64, CollaborationError> {
-    sqlx::query_scalar::<_, Option<i64>>(
-        r#"SELECT MAX(sequence) FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind IN ('user_turn_created', 'assistant_text_delta')"#,
+    Ok(dm_last_message(pool, conversation_id)
+        .await?
+        .and_then(|message| message.seq)
+        .unwrap_or(0))
+}
+
+type ThreadMemberJoinRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+);
+
+async fn workspace_thread_members(
+    pool: &SqlitePool,
+    workspace_id: &str,
+) -> Result<HashMap<String, Vec<SidebarMember>>, CollaborationError> {
+    let rows = sqlx::query_as::<_, ThreadMemberJoinRow>(
+        r#"SELECT tm.thread_id, m.id, m.name, m.avatar, m.color, tm.conversation_id, m.agent
+           FROM collaboration_thread_members tm
+           JOIN collaboration_members m ON m.id = tm.member_id
+           WHERE tm.status = 'active'
+             AND (
+               tm.thread_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?1)
+               OR tm.thread_id IN (SELECT id FROM collaboration_threads WHERE kind = 'direct' AND workspace_id = ?1)
+             )
+           ORDER BY tm.joined_at, tm.member_id"#,
     )
-    .bind(conversation_id)
-    .fetch_one(pool)
+    .bind(workspace_id)
+    .fetch_all(pool)
     .await
-    .map_err(db_err)
-    .map(|value| value.unwrap_or(0))
+    .map_err(db_err)?;
+    let mut by_thread: HashMap<String, Vec<SidebarMember>> = HashMap::new();
+    for (thread_id, member_id, name, avatar, color, conversation_id, agent) in rows {
+        by_thread.entry(thread_id).or_default().push(SidebarMember {
+            member_id,
+            name,
+            avatar,
+            color,
+            conversation_id,
+            agent,
+        });
+    }
+    Ok(by_thread)
+}
+
+async fn workspace_group_last_messages(
+    pool: &SqlitePool,
+    workspace_id: &str,
+) -> Result<HashMap<String, SidebarLastMessage>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, String, i64, String, String, String)>(
+        r#"SELECT m.space_id, m.id, m.seq, m.envelope_json, m.origin, m.created_at
+           FROM collaboration_space_messages m
+           JOIN (
+               SELECT space_id, MAX(seq) AS max_seq
+               FROM collaboration_space_messages
+               WHERE space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?1)
+               GROUP BY space_id
+           ) latest ON latest.space_id = m.space_id AND latest.max_seq = m.seq"#,
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(rows
+        .into_iter()
+        .map(|(space_id, id, seq, envelope, origin, created_at)| {
+            (
+                space_id,
+                sidebar_last_from_group_row(id, seq, envelope, origin, created_at),
+            )
+        })
+        .collect())
+}
+
+async fn workspace_read_marks(
+    pool: &SqlitePool,
+    workspace_id: &str,
+) -> Result<HashMap<String, i64>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT thread_id, last_read_seq
+           FROM collaboration_thread_reads
+           WHERE thread_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?1)
+              OR thread_id IN (SELECT id FROM collaboration_threads WHERE kind = 'direct' AND workspace_id = ?1)"#,
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(rows.into_iter().collect())
+}
+
+async fn workspace_group_unreads(
+    pool: &SqlitePool,
+    workspace_id: &str,
+) -> Result<HashMap<String, i64>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT m.space_id, COUNT(*)
+           FROM collaboration_space_messages m
+           JOIN collaboration_thread_reads r ON r.thread_id = m.space_id
+           WHERE m.space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?1)
+             AND m.seq > r.last_read_seq
+             AND m.origin = 'agent'
+           GROUP BY m.space_id"#,
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(rows.into_iter().collect())
 }
 
 pub async fn list_sidebar(
     pool: &SqlitePool,
     workspace_id: Uuid,
 ) -> Result<Vec<SidebarItem>, CollaborationError> {
+    let workspace_str = workspace_id.to_string();
     let mut items = Vec::new();
     let groups = sqlx::query_as::<_, (String, String, Option<String>, String)>(
         r#"SELECT id, name, tag_color, created_at FROM collaboration_spaces
            WHERE workspace_id = ? ORDER BY created_at, id"#,
     )
-    .bind(workspace_id.to_string())
+    .bind(&workspace_str)
     .fetch_all(pool)
     .await
     .map_err(db_err)?;
+    let directs = sqlx::query_as::<_, (String, String, String)>(
+        r#"SELECT id, title, created_at FROM collaboration_threads
+           WHERE kind = 'direct' AND workspace_id = ? ORDER BY created_at, id"#,
+    )
+    .bind(&workspace_str)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    let mut members_by_thread = workspace_thread_members(pool, &workspace_str).await?;
+    let mut group_last_by_space = workspace_group_last_messages(pool, &workspace_str).await?;
+    let read_marks = workspace_read_marks(pool, &workspace_str).await?;
+    let group_unreads = workspace_group_unreads(pool, &workspace_str).await?;
+
     for (space_id, name, tag_color, created_at) in groups {
-        let members = thread_members(pool, &space_id).await?;
-        let last = last_message(pool, &space_id).await?;
-        let unread = unread_count(pool, &space_id, last.as_ref().and_then(|m| m.seq)).await?;
+        let members = members_by_thread.remove(&space_id).unwrap_or_default();
+        let last = group_last_by_space.remove(&space_id);
+        let tail_seq = last.as_ref().and_then(|m| m.seq);
+        let unread = if read_marks.contains_key(&space_id) {
+            *group_unreads.get(&space_id).unwrap_or(&0)
+        } else {
+            baseline_thread_read(pool, &space_id, tail_seq).await?;
+            0
+        };
         let last_activity_at = last
             .as_ref()
             .map(|m| m.created_at.clone())
@@ -505,26 +873,21 @@ pub async fn list_sidebar(
             group_id: None,
         });
     }
-    let directs = sqlx::query_as::<_, (String, String, String)>(
-        r#"SELECT id, title, created_at FROM collaboration_threads
-           WHERE kind = 'direct' AND workspace_id = ? ORDER BY created_at, id"#,
-    )
-    .bind(workspace_id.to_string())
-    .fetch_all(pool)
-    .await
-    .map_err(db_err)?;
+
     for (thread_id, title, created_at) in directs {
-        let members = thread_members(pool, &thread_id).await?;
+        let members = members_by_thread.remove(&thread_id).unwrap_or_default();
         let Some(member) = members.into_iter().next() else {
             continue;
         };
+        let read_mark = read_marks.get(&thread_id).copied();
         let (last, unread) = match Uuid::parse_str(&member.conversation_id) {
             Ok(conversation) => {
                 let last = dm_last_message(pool, conversation).await?;
-                let unread = dm_unread_count(
+                let unread = dm_unread_count_with_read(
                     pool,
                     &thread_id,
                     conversation,
+                    read_mark,
                     last.as_ref().and_then(|m| m.seq),
                 )
                 .await?;
@@ -558,17 +921,18 @@ pub async fn list_sidebar(
             group_id: None,
         });
     }
+
     let assigned = sqlx::query_as::<_, (String, String)>(
         r#"SELECT tg.thread_id, tg.group_id FROM collaboration_thread_contact_groups tg
            JOIN collaboration_contact_groups g ON g.id = tg.group_id
            WHERE g.workspace_id = ?"#,
     )
-    .bind(workspace_id.to_string())
+    .bind(workspace_str)
     .fetch_all(pool)
     .await
     .map_err(db_err)?
     .into_iter()
-    .collect::<std::collections::HashMap<_, _>>();
+    .collect::<HashMap<_, _>>();
     for item in &mut items {
         item.group_id = assigned.get(&item.thread_id).cloned();
     }
@@ -717,6 +1081,7 @@ pub async fn list_members(
         Option<String>,
         Option<String>,
     );
+    let workspace_str = workspace_id.to_string();
     let rows = sqlx::query_as::<_, Row>(
         r#"SELECT DISTINCT m.id, m.name, m.avatar, m.color, m.agent, m.role_id
            FROM collaboration_members m
@@ -725,20 +1090,36 @@ pub async fn list_members(
            WHERE t.workspace_id = ?
            ORDER BY m.created_at, m.id"#,
     )
-    .bind(workspace_id.to_string())
+    .bind(&workspace_str)
     .fetch_all(pool)
     .await
     .map_err(db_err)?;
+    let thread_rows = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT tm.member_id, tm.thread_id
+           FROM collaboration_thread_members tm
+           WHERE tm.status = 'active'
+             AND tm.member_id IN (
+               SELECT DISTINCT tm2.member_id
+               FROM collaboration_thread_members tm2
+               JOIN collaboration_threads t ON t.id = tm2.thread_id
+               WHERE tm2.status = 'active' AND t.workspace_id = ?
+             )
+           ORDER BY tm.joined_at, tm.thread_id"#,
+    )
+    .bind(&workspace_str)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    let mut threads_by_member: HashMap<String, Vec<String>> = HashMap::new();
+    for (member_id, thread_id) in thread_rows {
+        threads_by_member
+            .entry(member_id)
+            .or_default()
+            .push(thread_id);
+    }
     let mut out = Vec::new();
     for (member_id, name, avatar, color, agent, role_id) in rows {
-        let thread_ids = sqlx::query_scalar::<_, String>(
-            r#"SELECT thread_id FROM collaboration_thread_members
-               WHERE member_id = ? AND status = 'active' ORDER BY joined_at, thread_id"#,
-        )
-        .bind(&member_id)
-        .fetch_all(pool)
-        .await
-        .map_err(db_err)?;
+        let thread_ids = threads_by_member.remove(&member_id).unwrap_or_default();
         out.push(MemberSummary {
             direct_thread_id: identity::direct_thread_id(&member_id),
             member_id,
@@ -778,6 +1159,39 @@ pub async fn update_member_profile(
             .execute(pool)
             .await
             .map_err(db_err)?;
+        let direct_tid = identity::direct_thread_id(member_id);
+        sqlx::query("UPDATE collaboration_threads SET title = ? WHERE id = ?")
+            .bind(name)
+            .bind(&direct_tid)
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        sqlx::query(
+            r#"UPDATE collaboration_space_members
+               SET nickname = ?
+               WHERE member_id = ?
+                  OR conversation_id IN (
+                       SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
+                  )"#,
+        )
+        .bind(name)
+        .bind(member_id)
+        .bind(member_id)
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+        sqlx::query(
+            r#"UPDATE conversation_personas
+               SET name = ?
+               WHERE conversation_id IN (
+                   SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
+               )"#,
+        )
+        .bind(name)
+        .bind(member_id)
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
     }
     let blank = |v: &str| {
         let v = v.trim();
@@ -834,13 +1248,23 @@ type ContactGroupRow = (String, String, String, i64, String, String);
 
 fn contact_group(row: ContactGroupRow) -> ContactGroup {
     let (group_id, workspace_id, name, sort_order, created_at, updated_at) = row;
-    ContactGroup { group_id, workspace_id, name, sort_order, created_at, updated_at }
+    ContactGroup {
+        group_id,
+        workspace_id,
+        name,
+        sort_order,
+        created_at,
+        updated_at,
+    }
 }
 
 fn contact_group_name(name: &str) -> Result<String, CollaborationError> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(CollaborationError::new("invalid_input", "group name is required"));
+        return Err(CollaborationError::new(
+            "invalid_input",
+            "group name is required",
+        ));
     }
     Ok(name.to_string())
 }
@@ -910,16 +1334,20 @@ pub async fn rename_contact_group(
     name: &str,
 ) -> Result<ContactGroup, CollaborationError> {
     let name = contact_group_name(name)?;
-    let updated =
-        sqlx::query("UPDATE collaboration_contact_groups SET name = ?, updated_at = ? WHERE id = ?")
-            .bind(&name)
-            .bind(now_stamp())
-            .bind(group_id)
-            .execute(pool)
-            .await
-            .map_err(db_err)?;
+    let updated = sqlx::query(
+        "UPDATE collaboration_contact_groups SET name = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&name)
+    .bind(now_stamp())
+    .bind(group_id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
     if updated.rows_affected() == 0 {
-        return Err(CollaborationError::new("not_found", "contact group was not found"));
+        return Err(CollaborationError::new(
+            "not_found",
+            "contact group was not found",
+        ));
     }
     get_contact_group(pool, group_id).await
 }
@@ -972,20 +1400,25 @@ pub async fn reorder_contact_groups(
     let now = now_stamp();
     let mut tx = pool.begin().await.map_err(db_err)?;
     for (index, id) in group_ids.iter().enumerate() {
-        sqlx::query("UPDATE collaboration_contact_groups SET sort_order = ?, updated_at = ? WHERE id = ?")
-            .bind(index as i64)
-            .bind(&now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db_err)?;
+        sqlx::query(
+            "UPDATE collaboration_contact_groups SET sort_order = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(index as i64)
+        .bind(&now)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
     }
     tx.commit().await.map_err(db_err)?;
     list_contact_groups(pool, workspace_id).await
 }
 
 /// Workspace of a sidebar thread: a group (space id) or `direct:<member>`.
-async fn thread_workspace(pool: &SqlitePool, thread_id: &str) -> Result<String, CollaborationError> {
+async fn thread_workspace(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<String, CollaborationError> {
     let workspace: Option<Option<String>> = sqlx::query_scalar(
         r#"SELECT workspace_id FROM collaboration_spaces WHERE id = ?
            UNION ALL
@@ -1031,7 +1464,8 @@ pub async fn set_thread_contact_group(
                 r#"INSERT INTO collaboration_thread_contact_groups (thread_id, group_id, updated_at)
                    VALUES (?, ?, ?)
                    ON CONFLICT(thread_id) DO UPDATE SET
-                     group_id = excluded.group_id, updated_at = excluded.updated_at"#,
+                     group_id = excluded.group_id,
+                     updated_at = excluded.updated_at"#,
             )
             .bind(thread_id)
             .bind(group_id)
@@ -1042,4 +1476,186 @@ pub async fn set_thread_contact_group(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use agents::{ConversationEvent, ConversationInputBlock};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    async fn setup_test_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn seed_dm_session(
+        pool: &SqlitePool,
+        workspace: Uuid,
+        conversation: Uuid,
+        name: &str,
+    ) -> String {
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO sessions (id, workspace_id, name) VALUES (?, ?, ?)")
+            .bind(conversation)
+            .bind(workspace)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(pool)
+            .await
+            .unwrap();
+        let member_id = identity::member_id_for_conversation(conversation);
+        let thread_id = identity::direct_thread_id(&member_id);
+        sqlx::query(
+            "INSERT INTO collaboration_members (id, name, created_at) VALUES (?, ?, '2026-10-24T00:00:00Z')",
+        )
+        .bind(&member_id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_threads (id, kind, workspace_id, title, created_at) VALUES (?, 'direct', ?, ?, '2026-10-24T00:00:00Z')",
+        )
+        .bind(&thread_id)
+        .bind(workspace.to_string())
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, status, joined_at) VALUES (?, ?, ?, 'active', '2026-10-24T00:00:00Z')",
+        )
+        .bind(&thread_id)
+        .bind(&member_id)
+        .bind(conversation.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+        thread_id
+    }
+
+    #[tokio::test]
+    async fn long_streaming_dm_preserves_all_turns_and_sidebar_state() {
+        let pool = setup_test_pool().await;
+        let workspace = Uuid::new_v4();
+        let conversation = Uuid::new_v4();
+        let thread_id = seed_dm_session(&pool, workspace, conversation, "Bot").await;
+
+        // 10 turns where each reply has 500 streaming deltas = 5,010 events (> 4,000 old scan cap).
+        let mut seq = 0_i64;
+        let mut tx = pool.begin().await.unwrap();
+        for turn in 1..=10 {
+            seq += 1;
+            let user_json = serde_json::to_string(&ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: format!("user turn {turn}"),
+                }],
+                workflow_refs: Vec::new(),
+            })
+            .unwrap();
+            sqlx::query(
+                r#"INSERT INTO conversation_events
+                   (id, conversation_id, sequence, source, event_kind, normalized_json, created_at)
+                   VALUES (?, ?, ?, 'user', 'user_turn_created', ?, ?)"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(conversation)
+            .bind(seq)
+            .bind(user_json)
+            .bind(format!("2026-10-24T00:{turn:02}:00.000Z"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
+            for chunk in 1..=500 {
+                seq += 1;
+                let delta_json = serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                    text: if chunk == 1 {
+                        format!("reply {turn}: ")
+                    } else {
+                        "x".to_string()
+                    },
+                    message_id: None,
+                })
+                .unwrap();
+                sqlx::query(
+                    r#"INSERT INTO conversation_events
+                       (id, conversation_id, sequence, source, event_kind, normalized_json, created_at)
+                       VALUES (?, ?, ?, 'acp', 'assistant_text_delta', ?, ?)"#,
+                )
+                .bind(Uuid::new_v4())
+                .bind(conversation)
+                .bind(seq)
+                .bind(delta_json)
+                .bind(format!("2026-10-24T00:{turn:02}:30.000Z"))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            }
+        }
+        tx.commit().await.unwrap();
+
+        let history = list_dm_messages(&pool, conversation, None, Some(200))
+            .await
+            .unwrap();
+        assert_eq!(
+            history.len(),
+            20,
+            "all 10 user + 10 agent messages must be preserved"
+        );
+        assert_eq!(history[0].text, "user turn 1");
+        assert!(history[1].text.starts_with("reply 1: "));
+        assert_eq!(history[18].text, "user turn 10");
+        assert!(history[19].text.starts_with("reply 10: "));
+
+        // First sidebar load baselines read mark at tail (0 unread) and extracts full last message preview.
+        let sidebar = list_sidebar(&pool, workspace).await.unwrap();
+        assert_eq!(sidebar.len(), 1);
+        assert_eq!(sidebar[0].thread_id, thread_id);
+        assert_eq!(sidebar[0].unread_count, 0);
+        let last = sidebar[0].last_message.as_ref().expect("last message");
+        assert_eq!(last.seq, Some(history[19].seq));
+        assert!(
+            last.preview
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("reply 10: "),
+            "preview must start from the beginning of turn 10's reply: {:?}",
+            last.preview
+        );
+
+        // Mark unread moves cursor before tail -> 1 unread message.
+        mark_thread_unread(&pool, &thread_id).await.unwrap();
+        let sidebar = list_sidebar(&pool, workspace).await.unwrap();
+        assert_eq!(sidebar[0].unread_count, 1);
+
+        // Mark read clears unread count.
+        mark_thread_read(&pool, &thread_id, None).await.unwrap();
+        let sidebar = list_sidebar(&pool, workspace).await.unwrap();
+        assert_eq!(sidebar[0].unread_count, 0);
+    }
 }

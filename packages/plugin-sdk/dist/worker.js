@@ -1,4 +1,6 @@
+import { isSupportedPluginApiVersion, VIBEX_PLUGIN_API_VERSION, } from './protocol.js';
 import { serviceContainer, } from './services.js';
+import { createVolatile, notifyPluginConfigUpdated, } from './volatile.js';
 export function createWorkerServiceRegistry(pluginId, container = serviceContainer) {
     function inject(keyOrDeps, effect) {
         if (Array.isArray(keyOrDeps)) {
@@ -38,23 +40,43 @@ export function normalizePluginContext(context) {
         generation: context.generation,
         packageClass: context.packageClass ?? 'full-trust',
         grantedCapabilities: context.grantedCapabilities ?? ['*'],
+        ...(context.config !== undefined ? { config: context.config } : {}),
     };
 }
-export function definePluginWorker(setup) {
-    return { apiVersion: '1.0', setup };
+export function definePluginWorker(setupOrDefinition) {
+    if (typeof setupOrDefinition === 'function') {
+        return { apiVersion: VIBEX_PLUGIN_API_VERSION, setup: setupOrDefinition };
+    }
+    assertSupportedWorkerApi(setupOrDefinition.apiVersion);
+    return {
+        apiVersion: setupOrDefinition.apiVersion,
+        setup: setupOrDefinition.setup,
+    };
 }
 export async function activatePluginWorker(definition, environment) {
-    if (definition.apiVersion !== '1.0') {
-        throw new PluginSdkError('sdk_incompatible', `Unsupported worker API ${String(definition.apiVersion)}`);
-    }
+    assertSupportedWorkerApi(definition.apiVersion);
     const controller = new AbortController();
     const handlers = new Map();
     const disposables = [];
     let disposed = false;
     const scopedServices = environment.services ??
         createWorkerServiceRegistry(environment.context.pluginId);
+    const initialConfig = environment.context.config &&
+        typeof environment.context.config === 'object' &&
+        !Array.isArray(environment.context.config)
+        ? { ...environment.context.config }
+        : {};
+    const volatileConfig = environment.config ??
+        createVolatile(initialConfig);
+    notifyPluginConfigUpdated(environment.context.pluginId, volatileConfig.get());
+    const workerContext = {
+        ...environment.context,
+        config: volatileConfig.get(),
+    };
     const workerEnvironment = {
         ...environment,
+        context: workerContext,
+        config: volatileConfig,
         services: scopedServices,
         signal: controller.signal,
     };
@@ -66,6 +88,11 @@ export async function activatePluginWorker(definition, environment) {
             }
             handlers.set(id, handler);
         },
+        onConfigUpdate(listener) {
+            const disposeSub = volatileConfig.subscribe(listener);
+            disposables.push(disposeSub);
+            return disposeSub;
+        },
         onDispose(disposable) {
             disposables.push(disposable);
         },
@@ -76,6 +103,19 @@ export async function activatePluginWorker(definition, environment) {
     return {
         get handlers() {
             return [...handlers.keys()].sort();
+        },
+        get config() {
+            return volatileConfig;
+        },
+        updateConfig(nextConfig) {
+            if (disposed)
+                return false;
+            const normalized = nextConfig && typeof nextConfig === 'object' && !Array.isArray(nextConfig)
+                ? { ...nextConfig }
+                : {};
+            workerContext.config = normalized;
+            notifyPluginConfigUpdated(environment.context.pluginId, normalized);
+            return volatileConfig.set(normalized);
         },
         async invoke(handler, input) {
             if (disposed) {
@@ -111,6 +151,14 @@ export async function activatePluginWorker(definition, environment) {
             }
         },
     };
+}
+export async function createWorkerHost(definition, environment) {
+    return activatePluginWorker(definition, environment);
+}
+function assertSupportedWorkerApi(apiVersion) {
+    if (!isSupportedPluginApiVersion(apiVersion)) {
+        throw new PluginSdkError('sdk_incompatible', `Unsupported worker API ${String(apiVersion)}`);
+    }
 }
 export class PluginSdkError extends Error {
     code;

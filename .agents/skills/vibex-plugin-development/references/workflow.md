@@ -4,15 +4,35 @@
 
 Read and reconcile these sources before authoring:
 
-1. `packages/plugin-sdk/src/manifest.ts`
+1. `packages/plugin-sdk/src/manifest.ts` and `packages/plugin-sdk/src/context.ts`
 2. `packages/plugin-sdk/src/protocol.ts`, `worker.ts`, `app.ts`, and `testing.ts`
 3. `packages/plugin-cli/src/validation.ts`, `build.ts`, `scaffold.ts`, and CLI `--help`
-4. `docs/plugins/package-v4.md` and `sdk-and-cli.md`
-5. Host parsing and contribution registry only when the public contract is incomplete or failing
+4. `docs/plugins/package-v4.md` and `docs/plugins/sdk-and-cli.md`
+5. Host parsing and `crates/plugins/src/host_capability_broker.rs` when verifying capability behavior
+
+## App entrypoint protocols (`2.0` vs `1.0`)
+
+`entrypoints.app` in `.vibex-plugin/plugin.json` supports two distinct protocols:
+
+1. **`protocol: "2.0"` — In-Host / Federated Module App**
+   - Manifest shape: `{ "entry": "app/main.js", "protocol": "2.0", "styles"?: "style.css" }` (with `apiVersion: "2.0"`).
+   - Authoring API: `defineVibeXPlugin((ctx) => ...)` from `@vibex/plugin-sdk`.
+   - Always use namespaced methods on `ctx`: `ctx.ui.*`, `ctx.hooks.*`, `ctx.services.*`, `ctx.host.*` (flat top-level methods are legacy compatibility aliases only).
+   - Renders inside the Host React tree (`PluginErrorBoundary` + reversible `EffectScope`) and calls `HostCapabilityBroker` over 1-hop RPC without spawning a Node Worker.
+2. **`protocol: "1.0"` — Standalone HTML Surface App**
+   - Manifest shape: `{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }` (built from `runtime/app.mjs` + `runtime/app.html`).
+   - Authoring API: `definePluginApp(({ root, bridge, signal }) => ...)` from `@vibex/plugin-sdk/app`.
+   - Mounts an isolated HTML document for `app.surface` (`slot: "plugin.detail.panel"` or `slot: "artifact.editor"`), communicating with the Host and Worker via `bridge.invoke`, `bridge.artifact`, and `bridge.ready()`.
+
+## Worker protocol & frame limits
+
+- Worker entrypoints use `protocol: "1.1"` (`initialize` → `activate` → `invoke` / `ping` / `dispose`).
+- Default single-frame limit is **`32 MiB`**, configurable from `1..128 MiB` via `entrypoints.worker.maxFrameMiB`.
+- Logical message limit is **`64 MiB`**; payloads exceeding a single frame are automatically split and reassembled across `frame.chunk` envelopes.
 
 ## Package composition
 
-Start with README, root config, and one end-user outcome. Add only integrations required by that outcome:
+Start with README, root `config.json` (described by `config.schema` in `plugin.json`), and one end-user outcome. Add only integrations required by that outcome:
 
 - `content.skill`: Agent knowledge and repeatable operating instructions.
 - `content.mcp`: MCP configuration stored as package content.
@@ -25,6 +45,7 @@ Start with README, root config, and one end-user outcome. Add only integrations 
 - `app.command` / `app.toolbar` / `app.status` / `app.composer.slash` / `app.timeline.card` / `app.settings.section`: chrome slots. The `host-chrome` template writes one of each.
 - `app.panel` / `app.tab` / `app.kanban.view` / `app.settings.page`: structure surfaces with optional Module Federation remotes. The `panel` and `kanban-view` templates write Vite remotes.
 - `provider.model.importSource`: Model Provider import menu. The `provider-import` template writes one.
+- `provider.model.catalog`: Static no-secret provider preset catalog (`resource` JSON).
 - `provider.remote.provisioner`: Host-owned remote provision kind such as `ssh`.
 - `host.service`: periodic Worker handler.
 
@@ -47,7 +68,7 @@ Keep candidate execution content-addressed. Validate Worker registrations and de
 
 Prefer `vibex plugin run server` then `vibex plugin run dev` from the plugin directory. `add --dev` only links. Chrome slots refresh through the activation generation. Structure remotes use Vite HMR while `run dev` is active.
 
-Cover declarative-only, Worker, App panel, chrome slots, structure surfaces, editable file tab, and complete-product fixtures. Include invalid summary/config/path/reference, unknown integration, missing handler, stale generation, external file edit, and oversized document cases.
+In declarative or non-Worker tests, read the real `.vibex-plugin/plugin.json` directly from disk rather than replacing it with a static fixture export. Cover declarative-only, in-host App (`createPluginTestHarness`), Worker (`createWorkerHarness`), standalone App panel (`createAppHarness`), chrome slots, structure surfaces, editable file tab, and complete-product cases.
 
 ## Reference package rule
 

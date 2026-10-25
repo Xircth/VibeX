@@ -525,7 +525,18 @@ impl ServerApplicationDomains {
             .runtime_inventory()
             .await
             .map_err(internal_error)?;
-        let mut plugin_values = plugins.iter().map(plugin_control_item).collect::<Vec<_>>();
+        let mut plugin_values = Vec::with_capacity(plugins.len());
+        for plugin in &plugins {
+            let quarantine_reason = control_plane
+                .quarantine_reason(plugin.id())
+                .await
+                .ok()
+                .flatten();
+            plugin_values.push(plugin_control_item_with_quarantine(
+                plugin,
+                quarantine_reason,
+            ));
+        }
         self.merge_native_cli_plugins(&mut plugin_values).await;
         let runtime_values = runtimes
             .into_iter()
@@ -576,6 +587,11 @@ impl ServerApplicationDomains {
         // just persisted.
         let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
             .map_err(internal_error)?;
+        let _ = self
+            .plugin_control_plane()
+            .await?
+            .notify_config_updated(&args.plugin_id, refreshed.config.clone())
+            .await;
         if plugin.activation == plugins::PluginActivation::Enabled {
             self.apply_default_plugin_skill_projections(&refreshed)
                 .await?;
@@ -728,7 +744,12 @@ impl ServerApplicationDomains {
         if args.enabled {
             self.apply_default_plugin_projections(&plugin).await?;
         }
-        Ok(plugin_control_item(&plugin))
+        let quarantine_reason = control_plane
+            .quarantine_reason(plugin.id())
+            .await
+            .ok()
+            .flatten();
+        Ok(plugin_control_item_with_quarantine(&plugin, quarantine_reason))
     }
 
     async fn plugin_control_grant_permissions(
@@ -1260,10 +1281,17 @@ impl ServerApplicationDomains {
                 .map_err(internal_error)?,
             None => Vec::new(),
         };
+        let quarantine_reason = control_plane
+            .quarantine_reason(&args.plugin_id)
+            .await
+            .ok()
+            .flatten();
         Ok(json!({
             "workerExpected": enabled && declares_worker,
             "workerRunning": control_plane.is_worker_running(&args.plugin_id).await,
             "generation": control_plane.active_generation(&args.plugin_id).await,
+            "quarantined": quarantine_reason.is_some(),
+            "quarantineReason": quarantine_reason,
             "missingRuntimes": missing_runtimes,
             "recentCrashes": plugins::recent_plugin_crashes(&args.plugin_id)
                 .into_iter()
@@ -2687,6 +2715,13 @@ fn automation_view(record: AutomationRecord) -> AutomationView {
 }
 
 fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
+    plugin_control_item_with_quarantine(plugin, None)
+}
+
+fn plugin_control_item_with_quarantine(
+    plugin: &plugins::InstalledPlugin,
+    quarantine_reason: Option<String>,
+) -> Value {
     let formats = plugin
         .formats
         .iter()
@@ -2801,6 +2836,8 @@ fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
         "version": plugin.version,
         "description": plugin.description,
         "enabled": plugin.activation == plugins::PluginActivation::Enabled,
+        "quarantined": quarantine_reason.is_some(),
+        "quarantineReason": quarantine_reason,
         "builtin": plugin.source.kind == plugins::PluginSourceKind::Builtin,
         "sourceKind": source_kind,
         // Package contents are exposed through the contribution API; the

@@ -1,7 +1,7 @@
 export const ROUNDTRIP = {
   manifest: {
     manifestVersion: 4,
-    apiVersion: '1.0',
+    apiVersion: '2.0',
     id: 'vibex.session-enhance',
     publisher: 'vibex',
     version: '1.0.0',

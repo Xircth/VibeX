@@ -1,4 +1,5 @@
 import type { DbConversationSummary, GitLogEntry, Tag } from 'shared/types';
+import type { MemberBotAvatarConfig } from '@/features/collaboration/MemberBotAvatar';
 import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import { matchTypeaheadTrigger } from './typeahead-triggers';
@@ -31,6 +32,7 @@ export type AtReferenceItem = {
   label: string;
   detail?: string;
   insertText: string;
+  memberAvatar?: MemberBotAvatarConfig;
   onActivate?: () => void | Promise<void>;
 };
 
@@ -65,6 +67,7 @@ export type AtReferenceMember = {
   id: string;
   nickname: string;
   detail?: string;
+  avatar?: MemberBotAvatarConfig;
 };
 
 export type AtReferenceSources = {
@@ -259,6 +262,7 @@ export function memberToAtReference(
     label: nickname,
     detail: member.detail,
     insertText: `@${nickname}`,
+    memberAvatar: member.avatar,
   };
 }
 

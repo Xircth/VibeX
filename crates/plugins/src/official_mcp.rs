@@ -541,6 +541,9 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("request_approval", "collaboration"),
             tool("resolve_card", "collaboration"),
             tool("list_space_messages", "collaboration"),
+            tool("list_space_collection", "collaboration"),
+            tool("add_to_space_collection", "collaboration"),
+            tool("read_space_collection_item", "collaboration"),
         ],
         "session" => {
             let mut tools = Vec::new();
@@ -999,6 +1002,17 @@ mod tests {
         assert_eq!(report.plugins[0].mcp_count, 1);
         let tools = &report.plugins[0].servers[0].tools;
         assert_eq!(tools, &advertised_mcp_tools("delegation", 0));
+        for name in [
+            "list_space_collection",
+            "add_to_space_collection",
+            "read_space_collection_item",
+            "handoff",
+            "ask_person",
+            "request_approval",
+            "resolve_card",
+        ] {
+            assert!(tools.iter().any(|tool| tool.name == name), "{name}");
+        }
         for name in [
             "cancel_session_turn",
             "wait_for_session",

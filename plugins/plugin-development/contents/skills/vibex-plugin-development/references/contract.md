@@ -1,6 +1,6 @@
 # 产品包契约
 
-对照 Host 0.1.3、协议 1.1、SDK 1.0.0。字段以本机 `packages/plugin-sdk/src/manifest.ts`（或 `vibex-plugin toolchain` 打印的 `js`）和 CLI `validate` 为准。
+对照 Host 0.1.3、Worker 协议 1.1、SDK 2.0。字段以本机 `packages/plugin-sdk/src/manifest.ts`（或 `vibex-plugin toolchain` 打印的 `js`）和 CLI `validate` 为准。
 
 ## 目录
 
@@ -13,7 +13,8 @@ my-plugin/
 ├─ config.json                        # 配置唯一事实
 ├─ contents/                          # Skill / MCP / Hook / Workflow / 其它
 ├─ depends/                           # 仅当 dependencies 引用时
-├─ runtime/                           # 作者源码，不进 .vxp
+├─ app/                               # 宿主内 / 联邦模块 App 入口（protocol: "2.0"，如 app/main.js）
+├─ runtime/                           # Worker / 独立 Surface App 源码，不进 .vxp
 ├─ src/                               # Federation 面板源码（panel / kanban-view）
 └─ dist/                              # build 输出
 ```
@@ -26,11 +27,14 @@ my-plugin/
 
 ## plugin.json
 
-- `manifestVersion` 4，`apiVersion` `"1.0"`，`readme` `"README.md"`。
-- `engines.vibex` 写成 `>=0.1.3 <1.0.0`；`engines.pluginSdk` 写成 `^1.0.0`。
-- Worker：`path`、`runtime`（`node`|`python`|`native`）、`protocol` `"1.1"`。省略 `format`。
-- App：`root`、`document`、`protocol` `"1.0"`。
-- v4 缺省执行类 `full-trust`。Host 按 Full Trust spawn Worker。
+- `manifestVersion` 固定为 `4`，`apiVersion` 统一为 `"2.0"`（兼容读取旧包 `"1.0"`），`readme` 固定为 `"README.md"`。
+- `engines.vibex` 写成 `>=0.1.3 <1.0.0`；`engines.pluginSdk` 写成 `^2.0.0`。
+- `config` 只包含 `"schema"`（`{ "schema": { "type": "object", ... } }`），不写已废弃的 `"file": "config.json"`，实际值固定存放在根 `config.json`。
+- Worker：`path`、`runtime`（`node`|`python`|`native`）、`protocol` `"1.1"`，可选 `maxFrameMiB`（默认 `32`，范围 `1..128`）、`sharedWorker`、`isolation`。省略已废弃的 `format`。
+- App（`entrypoints.app`）支持两种协议：
+  - **`protocol: "2.0"`（宿主内 / 联邦模块 App）**：`{ "entry": "app/main.js", "protocol": "2.0", "styles"?: "style.css" }`，配合 `defineVibeXPlugin((ctx) => ...)` 直接在宿主 React 树内渲染并调用 `ctx.ui.*`、`ctx.hooks.*`、`ctx.services.*`、`ctx.host.*`。
+  - **`protocol: "1.0"`（独立 HTML Surface App）**：`{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`，配合 `definePluginApp(({ root, bridge, signal }) => ...)` 挂载独立 HTML Surface（如 `plugin.detail.panel` 与 `artifact.editor`）。
+- v4 缺省执行类 `full-trust`。Host 按 Full Trust 激活并运行插件。
 - `permissions` 可省略；出现时只作兼容元数据。
 - `dependencies[].kind` 只能是 `runtime`；`descriptor` 指向 `depends/` 下真实文件。CLI `validate` 与 Host inspect 都拒绝 `kind: "plugin"`。
 
@@ -59,7 +63,7 @@ my-plugin/
 | --- | --- |
 | `content.skill` | 把 `contents/skills/...` 投影给兼容 Agent。可写 `targets` |
 | `content.mcp` | 托管 MCP。资源 JSON 见下 |
-| `content.hook` | Hook 资源；需 `event`。清单可校验；当前 Host 无 Hook 运行时 |
+| `content.hook` | Hook 资源；需 `event`。清单可校验；当前 Host 无静态 Markdown Hook 运行时（动态 Turn Hook 请用 `protocol: "2.0"` 的 `ctx.hooks.beforeTurn` / `afterTurn`） |
 | `workflow.binding` | 把 `contents/workflows/.../workflow.json` 暴露给 Composer / Automation |
 | `file.opener` | 按 `extensions`、`fileNameSuffixes` 或 `mediaTypes` 打开。恰好一个 `previewProvider` 或恰好一个 `editorSurface` |
 | `artifact.preview` | Broker 管的预览 provider，可带 `process.argv` |
@@ -77,9 +81,10 @@ my-plugin/
 | `app.composer.action` | Composer 提交前动作。需要 `handler` 或 `prompt` |
 | `host.service` | 后台周期调用 Worker handler；`intervalSeconds` 下限 5，缺省 30；同一包最多 8 条 |
 | `provider.model.importSource` | 模型供应商导入来源 |
+| `provider.model.catalog` | 供应商新建表单的无密钥预置模板目录（静态 JSON `resource`） |
 | `provider.remote.provisioner` | 远程 Host 供给器。`provisionKind` 为来源标记 |
 
-`init` 模板覆盖上表稳定面。`content.hook` 仅通过清单校验。`icon` 取 `@vibex/plugin-contract/catalog/icons`。
+`init` 模板覆盖上表稳定面。`icon` 取 `@vibex/plugin-contract/catalog/icons`。
 
 `file.opener` 的 `fileNameSuffixes` 必须以 `.` 开头，只含字母、数字、点、短横、下划线。编辑面的 `app.surface.slot` 必须是 `artifact.editor`，`appEntrypoint` 为 `app`，`handler` 为 `surface.createSession`。
 

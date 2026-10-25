@@ -78,7 +78,8 @@ impl DbConversationSummary {
         sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {SUMMARY_COLUMNS}
                FROM sessions
-               WHERE workspace_id = ? AND deleted_at IS NULL
+               WHERE workspace_id = ?
+                 AND deleted_at IS NULL
                ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC"#
         ))
         .bind(workspace_id)

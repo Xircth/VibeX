@@ -90,7 +90,9 @@ const LazyMarkdownRichTextEditor = lazy(
   () => import('@/components/previews/MarkdownRichTextEditor')
 );
 const LazyMarkdown = lazy(
-  () => import('@/components/NormalizedConversation/AstryxMarkdown')
+  () => import('@/components/NormalizedConversation/AstryxMarkdown').then((m) => ({
+      default: m.AstryxMarkdown,
+    }))
 );
 const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')

@@ -768,6 +768,7 @@ fn parse_delayed_payload(
         workflow_refs: Vec::new(),
         file_refs: Vec::new(),
         internal_prompt_contributions: Vec::new(),
+        collaboration_origin: None,
     })
 }
 
@@ -1209,6 +1210,7 @@ mod tests {
             workflow_refs: Vec::new(),
             file_refs: Vec::new(),
             internal_prompt_contributions: Vec::new(),
+            collaboration_origin: None,
         }
     }
 

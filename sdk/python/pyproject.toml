@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibex-plugin"
-version = "1.0.0"
+version = "2.0.0"
 description = "VibeX plugin worker SDK for protocol 1.1"
 requires-python = ">=3.11"
 authors = [{ name = "VibeX maintainers" }]

@@ -278,7 +278,7 @@ pub fn activate_plugin_worker(
     host: HostClient,
     log: WorkerLog,
 ) -> Result<ActivatedPluginWorker, PluginSdkError> {
-    if definition.api_version != PLUGIN_API_VERSION {
+    if !matches!(definition.api_version, "1.0" | "2.0") {
         return Err(PluginSdkError::new(
             "sdk_incompatible",
             format!("Unsupported worker API {}", definition.api_version),

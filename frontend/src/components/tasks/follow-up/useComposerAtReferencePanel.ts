@@ -43,7 +43,6 @@ import {
   isComposerEnterKey,
   isComposerImeComposing,
 } from './sessionComposerSubmitHotkey';
-import { insertComposerTextWithUndo } from './replaceComposerValueWithUndo';
 import {
   atReferenceChipLabel,
   getSessionComposerStructuredTokenSegments,
@@ -82,10 +81,26 @@ const EMPTY_GROUPS: AtReferenceGroup[] = AT_REFERENCE_TAB_ORDER.map((tab) => ({
   truncated: false,
 }));
 
-function atReferenceItemToToken(item: AtReferenceItem): ChatComposerToken {
-  const token = getSessionComposerStructuredTokenSegments(item.insertText).find(
-    (segment) => segment.kind === 'token'
-  );
+function atReferenceItemToToken(
+  item: AtReferenceItem,
+  spaceMembers?: AtReferenceMember[]
+): ChatComposerToken {
+  if (item.tab === 'member') {
+    const cleanName = item.label.replace(/^@+/, '').trim();
+    return toSessionComposerChatToken({
+      kind: 'member_mention',
+      type: '@',
+      key: cleanName,
+      label: cleanName,
+      value: cleanName,
+      raw: item.insertText.startsWith('@') ? item.insertText : `@${cleanName}`,
+      title: cleanName,
+      memberAvatar: item.memberAvatar,
+    });
+  }
+  const token = getSessionComposerStructuredTokenSegments(item.insertText, {
+    spaceMembers,
+  }).find((segment) => segment.kind === 'token');
   if (token?.kind === 'token') {
     return toSessionComposerChatToken(token.token);
   }
@@ -549,19 +564,15 @@ export function useComposerAtReferencePanel({
       if (item.onActivate) {
         void Promise.resolve(item.onActivate()).catch(() => undefined);
       }
-      if (item.tab === 'member') {
-        const mention = `${item.insertText} `;
-        if (!insertComposerTextWithUndo(editor, mention)) {
-          handle.insertText(mention);
-        }
-        onChange(handle.getValue());
-      } else if (item.insertText) {
-        handle.insertToken(atReferenceItemToToken(item));
+      if (item.insertText) {
+        handle.insertToken(
+          atReferenceItemToToken(item, context?.spaceMembers)
+        );
         onChange(handle.getValue());
       }
       close();
     },
-    [close, composerHandleRef, composerRootRef, onChange]
+    [close, composerHandleRef, composerRootRef, context?.spaceMembers, onChange]
   );
 
   const handleKeyDown = useCallback(
@@ -656,11 +667,12 @@ export function useComposerAtReferencePanel({
 
   return {
     panel,
-    handleKeyDown,
+    isOpen,
     detect,
-    selectItem,
+    handleKeyDown,
     selectTab,
+    selectItem,
     highlight,
-    isOpen: panel != null,
+    close,
   };
 }

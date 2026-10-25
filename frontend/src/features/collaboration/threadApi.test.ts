@@ -114,7 +114,7 @@ describe('threadApi', () => {
     expect(call).toHaveBeenLastCalledWith(
       'collaboration',
       'space.listMessages',
-      { spaceId: 'direct:m1', sinceSeq: 3 }
+      { spaceId: 'direct:m1', latest: true, limit: 200 }
     );
   });
 

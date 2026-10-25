@@ -103,6 +103,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 internal_prompt_contributions: request.internal_prompt_contributions,
                 queued_input_claim: None,
                 operation_id: request.operation_id,
+                collaboration_origin: None,
             })
             .await
             .map(|(turn, _)| turn)

@@ -814,6 +814,79 @@ describe('MessageTurnView', () => {
     );
   });
 
+  it('shows the sender avatar and name above group space-origin user bubbles', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-space:user',
+            role: 'user',
+            blocks: [
+              {
+                type: 'protocol',
+                content: {
+                  kind: 'collaboration_space_origin',
+                  spaceId: 'space-1',
+                  threadKind: 'group',
+                  senderKind: 'member',
+                  senderNickname: '小A',
+                  senderConversationId: 'conv-a',
+                },
+              },
+              { type: 'text', text: '请核对接口' },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const sender = screen.getByTestId('user-message-space-sender');
+    expect(sender).toHaveTextContent('小A');
+    expect(sender.querySelector('svg')).toHaveClass('h-5', 'w-5');
+    expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
+      '请核对接口'
+    );
+  });
+
+  it('hides the sender chip on private-chat space-origin user bubbles', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-dm:user',
+            role: 'user',
+            blocks: [
+              {
+                type: 'protocol',
+                content: {
+                  kind: 'collaboration_space_origin',
+                  spaceId: 'direct:m1',
+                  threadKind: 'dm',
+                  senderKind: 'user',
+                  senderNickname: '你',
+                },
+              },
+              { type: 'text', text: '今晚帮我看看登录' },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(
+      screen.queryByTestId('user-message-space-sender')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
+      '今晚帮我看看登录'
+    );
+  });
+
   it('renders user-turn image attachments above the message bubble', async () => {
     useImageMetadataMock.mockReturnValue({
       data: {

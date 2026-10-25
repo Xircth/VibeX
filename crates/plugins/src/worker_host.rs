@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    io,
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -13,13 +14,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::Mutex,
     time::timeout,
 };
 use vibex_plugin_sdk::protocol::{
-    FrameCodec, FrameDecode, FrameReassembler, MAX_LOGICAL_MESSAGE_BYTES,
+    FrameCodec, FrameDecode, FrameReassembler, MAX_FRAME_BYTES, MAX_LOGICAL_MESSAGE_BYTES,
 };
 
 use crate::PluginPackage;
@@ -324,6 +325,157 @@ impl ScopedCapabilityBroker {
     }
 }
 
+const STDERR_LINE_MAX_BYTES: usize = 64 * 1024;
+
+fn stdout_line_max_bytes(max_frame_bytes: usize) -> usize {
+    max_frame_bytes
+        .saturating_add(4096)
+        .min(MAX_LOGICAL_MESSAGE_BYTES)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum BoundedRead {
+    Eof,
+    Line(String),
+    Truncated { prefix: String },
+}
+
+/// Read one LF-terminated line without letting a missing newline grow the
+/// host heap without bound. Bytes past `max_bytes` are discarded until `\n`
+/// or EOF; the first `max_bytes` are kept as a prefix for callers that log.
+async fn read_bounded_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> io::Result<BoundedRead> {
+    let mut buf = Vec::new();
+    let mut truncated = false;
+    loop {
+        let (consume, saw_newline, eof) = {
+            let available = reader.fill_buf().await?;
+            if available.is_empty() {
+                (0, false, true)
+            } else if let Some(newline_at) = available.iter().position(|&b| b == b'\n') {
+                if !truncated {
+                    let room = max_bytes.saturating_sub(buf.len());
+                    let take = newline_at.min(room);
+                    buf.extend_from_slice(&available[..take]);
+                    truncated |= take < newline_at;
+                }
+                (newline_at + 1, true, false)
+            } else {
+                let n = available.len();
+                if !truncated {
+                    let room = max_bytes.saturating_sub(buf.len());
+                    if n > room {
+                        buf.extend_from_slice(&available[..room]);
+                        truncated = true;
+                    } else {
+                        buf.extend_from_slice(available);
+                    }
+                }
+                (n, false, false)
+            }
+        };
+        if eof {
+            break;
+        }
+        reader.consume(consume);
+        if saw_newline {
+            return Ok(finish_bounded_line(buf, truncated));
+        }
+    }
+    if buf.is_empty() && !truncated {
+        Ok(BoundedRead::Eof)
+    } else {
+        Ok(finish_bounded_line(buf, truncated))
+    }
+}
+
+fn finish_bounded_line(mut buf: Vec<u8>, truncated: bool) -> BoundedRead {
+    if buf.last() == Some(&b'\r') {
+        buf.pop();
+    }
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    if truncated {
+        BoundedRead::Truncated { prefix: text }
+    } else {
+        BoundedRead::Line(text)
+    }
+}
+
+async fn read_worker_stdout_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> Result<String, WorkerHostError> {
+    match read_bounded_line(reader, max_bytes).await {
+        Ok(BoundedRead::Line(line)) => Ok(line),
+        Ok(BoundedRead::Truncated { .. }) => Err(WorkerHostError::new(
+            "worker_frame_too_large",
+            "Worker stdout line exceeded the bounded read limit",
+        )),
+        Ok(BoundedRead::Eof) => Err(WorkerHostError::new(
+            "worker_closed",
+            "Worker closed stdout",
+        )),
+        Err(error) => Err(WorkerHostError::new(
+            "worker_transport_failed",
+            error.to_string(),
+        )),
+    }
+}
+
+fn spawn_stderr_log_reader(
+    plugin_id: impl Into<String>,
+    stderr: impl AsyncRead + Unpin + Send + 'static,
+) {
+    let plugin_id = plugin_id.into();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        loop {
+            match read_bounded_line(&mut reader, STDERR_LINE_MAX_BYTES).await {
+                Ok(BoundedRead::Line(line)) => {
+                    record_plugin_log(&plugin_id, "stderr", line);
+                }
+                Ok(BoundedRead::Truncated { prefix }) => {
+                    record_plugin_log(&plugin_id, "stderr", format!("{prefix}...[truncated]"));
+                }
+                Ok(BoundedRead::Eof) | Err(_) => break,
+            }
+        }
+    });
+}
+
+fn isolate_worker_process_group(command: &mut Command) {
+    let _command = command;
+    #[cfg(unix)]
+    _command.process_group(0);
+}
+
+/// Best-effort process-tree kill. Windows uses `taskkill /T`; Unix signals the
+/// process group. Callers still `start_kill`/`kill` the leader as a fallback.
+pub(crate) fn kill_os_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let mut command = std::process::Command::new("taskkill");
+        utils::process::configure_std_command_no_window(&mut command);
+        let _ = command
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+}
+
 enum HostedChild {
     Command(Option<Child>),
 }
@@ -344,7 +496,12 @@ impl HostedChild {
 
     async fn kill(&mut self) -> std::io::Result<()> {
         match self {
-            Self::Command(Some(child)) => child.kill().await,
+            Self::Command(Some(child)) => {
+                if let Some(pid) = child.id() {
+                    kill_os_process_tree(pid);
+                }
+                child.kill().await
+            }
             Self::Command(None) => Ok(()),
         }
     }
@@ -359,22 +516,18 @@ impl HostedChild {
 
 impl Drop for HostedChild {
     fn drop(&mut self) {
-        match self {
-            Self::Command(child_opt) => {
-                if let Some(mut child) = child_opt.take() {
-                    let _ = child.start_kill();
-                    for _ in 0..50 {
-                        if !matches!(child.try_wait(), Ok(None)) {
-                            return;
-                        }
-                        std::thread::sleep(Duration::from_millis(2));
-                    }
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        handle.spawn(async move {
-                            let _ = child.wait().await;
-                        });
-                    }
-                }
+        let Self::Command(child_opt) = self;
+        if let Some(mut child) = child_opt.take() {
+            if let Some(pid) = child.id() {
+                kill_os_process_tree(pid);
+            }
+            let _ = child.start_kill();
+            if matches!(child.try_wait(), Ok(None))
+                && let Ok(handle) = tokio::runtime::Handle::try_current()
+            {
+                handle.spawn(async move {
+                    let _ = child.wait().await;
+                });
             }
         }
     }
@@ -384,7 +537,7 @@ struct WorkerProcess {
     child: HostedChild,
     pid: Option<u32>,
     stdin: Box<dyn AsyncWrite + Unpin + Send>,
-    stdout: Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>,
+    stdout: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
     sequence: u64,
     terminal_error: Option<String>,
 }
@@ -402,6 +555,7 @@ struct MountedSlotSpec {
     package_root: PathBuf,
     frame_codec: FrameCodec,
     broker: Arc<ScopedCapabilityBroker>,
+    initial_config: Value,
 }
 
 struct SharedNodeProcess {
@@ -409,7 +563,7 @@ struct SharedNodeProcess {
     child: HostedChild,
     pid: Option<u32>,
     stdin: Box<dyn AsyncWrite + Unpin + Send>,
-    stdout: Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>,
+    stdout: BufReader<Box<dyn AsyncRead + Unpin + Send>>,
     sequence: u64,
     mounted_slots: BTreeSet<(String, u64)>,
     brokers: BTreeMap<(String, u64), Arc<ScopedCapabilityBroker>>,
@@ -665,6 +819,7 @@ impl WorkerHost {
             package_root: package_root.clone(),
             frame_codec,
             broker: scoped_broker.clone(),
+            initial_config: package.config.clone(),
         };
 
         let mut guard = shared_host.inner.lock().await;
@@ -818,12 +973,7 @@ impl WorkerHost {
             spawn_hosted_worker(&program, &package_root, &entrypoint, runtime)?;
         let pid = child.id();
         if let Some(stderr) = stderr {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    record_plugin_log(&plugin_id, "stderr", line);
-                }
-            });
+            spawn_stderr_log_reader(plugin_id.clone(), stderr);
         }
         let scoped_broker = Arc::new(ScopedCapabilityBroker::new(
             package, generation, grants, broker,
@@ -836,7 +986,7 @@ impl WorkerHost {
             child,
             pid,
             stdin,
-            stdout: BufReader::new(stdout).lines(),
+            stdout: BufReader::new(stdout),
             sequence: 0,
             terminal_error: None,
         };
@@ -893,6 +1043,7 @@ impl WorkerHost {
                 "generation": generation,
                 "packageClass": package.package_class,
                 "grantedCapabilities": granted_capabilities,
+                "config": package.config,
             }),
             Duration::from_secs(10),
         )
@@ -967,6 +1118,63 @@ impl WorkerHost {
 
     pub fn activation(&self) -> &WorkerActivation {
         &self.activation
+    }
+
+    /// Pushes a hot configuration update (`config.volatile-update`) to an active
+    /// worker without restarting its generation or spawning a new process.
+    pub async fn update_config(&self, config: Value) -> Result<bool, WorkerHostError> {
+        self.touch_activity();
+        match &self.backend {
+            WorkerBackend::Lightweight => Ok(false),
+            WorkerBackend::Dedicated(process) => {
+                let mut process = process.lock().await;
+                if process.terminal_error.is_some() {
+                    return Ok(false);
+                }
+                let _ = exchange(
+                    &mut process,
+                    &self.broker,
+                    self.frame_codec,
+                    "config.volatile-update",
+                    json!({ "config": config }),
+                    Duration::from_secs(5),
+                )
+                .await?;
+                Ok(true)
+            }
+            WorkerBackend::SharedNode {
+                host,
+                terminal_error,
+            } => {
+                if terminal_error.lock().await.is_some() {
+                    return Ok(false);
+                }
+                let mut guard = host.inner.lock().await;
+                let Some(process) = guard.as_mut() else {
+                    return Ok(false);
+                };
+                let slot_key = (
+                    self.activation.plugin_id.clone(),
+                    self.activation.generation,
+                );
+                if let Some(spec) = process.slot_specs.get_mut(&slot_key) {
+                    spec.initial_config = config.clone();
+                }
+                if !process.mounted_slots.contains(&slot_key) {
+                    return Ok(false);
+                }
+                let _ = exchange_muxed(
+                    process,
+                    &self.broker,
+                    self.frame_codec,
+                    "config.volatile-update",
+                    json!({ "config": config }),
+                    Duration::from_secs(5),
+                )
+                .await?;
+                Ok(true)
+            }
+        }
     }
 
     pub async fn invoke(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
@@ -1268,6 +1476,13 @@ pub fn recent_plugin_crashes(plugin_id: &str) -> Vec<PluginCrash> {
         .filter(|crash| crash.plugin_id == plugin_id)
         .cloned()
         .collect()
+}
+
+pub fn clear_plugin_crashes(plugin_id: &str) {
+    let Ok(mut crashes) = PLUGIN_CRASHES.lock() else {
+        return;
+    };
+    crashes.retain(|crash| crash.plugin_id != plugin_id);
 }
 
 const MAX_PLUGIN_CRASHES: usize = 50;
@@ -1902,6 +2117,49 @@ function waitForSlotReady(slot, importPromise) {
   });
 }
 
+function createVolatileValue(initialValue) {
+  let current = initialValue;
+  const listeners = new Set();
+  const volatile = {
+    get() {
+      return current;
+    },
+    get value() {
+      return current;
+    },
+    select(selector) {
+      const derived = createVolatileValue(selector(current));
+      listeners.add((next) => {
+        derived.set(selector(next));
+      });
+      return derived;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set(next) {
+      if (JSON.stringify(current) === JSON.stringify(next)) {
+        return false;
+      }
+      const prev = current;
+      current = next;
+      for (const listener of [...listeners]) {
+        try {
+          listener(next, prev);
+        } catch {}
+      }
+      return true;
+    },
+    clearListeners() {
+      listeners.clear();
+    },
+  };
+  return volatile;
+}
+
 function attachExportedWorkerLoop(slot, mod) {
   if (
     slot.stdin.listenerCount("data") > 0 ||
@@ -1915,6 +2173,7 @@ function attachExportedWorkerLoop(slot, mod) {
   const disposables = [];
   const controller = new AbortController();
   const scopedServices = createScopedServices(slotKey(slot.pluginId, slot.generation));
+  const volatileConfig = createVolatileValue({});
   let workerDisposed = false;
   let hostPending = new Map();
   let hostSeq = 0;
@@ -1927,6 +2186,15 @@ function attachExportedWorkerLoop(slot, mod) {
     if (workerDisposed) return;
     workerDisposed = true;
     controller.abort();
+    volatileConfig.clearListeners();
+    for (const pending of hostPending.values()) {
+      try {
+        if (pending.timer) clearTimeout(pending.timer);
+        pending.reject(new Error("Plugin worker disposed"));
+      } catch {}
+    }
+    hostPending.clear();
+    chunkStreams.clear();
     for (const d of [...disposables].reverse()) {
       try {
         if (typeof d === "function") await d();
@@ -1969,7 +2237,23 @@ function attachExportedWorkerLoop(slot, mod) {
     call(capability, operation, input = null) {
       const id = `host:${++hostSeq}`;
       return new Promise((resolve, reject) => {
-        hostPending.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          const pending = hostPending.get(id);
+          if (!pending) return;
+          hostPending.delete(id);
+          pending.reject(new Error("Host call timed out"));
+        }, 30000);
+        hostPending.set(id, {
+          timer,
+          resolve: (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          reject: (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+        });
         send({
           id,
           method: "host.call",
@@ -2048,8 +2332,14 @@ function attachExportedWorkerLoop(slot, mod) {
             },
           });
         } else if (msg.method === "activate") {
+          const initialCfg =
+            msg.params?.config && typeof msg.params.config === "object" && !Array.isArray(msg.params.config)
+              ? msg.params.config
+              : {};
+          volatileConfig.set(initialCfg);
           workerEnv = {
             context: msg.params,
+            config: volatileConfig,
             host,
             services: scopedServices,
             log,
@@ -2061,6 +2351,9 @@ function attachExportedWorkerLoop(slot, mod) {
             },
             onDispose(d) {
               disposables.push(d);
+            },
+            onConfigUpdate(listener) {
+              return volatileConfig.subscribe(listener);
             },
           };
           if (typeof def?.setup === "function") {
@@ -2075,6 +2368,20 @@ function attachExportedWorkerLoop(slot, mod) {
             id: msg.id,
             ok: true,
             result: { handlers: [...handlers.keys()].sort() },
+          });
+        } else if (msg.method === "config.volatile-update") {
+          const nextCfg =
+            msg.params?.config && typeof msg.params.config === "object" && !Array.isArray(msg.params.config)
+              ? msg.params.config
+              : {};
+          const updated = volatileConfig.set(nextCfg);
+          if (workerEnv && workerEnv.context && typeof workerEnv.context === "object") {
+            workerEnv.context.config = nextCfg;
+          }
+          send({
+            id: msg.id,
+            ok: true,
+            result: { updated },
           });
         } else if (msg.method === "invoke") {
           const fn = handlers.get(msg.params?.handler);
@@ -2239,19 +2546,14 @@ fn spawn_fresh_shared_node_process(
     let (child, pid, stdin, stdout, stderr) =
         spawn_shared_node_runner(node_executable, initial_cwd)?;
     if let Some(stderr) = stderr {
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                record_plugin_log("shared-node-runner", "stderr", line);
-            }
-        });
+        spawn_stderr_log_reader("shared-node-runner", stderr);
     }
     Ok(SharedNodeProcess {
         node_executable: node_executable.to_path_buf(),
         child,
         pid,
         stdin,
-        stdout: BufReader::new(stdout).lines(),
+        stdout: BufReader::new(stdout),
         sequence: 0,
         mounted_slots: BTreeSet::new(),
         brokers: BTreeMap::new(),
@@ -2323,6 +2625,7 @@ async fn mount_and_activate_slot_muxed(
             "generation": spec.generation,
             "packageClass": spec.package_class,
             "grantedCapabilities": ["*"],
+            "config": spec.initial_config,
         }),
         Duration::from_secs(10),
     )
@@ -2381,6 +2684,7 @@ fn spawn_shared_node_runner(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     utils::process::configure_tokio_command_no_window(&mut command);
+    isolate_worker_process_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| WorkerHostError::new("worker_spawn_failed", error.to_string()))?;
@@ -2447,14 +2751,11 @@ async fn mount_slot_muxed(
 
     timeout(deadline, async {
         loop {
-            let line = process
-                .stdout
-                .next_line()
-                .await
-                .map_err(|error| {
-                    WorkerHostError::new("worker_transport_failed", error.to_string())
-                })?
-                .ok_or_else(|| WorkerHostError::new("worker_closed", "Worker closed stdout"))?;
+            let line = read_worker_stdout_line(
+                &mut process.stdout,
+                stdout_line_max_bytes(MAX_FRAME_BYTES),
+            )
+            .await?;
             let Ok(envelope) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
@@ -2504,14 +2805,11 @@ async fn unmount_slot_muxed_checked(
 
     timeout(deadline, async {
         loop {
-            let line = process
-                .stdout
-                .next_line()
-                .await
-                .map_err(|error| {
-                    WorkerHostError::new("worker_transport_failed", error.to_string())
-                })?
-                .ok_or_else(|| WorkerHostError::new("worker_closed", "Worker closed stdout"))?;
+            let line = read_worker_stdout_line(
+                &mut process.stdout,
+                stdout_line_max_bytes(MAX_FRAME_BYTES),
+            )
+            .await?;
             let Ok(envelope) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
@@ -2596,14 +2894,11 @@ async fn exchange_muxed(
     let mut frames = FrameReassembler::new(codec);
     timeout(deadline, async {
         loop {
-            let raw_line = process
-                .stdout
-                .next_line()
-                .await
-                .map_err(|error| {
-                    WorkerHostError::new("worker_transport_failed", error.to_string())
-                })?
-                .ok_or_else(|| WorkerHostError::new("worker_closed", "Worker closed stdout"))?;
+            let raw_line = read_worker_stdout_line(
+                &mut process.stdout,
+                stdout_line_max_bytes(codec.max_frame_bytes()),
+            )
+            .await?;
             let envelope: Value = serde_json::from_str(&raw_line).map_err(|error| {
                 WorkerHostError::new("worker_protocol_invalid", error.to_string())
             })?;
@@ -2790,6 +3085,7 @@ fn hosted_worker_command(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     utils::process::configure_tokio_command_no_window(&mut command);
+    isolate_worker_process_group(&mut command);
     command
 }
 
@@ -2840,14 +3136,11 @@ async fn exchange(
     let mut frames = FrameReassembler::new(codec);
     timeout(deadline, async {
         loop {
-            let line = process
-                .stdout
-                .next_line()
-                .await
-                .map_err(|error| {
-                    WorkerHostError::new("worker_transport_failed", error.to_string())
-                })?
-                .ok_or_else(|| WorkerHostError::new("worker_closed", "Worker closed stdout"))?;
+            let line = read_worker_stdout_line(
+                &mut process.stdout,
+                stdout_line_max_bytes(codec.max_frame_bytes()),
+            )
+            .await?;
             let message = match frames.push_line(&line) {
                 Ok(FrameDecode::NeedMore) => continue,
                 Ok(FrameDecode::Message(message)) => message,
@@ -3182,6 +3475,8 @@ mod worker_host_tests {
             recent_plugin_crashes("demo.other").is_empty(),
             "crashes must not leak across plugins"
         );
+        clear_plugin_crashes("demo.crash");
+        assert!(recent_plugin_crashes("demo.crash").is_empty());
     }
 
     #[test]
@@ -3217,6 +3512,111 @@ mod worker_host_tests {
             SHARED_NODE_RUNNER_SCRIPT
                 .contains("sharedServiceContainer.disposeByPlugin(slot.pluginId, slot.generation)"),
             "unmounting a slot must dispose only that slot's generation"
+        );
+    }
+
+    #[test]
+    fn shared_node_runner_rejects_pending_host_calls_on_dispose() {
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT
+                .contains("pending.reject(new Error(\"Plugin worker disposed\"))"),
+            "dispose must reject every pending host.call"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains("hostPending.clear()"),
+            "dispose must drop the pending host.call map"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains("chunkStreams.clear()"),
+            "dispose must drop in-flight frame.chunk streams"
+        );
+    }
+
+    #[test]
+    fn shared_node_runner_times_out_stale_host_calls() {
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains(", 30000)"),
+            "host.call must arm a 30s timeout"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains("clearTimeout(timer)"),
+            "a host.call response must cancel its timeout"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains("Host call timed out"),
+            "expired host.call promises must reject instead of leaking"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_bounded_line_returns_normal_lines_and_eof() {
+        let mut reader = BufReader::new(std::io::Cursor::new(b"hello\r\nworld\n"));
+        assert_eq!(
+            read_bounded_line(&mut reader, 64).await.unwrap(),
+            BoundedRead::Line("hello".into())
+        );
+        assert_eq!(
+            read_bounded_line(&mut reader, 64).await.unwrap(),
+            BoundedRead::Line("world".into())
+        );
+        assert_eq!(
+            read_bounded_line(&mut reader, 64).await.unwrap(),
+            BoundedRead::Eof
+        );
+    }
+
+    #[tokio::test]
+    async fn read_bounded_line_discards_oversize_line_without_unbounded_growth() {
+        let mut data = vec![b'x'; 10_000];
+        data.push(b'\n');
+        data.extend_from_slice(b"ok\n");
+        let mut reader = BufReader::new(std::io::Cursor::new(data));
+        match read_bounded_line(&mut reader, 16).await.unwrap() {
+            BoundedRead::Truncated { prefix } => {
+                assert_eq!(prefix, "x".repeat(16));
+            }
+            other => panic!("expected truncated line, got {other:?}"),
+        }
+        assert_eq!(
+            read_bounded_line(&mut reader, 16).await.unwrap(),
+            BoundedRead::Line("ok".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn read_bounded_line_caps_a_newline_free_stream() {
+        let mut reader = BufReader::new(std::io::Cursor::new(vec![b'y'; 8_192]));
+        match read_bounded_line(&mut reader, 32).await.unwrap() {
+            BoundedRead::Truncated { prefix } => {
+                assert_eq!(prefix, "y".repeat(32));
+            }
+            other => panic!("expected truncated line, got {other:?}"),
+        }
+        assert_eq!(
+            read_bounded_line(&mut reader, 32).await.unwrap(),
+            BoundedRead::Eof
+        );
+    }
+
+    #[tokio::test]
+    async fn oversize_stdout_line_is_reported_as_worker_frame_too_large() {
+        let mut reader = BufReader::new(std::io::Cursor::new(vec![b'z'; 128]));
+        let error = read_worker_stdout_line(&mut reader, 16)
+            .await
+            .expect_err("oversize stdout must fail");
+        assert_eq!(error.code(), "worker_frame_too_large");
+    }
+
+    #[test]
+    fn stdout_and_stderr_line_limits_are_bounded() {
+        assert_eq!(STDERR_LINE_MAX_BYTES, 64 * 1024);
+        assert_eq!(
+            stdout_line_max_bytes(MAX_FRAME_BYTES),
+            MAX_FRAME_BYTES + 4096
+        );
+        assert_eq!(
+            stdout_line_max_bytes(MAX_LOGICAL_MESSAGE_BYTES),
+            MAX_LOGICAL_MESSAGE_BYTES
         );
     }
 }

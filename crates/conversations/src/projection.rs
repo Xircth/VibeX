@@ -2069,7 +2069,9 @@ impl ProjectionFold {
                                 height: None,
                             }),
                             agents::conversation::ConversationInputBlock::Resource { .. } => None,
-                            agents::conversation::ConversationInputBlock::Protocol { .. } => None,
+                            agents::conversation::ConversationInputBlock::Protocol { content } => {
+                                Some(ContentBlock::Protocol { content })
+                            }
                         })
                         .collect();
                     touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
@@ -8690,6 +8692,7 @@ mod tests {
             workflow_refs: Vec::new(),
             file_refs: Vec::new(),
             internal_prompt_contributions: Vec::new(),
+            collaboration_origin: None,
         }
     }
 

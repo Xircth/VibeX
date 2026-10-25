@@ -1,8 +1,10 @@
+import type { MemberBotAvatarConfig } from '@/features/collaboration/MemberBotAvatar';
 import {
   isAgentMentionCodeContext,
   serializeAgentMention,
   type AgentMention,
 } from './AgentMention';
+import type { AtReferenceMember } from './composerAtReferences';
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const COMMIT_URI_PREFIX = 'vibex://commit/';
@@ -102,6 +104,7 @@ export type SessionComposerStructuredTokenKind =
   | 'plugin_action'
   | 'element'
   | 'agent_mention'
+  | 'member_mention'
   | 'conversation'
   | 'commit'
   | 'project'
@@ -115,6 +118,7 @@ export type SessionComposerStructuredToken = {
   value: string;
   raw: string;
   title?: string;
+  memberAvatar?: MemberBotAvatarConfig;
 };
 
 export type SessionComposerStructuredTokenSegment =
@@ -134,6 +138,7 @@ type TokenSegment = Extract<
 type StructuredTokenOptions = {
   includeLegacyTokens?: boolean;
   bareAgentMentions?: AgentMention[];
+  spaceMembers?: AtReferenceMember[];
 };
 
 type PreviewElementTokenPayload = {
@@ -280,6 +285,51 @@ function parseCommitReferenceAt(
     },
     end: link.end,
   };
+}
+
+function parseSpaceMemberMentionAt(
+  source: string,
+  start: number,
+  members: AtReferenceMember[]
+): { token: SessionComposerStructuredToken; end: number } | null {
+  if (source.charAt(start) !== '@' || !isTokenBoundary(source, start)) {
+    return null;
+  }
+  if (members.length === 0) return null;
+
+  const sorted = [...members]
+    .filter((m) => m.nickname.trim().length > 0)
+    .sort((a, b) => b.nickname.trim().length - a.nickname.trim().length);
+
+  for (const member of sorted) {
+    const nick = member.nickname.trim();
+    const candidateEnd = start + 1 + nick.length;
+    if (source.slice(start + 1, candidateEnd) !== nick) continue;
+    const nextChar = source.charAt(candidateEnd);
+    // Require a trailing space or end after `@nickname ` when typing so partial prefixes don't prematurely lock,
+    // OR any non-identifier boundary.
+    if (
+      nextChar !== '' &&
+      /[\p{L}\p{N}_-]/u.test(nextChar)
+    ) {
+      continue;
+    }
+    const raw = `@${nick}`;
+    return {
+      token: {
+        kind: 'member_mention',
+        type: '@',
+        key: nick,
+        label: nick,
+        value: nick,
+        raw,
+        title: nick,
+        memberAvatar: member.avatar,
+      },
+      end: candidateEnd,
+    };
+  }
+  return null;
 }
 
 function parseBareAgentMentionAt(
@@ -828,6 +878,27 @@ export function getSessionComposerStructuredTokenSegments(
       continue;
     }
 
+    const spaceMemberMention =
+      options.spaceMembers &&
+      options.spaceMembers.length > 0 &&
+      !isAgentMentionCodeContext(value, scan)
+        ? parseSpaceMemberMentionAt(value, scan, options.spaceMembers)
+        : null;
+    if (spaceMemberMention) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: spaceMemberMention.token,
+        start: scan,
+        end: spaceMemberMention.end,
+      });
+      cursor = spaceMemberMention.end;
+      scan = spaceMemberMention.end;
+      continue;
+    }
+
     const bareMention =
       options.bareAgentMentions && !isAgentMentionCodeContext(value, scan)
         ? parseBareAgentMentionAt(value, scan, options.bareAgentMentions)
@@ -1028,6 +1099,28 @@ export function deleteSessionComposerStructuredToken({
   };
 }
 
+export const applySessionComposerStructuredTokenDeletion =
+  deleteSessionComposerStructuredToken;
+
+export function clampSessionComposerCaretOffset(
+  value: string,
+  offset: number,
+  direction: 'backward' | 'forward' | 'nearest' = 'nearest'
+): number {
+  const normalizedOffset = Math.max(0, Math.min(offset, value.length));
+  const containing = tokenSegments(value).find(
+    (segment) =>
+      normalizedOffset > segment.start && normalizedOffset < segment.end
+  );
+  if (!containing) return normalizedOffset;
+
+  if (direction === 'backward') return containing.start;
+  if (direction === 'forward') return containing.end;
+  const distanceToStart = normalizedOffset - containing.start;
+  const distanceToEnd = containing.end - normalizedOffset;
+  return distanceToStart <= distanceToEnd ? containing.start : containing.end;
+}
+
 export function serializeSessionComposerBackendMessage(value: string): string {
   return getSessionComposerStructuredTokenSegments(value)
     .map((segment) =>
@@ -1036,6 +1129,7 @@ export function serializeSessionComposerBackendMessage(value: string): string {
         : segment.token.kind === 'project'
           ? segment.token.value
           : segment.token.kind === 'agent_mention' ||
+              segment.token.kind === 'member_mention' ||
               segment.token.kind === 'conversation' ||
               segment.token.kind === 'commit' ||
               segment.token.kind === 'quote'

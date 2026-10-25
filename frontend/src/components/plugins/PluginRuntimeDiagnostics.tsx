@@ -42,7 +42,8 @@ export function PluginRuntimeDiagnostics({ pluginId }: { pluginId: string }) {
 
   if (isPending || !data) return null;
 
-  const stopped = data.workerExpected && !data.workerRunning;
+  const isQuarantined = Boolean(data.quarantined || data.quarantineReason);
+  const stopped = (data.workerExpected && !data.workerRunning) || isQuarantined;
   const tail = (logs ?? []).slice(-LOG_TAIL);
 
   return (
@@ -61,11 +62,13 @@ export function PluginRuntimeDiagnostics({ pluginId }: { pluginId: string }) {
                 stopped ? 'plugin-runtime-stopped' : 'plugin-runtime-ready'
               }
             >
-              {data.workerRunning
-                ? t('plugins.diagnosticsWorkerRunning')
-                : data.workerExpected
-                  ? t('plugins.diagnosticsWorkerStopped')
-                  : t('plugins.diagnosticsWorkerNone')}
+              {isQuarantined
+                ? t('plugins.statusQuarantined')
+                : data.workerRunning
+                  ? t('plugins.diagnosticsWorkerRunning')
+                  : data.workerExpected
+                    ? t('plugins.diagnosticsWorkerStopped')
+                    : t('plugins.diagnosticsWorkerNone')}
             </span>
             {data.generation !== null ? (
               <code>
@@ -78,13 +81,22 @@ export function PluginRuntimeDiagnostics({ pluginId }: { pluginId: string }) {
         </li>
       </ul>
 
+      {isQuarantined && data.quarantineReason ? (
+        <div className="plugin-warning-stack" role="status">
+          <p>
+            <AlertTriangle aria-hidden="true" />
+            <span>{data.quarantineReason}</span>
+          </p>
+        </div>
+      ) : null}
+
       {data.missingRuntimes.length ? (
         <div className="plugin-warning-stack" role="status">
           <p>
             <AlertTriangle aria-hidden="true" />
             <span>
               {t('plugins.diagnosticsMissingRuntimes', {
-                runtimes: data.missingRuntimes.join('、'),
+                runtimes: data.missingRuntimes.join('\u3001'),
               })}
             </span>
           </p>
@@ -100,7 +112,7 @@ export function PluginRuntimeDiagnostics({ pluginId }: { pluginId: string }) {
               <p key={`${crash.atUnixMs}:${crash.message}`}>
                 <AlertTriangle aria-hidden="true" />
                 <span>
-                  {clock(crash.atUnixMs)} — {crash.message}
+                  {clock(crash.atUnixMs)} \u2014 {crash.message}
                 </span>
               </p>
             ))}

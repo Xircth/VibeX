@@ -1,4 +1,10 @@
-import type { JsonValue, PluginContext } from './protocol.js';
+import {
+  isSupportedPluginApiVersion,
+  VIBEX_PLUGIN_API_VERSION,
+  type JsonValue,
+  type PluginApiVersion,
+  type PluginContext,
+} from './protocol.js';
 import type { Disposer } from './registry.js';
 import {
   type InjectedServicesRecord,
@@ -8,6 +14,13 @@ import {
   type WaterfallInterceptor,
   serviceContainer,
 } from './services.js';
+import {
+  createVolatile,
+  type MutableVolatile,
+  notifyPluginConfigUpdated,
+  type Volatile,
+  type VolatileListener,
+} from './volatile.js';
 
 export interface Disposable {
   dispose(): void | Promise<void>;
@@ -113,6 +126,7 @@ export function createWorkerServiceRegistry(
 
 export interface PluginWorkerEnvironment {
   context: PluginContext;
+  config: Volatile<Record<string, JsonValue>>;
   host: PluginHostClient;
   services: PluginWorkerServiceRegistry;
   signal: AbortSignal;
@@ -134,6 +148,7 @@ export function normalizePluginContext(
     generation: context.generation,
     packageClass: context.packageClass ?? 'full-trust',
     grantedCapabilities: context.grantedCapabilities ?? ['*'],
+    ...(context.config !== undefined ? { config: context.config } : {}),
   };
 }
 
@@ -144,11 +159,14 @@ export type PluginHandler = (
 
 export interface PluginWorkerRegistrar {
   handle(id: string, handler: PluginHandler): void;
+  onConfigUpdate(
+    listener: VolatileListener<Record<string, JsonValue>>
+  ): Disposer;
   onDispose(disposable: Disposable | (() => void | Promise<void>)): void;
 }
 
 export interface PluginWorkerDefinition {
-  readonly apiVersion: '1.0';
+  readonly apiVersion: PluginApiVersion;
   readonly setup: (
     registrar: PluginWorkerRegistrar,
     environment: PluginWorkerEnvironment
@@ -157,27 +175,43 @@ export interface PluginWorkerDefinition {
 
 export interface ActivatedPluginWorker extends Disposable {
   readonly handlers: readonly string[];
+  readonly config: Volatile<Record<string, JsonValue>>;
+  updateConfig(nextConfig: Record<string, JsonValue>): boolean;
   invoke(handler: string, input: JsonValue): Promise<JsonValue>;
 }
 
 export function definePluginWorker(
   setup: PluginWorkerDefinition['setup']
+): PluginWorkerDefinition;
+export function definePluginWorker(
+  definition: PluginWorkerDefinition
+): PluginWorkerDefinition;
+export function definePluginWorker(
+  setupOrDefinition:
+    | PluginWorkerDefinition['setup']
+    | PluginWorkerDefinition
 ): PluginWorkerDefinition {
-  return { apiVersion: '1.0', setup };
+  if (typeof setupOrDefinition === 'function') {
+    return { apiVersion: VIBEX_PLUGIN_API_VERSION, setup: setupOrDefinition };
+  }
+  assertSupportedWorkerApi(setupOrDefinition.apiVersion);
+  return {
+    apiVersion: setupOrDefinition.apiVersion,
+    setup: setupOrDefinition.setup,
+  };
 }
 
 export async function activatePluginWorker(
   definition: PluginWorkerDefinition,
-  environment: Omit<PluginWorkerEnvironment, 'signal' | 'services'> & {
+  environment: Omit<
+    PluginWorkerEnvironment,
+    'signal' | 'services' | 'config'
+  > & {
     services?: PluginWorkerServiceRegistry;
+    config?: MutableVolatile<Record<string, JsonValue>>;
   }
 ): Promise<ActivatedPluginWorker> {
-  if (definition.apiVersion !== '1.0') {
-    throw new PluginSdkError(
-      'sdk_incompatible',
-      `Unsupported worker API ${String(definition.apiVersion)}`
-    );
-  }
+  assertSupportedWorkerApi(definition.apiVersion);
   const controller = new AbortController();
   const handlers = new Map<string, PluginHandler>();
   const disposables: Array<Disposable | (() => void | Promise<void>)> = [];
@@ -185,8 +219,27 @@ export async function activatePluginWorker(
   const scopedServices =
     environment.services ??
     createWorkerServiceRegistry(environment.context.pluginId);
+  const initialConfig =
+    environment.context.config &&
+    typeof environment.context.config === 'object' &&
+    !Array.isArray(environment.context.config)
+      ? { ...environment.context.config }
+      : {};
+  const volatileConfig =
+    environment.config ??
+    createVolatile<Record<string, JsonValue>>(initialConfig);
+  notifyPluginConfigUpdated(
+    environment.context.pluginId,
+    volatileConfig.get()
+  );
+  const workerContext: PluginContext = {
+    ...environment.context,
+    config: volatileConfig.get(),
+  };
   const workerEnvironment: PluginWorkerEnvironment = {
     ...environment,
+    context: workerContext,
+    config: volatileConfig,
     services: scopedServices,
     signal: controller.signal,
   };
@@ -201,6 +254,11 @@ export async function activatePluginWorker(
       }
       handlers.set(id, handler);
     },
+    onConfigUpdate(listener) {
+      const disposeSub = volatileConfig.subscribe(listener);
+      disposables.push(disposeSub);
+      return disposeSub;
+    },
     onDispose(disposable) {
       disposables.push(disposable);
     },
@@ -211,6 +269,19 @@ export async function activatePluginWorker(
   return {
     get handlers() {
       return [...handlers.keys()].sort();
+    },
+    get config() {
+      return volatileConfig;
+    },
+    updateConfig(nextConfig) {
+      if (disposed) return false;
+      const normalized =
+        nextConfig && typeof nextConfig === 'object' && !Array.isArray(nextConfig)
+          ? { ...nextConfig }
+          : {};
+      workerContext.config = normalized;
+      notifyPluginConfigUpdated(environment.context.pluginId, normalized);
+      return volatileConfig.set(normalized);
     },
     async invoke(handler, input) {
       if (disposed) {
@@ -248,6 +319,30 @@ export async function activatePluginWorker(
       }
     },
   };
+}
+
+export async function createWorkerHost(
+  definition: PluginWorkerDefinition,
+  environment: Omit<
+    PluginWorkerEnvironment,
+    'signal' | 'services' | 'config'
+  > & {
+    services?: PluginWorkerServiceRegistry;
+    config?: MutableVolatile<Record<string, JsonValue>>;
+  }
+): Promise<ActivatedPluginWorker> {
+  return activatePluginWorker(definition, environment);
+}
+
+function assertSupportedWorkerApi(
+  apiVersion: unknown
+): asserts apiVersion is PluginApiVersion {
+  if (!isSupportedPluginApiVersion(apiVersion)) {
+    throw new PluginSdkError(
+      'sdk_incompatible',
+      `Unsupported worker API ${String(apiVersion)}`
+    );
+  }
 }
 
 export class PluginSdkError extends Error {

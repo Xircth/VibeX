@@ -11,7 +11,7 @@
 //! even as a placeholder line.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, OnceLock},
 };
 
@@ -53,6 +53,18 @@ pub struct MemoryCaller {
     pub thread_id: String,
     /// True for direct (private) threads.
     pub private: bool,
+}
+
+/// Resolve the bound collaboration member ID for `conversation_id` without
+/// creating any member or thread rows for ordinary non-Bot sessions.
+pub async fn resolve_member_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
+    Ok(identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+        .map(|binding| binding.member_id))
 }
 
 /// Member identity + thread of `conversation_id`, `None` when the
@@ -239,10 +251,27 @@ pub async fn record_turn_activity(
                 .join("\n")
         })
         .unwrap_or_default();
+    if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
+        pool,
+        conversation_id,
+        &reply,
+        &crate::collaboration::DeliveryContext::default(),
+    )
+    .await
+    {
+        tracing::warn!(%error, %conversation_id, "finalize_space_turn_deliveries failed");
+    }
     if reply.trim().is_empty() {
         return Ok(None);
     }
-    record_activity(pool, conversation_id, Some(turn_id), &reply, summarizer().as_ref()).await
+    record_activity(
+        pool,
+        conversation_id,
+        Some(turn_id),
+        &reply,
+        summarizer().as_ref(),
+    )
+    .await
 }
 
 /// Activity of `member_id`, newest first. `include_private` must only be
@@ -339,8 +368,7 @@ fn fact_from(row: FactRow) -> MemberFact {
     }
 }
 
-const FACT_COLUMNS: &str =
-    "id, member_id, content, scope, source_thread_id, origin, updated_at";
+const FACT_COLUMNS: &str = "id, member_id, content, scope, source_thread_id, origin, updated_at";
 
 fn check_content(content: &str) -> Result<String, CollaborationError> {
     let content = content.trim();
@@ -469,7 +497,11 @@ pub async fn search_facts(
         })
         .collect();
     ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
-    Ok(ranked.into_iter().take(limit).map(|(_, fact)| fact).collect())
+    Ok(ranked
+        .into_iter()
+        .take(limit)
+        .map(|(_, fact)| fact)
+        .collect())
 }
 
 /// Lower-cased ASCII words plus CJK unigrams and bigrams.
@@ -580,13 +612,19 @@ pub async fn memory_context_text(
                 }
                 format!("群「{}」", titles[&entry.thread_id])
             };
-            lines.push(format!("  - [{}] {place}：{}", entry.created_at, entry.summary));
+            lines.push(format!(
+                "  - [{}] {place}：{}",
+                entry.created_at, entry.summary
+            ));
         }
     }
     if !facts.is_empty() {
         lines.push("- 相关长期记忆：".to_string());
         for fact in &facts {
-            lines.push(format!("  - (#{} {}) {}", fact.id, fact.scope, fact.content));
+            lines.push(format!(
+                "  - (#{} {}) {}",
+                fact.id, fact.scope, fact.content
+            ));
         }
     }
     lines.push(
@@ -616,6 +654,48 @@ pub struct DistilledFact {
     pub thread_id: Option<String>,
 }
 
+/// Default deterministic distiller: folds substantive activity lines into
+/// thread/private facts without duplicating identical lines in a pass.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DefaultFactDistiller;
+
+#[async_trait::async_trait]
+impl FactDistiller for DefaultFactDistiller {
+    async fn distill(&self, _member_id: &str, activity: &[ActivityEntry]) -> Vec<DistilledFact> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for entry in activity {
+            let text = entry.summary.trim();
+            if text.chars().count() < 8 {
+                continue;
+            }
+            if !seen.insert((entry.thread_id.clone(), text.to_string())) {
+                continue;
+            }
+            out.push(DistilledFact {
+                content: text.to_string(),
+                global: false,
+                thread_id: Some(entry.thread_id.clone()),
+            });
+        }
+        out
+    }
+}
+
+static DISTILLER: OnceLock<Arc<dyn FactDistiller>> = OnceLock::new();
+
+/// Install a process-wide fact distiller (first call wins).
+pub fn set_fact_distiller(distiller: Arc<dyn FactDistiller>) -> bool {
+    DISTILLER.set(distiller).is_ok()
+}
+
+fn fact_distiller() -> Arc<dyn FactDistiller> {
+    DISTILLER
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(DefaultFactDistiller))
+}
+
 /// One distillation pass over every member with new activity. Returns the
 /// number of facts written.
 pub async fn distill_member_memory(
@@ -624,14 +704,20 @@ pub async fn distill_member_memory(
 ) -> Result<usize, CollaborationError> {
     let pending = sqlx::query_as::<_, (String, i64)>(
         r#"SELECT a.member_id, COALESCE(s.last_activity_id, 0)
-           FROM member_activity a
+           FROM (
+               SELECT member_id, MAX(id) AS max_id
+               FROM member_activity
+               GROUP BY member_id
+           ) a
            LEFT JOIN member_memory_distill_state s ON s.member_id = a.member_id
-           WHERE a.id > COALESCE(s.last_activity_id, 0)
-           GROUP BY a.member_id"#,
+           WHERE a.max_id > COALESCE(s.last_activity_id, 0)"#,
     )
     .fetch_all(pool)
     .await
     .map_err(db)?;
+    if pending.is_empty() {
+        return Ok(0);
+    }
     let mut written = 0;
     for (member_id, after) in pending {
         let activity = sqlx::query_as::<_, ActivityEntry>(
@@ -653,6 +739,9 @@ pub async fn distill_member_memory(
             .collect();
         let any_private = !private_threads.is_empty();
         for fact in distiller.distill(&member_id, &activity).await {
+            let Ok(content) = check_content(&fact.content) else {
+                continue;
+            };
             let from_private = fact
                 .thread_id
                 .as_deref()
@@ -666,10 +755,22 @@ pub async fn distill_member_memory(
             } else {
                 FactScope::Global
             };
+            let exists: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM member_facts WHERE member_id = ? AND scope = ? AND content = ? LIMIT 1",
+            )
+            .bind(&member_id)
+            .bind(scope.as_db())
+            .bind(&content)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+            if exists.is_some() {
+                continue;
+            }
             if create_fact(
                 pool,
                 &member_id,
-                &fact.content,
+                &content,
                 &scope,
                 fact.thread_id.as_deref(),
                 "distilled",
@@ -684,7 +785,8 @@ pub async fn distill_member_memory(
             r#"INSERT INTO member_memory_distill_state (member_id, last_activity_id, updated_at)
                VALUES (?, ?, ?)
                ON CONFLICT(member_id) DO UPDATE SET
-                 last_activity_id = excluded.last_activity_id, updated_at = excluded.updated_at"#,
+                 last_activity_id = MAX(last_activity_id, excluded.last_activity_id),
+                 updated_at = excluded.updated_at"#,
         )
         .bind(&member_id)
         .bind(last)
@@ -696,15 +798,27 @@ pub async fn distill_member_memory(
     Ok(written)
 }
 
-/// Run [`distill_member_memory`] every `interval`.
-pub fn spawn_memory_distiller(
+/// Run [`distill_member_memory`] every `interval` with the installed or default distiller.
+pub fn spawn_memory_distiller(pool: SqlitePool, interval: std::time::Duration) {
+    spawn_memory_distiller_with(pool, fact_distiller(), interval);
+}
+
+/// Run [`distill_member_memory`] every `interval` with an explicit `distiller`.
+pub fn spawn_memory_distiller_with(
     pool: SqlitePool,
     distiller: Arc<dyn FactDistiller>,
     interval: std::time::Duration,
 ) {
     tokio::spawn(async move {
+        let period = if interval.is_zero() {
+            std::time::Duration::from_secs(120)
+        } else {
+            interval
+        };
+        let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::time::sleep(interval).await;
+            ticker.tick().await;
             if let Err(error) = distill_member_memory(&pool, distiller.as_ref()).await {
                 tracing::warn!(%error, "member memory distillation failed");
             }
@@ -720,8 +834,17 @@ async fn require_caller(
     pool: &SqlitePool,
     caller_id: Uuid,
 ) -> Result<MemoryCaller, CollaborationError> {
+    if resolve_member_id(pool, caller_id).await?.is_none() {
+        return Err(CollaborationError::new(
+            "not_a_member",
+            "current conversation is not a collaboration space member",
+        ));
+    }
     memory_caller(pool, caller_id).await?.ok_or_else(|| {
-        CollaborationError::new("not_a_member", "memory tools need a collaboration member session")
+        CollaborationError::new(
+            "not_a_member",
+            "current conversation is not a collaboration space member",
+        )
     })
 }
 
@@ -747,7 +870,11 @@ pub async fn tool_search(
         .map(|(a, s)| (s, a))
         .collect();
     hits.sort_by(|a, b| b.0.total_cmp(&a.0));
-    let activity: Vec<_> = hits.into_iter().take(limit).map(|(_, a)| a.clone()).collect();
+    let activity: Vec<_> = hits
+        .into_iter()
+        .take(limit)
+        .map(|(_, a)| a.clone())
+        .collect();
     Ok(serde_json::json!({ "facts": facts, "activity": activity }))
 }
 
@@ -767,7 +894,9 @@ pub async fn tool_write(
     if let FactScope::Thread(id) = &requested
         && *id != caller.thread_id
     {
-        return Err(bad("an agent may only write thread facts for its current thread"));
+        return Err(bad(
+            "an agent may only write thread facts for its current thread",
+        ));
     }
     let scope = if caller.private {
         FactScope::Private

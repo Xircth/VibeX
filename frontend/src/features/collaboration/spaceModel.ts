@@ -144,6 +144,9 @@ export const COPY = {
   get chooseConversation() {
     return i18n.t('panels:collabCopy.chooseConversation');
   },
+  get searchPlaceholder() {
+    return i18n.t('panels:collabCopy.searchPlaceholder');
+  },
   get globalSearchPlaceholder() {
     return i18n.t('panels:collabCopy.globalSearchPlaceholder');
   },
@@ -225,6 +228,15 @@ export const COPY = {
   get receiptFailed() {
     return i18n.t('panels:collabCopy.receiptFailed');
   },
+  get crossChatSentPrefix() {
+    return i18n.t('panels:collabCopy.crossChatSentPrefix');
+  },
+  get crossChatReceivedPrefix() {
+    return i18n.t('panels:collabCopy.crossChatReceivedPrefix');
+  },
+  get crossChatReceivedSuffix() {
+    return i18n.t('panels:collabCopy.crossChatReceivedSuffix');
+  },
   get requestFailed() {
     return i18n.t('panels:collabCopy.requestFailed');
   },
@@ -234,6 +246,11 @@ export const COPY = {
 } as const;
 
 export const VIRTUAL_DEFAULT_SPACE_ID = '__default_space__';
+
+export const DEFAULT_MASTER_BOT_NAME = 'Master';
+
+export const DEFAULT_MASTER_BOT_PERSONA_PROMPT =
+  '全能管家：你是用户的首席全能管家与协作空间总管，沉稳可靠、条理清晰、主动周到、结果导向。你既能独立完成代码研发、架构分析、问题排查、脚本执行、资料调研与文档整理，也能在协作空间中帮用户梳理需求、拆解任务、管理收藏资料并协同其他专业助手高效交付。沟通时言简意赅、重点突出，遇到复杂问题主动拆解步骤并给出可执行方案。';
 
 export function unassignedSpaceId(workspaceId: string): string {
   return `unassigned:${workspaceId}`;
@@ -484,15 +501,106 @@ export type SpaceMember = {
   kind?: string;
   visible_to_agents?: number;
   conversation_id?: string | null;
+  /**
+   * Seat row UUID in `space.listMembers` (`collaboration_space_members.member_id`),
+   * or persistent bot identity ID when mapped from `SidebarMember`.
+   */
   member_id?: string;
+  /**
+   * Persistent cross-space bot identity ID (`collaboration_members.id`),
+   * preserved separately from per-space seat `member_id`.
+   */
+  identity_member_id?: string | null;
+  direct_thread_id?: string | null;
+  private_thread_id?: string | null;
 };
+
+export function normalizeMemberNickname(
+  nickname: string | null | undefined
+): string {
+  return String(nickname ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+export function resolveMemberIdentityId(
+  member:
+    | {
+        identity_member_id?: string | null;
+        member_id?: string | null;
+      }
+    | null
+    | undefined
+): string {
+  return String(member?.identity_member_id || member?.member_id || '').trim();
+}
+
+export function matchesSpaceMemberIdentity(
+  candidate: {
+    conversation_id?: string | null;
+    member_id?: string | null;
+    identity_member_id?: string | null;
+    nickname?: string | null;
+    name?: string | null;
+    kind?: string | null;
+  },
+  target: {
+    conversationId?: string | null;
+    conversation_id?: string | null;
+    memberId?: string | null;
+    member_id?: string | null;
+    identityMemberId?: string | null;
+    identity_member_id?: string | null;
+    nickname?: string | null;
+  }
+): boolean {
+  const convId = String(
+    target.conversationId ?? target.conversation_id ?? ''
+  ).trim();
+  if (convId && candidate.conversation_id === convId) {
+    return true;
+  }
+  const targetIds = new Set(
+    [
+      target.memberId,
+      target.member_id,
+      target.identityMemberId,
+      target.identity_member_id,
+    ]
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean)
+  );
+  if (targetIds.size > 0) {
+    const candMemberId = String(candidate.member_id ?? '').trim();
+    const candIdentityId = String(candidate.identity_member_id ?? '').trim();
+    if (
+      (candMemberId && targetIds.has(candMemberId)) ||
+      (candIdentityId && targetIds.has(candIdentityId))
+    ) {
+      return true;
+    }
+  }
+  const targetNick = normalizeMemberNickname(target.nickname);
+  if (targetNick) {
+    const isAgentOrPreview = !candidate.kind || candidate.kind === 'agent';
+    const candNick = normalizeMemberNickname(
+      candidate.nickname ?? candidate.name
+    );
+    if (isAgentOrPreview && candNick && candNick === targetNick) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export type DeliveryReceipt = {
   conversation_id?: string;
   nickname?: string;
   delivered?: string;
+  state?: string;
   input_id?: string | null;
   error_code?: string | null;
+  cross_chat?: boolean;
 };
 
 export type CollaborationSpaceChangedPayload = {
@@ -504,6 +612,7 @@ export type CollaborationSpaceChangedPayload = {
 
 const MENTION_TAIL = /(?:^|\s)@([^\s@]*)$/;
 const MENTION_TOKEN = /(?:^|\s)@([^\s@]+)/g;
+const MENTION_ALL_TOKENS = new Set(['全体', '全体成员', '所有人', 'all']);
 
 export function displayName(member: SpaceMember | null | undefined): string {
   if (!member || member.kind === 'user') return COPY.you;
@@ -634,6 +743,114 @@ export function resolveMessageReceipts(
   return derived;
 }
 
+/**
+ * Resolve Telegram-style checkmark status for a message container:
+ * - 'sent' (1 check): message sent/queued, not yet claimed/received by target
+ * - 'delivered' (2 overlapping checks): message sent and received by target
+ * - null: delivery failed (show error receipt instead)
+ */
+export function resolveMessageDeliveryStatus(
+  receipts: ReadonlyArray<DeliveryReceipt> | null | undefined
+): 'sent' | 'delivered' | null {
+  if (Array.isArray(receipts)) {
+    if (receipts.length === 0) return 'sent';
+    const hasFailed = receipts.some(
+      (receipt) =>
+        receipt &&
+        (receipt.delivered === 'failed' ||
+          (typeof receipt.error_code === 'string' && Boolean(receipt.error_code)))
+    );
+    if (hasFailed) return null;
+    const anyDelivered = receipts.some((receipt) => {
+      const delivered = String(receipt?.delivered ?? '');
+      const state = String(receipt?.state ?? '');
+      return (
+        delivered === 'claimed' ||
+        delivered === 'dispatched' ||
+        delivered === 'started' ||
+        state === 'processing' ||
+        state === 'replied'
+      );
+    });
+    return anyDelivered ? 'delivered' : 'sent';
+  }
+  return 'delivered';
+}
+
+export type CrossChatInteractionRecord = {
+  id: string;
+  sourceChatKey: string;
+  sourceSpaceId: string;
+  sourceMemberNickname: string;
+  targetMemberNickname: string;
+  createdAt: number;
+};
+
+function parseMemberNameFromUriOrName(raw: unknown): string {
+  const value = String(raw ?? '').trim();
+  if (!value) return '';
+  const marker = '/member/';
+  const idx = value.lastIndexOf(marker);
+  if (idx >= 0) {
+    const slice = value.slice(idx + marker.length);
+    try {
+      return decodeURIComponent(slice).trim();
+    } catch {
+      return slice.trim();
+    }
+  }
+  return value.replace(/^@+/, '').trim();
+}
+
+export function extractEnvelopeCrossChatMeta(
+  envelope:
+    | {
+        crossChatSentTo?: readonly string[] | null;
+        cross_chat_sent_to?: readonly string[] | null;
+        crossChatReceivedFrom?: string | readonly string[] | null;
+        cross_chat_received_from?: string | readonly string[] | null;
+        crossChatReplyReceivedFrom?: readonly string[] | null;
+        cross_chat_reply_received_from?: readonly string[] | null;
+      }
+    | null
+    | undefined
+): {
+  sentTo: string[];
+  receivedFrom: string[];
+  replyReceivedFrom: string[];
+} {
+  if (!envelope) {
+    return { sentTo: [], receivedFrom: [], replyReceivedFrom: [] };
+  }
+  const toList = (input: unknown): string[] => {
+    const items = Array.isArray(input)
+      ? input
+      : typeof input === 'string'
+        ? [input]
+        : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of items) {
+      const parsed = parseMemberNameFromUriOrName(item);
+      if (parsed && !seen.has(parsed)) {
+        seen.add(parsed);
+        out.push(parsed);
+      }
+    }
+    return out;
+  };
+  return {
+    sentTo: toList(envelope.crossChatSentTo ?? envelope.cross_chat_sent_to),
+    receivedFrom: toList(
+      envelope.crossChatReceivedFrom ?? envelope.cross_chat_received_from
+    ),
+    replyReceivedFrom: toList(
+      envelope.crossChatReplyReceivedFrom ??
+        envelope.cross_chat_reply_received_from
+    ),
+  };
+}
+
 export function postRecipients(
   text: string | null | undefined,
   members: SpaceMember[] | null | undefined
@@ -650,7 +867,12 @@ export function strayMentions(
   );
   return [...String(text ?? '').matchAll(MENTION_TOKEN)]
     .map((match) => match[1])
-    .filter((token) => token && !known.has(token));
+    .filter(
+      (token) =>
+        token &&
+        !MENTION_ALL_TOKENS.has(token.toLowerCase()) &&
+        !known.has(token)
+    );
 }
 
 export function userSendIsBroadcast(
@@ -912,7 +1134,7 @@ export function toggleMemberDeleteSelection(
   return nextMembers;
 }
 
-// ── Flat chat list (groups + private chats) ─────────────────────────────
+// ── Flat chat list (groups + private chats) ───────────────────────────────
 
 export type ChatListSpace = {
   space_id: string;
@@ -961,7 +1183,9 @@ export type ChatListMeta = {
 
 /** Member shape returned by `thread.listSidebar` / `member.list`. */
 export type SidebarMember = {
+  /** Persistent cross-space bot identity ID (`collaboration_members.id`). */
   member_id: string;
+  identity_member_id?: string | null;
   name?: string;
   avatar?: unknown;
   color?: string;
@@ -992,9 +1216,11 @@ export type SidebarItem = {
 };
 
 export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
+  const identityId = member.identity_member_id || member.member_id;
   return {
     kind: 'agent',
     member_id: member.member_id,
+    ...(identityId ? { identity_member_id: identityId } : {}),
     nickname: member.name,
     conversation_id: member.conversation_id ?? undefined,
   };
@@ -1109,8 +1335,10 @@ export function buildChatList(input: {
 /**
  * Resolve which private-chat row to select after creating a member. Prefers
  * the private thread/session id returned by member creation; otherwise finds
- * the member's 1:1 chat in the list; otherwise synthesises a target in the
- * direct (unassigned) space.
+ * the member's 1:1 chat in the list; otherwise synthesises a `direct:` target.
+ *
+ * `spaceId` is the DM thread id whenever it is known (`direct:<member_id>`),
+ * so the message pane never opens the unassigned/group roster.
  */
 export function resolvePrivateChatTarget(input: {
   created:
@@ -1137,12 +1365,11 @@ export function resolvePrivateChatTarget(input: {
   const threadId =
     created.direct_thread_id ||
     created.private_thread_id ||
-    (created.identity_member_id
-      ? `direct:${created.identity_member_id}`
-      : undefined);
+    (memberId ? `direct:${memberId}` : undefined);
   const member: SpaceMember = {
     kind: 'agent',
     member_id: memberId,
+    ...(memberId ? { identity_member_id: memberId } : {}),
     nickname: created.nickname || input.fallbackNickname,
     conversation_id: conversationId,
   };
@@ -1154,26 +1381,51 @@ export function resolvePrivateChatTarget(input: {
     (threadId && directRows.find((entry) => entry.threadId === threadId)) ||
     directRows.find(
       (entry) =>
-        (memberId && entry.member.member_id === memberId) ||
+        (memberId &&
+          (entry.member.member_id === memberId ||
+            entry.member.identity_member_id === memberId)) ||
         (conversationId && entry.member.conversation_id === conversationId)
     );
+  const resolvedThread =
+    found?.threadId ||
+    threadId ||
+    (found?.member.identity_member_id
+      ? `direct:${found.member.identity_member_id}`
+      : found?.member.member_id
+        ? `direct:${found.member.member_id}`
+        : undefined);
   if (found) {
     return {
-      spaceId: found.spaceId,
+      spaceId: resolvedThread || found.spaceId,
       member: found.member,
-      threadId: found.threadId ?? threadId,
+      threadId: resolvedThread,
     };
   }
-  return { spaceId: input.directSpaceId, member, threadId };
+  return {
+    spaceId: resolvedThread || input.directSpaceId,
+    member,
+    threadId: resolvedThread,
+  };
 }
 
 /** Private-chat (DM) thread id for a member, e.g. `direct:<identity_member_id>`. */
 export function directThreadIdFor(
-  member: { member_id?: string | null } | null | undefined,
+  member:
+    | {
+        member_id?: string | null;
+        identity_member_id?: string | null;
+        direct_thread_id?: string | null;
+        private_thread_id?: string | null;
+      }
+    | null
+    | undefined,
   threadId?: string | null
 ): string | null {
   if (threadId && threadId.startsWith('direct:')) return threadId;
-  return member?.member_id ? `direct:${member.member_id}` : null;
+  const explicit = member?.direct_thread_id || member?.private_thread_id;
+  if (explicit && explicit.startsWith('direct:')) return explicit;
+  const identityId = member?.identity_member_id || member?.member_id;
+  return identityId ? `direct:${identityId}` : null;
 }
 
 /** A DM message the user sent that the backend has not listed yet (busy member). */
@@ -1238,4 +1490,83 @@ export function memberTabTitle(
 ): string {
   const groupName = thread?.name?.trim();
   return thread?.kind === 'group' && groupName ? groupName : memberName;
+}
+
+/** Marker wrapping the hidden DM greeting prompt. Session tab keeps the body. */
+export const COLLAB_DM_BOOTSTRAP_PREFIX = '<vibex-private-bootstrap>';
+export const COLLAB_DM_BOOTSTRAP_SUFFIX = '</vibex-private-bootstrap>';
+
+export function isCollabDmBootstrapPrompt(
+  text: string | null | undefined
+): boolean {
+  return String(text ?? '')
+    .trimStart()
+    .startsWith(COLLAB_DM_BOOTSTRAP_PREFIX);
+}
+
+export function contactLastMessagePreview(
+  entry: Pick<ChatListMeta, 'lastPreview'> | null | undefined,
+  fallback?: string | null
+): string {
+  const preview = entry?.lastPreview?.trim() || fallback?.trim() || '';
+  return isCollabDmBootstrapPrompt(preview) ? '' : preview;
+}
+
+/**
+ * First hidden user turn for a newly created bot's private chat. Visible in
+ * the session tab; the collaboration message area skips it so the bot appears
+ * to greet first via `post_to_space`.
+ */
+export function buildCollabDmBootstrapPrompt(input: {
+  userName: string;
+  botName: string;
+  personaPrompt?: string | null;
+  spaceId?: string | null;
+}): string {
+  const userName = input.userName.trim() || COPY.you;
+  const botName = input.botName.trim() || '助手';
+  const persona = input.personaPrompt?.trim();
+  const personaLine = persona
+    ? `- 设定：${persona}`
+    : '- 设定：当前没有额外人设。请根据名字自行确定能力、工作习惯和语言风格。';
+  const spaceId = input.spaceId?.trim();
+  const spaceLine = spaceId
+    ? `- space_id：\`${spaceId}\`（当前私聊，必须用这个值）`
+    : '- space_id：先调用一次 `list_collaboration_spaces` 取得当前私聊的 space_id，然后立刻进入下一步';
+  const body = [
+    '# 身份',
+    `你是用户刚创建的助手。`,
+    `- 称呼用户：${userName}`,
+    `- 你的名字：${botName}`,
+    personaLine,
+    '请结合名字和设定确定自己的能力、工作习惯和语言风格。',
+    '',
+    '# 场景',
+    '这是你与用户的一对一私聊（协作空间私聊）。本条引导只出现在会话标签页；用户在协作空间私聊消息区看不到它，只会看到你用 `post_to_space` 发出的内容。',
+    '你必须把招呼和询问发到协作空间，用户才会看见，并感觉像是你主动来认识对方。',
+    '',
+    '# 本回合立刻执行（先发信，再读 skill）',
+    '1. 不要先读 skill，也不要先做其它工具调用。立刻调用 `post_to_space`：',
+    spaceLine,
+    '- to：`["User"]`',
+    '- operation_id：新的 UUID',
+    '- content：以 `@User ` 开头。先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。问题和选项直接写在这条私信正文里。',
+    '2. 发给用户的正文不要出现 space_id、conversation_id、operation_id、member_id、vibex:// 等内部标识。',
+    '3. 招呼只通过这一次 `post_to_space` 发出；不要再写一段重复的普通会话回复。',
+    '4. 发出招呼后，再阅读 `vibex-multi-agent` Skill 与 `COLLABORATION-SPACE.md`。',
+    '',
+    '# 招呼示例（按人设改写，不要照抄）',
+    `你好，我是 ${botName} 👋 很高兴认识你！我可以在自己的电脑上帮你写代码、搭工具、跑脚本、处理文件，也能帮你做调研、整理资料。你需要我为你做些什么呢？`,
+    '1. 写代码 / 搭工具',
+    '2. 调研 / 整理资料',
+    '3. 先看看当前项目',
+    '4. 你先告诉我你的习惯',
+    '',
+    '# 之后遵守的协同规范（读 skill 后执行）',
+    '- 凡是要让用户在协作空间看到的内容，必须 `post_to_space`。',
+    '- 收到用户任务：先应答，再执行，再交付。',
+    '- 成员间有增量才发信，无需回复即静默终止。',
+    '- 跨成员共享长文或文件用群收藏（`list_space_collection` / `add_to_space_collection` / `read_space_collection_item`）。',
+  ].join('\n');
+  return `${COLLAB_DM_BOOTSTRAP_PREFIX}\n${body}\n${COLLAB_DM_BOOTSTRAP_SUFFIX}`;
 }

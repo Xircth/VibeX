@@ -46,7 +46,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
         initialized = await outbound.get()
         self.assertEqual(session.frame_limits.max_frame_bytes, 1048576)
         self.assertEqual(initialized["result"]["protocolVersion"], "1.1")
-        self.assertEqual(initialized["result"]["sdkVersion"], "1.0.0")
+        self.assertEqual(initialized["result"]["sdkVersion"], "2.0.0")
         self.assertEqual(initialized["result"]["registrations"], ["echo.run"])
 
         await session.handle_message(
@@ -83,7 +83,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"id": "3", "ok": True, "result": {"value": {"n": 1}, "allowed": {"present": True}}})
 
         await session.handle_message({"id": "4", "method": "ping", "params": {}})
-        self.assertEqual((await outbound.get())["result"], {"apiVersion": "1.0"})
+        self.assertEqual((await outbound.get())["result"], {"apiVersion": "2.0"})
         await session.close()
 
     async def test_invoke_before_activate_is_inactive(self) -> None:

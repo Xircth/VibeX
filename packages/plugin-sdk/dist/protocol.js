@@ -1,5 +1,8 @@
-export const VIBEX_PLUGIN_API_VERSION = "1.0";
+export const VIBEX_PLUGIN_API_VERSION = "2.0";
 export const VIBEX_PLUGIN_PROTOCOL_VERSION = "1.1";
+export function isSupportedPluginApiVersion(version) {
+    return version === "1.0" || version === "2.0";
+}
 export const MIN_FRAME_BYTES = 1024 * 1024;
 export const MAX_FRAME_BYTES = 32 * 1024 * 1024;
 export const MAX_LOGICAL_MESSAGE_BYTES = 128 * 1024 * 1024;
@@ -131,7 +134,7 @@ export class FrameReassembler {
         const message = value;
         if (message.method !== FRAME_CHUNK_METHOD) {
             if (this.streamId !== null) {
-                this.reset();
+                this.discardInterrupted();
                 throw new ProtocolFrameError("frame_chunk_invalid", "Chunk sequence was interrupted");
             }
             return { kind: "message", message };
@@ -158,7 +161,7 @@ export class FrameReassembler {
         }
         if (index === 0) {
             if (this.streamId !== null) {
-                this.reset();
+                this.discardInterrupted();
                 throw new ProtocolFrameError("frame_chunk_invalid", "Chunk sequence was interrupted");
             }
             this.streamId = streamId;
@@ -170,12 +173,12 @@ export class FrameReassembler {
         if (this.streamId !== streamId ||
             index !== this.nextIndex ||
             count !== this.count) {
-            this.reset();
+            this.discardInterrupted();
             throw new ProtocolFrameError("frame_chunk_invalid", "Chunk index or count does not match the sequence");
         }
         this.totalBytes += Buffer.byteLength(data, "utf8");
         if (this.totalBytes > this.limits.maxLogicalBytes) {
-            this.reset();
+            this.discardInterrupted();
             throw new ProtocolFrameError("message_too_large", `message exceeds ${this.limits.maxLogicalBytes} bytes`);
         }
         this.parts.push(data);
@@ -202,6 +205,9 @@ export class FrameReassembler {
             kind: "message",
             message: assembled,
         };
+    }
+    discardInterrupted() {
+        this.reset();
     }
     reset() {
         this.streamId = null;

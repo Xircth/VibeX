@@ -38,6 +38,7 @@ const TOP_LEVEL = new Set([
   "toolbarItems",
   "statusItems",
   "composerActions",
+  "panels",
   "engines",
   "content",
   "config",
@@ -113,7 +114,7 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
   await validateDependencies(pluginRoot, manifest.dependencies, manifest.apiVersion, diagnostics);
   await validateEntrypoints(pluginRoot, manifest.entrypoints, diagnostics);
   validatePermissions(manifest.permissions, diagnostics);
-  await validateIntegrations(pluginRoot, manifest.integrations, manifest.apiVersion, diagnostics);
+  await validateIntegrations(pluginRoot, manifest, diagnostics);
 
   if (!isObject(manifest.engines)) {
     diagnostics.push(error("engines_invalid", "engines is required"));
@@ -174,6 +175,7 @@ async function validateConfig(
       error("config_schema_invalid", "config.schema is required"),
     );
   }
+  if (apiVersion === "2.0" && !(await safeFile(root, "config.json"))) return;
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as unknown;
     if (!isObject(value)) throw new Error("config.json must be a JSON object");
@@ -376,11 +378,37 @@ async function validateEntrypoints(
       );
     }
     for (const key of Object.keys(value.worker)) {
-      if (!["path", "runtime", "protocol", "maxFrameMiB"].includes(key)) {
+      if (
+        ![
+          "path",
+          "runtime",
+          "protocol",
+          "maxFrameMiB",
+          "sharedWorker",
+          "isolation",
+        ].includes(key)
+      ) {
         diagnostics.push(
           error("worker_entrypoint_invalid", `Unknown worker field ${key}`),
         );
       }
+    }
+    if ("sharedWorker" in value.worker && typeof value.worker.sharedWorker !== "boolean") {
+      diagnostics.push(
+        error("worker_entrypoint_invalid", "Worker sharedWorker must be a boolean"),
+      );
+    }
+    if (
+      "isolation" in value.worker &&
+      value.worker.isolation !== "shared" &&
+      value.worker.isolation !== "process"
+    ) {
+      diagnostics.push(
+        error(
+          "worker_entrypoint_invalid",
+          'Worker isolation must be "shared" or "process"',
+        ),
+      );
     }
     if ("maxFrameMiB" in value.worker) {
       const frame = value.worker.maxFrameMiB;
@@ -420,6 +448,19 @@ async function validateEntrypoints(
   }
 }
 
+function hasDeclarativeContribution(manifest: Record<string, unknown>) {
+  const entrypoints = isObject(manifest.entrypoints) ? manifest.entrypoints : null;
+  const app = entrypoints && isObject(entrypoints.app) ? entrypoints.app : null;
+  if (app && app.protocol === "2.0" && typeof app.entry === "string" && app.entry) {
+    return true;
+  }
+  for (const key of ["themes", "slashCommands", "commands", "panels"] as const) {
+    const value = manifest[key];
+    if (Array.isArray(value) && value.length > 0) return true;
+  }
+  return isObject(manifest.settingsSchema);
+}
+
 function validatePermissions(value: unknown, diagnostics: Diagnostic[]) {
   if (value === undefined) return;
   if (!Array.isArray(value)) {
@@ -442,11 +483,13 @@ function validatePermissions(value: unknown, diagnostics: Diagnostic[]) {
 
 async function validateIntegrations(
   root: string,
-  value: unknown,
-  apiVersion: unknown,
+  manifest: Record<string, unknown>,
   diagnostics: Diagnostic[],
 ) {
+  const value = manifest.integrations;
+  const apiVersion = manifest.apiVersion;
   if (!Array.isArray(value) || value.length === 0) {
+    if (hasDeclarativeContribution(manifest)) return;
     diagnostics.push(
       error("integration_required", "At least one integration is required"),
     );
@@ -737,8 +780,14 @@ function validateHostChrome(
       validateRemote(integration, diagnostics, kind);
       break;
     case "app.composer.slash": {
-      requireText("title");
-      requireText("prompt");
+      if (apiVersion === "2.0") {
+        if (typeof integration.title !== "string" && typeof integration.label !== "string") {
+          requireText("title");
+        }
+      } else {
+        requireText("title");
+        requireText("prompt");
+      }
       const command = String(
         integration.command ?? integration.id ?? "",
       ).replace(/^\/+/, "");
@@ -856,24 +905,36 @@ function validateHostChrome(
     case "app.tab":
     case "app.kanban.view":
     case "app.settings.page":
-      requireText("title");
-      requireSurfaceEntry();
+      if (apiVersion === "2.0") {
+        if (typeof integration.title !== "string" && typeof integration.label !== "string") {
+          requireText("title");
+        }
+      } else {
+        requireText("title");
+        requireSurfaceEntry();
+      }
       requireStringArray("allowedMethods");
       validateRemote(integration, diagnostics, kind);
       break;
     case "app.composer.action": {
-      requireText("title");
-      const hasHandler =
-        typeof integration.handler === "string" && integration.handler;
-      const hasPrompt =
-        typeof integration.prompt === "string" && integration.prompt;
-      if (!hasHandler && !hasPrompt) {
-        diagnostics.push(
-          error(
-            "app_composer_action_invalid",
-            "app.composer.action requires a handler or a prompt",
-          ),
-        );
+      if (apiVersion === "2.0") {
+        if (typeof integration.title !== "string" && typeof integration.label !== "string") {
+          requireText("title");
+        }
+      } else {
+        requireText("title");
+        const hasHandler =
+          typeof integration.handler === "string" && integration.handler;
+        const hasPrompt =
+          typeof integration.prompt === "string" && integration.prompt;
+        if (!hasHandler && !hasPrompt) {
+          diagnostics.push(
+            error(
+              "app_composer_action_invalid",
+              "app.composer.action requires a handler or a prompt",
+            ),
+          );
+        }
       }
       break;
     }

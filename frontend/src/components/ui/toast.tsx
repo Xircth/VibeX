@@ -133,28 +133,6 @@ function evictOverflow(items: ToastItem[]): ToastItem[] {
   return next;
 }
 
-const TECHNICAL_SUFFIX =
-  /^(?:os error \d+|E[A-Z]{2,}(?:[:\s].*)?|[A-Za-z]:\\.*|\/.+|.*[\\/].*\.[A-Za-z0-9]+)$/;
-
-/**
- * Errors and warnings often end with a technical parenthetical such as
- * "(os error 32)" or a file path. Move it out of the title into details so the
- * headline stays readable; ordinary parentheticals stay in the title.
- */
-function splitTechnicalSuffix(
-  kind: ToastKind,
-  message: ReactNode
-): { title: ReactNode; suffix: string | null } {
-  if ((kind !== 'error' && kind !== 'warning') || typeof message !== 'string') {
-    return { title: message, suffix: null };
-  }
-  const match = /^(.*?)\s*[(（]([^()（）]+)[)）]\s*$/s.exec(message);
-  if (!match || !match[1].trim()) return { title: message, suffix: null };
-  const inner = match[2].trim();
-  if (!TECHNICAL_SUFFIX.test(inner)) return { title: message, suffix: null };
-  return { title: match[1].trim(), suffix: inner };
-}
-
 function fallbackTitle(kind: ToastKind): string {
   const fallback: Record<ToastKind, string> = {
     success: 'Done',
@@ -164,6 +142,130 @@ function fallbackTitle(kind: ToastKind): string {
     loading: 'Working…',
   };
   return i18n.t(`app:toast.${kind}Title`, { defaultValue: fallback[kind] });
+}
+
+function collectDetailRows(options: ToastOptions): ToastDetail[] {
+  const rows: ToastDetail[] = [];
+  if (options.description != null) {
+    rows.push({ description: options.description });
+  }
+  if (options.details?.length) {
+    rows.push(...options.details);
+  }
+  return rows;
+}
+
+// Rust and Windows I/O errors end in a parenthetical such as "(os error 32)".
+// That suffix is the diagnostic; the sentence before it is the title.
+const TRAILING_DETAIL = /^(.*?)[ \t]*[（(]([^()（）\n]+)[)）]\s*$/;
+const GENERIC_ERROR_PREFIX = /^(?:Internal error|Error)\s*:\s*(.+)$/is;
+const MAX_INLINE_TITLE_LENGTH = 90;
+
+function technicalDetail(inner: string): string | null {
+  const text = inner.trim();
+  if (!text || /[\u3400-\u9fff]/.test(text)) return null;
+  if (/os error\s+\d+/i.test(text)) return text;
+  if (/\berror\b/i.test(text) && /\d/.test(text)) return text;
+  if (/[\\/]/.test(text)) return text;
+  if (/\d/.test(text)) return text;
+  if (/^[A-Z][A-Z0-9_.:-]{2,}$/.test(text)) return text;
+  return null;
+}
+
+function looksLikeDiagnosticBody(text: string): boolean {
+  const candidate = text.trim();
+  if (!candidate) return false;
+  if (candidate.includes('\n')) return true;
+  if (candidate.length > 48) return true;
+  if (/---\s*stderr\b|\bfatal:|\berror:|\bstderr\b|\bstdout\b/i.test(candidate)) {
+    return true;
+  }
+  if (/[\\/]/.test(candidate)) return true;
+  if (/\b(?:git|sqlx|sqlite|enoent|eacces|eperm|etimedout|econnrefused)\b/i.test(candidate)) {
+    return true;
+  }
+  if (/:/.test(candidate)) return true;
+  return technicalDetail(candidate) != null;
+}
+
+function splitTechnicalDetail(
+  message: ReactNode
+): { title: string; detail: string } | null {
+  if (typeof message !== 'string') return null;
+  const raw = message.trim();
+  if (!raw) return null;
+
+  // 1. Short single-line message ending in a technical parenthetical suffix:
+  // e.g. "另一个程序正在使用此文件，进程无法访问。 (os error 32)"
+  if (!raw.includes('\n') && raw.length <= MAX_INLINE_TITLE_LENGTH) {
+    const match = raw.match(TRAILING_DETAIL);
+    if (match) {
+      const title = match[1].trim();
+      const detail = technicalDetail(match[2]);
+      if (title && detail) {
+        return { title, detail };
+      }
+    }
+  }
+
+  // 2. Colon-chained or multi-line technical error message:
+  // e.g. "Internal error: failed to create isolated member session worktree: Invalid repository: git command failed: ..."
+  const stripped = raw.replace(GENERIC_ERROR_PREFIX, '$1').trim();
+  const colonMatch = stripped.match(/^([^:\n]{3,80}?):\s+([\s\S]+)$/);
+  if (colonMatch) {
+    const candidateTitle = colonMatch[1].trim();
+    const candidateDetail = colonMatch[2].trim();
+    if (
+      candidateTitle &&
+      candidateDetail &&
+      (raw.length > 64 || looksLikeDiagnosticBody(candidateDetail))
+    ) {
+      return { title: candidateTitle, detail: candidateDetail };
+    }
+  }
+
+  // 3. Multi-line message where the first line is a concise summary
+  if (stripped.includes('\n')) {
+    const newlineIndex = stripped.indexOf('\n');
+    const firstLine = stripped.slice(0, newlineIndex).trim();
+    const rest = stripped.slice(newlineIndex + 1).trim();
+    if (firstLine && firstLine.length <= MAX_INLINE_TITLE_LENGTH && rest) {
+      return { title: firstLine, detail: rest };
+    }
+  }
+
+  // 4. Very long single-line message that would otherwise stretch the toast capsule
+  if (raw.length > MAX_INLINE_TITLE_LENGTH) {
+    const match = raw.match(TRAILING_DETAIL);
+    if (match) {
+      const title = match[1].trim();
+      const detail = technicalDetail(match[2]);
+      if (title && title.length <= MAX_INLINE_TITLE_LENGTH && detail) {
+        return { title, detail };
+      }
+    }
+    const truncated = `${stripped.slice(0, 72).trimEnd()}…`;
+    return { title: truncated, detail: raw };
+  }
+
+  return null;
+}
+
+function presentToast(
+  kind: ToastKind,
+  message: ReactNode,
+  options: ToastOptions
+): { message: ReactNode; detailRows: ToastDetail[] } {
+  const detailRows = collectDetailRows(options);
+  if (kind !== 'error' && kind !== 'warning') {
+    return { message, detailRows };
+  }
+  const split = splitTechnicalDetail(message);
+  if (!split) return { message, detailRows };
+  return {
+    message: split.title,
+    detailRows: [{ description: split.detail, mono: true }, ...detailRows],
+  };
 }
 
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
@@ -203,15 +305,9 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const { title: message, suffix } = splitTechnicalSuffix(kind, rawMessage);
-  const details: ToastDetail[] = [
-    ...(suffix ? [{ description: suffix, mono: true }] : []),
-    ...(options.description != null
-      ? [{ description: options.description }]
-      : []),
-    ...(options.details ?? []),
-  ];
-  const hasDetails = details.length > 0;
+  const presented = presentToast(kind, rawMessage, options);
+  const detailRows = presented.detailRows;
+  const hasDetails = detailRows.length > 0;
   const showClose = options.closeButton !== false && kind !== 'loading';
 
   const runAction =
@@ -244,9 +340,7 @@ function ToastCard({
       ? Math.min(1, Math.max(0, options.progress))
       : null;
   const layout =
-    hasDetails || hasActions || progress != null
-      ? 'card'
-      : 'capsule';
+    hasDetails || hasActions || progress != null ? 'card' : 'capsule';
   const countdown =
     Number.isFinite(duration) && duration > 0 && kind !== 'loading'
       ? ({ '--vu-toast-duration': `${duration}ms` } as CSSProperties)
@@ -274,7 +368,7 @@ function ToastCard({
         </span>
         <div className="vu-toast-copy">
           <span className="vu-toast-sr-only">{fallbackTitle(kind)}</span>
-          <div className="vu-toast-title">{message}</div>
+          <div className="vu-toast-title">{presented.message}</div>
         </div>
         {hasDetails ? (
           <button
@@ -343,7 +437,7 @@ function ToastCard({
       {hasDetails && expanded ? (
         <div className="vu-toast-details-section">
           <div id={detailsId} className="vu-toast-details">
-            {details.map((detail, index) => (
+            {detailRows.map((detail, index) => (
               <div className="vu-toast-detail-row" key={index}>
                 {detail.title ? (
                   <div className="vu-toast-detail-title">{detail.title}</div>

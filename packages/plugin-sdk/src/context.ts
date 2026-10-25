@@ -45,6 +45,12 @@ import {
   type ServiceKey,
   type WaterfallInterceptor,
 } from './services.js';
+import {
+  getPluginVolatileConfig,
+  notifyPluginConfigUpdated,
+  type Volatile,
+  type VolatileListener,
+} from './volatile.js';
 
 export interface HostCallRequestObject {
   readonly pluginId: string;
@@ -107,6 +113,20 @@ export interface PluginSettingsClient {
   get<T = JsonValue>(): Promise<T>;
   put<T extends JsonValue = JsonValue>(value: T): Promise<T>;
   set<T extends JsonValue = JsonValue>(value: T): Promise<T>;
+  /**
+   * Returns a reactive `Volatile<T>` reference to the plugin's configuration
+   * that updates in-place whenever `config.json` is saved—without restarting
+   * or rebuilding the plugin generation.
+   */
+  volatile<
+    T extends Record<string, unknown> = Record<string, JsonValue>,
+  >(defaults?: T): Volatile<T>;
+  /**
+   * Subscribes to live configuration updates for this plugin.
+   */
+  onChange<
+    T extends Record<string, unknown> = Record<string, JsonValue>,
+  >(listener: VolatileListener<T>): Disposer;
 }
 
 export interface PluginNetworkFetchInput {
@@ -413,6 +433,12 @@ export interface VibeXPluginContext {
   readonly generation: number;
   readonly scope: EffectScope;
   readonly effects: EffectScope;
+  /**
+   * Fine-grained reactive configuration reference (`Volatile<T>`).
+   * Updates in-place when `config.json` is saved without requiring a full
+   * plugin generation rebuild.
+   */
+  readonly config: Volatile<Record<string, JsonValue>>;
 
   readonly ui: PluginUiNamespace;
   readonly hooks: PluginHooksNamespace;
@@ -504,6 +530,7 @@ export interface VibeXPluginContext {
 export interface CreatePluginContextOptions {
   readonly pluginId: string;
   readonly generation?: number;
+  readonly initialConfig?: Record<string, JsonValue>;
   readonly hostCall?: HostCallTransport;
   readonly callHost?: HostCallTransport;
   readonly invokeWorker?: WorkerInvokeTransport;
@@ -512,8 +539,12 @@ export interface CreatePluginContextOptions {
 export function createPluginContext(
   options: CreatePluginContextOptions
 ): VibeXPluginContext {
-  const { pluginId, generation = 1 } = options;
+  const { pluginId, generation = 1, initialConfig } = options;
   const scope = new EffectScope();
+  const volatileConfig = getPluginVolatileConfig(pluginId, initialConfig);
+  if (initialConfig) {
+    notifyPluginConfigUpdated(pluginId, initialConfig);
+  }
 
   const hostCall = async <T = JsonValue>(
     capability: string,
@@ -674,13 +705,37 @@ export function createPluginContext(
 
   const settingsClient: PluginSettingsClient = {
     async get<T = JsonValue>(): Promise<T> {
-      return await hostCall<T>('storage', 'settings.get', {});
+      const result = await hostCall<T>('storage', 'settings.get', {});
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        notifyPluginConfigUpdated(pluginId, result);
+      }
+      return result;
     },
     async put<T extends JsonValue = JsonValue>(value: T): Promise<T> {
-      return await hostCall<T>('storage', 'settings.put', value);
+      const result = await hostCall<T>('storage', 'settings.put', value);
+      const next =
+        result && typeof result === 'object' && !Array.isArray(result)
+          ? result
+          : value;
+      if (next && typeof next === 'object' && !Array.isArray(next)) {
+        notifyPluginConfigUpdated(pluginId, next);
+      }
+      return result;
     },
     async set<T extends JsonValue = JsonValue>(value: T): Promise<T> {
-      return await hostCall<T>('storage', 'settings.put', value);
+      return await settingsClient.put(value);
+    },
+    volatile<
+      T extends Record<string, unknown> = Record<string, JsonValue>,
+    >(defaults?: T): Volatile<T> {
+      return getPluginVolatileConfig<T>(pluginId, defaults);
+    },
+    onChange<
+      T extends Record<string, unknown> = Record<string, JsonValue>,
+    >(listener: VolatileListener<T>): Disposer {
+      return track(
+        getPluginVolatileConfig<T>(pluginId).subscribe(listener)
+      );
     },
   };
 
@@ -1250,6 +1305,7 @@ export function createPluginContext(
     generation,
     scope,
     effects: scope,
+    config: volatileConfig,
 
     ui,
     hooks,
@@ -1259,8 +1315,12 @@ export function createPluginContext(
       invoke: invokeWorker,
     },
     events: {
-      emit() {
-        // No-op default event emitter for in-process notifications
+      emit(event, payload) {
+        void hostCall('events', 'publish', {
+          topic: 'default',
+          eventType: event,
+          payload: (payload ?? null) as JsonValue,
+        }).catch(() => undefined);
       },
     },
 
@@ -1306,7 +1366,7 @@ export function createPluginContext(
 }
 
 export interface VibeXPluginDefinition {
-  readonly apiVersion: '2.0';
+  readonly apiVersion?: '2.0' | '1.0';
   readonly id?: string;
   readonly activate: (
     ctx: VibeXPluginContext
@@ -1317,7 +1377,6 @@ export interface VibeXPluginDefinition {
 export function defineVibeXPlugin(
   definition:
     | VibeXPluginDefinition
-    | Omit<VibeXPluginDefinition, 'apiVersion'>
     | VibeXPluginDefinition['activate']
 ): VibeXPluginDefinition {
   if (typeof definition === 'function') {
@@ -1328,7 +1387,7 @@ export function defineVibeXPlugin(
   }
   return {
     ...definition,
-    apiVersion: '2.0',
+    apiVersion: definition.apiVersion ?? '2.0',
   };
 }
 
@@ -1344,6 +1403,7 @@ export function isVibeXPluginDefinition(
   }
   const candidate = value as Partial<VibeXPluginDefinition>;
   return (
-    candidate.apiVersion === '2.0' && typeof candidate.activate === 'function'
+    (candidate.apiVersion === '2.0' || candidate.apiVersion === '1.0') &&
+    typeof candidate.activate === 'function'
   );
 }

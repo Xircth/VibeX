@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const collaborationCall = vi.hoisted(() => vi.fn());
 vi.mock('./collaborationApi', () => ({ collaborationCall }));
 
+import { deriveMemberBotAvatar } from './MemberBotAvatar';
+import {
+  CollaborationMemberMentionContext,
+  buildMemberMentionContextValue,
+} from './MemberMentionChip';
 import {
   SpaceMessageBody,
   messagePreviewText,
@@ -103,5 +108,52 @@ describe('messagePreviewText', () => {
     expect(messagePreviewText('<card kind="approval" id="x"><action>')).toBe(
       '审批请求'
     );
+  });
+  it('wraps member messages in a collaboration-member-bubble container and renders overlapping delivery ticks', () => {
+    const mentionCtx = buildMemberMentionContextValue([
+      { nickname: '小A', avatar: deriveMemberBotAvatar('小A') },
+    ]);
+    const { rerender } = render(
+      <CollaborationMemberMentionContext.Provider value={mentionCtx}>
+        <SpaceMessageBody
+          fromYou={false}
+          text="你好 @小A"
+          deliveryStatus={null}
+        />
+      </CollaborationMemberMentionContext.Provider>
+    );
+    const memberBubble = screen.getByTestId('collaboration-member-bubble');
+    expect(memberBubble).toBeTruthy();
+    expect(memberBubble.className).toContain('collaboration-member-bubble');
+    const mentionChip = screen.getByTestId('collaboration-member-mention-chip-小A');
+    expect(mentionChip).toBeTruthy();
+    expect(mentionChip.textContent).toBe('小A');
+
+    rerender(
+      <SpaceMessageBody
+        fromYou
+        text="发送给 @小A"
+        deliveryStatus="sent"
+      />
+    );
+    const sentTicks = screen.getByTestId('collaboration-message-ticks');
+    expect(sentTicks).toHaveAttribute('data-status', 'queued');
+    expect(sentTicks.querySelectorAll('svg')).toHaveLength(1);
+
+    rerender(
+      <SpaceMessageBody
+        fromYou
+        text="发送给 @小A"
+        deliveryStatus="delivered"
+      />
+    );
+    const deliveredTicks = screen.getByTestId('collaboration-message-ticks');
+    expect(deliveredTicks).toHaveAttribute('data-status', 'claimed');
+    const svgs = deliveredTicks.querySelectorAll('svg');
+    expect(svgs).toHaveLength(2);
+    expect(svgs[0].getAttribute('width')).toBe('11');
+    expect(svgs[0].getAttribute('height')).toBe('11');
+    expect(deliveredTicks.closest('.conv-user-bubble')).toBeNull();
+    expect(deliveredTicks.closest('.collaboration-bubble-outer-row')).not.toBeNull();
   });
 });

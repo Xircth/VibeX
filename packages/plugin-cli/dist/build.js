@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { build } from "esbuild";
 import { buildFederationRemotes } from "./federationBuild.js";
 import { remotesFromManifest } from "./remoteDev.js";
@@ -25,8 +25,12 @@ export async function buildPlugin(root) {
             logLevel: "silent",
         });
     }
+    const appEntrypoint = manifest.entrypoints?.app;
+    if (appEntrypoint?.protocol === "2.0" && typeof appEntrypoint.entry === "string") {
+        await buildProtocol2App(pluginRoot, appEntrypoint.entry, appEntrypoint.styles);
+    }
     const appSource = join(pluginRoot, "runtime", "app.mjs");
-    if (await exists(appSource)) {
+    if (appEntrypoint?.protocol !== "2.0" && (await exists(appSource))) {
         const appRoot = join(pluginRoot, "dist", "app");
         await mkdir(appRoot, { recursive: true });
         const appBundle = await build({
@@ -56,7 +60,9 @@ export async function buildPlugin(root) {
             },
             ready: () => { void surface.request('surface.ready'); },
           });
-          const dispose = await definition.mount({ root, bridge, signal: controller.signal, slot: typeof bootstrap.slot === 'string' ? bootstrap.slot : undefined });
+          const mount = typeof definition?.mount === 'function' ? definition.mount : definition;
+          if (typeof mount !== 'function') throw new Error('plugin_app_mount_missing');
+          const dispose = await mount({ root, bridge, signal: controller.signal, slot: typeof bootstrap.slot === 'string' ? bootstrap.slot : undefined });
           addEventListener('pagehide', () => {
             controller.abort();
             if (typeof dispose === 'function') void dispose();
@@ -147,6 +153,57 @@ export async function buildPlugin(root) {
             .map((diagnostic) => diagnostic.code)
             .join(", ")}`);
     }
+}
+const PROTOCOL_2_APP_SOURCES = [
+    ["runtime", "app.ts"],
+    ["runtime", "app.tsx"],
+    ["runtime", "app.mjs"],
+    ["src", "app.tsx"],
+];
+async function buildProtocol2App(pluginRoot, entry, styles) {
+    const outfile = join(pluginRoot, entry);
+    const source = await firstExisting(PROTOCOL_2_APP_SOURCES.map((parts) => join(pluginRoot, ...parts)));
+    if (source && resolve(source) !== resolve(outfile)) {
+        await mkdir(dirname(outfile), { recursive: true });
+        await build({
+            entryPoints: [source],
+            outfile,
+            bundle: true,
+            format: "esm",
+            platform: "browser",
+            target: "es2022",
+            jsx: "automatic",
+            external: [
+                "react",
+                "react/jsx-runtime",
+                "react/jsx-dev-runtime",
+                "@vibex/plugin-sdk",
+                "@vibex/plugin-sdk/app",
+                "@vibex/plugin-sdk/worker",
+            ],
+            sourcemap: false,
+            minifyWhitespace: true,
+            legalComments: "none",
+            logLevel: "silent",
+        });
+    }
+    if (typeof styles === "string") {
+        const styleOut = join(pluginRoot, styles);
+        if (!(await exists(styleOut))) {
+            const cssSource = join(pluginRoot, "runtime", "app.css");
+            if (await exists(cssSource)) {
+                await mkdir(dirname(styleOut), { recursive: true });
+                await writeFile(styleOut, await readFile(cssSource, "utf8"));
+            }
+        }
+    }
+}
+async function firstExisting(paths) {
+    for (const path of paths) {
+        if (await exists(path))
+            return path;
+    }
+    return null;
 }
 async function exists(path) {
     try {

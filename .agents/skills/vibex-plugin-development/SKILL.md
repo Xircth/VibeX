@@ -7,15 +7,15 @@ description: Build, migrate, test, link, debug, or package full-trust VibeX v4 p
 
 Build one user-facing product with one identity, README, root config, content tree, and lifecycle. App, Agent, Host, and Runtime are integration targets inside that product.
 
-The Host product plugin (Skill `/create-skill` and contract references) lives in the independent repository `https://github.com/Xircth/vibex-plugin-development`, listed in `vibex-plugin.json`. Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
+The in-tree official plugin (`plugins/plugin-development`) and workspace skills (`.agents/skills/vibex-plugin-development` and `.agents/skills/vibex-plugin-creator`) share the same v4 package contract and SDK conventions.
 
 ## Load the local contract
 
 1. Run `python3 .agents/skills/vibex-plugin-development/scripts/locate_toolchain.py` from the VibeX repository root.
 2. Read every path printed under `required`; stop when one is missing.
 3. Use the checked-out SDK and CLI versions. Treat online examples as research, not as the active contract.
-4. Read [references/workflow.md](references/workflow.md) for package composition and verification.
-5. Read [references/full-trust.md](references/full-trust.md) when authoring executable Worker, App, Runtime, filesystem, network, or external-editor behavior.
+4. Read [references/workflow.md](references/workflow.md) for package composition, App protocol modes (`2.0` vs `1.0`), and verification.
+5. Read [references/full-trust.md](references/full-trust.md) when authoring executable Worker, App, Runtime, HostCapabilityBroker (`storage.kv`, `secrets`, `files`, `network.fetch`, `exec`), or external-editor behavior.
 
 Completion criterion: every integration used by the package exists in the local manifest type, validator, Host, and test harness.
 
@@ -23,11 +23,15 @@ Completion criterion: every integration used by the package exists in the local 
 
 - Put the one-line `summary` in README frontmatter and the complete user guide in the README body.
 - Put Agent/user-readable resources under `contents/` and index them in `.vibex-plugin/content.index.json`.
-- Put mutable user settings in root `config.json`; describe them with `config.schema`.
-- Put Runtime descriptors under `depends/`, source entrypoints under `runtime/`, and generated output under `dist/`.
+- Put mutable user settings in root `config.json`; describe them with `config.schema` in `.vibex-plugin/plugin.json` (never include the deprecated `"file": "config.json"` field).
+- Put Runtime descriptors under `depends/`, Worker/App authoring entrypoints under `app/` or `runtime/`, and generated output under `dist/`.
+- Choose the appropriate `entrypoints.app` protocol when shipping UI or hooks:
+  - **`protocol: "2.0"` (In-Host / Federated Module App)**: `{ "entry": "app/main.js", "protocol": "2.0" }`, paired with `defineVibeXPlugin((ctx) => ...)` and namespaced APIs (`ctx.ui.*`, `ctx.hooks.*`, `ctx.services.*`, `ctx.host.*`).
+  - **`protocol: "1.0"` (Standalone HTML Surface App)**: `{ "root": "dist/app", "document": "index.html", "protocol": "1.0" }`, paired with `definePluginApp(({ root, bridge, signal }) => ...)`.
 - Declare every integration statically. A Skill is optional; at least one real integration is required.
 - Use `file.opener + artifact.preview` for Runtime-backed read-only previews.
 - Use `file.opener.editorSurface + app.surface(slot: artifact.editor)` for an editable UTF-8 file tab. Read and save through `bridge.artifact`; the App never needs a Host path.
+- In non-Worker tests, read and validate the real `.vibex-plugin/plugin.json` directly rather than converting `plugin.json` into a static fixture export.
 
 Use only `@vibex/plugin-sdk`, `/worker`, `/app`, `/testing`, `/protocol`, and `/stdio`. If the public SDK cannot express the product, add a generic Host capability, expose it through the SDK, test it, and then consume it from the plugin.
 

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { buildPlugin, sdkAliases } from "./build.js";
 import { inspectLinkedPackage } from "./pluginControl.js";
@@ -22,7 +22,8 @@ export async function testPlugin(root, options = {}) {
     if (!entries.length) {
         throw new Error("plugin_test_harness_missing: test/*.test.mjs is required");
     }
-    const outputRoot = await mkdtemp(join(tmpdir(), "vibex-plugin-test-"));
+    const outputRoot = join(pluginRoot, ".vibex-plugin", ".test-dist");
+    await mkdir(outputRoot, { recursive: true });
     try {
         const outputs = [];
         for (const entry of entries) {
@@ -35,13 +36,19 @@ export async function testPlugin(root, options = {}) {
                 platform: "node",
                 target: "node20",
                 alias: sdkAliases(),
+                define: {
+                    "import.meta.url": JSON.stringify(pathToFileURL(entry).href),
+                },
+                banner: {
+                    js: `if (!process.env.VIBEX_PLUGIN_ROOT) process.env.VIBEX_PLUGIN_ROOT = ${JSON.stringify(pluginRoot)};`,
+                },
                 sourcemap: false,
                 legalComments: "none",
                 logLevel: "silent",
             });
             outputs.push(output);
         }
-        await runNodeTests(outputs);
+        await runNodeTests(pluginRoot, outputs);
     }
     finally {
         await rm(outputRoot, { recursive: true, force: true });
@@ -171,9 +178,11 @@ async function firstSkillFile(root) {
     }
     return visit(root);
 }
-async function runNodeTests(outputs) {
+async function runNodeTests(root, outputs) {
     await new Promise((resolvePromise, reject) => {
         const child = spawn(process.execPath, ["--test", ...outputs], {
+            cwd: root,
+            env: { ...process.env, VIBEX_PLUGIN_ROOT: root },
             stdio: "inherit",
         });
         child.on("error", reject);

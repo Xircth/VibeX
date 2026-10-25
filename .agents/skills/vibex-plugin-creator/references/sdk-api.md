@@ -7,10 +7,15 @@
 
 | Tier | Capabilities | Required Files | Runtime Cost |
 | :--- | :--- | :--- | :--- |
-| **Tier 0: Declarative** | Themes, CSS variables, JSON Schema settings, static slash commands, prompt templates, MCP configs | `.vibex-plugin/plugin.json` (+ optional `style.css`, `skills/*/SKILL.md`) | **Zero JS / Zero Process** |
-| **Tier 1: UI & Hook Plugin** | Custom UI slots, panels, tabs, kanban views, markdown codeblock renderers, `beforeTurn` / `afterTurn` hooks, `captureInternalMessage`, IoC services, 1-hop `ctx.host.*` RPC | `.vibex-plugin/plugin.json` + `index.js` (or `index.ts`) | **Zero Child Process** (runs in WebView with `PluginErrorBoundary` + `EffectScope`) |
-| **Tier 2: Shared Node Worker** | Pure Node.js background handlers (`fs`, `crypto`, data pipelines) | `.vibex-plugin/plugin.json` + `worker/index.mjs` (`"sharedWorker": true`) | **Shared Single Node Host Process** (`vm.SourceTextModule` + `AbortController` + `AsyncLocalStorage`) |
-| **Tier 3: Isolated Process / Sidecar** | Native addons, custom Python/binary runtimes, long-lived CLI/daemon child processes (`ctx.host.exec.spawn`) | `.vibex-plugin/plugin.json` + `worker/index.mjs` (`"isolation": "process"`) | **Dedicated OS Process** with automatic lifecycle cleanup |
+| **Tier 0: Declarative** | Themes, CSS variables, JSON Schema settings, static slash commands, prompt templates, MCP configs | `.vibex-plugin/plugin.json`, `README.md`, `config.json`, `.vibex-plugin/content.index.json` (+ optional `style.css`, `contents/skills/*/SKILL.md`) | **Zero JS / Zero Process** |
+| **Tier 1: UI & Hook Plugin** | Custom UI slots, panels, tabs, kanban views, markdown codeblock renderers, `beforeTurn` / `afterTurn` hooks, `captureInternalMessage`, IoC services, 1-hop `ctx.host.*` RPC | `.vibex-plugin/plugin.json` + `app/main.js` (`entrypoints.app: { entry: "app/main.js", protocol: "2.0" }`) | **Zero Child Process** (runs in WebView with `PluginErrorBoundary` + `EffectScope`) |
+| **Tier 2: Shared Node Worker** | Pure Node.js background handlers (`fs`, `crypto`, data pipelines) | `.vibex-plugin/plugin.json` + `dist/worker.mjs` (`entrypoints.worker` with `"sharedWorker": true`) | **Shared Single Node Host Process** (`vm.SourceTextModule` + `AbortController` + `AsyncLocalStorage`) |
+| **Tier 3: Isolated Process / Sidecar** | Native addons, custom Python/binary runtimes, long-lived CLI/daemon child processes (`ctx.host.exec.spawn`) | `.vibex-plugin/plugin.json` + `dist/worker.mjs` (`"isolation": "process"` or `"runtime": "native" | "python"`) | **Dedicated OS Process** with automatic lifecycle cleanup |
+
+### Required v4 `.vibex-plugin/plugin.json` Base Skeleton & Namespaced API Rules
+
+- **Base Manifest Fields (Required by `vibex-plugin validate`)**: `manifestVersion: 4`, `apiVersion: "2.0"`, `publisher`, `id`, `name`, `version`, `readme: "README.md"`, `content: { root: "contents", index: ".vibex-plugin/content.index.json" }`, `config: { schema: { ... } }`, `engines: { vibex: ">=0.1.3 <1.0.0", pluginSdk: "^2.0.0" }`, `entrypoints.app: { entry: "app/main.js", protocol: "2.0" }` (for Tier 1+ in-host UI/Hook plugins), and `integrations`.
+- **Namespaced Context APIs**: Always use `ctx.ui.*`, `ctx.hooks.*`, `ctx.services.*`, and `ctx.host.*`. Flat top-level methods on `VibeXPluginContext` (`ctx.registerCommand`, `ctx.provideService`, `ctx.storage.*`, etc.) are retained strictly as backward-compatibility aliases; all new code must use the namespaced methods.
 
 ---
 

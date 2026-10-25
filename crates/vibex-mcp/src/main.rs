@@ -320,7 +320,10 @@ impl Companion {
         };
         let params = value.get("params");
         match method {
-            "initialize" => respond(id, initialize_result())
+            "initialize" => respond(id, initialize_result(params))
+                .map(LineAction::Respond)
+                .unwrap_or(LineAction::Ignore),
+            "ping" => respond(id, json!({}))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
             "tools/list" => respond(id, json!({ "tools": self.tools }))
@@ -660,9 +663,25 @@ fn resolve_conversation_id(flag: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn initialize_result() -> Value {
+/// MCP revisions this companion can speak. Plugin stdio servers negotiate the
+/// same set so Agents that still request `2024-11-05` (Claude Code) can mount.
+const SUPPORTED_MCP_PROTOCOLS: &[&str] = &["2024-11-05", "2025-03-26", "2025-11-25", "2026-07-28"];
+const DEFAULT_MCP_PROTOCOL: &str = "2026-07-28";
+
+fn negotiate_protocol(params: Option<&Value>) -> &'static str {
+    let requested = params
+        .and_then(|value| value.get("protocolVersion"))
+        .and_then(Value::as_str);
+    SUPPORTED_MCP_PROTOCOLS
+        .iter()
+        .copied()
+        .find(|version| Some(*version) == requested)
+        .unwrap_or(DEFAULT_MCP_PROTOCOL)
+}
+
+fn initialize_result(params: Option<&Value>) -> Value {
     json!({
-        "protocolVersion": "2026-07-28",
+        "protocolVersion": negotiate_protocol(params),
         "capabilities": { "tools": {} },
         "serverInfo": { "name": "vibex-mcp", "version": env!("CARGO_PKG_VERSION") }
     })
@@ -1024,6 +1043,54 @@ mod tests {
         assert_eq!(value["result"]["serverInfo"]["name"], "vibex-mcp");
         assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
         assert_eq!(value["id"], 1);
+    }
+
+    #[test]
+    fn initialize_echoes_a_legacy_protocol_version_claude_code_requests() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#,
+        ));
+        assert_eq!(value["result"]["protocolVersion"], "2024-11-05");
+        assert_eq!(value["result"]["capabilities"]["tools"], json!({}));
+    }
+
+    #[test]
+    fn initialize_echoes_2025_03_26_when_requested() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#,
+        ));
+        assert_eq!(value["result"]["protocolVersion"], "2025-03-26");
+    }
+
+    #[test]
+    fn initialize_keeps_modern_protocol_when_requested() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}"#,
+        ));
+        assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
+    }
+
+    #[test]
+    fn initialize_falls_back_when_the_client_asks_for_an_unknown_revision() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
+        ));
+        assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
+    }
+
+    #[test]
+    fn ping_returns_an_empty_result() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":10,"method":"ping"}"#,
+        ));
+        assert_eq!(value["id"], 10);
+        assert_eq!(value["result"], json!({}));
+        assert!(value.get("error").is_none());
     }
 
     #[test]

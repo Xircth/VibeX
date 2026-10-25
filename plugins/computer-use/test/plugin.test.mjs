@@ -18,7 +18,7 @@ test('plugin.json and content.mcp contract are valid v4 declarations', () => {
     )
   );
   assert.equal(manifest.manifestVersion, 4);
-  assert.equal(manifest.apiVersion, '1.0');
+  assert.equal(manifest.apiVersion, '2.0');
   assert.equal(manifest.name, '电脑控制');
 
   const settingsPage = manifest.integrations.find(

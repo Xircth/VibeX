@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const PLUGIN_API_VERSION: &str = "1.0";
+pub const PLUGIN_API_VERSION: &str = "2.0";
 pub const PLUGIN_PROTOCOL_VERSION: &str = "1.1";
-pub const PLUGIN_SDK_VERSION: &str = "1.0.0";
+pub const PLUGIN_SDK_VERSION: &str = "2.0.0";
 /// Smallest frame a Worker may declare. Below this, one chunk envelope does not fit.
 pub const MIN_FRAME_BYTES: usize = 1024 * 1024;
 /// Default wire frame. A plugin overrides it with `entrypoints.worker.maxFrameMiB`.

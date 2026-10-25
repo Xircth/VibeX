@@ -682,9 +682,9 @@
     vertical-align: -0.14em;
   }
 
-  .legacy-design .session-composer-editor .astryx-badge,
-  .legacy-design .session-composer-editor [data-astryx-restored-token],
-  .legacy-design .conv-user-markdown .session-composer-token-chip {
+  .legacy-design .session-composer-editor .astryx-badge:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip),
+  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip),
+  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -698,10 +698,10 @@
     vertical-align: -0.14em;
   }
 
-  .legacy-design .session-composer-editor [data-astryx-restored-token] svg,
-  .legacy-design .session-composer-editor [data-astryx-restored-token] img,
-  .legacy-design .conv-user-markdown .session-composer-token-chip svg,
-  .legacy-design .conv-user-markdown .session-composer-token-chip img {
+  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) svg,
+  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) img,
+  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) svg,
+  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) img {
     width: 12px;
     height: 12px;
     flex-shrink: 0;

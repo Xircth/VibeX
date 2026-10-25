@@ -2,7 +2,18 @@ import { createHash } from 'node:crypto';
 import { watch } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-const ignoredDirectories = new Set(['.git', 'dist', 'node_modules']);
+export const PLUGIN_WATCH_IGNORED_DIRECTORIES = new Set([
+    '.git',
+    'dist',
+    'node_modules',
+    'target',
+    '.venv',
+    'venv',
+    '__pycache__',
+    '.pytest_cache',
+    '.test-dist',
+]);
+const ignoredDirectories = PLUGIN_WATCH_IGNORED_DIRECTORIES;
 const ignoredFiles = new Set([
     '.vibex-plugin/developer-link.json',
     '.vibex-plugin/package.lock.json',

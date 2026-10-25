@@ -120,6 +120,7 @@ const SHARED_HOST_MODULES: Record<string, unknown> = {
   '@vibex/plugin-sdk/registry': PluginSdk,
   '@vibex/plugin-sdk/services': PluginSdk,
   '@vibex/plugin-sdk/hooks': PluginSdk,
+  '@vibex/plugin-sdk/volatile': PluginSdk,
   '@vibex/plugin-sdk/testing': PluginSdk,
 };
 
@@ -193,10 +194,279 @@ function hasPluginModuleExports(mod: unknown): boolean {
   );
 }
 
+function rewriteExportSpecifierList(
+  clause: string,
+  sourceExpr: string | null
+): string {
+  const assignments: string[] = [];
+  for (const raw of clause.split(',')) {
+    const spec = raw.trim();
+    if (!spec || /^type\s+/.test(spec)) {
+      continue;
+    }
+    const asMatch = spec.match(/^([A-Za-z0-9_$]+)\s+as\s+([A-Za-z0-9_$]+)$/);
+    const local = asMatch ? asMatch[1] : spec;
+    const exported = asMatch ? asMatch[2] : spec;
+    if (!/^[A-Za-z0-9_$]+$/.test(local) || !/^[A-Za-z0-9_$]+$/.test(exported)) {
+      continue;
+    }
+    const value = sourceExpr ? `${sourceExpr}.${local}` : local;
+    assignments.push(
+      exported === 'default'
+        ? `__exports.default = ${value};`
+        : `__exports.${exported} = ${value};`
+    );
+  }
+  return assignments.join(' ');
+}
+
+function rewriteTopLevelExportLists(code: string): string {
+  const sharedKeys = new Set(Object.keys(SHARED_HOST_MODULES));
+  const out: string[] = [];
+  let i = 0;
+  const n = code.length;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let templateExprDepth = 0;
+  let atStatementStart = true;
+
+  const isCode = () =>
+    !inSingle &&
+    !inDouble &&
+    !(inTemplate && templateExprDepth === 0) &&
+    !inLineComment &&
+    !inBlockComment;
+
+  while (i < n) {
+    const ch = code[i]!;
+    const next = code[i + 1];
+
+    if (inLineComment) {
+      out.push(ch);
+      if (ch === '\n') {
+        inLineComment = false;
+        atStatementStart = true;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      out.push(ch);
+      if (ch === '*' && next === '/') {
+        out.push(next);
+        i += 2;
+        inBlockComment = false;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      out.push(ch);
+      if (ch === '\\' && next) {
+        out.push(next);
+        i += 2;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      out.push(ch);
+      if (ch === '\\' && next) {
+        out.push(next);
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      i += 1;
+      continue;
+    }
+    if (inTemplate && templateExprDepth === 0) {
+      out.push(ch);
+      if (ch === '\\' && next) {
+        out.push(next);
+        i += 2;
+        continue;
+      }
+      if (ch === '$' && next === '{') {
+        out.push(next);
+        templateExprDepth = 1;
+        depth += 1;
+        i += 2;
+        continue;
+      }
+      if (ch === '`') inTemplate = false;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      atStatementStart = false;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      atStatementStart = false;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      atStatementStart = false;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+
+    if (
+      isCode() &&
+      depth === 0 &&
+      atStatementStart &&
+      (ch === ' ' || ch === '\t' || ch === 'e')
+    ) {
+      const consumed = consumeTopLevelExportList(code, i, sharedKeys);
+      if (consumed) {
+        out.push(consumed.replacement);
+        i = consumed.end;
+        atStatementStart = true;
+        continue;
+      }
+    }
+
+    if (ch === '{' || ch === '(' || ch === '[') {
+      depth += 1;
+      if (inTemplate && templateExprDepth > 0 && ch === '{') {
+        templateExprDepth += 1;
+      }
+      atStatementStart = ch === '{';
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '}' || ch === ')' || ch === ']') {
+      if (inTemplate && templateExprDepth > 0 && ch === '}') {
+        templateExprDepth -= 1;
+      }
+      depth = Math.max(0, depth - 1);
+      atStatementStart = ch === '}';
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '\n' || ch === ';' || ch === '}') {
+      atStatementStart = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch !== ' ' && ch !== '\t' && ch !== '\r') {
+      atStatementStart = false;
+    }
+    out.push(ch);
+    i += 1;
+  }
+  return out.join('');
+}
+
+function consumeTopLevelExportList(
+  code: string,
+  start: number,
+  sharedKeys: Set<string>
+): { replacement: string; end: number } | null {
+  let k = start;
+  while (k < code.length && (code[k] === ' ' || code[k] === '\t')) k += 1;
+  if (!code.startsWith('export', k)) return null;
+  const afterKeyword = code[k + 6];
+  if (afterKeyword && /[A-Za-z0-9_$]/.test(afterKeyword)) return null;
+  k += 6;
+  while (k < code.length && /\s/.test(code[k]!)) k += 1;
+  let typeOnly = false;
+  if (code.startsWith('type', k) && /\s/.test(code[k + 4] ?? ' ')) {
+    typeOnly = true;
+    k += 4;
+    while (k < code.length && /\s/.test(code[k]!)) k += 1;
+  }
+  if (code[k] !== '{') return null;
+  k += 1;
+  const innerStart = k;
+  let braceDepth = 1;
+  while (k < code.length && braceDepth > 0) {
+    if (code[k] === '{') braceDepth += 1;
+    else if (code[k] === '}') braceDepth -= 1;
+    if (braceDepth > 0) k += 1;
+  }
+  if (braceDepth !== 0) return null;
+  const inner = code.slice(innerStart, k);
+  k += 1;
+  while (
+    k < code.length &&
+    (code[k] === ' ' ||
+      code[k] === '\t' ||
+      code[k] === '\n' ||
+      code[k] === '\r')
+  ) {
+    k += 1;
+  }
+  let fromSpec: string | null = null;
+  if (code.startsWith('from', k) && /\s/.test(code[k + 4] ?? ' ')) {
+    k += 4;
+    while (k < code.length && /\s/.test(code[k]!)) k += 1;
+    const quote = code[k];
+    if (quote !== "'" && quote !== '"') return null;
+    k += 1;
+    const specStart = k;
+    while (k < code.length && code[k] !== quote) k += 1;
+    fromSpec = code.slice(specStart, k);
+    if (code[k] === quote) k += 1;
+  }
+  while (k < code.length && (code[k] === ' ' || code[k] === '\t')) k += 1;
+  if (code[k] === ';') k += 1;
+
+  if (typeOnly) {
+    return { replacement: '', end: k };
+  }
+  if (fromSpec) {
+    if (!sharedKeys.has(fromSpec)) {
+      return null;
+    }
+    const modExpr = `globalThis.__VIBEX_HOST_MODULES__[${JSON.stringify(fromSpec)}]`;
+    return {
+      replacement: rewriteExportSpecifierList(inner, modExpr),
+      end: k,
+    };
+  }
+  return {
+    replacement: rewriteExportSpecifierList(inner, null),
+    end: k,
+  };
+}
+
 export function evaluateSingleFileEsmModule(
   code: string
 ): Record<string, unknown> {
-  const transformed = rewriteSharedBareImports(code)
+  const transformed = rewriteTopLevelExportLists(rewriteSharedBareImports(code))
     .replace(
       /^\s*export\s+default\s+async\s+function(?:\s+([A-Za-z0-9_$]+))?\s*\(/gm,
       (_m, name: string | undefined) =>

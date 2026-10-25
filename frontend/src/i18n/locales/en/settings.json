@@ -974,7 +974,10 @@
       "incompatible": "Incompatible",
       "unavailable": "Unavailable",
       "degraded": "Degraded"
-    }
+    },
+    "statusQuarantined": "Quarantined",
+    "recoverQuarantined": "Recover",
+    "quarantinedBannerTitle": "This plugin was automatically quarantined after repeated crashes"
   },
   "webService": {
     "title": "Remote connection",

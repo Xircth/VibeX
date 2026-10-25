@@ -783,7 +783,11 @@
     "rangeError": "深度 1–8，缓存不少于 0，查询窗口 1–90，延时上限 1–168。",
     "createMenu": "创建",
     "spaceName": "群聊名称",
-    "defaultContactGroupName": "新分组"
+    "defaultContactGroupName": "新分组",
+    "searchPlaceholder": "搜索协作空间或助手...",
+    "crossChatSentPrefix": "已发消息给",
+    "crossChatReceivedPrefix": "已收到",
+    "crossChatReceivedSuffix": "的消息"
   },
   "spaceTag": {
     "blue": "蓝色",

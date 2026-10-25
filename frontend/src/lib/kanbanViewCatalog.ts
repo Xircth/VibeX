@@ -98,11 +98,12 @@ export function kanbanViewsFromCatalog(
         : sdkView.id;
 
     if (sdkView.builtin || sdkView.id.startsWith('builtin:')) {
-      if (seen.has(rawId)) continue;
-      seen.add(rawId);
+      const builtinId = `builtin:${rawId}`;
+      if (seen.has(builtinId)) continue;
+      seen.add(builtinId);
       builtinViews.push({
         descriptor: {
-          id: rawId,
+          id: builtinId,
           titleKey: sdkView.titleKey ?? sdkView.title,
           hidesBottomDock: sdkView.hidesBottomDock !== false,
           builtin: true,

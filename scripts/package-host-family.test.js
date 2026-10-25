@@ -23,17 +23,17 @@ test("packages server, companion, web UI, and official catalog without plugin pa
       marketplace: { origin: "https://vibex.xforever.xin", path: "/marketplace" },
       official: [
         {
-          id: "vibex.multi-agent",
-          repository: "https://github.com/Xircth/vibex-plugin-multi-agent",
+          id: "vibex.session-enhance",
+          repository: "https://github.com/Xircth/vibex-plugin-session-enhance",
         },
       ],
     }),
   );
-  const plugin = path.join(root, "plugins", "multi-agent");
+  const plugin = path.join(root, "plugins", "session-enhance");
   fs.mkdirSync(path.join(plugin, ".vibex-plugin"), { recursive: true });
   fs.writeFileSync(
     path.join(plugin, ".vibex-plugin", "plugin.json"),
-    JSON.stringify({ id: "vibex.multi-agent" }),
+    JSON.stringify({ id: "vibex.session-enhance" }),
   );
   fs.mkdirSync(path.join(root, "plugins", "scratch"));
   fs.writeFileSync(path.join(root, "plugins", "scratch", "notes.txt"), "ignore");
@@ -66,7 +66,7 @@ test("packages server, companion, web UI, and official catalog without plugin pa
   assert.ok(fs.existsSync(path.join(output, "vibex-plugin.json")));
   assert.equal(fs.existsSync(path.join(output, "plugins", "bundled")), false);
   assert.equal(
-    fs.existsSync(path.join(output, "plugins", "bundled", "multi-agent")),
+    fs.existsSync(path.join(output, "plugins", "bundled", "session-enhance")),
     false,
   );
   assert.equal(

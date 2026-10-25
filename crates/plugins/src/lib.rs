@@ -178,8 +178,8 @@ pub use service::PluginService;
 pub use worker_host::{
     BrokerError, CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, GrantLimits,
     HostCapabilityGrant, PluginCrash, PluginLogLine, ScopedCapabilityBroker, SharedNodeWorkerHost,
-    WorkerActivation, WorkerHost, WorkerHostError, recent_plugin_crashes, recent_plugin_logs,
-    record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
+    WorkerActivation, WorkerHost, WorkerHostError, clear_plugin_crashes, recent_plugin_crashes,
+    recent_plugin_logs, record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
 };
 pub use worker_http::{
     validate_loopback_mcp_url, worker_http_handler, worker_http_mcp_spec_from_endpoint,

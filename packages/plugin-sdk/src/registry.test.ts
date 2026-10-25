@@ -208,6 +208,20 @@ describe('@vibex/plugin-sdk v2 core', () => {
     });
     expect(turnAdditions.hiddenContexts).toEqual(['Current branch: main']);
 
+    ctx.events.emit('note.saved', { path: 'a.md' });
+    await Promise.resolve();
+    expect(calls).toContain('events.publish');
+    expect(hostCallMock).toHaveBeenCalledWith(
+      'vibex.git',
+      'events',
+      'publish',
+      expect.objectContaining({
+        topic: 'default',
+        eventType: 'note.saved',
+        payload: { path: 'a.md' },
+      })
+    );
+
     ctx.dispose();
 
     expect(calls).toEqual([
@@ -215,6 +229,7 @@ describe('@vibex/plugin-sdk v2 core', () => {
       'effect:2:mount',
       'storage.kv.get',
       'network.fetch',
+      'events.publish',
       'effect:2:cleanup',
       'effect:1:cleanup',
     ]);

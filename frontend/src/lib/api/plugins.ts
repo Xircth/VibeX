@@ -2,6 +2,10 @@ import {
   configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
+import {
+  notifyPluginConfigUpdated,
+  type JsonValue,
+} from '@vibex/plugin-sdk';
 
 export interface PluginControlSkill {
   id: string;
@@ -84,6 +88,8 @@ export interface PluginControlItem {
   version: string;
   description: string | null;
   enabled: boolean;
+  quarantined?: boolean;
+  quarantineReason?: string | null;
   builtin: boolean;
   /** Publisher and digest are optional only for compatibility with pre-v4 hosts. */
   publisher?: string | null;
@@ -207,6 +213,8 @@ export interface PluginDiagnostics {
   workerExpected: boolean;
   workerRunning: boolean;
   generation: number | null;
+  quarantined?: boolean;
+  quarantineReason?: string | null;
   missingRuntimes: string[];
   recentCrashes: PluginCrash[];
 }
@@ -531,15 +539,33 @@ export function createPluginControlApi(transport: BackendTransport) {
         operation,
         input: input ?? null,
       }) as Promise<T>,
-    productDetail: (pluginId: string) =>
-      transport.call('plugin_product_detail', {
+    productDetail: async (pluginId: string) => {
+      const detail = (await transport.call('plugin_product_detail', {
         pluginId,
-      }) as Promise<PluginProductDetail>,
-    saveConfig: (pluginId: string, config: Record<string, unknown>) =>
-      transport.call('plugin_save_config', {
+      })) as PluginProductDetail;
+      if (detail?.config && typeof detail.config === 'object') {
+        notifyPluginConfigUpdated(
+          pluginId,
+          detail.config as Record<string, JsonValue>
+        );
+      }
+      return detail;
+    },
+    saveConfig: async (pluginId: string, config: Record<string, unknown>) => {
+      const detail = (await transport.call('plugin_save_config', {
         pluginId,
         config,
-      }) as Promise<PluginProductDetail>,
+      })) as PluginProductDetail;
+      const nextConfig =
+        detail?.config && typeof detail.config === 'object'
+          ? detail.config
+          : config;
+      notifyPluginConfigUpdated(
+        pluginId,
+        nextConfig as Record<string, JsonValue>
+      );
+      return detail;
+    },
     devConnection: () =>
       transport.call('plugin_dev_connection') as Promise<PluginDevConnection>,
     resolveFileOpener: (extension?: string, mediaType?: string) =>
@@ -627,6 +653,11 @@ export function createPluginControlApi(transport: BackendTransport) {
         pluginId,
         enabled: false,
         quarantineReason: reason,
+      }) as Promise<PluginControlItem>,
+    recover: (pluginId: string) =>
+      transport.call('plugin_control_set_enabled', {
+        pluginId,
+        enabled: true,
       }) as Promise<PluginControlItem>,
     rollback: (pluginId: string, permissionIds: string[] = []) =>
       transport.call('plugin_control_rollback', {

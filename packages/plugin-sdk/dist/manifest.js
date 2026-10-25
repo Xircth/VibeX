@@ -72,7 +72,7 @@ export const pluginManifestSchema = {
     properties: {
         $schema: { type: 'string' },
         manifestVersion: { const: 4 },
-        apiVersion: { const: '2.0' },
+        apiVersion: { enum: ['1.0', '2.0'] },
         id: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{1,62}$' },
         publisher: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,62}$' },
         version: {
@@ -133,17 +133,34 @@ export const pluginManifestSchema = {
                         path: relativePath,
                         runtime: { enum: ['node', 'python', 'native'] },
                         protocol: { const: '1.1' },
+                        maxFrameMiB: { type: 'integer', minimum: 1, maximum: 128 },
+                        sharedWorker: { type: 'boolean' },
+                        isolation: { enum: ['shared', 'process'] },
                     },
                 },
                 app: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['entry', 'protocol'],
-                    properties: {
-                        entry: relativePath,
-                        styles: relativePath,
-                        protocol: { const: '2.0' },
-                    },
+                    oneOf: [
+                        {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['root', 'document'],
+                            properties: {
+                                root: relativePath,
+                                document: { type: 'string', minLength: 1 },
+                                protocol: { const: '1.0' },
+                            },
+                        },
+                        {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['entry', 'protocol'],
+                            properties: {
+                                entry: relativePath,
+                                styles: relativePath,
+                                protocol: { const: '2.0' },
+                            },
+                        },
+                    ],
                 },
             },
         },

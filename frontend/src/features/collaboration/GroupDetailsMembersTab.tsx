@@ -12,6 +12,7 @@ import {
   COPY,
   agentRoster,
   displayName,
+  matchesSpaceMemberIdentity,
   surfaceErrorCopy,
   unassignedSpaceId,
   type SidebarItem,
@@ -43,6 +44,7 @@ export function GroupDetailsMembersTab({
   spaceId,
   workspaceId,
   getAvatar,
+  onMembersChanged,
 }: {
   spaceId: string;
   workspaceId?: string;
@@ -50,6 +52,7 @@ export function GroupDetailsMembersTab({
     conversationId?: string | null,
     nickname?: string
   ) => MemberBotAvatarConfig;
+  onMembersChanged?: () => void;
 }) {
   const [members, setMembers] = useState<SpaceMember[]>([]);
   const [candidates, setCandidates] = useState<
@@ -96,16 +99,29 @@ export function GroupDetailsMembersTab({
     for (const item of page.items ?? []) {
       if (item.kind !== 'dm') continue;
       const conversationId = String(item.member?.conversation_id ?? '').trim();
+      const name = item.member?.name || item.name || conversationId;
       if (!conversationId || memberConvIds.has(conversationId)) continue;
+      if (
+        members.some((existing) =>
+          matchesSpaceMemberIdentity(existing, {
+            conversationId,
+            memberId: item.member?.member_id,
+            identityMemberId: item.member?.identity_member_id,
+            nickname: name,
+          })
+        )
+      ) {
+        continue;
+      }
       if (seen.has(conversationId)) continue;
       seen.add(conversationId);
       next.push({
         conversationId,
-        name: item.member?.name || item.name || conversationId,
+        name,
       });
     }
     setCandidates(next);
-  }, [memberConvIds, workspaceId]);
+  }, [memberConvIds, members, workspaceId]);
 
   const removeMember = async (member: SpaceMember) => {
     const conversationId = String(member.conversation_id ?? '').trim();
@@ -120,6 +136,7 @@ export function GroupDetailsMembersTab({
         operationId: crypto.randomUUID(),
       });
       await loadMembers();
+      onMembersChanged?.();
       notifyCollaborationMembersChanged(spaceId, workspaceId);
     } catch (cause) {
       setActionError(surfaceErrorCopy(cause));
@@ -137,6 +154,7 @@ export function GroupDetailsMembersTab({
       });
       setPickerOpen(false);
       await loadMembers();
+      onMembersChanged?.();
       notifyCollaborationMembersChanged(spaceId, workspaceId);
     } catch (cause) {
       setActionError(surfaceErrorCopy(cause));

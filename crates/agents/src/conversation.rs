@@ -75,6 +75,31 @@ pub struct ConversationInputPayload {
     pub file_refs: Vec<ConversationFileRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub internal_prompt_contributions: Vec<InternalPromptBlock>,
+    /// Space-originated turn: agent prompt is `text`, the session bubble is
+    /// `display_text`, and this origin labels the sender for group member
+    /// sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collaboration_origin: Option<CollaborationSpaceOrigin>,
+}
+
+/// Who posted a collaboration-space delivery that became this conversation
+/// input. Persisted on the payload and mirrored onto the user-turn protocol
+/// block so the session timeline can show the sender.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CollaborationSpaceOrigin {
+    pub space_id: String,
+    /// `"group"` or `"dm"`.
+    pub thread_kind: String,
+    /// `"user"` or `"member"`.
+    pub sender_kind: String,
+    pub sender_nickname: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_member_id: Option<String>,
 }
 
 /// Implicit context block contributed by a plugin (`beforeTurn` hook or prompt context

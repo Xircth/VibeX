@@ -16,6 +16,7 @@ import {
   readSpaceTags,
   receiptStatusCopy,
   resolveMessageConversationId,
+  resolveMessageDeliveryStatus,
   sendErrorCopy,
   sortConversationsForSpaceMemberPicker,
   strayMentions,
@@ -32,6 +33,10 @@ import {
   defaultGroupChatNameFromMembers,
   resolvePrivateChatTarget,
   uniqueBotsForGroupMemberPicker,
+  buildCollabDmBootstrapPrompt,
+  isCollabDmBootstrapPrompt,
+  contactLastMessagePreview,
+  COLLAB_DM_BOOTSTRAP_PREFIX,
 } from './spaceModel';
 
 const members: SpaceMember[] = [
@@ -431,7 +436,7 @@ describe('resolvePrivateChatTarget', () => {
       chatList: sidebarList,
     });
     expect(target).toMatchObject({
-      spaceId: 'unassigned:w',
+      spaceId: 'direct:im-7',
       threadId: 'direct:im-7',
       member: { member_id: 'im-7' },
     });
@@ -445,7 +450,7 @@ describe('resolvePrivateChatTarget', () => {
       chatList: [],
     });
     expect(target).toMatchObject({
-      spaceId: 'unassigned:w',
+      spaceId: 'direct:im-8',
       threadId: 'direct:im-8',
       member: { member_id: 'im-8', nickname: '小新' },
     });
@@ -458,7 +463,7 @@ describe('resolvePrivateChatTarget', () => {
       directSpaceId: 'x',
       chatList,
     });
-    expect(target.spaceId).toBe('unassigned:w');
+    expect(target.spaceId).toBe('direct:m1');
     expect(target.member.member_id).toBe('m1');
   });
 
@@ -574,6 +579,28 @@ describe('private chat helpers', () => {
   });
 });
 
+describe('resolveMessageDeliveryStatus', () => {
+  it('treats empty receipts array as sent and null/undefined as delivered', () => {
+    expect(resolveMessageDeliveryStatus([])).toBe('sent');
+    expect(resolveMessageDeliveryStatus(null)).toBe('delivered');
+  });
+
+  it('keeps a single tick while the bot has only queued the turn', () => {
+    expect(resolveMessageDeliveryStatus([{ delivered: 'queued' }])).toBe(
+      'sent'
+    );
+  });
+
+  it('uses two ticks once the bot has claimed or started the turn', () => {
+    expect(resolveMessageDeliveryStatus([{ delivered: 'claimed' }])).toBe(
+      'delivered'
+    );
+    expect(resolveMessageDeliveryStatus([{ delivered: 'dispatched' }])).toBe(
+      'delivered'
+    );
+  });
+});
+
 describe('memberTabTitle', () => {
   it('uses the group name for group threads and the member name for DMs', async () => {
     const { memberTabTitle } = await import('./spaceModel');
@@ -626,5 +653,43 @@ describe('create group chat defaults', () => {
       excludeConversationIds: new Set(['conv-a']),
     });
     expect(bots.map((bot) => bot.conversation_id)).toEqual(['conv-b']);
+  });
+});
+
+describe('collab DM bootstrap prompt', () => {
+  it('wraps identity, persona, and a structured post_to_space greeting', () => {
+    const prompt = buildCollabDmBootstrapPrompt({
+      userName: '你',
+      botName: '小E',
+      personaPrompt: '擅长写代码的搭档',
+      spaceId: 'direct:member-e',
+    });
+    expect(isCollabDmBootstrapPrompt(prompt)).toBe(true);
+    expect(prompt.startsWith(COLLAB_DM_BOOTSTRAP_PREFIX)).toBe(true);
+    expect(prompt).toContain('称呼用户：你');
+    expect(prompt).toContain('你的名字：小E');
+    expect(prompt).toContain('擅长写代码的搭档');
+    expect(prompt).toContain('direct:member-e');
+    expect(prompt).toContain('# 本回合立刻执行');
+    expect(prompt).toContain('post_to_space');
+    expect(prompt).toContain('to：`["User"]`');
+    expect(prompt).toContain('vibex-multi-agent');
+    expect(prompt).toContain('COLLABORATION-SPACE.md');
+    expect(prompt).toContain('list_space_collection');
+    expect(prompt).not.toContain('ask_user_question');
+    expect(prompt).not.toContain('不要调用 post_to_space');
+    expect(isCollabDmBootstrapPrompt('你好')).toBe(false);
+  });
+
+  it('hides bootstrap text from contact last-message previews', () => {
+    expect(
+      contactLastMessagePreview({ lastPreview: '你好，我是小E' })
+    ).toBe('你好，我是小E');
+    expect(
+      contactLastMessagePreview({
+        lastPreview: `${COLLAB_DM_BOOTSTRAP_PREFIX}\n引导`,
+      })
+    ).toBe('');
+    expect(contactLastMessagePreview({}, '备选一句')).toBe('备选一句');
   });
 });

@@ -783,7 +783,11 @@
     "rangeError": "Depth 1–8, cache ≥ 0, query window 1–90, max delay 1–168.",
     "createMenu": "Create",
     "spaceName": "Group name",
-    "defaultContactGroupName": "New folder"
+    "defaultContactGroupName": "New folder",
+    "searchPlaceholder": "Search groups or Bots...",
+    "crossChatSentPrefix": "Sent a message to",
+    "crossChatReceivedPrefix": "Received",
+    "crossChatReceivedSuffix": "'s message"
   },
   "spaceTag": {
     "blue": "Blue",

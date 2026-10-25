@@ -103,6 +103,7 @@ impl ScopedConversationControl {
                     workflow_refs: Vec::new(),
                     file_refs: Vec::new(),
                     internal_prompt_contributions: Vec::new(),
+                    collaboration_origin: None,
                 },
                 principal: serde_json::json!({
                     "kind": "companion",

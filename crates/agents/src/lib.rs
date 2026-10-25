@@ -121,7 +121,7 @@ pub use codex_auth::{
 pub use community_acp_presets::{CommunityAcpPreset, bundled_community_acp_presets};
 pub use conversation::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
-    AgentPromptCapabilities, CapturedInternalMessage, ContentBlock,
+    AgentPromptCapabilities, CapturedInternalMessage, CollaborationSpaceOrigin, ContentBlock,
     ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
     ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
     ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,

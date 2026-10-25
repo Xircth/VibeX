@@ -833,6 +833,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                         internal_prompt_contributions: Vec::new(),
                         queued_input_claim: None,
                         operation_id: None,
+                        collaboration_origin: None,
                     },
                     conversations::commit_reminder::AUTOMATION_ORIGIN,
                 )

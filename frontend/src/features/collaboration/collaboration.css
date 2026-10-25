@@ -950,11 +950,54 @@
   min-height: 1.5rem;
 }
 
-.collaboration-working-avatar-slot,
-.collaboration-working-avatar {
+.collaboration-working-avatar-slot {
   width: 1.25rem;
   height: 1.25rem;
   flex-shrink: 0;
+  perspective: 2.5rem;
+}
+
+.collaboration-working-avatar {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.collaboration-working-avatar-flipper {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.collaboration-working-avatar-flipper.is-flipping {
+  transform-style: preserve-3d;
+  animation: collaboration-working-avatar-flip 0.56s ease-in-out forwards;
+}
+
+.collaboration-working-avatar-side {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.collaboration-working-avatar-side--back {
+  transform: rotateY(180deg);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@keyframes collaboration-working-avatar-flip {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(180deg);
+  }
 }
 
 .collaboration-working-copy {
@@ -990,6 +1033,10 @@
     color: var(--text-muted);
     -webkit-background-clip: unset;
     background-clip: unset;
+  }
+
+  .collaboration-working-avatar-flipper.is-flipping {
+    animation: none;
   }
 }
 

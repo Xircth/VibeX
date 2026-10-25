@@ -124,7 +124,18 @@ describe('collaboration assistant list and message cluster chrome', () => {
 
   it('raises the log fade so 40px chips stay clear of the first bubble', () => {
     const log = declarationsFor('.collaboration-thread-log');
-    expect(log['padding']?.value).toBe('3.75rem 1rem 0.75rem');
+    expect(log['padding']?.value).toBe('3.75rem 2.75rem 0.75rem 1rem');
     expect(log['mask-image']?.value).toContain('3.5rem');
+  });
+
+  it('insets user bubbles and the piano-key nav from the right edge', () => {
+    const log = declarationsFor('.collaboration-thread-log');
+    expect(log['padding']?.value).toBe('3.75rem 2.75rem 0.75rem 1rem');
+
+    const nav = declarationsFor(
+      '.collaboration-thread .conv-message-nav-anchor'
+    );
+    expect(nav.right?.value).toBe('0.75rem');
+    expect(nav.display?.value).toBe('block');
   });
 });

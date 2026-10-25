@@ -516,7 +516,7 @@
 
 .vu-toast-viewport .vu-toast-surface[data-layout='card'] {
   width: 100%;
-  border-radius: 24px;
+  border-radius: var(--radius);
 }
 
 .vu-toast-viewport .vu-toast-heading {
@@ -823,7 +823,7 @@
   color: var(--text-primary);
   background: var(--vu-dt-fill);
   border: 0;
-  border-radius: 24px;
+  border-radius: var(--radius);
   box-shadow: var(--vu-dt-shadow);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

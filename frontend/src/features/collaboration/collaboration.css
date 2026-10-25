@@ -1,7 +1,7 @@
 .collaboration-shell {
   --collaboration-contact-avatar: 4.5rem;
   --collaboration-assistant-avatar: 2.5rem;
-  --collaboration-cluster-radius: 0.25rem;
+  --collaboration-cluster-radius: calc(var(--radius) / 2);
   display: grid;
   grid-template-columns:
     var(--collaboration-spaces-width, 18.5rem)
@@ -691,17 +691,17 @@
 
 .collaboration-message[data-cluster='start'] .conv-assistant-msg {
   border-radius: var(--radius) var(--radius)
-    var(--collaboration-cluster-radius, 0.25rem)
-    var(--collaboration-cluster-radius, 0.25rem);
+    var(--collaboration-cluster-radius)
+    var(--collaboration-cluster-radius);
 }
 
 .collaboration-message[data-cluster='middle'] .conv-assistant-msg {
-  border-radius: var(--collaboration-cluster-radius, 0.25rem);
+  border-radius: var(--collaboration-cluster-radius);
 }
 
 .collaboration-message[data-cluster='end'] .conv-assistant-msg {
-  border-radius: var(--collaboration-cluster-radius, 0.25rem)
-    var(--collaboration-cluster-radius, 0.25rem) var(--radius) var(--radius);
+  border-radius: var(--collaboration-cluster-radius)
+    var(--collaboration-cluster-radius) var(--radius) var(--radius);
 }
 
 .collaboration-message .conv-assistant-body,

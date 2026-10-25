@@ -31,6 +31,8 @@ import {
   type SpaceMember,
   buildChatList,
   defaultGroupChatNameFromMembers,
+  formatWorkingMembersCopy,
+  isMemberWorking,
   resolvePrivateChatTarget,
   uniqueBotsForGroupMemberPicker,
   buildCollabDmBootstrapPrompt,
@@ -86,6 +88,7 @@ describe('collaboration space model', () => {
     expect(COPY.createAssistantButton).toBe('创建助手');
     expect(COPY.createContactGroupButton).toBe('新建分组');
     expect(COPY.defaultContactGroupName).toBe('新分组');
+    expect(COPY.workingNow).toBe('正在工作...');
     expect(COPY.groupDetailsButton).toBe('群组详情');
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');
@@ -598,6 +601,28 @@ describe('resolveMessageDeliveryStatus', () => {
     expect(resolveMessageDeliveryStatus([{ delivered: 'dispatched' }])).toBe(
       'delivered'
     );
+  });
+});
+
+describe('working members copy', () => {
+  it('joins nicknames with 顿号 and 和, then 正在工作...', () => {
+    expect(formatWorkingMembersCopy([])).toBe('');
+    expect(formatWorkingMembersCopy(['小A'])).toBe('小A正在工作...');
+    expect(formatWorkingMembersCopy(['小A', '小B'])).toBe(
+      '小A和小B正在工作...'
+    );
+    expect(formatWorkingMembersCopy(['Ulwonder', 'Designer', 'Master'])).toBe(
+      'Ulwonder、Designer和Master正在工作...'
+    );
+  });
+
+  it('treats an in-flight or in-progress conversation as working', () => {
+    expect(isMemberWorking({ turn_in_flight: true })).toBe(true);
+    expect(isMemberWorking({ status: 'inprogress' })).toBe(true);
+    expect(isMemberWorking({ turn_in_flight: false, status: 'todo' })).toBe(
+      false
+    );
+    expect(isMemberWorking(undefined)).toBe(false);
   });
 });
 

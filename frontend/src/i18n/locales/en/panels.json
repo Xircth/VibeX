@@ -784,6 +784,7 @@
     "createMenu": "Create",
     "spaceName": "Group name",
     "defaultContactGroupName": "New folder",
+    "workingNow": "working...",
     "searchPlaceholder": "Search groups or Bots...",
     "crossChatSentPrefix": "Sent a message to",
     "crossChatReceivedPrefix": "Received",

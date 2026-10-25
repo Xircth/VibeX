@@ -784,6 +784,7 @@
     "createMenu": "创建",
     "spaceName": "群聊名称",
     "defaultContactGroupName": "新分组",
+    "workingNow": "正在工作...",
     "searchPlaceholder": "搜索协作空间或助手...",
     "crossChatSentPrefix": "已发消息给",
     "crossChatReceivedPrefix": "已收到",

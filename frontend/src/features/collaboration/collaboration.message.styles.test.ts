@@ -13,6 +13,7 @@ function declarationsFor(
   const declarations: Record<string, { value: string; important: boolean }> =
     {};
   parse(css).walkRules((rule: Rule) => {
+    if (rule.parent?.type === 'atrule') return;
     const normalized = rule.selector.replace(/\s+/g, ' ').trim();
     if (normalized !== selector) return;
     rule.walkDecls((declaration) => {
@@ -72,6 +73,10 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(bubble['border-radius']?.value).toBe('var(--radius)');
     expect(bubble.width?.value).toBe('fit-content');
 
+    const inner = declarationsFor('.collaboration-member-bubble');
+    expect(inner.background).toBeUndefined();
+    expect(inner.padding).toBeUndefined();
+
     const collapse = (value: string | undefined) =>
       (value ?? '').replace(/\s+/g, ' ').trim();
 
@@ -95,6 +100,26 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(collapse(end['border-radius']?.value)).toBe(
       'var(--collaboration-cluster-radius) var(--collaboration-cluster-radius) var(--radius) var(--radius)'
     );
+  });
+
+  it('places user delivery ticks below the bubble', () => {
+    const userRow = declarationsFor('.collaboration-bubble-outer-row--user');
+    expect(userRow['flex-direction']?.value).toBe('column');
+    expect(userRow['align-items']?.value).toBe('flex-end');
+  });
+
+  it('shimmers working-status copy between muted and strong text', () => {
+    const copy = declarationsFor('.collaboration-working-copy');
+    expect(copy.animation?.value).toContain('collaboration-working-shimmer');
+    expect(copy['background-image']?.value ?? copy.background?.value).toContain(
+      '--text-muted'
+    );
+    expect(copy['background-image']?.value ?? copy.background?.value).toContain(
+      '--text-strong'
+    );
+    expect(
+      copy['-webkit-background-clip']?.value ?? copy['background-clip']?.value
+    ).toBe('text');
   });
 
   it('raises the log fade so 40px chips stay clear of the first bubble', () => {

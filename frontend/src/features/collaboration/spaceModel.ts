@@ -39,6 +39,9 @@ export const COPY = {
   get defaultContactGroupName() {
     return i18n.t('panels:collabCopy.defaultContactGroupName');
   },
+  get workingNow() {
+    return i18n.t('panels:collabCopy.workingNow');
+  },
   get newMemberFromSessionButton() {
     return i18n.t('panels:collabCopy.newMemberFromSessionButton');
   },
@@ -741,6 +744,24 @@ export function resolveMessageReceipts(
     });
   }
   return derived;
+}
+
+export function isMemberWorking(conv?: {
+  turn_in_flight?: boolean;
+  status?: string | null;
+}): boolean {
+  return Boolean(conv?.turn_in_flight || conv?.status === 'inprogress');
+}
+
+export function formatWorkingMembersCopy(
+  names: readonly string[],
+  suffix = COPY.workingNow
+): string {
+  const nicks = names.map((name) => name.trim()).filter(Boolean);
+  if (nicks.length === 0) return '';
+  if (nicks.length === 1) return `${nicks[0]}${suffix}`;
+  if (nicks.length === 2) return `${nicks[0]}和${nicks[1]}${suffix}`;
+  return `${nicks.slice(0, -1).join('、')}和${nicks[nicks.length - 1]}${suffix}`;
 }
 
 /**

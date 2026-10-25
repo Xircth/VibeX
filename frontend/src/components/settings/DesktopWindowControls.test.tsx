@@ -29,13 +29,9 @@ describe('DesktopWindowControls', () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     render(<DesktopWindowControls />);
 
-    expect(
-      screen.getByRole('button', { name: 'Minimize' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Maximize' })
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument();
   });
 
   it('does not let the Windows chrome overlay steal clicks outside the buttons', () => {
@@ -43,12 +39,12 @@ describe('DesktopWindowControls', () => {
     render(<DesktopWindowControls />);
 
     const overlay = screen
-      .getByRole('button', { name: 'Minimize' })
+      .getByRole('button', { name: '最小化' })
       .closest('.desktop-window-controls');
     expect(overlay).toHaveClass('pointer-events-none');
     expect(
       screen
-        .getByRole('button', { name: 'Minimize' })
+        .getByRole('button', { name: '最小化' })
         .closest('.pointer-events-auto')
     ).not.toBeNull();
   });
@@ -57,7 +53,7 @@ describe('DesktopWindowControls', () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     render(<DesktopWindowControls />);
 
-    for (const name of ['Minimize', 'Maximize', 'Close']) {
+    for (const name of ['最小化', '最大化', '关闭']) {
       const button = screen.getByRole('button', { name });
       expect(button).toHaveClass('rounded-full', 'h-7', 'w-7');
       expect(button.className).not.toContain('windows-close-hover');
@@ -69,7 +65,7 @@ describe('DesktopWindowControls', () => {
     render(<DesktopWindowControls />);
 
     expect(
-      screen.queryByRole('button', { name: 'Minimize' })
+      screen.queryByRole('button', { name: '最小化' })
     ).not.toBeInTheDocument();
   });
 
@@ -79,7 +75,7 @@ describe('DesktopWindowControls', () => {
     render(<DesktopWindowControls />);
 
     expect(
-      screen.queryByRole('button', { name: 'Minimize' })
+      screen.queryByRole('button', { name: '最小化' })
     ).not.toBeInTheDocument();
   });
 });

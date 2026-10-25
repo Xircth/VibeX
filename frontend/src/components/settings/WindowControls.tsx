@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useTranslation } from 'react-i18next';
 
 export function WindowControls() {
+  const { t } = useTranslation('settings');
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -65,8 +67,8 @@ export function WindowControls() {
         onClick={() => {
           appWindow.minimize().catch(() => {});
         }}
-        aria-label="Minimize"
-        title="Minimize"
+        aria-label={t('settingsUi.windowControls.minimize')}
+        title={t('settingsUi.windowControls.minimize')}
       >
         <MinimizeIcon />
       </button>
@@ -76,8 +78,16 @@ export function WindowControls() {
         onClick={() => {
           appWindow.toggleMaximize().catch(() => {});
         }}
-        aria-label={isMaximized ? 'Restore' : 'Maximize'}
-        title={isMaximized ? 'Restore' : 'Maximize'}
+        aria-label={
+          isMaximized
+            ? t('settingsUi.windowControls.restore')
+            : t('settingsUi.windowControls.maximize')
+        }
+        title={
+          isMaximized
+            ? t('settingsUi.windowControls.restore')
+            : t('settingsUi.windowControls.maximize')
+        }
       >
         {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
       </button>
@@ -87,8 +97,8 @@ export function WindowControls() {
         onClick={() => {
           appWindow.close().catch(() => {});
         }}
-        aria-label="Close"
-        title="Close"
+        aria-label={t('settingsUi.windowControls.close')}
+        title={t('settingsUi.windowControls.close')}
       >
         <CloseIcon />
       </button>

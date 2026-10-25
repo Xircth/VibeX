@@ -40,14 +40,20 @@ import {
 import { AssistantDetailsCustomizeTab } from './AssistantDetailsCustomizeTab';
 import { AssistantDetailsSessionTab } from './AssistantDetailsSessionTab';
 import { GroupAvatar } from './GroupAvatar';
-import { GroupDetailsMembersTab } from './GroupDetailsMembersTab';
+import {
+  COLLABORATION_MEMBERS_CHANGED_EVENT,
+  GroupDetailsMembersTab,
+} from './GroupDetailsMembersTab';
 import { GroupDetailsUsageTab } from './GroupDetailsUsageTab';
 import {
   COPY,
   SPACE_TAG_PRESETS,
+  agentRoster,
+  displayName,
   parseSpaceChangedEvent,
   readSpaceTags,
   surfaceErrorCopy,
+  type SpaceMember,
 } from './spaceModel';
 
 export function CollaborationSpaceIcon({
@@ -292,18 +298,15 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const memberAvatars = useMemo(() => readMemberBotAvatars(), []);
+  const [liveSpaceAvatars, setLiveSpaceAvatars] = useState<
+    MemberBotAvatarConfig[] | null
+  >(null);
   const spaceTagPreset = useMemo(() => {
     const colorId = paramTagColorId ?? readSpaceTags()[spaceId]?.colorId;
     return colorId
       ? SPACE_TAG_PRESETS.find((preset) => preset.id === colorId)
       : undefined;
   }, [paramTagColorId, spaceId]);
-  const resolvedSpaceAvatars = useMemo(() => {
-    if (paramSpaceAvatars && paramSpaceAvatars.length > 0) {
-      return paramSpaceAvatars;
-    }
-    return [deriveMemberBotAvatar(spaceId || spaceName || 'space')];
-  }, [paramSpaceAvatars, spaceId, spaceName]);
 
   const getAvatar = useCallback(
     (
@@ -318,6 +321,54 @@ export function CollaborationSpaceCollectionDockviewPanel(
     },
     [memberAvatars]
   );
+
+  const refreshHeroAvatars = useCallback(async () => {
+    if (isAssistant || !spaceId) return;
+    try {
+      const page = await collaborationCall<{ members?: SpaceMember[] }>(
+        'collaboration',
+        'space.listMembers',
+        { spaceId }
+      );
+      setLiveSpaceAvatars(
+        agentRoster(page.members ?? []).map((member) =>
+          getAvatar(member.conversation_id ?? undefined, displayName(member))
+        )
+      );
+    } catch {
+      // Keep the last known avatars from params or a previous successful load.
+    }
+  }, [getAvatar, isAssistant, spaceId]);
+
+  useEffect(() => {
+    void refreshHeroAvatars();
+  }, [refreshHeroAvatars]);
+
+  useEffect(() => {
+    const onMembersChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
+      if (detail?.spaceId && detail.spaceId !== spaceId) return;
+      void refreshHeroAvatars();
+    };
+    window.addEventListener(
+      COLLABORATION_MEMBERS_CHANGED_EVENT,
+      onMembersChanged
+    );
+    return () => {
+      window.removeEventListener(
+        COLLABORATION_MEMBERS_CHANGED_EVENT,
+        onMembersChanged
+      );
+    };
+  }, [refreshHeroAvatars, spaceId]);
+
+  const resolvedSpaceAvatars = useMemo(() => {
+    if (liveSpaceAvatars !== null) return liveSpaceAvatars;
+    if (paramSpaceAvatars && paramSpaceAvatars.length > 0) {
+      return paramSpaceAvatars;
+    }
+    return [deriveMemberBotAvatar(spaceId || spaceName || 'space')];
+  }, [liveSpaceAvatars, paramSpaceAvatars, spaceId, spaceName]);
 
   const loadCollection = useCallback(async () => {
     if (!spaceId) return;
@@ -591,6 +642,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
             avatars={resolvedSpaceAvatars}
             tagHue={spaceTagPreset?.hue}
             size={64}
+            data-testid="collaboration-group-details-avatar"
           />
         )}
         {heroName || spaceName ? (

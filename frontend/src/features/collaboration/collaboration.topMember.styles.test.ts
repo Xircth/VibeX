@@ -99,13 +99,22 @@ describe('collaboration group details chrome', () => {
     expect(selected.background?.value).toBe('var(--surface-control)');
   });
 
-  it('keeps the remove control in flow so the row does not shift', () => {
+  it('reveals the remove control on row hover without shifting layout', () => {
+    const row = declarationsFor('.collaboration-group-member-row');
+    expect(row['border-radius']?.value).toBe('var(--radius)');
+    const hoverRow = declarationsFor(
+      '.collaboration-group-member-row:hover, .collaboration-group-member-row:focus-within'
+    );
+    expect(hoverRow.background?.value).toBe('var(--surface-control-hover)');
+
     const remove = declarationsFor('.collaboration-group-member-remove');
     expect(remove['flex-shrink']?.value).toBe('0');
-    expect(remove.opacity).toBeUndefined();
+    expect(remove.opacity?.value).toBe('0');
+    expect(remove['pointer-events']?.value).toBe('none');
     const hover = declarationsFor(
       '.collaboration-group-member-row:hover .collaboration-group-member-remove, .collaboration-group-member-row:focus-within .collaboration-group-member-remove'
     );
-    expect(hover.opacity).toBeUndefined();
+    expect(hover.opacity?.value).toBe('1');
+    expect(hover['pointer-events']?.value).toBe('auto');
   });
 });

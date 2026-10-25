@@ -491,8 +491,12 @@ describe('CollaborationSpacePage', () => {
       expect(screen.queryByRole('dialog', { name: '新建空间' })).toBeNull();
     });
 
-    // Clicking per-space UserPlus button opens the unified 新建助手 overlay pre-set to 基于会话
-    await user.click(screen.getByRole('button', { name: '加入助手 设计' }));
+    // Group rows no longer expose a hover 加入助手 control; create from the + menu.
+    expect(
+      screen.queryByRole('button', { name: '加入助手 设计' })
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    await user.click(await screen.findByRole('menuitem', { name: '创建助手' }));
     const memberDialog = await within(threadSection).findByRole('dialog', {
       name: '新建助手',
     });
@@ -501,11 +505,8 @@ describe('CollaborationSpacePage', () => {
       name: '创建方式',
     });
     expect(
-      within(sourceSegmented).getByRole('radio', { name: '基于会话' })
+      within(sourceSegmented).getByRole('radio', { name: '基于角色' })
     ).toHaveAttribute('aria-checked', 'true');
-    expect(
-      within(memberDialog).getByRole('combobox', { name: '选择会话' })
-    ).toBeTruthy();
     expect(
       within(memberDialog).getByRole('textbox', { name: '助手名称' })
     ).toBeTruthy();
@@ -1066,7 +1067,7 @@ describe('CollaborationSpacePage', () => {
     );
 
     const { unmount } = renderPage();
-    // Default space is shown in the left space list along with its 3 hover buttons (标签, 修改名称, 加入助手)
+    // Default space is shown in the left space list with hover 标签 / 修改名称
     expect(
       await screen.findByRole('button', { name: '默认空间' })
     ).toBeTruthy();
@@ -1075,8 +1076,8 @@ describe('CollaborationSpacePage', () => {
       screen.getByRole('button', { name: '修改名称 默认空间' })
     ).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: '加入助手 默认空间' })
-    ).toBeTruthy();
+      screen.queryByRole('button', { name: '加入助手 默认空间' })
+    ).toBeNull();
     // The list no longer has a '协作空间' title heading
     expect(screen.queryByText('协作空间')).toBeNull();
     // Never show '还没有消息'; composer is NOT rendered when no space is opened;
@@ -1369,6 +1370,15 @@ describe('CollaborationSpacePage', () => {
   it('opens space collection tab from leftmost 4-squares button and displays items, expandable read receipts, and user message attachments', async () => {
     const user = userEvent.setup();
     let currentNote = '核心接口契约';
+    let groupMembers: Array<Record<string, unknown>> = [
+      {
+        member_id: 'm1',
+        nickname: '小A',
+        kind: 'agent',
+        visible_to_agents: 1,
+        conversation_id: 'conv-1',
+      },
+    ];
     collaborationCall.mockImplementation(
       async (
         _capability: string,
@@ -1382,17 +1392,11 @@ describe('CollaborationSpacePage', () => {
           if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
             return { members: [] };
           }
-          return {
-            members: [
-              {
-                member_id: 'm1',
-                nickname: '小A',
-                kind: 'agent',
-                visible_to_agents: 1,
-                conversation_id: 'conv-1',
-              },
-            ],
-          };
+          return { members: groupMembers };
+        }
+        if (method === 'space.moveMember') {
+          groupMembers = [];
+          return {};
         }
         if (method === 'space.listMessages') {
           return {
@@ -1549,6 +1553,9 @@ describe('CollaborationSpacePage', () => {
         'collaboration-group-member-小A'
       )
     ).toBeTruthy();
+    expect(
+      within(collectionPanel).getByTestId('collaboration-group-details-avatar')
+    ).toHaveAttribute('data-count', '1');
     await user.click(
       within(collectionPanel).getByRole('button', { name: '移除 小A' })
     );
@@ -1561,6 +1568,14 @@ describe('CollaborationSpacePage', () => {
         conversationId: 'conv-1',
       })
     );
+    await waitFor(() => {
+      expect(
+        within(collectionPanel).queryByTestId('collaboration-group-member-小A')
+      ).toBeNull();
+    });
+    expect(
+      within(collectionPanel).getByTestId('collaboration-group-details-avatar')
+    ).toHaveAttribute('data-count', '0');
     await user.click(
       within(collectionPanel).getByTestId(
         'collaboration-group-details-tab-details'
@@ -1570,8 +1585,8 @@ describe('CollaborationSpacePage', () => {
       within(collectionPanel).getByTestId('collaboration-group-details-tab')
     ).toBeTruthy();
     expect(
-      within(collectionPanel).getByTestId('group-details-usage-conv-1')
-    ).toHaveTextContent('小A');
+      within(collectionPanel).queryByTestId('group-details-usage-conv-1')
+    ).toBeNull();
     await user.click(
       within(collectionPanel).getByTestId(
         'collaboration-group-details-tab-collection'

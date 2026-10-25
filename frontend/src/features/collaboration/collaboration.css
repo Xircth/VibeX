@@ -2490,9 +2490,15 @@ body.is-dragging-collaboration-member * {
   gap: 0.75rem;
   padding: 0.5rem 0.25rem;
   border: 0;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-strong);
   text-align: left;
+}
+
+.collaboration-group-member-row:hover,
+.collaboration-group-member-row:focus-within {
+  background: var(--surface-control-hover);
 }
 
 .collaboration-group-member-name {
@@ -2507,6 +2513,16 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-group-member-remove {
   flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.collaboration-group-member-row:hover .collaboration-group-member-remove,
+.collaboration-group-member-row:focus-within
+  .collaboration-group-member-remove {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .collaboration-group-add-member-wrap {

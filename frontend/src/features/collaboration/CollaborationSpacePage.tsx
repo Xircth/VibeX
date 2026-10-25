@@ -193,7 +193,10 @@ import {
   CollaborationSpaceIcon,
   spaceCollectionPreviewPanelId,
 } from './CollaborationSpaceCollectionPanel';
-import { COLLABORATION_ADD_MEMBER_EVENT } from './GroupDetailsMembersTab';
+import {
+  COLLABORATION_ADD_MEMBER_EVENT,
+  COLLABORATION_MEMBERS_CHANGED_EVENT,
+} from './GroupDetailsMembersTab';
 import { MemberSessionConfigControls } from './MemberSessionConfigControls';
 import {
   COPY,
@@ -1298,6 +1301,27 @@ export function CollaborationSpacePage({
       [spaceId]: memberPage.members ?? [],
     }));
   }, []);
+
+  useEffect(() => {
+    const onMembersChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
+      const targetSpaceId = detail?.spaceId || selectedId;
+      if (targetSpaceId && !targetSpaceId.startsWith('direct:')) {
+        void reloadSpaceMembers(targetSpaceId);
+      }
+      void refreshSidebar();
+    };
+    window.addEventListener(
+      COLLABORATION_MEMBERS_CHANGED_EVENT,
+      onMembersChanged
+    );
+    return () => {
+      window.removeEventListener(
+        COLLABORATION_MEMBERS_CHANGED_EVENT,
+        onMembersChanged
+      );
+    };
+  }, [refreshSidebar, reloadSpaceMembers, selectedId]);
 
   const markMemberConversationViewed = useCallback(
     (conversationId: string) => {
@@ -5265,21 +5289,6 @@ export function CollaborationSpacePage({
                       }}
                     >
                       <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="icon"
-                      size="icon"
-                      className="collaboration-expand"
-                      aria-label={t('collaborationSpace.addMemberAria', {
-                        name: space.name,
-                        defaultValue: `${COPY.addMember} ${space.name}`,
-                      })}
-                      onClick={() =>
-                        openCreateMemberDialog(space.space_id, 'session')
-                      }
-                    >
-                      <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 ) : null}

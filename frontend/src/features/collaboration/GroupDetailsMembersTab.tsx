@@ -19,10 +19,23 @@ import {
 } from './spaceModel';
 
 export const COLLABORATION_ADD_MEMBER_EVENT = 'vibex:collaboration-add-member';
+export const COLLABORATION_MEMBERS_CHANGED_EVENT =
+  'vibex:collaboration-members-changed';
 
 export function requestCreateAssistantForSpace(spaceId: string) {
   window.dispatchEvent(
     new CustomEvent(COLLABORATION_ADD_MEMBER_EVENT, { detail: { spaceId } })
+  );
+}
+
+export function notifyCollaborationMembersChanged(
+  spaceId: string,
+  workspaceId?: string
+) {
+  window.dispatchEvent(
+    new CustomEvent(COLLABORATION_MEMBERS_CHANGED_EVENT, {
+      detail: { spaceId, workspaceId },
+    })
   );
 }
 
@@ -107,6 +120,7 @@ export function GroupDetailsMembersTab({
         operationId: crypto.randomUUID(),
       });
       await loadMembers();
+      notifyCollaborationMembersChanged(spaceId, workspaceId);
     } catch (cause) {
       setActionError(surfaceErrorCopy(cause));
     }
@@ -123,6 +137,7 @@ export function GroupDetailsMembersTab({
       });
       setPickerOpen(false);
       await loadMembers();
+      notifyCollaborationMembersChanged(spaceId, workspaceId);
     } catch (cause) {
       setActionError(surfaceErrorCopy(cause));
     }

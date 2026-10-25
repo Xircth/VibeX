@@ -95,13 +95,13 @@ Var VibeXErrRef
   ${EndIf}
 !macroend
 !macro VibeXLabelColors HANDLE
-  !insertmacro VibeXCtlColors ${HANDLE} 171717 FFFFFF F5F5F5 1F1F1F
+  !insertmacro VibeXCtlColors ${HANDLE} 171717 FFFFFF F5F5F5 1B1B1B
 !macroend
 !macro VibeXMutedColors HANDLE
-  !insertmacro VibeXCtlColors ${HANDLE} 6B6B6B FFFFFF A0A0A0 1F1F1F
+  !insertmacro VibeXCtlColors ${HANDLE} 6B6B6B FFFFFF A0A0A0 1B1B1B
 !macroend
 !macro VibeXErrorColors HANDLE
-  !insertmacro VibeXCtlColors ${HANDLE} C4314B FFFFFF F07C8C 1F1F1F
+  !insertmacro VibeXCtlColors ${HANDLE} C4314B FFFFFF F07C8C 1B1B1B
 !macroend
 !macro VibeXFieldColors HANDLE
   !insertmacro VibeXCtlColors ${HANDLE} 171717 FFFFFF F5F5F5 181818
@@ -130,7 +130,7 @@ Var VibeXErrRef
   ${EndIf}
 
   ${If} $VibeXTheme == "dark"
-    IntOp $VibeXBgArgb 0xFF1F1F1F + 0
+    IntOp $VibeXBgArgb 0xFF1B1B1B + 0
     IntOp $VibeXFgArgb 0xFFF5F5F5 + 0
     IntOp $VibeXMutArgb 0xFFA0A0A0 + 0
     IntOp $VibeXHairArgb 0xFF363636 + 0
@@ -141,13 +141,13 @@ Var VibeXErrRef
     IntOp $VibeXSecArgb 0xFF2A2A2A + 0
     IntOp $VibeXSecHoverArgb 0xFF323232 + 0
     IntOp $VibeXTrackArgb 0xFF333333 + 0
-    IntOp $VibeXFocusArgb 0xFF7FB2F0 + 0
+    IntOp $VibeXFocusArgb 0xFFF5F5F5 + 0
     IntOp $VibeXErrArgb 0xFFF07C8C + 0
     IntOp $VibeXErrTintArgb 0xFF3A2A2D + 0
     IntOp $VibeXFieldArgb 0xFF181818 + 0
     IntOp $VibeXShadowArgb 0x66000000 + 0
     IntOp $VibeXCloseHoverArgb 0xFFC42B1C + 0
-    StrCpy $VibeXBgRef 0x1F1F1F
+    StrCpy $VibeXBgRef 0x1B1B1B
     StrCpy $VibeXFgRef 0xF5F5F5
     StrCpy $VibeXMutRef 0xA0A0A0
     StrCpy $VibeXPriFgRef 0x141414
@@ -164,7 +164,7 @@ Var VibeXErrRef
     IntOp $VibeXSecArgb 0xFFFFFFFF + 0
     IntOp $VibeXSecHoverArgb 0xFFF5F5F5 + 0
     IntOp $VibeXTrackArgb 0xFFEDEDED + 0
-    IntOp $VibeXFocusArgb 0xFF2B6CB0 + 0
+    IntOp $VibeXFocusArgb 0xFF171717 + 0
     IntOp $VibeXErrArgb 0xFFC4314B + 0
     IntOp $VibeXErrTintArgb 0xFFFBEFF1 + 0
     IntOp $VibeXFieldArgb 0xFFFFFFFF + 0

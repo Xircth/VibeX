@@ -26,7 +26,7 @@
 !insertmacro VIBEX_STR VIBEX_BACK "返回" "Back"
 !insertmacro VIBEX_STR VIBEX_INSTALL "安装" "Install"
 !insertmacro VIBEX_STR VIBEX_INSTALLED_FMT "已安装版本" "Installed version"
-!insertmacro VIBEX_STR VIBEX_REINSTALL "重新安装" "Reinstall"
+!insertmacro VIBEX_STR VIBEX_REINSTALL "覆盖安装" "Reinstall"
 !insertmacro VIBEX_STR VIBEX_UNINSTALL "卸载" "Uninstall"
 !insertmacro VIBEX_STR VIBEX_CANCEL "取消" "Cancel"
 !insertmacro VIBEX_STR VIBEX_RETRY "重试" "Retry"

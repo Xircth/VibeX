@@ -64,7 +64,7 @@
   },
   {
     "name": "ask_user_question",
-    "description": "Ask the user one or more multiple-choice questions and BLOCK until they answer. The questions render as interactive cards above the user's input box; this call returns only once the user submits their choices (or dismisses the card). Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults (e.g. which approach, which format, which library, which of several files). Do NOT use it to ask 'should I proceed?' or to confirm an obvious default, and do NOT use it for open-ended questions that aren't a small set of discrete choices. The user can always pick 'Other' and type a custom answer, so don't add your own 'Other' option. If you want to recommend a choice, put it first and append ' (Recommended)' to its label. Prefer ONE call with a few related questions over many sequential calls.",
+    "description": "Ask the user one or more multiple-choice questions and BLOCK until they answer. In a collaboration private or group chat the questions appear in that chat; otherwise they appear as cards above the session input box. This call returns only once the user submits their choices (or dismisses the card). Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults (e.g. which approach, which format, which library, which of several files). Do NOT use it to ask 'should I proceed?' or to confirm an obvious default, and do NOT use it for open-ended questions that aren't a small set of discrete choices. The user can always pick 'Other' and type a custom answer, so don't add your own 'Other' option. If you want to recommend a choice, put it first and append ' (Recommended)' to its label. Prefer ONE call with a few related questions over many sequential calls. To ask another collaboration member, use ask_person instead.",
     "inputSchema": {
       "type": "object",
       "required": ["questions"],
@@ -429,7 +429,7 @@
   },
   {
     "name": "ask_person",
-    "description": "Ask the user a question inline in a collaboration thread. The user sees a card (with optional quick-reply options) and a 'needs you' badge on your avatar; the answer arrives later as a normal message to you starting with [回复问题 <id>]. Do not block waiting; end your turn after asking. Reuse operation_id only to retry the same question.",
+    "description": "Ask another collaboration member a question inline in a thread. Pass to as that member's nickname. The asked member (or the user) answers later with resolve_card, and you receive a normal message starting with [回复问题 <id>]. Do not block waiting; end your turn after asking. To ask the human user a blocking multiple-choice question that appears in the current private or group chat, use ask_user_question instead. Reuse operation_id only to retry the same question.",
     "inputSchema": {
       "type": "object",
       "required": ["operation_id", "space_id", "question"],

@@ -187,10 +187,47 @@ impl CompanionFeaturePort for HostCompanionFeatures {
             });
         };
         let pending = wait.question().clone();
-        if let (Ok(connection_id), Ok(question_id)) = (
-            Uuid::parse_str(&scope.parent_connection_id),
-            Uuid::parse_str(&pending.id),
-        ) {
+        let mut delivery = self.conversations.delivery_context();
+        delivery.space_changed = self.space_changed_listener();
+        let posted_to_space = match conversations::collaboration_cards::post_blocking_user_question(
+            &self.pool,
+            scope.parent_conversation_id,
+            &questions,
+            &pending.id,
+            &delivery,
+        )
+        .await
+        {
+            Ok(card) => {
+                if let Some(listener) = self.space_changed_listener()
+                    && let Ok(workspace_id) =
+                        collaboration::space_workspace_id(&self.pool, &card.space_id).await
+                {
+                    listener(collaboration::CollaborationSpaceChangedEvent {
+                        workspace_id,
+                        space_id: card.space_id,
+                        seq: None,
+                        member_id: card.member_id,
+                    });
+                }
+                true
+            }
+            Err(error) if error.code == "not_found" => false,
+            Err(error) => {
+                return json!({
+                    "declined": false,
+                    "isError": true,
+                    "message": error.message,
+                    "answers": [],
+                });
+            }
+        };
+        if !posted_to_space
+            && let (Ok(connection_id), Ok(question_id)) = (
+                Uuid::parse_str(&scope.parent_connection_id),
+                Uuid::parse_str(&pending.id),
+            )
+        {
             let message = questions
                 .as_array()
                 .into_iter()
@@ -782,11 +819,16 @@ async fn collaboration_tool(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(8)
                 .clamp(1, 50) as usize;
-            Ok(conversations::member_memory::tool_search(pool, caller_id, &text("query"), limit).await?)
+            Ok(
+                conversations::member_memory::tool_search(pool, caller_id, &text("query"), limit)
+                    .await?,
+            )
         }
         "memory_write" => {
             let scope = arguments.get("scope").and_then(|v| v.as_str());
-            let fact = conversations::member_memory::tool_write(pool, caller_id, &text("content"), scope).await?;
+            let fact =
+                conversations::member_memory::tool_write(pool, caller_id, &text("content"), scope)
+                    .await?;
             Ok(serde_json::to_value(fact).unwrap_or(json!({})))
         }
         "handoff" => {

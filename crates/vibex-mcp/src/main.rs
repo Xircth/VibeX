@@ -92,7 +92,7 @@ impl CompanionFeatures {
         match name {
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             "check_user_feedback" => self.feedback,
-            "ask_user_question" => self.ask,
+            "ask_user_question" => self.ask || self.collaboration,
             "get_session_info" => self.session_info || self.collaboration,
             "send_session_input" => self.session_control || self.collaboration,
             "cancel_session_turn" | "wait_for_session" => self.session_control,
@@ -1110,6 +1110,7 @@ mod tests {
         assert!(!names.contains(&"check_user_feedback"));
         assert!(!names.contains(&"ask_user_question"));
         assert!(!names.contains(&"plugin_dev_link_request"));
+        assert!(!names.contains(&"ask_person"));
     }
 
     #[test]
@@ -1198,6 +1199,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "ask_user_question",
                 "get_session_info",
                 "send_session_input",
                 "list_conversations",

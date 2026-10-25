@@ -709,12 +709,13 @@ T_1 &= 3s
     await waitFor(() =>
       expect(mermaidMock.render).toHaveBeenCalledWith(
         expect.stringMatching(/^mermaid-/),
-        'graph TD\nA-->B'
+        'graph TD\nA-->B',
+        expect.any(HTMLElement)
       )
     );
     expect(mermaidMock.initialize).toHaveBeenCalledWith(
       expect.objectContaining({
-        securityLevel: 'strict',
+        securityLevel: 'antiscript',
         htmlLabels: true,
       })
     );
@@ -754,6 +755,21 @@ T_1 &= 3s
     expect(alert).toHaveTextContent('\u56fe\u8868\u6e32\u67d3\u5931\u8d25');
     expect(alert).toHaveTextContent('graph TD');
     expect(alert).toHaveTextContent('A-->B');
+  });
+
+  it('renders fenced HTML as a sandboxed live preview', () => {
+    renderMarkdown('```html\n<h1>Bot page</h1>\n```');
+
+    const frame = screen.getByTitle('HTML 预览');
+    expect(frame.tagName).toBe('IFRAME');
+    expect(frame).toHaveAttribute(
+      'sandbox',
+      'allow-scripts allow-forms allow-modals allow-popups'
+    );
+    expect(frame).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('<h1>Bot page</h1>')
+    );
   });
 
   it('copies the original fenced code text', async () => {

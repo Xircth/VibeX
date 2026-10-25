@@ -5175,7 +5175,7 @@ fn build_space_delivery_prompt(
     prompt
 }
 
-const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_collaboration_spaces`（查看所在协作空间）、`list_space_members`（查看同空间成员详情）、`list_space_messages`（单次读取空间消息）、`post_to_space`（向用户发消息传 `to: [\"User\"]` 并以 `@User ` 开头；向其他成员发消息传 `to: [\"成员昵称\"]` 并以 `@成员昵称 ` 开头）、`handoff`（向空间内其他成员发起结构化任务移交，含 `done`、`inputs_constraints`、`ask`）、`ask_person`（向用户或指定成员 `to` 发起结构化提问卡片）、`request_approval`（向用户发起危险操作或关键决策审批卡片）、`resolve_card`（回答其他成员向你发起的提问卡片），以及群收藏工具 `list_space_collection`（列出群收藏记录及地址索引）、`add_to_space_collection`（向群收藏写入共享文本 `content` 或文件/图片路径 `source_path` 及备注 `note`，严禁传二进制）、`read_space_collection_item`（登记读取记录并获取单条收藏的 `file_path` 地址）。";
+const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_collaboration_spaces`（查看所在协作空间）、`list_space_members`（查看同空间成员详情）、`list_space_messages`（单次读取空间消息）、`post_to_space`（向用户发消息传 `to: [\"User\"]` 并以 `@User ` 开头；向其他成员发消息传 `to: [\"成员昵称\"]` 并以 `@成员昵称 ` 开头）、`handoff`（向空间内其他成员发起结构化任务移交，含 `done`、`inputs_constraints`、`ask`）、`ask_user_question`（向用户发起阻塞选择题，问题出现在当前私聊/群聊，等到用户作答才返回）、`ask_person`（向其他成员 `to` 发起非阻塞提问卡片；不要用它问用户）、`request_approval`（向用户发起危险操作或关键决策审批卡片）、`resolve_card`（回答其他成员向你发起的提问卡片），以及群收藏工具 `list_space_collection`（列出群收藏记录及地址索引）、`add_to_space_collection`（向群收藏写入共享文本 `content` 或文件/图片路径 `source_path` 及备注 `note`，严禁传二进制）、`read_space_collection_item`（登记读取记录并获取单条收藏的 `file_path` 地址）。";
 
 fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
     let header = match space_id_hint {
@@ -5395,7 +5395,7 @@ async fn member_identity_context_text(
             "[协作空间私聊身份]\n\
              - 你的昵称：{my_nickname} (conversation_id: {conversation_id}, thread_id: {thread_label})\n\
              - 角色说明：{role_desc}\n\
-             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。需要用户在私聊中看见的内容，调用 `post_to_space`（`space_id: \"{thread_label}\"`，`to: [\"User\"]`，`content` 以 `@User ` 开头）；不要再写一段重复的普通会话回复。私聊历史已在当前会话中，不必调用 `list_space_messages`。若需读取或沉淀当前私聊收藏夹资料，可调用 `list_space_collection` / `read_space_collection_item` / `add_to_space_collection`（传入 `space_id: \"{thread_label}\"`）；可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
+             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。需要用户在私聊中看见的内容，调用 `post_to_space`（`space_id: \"{thread_label}\"`，`to: [\"User\"]`，`content` 以 `@User ` 开头）；不要再写一段重复的普通会话回复。向用户提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `list_space_messages`。若需读取或沉淀当前私聊收藏夹资料，可调用 `list_space_collection` / `read_space_collection_item` / `add_to_space_collection`（传入 `space_id: \"{thread_label}\"`）；可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
         )));
     }
 
@@ -7516,6 +7516,20 @@ async fn nickname_owner(
     )
     .bind(space_id)
     .bind(nickname)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
+/// The unique thread this conversation sits in (a DM or one group).
+pub async fn thread_id_for_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
+    sqlx::query_scalar(
+        "SELECT thread_id FROM collaboration_thread_members WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
     .fetch_optional(pool)
     .await
     .map_err(db)

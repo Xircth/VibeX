@@ -32,7 +32,11 @@ async function loadMermaid(theme: 'default' | 'dark') {
   if (lastMermaidTheme !== theme) {
     mermaid.initialize({
       startOnLoad: false,
-      securityLevel: 'strict',
+      // `strict`/`sandbox` render into an iframe whose contentDocument is
+      // often null in the desktop webview, so mermaid then reads
+      // `element.firstChild` on null. `antiscript` keeps HTML labels, and
+      // we still sanitize the SVG before inserting it.
+      securityLevel: 'antiscript',
       // A parse error otherwise appends a bomb SVG to document.body. The
       // component already renders its own error state.
       suppressErrorRendering: true,
@@ -106,9 +110,15 @@ export const MermaidDiagram = memo(function MermaidDiagram({
         current.status === 'ready' ? current : { status: 'loading' }
       );
 
+      const container = document.createElement('div');
+      container.setAttribute('data-mermaid-host', diagramId);
+      container.style.cssText =
+        'position:absolute;left:-9999px;top:0;width:800px;height:0;overflow:hidden;';
+      document.body.appendChild(container);
+
       try {
         const mermaid = await loadMermaid(theme);
-        const { svg } = await mermaid.render(diagramId, value);
+        const { svg } = await mermaid.render(diagramId, value, container);
         const sanitized = sanitizeMermaidSvg(svg);
         if (!sanitized) {
           throw new Error(
@@ -130,7 +140,9 @@ export const MermaidDiagram = memo(function MermaidDiagram({
           });
         }
       } finally {
+        container.remove();
         document.getElementById(`d${diagramId}`)?.remove();
+        document.getElementById(`i${diagramId}`)?.remove();
       }
     }
 

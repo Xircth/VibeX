@@ -14,6 +14,7 @@ use conversations::{
     },
     collaboration_sidebar as sidebar, member_memory,
 };
+use delegation::InMemoryCompanionFeatures;
 use plugins::{CollaborationHost, CollaborationHostError};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -30,6 +31,7 @@ pub struct HostCollaborationHost {
     events: Arc<HostEventBus>,
     runtime: Option<Arc<AgentRuntime>>,
     delivery: std::sync::Mutex<DeliveryContext>,
+    companion: std::sync::Mutex<Option<Arc<InMemoryCompanionFeatures>>>,
 }
 
 impl HostCollaborationHost {
@@ -39,6 +41,7 @@ impl HostCollaborationHost {
             events,
             runtime: None,
             delivery: std::sync::Mutex::new(DeliveryContext::default()),
+            companion: std::sync::Mutex::new(None),
         }
     }
 
@@ -54,6 +57,10 @@ impl HostCollaborationHost {
 
     pub fn install_delivery(&self, delivery: DeliveryContext) {
         *self.delivery.lock().expect("delivery") = delivery;
+    }
+
+    pub fn install_companion_memory(&self, memory: Arc<InMemoryCompanionFeatures>) {
+        *self.companion.lock().expect("companion") = Some(memory);
     }
 }
 
@@ -1149,13 +1156,22 @@ impl HostCollaborationHost {
             ));
         }
         let delivery = self.delivery.lock().expect("delivery").clone();
+        let declined = input
+            .get("declined")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let answer = optional_text(input, &["answer", "note"]);
         let card = conversations::collaboration_cards::resolve_card(
             &self.pool,
             &card_id,
             // Host/UI calls are always the user (the human owner).
             conversations::collaboration_cards::CardActor::User,
             optional_text(input, &["decision"]).as_deref(),
-            optional_text(input, &["answer", "note"]).as_deref(),
+            if declined {
+                Some("已跳过")
+            } else {
+                answer.as_deref()
+            },
             &delivery,
         )
         .await
@@ -1172,6 +1188,30 @@ impl HostCollaborationHost {
                     member_id: card.member_id.clone(),
                 },
             );
+        }
+        if card
+            .payload
+            .get("question_id")
+            .and_then(Value::as_str)
+            .is_some()
+            && let Ok(from) = Uuid::parse_str(&card.from_conversation_id)
+        {
+            let companion_answer = if declined {
+                json!({ "__declined": true })
+            } else if let Some(answers) = input.get("answers").cloned() {
+                answers
+            } else {
+                json!([{
+                    "questionId": "question-1",
+                    "labels": [answer.unwrap_or_default()],
+                }])
+            };
+            let memory = self.companion.lock().expect("companion").clone();
+            if let Some(memory) = memory {
+                let _ = memory
+                    .answer_question(&card.id, from, companion_answer)
+                    .await;
+            }
         }
         Ok(json!({ "card": card }))
     }
@@ -1629,6 +1669,7 @@ mod tests {
 
     use super::*;
     use crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT;
+    use delegation::DelegationScope;
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -2736,6 +2777,59 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code(), "permission_denied");
+    }
+
+    #[tokio::test]
+    async fn host_card_resolve_completes_blocking_ask_user_question() {
+        let (pool, host, space, a) = card_fixture().await;
+        collaboration::add_space_member(&pool, a, &space, a, "Asker", Uuid::new_v4())
+            .await
+            .unwrap();
+        let memory = Arc::new(InMemoryCompanionFeatures::new());
+        host.install_companion_memory(memory.clone());
+        let questions = json!([{
+            "question": "用哪个方案？",
+            "header": "方案",
+            "multiSelect": false,
+            "options": [
+                { "label": "A", "description": "one" },
+                { "label": "B", "description": "two" }
+            ]
+        }]);
+        let wait = memory
+            .begin_question(
+                DelegationScope {
+                    parent_connection_id: Uuid::new_v4().to_string(),
+                    parent_conversation_id: a,
+                },
+                questions.clone(),
+            )
+            .await
+            .unwrap();
+        let question_id = wait.question().id.clone();
+        conversations::collaboration_cards::post_blocking_user_question(
+            &pool,
+            a,
+            &questions,
+            &question_id,
+            &DeliveryContext::default(),
+        )
+        .await
+        .unwrap();
+        host.call(
+            "host",
+            "collaboration",
+            "card.resolve",
+            json!({
+                "cardId": question_id,
+                "answers": [{ "questionId": "question-1", "labels": ["A"] }],
+                "answer": "A",
+            }),
+        )
+        .await
+        .unwrap();
+        let answered = wait.wait().await.unwrap();
+        assert_eq!(answered[0]["labels"][0], json!("A"));
     }
 
     #[tokio::test]

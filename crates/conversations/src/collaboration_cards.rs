@@ -166,8 +166,17 @@ pub fn render_card(id: &str, kind: CardKind, payload: &Value) -> String {
                         .join("|")
                 })
                 .unwrap_or_default();
+            let questions = payload
+                .get("questions")
+                .map(|value| {
+                    format!(
+                        "\n<questions>\n{}\n</questions>",
+                        escape(&value.to_string())
+                    )
+                })
+                .unwrap_or_default();
             format!(
-                "<card kind=\"ask\" id=\"{id}\">\n<question>\n{}\n</question>\n<options>{options}</options>\n</card>",
+                "<card kind=\"ask\" id=\"{id}\">\n<question>\n{}\n</question>\n<options>{options}</options>{questions}\n</card>",
                 escape(field("question"))
             )
         }
@@ -296,6 +305,61 @@ pub async fn post_card(
         .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))
 }
 
+/// Blocking `ask_user_question` for a collaboration member: post an IM card
+/// into the conversation's unique thread and keep `question_id` so Host
+/// `card.resolve` can complete the companion wait.
+pub async fn post_blocking_user_question(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    questions: &Value,
+    question_id: &str,
+    delivery: &DeliveryContext,
+) -> Result<Card, CollaborationError> {
+    let space_id = collaboration::thread_id_for_conversation(pool, caller_id)
+        .await?
+        .ok_or_else(|| {
+            CollaborationError::new("not_found", "conversation is not a collaboration member")
+        })?;
+    let operation_id = Uuid::parse_str(question_id)
+        .map_err(|_| CollaborationError::new("not_found", "question_id must be a UUID"))?;
+    let first = questions.as_array().and_then(|items| items.first());
+    let question = first
+        .and_then(|item| item.get("question"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if question.is_empty() {
+        return Err(bad("question is required"));
+    }
+    let options: Vec<&str> = first
+        .and_then(|item| item.get("options"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("label").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    post_card(
+        pool,
+        PostCard {
+            caller_id,
+            space_id,
+            kind: CardKind::Ask,
+            payload: json!({
+                "question": question,
+                "options": options,
+                "questions": questions,
+                "question_id": question_id,
+            }),
+            operation_id,
+        },
+        delivery,
+    )
+    .await
+}
+
 pub async fn load_card(pool: &SqlitePool, id: &str) -> Result<Option<Card>, CollaborationError> {
     Ok(sqlx::query_as::<_, CardRow>(&format!(
         "SELECT {COLUMNS} FROM collaboration_cards WHERE id = ?"
@@ -398,7 +462,12 @@ pub async fn resolve_card(
             member.conversation_id.as_deref() == Some(card.from_conversation_id.as_str())
         })
         .map(|member| member.nickname.clone());
-    if let Some(nickname) = nickname {
+    let skip_member_delivery = card
+        .payload
+        .get("question_id")
+        .and_then(Value::as_str)
+        .is_some();
+    if let Some(nickname) = nickname.filter(|_| !skip_member_delivery) {
         let posted = collaboration::post_to_space_with(
             pool,
             PostToSpace {
@@ -570,6 +639,62 @@ mod tests {
         );
         assert!(appr.starts_with("<card kind=\"approval\" id=\"y\">"));
         assert!(appr.contains("x&gt;y"));
+    }
+
+    #[test]
+    fn render_card_includes_ask_user_question_payload() {
+        let rendered = render_card(
+            "qid",
+            CardKind::Ask,
+            &json!({
+                "question": "用哪个方案？",
+                "options": ["Patch (Recommended)", "Rewrite"],
+                "question_id": "qid",
+                "questions": [{
+                    "question": "用哪个方案？",
+                    "header": "方案",
+                    "multiSelect": false,
+                    "options": [
+                        { "label": "Patch (Recommended)", "description": "小改。" },
+                        { "label": "Rewrite", "description": "重写。" }
+                    ]
+                }]
+            }),
+        );
+        assert!(rendered.contains("<questions>"));
+        assert!(rendered.contains("Patch (Recommended)"));
+        assert!(rendered.contains(r#""header""#));
+        assert!(rendered.contains("</questions>"));
+    }
+
+    #[tokio::test]
+    async fn blocking_user_question_posts_to_member_thread_and_skips_reply_delivery() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let question_id = Uuid::new_v4().to_string();
+        let questions = json!([{
+            "question": "用哪个方案？",
+            "header": "方案",
+            "multiSelect": false,
+            "options": [
+                { "label": "A", "description": "one" },
+                { "label": "B", "description": "two" }
+            ]
+        }]);
+        let card = post_blocking_user_question(&pool, a, &questions, &question_id, &d)
+            .await
+            .unwrap();
+        assert_eq!(card.id, question_id);
+        assert_eq!(card.space_id, space);
+        assert_eq!(card.payload["question_id"], json!(question_id));
+        assert_eq!(card.payload["options"], json!(["A", "B"]));
+        assert!(render_card(&card.id, card.kind, &card.payload).contains("<questions>"));
+
+        let resolved = resolve_card(&pool, &card.id, CardActor::User, None, Some("A"), &d)
+            .await
+            .unwrap();
+        assert_eq!(resolved.status, "resolved");
+        assert!(resolved.reply_message_id.is_none());
     }
 
     #[tokio::test]

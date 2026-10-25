@@ -6,6 +6,7 @@ import React, {
   type ComponentType,
   type ReactNode,
 } from 'react';
+import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import { type IDockviewPanelProps } from 'dockview-react';
 import {
@@ -239,7 +240,9 @@ export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
   },
   {
     id: PANEL_IDS.WELCOME,
-    title: 'Welcome',
+    get title() {
+      return i18n.t('panels:panelRegistry.welcome', { defaultValue: 'Welcome' });
+    },
     zone: 'editor',
     builtin: true,
     component: PANEL_COMPONENT_MAP[PANEL_IDS.WELCOME],

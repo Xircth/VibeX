@@ -689,5 +689,12 @@
     "contactGroupFailed": "Group action failed",
     "unknownMember": "Unknown member",
     "memberAlreadyInGroup": "{{name}} is already in this group"
+  },
+  "shellA11y": {
+    "settings": "Settings",
+    "workspaceBranches": "Workspace and target branches",
+    "closeTab": "Close {{title}}",
+    "selectFolder": "Select Folder",
+    "selectFolderHint": "Choose a folder for your project"
   }
 }

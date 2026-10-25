@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import i18n from '@/i18n';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { paths } from '@/lib/paths';
 import { useTranslation } from 'react-i18next';
@@ -356,7 +357,7 @@ export function WelcomePage() {
               size="icon"
               className="h-8 w-8"
               onClick={openSettings}
-              aria-label="Settings"
+              aria-label={i18n.t('panels:shellA11y.settings', { defaultValue: 'Settings' })}
               data-basic-guide="open-settings"
             >
               <Settings className="h-4 w-4" />

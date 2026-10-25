@@ -290,7 +290,7 @@ export function WorkspaceDockviewTab({
           className="dv-default-tab-action rounded-full"
           onPointerDown={(event) => event.preventDefault()}
           onClick={onClose}
-          aria-label={`Close ${title}`}
+          aria-label={t('panels:shellA11y.closeTab', { title, defaultValue: `Close ${title}` })}
           role="button"
         >
           <X className="h-3 w-3" />

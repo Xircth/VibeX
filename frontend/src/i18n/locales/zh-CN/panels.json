@@ -689,5 +689,12 @@
     "contactGroupFailed": "分组操作失败",
     "unknownMember": "未知成员",
     "memberAlreadyInGroup": "{{name}} 已在该群中"
+  },
+  "shellA11y": {
+    "settings": "设置",
+    "workspaceBranches": "工作区与目标分支",
+    "closeTab": "关闭 {{title}}",
+    "selectFolder": "选择文件夹",
+    "selectFolderHint": "为项目选择一个文件夹"
   }
 }

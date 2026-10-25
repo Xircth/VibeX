@@ -267,7 +267,7 @@
     "dismiss": "关闭提示",
     "dismissLocalError": "关闭本地错误提示",
     "localErrorTitle": "操作失败",
-    "errorBadge": "Error",
+    "errorBadge": "出错",
     "warningBadge": "Warning",
     "infoBadge": "Notice",
     "showDetails": "查看详细信息",

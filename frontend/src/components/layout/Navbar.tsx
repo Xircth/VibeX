@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import i18n from '@/i18n';
 import { useOpenSettings } from '@/lib/api';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -190,7 +191,7 @@ export function Navbar() {
                     size="icon"
                     className="h-9 w-9"
                     onClick={handleCreateSession}
-                    aria-label="Create new session"
+                    aria-label={i18n.t('panels:workspaceSessionList.newSession', { defaultValue: 'New session' })}
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -210,7 +211,7 @@ export function Navbar() {
                 variant="ghost"
                 size="icon"
                 className="h-9 w-9"
-                aria-label="Settings"
+                aria-label={i18n.t('panels:shellA11y.settings', { defaultValue: 'Settings' })}
                 onClick={openSettings}
               >
                 <Settings className="h-4 w-4" />

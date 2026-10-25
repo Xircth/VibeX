@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import i18n from '@/i18n';
 import {
   type IDockviewHeaderActionsProps,
   type IDockviewPanelHeaderProps,
@@ -462,7 +463,7 @@ export function CollaborationPreviewDockviewTab(
         className="dv-default-tab-action rounded-full"
         onPointerDown={(event) => event.preventDefault()}
         onClick={closeTab}
-        aria-label={`Close ${title}`}
+        aria-label={i18n.t('panels:shellA11y.closeTab', { title, defaultValue: `Close ${title}` })}
         role="button"
       >
         <X className="h-3 w-3" />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
@@ -37,8 +38,12 @@ export interface FolderPickerDialogProps {
 const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
   ({
     value = '',
-    title = 'Select Folder',
-    description = 'Choose a folder for your project',
+    title = i18n.t('panels:shellA11y.selectFolder', {
+      defaultValue: 'Select Folder',
+    }),
+    description = i18n.t('panels:shellA11y.selectFolderHint', {
+      defaultValue: 'Choose a folder for your project',
+    }),
     selectFile = false,
     extensions,
   }) => {

@@ -14,8 +14,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Activity,
   BarChart3,
-  ChevronDown,
-  ChevronRight,
   Clock,
   Cpu,
   Flame,
@@ -61,6 +59,7 @@ import {
   describeWindowLabel,
   formatPlanType,
 } from './planUsageFormat';
+import { UsageExpandableRow } from './UsageExpandableRow';
 
 type UsageTab =
   | 'overview'
@@ -2790,22 +2789,20 @@ export function KanbanUsageDashboard() {
                       : null;
 
                     return (
-                      <div key={folder.workspace_id}>
-                        <button
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() =>
+                      <UsageExpandableRow
+                        key={folder.workspace_id}
+                        expanded={isExpanded}
+                        onToggle={() =>
                             setExpandedFolderId((prev) =>
                               prev === folder.workspace_id
                                 ? null
                                 : folder.workspace_id
                             )
-                          }
-                          className={cn(
-                            'flex min-h-12 w-full items-center gap-3 rounded-full border border-border/60 bg-muted/30 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                            isExpanded && 'border-primary/40 bg-muted/50'
-                          )}
-                        >
+                        }
+                        detail={
+                          folderBreakdown ? renderDimensionDetailCard(folderBreakdown, 'folder') : null
+                        }
+                      >
                           <span
                             className={cn(
                               'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
@@ -2848,18 +2845,8 @@ export function KanbanUsageDashboard() {
                                 count: folder.session_count,
                               })}
                             />
-                            {isExpanded ? (
-                              <ChevronDown className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            )}
                           </div>
-                        </button>
-
-                        {isExpanded && folderBreakdown
-                          ? renderDimensionDetailCard(folderBreakdown, 'folder')
-                          : null}
-                      </div>
+                      </UsageExpandableRow>
                     );
                   })}
                 </div>
@@ -2905,20 +2892,18 @@ export function KanbanUsageDashboard() {
                       : null;
 
                     return (
-                      <div key={agent.agent_id}>
-                        <button
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() =>
+                      <UsageExpandableRow
+                        key={agent.agent_id}
+                        expanded={isExpanded}
+                        onToggle={() =>
                             setExpandedAgentId((prev) =>
                               prev === agent.agent_id ? null : agent.agent_id
                             )
-                          }
-                          className={cn(
-                            'flex min-h-12 w-full items-center gap-3 rounded-full border border-border/60 bg-muted/30 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                            isExpanded && 'border-primary/40 bg-muted/50'
-                          )}
-                        >
+                        }
+                        detail={
+                          agentBreakdown ? renderDimensionDetailCard(agentBreakdown, 'agent') : null
+                        }
+                      >
                           <span
                             className={cn(
                               'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
@@ -2960,18 +2945,8 @@ export function KanbanUsageDashboard() {
                                 count: agent.session_count,
                               })}
                             />
-                            {isExpanded ? (
-                              <ChevronDown className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            )}
                           </div>
-                        </button>
-
-                        {isExpanded && agentBreakdown
-                          ? renderDimensionDetailCard(agentBreakdown, 'agent')
-                          : null}
-                      </div>
+                      </UsageExpandableRow>
                     );
                   })}
                 </div>
@@ -3018,20 +2993,18 @@ export function KanbanUsageDashboard() {
                       : null;
 
                     return (
-                      <div key={model.model}>
-                        <button
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() =>
+                      <UsageExpandableRow
+                        key={model.model}
+                        expanded={isExpanded}
+                        onToggle={() =>
                             setExpandedModelId((prev) =>
                               prev === model.model ? null : model.model
                             )
-                          }
-                          className={cn(
-                            'flex min-h-12 w-full items-center gap-3 rounded-full border border-border/60 bg-muted/30 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                            isExpanded && 'border-primary/40 bg-muted/50'
-                          )}
-                        >
+                        }
+                        detail={
+                          modelBreakdown ? renderDimensionDetailCard(modelBreakdown, 'model') : null
+                        }
+                      >
                           <span
                             className={cn(
                               'w-5 shrink-0 text-center text-sm font-bold tabular-nums',
@@ -3083,18 +3056,8 @@ export function KanbanUsageDashboard() {
                                 count: model.session_count,
                               })}
                             />
-                            {isExpanded ? (
-                              <ChevronDown className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="ml-0.5 size-4 shrink-0 text-muted-foreground" />
-                            )}
                           </div>
-                        </button>
-
-                        {isExpanded && modelBreakdown
-                          ? renderDimensionDetailCard(modelBreakdown, 'model')
-                          : null}
-                      </div>
+                      </UsageExpandableRow>
                     );
                   })}
                 </div>

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 import {
   COLLABORATION_ADD_MEMBER_EVENT,
+  COLLABORATION_MEMBERS_CHANGED_EVENT,
   GroupDetailsMembersTab,
 } from './GroupDetailsMembersTab';
 
@@ -56,7 +57,12 @@ describe('GroupDetailsMembersTab', () => {
   it('lists members, adds an existing assistant, and removes on 移除', async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();
+    const onMembersChanged = vi.fn();
     window.addEventListener(COLLABORATION_ADD_MEMBER_EVENT, onCreate);
+    window.addEventListener(
+      COLLABORATION_MEMBERS_CHANGED_EVENT,
+      onMembersChanged
+    );
     render(
       <GroupDetailsMembersTab
         spaceId="s1"
@@ -88,6 +94,15 @@ describe('GroupDetailsMembersTab', () => {
         conversationId: 'conv-1',
       })
     );
+    await waitFor(() => {
+      expect(onMembersChanged).toHaveBeenCalled();
+    });
+    expect(
+      (onMembersChanged.mock.calls[0]?.[0] as CustomEvent).detail
+    ).toEqual({
+      spaceId: 's1',
+      workspaceId: 'workspace-1',
+    });
 
     await user.click(screen.getByTestId('collaboration-group-add-member'));
     await user.click(
@@ -111,5 +126,9 @@ describe('GroupDetailsMembersTab', () => {
       expect(onCreate).toHaveBeenCalled();
     });
     window.removeEventListener(COLLABORATION_ADD_MEMBER_EVENT, onCreate);
+    window.removeEventListener(
+      COLLABORATION_MEMBERS_CHANGED_EVENT,
+      onMembersChanged
+    );
   });
 });

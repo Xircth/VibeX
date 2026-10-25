@@ -84,7 +84,7 @@ export function ComposerAtReferenceMenu({
             >
               <span>{t(`composer.atReference.tabs.${tab}`)}</span>
               {!loading && count > 0 ? (
-                <span className="text-[0.7rem] tabular-nums opacity-80">
+                <span className="text-xs tabular-nums opacity-80">
                   {count}
                 </span>
               ) : null}
@@ -140,7 +140,7 @@ export function ComposerAtReferenceMenu({
                     {item.label}
                   </span>
                   {item.detail ? (
-                    <span className="min-w-0 grow basis-24 truncate text-[0.625rem] leading-[0.875rem] text-muted-foreground">
+                    <span className="min-w-0 grow basis-24 truncate text-[10px] leading-[0.875rem] text-muted-foreground">
                       {item.detail}
                     </span>
                   ) : null}

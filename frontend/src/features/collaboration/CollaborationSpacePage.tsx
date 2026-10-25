@@ -6462,7 +6462,7 @@ export function CollaborationSpacePage({
                               data-testid={`member-delayed-queue-${nick}`}
                               className="collaboration-member-delayed-queue-popover rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
                             >
-                              <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
+                              <div className="mb-1.5 flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
                                 <span className="inline-flex items-center gap-1">
                                   <Clock
                                     className="h-3 w-3 text-primary"
@@ -6940,7 +6940,7 @@ export function CollaborationSpacePage({
                         onCloseAutoFocus={(event) => event.preventDefault()}
                         className="w-60 rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
                       >
-                        <div className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
+                        <div className="mb-1.5 flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
                           <span>空间助手</span>
                           <span>{visibleRoster.length}</span>
                         </div>
@@ -6980,7 +6980,7 @@ export function CollaborationSpacePage({
                                     {nick}
                                   </span>
                                   {agentId ? (
-                                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    <span className="shrink-0 text-xs text-muted-foreground">
                                       {getAgentName(agentId) || agentId}
                                     </span>
                                   ) : null}

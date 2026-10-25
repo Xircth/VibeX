@@ -102,11 +102,11 @@ export function ProjectRecentSessionsPopover({
       )}
       style={style}
     >
-      <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
         {projectName} · {t('projectActivity.recentSessions')}
       </div>
       {recentSessions.length === 0 ? (
-        <div className="rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+        <div className="rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-muted-foreground">
           {t('projectActivity.noRecentSessions')}
         </div>
       ) : (
@@ -131,7 +131,7 @@ export function ProjectRecentSessionsPopover({
                     )}
                   />
                 )}
-                <span className="truncate text-[11px] font-medium">
+                <span className="truncate text-xs font-medium">
                   {session.title}
                 </span>
                 <span className="ml-auto text-[10px] text-muted-foreground">

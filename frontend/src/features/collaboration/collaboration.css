@@ -433,7 +433,7 @@
   border-radius: 999px;
   background: hsl(var(--primary) / 0.1);
   color: hsl(var(--primary));
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -2822,7 +2822,7 @@ body.is-dragging-collaboration-member * {
   border-radius: 999px;
   background: var(--surface-right-panel);
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -2933,7 +2933,7 @@ body.is-dragging-collaboration-member * {
   gap: 0.5rem;
   padding-top: 0.25rem;
   border-top: 1px solid var(--border-subtle);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
@@ -2946,7 +2946,7 @@ body.is-dragging-collaboration-member * {
   border-radius: 999px;
   background: var(--surface-right-panel);
   color: var(--text-strong);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 140ms ease;
@@ -2980,7 +2980,7 @@ body.is-dragging-collaboration-member * {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
@@ -3002,7 +3002,7 @@ body.is-dragging-collaboration-member * {
 .collaboration-collection-reads-empty {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 /* ── Group avatar: pinwheel-stacked member avatars ─────────────────────── */
@@ -3047,7 +3047,7 @@ body.is-dragging-collaboration-member * {
   min-width: 0;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.75rem;
   color: hsl(var(--muted-foreground));
 }
 
@@ -3098,7 +3098,7 @@ body.is-dragging-collaboration-member * {
   border-radius: var(--radius);
   background: transparent;
   color: hsl(var(--muted-foreground));
-  font-size: 11.5px;
+  font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   text-align: left;
@@ -3155,7 +3155,7 @@ body.is-dragging-collaboration-member * {
   border-radius: 999px;
   background: hsl(var(--foreground) / 0.06);
   color: hsl(var(--muted-foreground));
-  font-size: 10.5px;
+  font-size: 0.625rem;
   font-variant-numeric: tabular-nums;
   line-height: 16px;
   text-align: center;

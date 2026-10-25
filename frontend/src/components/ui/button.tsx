@@ -22,6 +22,8 @@ const buttonVariants = cva(
           'bg-transparent text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
         link: 'h-auto p-0 text-primary underline-offset-4 hover:underline',
         icon: 'bg-transparent p-0 text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
+        /** Full-width, multi-line list row (template pickers, option lists). */
+        row: 'w-full items-start justify-start whitespace-normal rounded-[var(--radius)] bg-transparent text-left font-normal text-foreground hover:bg-[var(--surface-control-hover)]',
       },
       size: {
         default: 'h-8 px-3',
@@ -30,9 +32,13 @@ const buttonVariants = cva(
         sm: 'h-7 gap-1.5 px-2.5 text-xs',
         lg: 'h-9 px-4',
         icon: 'h-8 w-8 p-0',
+        row: 'h-auto min-h-0 gap-3 p-2.5',
       },
     },
-    compoundVariants: [{ variant: 'icon', class: 'h-8 w-8 p-0' }],
+    compoundVariants: [
+      { variant: 'icon', class: 'h-8 w-8 p-0' },
+      { variant: 'row', class: 'h-auto min-h-0 gap-3 p-2.5' },
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'default',
@@ -77,6 +83,7 @@ function resolveAstryxVariant(
       return 'secondary';
     case 'ghost':
     case 'icon':
+    case 'row':
       return 'ghost';
     case 'destructive':
       return 'destructive';

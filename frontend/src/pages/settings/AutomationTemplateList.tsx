@@ -2,6 +2,7 @@ import { Braces, MessageSquare, Workflow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { AutomationTemplateView } from '@/lib/api/automations';
+import { Button } from '@/components/ui/button';
 
 type AutomationTemplateListProps = {
   templates: AutomationTemplateView[];
@@ -42,9 +43,11 @@ export function AutomationTemplateList({
           <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {t('automations.targetWorkflow')}
           </p>
-          <button
+          <Button
             type="button"
-            className="group flex !h-auto !min-h-0 w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-[var(--surface-control-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            variant="row"
+            size="row"
+            className="group"
             aria-label={t('automations.researchTemplateTitle')}
             onClick={onSelectWorkflow}
           >
@@ -59,7 +62,7 @@ export function AutomationTemplateList({
                 {t('automations.researchTemplateDescription')}
               </span>
             </span>
-          </button>
+          </Button>
         </section>
 
         <section>
@@ -69,10 +72,12 @@ export function AutomationTemplateList({
           <div className="space-y-1">
             {templates.length ? (
               templates.map((template) => (
-                <button
+                <Button
                   type="button"
                   key={template.id}
-                  className="group flex !h-auto !min-h-0 w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors hover:bg-[var(--surface-control-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  variant="row"
+                  size="row"
+                  className="group"
                   aria-label={template.draft.name}
                   onClick={() => onSelectTurn(template.id)}
                 >
@@ -87,7 +92,7 @@ export function AutomationTemplateList({
                       {template.draft.launch.displayText}
                     </span>
                   </span>
-                </button>
+                </Button>
               ))
             ) : (
               <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">

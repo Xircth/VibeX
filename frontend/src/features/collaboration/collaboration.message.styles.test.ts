@@ -108,6 +108,26 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(userRow['align-items']?.value).toBe('flex-end');
   });
 
+  it('flips the working avatar horizontally when cycling', () => {
+    const slot = declarationsFor('.collaboration-working-avatar-slot');
+    expect(slot.perspective?.value).toBe('2.5rem');
+
+    const flipper = declarationsFor(
+      '.collaboration-working-avatar-flipper.is-flipping'
+    );
+    expect(flipper.animation?.value).toContain(
+      'collaboration-working-avatar-flip'
+    );
+    expect(flipper['transform-style']?.value).toBe('preserve-3d');
+
+    const back = declarationsFor('.collaboration-working-avatar-side--back');
+    expect(back.transform?.value).toBe('rotateY(180deg)');
+    expect(
+      back['backface-visibility']?.value ??
+        back['-webkit-backface-visibility']?.value
+    ).toBe('hidden');
+  });
+
   it('shimmers working-status copy between muted and strong text', () => {
     const copy = declarationsFor('.collaboration-working-copy');
     expect(copy.animation?.value).toContain('collaboration-working-shimmer');

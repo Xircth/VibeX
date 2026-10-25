@@ -2,7 +2,7 @@
  * Contact groups for the collaboration contact list (left sidebar).
  *
  * Groups live on the backend. This module is a thin client plus pure helpers.
- * Contract (all via `call('collaboration', method, input)`):
+ * Contract (all via `collab('collaboration', method, input)`):
  *   contactGroup.list    { workspaceId }             -> { groups: ContactGroup[] }
  *   contactGroup.create  { workspaceId, name }       -> { group }  (appended last)
  *   contactGroup.rename  { groupId, name }           -> { group }
@@ -56,11 +56,11 @@ function requireName(name: string): string {
 
 /** `contactGroup.list`; null when unavailable (older backend). */
 export async function listContactGroups(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   workspaceId: string
 ): Promise<ContactGroup[] | null> {
   try {
-    const page = await call<{ groups?: ContactGroup[] }>(
+    const page = await collab<{ groups?: ContactGroup[] }>(
       'collaboration',
       'contactGroup.list',
       { workspaceId }
@@ -73,11 +73,11 @@ export async function listContactGroups(
 
 /** `contactGroup.create`; resolves the created group (throws on failure). */
 export async function createContactGroup(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   workspaceId: string,
   name: string
 ): Promise<ContactGroup> {
-  const result = await call<{ group: ContactGroup }>(
+  const result = await collab<{ group: ContactGroup }>(
     'collaboration',
     'contactGroup.create',
     { workspaceId, name: requireName(name) }
@@ -86,11 +86,11 @@ export async function createContactGroup(
 }
 
 export async function renameContactGroup(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   groupId: string,
   name: string
 ): Promise<ContactGroup> {
-  const result = await call<{ group: ContactGroup }>(
+  const result = await collab<{ group: ContactGroup }>(
     'collaboration',
     'contactGroup.rename',
     { groupId, name: requireName(name) }
@@ -100,10 +100,10 @@ export async function renameContactGroup(
 
 /** Deleting a group moves its contacts back to 未分组 (group_id null). */
 export async function deleteContactGroup(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   groupId: string
 ): Promise<DeleteContactGroupResult> {
-  const result = await call<DeleteContactGroupResult>(
+  const result = await collab<DeleteContactGroupResult>(
     'collaboration',
     'contactGroup.delete',
     { groupId }
@@ -119,14 +119,14 @@ export async function deleteContactGroup(
 
 /** `groupIds` must list every group in the workspace exactly once. */
 export async function reorderContactGroups(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   workspaceId: string,
   groupIds: readonly string[]
 ): Promise<ContactGroup[]> {
   if (new Set(groupIds).size !== groupIds.length) {
     throw new Error('contactGroup.reorder groupIds must be unique');
   }
-  const result = await call<{ groups: ContactGroup[] }>(
+  const result = await collab<{ groups: ContactGroup[] }>(
     'collaboration',
     'contactGroup.reorder',
     { workspaceId, groupIds: [...groupIds] }
@@ -136,11 +136,11 @@ export async function reorderContactGroups(
 
 /** `thread.setGroup` (threadId: spaceId or `direct:<memberId>`); null -> 未分组. */
 export async function setThreadGroup(
-  call: CollaborationCaller,
+  collab: CollaborationCaller,
   threadId: string,
   groupId: string | null
 ): Promise<{ threadId: string; groupId: string | null }> {
-  const result = await call<{ threadId: string; groupId: string | null }>(
+  const result = await collab<{ threadId: string; groupId: string | null }>(
     'collaboration',
     'thread.setGroup',
     { threadId, groupId }

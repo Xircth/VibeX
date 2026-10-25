@@ -211,6 +211,8 @@ export function PluginCatalogPage() {
   const [marketLoading, setMarketLoading] = useState(
     () => searchParams.get('tab') === 'marketplace'
   );
+  const [marketError, setMarketError] = useState<string | null>(null);
+  const [marketReloadKey, setMarketReloadKey] = useState(0);
   const [pendingListing, setPendingListing] = useState<CatalogListing | null>(
     null
   );
@@ -258,6 +260,7 @@ export function PluginCatalogPage() {
     if (catalogMode !== 'marketplace') return;
     let cancelled = false;
     setMarketLoading(true);
+    setMarketError(null);
     void api
       .marketplaceCatalog()
       .then((page) => {
@@ -265,6 +268,7 @@ export function PluginCatalogPage() {
       })
       .catch((error) => {
         if (!cancelled) {
+          setMarketError(errorMessage(error));
           toast.error(t('plugins.marketplaceFailed'), {
             description: errorMessage(error),
           });
@@ -276,7 +280,7 @@ export function PluginCatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [api, catalogMode, t]);
+  }, [api, catalogMode, marketReloadKey, t]);
 
   useEffect(() => {
     if (catalogMode !== 'installed' || !canInstall) return;
@@ -787,6 +791,8 @@ export function PluginCatalogPage() {
             plugins={plugins}
             query={query}
             loading={marketLoading}
+            error={marketPage ? null : marketError}
+            onRetry={() => setMarketReloadKey((key) => key + 1)}
             installingId={installingId}
             canInstall={canInstall}
             onInstall={setPendingListing}

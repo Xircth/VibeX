@@ -3,10 +3,12 @@ import {
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Cpu,
   PackageCheck,
+  RotateCw,
   Sparkles,
   Store,
 } from 'lucide-react';
@@ -15,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CatalogListing } from '@/lib/api/plugins';
 import { PluginMarketplaceLogo } from './OfficialPluginIcon';
@@ -122,6 +125,8 @@ export function PluginMarketplaceList({
   plugins,
   query,
   loading,
+  error = null,
+  onRetry,
   installingId,
   canInstall,
   onInstall,
@@ -131,6 +136,9 @@ export function PluginMarketplaceList({
   plugins: InstalledPluginIdentity[];
   query: string;
   loading: boolean;
+  /** Load failure message; renders an error state distinct from empty. */
+  error?: string | null;
+  onRetry?: () => void;
   installingId: string | null;
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
@@ -196,6 +204,37 @@ export function PluginMarketplaceList({
 
   if (loading) {
     return <PluginMarketplaceLoading label={t('plugins.marketplaceLoading')} />;
+  }
+
+  if (error && listings.length === 0) {
+    return (
+      <EmptyState
+        role="alert"
+        className="product-plugin-market-error"
+        icon={<AlertTriangle />}
+        title={t('plugins.marketplaceErrorTitle')}
+        description={
+          <>
+            {t('plugins.marketplaceErrorDescription')}
+            <span className="mt-1 block break-words font-mono text-[10px]">
+              {error}
+            </span>
+          </>
+        }
+        action={
+          onRetry ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<RotateCw className="h-3.5 w-3.5" />}
+              onClick={onRetry}
+            >
+              {t('plugins.marketplaceRetry')}
+            </Button>
+          ) : null
+        }
+      />
+    );
   }
 
   return (

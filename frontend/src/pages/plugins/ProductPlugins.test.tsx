@@ -186,6 +186,40 @@ describe('product plugin experience', () => {
     ).toBeVisible();
   });
 
+  it('shows a marketplace error state with retry, distinct from empty', async () => {
+    let attempts = 0;
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [], runtimes: [] };
+      }
+      if (command === 'plugin_check_updates') return [];
+      if (command === 'plugin_marketplace_catalog') {
+        attempts += 1;
+        if (attempts === 1) throw new Error('network down');
+        return {
+          official: [],
+          community: [],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/无法加载插件市场|Couldn't load the marketplace/i);
+    expect(
+      screen.queryByText(/没有可安装的包|No installable packages/i)
+    ).toBeNull();
+    fireEvent.click(within(alert).getByRole('button', { name: /重试|Retry/i }));
+    expect(
+      await screen.findByText(/没有可安装的包|No installable packages/i)
+    ).toBeVisible();
+    expect(attempts).toBe(2);
+  });
+
   it('shows a structured plugin list loading state', async () => {
     let resolveCatalog: ((value: unknown) => void) | undefined;
     const call = vi.fn((command: string) => {

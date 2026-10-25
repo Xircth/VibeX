@@ -29,7 +29,9 @@ import {
   parseMemberSelectionKey,
   type SpaceMember,
   buildChatList,
+  defaultGroupChatNameFromMembers,
   resolvePrivateChatTarget,
+  uniqueBotsForGroupMemberPicker,
 } from './spaceModel';
 
 const members: SpaceMember[] = [
@@ -70,11 +72,15 @@ describe('collaboration space model', () => {
     expect(COPY.emptyRoles).toBe('还没有角色');
     expect(COPY.newRole).toBe('新建角色');
     expect(COPY.emptySpaces).toBe('还没有协作空间');
-    expect(COPY.newSpace).toBe('新建空间');
+    expect(COPY.newSpace).toBe('创建群聊');
     expect(COPY.newSpaceButton).toBe('创建群聊');
+    expect(COPY.createMenu).toBe('创建');
+    expect(COPY.spaceName).toBe('群聊名称');
+    expect(COPY.spaceMembersLabel).toBe('群聊成员');
     expect(COPY.newMemberButton).toBe('新建助手');
     expect(COPY.createAssistantButton).toBe('创建助手');
     expect(COPY.createContactGroupButton).toBe('新建分组');
+    expect(COPY.defaultContactGroupName).toBe('新分组');
     expect(COPY.groupDetailsButton).toBe('群组详情');
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');
@@ -576,5 +582,49 @@ describe('memberTabTitle', () => {
     expect(memberTabTitle('小A', { kind: 'direct' })).toBe('小A');
     expect(memberTabTitle('小A', { kind: 'group', name: ' ' })).toBe('小A');
     expect(memberTabTitle('小A', undefined)).toBe('小A');
+  });
+});
+
+describe('create group chat defaults', () => {
+  it('names an unnamed group from member nicknames', () => {
+    expect(defaultGroupChatNameFromMembers([])).toBe('');
+    expect(defaultGroupChatNameFromMembers(['小A'])).toBe('小A');
+    expect(defaultGroupChatNameFromMembers(['小A', '小B'])).toBe('小A、小B');
+    expect(
+      defaultGroupChatNameFromMembers(['小A', '小B'], ['小A、小B'])
+    ).toBe('小A、小B 2');
+  });
+
+  it('flattens unique bots and skips ones already in the group', () => {
+    const botA: SpaceMember = {
+      nickname: '小A',
+      kind: 'agent',
+      visible_to_agents: 1,
+      conversation_id: 'conv-a',
+      member_id: 'm-a',
+    };
+    const botB: SpaceMember = {
+      nickname: '小B',
+      kind: 'agent',
+      visible_to_agents: 1,
+      conversation_id: 'conv-b',
+      member_id: 'm-b',
+    };
+    const user: SpaceMember = {
+      nickname: '你',
+      kind: 'user',
+      visible_to_agents: 0,
+      conversation_id: null,
+    };
+    const bots = uniqueBotsForGroupMemberPicker({
+      directMembers: [botA],
+      unassignedMembers: [botB],
+      membersBySpace: {
+        s1: [botA, user],
+        s2: [botA, botB],
+      },
+      excludeConversationIds: new Set(['conv-a']),
+    });
+    expect(bots.map((bot) => bot.conversation_id)).toEqual(['conv-b']);
   });
 });

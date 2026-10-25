@@ -240,14 +240,34 @@
   display: flex;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   flex-direction: column;
   overflow: hidden;
 }
 
 .collaboration-preview-frame > * {
-  flex: 1 1 auto;
+  display: flex;
   min-width: 0;
   min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-preview-frame [data-conversation-preview-host] {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-preview-frame .agent-question-composer-stack {
+  flex-shrink: 0;
+}
+
+.collaboration-preview-frame .session-composer-editor {
+  min-height: 3.25rem;
 }
 
 .collaboration-preview-empty {
@@ -1411,6 +1431,46 @@ body.is-dragging-collaboration-member * {
   background: var(--surface-control);
 }
 
+.collaboration-create-member-list {
+  display: flex;
+  max-height: 14.5rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+}
+
+.collaboration-create-bot-row {
+  display: flex;
+  width: 100%;
+  min-height: 2.375rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.collaboration-create-bot-row:hover,
+.collaboration-create-bot-row:focus-visible {
+  background: var(--surface-control-hover);
+}
+
+.collaboration-create-bot-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+
 .collaboration-dialog-member-picker .collaboration-space-row {
   background: var(--surface-popover);
   border: 1px solid var(--border-subtle);
@@ -1490,30 +1550,6 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-member-chip-remove:hover {
-  color: var(--text-strong);
-}
-
-.collaboration-member-dashed-add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 1.75rem;
-  min-width: 2.25rem;
-  padding: 0 0.5rem;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    border-color 150ms ease,
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.collaboration-member-dashed-add:hover {
-  border-color: hsl(var(--primary));
-  background: var(--surface-control-hover);
   color: var(--text-strong);
 }
 

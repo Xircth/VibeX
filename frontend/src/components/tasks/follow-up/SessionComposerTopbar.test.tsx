@@ -111,6 +111,22 @@ describe('SessionComposerTopbar', () => {
     expect(onJump).toHaveBeenCalledTimes(1);
   });
 
+  it('shows a member identity instead of the agent icon when provided', () => {
+    renderTopbar({
+      executorProfile: { executor: 'codex' },
+      composerIdentity: (
+        <div data-testid="composer-member-identity">
+          <span>小A</span>
+        </div>
+      ),
+    });
+
+    expect(screen.getByTestId('composer-member-identity')).toHaveTextContent(
+      '小A'
+    );
+    expect(screen.queryByRole('img', { name: 'Codex' })).toBeNull();
+  });
+
   it('keeps the agent icon bare and restores todo and jump control chrome', () => {
     renderTopbar({
       executorProfile: { executor: 'codex' },

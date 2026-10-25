@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ArrowUp } from 'lucide-react';
 import type {
   ExecutorProfileId,
@@ -40,6 +40,7 @@ interface SessionComposerTopbarProps {
   onSelectSession: (id: string) => void;
   onStartNewSession: () => void;
   onRenameSession: (id: string, name: string | null) => void | Promise<void>;
+  composerIdentity?: ReactNode;
 }
 
 const JUMP_TO_PREVIOUS_LABEL =
@@ -64,15 +65,18 @@ export function SessionComposerTopbar({
   onSelectSession,
   onStartNewSession,
   onRenameSession,
+  composerIdentity,
 }: SessionComposerTopbarProps) {
   const [showDiffStats, setShowDiffStats] = useState(false);
 
   return (
     <div className="composer-topbar flex items-center gap-2 px-1 pb-0 text-xs">
-      <DiffStatsBar
-        executorProfile={executorProfile}
-        sessionExecutor={sessionExecutor}
-      />
+      {composerIdentity ?? (
+        <DiffStatsBar
+          executorProfile={executorProfile}
+          sessionExecutor={sessionExecutor}
+        />
+      )}
       {showChangedFileSummary ? (
         <button
           type="button"

@@ -71,6 +71,20 @@ export async function listContactGroups(
   }
 }
 
+/** Default name for a newly created group, skipping names already in use. */
+export function nextNewContactGroupName(
+  existingNames: readonly string[],
+  baseName: string
+): string {
+  const used = new Set(existingNames);
+  if (!used.has(baseName)) return baseName;
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${baseName} ${index}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${baseName} ${Date.now()}`;
+}
+
 /** `contactGroup.create`; resolves the created group (throws on failure). */
 export async function createContactGroup(
   call: CollaborationCaller,

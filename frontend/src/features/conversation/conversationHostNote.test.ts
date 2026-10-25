@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { TimelineRow } from 'shared/types';
 
-import { isDurableHostNote } from './conversationStore';
+import {
+  isDurableHostNote,
+  isPersonaHostNote,
+  shouldShowDurableHostNote,
+} from './conversationStore';
 
 function notice(
   announcementId: string | null,
@@ -32,5 +36,29 @@ describe('isDurableHostNote', () => {
   it('leaves transient session notices in the status dock', () => {
     expect(isDurableHostNote(notice(null))).toBe(false);
     expect(isDurableHostNote(notice('cli-update'))).toBe(false);
+  });
+});
+
+describe('isPersonaHostNote', () => {
+  it('recognizes the persona host note by announcement or row id', () => {
+    expect(isPersonaHostNote(notice('host-note:persona'))).toBe(true);
+    expect(isPersonaHostNote(notice(null, 'host-note:persona'))).toBe(true);
+    expect(isPersonaHostNote(notice('cli-update'))).toBe(false);
+    expect(isPersonaHostNote(notice(null))).toBe(false);
+  });
+});
+
+describe('shouldShowDurableHostNote', () => {
+  it('hides persona notes for collaboration member sessions', () => {
+    expect(
+      shouldShowDurableHostNote(notice('host-note:persona'), {
+        hidePersonaHostNotes: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldShowDurableHostNote(notice('host-note:persona'), {
+        hidePersonaHostNotes: false,
+      })
+    ).toBe(true);
   });
 });

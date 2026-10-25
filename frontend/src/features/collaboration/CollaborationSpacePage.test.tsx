@@ -71,19 +71,27 @@ vi.mock('@/hooks/useAttemptRepo', () => ({
   useAttemptRepo: () => ({ repos: [] }),
 }));
 
-vi.mock('@/components/kanban/KanbanSessionConversationView', () => ({
-  KanbanSessionConversationView: (props: Record<string, unknown>) => {
-    sessionPreviewSpy(props);
-    return (
-      <div
-        data-testid="session-preview"
-        data-embedded={String(Boolean(props.embedded))}
-      >
-        {String(props.sessionId ?? '')}
-      </div>
-    );
-  },
-}));
+vi.mock('@/components/kanban/KanbanSessionConversationView', async () => {
+  const { useSessionSurfaceChrome } = await import(
+    '@/contexts/SessionSurfaceChromeContext'
+  );
+  return {
+    KanbanSessionConversationView: (props: Record<string, unknown>) => {
+      sessionPreviewSpy(props);
+      const chrome = useSessionSurfaceChrome();
+      return (
+        <div
+          data-testid="session-preview"
+          data-embedded={String(Boolean(props.embedded))}
+          data-hide-persona={String(Boolean(chrome.hidePersonaHostNotes))}
+        >
+          {String(props.sessionId ?? '')}
+          {chrome.composerIdentity}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
   default: () => <div data-testid="file-preview" />,
@@ -463,7 +471,7 @@ describe('CollaborationSpacePage', () => {
     expect(screen.getByLabelText('预览')).toBeTruthy();
 
     // Clicking + in top toolbar expands menu with 创建群聊 / 创建助手 / 新建分组
-    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    await user.click(screen.getByRole('button', { name: '创建' }));
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
       name: '创建群聊',
     });
@@ -474,7 +482,7 @@ describe('CollaborationSpacePage', () => {
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
     const threadSection = screen.getByRole('region', { name: '设计' });
     const dialogInThread = within(threadSection).getByRole('dialog', {
-      name: '新建空间',
+      name: '创建群聊',
     });
     expect(dialogInThread).toBeTruthy();
     const overlayEl = threadSection.querySelector(
@@ -482,20 +490,47 @@ describe('CollaborationSpacePage', () => {
     );
     expect(overlayEl).toBeTruthy();
     expect(overlayEl?.className).not.toContain('dialog-backdrop');
-    expect(screen.getByRole('textbox', { name: '空间名称' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '群聊名称' })).toBeTruthy();
+    expect(within(dialogInThread).getByText('群聊成员')).toBeTruthy();
+    expect(
+      within(dialogInThread).getByTestId('collaboration-create-bot-list')
+    ).toBeTruthy();
+    expect(
+      within(dialogInThread).getByRole('button', { name: '小A' })
+    ).toBeTruthy();
+    expect(
+      within(dialogInThread).getByRole('button', { name: '小B' })
+    ).toBeTruthy();
+    expect(
+      within(dialogInThread).queryByTestId('collaboration-picker-space-s1')
+    ).toBeNull();
+    expect(
+      within(dialogInThread).queryByRole('button', {
+        name: '添加或新建协作空间助手',
+      })
+    ).toBeNull();
+    expect(
+      within(dialogInThread).queryByRole('button', { name: '新建助手' })
+    ).toBeNull();
+    expect(
+      within(dialogInThread).getByRole('button', { name: '创建群聊' })
+    ).toBeDisabled();
+    await user.click(within(dialogInThread).getByRole('button', { name: '小A' }));
+    await user.click(within(dialogInThread).getByRole('button', { name: '小B' }));
+    expect(
+      within(dialogInThread).getByRole('button', { name: '创建群聊' })
+    ).not.toBeDisabled();
 
     const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
     expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
     await user.click(closeDialogBtn);
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: '新建空间' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: '创建群聊' })).toBeNull();
     });
 
     // Group rows no longer expose a hover 加入助手 control; create from the + menu.
-    expect(
-      screen.queryByRole('button', { name: '加入助手 设计' })
-    ).toBeNull();
-    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    expect(screen.queryByRole('button', { name: '加入助手 设计' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: '创建' }));
     await user.click(await screen.findByRole('menuitem', { name: '创建助手' }));
     const memberDialog = await within(threadSection).findByRole('dialog', {
       name: '新建助手',
@@ -1009,6 +1044,13 @@ describe('CollaborationSpacePage', () => {
   it('shows left space list + middle message area (without right preview) when no spaces exist, renders only 2 centered buttons, and hides them once a space is created', async () => {
     const user = userEvent.setup();
     let storedSpaces: Array<{ space_id: string; name: string }> = [];
+    let storedUnassignedMembers: Array<{
+      member_id: string;
+      nickname: string;
+      kind: string;
+      visible_to_agents: number;
+      conversation_id: string;
+    }> = [];
     collaborationCall.mockImplementation(
       async (
         _capability: string,
@@ -1027,12 +1069,22 @@ describe('CollaborationSpacePage', () => {
           return created;
         }
         if (method === 'space.createMember') {
-          return {
+          const created = {
             space_id: 'unassigned:workspace-1',
             member_id: 'm-created',
             conversation_id: 'conv-created',
             nickname: String(input?.nickname ?? '新成员'),
           };
+          storedUnassignedMembers = [
+            {
+              member_id: created.member_id,
+              nickname: created.nickname,
+              kind: 'agent',
+              visible_to_agents: 1,
+              conversation_id: created.conversation_id,
+            },
+          ];
+          return created;
         }
         if (method === 'space.listConversations') {
           return {
@@ -1057,6 +1109,9 @@ describe('CollaborationSpacePage', () => {
           return { teams: [{ id: 'team-1', name: '产品研发组' }] };
         }
         if (method === 'space.listMembers') {
+          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
+            return { members: storedUnassignedMembers };
+          }
           return { members: [] };
         }
         if (method === 'space.listMessages') {
@@ -1081,17 +1136,17 @@ describe('CollaborationSpacePage', () => {
     // The list no longer has a '协作空间' title heading
     expect(screen.queryByText('协作空间')).toBeNull();
     // Never show '还没有消息'; composer is NOT rendered when no space is opened;
-    // instead, the white-blurred 新建空间 overlay is shown by default over the message area
+    // instead, the white-blurred 创建群聊 overlay is shown by default over the message area
     expect(screen.queryByText('还没有消息')).toBeNull();
     expect(screen.queryByTestId('session-composer-editor')).toBeNull();
     const initialSpaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
+      name: '创建群聊',
     });
     expect(initialSpaceDialog).toBeTruthy();
     // Right preview area is NOT shown by default
     expect(screen.queryByLabelText('预览')).toBeNull();
 
-    // Closing 新建空间 dialog when no spaces exist opens Default Space message area with empty-state capsule and 2 action buttons
+    // Closing 创建群聊 dialog when no spaces exist opens Default Space message area with empty-state capsule and 2 action buttons
     await user.click(
       within(initialSpaceDialog).getByRole('button', { name: 'Close' })
     );
@@ -1156,109 +1211,67 @@ describe('CollaborationSpacePage', () => {
     expect(emptyStateCreateSpaceBtn).not.toBeInTheDocument();
     expect(screen.queryByLabelText('预览')).toBeNull();
 
-    // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加助手 dialog with 选择助手 / 新建助手 tabs
-    await user.click(screen.getByRole('button', { name: '新建空间' }));
+    // Create-group form lists existing bots inline; name is optional.
+    await user.click(screen.getByRole('button', { name: '创建' }));
     await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
     const spaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
-    });
-    const nameInput = within(spaceDialog).getByRole('textbox', {
-      name: '空间名称',
-    });
-    await user.type(nameInput, '架构评审');
-
-    // Click dashed + button to open 添加助手 form directly
-    const dashedAddBtn = within(spaceDialog).getByRole('button', {
-      name: '添加或新建协作空间助手',
-    });
-    await user.click(dashedAddBtn);
-    const addMemberDialog = await screen.findByRole('dialog', {
-      name: '添加助手',
+      name: '创建群聊',
     });
     expect(
-      within(addMemberDialog).getByRole('button', { name: '选择助手' })
-    ).toBeTruthy();
+      within(spaceDialog).getByRole('textbox', { name: '群聊名称' })
+    ).toHaveValue('');
+    expect(within(spaceDialog).getByText('群聊成员')).toBeTruthy();
     expect(
-      within(addMemberDialog).getByRole('button', { name: '新建助手' })
-    ).toBeTruthy();
-
-    // 选择助手 tab is active by default -> shows 可选助手 with 2-level space -> member list
-    expect(within(addMemberDialog).getByText('可选助手')).toBeTruthy();
+      within(spaceDialog).queryByRole('button', { name: '选择助手' })
+    ).toBeNull();
     expect(
-      within(addMemberDialog).getByTestId(
+      within(spaceDialog).queryByRole('button', { name: '新建助手' })
+    ).toBeNull();
+    expect(
+      within(spaceDialog).queryByRole('button', {
+        name: '添加或新建协作空间助手',
+      })
+    ).toBeNull();
+    expect(
+      within(spaceDialog).queryByTestId(
         'collaboration-picker-space-unassigned:workspace-1'
       )
-    ).toBeTruthy();
-    const convCheckbox = await within(addMemberDialog).findByRole('checkbox');
-    await user.click(convCheckbox);
-    await user.click(
-      within(addMemberDialog).getByRole('button', { name: '完成' })
-    );
-
-    // Click dashed + button again to create a member via 添加助手 -> 新建助手 tab (no 归属团队 field)
-    const spaceDialogAfterChoose = await screen.findByRole('dialog', {
-      name: '新建空间',
-    });
-    await user.click(
-      within(spaceDialogAfterChoose).getByRole('button', {
-        name: '添加或新建协作空间助手',
-      })
-    );
-    const addMemberDialog2 = await screen.findByRole('dialog', {
-      name: '添加助手',
-    });
-    await user.click(
-      within(addMemberDialog2).getByRole('button', { name: '新建助手' })
-    );
-    expect(
-      within(addMemberDialog2).queryByRole('combobox', { name: /归属团队/ })
     ).toBeNull();
-    await user.type(
-      within(addMemberDialog2).getByRole('textbox', { name: '助手名称' }),
-      '内联评审员'
+    const botList = within(spaceDialog).getByTestId(
+      'collaboration-create-bot-list'
     );
-    await user.click(
-      within(addMemberDialog2).getByRole('button', { name: '添加助手' })
-    );
-
-    // Created member chip is displayed under 协作空间助手 with dashed + still after it
-    const finalSpaceDialog = await screen.findByRole('dialog', {
-      name: '新建空间',
+    expect(botList.className).toContain('collaboration-create-member-list');
+    expect(within(botList).queryByText('独立会话')).toBeNull();
+    const createdBot = await within(botList).findByRole('button', {
+      name: '架构助手',
     });
+    await user.click(createdBot);
+    expect(within(spaceDialog).getByText('架构助手')).toBeTruthy();
     expect(
-      await within(finalSpaceDialog).findByText('内联评审员')
-    ).toBeTruthy();
-    expect(
-      within(finalSpaceDialog).getByRole('button', {
-        name: '添加或新建协作空间助手',
-      })
-    ).toBeTruthy();
+      within(botList).queryByRole('button', { name: '架构助手' })
+    ).toBeNull();
 
     await user.click(
-      finalSpaceDialog.querySelector(
-        'button[type="submit"]'
-      ) as HTMLButtonElement
+      spaceDialog.querySelector('button[type="submit"]') as HTMLButtonElement
     );
 
-    expect(
-      await screen.findByRole('button', { name: '架构评审' })
-    ).toBeTruthy();
-    expect(collaborationCall).toHaveBeenCalledWith(
-      'collaboration',
-      'space.addMember',
-      expect.objectContaining({
-        spaceId: 's-new',
-        conversationId: 'conv-non-member',
-        nickname: expect.stringMatching(/^[A-Z][a-z]+/),
-      })
-    );
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.create',
+        expect.objectContaining({
+          workspaceId: 'workspace-1',
+          name: '架构助手',
+        })
+      );
+    });
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.addMember',
       expect.objectContaining({
         spaceId: 's-new',
         conversationId: 'conv-created',
-        nickname: '内联评审员',
+        nickname: '架构助手',
       })
     );
     // Once a space is created and opened, composer is rendered and the 2 empty-state buttons disappear
@@ -2159,6 +2172,17 @@ describe('CollaborationSpacePage', () => {
             state.groups = [...state.groups, group];
             return { group };
           }
+          if (method === 'contactGroup.rename') {
+            const current = state.groups.find(
+              (group) => group.group_id === input?.groupId
+            );
+            if (!current) return {};
+            const group = { ...current, name: String(input?.name ?? '') };
+            state.groups = state.groups.map((item) =>
+              item.group_id === group.group_id ? group : item
+            );
+            return { group };
+          }
           if (method === 'contactGroup.delete') {
             state.groups = state.groups.filter(
               (g) => g.group_id !== input?.groupId
@@ -2208,7 +2232,7 @@ describe('CollaborationSpacePage', () => {
       ).toBeNull();
       await userEvent
         .setup()
-        .click(screen.getByRole('button', { name: '新建空间' }));
+        .click(screen.getByRole('button', { name: '创建' }));
       expect(
         await screen.findByRole('menuitem', { name: '新建分组' })
       ).toBeInTheDocument();
@@ -2331,30 +2355,43 @@ describe('CollaborationSpacePage', () => {
       );
     });
 
-    it('creates a group with the inline input', async () => {
+    it('creates a group immediately and focuses the section title', async () => {
       const user = userEvent.setup();
       mockGroups([]);
       renderPage();
       await screen.findByTestId(
         'collaboration-direct-chat-direct:direct:mem-a'
       );
-      await user.click(screen.getByRole('button', { name: '新建空间' }));
+      await user.click(screen.getByRole('button', { name: '创建' }));
       await user.click(
         await screen.findByRole('menuitem', { name: '新建分组' })
-      );
-      await user.type(
-        await screen.findByTestId('collaboration-new-contact-group-input'),
-        '伙伴{Enter}'
       );
       await waitFor(() =>
         expect(collaborationCall).toHaveBeenCalledWith(
           'collaboration',
           'contactGroup.create',
-          { workspaceId: 'workspace-1', name: '伙伴' }
+          { workspaceId: 'workspace-1', name: '新分组' }
         )
       );
       expect(
-        await screen.findByTestId('collaboration-contact-section-g-new')
+        screen.queryByTestId('collaboration-new-contact-group-input')
+      ).toBeNull();
+      const renameInput = await screen.findByTestId(
+        'collaboration-contact-group-rename-input'
+      );
+      expect(renameInput).toHaveValue('新分组');
+      expect(renameInput).toHaveFocus();
+      await user.clear(renameInput);
+      await user.type(renameInput, '伙伴{Enter}');
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'contactGroup.rename',
+          { groupId: 'g-new', name: '伙伴' }
+        )
+      );
+      expect(
+        screen.getByTestId('collaboration-contact-section-g-new')
       ).toHaveTextContent('伙伴');
       expect(
         screen.getByTestId('collaboration-contact-section-__ungrouped__')
@@ -2800,9 +2837,12 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({ memberId: 'm1', threadId: 's1' })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'm1:s1'
-    );
+    const groupSession = await screen.findByTestId('session-preview');
+    expect(groupSession).toHaveTextContent('m1:s1');
+    expect(groupSession).toHaveAttribute('data-hide-persona', 'true');
+    expect(
+      within(groupSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小A');
 
     await user.click(
       await screen.findByRole('button', { name: '预览 小B 会话' })
@@ -2814,9 +2854,11 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({ memberId: 'm2', threadId: 's1' })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'm2:s1'
-    );
+    const nextSession = await screen.findByTestId('session-preview');
+    expect(nextSession).toHaveTextContent('m2:s1');
+    expect(
+      within(nextSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小B');
   });
 
   it('opens the private-chat bot session and assistant details tabs', async () => {
@@ -2898,9 +2940,12 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'conv-dm-a'
-    );
+    const dmSession = await screen.findByTestId('session-preview');
+    expect(dmSession).toHaveTextContent('conv-dm-a');
+    expect(dmSession).toHaveAttribute('data-hide-persona', 'true');
+    expect(
+      within(dmSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小A');
 
     await user.click(screen.getByRole('button', { name: '助手详情' }));
     const panel = await screen.findByTestId(

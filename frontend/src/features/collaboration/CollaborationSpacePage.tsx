@@ -167,6 +167,7 @@ import {
   readCollapsedSections,
   renameContactGroup,
   setThreadGroup,
+  nextNewContactGroupName,
   sortContactGroups,
   UNGROUPED_SECTION_ID,
   withThreadGroup,
@@ -174,10 +175,7 @@ import {
   type ContactGroup,
   type ContactSection,
 } from './contactGroups';
-import {
-  ContactGroupNameInput,
-  ContactGroupSections,
-} from './ContactGroupSections';
+import { ContactGroupSections } from './ContactGroupSections';
 import {
   COLLABORATION_PREVIEW_COMPONENTS,
   CollaborationPreviewDockviewTab,
@@ -217,7 +215,6 @@ import {
   receiptStatusCopy,
   resolveMessageConversationId,
   resolveMessageReceipts,
-  sortConversationsForSpaceMemberPicker,
   strayMentions,
   surfaceErrorCopy,
   toggleMemberDeleteSelection,
@@ -228,6 +225,8 @@ import {
   type SpaceMember,
   type SpaceTagConfig,
   buildChatList,
+  defaultGroupChatNameFromMembers,
+  uniqueBotsForGroupMemberPicker,
   resolvePrivateChatTarget,
   type ChatListEntry,
   type SidebarItem,
@@ -330,7 +329,6 @@ type RoleOption = {
 };
 type AgentOption = { agent_id: string; name: string };
 type MemberSourceOption = 'role' | 'session' | 'custom';
-type SpaceAddMemberTab = 'select' | 'create';
 type DraftSpaceMemberMeta = {
   nickname: string;
   agentId?: string;
@@ -540,34 +538,9 @@ export function CollaborationSpacePage({
   const [selectedSpaceMemberConvIds, setSelectedSpaceMemberConvIds] = useState<
     Set<string>
   >(() => new Set());
-  const [pendingSpaceMemberConvIds, setPendingSpaceMemberConvIds] = useState<
-    Set<string>
-  >(() => new Set());
   const [draftMemberMetaByConvId, setDraftMemberMetaByConvId] = useState<
     Record<string, DraftSpaceMemberMeta>
   >({});
-  const [spaceAddMemberOpen, setSpaceAddMemberOpen] = useState(false);
-  const [spaceAddMemberTab, setSpaceAddMemberTab] =
-    useState<SpaceAddMemberTab>('select');
-  const [pickerExpandedSpaces, setPickerExpandedSpaces] = useState<
-    Record<string, boolean>
-  >({});
-  const [inlineMemberName, setInlineMemberName] = useState('');
-  const [inlineMemberSource, setInlineMemberSource] =
-    useState<MemberSourceOption>('role');
-  const [inlineMemberRoleId, setInlineMemberRoleId] = useState('');
-  const [inlineMemberSessionId, setInlineMemberSessionId] = useState('');
-  const [inlineMemberAgentId, setInlineMemberAgentId] = useState('');
-  const [inlineMemberModeId, setInlineMemberModeId] = useState('');
-  const [inlineMemberConfigValues, setInlineMemberConfigValues] = useState<
-    Record<string, string>
-  >({});
-  const [inlineMemberPersonaPrompt, setInlineMemberPersonaPrompt] =
-    useState('');
-  const [inlineMemberAvatar, setInlineMemberAvatar] =
-    useState<MemberBotAvatarConfig>(() => randomMemberBotAvatar());
-  const [inlineMemberError, setInlineMemberError] = useState('');
-  const [inlineMemberSubmitting, setInlineMemberSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
   const overlayOpenedByUserRef = useRef(false);
 
@@ -791,7 +764,7 @@ export function CollaborationSpacePage({
     },
     [workspace]
   );
-  const [creatingContactGroup, setCreatingContactGroup] = useState(false);
+
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [contactMenu, setContactMenu] = useState<{
     x: number;
@@ -816,27 +789,32 @@ export function CollaborationSpacePage({
     },
     [contactGroupFailed, refreshSidebar]
   );
-  const createGroup = useCallback(
-    async (name: string) => {
-      if (!workspace) return;
-      try {
-        const group = await createContactGroup(
-          collaborationCall,
-          workspace,
-          name
-        );
-        setContactGroups((current) =>
-          sortContactGroups([
-            ...(current ?? []).filter((g) => g.group_id !== group.group_id),
-            group,
-          ])
-        );
-      } catch {
-        contactGroupFailed();
-      }
-    },
-    [workspace, contactGroupFailed]
-  );
+  const createGroup = useCallback(async () => {
+    if (!workspace) return;
+    const name = nextNewContactGroupName(
+      (contactGroups ?? []).map((group) => group.name),
+      t(
+        'collaborationSpace.contactGroupDefaultName',
+        COPY.defaultContactGroupName
+      )
+    );
+    try {
+      const group = await createContactGroup(
+        collaborationCall,
+        workspace,
+        name
+      );
+      setContactGroups((current) =>
+        sortContactGroups([
+          ...(current ?? []).filter((g) => g.group_id !== group.group_id),
+          group,
+        ])
+      );
+      setRenamingGroupId(group.group_id);
+    } catch {
+      contactGroupFailed();
+    }
+  }, [contactGroups, contactGroupFailed, t, workspace]);
   const renameGroup = useCallback(
     async (groupId: string, name: string) => {
       setContactGroups((current) =>
@@ -1090,15 +1068,6 @@ export function CollaborationSpacePage({
     }
     return names;
   }, [membersBySpace]);
-
-  const sortedConversationsForPicker = useMemo(
-    () =>
-      sortConversationsForSpaceMemberPicker(
-        conversations,
-        memberNicknameByConversationId
-      ),
-    [conversations, memberNicknameByConversationId]
-  );
 
   const spaceMemberRefs = useMemo(
     () =>
@@ -1485,7 +1454,6 @@ export function CollaborationSpacePage({
     setExpanded({});
     setMembersBySpace({});
     setMessagesBySpace({});
-    setPickerExpandedSpaces({});
     setSelectedMemberKey('');
     setPreviewTabs([]);
     setActivePreviewTabId('');
@@ -1880,8 +1848,6 @@ export function CollaborationSpacePage({
     overlayOpenedByUserRef.current = true;
     setCreateOpen(false);
     setCreateError('');
-    setSpaceAddMemberOpen(false);
-    setInlineMemberError('');
     setCreateMemberOpen(false);
     setCreateMemberError('');
     setRenameOpen(false);
@@ -2022,11 +1988,7 @@ export function CollaborationSpacePage({
     setSpaceTagColorId('');
     setSpaceTagCustomLabel('');
     setSelectedSpaceMemberConvIds(new Set());
-    setPendingSpaceMemberConvIds(new Set());
     setDraftMemberMetaByConvId({});
-    setSpaceAddMemberOpen(false);
-    setSpaceAddMemberTab('select');
-    setInlineMemberError('');
     setCreateError('');
     setCreateOpen(true);
   };
@@ -2305,51 +2267,38 @@ export function CollaborationSpacePage({
     workspace,
   ]);
 
-  const togglePendingSpaceMemberConvSelection = (conversationId: string) => {
-    setPendingSpaceMemberConvIds((current) => {
-      const next = new Set(current);
-      if (next.has(conversationId)) {
-        next.delete(conversationId);
-      } else {
-        next.add(conversationId);
-      }
-      return next;
-    });
-  };
-
-  const confirmSelectSpaceMembers = () => {
+  const addDraftSpaceMember = (member: SpaceMember) => {
+    const conversationId = String(member.conversation_id ?? '').trim();
+    if (!conversationId) return;
     const usedNames = new Set(allExistingNicknames);
     for (const meta of Object.values(draftMemberMetaByConvId)) {
       if (meta.nickname) usedNames.add(meta.nickname);
     }
-    const nextDraftMeta = { ...draftMemberMetaByConvId };
-    for (const convId of pendingSpaceMemberConvIds) {
-      const existingNick =
-        nextDraftMeta[convId]?.nickname ||
-        memberNicknameByConversationId.get(convId);
-      const nick = existingNick || randomEnglishNickname(usedNames);
-      usedNames.add(nick);
-      const conv = conversationById.get(convId);
-      nextDraftMeta[convId] = {
-        ...nextDraftMeta[convId],
+    const existingNick =
+      draftMemberMetaByConvId[conversationId]?.nickname ||
+      memberNicknameByConversationId.get(conversationId) ||
+      displayName(member);
+    const nick = existingNick || randomEnglishNickname(usedNames);
+    const conv = conversationById.get(conversationId);
+    setDraftMemberMetaByConvId((current) => ({
+      ...current,
+      [conversationId]: {
+        ...current[conversationId],
         nickname: nick,
         agentId:
-          nextDraftMeta[convId]?.agentId ||
+          current[conversationId]?.agentId ||
           (conv?.agent_id ? String(conv.agent_id) : undefined),
-      };
-    }
-    setDraftMemberMetaByConvId(nextDraftMeta);
-    setSelectedSpaceMemberConvIds(new Set(pendingSpaceMemberConvIds));
-    setSpaceAddMemberOpen(false);
+      },
+    }));
+    setSelectedSpaceMemberConvIds((current) => {
+      const next = new Set(current);
+      next.add(conversationId);
+      return next;
+    });
   };
 
   const removeDraftSpaceMember = (conversationId: string) => {
     setSelectedSpaceMemberConvIds((current) => {
-      const next = new Set(current);
-      next.delete(conversationId);
-      return next;
-    });
-    setPendingSpaceMemberConvIds((current) => {
       const next = new Set(current);
       next.delete(conversationId);
       return next;
@@ -2397,95 +2346,23 @@ export function CollaborationSpacePage({
     return { created, resolvedAgentId };
   };
 
-  const submitInlineCreateMember = async () => {
-    const trimmedNickname = inlineMemberName.trim();
-    if (!trimmedNickname || !workspace || inlineMemberSubmitting) return;
-    setInlineMemberError('');
-
-    if (inlineMemberSource === 'session') {
-      if (!inlineMemberSessionId) return;
-      const conv = conversationById.get(inlineMemberSessionId);
-      updateMemberAvatar(
-        [inlineMemberSessionId, trimmedNickname],
-        inlineMemberAvatar
-      );
-      setDraftMemberMetaByConvId((current) => ({
-        ...current,
-        [inlineMemberSessionId]: {
-          nickname: trimmedNickname,
-          agentId: conv?.agent_id ? String(conv.agent_id) : undefined,
-          avatar: inlineMemberAvatar,
-        },
-      }));
-      setSelectedSpaceMemberConvIds((current) => {
-        const next = new Set(current);
-        next.add(inlineMemberSessionId);
-        return next;
-      });
-      setInlineMemberName('');
-      setInlineMemberAvatar(randomMemberBotAvatar());
-      setInlineMemberSessionId('');
-      setSpaceAddMemberOpen(false);
-      return;
-    }
-
-    if (inlineMemberSource === 'role' && !inlineMemberRoleId) return;
-    if (inlineMemberSource === 'custom' && !inlineMemberAgentId) return;
-
-    setInlineMemberSubmitting(true);
-    try {
-      const { created, resolvedAgentId } = await requestCreateMemberSession({
-        spaceId: '',
-        nickname: trimmedNickname,
-        source: inlineMemberSource,
-        roleId: inlineMemberRoleId,
-        agentId: inlineMemberAgentId,
-        modeId: inlineMemberModeId,
-        configValues: inlineMemberConfigValues,
-        personaPrompt: inlineMemberPersonaPrompt,
-      });
-
-      const createdConvId =
-        created?.conversation_id ||
-        created?.member_id ||
-        `draft-member-${crypto.randomUUID()}`;
-
-      const finalInlineNickname = created?.nickname || trimmedNickname;
-      updateMemberAvatar(
-        [createdConvId, created?.member_id, finalInlineNickname],
-        inlineMemberAvatar
-      );
-      setDraftMemberMetaByConvId((current) => ({
-        ...current,
-        [createdConvId]: {
-          nickname: finalInlineNickname,
-          agentId: resolvedAgentId,
-          avatar: inlineMemberAvatar,
-        },
-      }));
-      setSelectedSpaceMemberConvIds((current) => {
-        const next = new Set(current);
-        next.add(createdConvId);
-        return next;
-      });
-      setInlineMemberName('');
-      setInlineMemberAvatar(randomMemberBotAvatar());
-      setInlineMemberPersonaPrompt('');
-      setSpaceAddMemberOpen(false);
-
-      await loadConversations();
-      if (unassignedId) {
-        await reloadSpaceMembers(unassignedId);
-      }
-    } catch (cause) {
-      setInlineMemberError(surfaceErrorCopy(cause));
-    } finally {
-      setInlineMemberSubmitting(false);
-    }
-  };
-
   const createSpace = async () => {
-    const trimmedName = spaceName.trim();
+    if (selectedSpaceMemberConvIds.size === 0) return;
+    const memberNames = [...selectedSpaceMemberConvIds].map((convId) => {
+      const draftMeta = draftMemberMetaByConvId[convId];
+      return (
+        draftMeta?.nickname ||
+        memberNicknameByConversationId.get(convId) ||
+        conversationById.get(convId)?.title ||
+        convId
+      );
+    });
+    const trimmedName =
+      spaceName.trim() ||
+      defaultGroupChatNameFromMembers(
+        memberNames,
+        spaces.map((space) => space.name)
+      );
     if (!trimmedName) return;
     if (!workspace) {
       setCreateError(
@@ -2535,10 +2412,7 @@ export function CollaborationSpacePage({
     setSpaceTagColorId('');
     setSpaceTagCustomLabel('');
     setSelectedSpaceMemberConvIds(new Set());
-    setPendingSpaceMemberConvIds(new Set());
     setDraftMemberMetaByConvId({});
-    setSpaceAddMemberOpen(false);
-    setInlineMemberError('');
     setCreateError('');
     setCreateOpen(false);
 
@@ -3837,169 +3711,6 @@ export function CollaborationSpacePage({
     return pathName || projectContext?.project?.name || workspace;
   }, [projectContext?.project?.name, workspace, workspacePath]);
 
-  const pickerSpaceGroups = useMemo(() => {
-    const groups: Array<{ space: Space; members: SpaceMember[] }> = [];
-    const seenConvIds = new Set<string>();
-
-    for (const space of spaces) {
-      const spaceMembers = agentRoster(
-        membersBySpace[space.space_id] ?? EMPTY_MEMBERS
-      ).filter((member) => Boolean(member.conversation_id));
-      for (const member of spaceMembers) {
-        if (member.conversation_id) {
-          seenConvIds.add(String(member.conversation_id));
-        }
-      }
-      if (spaceMembers.length > 0) {
-        groups.push({ space, members: spaceMembers });
-      }
-    }
-
-    const unassignedSpaceMembers: SpaceMember[] = [];
-    for (const member of unassignedMembers) {
-      const convId = String(member.conversation_id ?? '').trim();
-      if (convId && !seenConvIds.has(convId)) {
-        seenConvIds.add(convId);
-        unassignedSpaceMembers.push(member);
-      }
-    }
-    for (const conv of sortedConversationsForPicker.sorted) {
-      const convId = String(conv.conversation_id ?? '').trim();
-      if (convId && !seenConvIds.has(convId)) {
-        seenConvIds.add(convId);
-        unassignedSpaceMembers.push({
-          member_id: convId,
-          conversation_id: convId,
-          nickname:
-            memberNicknameByConversationId.get(convId) ||
-            conv.title ||
-            conv.agent_id ||
-            convId,
-          kind: 'agent',
-          visible_to_agents: 1,
-        });
-      }
-    }
-
-    if (unassignedSpaceMembers.length > 0) {
-      groups.push({
-        space: {
-          space_id: unassignedId || 'unassigned',
-          name: COPY.unassignedSpaceName,
-        },
-        members: unassignedSpaceMembers,
-      });
-    }
-
-    return groups;
-  }, [
-    memberNicknameByConversationId,
-    membersBySpace,
-    sortedConversationsForPicker.sorted,
-    spaces,
-    unassignedId,
-    unassignedMembers,
-  ]);
-
-  const renderPickerMemberRow = (spaceId: string, member: SpaceMember) => {
-    const conversationId = String(member.conversation_id ?? '').trim();
-    const checked = pendingSpaceMemberConvIds.has(conversationId);
-    const name = displayName(member);
-    const conv = conversationId
-      ? conversationById.get(conversationId)
-      : undefined;
-    const resolvedAgentId =
-      conv?.agent_id || draftMemberMetaByConvId[conversationId]?.agentId;
-    const isRunning = Boolean(conv?.turn_in_flight);
-    const tone = workspaceSessionStatusTone({
-      status: conv?.status ?? 'todo',
-      isRunning,
-    });
-    const compactAge = conv?.updated_at
-      ? formatCompactSessionAge(conv.updated_at)
-      : '刚刚';
-    const lastMessageText = getMemberLastMessageInSpace(spaceId, member);
-
-    return (
-      <div
-        key={`${spaceId}:${conversationId || name}`}
-        className="collaboration-member-row-outer"
-      >
-        <Checkbox
-          className="collaboration-delete-checkbox"
-          aria-label={`选择助手 ${name}`}
-          checked={checked}
-          onCheckedChange={() =>
-            togglePendingSpaceMemberConvSelection(conversationId)
-          }
-        />
-        <div
-          className={cn(
-            'workspace-session-row collaboration-member-row flex-1 min-w-0',
-            checked && 'is-selected'
-          )}
-        >
-          <button
-            type="button"
-            className="workspace-session-row-main"
-            aria-label={name}
-            onClick={() =>
-              togglePendingSpaceMemberConvSelection(conversationId)
-            }
-          >
-            <span className="workspace-session-icon" aria-hidden="true">
-              <MemberBotAvatar
-                config={getMemberAvatar(conversationId, name)}
-                sessionActive={Boolean(
-                  isRunning || conv?.status === 'inprogress'
-                )}
-                className="h-7 w-7"
-              />
-              <span
-                className={cn(
-                  'workspace-session-status',
-                  `workspace-session-status--${tone}`
-                )}
-              />
-            </span>
-            <span className="collaboration-member-title-group">
-              <span className="collaboration-member-name">{name}</span>
-              {lastMessageText ? (
-                <span className="collaboration-member-subtitle collaboration-member-last-message">
-                  {lastMessageText}
-                </span>
-              ) : null}
-            </span>
-            <span className="workspace-session-meta-idle gap-1.5">
-              {isRunning ? (
-                <Loader2
-                  className="h-3.5 w-3.5 shrink-0 animate-spin text-[hsl(var(--warning))]"
-                  aria-hidden="true"
-                />
-              ) : null}
-              {compactAge ? (
-                <span className="workspace-session-age">{compactAge}</span>
-              ) : null}
-              <span className="inline-flex shrink-0 items-center">
-                {resolvedAgentId ? (
-                  <AgentIcon
-                    agent={resolvedAgentId as ExecutorProfileId['executor']}
-                    className="h-3.5 w-3.5 shrink-0"
-                  />
-                ) : (
-                  <Bot
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                )}
-              </span>
-            </span>
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   // Is this member already in the group chat? Uses the full space member list
   // when loaded, plus the sidebar's members_preview.
   const isSpaceMember = (
@@ -4663,6 +4374,16 @@ export function CollaborationSpacePage({
       : EMPTY_MEMBERS,
   });
   chatListRef.current = chatList;
+  const createGroupBots = uniqueBotsForGroupMemberPicker({
+    directMembers: chatList.flatMap((entry) =>
+      entry.type === 'direct' ? [entry.member] : []
+    ),
+    unassignedMembers: unassignedId
+      ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
+      : EMPTY_MEMBERS,
+    membersBySpace,
+    excludeConversationIds: selectedSpaceMemberConvIds,
+  });
   const queryLower = searchQuery.trim().toLowerCase();
   const globalSearchResults = (() => {
     const memberResults: Array<{
@@ -4744,7 +4465,9 @@ export function CollaborationSpacePage({
       COPY.createContactGroupButton
     ),
     icon: FolderPlus,
-    onSelect: () => setCreatingContactGroup(true),
+    onSelect: () => {
+      void createGroup();
+    },
   };
   const openContactMenu = (
     event: React.MouseEvent,
@@ -5307,9 +5030,7 @@ export function CollaborationSpacePage({
     if (!hasActiveOverlay) return null;
 
     const overlayTitle = createOpen
-      ? spaceAddMemberOpen
-        ? '添加助手'
-        : t('collaborationSpace.newSpace', COPY.newSpace)
+      ? t('collaborationSpace.newSpace', COPY.newSpace)
       : COPY.newMemberButton;
 
     return (
@@ -5343,7 +5064,7 @@ export function CollaborationSpacePage({
             </Button>
           </div>
 
-          {createOpen && !spaceAddMemberOpen ? (
+          {createOpen ? (
             <form
               className="flex flex-col gap-3.5"
               onSubmit={(event) => {
@@ -5354,12 +5075,17 @@ export function CollaborationSpacePage({
               }}
             >
               <div className="space-y-1.5">
-                <Label>{t('collaborationSpace.spaceName', '空间名称')}</Label>
+                <Label>
+                  {t('collaborationSpace.spaceName', COPY.spaceName)}
+                </Label>
                 <Input
-                  aria-label={t('collaborationSpace.spaceName', '空间名称')}
+                  aria-label={t('collaborationSpace.spaceName', COPY.spaceName)}
                   value={spaceName}
                   onChange={(event) => setSpaceName(event.target.value)}
-                  placeholder={t('collaborationSpace.spaceName', '空间名称')}
+                  placeholder={t(
+                    'collaborationSpace.spaceName',
+                    COPY.spaceName
+                  )}
                   className="h-8 px-2.5 text-[13px]"
                   autoFocus
                 />
@@ -5408,56 +5134,76 @@ export function CollaborationSpacePage({
 
               <div className="space-y-1.5">
                 <Label>{COPY.spaceMembersLabel}</Label>
-                <div
-                  className="collaboration-member-chips"
-                  data-testid="collaboration-space-members-list"
-                >
-                  {[...selectedSpaceMemberConvIds].map((convId) => {
-                    const draftMeta = draftMemberMetaByConvId[convId];
-                    const conv = conversationById.get(convId);
-                    const memberName =
-                      draftMeta?.nickname ||
-                      memberNicknameByConversationId.get(convId) ||
-                      conv?.title ||
-                      convId;
-                    return (
-                      <span
-                        key={convId}
-                        className="collaboration-member-chip"
-                        data-testid={`collaboration-space-member-chip-${convId}`}
-                      >
-                        <MemberBotAvatar
-                          config={getMemberAvatar(convId, memberName)}
-                          className="h-3.5 w-3.5 shrink-0"
-                        />
-                        <span>{memberName}</span>
-                        <button
-                          type="button"
-                          className="collaboration-member-chip-remove"
-                          aria-label={`移除助手 ${memberName}`}
-                          onClick={() => removeDraftSpaceMember(convId)}
-                        >
-                          <X className="h-3 w-3" aria-hidden="true" />
-                        </button>
-                      </span>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    className="collaboration-member-dashed-add"
-                    aria-label="添加或新建协作空间助手"
-                    onClick={() => {
-                      setPendingSpaceMemberConvIds(
-                        new Set(selectedSpaceMemberConvIds)
-                      );
-                      setSpaceAddMemberTab('select');
-                      setInlineMemberError('');
-                      setSpaceAddMemberOpen(true);
-                    }}
+                {selectedSpaceMemberConvIds.size > 0 ? (
+                  <div
+                    className="collaboration-member-chips"
+                    data-testid="collaboration-space-members-list"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
+                    {[...selectedSpaceMemberConvIds].map((convId) => {
+                      const draftMeta = draftMemberMetaByConvId[convId];
+                      const conv = conversationById.get(convId);
+                      const memberName =
+                        draftMeta?.nickname ||
+                        memberNicknameByConversationId.get(convId) ||
+                        conv?.title ||
+                        convId;
+                      return (
+                        <span
+                          key={convId}
+                          className="collaboration-member-chip"
+                          data-testid={`collaboration-space-member-chip-${convId}`}
+                        >
+                          <MemberBotAvatar
+                            config={getMemberAvatar(convId, memberName)}
+                            className="h-3.5 w-3.5 shrink-0"
+                          />
+                          <span>{memberName}</span>
+                          <button
+                            type="button"
+                            className="collaboration-member-chip-remove"
+                            aria-label={`移除助手 ${memberName}`}
+                            onClick={() => removeDraftSpaceMember(convId)}
+                          >
+                            <X className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div
+                  className="collaboration-create-member-list"
+                  data-testid="collaboration-create-bot-list"
+                >
+                  {createGroupBots.length === 0 ? (
+                    <p className="collaboration-picker-empty">
+                      {COPY.noMemberSessions}
+                    </p>
+                  ) : (
+                    createGroupBots.map((member) => {
+                      const conversationId = String(
+                        member.conversation_id ?? ''
+                      ).trim();
+                      const name = displayName(member);
+                      return (
+                        <button
+                          key={conversationId || member.member_id || name}
+                          type="button"
+                          className="collaboration-create-bot-row"
+                          aria-label={name}
+                          onClick={() => addDraftSpaceMember(member)}
+                        >
+                          <MemberBotAvatar
+                            config={getMemberAvatar(conversationId, name)}
+                            className="h-7 w-7 shrink-0"
+                          />
+                          <span className="collaboration-create-bot-name">
+                            {name}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -5469,292 +5215,12 @@ export function CollaborationSpacePage({
                   type="submit"
                   variant="primary"
                   data-dialog-primary="true"
-                  disabled={!spaceName.trim()}
+                  disabled={selectedSpaceMemberConvIds.size === 0}
                 >
                   {t('collaborationSpace.newSpace', COPY.newSpace)}
                 </Button>
               </div>
             </form>
-          ) : null}
-
-          {createOpen && spaceAddMemberOpen ? (
-            <div className="flex flex-col gap-3.5">
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={
-                    spaceAddMemberTab === 'select' ? 'default' : 'outline'
-                  }
-                  onClick={() => setSpaceAddMemberTab('select')}
-                  className="h-8 text-xs"
-                >
-                  选择助手
-                </Button>
-                <Button
-                  type="button"
-                  variant={
-                    spaceAddMemberTab === 'create' ? 'default' : 'outline'
-                  }
-                  onClick={() => {
-                    if (!inlineMemberRoleId && roles[0]?.id) {
-                      setInlineMemberRoleId(roles[0].id);
-                    }
-                    if (!inlineMemberAgentId && agents[0]?.agent_id) {
-                      setInlineMemberAgentId(agents[0].agent_id);
-                    }
-                    setInlineMemberAvatar(randomMemberBotAvatar());
-                    setSpaceAddMemberTab('create');
-                  }}
-                  className="h-8 text-xs"
-                >
-                  {COPY.newMemberButton}
-                </Button>
-              </div>
-
-              {spaceAddMemberTab === 'select' ? (
-                <>
-                  <div className="collaboration-dialog-member-picker">
-                    <p className="collaboration-picker-heading">
-                      {COPY.memberSessionsGroup}
-                    </p>
-                    {pickerSpaceGroups.length === 0 ? (
-                      <p className="collaboration-picker-empty">
-                        {COPY.noMemberSessions}
-                      </p>
-                    ) : (
-                      <div className="collaboration-space-list">
-                        {pickerSpaceGroups.map(
-                          ({ space: groupSpace, members: groupMembers }) => {
-                            const groupOpen =
-                              pickerExpandedSpaces[groupSpace.space_id] ?? true;
-                            const groupTagConfig =
-                              spaceTags[groupSpace.space_id];
-                            const groupTagPreset = groupTagConfig
-                              ? SPACE_TAG_PRESETS.find(
-                                  (preset) =>
-                                    preset.id === groupTagConfig.colorId
-                                )
-                              : undefined;
-                            const groupAvatars = groupMembers.map((member) =>
-                              getMemberAvatar(
-                                member.conversation_id ?? undefined,
-                                displayName(member)
-                              )
-                            );
-                            return (
-                              <div
-                                key={groupSpace.space_id}
-                                className="collaboration-space"
-                                data-testid={`collaboration-picker-space-${groupSpace.space_id}`}
-                              >
-                                <div className="workspace-session-row collaboration-space-row">
-                                  <button
-                                    type="button"
-                                    className="workspace-session-row-main collaboration-space-header-main"
-                                    aria-label={groupSpace.name}
-                                    aria-expanded={groupOpen}
-                                    onClick={() =>
-                                      setPickerExpandedSpaces((current) => ({
-                                        ...current,
-                                        [groupSpace.space_id]: !groupOpen,
-                                      }))
-                                    }
-                                  >
-                                    <CollaborationSpaceIcon
-                                      avatars={groupAvatars}
-                                      tagPreset={groupTagPreset}
-                                    />
-                                    <span className="workspace-session-title is-cjk">
-                                      {groupSpace.name}
-                                    </span>
-                                    <span className="collaboration-space-meta">
-                                      <span className="workspace-session-group-count">
-                                        {groupMembers.length}
-                                      </span>
-                                    </span>
-                                  </button>
-                                </div>
-                                {groupOpen ? (
-                                  <div className="collaboration-member-list">
-                                    {groupMembers.map((member) =>
-                                      renderPickerMemberRow(
-                                        groupSpace.space_id,
-                                        member
-                                      )
-                                    )}
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          }
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex justify-end gap-2 pt-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setSpaceAddMemberOpen(false)}
-                    >
-                      返回
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="xs"
-                      onClick={confirmSelectSpaceMembers}
-                    >
-                      完成
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>{COPY.memberNameLabel}</Label>
-                    <Input
-                      aria-label={COPY.memberNameLabel}
-                      value={inlineMemberName}
-                      onChange={(event) =>
-                        setInlineMemberName(event.target.value)
-                      }
-                      placeholder={COPY.memberNameLabel}
-                      className="h-8 px-2.5 text-[13px]"
-                      autoFocus
-                    />
-                  </div>
-
-                  <MemberBotAvatarPicker
-                    value={inlineMemberAvatar}
-                    onChange={setInlineMemberAvatar}
-                  />
-
-                  <div className="flex items-center justify-between gap-3">
-                    <Label className="shrink-0">{COPY.memberSourceLabel}</Label>
-                    <SegmentedControl
-                      label={COPY.memberSourceLabel}
-                      size="sm"
-                      layout="hug"
-                      className="collaboration-compact-segmented"
-                      value={inlineMemberSource}
-                      onChange={(nextValue) =>
-                        setInlineMemberSource(nextValue as MemberSourceOption)
-                      }
-                    >
-                      {memberSourceOptions.map((option) => (
-                        <SegmentedControlItem
-                          key={option.value}
-                          value={option.value}
-                          label={option.label}
-                          icon={option.icon}
-                        />
-                      ))}
-                    </SegmentedControl>
-                  </div>
-
-                  {inlineMemberSource === 'role' ? (
-                    <div className="space-y-1.5">
-                      <Label>{COPY.chooseRole}</Label>
-                      <CollaborationOptionSelect
-                        ariaLabel={COPY.chooseRole}
-                        value={inlineMemberRoleId}
-                        placeholder={COPY.chooseRole}
-                        options={roleSelectOptions}
-                        onChange={setInlineMemberRoleId}
-                      />
-                    </div>
-                  ) : inlineMemberSource === 'session' ? (
-                    <div className="space-y-1.5">
-                      <Label>{chooseConversationLabel}</Label>
-                      <CollaborationOptionSelect
-                        ariaLabel={chooseConversationLabel}
-                        value={inlineMemberSessionId}
-                        placeholder={chooseConversationLabel}
-                        options={conversationSelectOptions}
-                        onChange={setInlineMemberSessionId}
-                      />
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="space-y-1.5">
-                        <Label>{COPY.chooseAgent}</Label>
-                        <CollaborationOptionSelect
-                          ariaLabel={COPY.chooseAgent}
-                          value={inlineMemberAgentId}
-                          placeholder={COPY.chooseAgent}
-                          options={agentSelectOptions}
-                          onChange={(nextAgentId) => {
-                            setInlineMemberAgentId(nextAgentId);
-                            setInlineMemberModeId('');
-                            setInlineMemberConfigValues({});
-                          }}
-                        />
-                      </div>
-
-                      {inlineMemberAgentId ? (
-                        <MemberSessionConfigControls
-                          agentId={inlineMemberAgentId}
-                          modeId={inlineMemberModeId}
-                          values={inlineMemberConfigValues}
-                          onModeId={setInlineMemberModeId}
-                          onValues={setInlineMemberConfigValues}
-                        />
-                      ) : null}
-
-                      <div className="space-y-1.5">
-                        <Label>{COPY.personaPromptLabel}</Label>
-                        <Textarea
-                          aria-label={COPY.personaPromptLabel}
-                          placeholder={COPY.personaPromptLabel}
-                          value={inlineMemberPersonaPrompt}
-                          onChange={(event) =>
-                            setInlineMemberPersonaPrompt(event.target.value)
-                          }
-                          className="min-h-[64px] px-2.5 py-1.5 text-[13px]"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {inlineMemberError ? (
-                    <p className="collaboration-error">{inlineMemberError}</p>
-                  ) : null}
-
-                  <div className="flex justify-end gap-2 pt-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setSpaceAddMemberOpen(false)}
-                    >
-                      返回
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="xs"
-                      data-dialog-primary="true"
-                      disabled={
-                        inlineMemberSubmitting ||
-                        !inlineMemberName.trim() ||
-                        (inlineMemberSource === 'role'
-                          ? !inlineMemberRoleId
-                          : inlineMemberSource === 'session'
-                            ? !inlineMemberSessionId
-                            : !inlineMemberAgentId)
-                      }
-                      onClick={() => {
-                        void submitInlineCreateMember();
-                      }}
-                    >
-                      添加助手
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
           ) : null}
 
           {createMemberOpen ? (
@@ -6000,10 +5466,7 @@ export function CollaborationSpacePage({
                             size="icon"
                             variant="ghost"
                             className={SESSION_LIST_ACTION_BUTTON_CLASS}
-                            aria-label={t(
-                              'collaborationSpace.newSpace',
-                              COPY.newSpace
-                            )}
+                            aria-label={COPY.createMenu}
                           >
                             <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
                           </Button>
@@ -6021,7 +5484,9 @@ export function CollaborationSpacePage({
                             {COPY.createAssistantButton}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => setCreatingContactGroup(true)}
+                            onSelect={() => {
+                              void createGroup();
+                            }}
                           >
                             {COPY.createContactGroupButton}
                           </DropdownMenuItem>
@@ -6141,20 +5606,6 @@ export function CollaborationSpacePage({
                   openContactMenu(event, [newGroupMenuItem]);
                 }}
               >
-                {creatingContactGroup ? (
-                  <ContactGroupNameInput
-                    placeholder={t(
-                      'collaborationSpace.contactGroupNamePlaceholder',
-                      '分组名称'
-                    )}
-                    testId="collaboration-new-contact-group-input"
-                    onSubmit={(name) => {
-                      setCreatingContactGroup(false);
-                      void createGroup(name);
-                    }}
-                    onCancel={() => setCreatingContactGroup(false)}
-                  />
-                ) : null}
                 {contactSections ? (
                   <ContactGroupSections
                     sections={contactSections}

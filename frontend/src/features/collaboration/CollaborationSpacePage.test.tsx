@@ -514,6 +514,11 @@ describe('CollaborationSpacePage', () => {
     ).toBeNull();
     expect(
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
+    ).toBeDisabled();
+    await user.click(within(dialogInThread).getByRole('button', { name: '小A' }));
+    await user.click(within(dialogInThread).getByRole('button', { name: '小B' }));
+    expect(
+      within(dialogInThread).getByRole('button', { name: '创建群聊' })
     ).not.toBeDisabled();
 
     const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
@@ -1250,15 +1255,16 @@ describe('CollaborationSpacePage', () => {
       spaceDialog.querySelector('button[type="submit"]') as HTMLButtonElement
     );
 
-    expect(await screen.findByRole('button', { name: '群聊' })).toBeTruthy();
-    expect(collaborationCall).toHaveBeenCalledWith(
-      'collaboration',
-      'space.create',
-      expect.objectContaining({
-        workspaceId: 'workspace-1',
-        name: '群聊',
-      })
-    );
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.create',
+        expect.objectContaining({
+          workspaceId: 'workspace-1',
+          name: '架构助手',
+        })
+      );
+    });
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.addMember',

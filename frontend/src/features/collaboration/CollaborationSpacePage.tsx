@@ -225,7 +225,7 @@ import {
   type SpaceMember,
   type SpaceTagConfig,
   buildChatList,
-  nextDefaultGroupChatName,
+  defaultGroupChatNameFromMembers,
   uniqueBotsForGroupMemberPicker,
   resolvePrivateChatTarget,
   type ChatListEntry,
@@ -2347,9 +2347,23 @@ export function CollaborationSpacePage({
   };
 
   const createSpace = async () => {
+    if (selectedSpaceMemberConvIds.size === 0) return;
+    const memberNames = [...selectedSpaceMemberConvIds].map((convId) => {
+      const draftMeta = draftMemberMetaByConvId[convId];
+      return (
+        draftMeta?.nickname ||
+        memberNicknameByConversationId.get(convId) ||
+        conversationById.get(convId)?.title ||
+        convId
+      );
+    });
     const trimmedName =
       spaceName.trim() ||
-      nextDefaultGroupChatName(spaces.map((space) => space.name));
+      defaultGroupChatNameFromMembers(
+        memberNames,
+        spaces.map((space) => space.name)
+      );
+    if (!trimmedName) return;
     if (!workspace) {
       setCreateError(
         t('collaborationSpace.openWorkspaceFirst', COPY.openWorkspaceFirst)
@@ -5201,6 +5215,7 @@ export function CollaborationSpacePage({
                   type="submit"
                   variant="primary"
                   data-dialog-primary="true"
+                  disabled={selectedSpaceMemberConvIds.size === 0}
                 >
                   {t('collaborationSpace.newSpace', COPY.newSpace)}
                 </Button>

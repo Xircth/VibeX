@@ -14,7 +14,6 @@ export const COPY = {
   defaultContactGroupName: '新分组',
   newMemberFromSessionButton: '从会话新建助手',
   defaultSpaceName: '默认空间',
-  defaultGroupChatName: '群聊',
   unassignedSpaceName: '未定空间',
   noMemberSessions: '暂无助手会话',
   memberNameLabel: '助手名称',
@@ -85,9 +84,15 @@ export function unassignedSpaceId(workspaceId: string): string {
   return `unassigned:${workspaceId}`;
 }
 
-export function nextDefaultGroupChatName(
-  existingNames: Iterable<string>
+export function defaultGroupChatNameFromMembers(
+  memberNames: Iterable<string>,
+  existingNames: Iterable<string> = []
 ): string {
+  const base = Array.from(memberNames)
+    .map((name) => String(name ?? '').trim())
+    .filter(Boolean)
+    .join('、');
+  if (!base) return '';
   const taken = new Set(
     Array.from(existingNames)
       .map((name) =>
@@ -97,7 +102,6 @@ export function nextDefaultGroupChatName(
       )
       .filter(Boolean)
   );
-  const base = COPY.defaultGroupChatName;
   if (!taken.has(base.toLowerCase())) return base;
   for (let suffix = 2; suffix < 1000; suffix += 1) {
     const candidate = `${base} ${suffix}`;

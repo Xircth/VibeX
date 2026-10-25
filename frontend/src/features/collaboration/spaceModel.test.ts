@@ -81,6 +81,7 @@ describe('collaboration space model', () => {
     expect(COPY.newMemberButton).toBe('新建助手');
     expect(COPY.createAssistantButton).toBe('创建助手');
     expect(COPY.createContactGroupButton).toBe('新建分组');
+    expect(COPY.defaultContactGroupName).toBe('新分组');
     expect(COPY.groupDetailsButton).toBe('群组详情');
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');

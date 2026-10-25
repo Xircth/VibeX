@@ -2044,6 +2044,22 @@ export function isDurableHostNote(row: TimelineRow): boolean {
   return id.startsWith('host-note:');
 }
 
+/** The standing persona card (`host-note:persona` / 人设). */
+export function isPersonaHostNote(row: TimelineRow): boolean {
+  if (row.row_id === 'host-note:persona') return true;
+  if (row.row.kind !== 'session_notice') return false;
+  return (row.row.notice.announcement_id ?? '') === 'host-note:persona';
+}
+
+export function shouldShowDurableHostNote(
+  row: TimelineRow,
+  options: { hidePersonaHostNotes?: boolean } = {}
+): boolean {
+  if (!isDurableHostNote(row)) return false;
+  if (options.hidePersonaHostNotes && isPersonaHostNote(row)) return false;
+  return true;
+}
+
 const INLINE_SIDE_ROW_KINDS = new Set([
   'terminal_summary',
   'delegation',

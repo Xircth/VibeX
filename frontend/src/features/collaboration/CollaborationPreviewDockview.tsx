@@ -43,6 +43,7 @@ import {
   useOptionalPanelActionsContext,
   type PanelActions,
 } from '@/contexts/PanelActionsContext';
+import { SessionSurfaceChromeProvider } from '@/contexts/SessionSurfaceChromeContext';
 import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { registerImagePreviewSource } from '@/lib/imagePreviewRegistry';
@@ -151,7 +152,8 @@ export function previewMemberKey(spaceId: string, member: SpaceMember): string {
 export function CollaborationMemberSessionDockviewPanel(
   props: IDockviewPanelProps<MemberSessionPanelParams>
 ) {
-  const { workspaceId, conversationId } = props.params;
+  const { workspaceId, conversationId, memberName, memberAvatar } =
+    props.params;
   const sessionPreviewProps = useMemo(
     () => ({
       workspaceId,
@@ -160,20 +162,43 @@ export function CollaborationMemberSessionDockviewPanel(
       showSessionSelector: false,
       markViewed: false,
       embedded: true,
-      className: 'h-full',
+      className: 'h-full min-h-0',
       imagePreviewPresentation: 'dialog' as const,
       conversationWidthMode: 'workspace' as const,
     }),
     [conversationId, workspaceId]
   );
+  const surfaceChrome = useMemo(
+    () => ({
+      hidePersonaHostNotes: true,
+      composerIdentity: memberName ? (
+        <div
+          className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground"
+          data-testid="composer-member-identity"
+        >
+          {memberAvatar ? (
+            <MemberBotAvatar
+              config={memberAvatar}
+              animated={false}
+              className="h-3.5 w-3.5 shrink-0"
+            />
+          ) : null}
+          <span className="truncate">{memberName}</span>
+        </div>
+      ) : undefined,
+    }),
+    [memberAvatar, memberName]
+  );
 
   return (
     <div className="collaboration-preview-frame h-full w-full">
-      <Suspense
-        fallback={<p className="collaboration-preview-empty">加载中</p>}
-      >
-        <SessionPreview {...sessionPreviewProps} />
-      </Suspense>
+      <SessionSurfaceChromeProvider value={surfaceChrome}>
+        <Suspense
+          fallback={<p className="collaboration-preview-empty">加载中</p>}
+        >
+          <SessionPreview {...sessionPreviewProps} />
+        </Suspense>
+      </SessionSurfaceChromeProvider>
     </div>
   );
 }

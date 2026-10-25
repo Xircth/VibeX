@@ -682,6 +682,7 @@
     "contactGroupUngrouped": "未分组",
     "contactGroupNew": "新建分组",
     "contactGroupNamePlaceholder": "分组名称",
+    "contactGroupDefaultName": "新分组",
     "contactGroupRename": "重命名分组",
     "contactGroupDelete": "删除分组",
     "contactGroupMoveTo": "移动到分组",

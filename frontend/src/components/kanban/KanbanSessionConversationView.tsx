@@ -443,9 +443,12 @@ function KanbanSessionConversationContent({
     setSearchParams,
   ]);
 
-  const resolvedActiveSession = interactive
-    ? resolveActiveSession(attempt.session, sessionState)
-    : attempt.session;
+  const resolvedActiveSession =
+    !showSessionSelector && attempt.session
+      ? attempt.session
+      : interactive
+        ? resolveActiveSession(attempt.session, sessionState)
+        : attempt.session;
   const activeSession =
     resolvedActiveSession ??
     (sessionState.isNewSessionMode ? undefined : attempt.session);
@@ -708,8 +711,9 @@ function KanbanSessionConversationSurface({
     <ImagePreviewPresentationProvider value={imagePreviewPresentation}>
       <AttachmentPreviewProvider>
         <div
-          className={`relative ${className ?? ''}`}
+          className={`relative flex h-full min-h-0 flex-col ${className ?? ''}`}
           data-conversation-preview-host
+          data-testid="conversation-preview-host"
         >
           <KanbanSessionConversationContent
             attempt={createWorkspaceWithSession(workspace, resolvedSession)}
@@ -756,7 +760,7 @@ export function KanbanSessionConversationView(
   const sessionState = useWorkspaceSessions(props.workspaceId, {
     initialSessionId: sessionId,
     enabled: interactive,
-    autoSelectFirstSession: interactive,
+    autoSelectFirstSession: interactive && !sessionId,
   });
   const surfaceProps = useMemo<KanbanSessionConversationSurfaceProps>(
     () => ({

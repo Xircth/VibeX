@@ -11,6 +11,7 @@ export const COPY = {
   newMemberButton: '新建助手',
   createAssistantButton: '创建助手',
   createContactGroupButton: '新建分组',
+  defaultContactGroupName: '新分组',
   newMemberFromSessionButton: '从会话新建助手',
   defaultSpaceName: '默认空间',
   defaultGroupChatName: '群聊',

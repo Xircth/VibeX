@@ -71,19 +71,27 @@ vi.mock('@/hooks/useAttemptRepo', () => ({
   useAttemptRepo: () => ({ repos: [] }),
 }));
 
-vi.mock('@/components/kanban/KanbanSessionConversationView', () => ({
-  KanbanSessionConversationView: (props: Record<string, unknown>) => {
-    sessionPreviewSpy(props);
-    return (
-      <div
-        data-testid="session-preview"
-        data-embedded={String(Boolean(props.embedded))}
-      >
-        {String(props.sessionId ?? '')}
-      </div>
-    );
-  },
-}));
+vi.mock('@/components/kanban/KanbanSessionConversationView', async () => {
+  const { useSessionSurfaceChrome } = await import(
+    '@/contexts/SessionSurfaceChromeContext'
+  );
+  return {
+    KanbanSessionConversationView: (props: Record<string, unknown>) => {
+      sessionPreviewSpy(props);
+      const chrome = useSessionSurfaceChrome();
+      return (
+        <div
+          data-testid="session-preview"
+          data-embedded={String(Boolean(props.embedded))}
+          data-hide-persona={String(Boolean(chrome.hidePersonaHostNotes))}
+        >
+          {String(props.sessionId ?? '')}
+          {chrome.composerIdentity}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
   default: () => <div data-testid="file-preview" />,
@@ -2158,6 +2166,17 @@ describe('CollaborationSpacePage', () => {
             state.groups = [...state.groups, group];
             return { group };
           }
+          if (method === 'contactGroup.rename') {
+            const current = state.groups.find(
+              (group) => group.group_id === input?.groupId
+            );
+            if (!current) return {};
+            const group = { ...current, name: String(input?.name ?? '') };
+            state.groups = state.groups.map((item) =>
+              item.group_id === group.group_id ? group : item
+            );
+            return { group };
+          }
           if (method === 'contactGroup.delete') {
             state.groups = state.groups.filter(
               (g) => g.group_id !== input?.groupId
@@ -2330,7 +2349,7 @@ describe('CollaborationSpacePage', () => {
       );
     });
 
-    it('creates a group with the inline input', async () => {
+    it('creates a group immediately and focuses the section title', async () => {
       const user = userEvent.setup();
       mockGroups([]);
       renderPage();
@@ -2341,19 +2360,32 @@ describe('CollaborationSpacePage', () => {
       await user.click(
         await screen.findByRole('menuitem', { name: '新建分组' })
       );
-      await user.type(
-        await screen.findByTestId('collaboration-new-contact-group-input'),
-        '伙伴{Enter}'
-      );
       await waitFor(() =>
         expect(collaborationCall).toHaveBeenCalledWith(
           'collaboration',
           'contactGroup.create',
-          { workspaceId: 'workspace-1', name: '伙伴' }
+          { workspaceId: 'workspace-1', name: '新分组' }
         )
       );
       expect(
-        await screen.findByTestId('collaboration-contact-section-g-new')
+        screen.queryByTestId('collaboration-new-contact-group-input')
+      ).toBeNull();
+      const renameInput = await screen.findByTestId(
+        'collaboration-contact-group-rename-input'
+      );
+      expect(renameInput).toHaveValue('新分组');
+      expect(renameInput).toHaveFocus();
+      await user.clear(renameInput);
+      await user.type(renameInput, '伙伴{Enter}');
+      await waitFor(() =>
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'contactGroup.rename',
+          { groupId: 'g-new', name: '伙伴' }
+        )
+      );
+      expect(
+        screen.getByTestId('collaboration-contact-section-g-new')
       ).toHaveTextContent('伙伴');
       expect(
         screen.getByTestId('collaboration-contact-section-__ungrouped__')
@@ -2799,9 +2831,12 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({ memberId: 'm1', threadId: 's1' })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'm1:s1'
-    );
+    const groupSession = await screen.findByTestId('session-preview');
+    expect(groupSession).toHaveTextContent('m1:s1');
+    expect(groupSession).toHaveAttribute('data-hide-persona', 'true');
+    expect(
+      within(groupSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小A');
 
     await user.click(
       await screen.findByRole('button', { name: '预览 小B 会话' })
@@ -2813,9 +2848,11 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({ memberId: 'm2', threadId: 's1' })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'm2:s1'
-    );
+    const nextSession = await screen.findByTestId('session-preview');
+    expect(nextSession).toHaveTextContent('m2:s1');
+    expect(
+      within(nextSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小B');
   });
 
   it('opens the private-chat bot session and assistant details tabs', async () => {
@@ -2897,9 +2934,12 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'conv-dm-a'
-    );
+    const dmSession = await screen.findByTestId('session-preview');
+    expect(dmSession).toHaveTextContent('conv-dm-a');
+    expect(dmSession).toHaveAttribute('data-hide-persona', 'true');
+    expect(
+      within(dmSession).getByTestId('composer-member-identity')
+    ).toHaveTextContent('小A');
 
     await user.click(screen.getByRole('button', { name: '助手详情' }));
     const panel = await screen.findByTestId(

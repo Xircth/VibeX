@@ -662,11 +662,76 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
       'workspace-1:session-1'
     );
+    expect(screen.getByTestId('conversation-preview-host')).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'flex-col'
+    );
     expect(screen.getByTestId('entries-provider')).toHaveAttribute(
       'data-runtime-key',
       'workspace-1:session-1'
     );
     expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
+  });
+
+  it('pins an embedded session and keeps the composer from auto-selecting another', () => {
+    useWorkspaceSessionsMock.mockClear();
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [{ id: 'other-session' }],
+      selectedSession: { id: 'other-session' },
+      selectedSessionId: 'other-session',
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const workspace = createWorkspace('workspace-member');
+    const session = createSession('member-session', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            interactive
+            embedded
+            showSessionSelector={false}
+            className="h-full"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(useWorkspaceSessionsMock).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        initialSessionId: session.id,
+        autoSelectFirstSession: false,
+      })
+    );
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-member:member-session'
+    );
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-preview-host')).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'flex-col'
+    );
   });
 
   it('does not mark an unselected canvas conversation as viewed', async () => {

@@ -57,18 +57,21 @@ export function getComposerTopbarVisibility({
   showSessionSelector,
   sessionCount,
   hasExecutorProfile,
+  hasComposerIdentity = false,
 }: {
   hasTokenUsageInfo: boolean;
   hasCodexGoalState: boolean;
   showSessionSelector: boolean;
   sessionCount: number;
   hasExecutorProfile: boolean;
+  hasComposerIdentity?: boolean;
 }): boolean {
   return (
     hasTokenUsageInfo ||
     hasCodexGoalState ||
     (showSessionSelector && sessionCount > 0) ||
-    hasExecutorProfile
+    hasExecutorProfile ||
+    hasComposerIdentity
   );
 }
 

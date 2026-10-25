@@ -53,6 +53,19 @@ export const GROUP_AVATAR_LAYOUTS: Record<number, readonly Slot[]> = {
   ],
 };
 
+/** Rendered px of one member silhouette inside a group avatar of `groupSize`. */
+export function groupAvatarMemberSlotPx(
+  groupSize: number,
+  memberCount: number
+): number {
+  const n = Math.min(
+    Math.max(Math.trunc(memberCount) || 1, 1),
+    GROUP_AVATAR_MAX
+  );
+  const slotSize = GROUP_AVATAR_LAYOUTS[n]?.[0]?.size ?? 20;
+  return (slotSize / BOX) * groupSize;
+}
+
 export function GroupAvatar({
   avatars,
   tagHue,

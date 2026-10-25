@@ -244,9 +244,12 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
-import { botSilhouetteOutline, GroupAvatar } from './GroupAvatar';
 import {
-  COLLAB_ASSISTANT_AVATAR_PX,
+  botSilhouetteOutline,
+  GroupAvatar,
+  groupAvatarMemberSlotPx,
+} from './GroupAvatar';
+import {
   memberMessageClusters,
   showsClusterAvatar,
   showsClusterName,
@@ -1666,6 +1669,9 @@ export function CollaborationSpacePage({
         }));
         return merged;
       });
+      setPendingDirectMessages((current) =>
+        reconcilePendingDirectMessages(current, incoming)
+      );
     };
 
     const refreshSpaces = async () => {
@@ -3296,15 +3302,37 @@ export function CollaborationSpacePage({
         return;
       }
       const recipients = postRecipients(textPart || content, members);
-      const posted = await collaborationCall<{
+      const op = operationId;
+      const spaceId = selected.space_id;
+      setPendingDirectMessages((current) => [
+        ...current.filter((item) => item.operationId !== op),
+        {
+          operationId: op,
+          threadId: spaceId,
+          content,
+          createdAt: Date.now(),
+        },
+      ]);
+      let posted: {
         seq?: number;
         receipts?: DeliveryReceipt[];
-      }>('collaboration', 'space.post', {
-        spaceId: selected.space_id,
-        content,
-        to: recipients,
-        operationId,
-      });
+      };
+      try {
+        posted = await collaborationCall<{
+          seq?: number;
+          receipts?: DeliveryReceipt[];
+        }>('collaboration', 'space.post', {
+          spaceId,
+          content,
+          to: recipients,
+          operationId: op,
+        });
+      } catch (cause) {
+        setPendingDirectMessages((current) =>
+          current.filter((item) => item.operationId !== op)
+        );
+        throw cause;
+      }
       const nextSeq =
         typeof posted.seq === 'number' && Number.isInteger(posted.seq)
           ? posted.seq
@@ -3312,13 +3340,13 @@ export function CollaborationSpacePage({
       const optimisticMessage: SpaceMessage = {
         seq: nextSeq,
         envelope: {
-          actor: `vibex://space/${selected.space_id}/user`,
+          actor: `vibex://space/${spaceId}/user`,
           content,
           ...(recipients.length > 0
             ? {
                 to: recipients.map(
                   (nick) =>
-                    `vibex://space/${selected.space_id}/member/${encodeURIComponent(nick)}`
+                    `vibex://space/${spaceId}/member/${encodeURIComponent(nick)}`
                 ),
               }
             : {}),
@@ -3326,6 +3354,9 @@ export function CollaborationSpacePage({
       };
       setMessages((current) =>
         mergeSpaceMessages(current, [optimisticMessage])
+      );
+      setPendingDirectMessages((current) =>
+        current.filter((item) => item.operationId !== op)
       );
       if (Array.isArray(posted.receipts) && posted.receipts.length > 0) {
         setReceiptsBySeq((current) => ({
@@ -3356,13 +3387,16 @@ export function CollaborationSpacePage({
         'collaboration',
         'space.listMessages',
         sinceSeq > 0
-          ? { spaceId: selected.space_id, sinceSeq }
-          : { spaceId: selected.space_id, latest: true, limit: 200 }
+          ? { spaceId, sinceSeq }
+          : { spaceId, latest: true, limit: 200 }
       );
       if (Array.isArray(messagePage.scheduled)) {
         setScheduledMessages(messagePage.scheduled);
       }
       const incoming = messagePage.messages ?? [];
+      setPendingDirectMessages((current) =>
+        reconcilePendingDirectMessages(current, incoming)
+      );
       setMessages((current) =>
         sinceSeq > 0
           ? mergeSpaceMessages(current, incoming)
@@ -3543,6 +3577,16 @@ export function CollaborationSpacePage({
     }
     return agentRoster(members);
   }, [activeDirectThreadId, members, sidebarItems]);
+
+  const listAvatarPx = groupAvatarMemberSlotPx(
+    CONTACT_AVATAR_PX,
+    Math.max(visibleRoster.length, 1)
+  );
+  const listAvatarStyle = {
+    width: `${listAvatarPx}px`,
+    height: `${listAvatarPx}px`,
+  } as CSSProperties;
+  const listAvatarOutline = botSilhouetteOutline(listAvatarPx);
 
   const messageClusters = useMemo(
     () =>
@@ -6195,7 +6239,12 @@ export function CollaborationSpacePage({
 
         {hasThread ? (
           <section
-            style={{ order: threadOrder }}
+            style={
+              {
+                order: threadOrder,
+                '--collaboration-list-avatar': `${listAvatarPx / 16}rem`,
+              } as CSSProperties
+            }
             className="collaboration-thread"
             aria-label={
               selected?.name ??
@@ -6225,51 +6274,58 @@ export function CollaborationSpacePage({
                   className="collaboration-top-member-bar"
                   data-testid="collaboration-top-member-bar"
                 >
-                  <button
-                    type="button"
-                    className={cn(
-                      'collaboration-top-collection-btn',
-                      activePreviewTabId ===
-                        spaceCollectionPreviewPanelId(
-                          activeDirectThreadId || selected.space_id
-                        ) && 'is-active'
-                    )}
-                    aria-label={
-                      activeDirectThreadId
-                        ? COPY.assistantDetailsButton
-                        : COPY.groupDetailsButton
-                    }
-                    title={
-                      activeDirectThreadId
-                        ? COPY.assistantDetailsButton
-                        : COPY.groupDetailsButton
-                    }
-                    data-testid="collaboration-open-collection-btn"
-                    onClick={() =>
-                      activeDirectThreadId
-                        ? openAssistantDetailsTab()
-                        : openSpaceCollectionTab(
-                            selected.space_id,
-                            selected.name
-                          )
-                    }
+                  <div
+                    className="collaboration-top-member-chrome"
+                    data-testid="collaboration-top-member-chrome"
                   >
-                    <LayoutGrid
-                      className="h-3.5 w-3.5 shrink-0"
+                    <button
+                      type="button"
+                      className={cn(
+                        'collaboration-top-collection-btn',
+                        activePreviewTabId ===
+                          spaceCollectionPreviewPanelId(
+                            activeDirectThreadId || selected.space_id
+                          ) && 'is-active'
+                      )}
+                      aria-label={
+                        activeDirectThreadId
+                          ? COPY.assistantDetailsButton
+                          : COPY.groupDetailsButton
+                      }
+                      title={
+                        activeDirectThreadId
+                          ? COPY.assistantDetailsButton
+                          : COPY.groupDetailsButton
+                      }
+                      data-testid="collaboration-open-collection-btn"
+                      onClick={() =>
+                        activeDirectThreadId
+                          ? openAssistantDetailsTab()
+                          : openSpaceCollectionTab(
+                              selected.space_id,
+                              selected.name
+                            )
+                      }
+                    >
+                      <LayoutGrid
+                        className="h-3.5 w-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <span
+                      className="collaboration-top-member-collapsed-divider"
                       aria-hidden="true"
                     />
-                  </button>
-                  <Button
-                    type="button"
-                    variant="icon"
-                    size="icon"
-                    className="collaboration-expand"
-                    aria-label="收起助手列表"
-                    title="收起助手列表"
-                    onClick={() => setTopMemberBarExpanded(false)}
-                  >
-                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                  </Button>
+                    <button
+                      type="button"
+                      className="collaboration-top-member-toggle"
+                      aria-label="收起助手列表"
+                      title="收起助手列表"
+                      onClick={() => setTopMemberBarExpanded(false)}
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                   <div className="collaboration-top-member-scroll">
                     {visibleRoster.map((member) => {
                       const nick = displayName(member);
@@ -6347,14 +6403,17 @@ export function CollaborationSpacePage({
                                 )
                               }
                             >
-                              <MemberBotAvatar
-                                config={avatar}
-                                sessionActive={memberSessionActive}
-                                silhouetteOutline={botSilhouetteOutline(
-                                  COLLAB_ASSISTANT_AVATAR_PX
-                                )}
-                                className="h-10 w-10 shrink-0"
-                              />
+                              <span
+                                className="collaboration-list-avatar"
+                                style={listAvatarStyle}
+                              >
+                                <MemberBotAvatar
+                                  config={avatar}
+                                  sessionActive={memberSessionActive}
+                                  silhouetteOutline={listAvatarOutline}
+                                  className="h-full w-full"
+                                />
+                              </span>
                               <span
                                 className="collaboration-top-member-chip-name"
                                 style={{ color: avatar.color }}
@@ -6499,13 +6558,16 @@ export function CollaborationSpacePage({
                               className="collaboration-top-member-stack-item"
                               style={{ zIndex: 10 - idx }}
                             >
-                              <MemberBotAvatar
-                                config={getMemberAvatar(convId, nick)}
-                                silhouetteOutline={botSilhouetteOutline(
-                                  COLLAB_ASSISTANT_AVATAR_PX
-                                )}
-                                className="h-10 w-10 shrink-0"
-                              />
+                              <span
+                                className="collaboration-list-avatar"
+                                style={listAvatarStyle}
+                              >
+                                <MemberBotAvatar
+                                  config={getMemberAvatar(convId, nick)}
+                                  silhouetteOutline={listAvatarOutline}
+                                  className="h-full w-full"
+                                />
+                              </span>
                             </span>
                           );
                         })}
@@ -6713,9 +6775,13 @@ export function CollaborationSpacePage({
                     );
                   })
                 ) : null}
-                {selected && activeDirectThreadId
+                {selected
                   ? pendingDirectMessages
-                      .filter((item) => item.threadId === activeDirectThreadId)
+                      .filter(
+                        (item) =>
+                          item.threadId ===
+                          (activeDirectThreadId || selected.space_id)
+                      )
                       .map((item) => (
                         <article
                           key={`pending-${item.operationId}`}

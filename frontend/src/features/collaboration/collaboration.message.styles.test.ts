@@ -26,21 +26,21 @@ function declarationsFor(
 }
 
 describe('collaboration assistant list and message cluster chrome', () => {
-  it('sizes assistant-list chips to 40px with name type 1px larger', () => {
-    const shell = declarationsFor('.collaboration-shell');
-    expect(shell['--collaboration-assistant-avatar']?.value).toBe('2.5rem');
-
+  it('sizes assistant-list chips from the list-avatar token', () => {
     const chip = declarationsFor('.collaboration-top-member-chip');
-    expect(chip.height?.value).toBe('2.5rem');
+    expect(chip.height?.value).toBe('var(--collaboration-list-avatar, 2.5rem)');
     expect(chip['font-size']?.value).toBe('0.8125rem');
 
     const stack = declarationsFor('.collaboration-top-member-stack-item');
-    expect(stack.width?.value).toBe(
-      'var(--collaboration-assistant-avatar, 2.5rem)'
-    );
+    expect(stack.width?.value).toBe('var(--collaboration-list-avatar, 2.5rem)');
     expect(stack.height?.value).toBe(
-      'var(--collaboration-assistant-avatar, 2.5rem)'
+      'var(--collaboration-list-avatar, 2.5rem)'
     );
+  });
+
+  it('keeps message avatars at 40px with name type 1px larger', () => {
+    const shell = declarationsFor('.collaboration-shell');
+    expect(shell['--collaboration-assistant-avatar']?.value).toBe('2.5rem');
   });
 
   it('places the 40px avatar at the bottom-left of the bubble', () => {

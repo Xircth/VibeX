@@ -314,10 +314,23 @@ describe('CollaborationSpacePage', () => {
       chipA.querySelector('.collaboration-top-member-chip-name')
     ).toHaveTextContent('小A');
     expect(chipA).toHaveClass('collaboration-top-member-chip');
-    expect(chipA.querySelector('.collaboration-bot-avatar')).toHaveClass(
-      'h-10',
-      'w-10'
-    );
+    const chrome = screen.getByTestId('collaboration-top-member-chrome');
+    expect(
+      within(chrome).getByTestId('collaboration-open-collection-btn')
+    ).toBeTruthy();
+    expect(
+      within(chrome).getByRole('button', { name: '收起助手列表' })
+    ).toBeTruthy();
+    expect(chrome.querySelector('.collaboration-expand')).toBeNull();
+    const designRow = screen.getByRole('button', { name: '设计' });
+    const groupSlot = within(designRow).getAllByTestId(
+      'collaboration-group-avatar-slot'
+    )[0] as HTMLElement;
+    const listAvatar = chipA.querySelector(
+      '.collaboration-list-avatar'
+    ) as HTMLElement;
+    expect(listAvatar.style.width).toBe(groupSlot.style.width);
+    expect(listAvatar.style.height).toBe(groupSlot.style.height);
 
     await user.click(screen.getByRole('button', { name: '收起助手列表' }));
     expect(screen.queryByTestId('collaboration-top-member-bar')).toBeNull();
@@ -326,6 +339,10 @@ describe('CollaborationSpacePage', () => {
     expect(
       collapsedStack.querySelectorAll('.collaboration-top-member-stack-item')
     ).toHaveLength(2);
+    const collapsedAvatar = collapsedStack.querySelector(
+      '.collaboration-list-avatar'
+    ) as HTMLElement;
+    expect(collapsedAvatar.style.width).toBe(groupSlot.style.width);
     await user.click(screen.getByRole('button', { name: '展开助手列表' }));
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
 
@@ -606,6 +623,71 @@ describe('CollaborationSpacePage', () => {
           to: [],
         })
       );
+    });
+  });
+
+  it('shows a group message in the log before space.post resolves', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    let releasePost: ((value: unknown) => void) | undefined;
+    const postGate = new Promise((resolve) => {
+      releasePost = resolve;
+    });
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.post') {
+          await postGate;
+          return {
+            message_id: String(input?.operationId ?? 'msg-1'),
+            seq: 3,
+            receipts: [
+              {
+                conversation_id: 'conv-1',
+                nickname: '小A',
+                delivered: 'queued',
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, '即时出现');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    const postCall = await waitFor(() => {
+      const call = collaborationCall.mock.calls.find(
+        (item) => item[1] === 'space.post'
+      );
+      expect(call).toBeTruthy();
+      return call!;
+    });
+    const op = String(
+      (postCall[2] as { operationId?: string } | undefined)?.operationId ?? ''
+    );
+    const pending = await screen.findByTestId(
+      `collaboration-pending-message-${op}`
+    );
+    expect(pending).toHaveTextContent('即时出现');
+
+    releasePost?.({});
+    await waitFor(() => {
+      expect(
+        Array.from(document.querySelectorAll('.collaboration-message')).some(
+          (node) => node.textContent?.includes('即时出现')
+        )
+      ).toBe(true);
     });
   });
 

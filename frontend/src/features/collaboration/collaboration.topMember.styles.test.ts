@@ -62,7 +62,7 @@ describe('collaboration top assistant list chrome', () => {
   it('fades the message log at the top instead of clipping it', () => {
     const log = declarationsFor('.collaboration-thread-log');
     expect(log['mask-image']?.value).toContain('linear-gradient');
-    expect(log['padding']?.value).toBe('2.75rem 1rem 0.75rem');
+    expect(log['padding']?.value).toBe('3.75rem 1rem 0.75rem');
   });
 });
 

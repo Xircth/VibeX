@@ -219,7 +219,7 @@
 }
 
 .vu-toast-detail-copy-mono {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .vu-toast-actions {

@@ -98,6 +98,7 @@ import {
 } from '@/components/conversation-thread/messageNavEntries';
 import {
   isDurableHostNote,
+  shouldShowDurableHostNote,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
@@ -108,6 +109,7 @@ import {
   useOptionalConversationStatus,
   type ConversationStatusNotice,
 } from '@/contexts/ConversationStatusContext';
+import { useSessionSurfaceChrome } from '@/contexts/SessionSurfaceChromeContext';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import {
   resolveResendExecutorProfile,
@@ -696,6 +698,7 @@ const AgentTimelineConversation = forwardRef<
   const setConversationStatusPermissions = conversationStatus?.setPermissions;
   const setConversationChildrenDock = conversationStatus?.setChildrenDock;
   const usesComposerStatusDock = conversationStatus?.enabled ?? false;
+  const { hidePersonaHostNotes } = useSessionSurfaceChrome();
   const timeline = conversation.timeline;
   const isTurnInFlight = useMemo(
     () => isTimelineTurnInFlight(timeline),
@@ -740,8 +743,10 @@ const AgentTimelineConversation = forwardRef<
         if (kind === 'delegation') {
           return false;
         }
-        if (kind === 'session_notice' && !isDurableHostNote(item.row)) {
-          return false;
+        if (kind === 'session_notice') {
+          return shouldShowDurableHostNote(item.row, {
+            hidePersonaHostNotes,
+          });
         }
         if (
           usesComposerStatusDock &&
@@ -752,7 +757,7 @@ const AgentTimelineConversation = forwardRef<
         }
         return true;
       }),
-    [conversation.items, usesComposerStatusDock]
+    [conversation.items, hidePersonaHostNotes, usesComposerStatusDock]
   );
   useEffect(() => {
     if (conversationError) toast.error(conversationError);

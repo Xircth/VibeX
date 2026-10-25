@@ -167,6 +167,7 @@ import {
   readCollapsedSections,
   renameContactGroup,
   setThreadGroup,
+  nextNewContactGroupName,
   sortContactGroups,
   UNGROUPED_SECTION_ID,
   withThreadGroup,
@@ -174,10 +175,7 @@ import {
   type ContactGroup,
   type ContactSection,
 } from './contactGroups';
-import {
-  ContactGroupNameInput,
-  ContactGroupSections,
-} from './ContactGroupSections';
+import { ContactGroupSections } from './ContactGroupSections';
 import {
   COLLABORATION_PREVIEW_COMPONENTS,
   CollaborationPreviewDockviewTab,
@@ -791,7 +789,7 @@ export function CollaborationSpacePage({
     },
     [workspace]
   );
-  const [creatingContactGroup, setCreatingContactGroup] = useState(false);
+
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [contactMenu, setContactMenu] = useState<{
     x: number;
@@ -816,27 +814,32 @@ export function CollaborationSpacePage({
     },
     [contactGroupFailed, refreshSidebar]
   );
-  const createGroup = useCallback(
-    async (name: string) => {
-      if (!workspace) return;
-      try {
-        const group = await createContactGroup(
-          collaborationCall,
-          workspace,
-          name
-        );
-        setContactGroups((current) =>
-          sortContactGroups([
-            ...(current ?? []).filter((g) => g.group_id !== group.group_id),
-            group,
-          ])
-        );
-      } catch {
-        contactGroupFailed();
-      }
-    },
-    [workspace, contactGroupFailed]
-  );
+  const createGroup = useCallback(async () => {
+    if (!workspace) return;
+    const name = nextNewContactGroupName(
+      (contactGroups ?? []).map((group) => group.name),
+      t(
+        'collaborationSpace.contactGroupDefaultName',
+        COPY.defaultContactGroupName
+      )
+    );
+    try {
+      const group = await createContactGroup(
+        collaborationCall,
+        workspace,
+        name
+      );
+      setContactGroups((current) =>
+        sortContactGroups([
+          ...(current ?? []).filter((g) => g.group_id !== group.group_id),
+          group,
+        ])
+      );
+      setRenamingGroupId(group.group_id);
+    } catch {
+      contactGroupFailed();
+    }
+  }, [contactGroups, contactGroupFailed, t, workspace]);
   const renameGroup = useCallback(
     async (groupId: string, name: string) => {
       setContactGroups((current) =>
@@ -4744,7 +4747,9 @@ export function CollaborationSpacePage({
       COPY.createContactGroupButton
     ),
     icon: FolderPlus,
-    onSelect: () => setCreatingContactGroup(true),
+    onSelect: () => {
+      void createGroup();
+    },
   };
   const openContactMenu = (
     event: React.MouseEvent,
@@ -6021,7 +6026,9 @@ export function CollaborationSpacePage({
                             {COPY.createAssistantButton}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => setCreatingContactGroup(true)}
+                            onSelect={() => {
+                              void createGroup();
+                            }}
                           >
                             {COPY.createContactGroupButton}
                           </DropdownMenuItem>
@@ -6141,20 +6148,6 @@ export function CollaborationSpacePage({
                   openContactMenu(event, [newGroupMenuItem]);
                 }}
               >
-                {creatingContactGroup ? (
-                  <ContactGroupNameInput
-                    placeholder={t(
-                      'collaborationSpace.contactGroupNamePlaceholder',
-                      '分组名称'
-                    )}
-                    testId="collaboration-new-contact-group-input"
-                    onSubmit={(name) => {
-                      setCreatingContactGroup(false);
-                      void createGroup(name);
-                    }}
-                    onCancel={() => setCreatingContactGroup(false)}
-                  />
-                ) : null}
                 {contactSections ? (
                   <ContactGroupSections
                     sections={contactSections}

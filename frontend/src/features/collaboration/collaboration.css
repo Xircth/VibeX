@@ -240,14 +240,34 @@
   display: flex;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   flex-direction: column;
   overflow: hidden;
 }
 
 .collaboration-preview-frame > * {
-  flex: 1 1 auto;
+  display: flex;
   min-width: 0;
   min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-preview-frame [data-conversation-preview-host] {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collaboration-preview-frame .agent-question-composer-stack {
+  flex-shrink: 0;
+}
+
+.collaboration-preview-frame .session-composer-editor {
+  min-height: 3.25rem;
 }
 
 .collaboration-preview-empty {

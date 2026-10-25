@@ -682,6 +682,7 @@
     "contactGroupUngrouped": "Ungrouped",
     "contactGroupNew": "New group",
     "contactGroupNamePlaceholder": "Group name",
+    "contactGroupDefaultName": "New group",
     "contactGroupRename": "Rename group",
     "contactGroupDelete": "Delete group",
     "contactGroupMoveTo": "Move to group",

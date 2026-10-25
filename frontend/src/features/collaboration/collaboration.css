@@ -2865,6 +2865,16 @@ body.is-dragging-collaboration-member * {
   color: var(--text-strong);
 }
 
+.collaboration-system-notice {
+  margin: 0.5rem auto;
+  max-width: 22.5rem;
+  padding: 0.25rem 0.75rem;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 .collaboration-group-details-usage {
   display: flex;
   width: 100%;

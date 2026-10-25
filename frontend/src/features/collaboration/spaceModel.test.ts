@@ -6,6 +6,7 @@ import {
   deliveryFailureCopy,
   displayName,
   insertMention,
+  isCollaborationLimitNotice,
   latestMessageSeq,
   mentionSuggestions,
   mergeSpaceMessages,
@@ -93,6 +94,11 @@ describe('collaboration space model', () => {
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');
     expect(COPY.groupMembersTab).toBe('成员');
+    expect(COPY.spaceLeadLabel).toBe('负责人');
+    expect(COPY.spaceLeadNone).toBe('不指定');
+    expect(COPY.collaborationLimitNotice).toBe(
+      '已达到自动协作上限，请 @ 助手继续'
+    );
     expect(COPY.assistantDetailsButton).toBe('助手详情');
     expect(COPY.assistantDetailsTab).toBe('详情');
     expect(COPY.assistantCollectionTab).toBe('收藏');
@@ -145,6 +151,19 @@ describe('collaboration space model', () => {
     expect(insertMention('请 @小', '小B')).toBe('请 @小B ');
     expect(messageAuthor({ actor: 'vibex://space/s/user' })).toBe('你');
     expect(messageAuthor({ actor: 'vibex://space/s/member/小B' })).toBe('小B');
+    expect(messageAuthor({ actor: 'vibex://space/s/system' })).toBe('');
+    expect(
+      isCollaborationLimitNotice({
+        origin: 'system',
+        envelope: { summary: 'collaboration_limit' },
+      })
+    ).toBe(true);
+    expect(
+      isCollaborationLimitNotice({
+        origin: 'agent',
+        envelope: { actor: 'vibex://space/s/member/小B' },
+      })
+    ).toBe(false);
     expect(sendErrorCopy('not_a_member')).toBe('不在这个空间');
     expect(sendErrorCopy('not_found')).toBe('昵称不存在');
     expect(COPY.emptyAgents).toBe('还没有已启用的 Agent');

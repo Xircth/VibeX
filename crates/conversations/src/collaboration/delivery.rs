@@ -764,6 +764,19 @@ pub async fn post_to_space_with(
     {
         let _ = ensure_user_member(pool, &input.space_id).await;
     }
+    let wakes_agents = targets
+        .iter()
+        .any(|target| target.conversation_id.is_some());
+    let (root_id, hop) = resolve_root_and_hop(
+        pool,
+        &input.space_id,
+        &message_id,
+        sender,
+        input.in_reply_to.as_deref(),
+        wakes_agents,
+    )
+    .await?;
+    let hop_exceeded = sender.is_some() && wakes_agents && hop > MAX_ASSISTANT_HOPS_PER_ROOT;
     let summary = input
         .summary
         .as_deref()
@@ -807,8 +820,8 @@ pub async fn post_to_space_with(
         .await?;
         sqlx::query(
             r#"INSERT INTO collaboration_space_messages
-               (id, space_id, seq, envelope_json, created_at, origin)
-               VALUES (?, ?, ?, ?, ?, ?)"#,
+               (id, space_id, seq, envelope_json, created_at, origin, root_id, hop)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&message_id)
         .bind(&input.space_id)
@@ -816,10 +829,15 @@ pub async fn post_to_space_with(
         .bind(envelope.to_string())
         .bind(&published)
         .bind(if sender.is_some() { "agent" } else { "user" })
+        .bind(&root_id)
+        .bind(hop)
         .execute(&mut *conn)
         .await?;
         for target in &targets {
             let Some(target_id) = target.conversation_id else {
+                continue;
+            };
+            if hop_exceeded {
                 continue;
             };
             sqlx::query(
@@ -891,12 +909,160 @@ pub async fn post_to_space_with(
             result.seq = seq;
             result
         })?;
+    let concurrency_held = result.receipts.iter().any(|receipt| {
+        receipt.delivered == "queued" && receipt.input_id.is_none() && receipt.error_code.is_none()
+    });
+    if hop_exceeded || concurrency_held {
+        insert_collaboration_limit_notice(pool, &input.space_id).await?;
+    }
     if input.space_id.starts_with(identity::DIRECT_PREFIX)
         && let Some(sender) = sender
     {
         project_direct_space_post(pool, sender, &message_id, content).await?;
     }
     Ok(result)
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct HopHead {
+    id: String,
+    root_id: Option<String>,
+    hop: i64,
+}
+
+fn bare_message_id(raw: &str) -> &str {
+    raw.trim()
+        .strip_prefix("vibex://space-message/")
+        .unwrap_or(raw.trim())
+}
+
+async fn load_hop_parent(
+    pool: &SqlitePool,
+    space_id: &str,
+    in_reply_to: Option<&str>,
+) -> Result<Option<HopHead>, CollaborationError> {
+    if let Some(parent_id) = in_reply_to.map(bare_message_id).filter(|id| !id.is_empty()) {
+        return sqlx::query_as::<_, HopHead>(
+            r#"SELECT id, root_id, hop FROM collaboration_space_messages
+               WHERE id = ? AND space_id = ?"#,
+        )
+        .bind(parent_id)
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db);
+    }
+    sqlx::query_as::<_, HopHead>(
+        r#"SELECT id, root_id, hop FROM collaboration_space_messages
+           WHERE space_id = ? AND origin != 'system'
+           ORDER BY seq DESC LIMIT 1"#,
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
+async fn resolve_root_and_hop(
+    pool: &SqlitePool,
+    space_id: &str,
+    message_id: &str,
+    sender: Option<Uuid>,
+    in_reply_to: Option<&str>,
+    wakes_agents: bool,
+) -> Result<(String, i64), CollaborationError> {
+    if sender.is_none() {
+        return Ok((message_id.to_string(), 0));
+    }
+    let Some(parent) = load_hop_parent(pool, space_id, in_reply_to).await? else {
+        return Ok((message_id.to_string(), 0));
+    };
+    let root_id = parent
+        .root_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or(parent.id);
+    let hop = if wakes_agents {
+        parent.hop.saturating_add(1)
+    } else {
+        parent.hop
+    };
+    Ok((root_id, hop))
+}
+
+async fn in_flight_delivery_count(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<i64, CollaborationError> {
+    sqlx::query_scalar(
+        r#"SELECT COUNT(*)
+           FROM collaboration_space_deliveries d
+           JOIN collaboration_space_messages m ON m.id = d.space_message_id
+           WHERE m.space_id = ? AND d.receipt_state = 'processing'"#,
+    )
+    .bind(space_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db)
+}
+
+async fn insert_collaboration_limit_notice(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<(), CollaborationError> {
+    let published = now_stamp();
+    let message_id = Uuid::new_v4().to_string();
+    let envelope = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "id": format!("vibex://space-message/{message_id}"),
+        "actor": format!("vibex://space/{space_id}/system"),
+        "to": [],
+        "summary": "collaboration_limit",
+        "content": COLLABORATION_LIMIT_NOTICE_ZH,
+        "content_en": COLLABORATION_LIMIT_NOTICE_EN,
+        "published": published,
+    });
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let inserted = async {
+        let seq: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(space_id)
+        .fetch_one(&mut *conn)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO collaboration_space_messages
+               (id, space_id, seq, envelope_json, created_at, origin, root_id, hop)
+               VALUES (?, ?, ?, ?, ?, 'system', ?, 0)"#,
+        )
+        .bind(&message_id)
+        .bind(space_id)
+        .bind(seq)
+        .bind(envelope.to_string())
+        .bind(&published)
+        .bind(&message_id)
+        .execute(&mut *conn)
+        .await?;
+        Ok::<(), sqlx::Error>(())
+    }
+    .await;
+    match inserted {
+        Ok(()) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(db(error));
+        }
+    }
+    Ok(())
 }
 
 /// Private-chat IM is projected from conversation events. Mirror a DM
@@ -999,19 +1165,15 @@ pub(crate) async fn deliver_pending(
     .fetch_all(pool)
     .await
     .map_err(db)?;
-    let message_origin: String =
-        sqlx::query_scalar("SELECT origin FROM collaboration_space_messages WHERE id = ?")
+    let message_hop: i64 =
+        sqlx::query_scalar("SELECT hop FROM collaboration_space_messages WHERE id = ?")
             .bind(message_id)
             .fetch_optional(pool)
             .await
             .map_err(db)?
-            .unwrap_or_default();
-    let chain_limit_exceeded = if message_origin == "agent" {
-        consecutive_agent_messages_since_last_user(pool, space_id, seq).await?
-            > agent_reply_chain_max()
-    } else {
-        false
-    };
+            .unwrap_or(0);
+    let chain_limit_exceeded = message_hop > MAX_ASSISTANT_HOPS_PER_ROOT;
+    let mut in_flight = in_flight_delivery_count(pool, space_id).await?;
     let mut receipts = Vec::new();
     for delivery in pending {
         let Ok(conversation_id) = Uuid::parse_str(&delivery.conversation_id) else {
@@ -1093,6 +1255,17 @@ pub(crate) async fn deliver_pending(
                 state: delivery.receipt_state.clone(),
                 input_id: None,
                 error_code: Some("not_found".to_string()),
+            });
+            continue;
+        }
+        if in_flight >= MAX_IN_FLIGHT_DELIVERIES_PER_SPACE {
+            receipts.push(DeliveryReceipt {
+                conversation_id,
+                nickname,
+                delivered: "queued".to_string(),
+                state: delivery.receipt_state.clone(),
+                input_id: None,
+                error_code: None,
             });
             continue;
         }
@@ -1187,6 +1360,9 @@ pub(crate) async fn deliver_pending(
                 } else {
                     "queued"
                 };
+                if state == "processing" {
+                    in_flight = in_flight.saturating_add(1);
+                }
                 // The queue may already have dispatched the input (trigger),
                 // so never move a receipt backwards.
                 sqlx::query(
@@ -3786,5 +3962,66 @@ mod tests {
                 .unwrap()
                 .contains("鉴权模块已完成单元测试并通过验证。")
         );
+    }
+
+    #[tokio::test]
+    async fn third_in_flight_delivery_queues_without_waking() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+
+        let first = post_as(&pool, None, &space, "@小A 先做", &[]).await;
+        let second = post_as(&pool, None, &space, "@小B 再做", &[]).await;
+        sqlx::query("UPDATE collaboration_space_deliveries SET receipt_state = 'processing'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(input_count(&pool, c).await, 0);
+
+        let third = post_as(&pool, None, &space, "@小C 第三件", &[]).await;
+        assert_eq!(third.receipts.len(), 1);
+        assert_eq!(third.receipts[0].conversation_id, c);
+        assert_eq!(third.receipts[0].delivered, "queued");
+        assert!(third.receipts[0].input_id.is_none());
+        assert_eq!(input_count(&pool, c).await, 0);
+        assert_eq!(input_count(&pool, a).await, 1);
+        assert_eq!(input_count(&pool, b).await, 1);
+        let _ = (first, second);
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert!(
+            messages.iter().any(|message| message.origin == "system"),
+            "concurrency cap must insert the system notice"
+        );
+    }
+
+    #[tokio::test]
+    async fn migrated_space_without_lead_still_posts() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let lead: Option<String> =
+            sqlx::query_scalar("SELECT lead_member_id FROM collaboration_spaces WHERE id = ?")
+                .bind(&space)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(lead.is_none());
+        let posted = post_as(&pool, None, &space, "旧群也能发", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert_eq!(posted.receipts[0].conversation_id, a);
     }
 }

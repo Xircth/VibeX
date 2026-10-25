@@ -117,6 +117,15 @@ export const COPY = {
   get groupMembersTab() {
     return i18n.t('panels:collabCopy.groupMembersTab');
   },
+  get spaceLeadLabel() {
+    return i18n.t('panels:collabCopy.spaceLeadLabel');
+  },
+  get spaceLeadNone() {
+    return i18n.t('panels:collabCopy.spaceLeadNone');
+  },
+  get collaborationLimitNotice() {
+    return i18n.t('panels:collabCopy.collaborationLimitNotice');
+  },
   get assistantDetailsButton() {
     return i18n.t('panels:collabCopy.assistantDetailsButton');
   },
@@ -915,6 +924,17 @@ export function insertMention(
   return source.replace(/@[^\s@]*$/, `@${nickname} `);
 }
 
+export function isCollaborationLimitNotice(message: {
+  origin?: string;
+  envelope?: { actor?: string; summary?: string } | null;
+}): boolean {
+  if (message.origin === 'system') return true;
+  const actor = String(message.envelope?.actor ?? '');
+  return (
+    actor.endsWith('/system') || message.envelope?.summary === 'collaboration_limit'
+  );
+}
+
 export function messageAuthor(
   envelope:
     | {
@@ -924,6 +944,7 @@ export function messageAuthor(
     | undefined
 ): string {
   const actor = String(envelope?.actor ?? '');
+  if (actor.endsWith('/system')) return '';
   if (actor.endsWith('/user')) return COPY.you;
   const marker = '/member/';
   const index = actor.lastIndexOf(marker);

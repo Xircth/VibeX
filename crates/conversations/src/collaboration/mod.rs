@@ -71,8 +71,8 @@ pub use roles::{
     read_session_info_for_delegation, read_session_info_for_session_product,
     record_member_session_workspace, release_member_write, rename_workspace_space,
     resolve_member_target, resolve_session, resolve_thread_session, set_conversation_persona_team,
-    set_member_session_config, set_member_write_access, set_space_identity, space_workspace_id,
-    try_acquire_member_write, unassigned_space_id, update_role, update_team,
+    set_member_session_config, set_member_write_access, set_space_identity, set_space_lead,
+    space_workspace_id, try_acquire_member_write, unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
     caller_seat, load_space, load_space_or_unassigned, member_nickname, resolve_seat_target,
@@ -85,8 +85,8 @@ pub use routing::{
     spawn_idle_session_sweeper, wake_cap_per_turn,
 };
 pub(crate) use routing::{
-    consecutive_agent_messages_since_last_user, env_i64, hold_over_wake_cap, reserve_wake,
-    resolve_targets, session_is_asleep, touch_session_activity, wake_turn_in_flight, wake_turn_key,
+    env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, session_is_asleep,
+    touch_session_activity, wake_turn_in_flight, wake_turn_key,
 };
 pub use scheduled::{
     ScheduledSpaceMessage, cancel_space_scheduled_message, list_space_scheduled_messages,
@@ -104,6 +104,18 @@ const SPACE_LIST_HARD_CAP: i64 = 200;
 const SUBMIT_HOURLY_CAP: i64 = 60;
 const DIGEST_REPLAY_MINUTES: i64 = 10;
 const HARD_DELAY_HOURS: i64 = 168;
+
+/// Assistant-to-assistant wakes allowed on one user-rooted message.
+/// Raise this (or later read it from config) to loosen the hop cap.
+pub const MAX_ASSISTANT_HOPS_PER_ROOT: i64 = 8;
+/// In-flight (`processing`) deliveries allowed in one group at a time.
+/// Raise this (or later read it from config) to loosen the concurrency cap.
+pub const MAX_IN_FLIGHT_DELIVERIES_PER_SPACE: i64 = 2;
+
+/// Stored on the system notice posted when a hop or concurrency cap is hit.
+pub const COLLABORATION_LIMIT_NOTICE_ZH: &str = "已达到自动协作上限，请 @ 助手继续";
+pub const COLLABORATION_LIMIT_NOTICE_EN: &str =
+    "Automatic collaboration limit reached. @ a Bot to continue.";
 
 /// Starts the next durable input when the conversation has no in-flight turn.
 /// The Application Core service is the production implementation. A missing

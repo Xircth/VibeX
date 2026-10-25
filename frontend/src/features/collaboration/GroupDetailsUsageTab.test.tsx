@@ -125,23 +125,33 @@ function factsFor(sessionId: string, agentId: string) {
 describe('GroupDetailsUsageTab', () => {
   beforeEach(() => {
     collaborationCall.mockReset();
-    collaborationCall.mockResolvedValue({
-      members: [
-        {
-          member_id: 'm1',
-          nickname: '小A',
-          kind: 'agent',
-          visible_to_agents: 1,
-          conversation_id: 'conv-1',
-        },
-        {
-          member_id: 'm2',
-          nickname: '小B',
-          kind: 'agent',
-          visible_to_agents: 1,
-          conversation_id: 'conv-2',
-        },
-      ],
+    collaborationCall.mockImplementation(async (_capability, method) => {
+      if (method === 'space.list') {
+        return {
+          spaces: [{ space_id: 's1', name: '设计', lead_member_id: null }],
+        };
+      }
+      if (method === 'space.update') {
+        return { space_id: 's1', name: '设计', lead_member_id: 'm1' };
+      }
+      return {
+        members: [
+          {
+            member_id: 'm1',
+            nickname: '小A',
+            kind: 'agent',
+            visible_to_agents: 1,
+            conversation_id: 'conv-1',
+          },
+          {
+            member_id: 'm2',
+            nickname: '小B',
+            kind: 'agent',
+            visible_to_agents: 1,
+            conversation_id: 'conv-2',
+          },
+        ],
+      };
     });
     useConversationTimeline.mockImplementation((id: string | null) => {
       if (id === 'conv-1') {
@@ -204,5 +214,42 @@ describe('GroupDetailsUsageTab', () => {
     expect(within(cardA).queryByText('grok-4.6')).toBeNull();
     expect(cardA).toHaveTextContent('小A');
     expect(cardA).toHaveTextContent('Grok');
+  });
+
+  it('lets the user pick a group lead', async () => {
+    const user = userEvent.setup();
+    render(
+      <GroupDetailsUsageTab
+        spaceId="s1"
+        workspaceId="workspace-1"
+        getAvatar={(conversationId, nickname) =>
+          deriveMemberBotAvatar(conversationId || nickname || 'bot')
+        }
+      />
+    );
+
+    const select = await screen.findByLabelText('负责人');
+    expect(within(select).getByRole('option', { name: '不指定' })).toBeTruthy();
+    await waitFor(() => {
+      expect(select).toHaveValue('');
+      expect(within(select).getByRole('option', { name: '小A' })).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.list',
+        { workspaceId: 'workspace-1' }
+      );
+    });
+
+    await user.selectOptions(select, 'm1');
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.update',
+        { spaceId: 's1', leadMemberId: 'm1' }
+      );
+    });
+    expect(select).toHaveValue('m1');
   });
 });

@@ -857,6 +857,8 @@ pub struct SpaceRecord {
     pub space_id: String,
     pub name: String,
     pub workspace_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_member_id: Option<String>,
 }
 
 pub async fn create_collaboration_space(
@@ -924,6 +926,7 @@ pub async fn create_collaboration_space(
         space_id,
         name,
         workspace_id: caller.workspace_id,
+        lead_member_id: None,
     };
     store_operation(
         pool,
@@ -982,6 +985,7 @@ pub async fn create_workspace_space(
         space_id,
         name,
         workspace_id,
+        lead_member_id: None,
     };
     store_operation(
         pool,
@@ -999,7 +1003,6 @@ pub async fn rename_workspace_space(
     space_id: &str,
     name: &str,
 ) -> Result<SpaceRecord, CollaborationError> {
-    let workspace_id = space_workspace_id(pool, space_id).await?;
     let name = require_name(name)?;
     let updated = sqlx::query(
         r#"UPDATE collaboration_spaces
@@ -1014,10 +1017,72 @@ pub async fn rename_workspace_space(
     if updated.rows_affected() == 0 {
         return Err(CollaborationError::new("not_found", "space was not found"));
     }
+    load_space_record(pool, space_id).await
+}
+
+/// Set or clear the optional group lead (`lead_member_id`). Empty clears it.
+pub async fn set_space_lead(
+    pool: &SqlitePool,
+    space_id: &str,
+    lead_member_id: Option<&str>,
+) -> Result<SpaceRecord, CollaborationError> {
+    load_space(pool, space_id).await?;
+    let lead = lead_member_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    if let Some(lead_id) = lead.as_deref() {
+        let kind: Option<String> = sqlx::query_scalar(
+            r#"SELECT kind FROM collaboration_space_members
+               WHERE space_id = ? AND member_id = ?"#,
+        )
+        .bind(space_id)
+        .bind(lead_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        if kind.as_deref() != Some("agent") {
+            return Err(CollaborationError::new(
+                "not_found",
+                "lead member was not found in this space",
+            ));
+        }
+    }
+    sqlx::query(
+        r#"UPDATE collaboration_spaces
+           SET lead_member_id = ?
+           WHERE id = ?"#,
+    )
+    .bind(lead.as_deref())
+    .bind(space_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    load_space_record(pool, space_id).await
+}
+
+pub(crate) async fn load_space_record(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<SpaceRecord, CollaborationError> {
+    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        r#"SELECT name, workspace_id, lead_member_id
+           FROM collaboration_spaces WHERE id = ?"#,
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some((name, workspace_id, lead_member_id)) = row else {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    };
+    let workspace_id = Uuid::parse_str(&workspace_id)
+        .map_err(|_| CollaborationError::new("not_found", "space was not found"))?;
     Ok(SpaceRecord {
         space_id: space_id.to_string(),
         name,
         workspace_id,
+        lead_member_id: lead_member_id.filter(|id| !id.trim().is_empty()),
     })
 }
 
@@ -1025,8 +1090,8 @@ pub async fn list_workspace_spaces(
     pool: &SqlitePool,
     workspace_id: Uuid,
 ) -> Result<Vec<SpaceRecord>, CollaborationError> {
-    let rows = sqlx::query_as::<_, (String, String)>(
-        r#"SELECT id, name
+    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+        r#"SELECT id, name, lead_member_id
            FROM collaboration_spaces
            WHERE workspace_id = ?
            ORDER BY created_at, id"#,
@@ -1037,10 +1102,11 @@ pub async fn list_workspace_spaces(
     .map_err(db)?;
     Ok(rows
         .into_iter()
-        .map(|(space_id, name)| SpaceRecord {
+        .map(|(space_id, name, lead_member_id)| SpaceRecord {
             space_id,
             name,
             workspace_id,
+            lead_member_id: lead_member_id.filter(|id| !id.trim().is_empty()),
         })
         .collect())
 }

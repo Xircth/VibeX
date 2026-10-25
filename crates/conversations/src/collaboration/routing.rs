@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -215,7 +215,7 @@ pub(crate) async fn resolve_seat_targets(
                 nickname: "User".to_string(),
             }]);
         }
-        return Ok(broadcast_all_agents(members));
+        return pick_default_agent_targets(pool, space_id, &members).await;
     }
 
     let mut targets = Vec::new();
@@ -275,9 +275,138 @@ pub(crate) async fn resolve_seat_targets(
     Ok(targets)
 }
 
+fn member_as_target(member: &MemberRecord) -> Option<ResolvedTarget> {
+    let conversation_id = member
+        .conversation_id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())?;
+    Some(ResolvedTarget {
+        conversation_id: Some(conversation_id),
+        nickname: member.nickname.clone(),
+    })
+}
+
+/// Default recipient when a user posts with no `to` and no @ in the body:
+/// lead → last @-mentioned member → creator → first roster seat.
+async fn pick_default_agent_targets(
+    pool: &SqlitePool,
+    space_id: &str,
+    members: &[MemberRecord],
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    if members.is_empty() {
+        return Ok(Vec::new());
+    }
+    let meta: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        r#"SELECT lead_member_id, created_by_conversation_id
+           FROM collaboration_spaces WHERE id = ?"#,
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let (lead_member_id, created_by) = meta.unwrap_or((None, None));
+
+    if let Some(lead_id) = lead_member_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        && let Some(member) = members.iter().find(|member| member.member_id == lead_id)
+        && let Some(target) = member_as_target(member)
+    {
+        return Ok(vec![target]);
+    }
+
+    if let Some(target) = last_mentioned_agent(pool, space_id, members).await? {
+        return Ok(vec![target]);
+    }
+
+    if let Some(created) = created_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        && let Some(member) = members
+            .iter()
+            .find(|member| member.conversation_id.as_deref() == Some(created))
+        && let Some(target) = member_as_target(member)
+    {
+        return Ok(vec![target]);
+    }
+
+    if let Some(target) = members.iter().find_map(member_as_target) {
+        return Ok(vec![target]);
+    }
+    Ok(Vec::new())
+}
+
+fn nickname_from_actor(uri: &str) -> Option<String> {
+    let marker = "/member/";
+    let index = uri.rfind(marker)?;
+    let nick = uri[index + marker.len()..].trim();
+    if nick.is_empty() || is_user_target_name(nick) {
+        None
+    } else {
+        Some(nick.to_string())
+    }
+}
+
+async fn last_mentioned_agent(
+    pool: &SqlitePool,
+    space_id: &str,
+    members: &[MemberRecord],
+) -> Result<Option<ResolvedTarget>, CollaborationError> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        r#"SELECT envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND origin IN ('user', 'agent')
+           ORDER BY seq DESC LIMIT 200"#,
+    )
+    .bind(space_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for raw in rows {
+        let envelope: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+        let content = envelope
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let to_names: Vec<String> = envelope
+            .get("to")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(nickname_from_actor)
+            .collect();
+        let mut best: Option<(usize, &MemberRecord)> = None;
+        for member in members {
+            let needle = format!("@{}", member.nickname);
+            for (idx, _) in content.match_indices(&needle) {
+                if contains_mention_token(content, &member.nickname)
+                    && best.is_none_or(|(best_idx, _)| idx >= best_idx)
+                {
+                    best = Some((idx, member));
+                }
+            }
+        }
+        if let Some((_, member)) = best
+            && let Some(target) = member_as_target(member)
+        {
+            return Ok(Some(target));
+        }
+        for name in &to_names {
+            if let Some(member) = members.iter().find(|member| member.nickname == *name)
+                && let Some(target) = member_as_target(member)
+            {
+                return Ok(Some(target));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Who a draft would wake if posted now. Pure read: resolves recipients the
-/// way `post_to_space` does (explicit `to`, then @-mentions, otherwise every
-/// agent seat except the sender) without creating any session.
+/// way `post_to_space` does (explicit `to`, then @-mentions, otherwise the
+/// single default seat) without creating any session.
 #[derive(Debug, Clone, Serialize)]
 pub struct WakePreview {
     /// Agent members the post would deliver to.
@@ -304,14 +433,8 @@ pub async fn preview_space_wake(
         }
         None => None,
     };
-    let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
     let explicit_broadcast =
         to.iter().any(|name| is_broadcast_target_name(name)) || contains_broadcast_mention(content);
-    let mentioned = !explicit_broadcast
-        && (to.iter().any(|name| !name.trim().is_empty())
-            || members
-                .iter()
-                .any(|member| contains_mention_token(content, &member.nickname)));
     let targets = resolve_seat_targets(pool, space_id, sender, to, content).await?;
     let mut nicknames = Vec::new();
     let mut asleep = 0;
@@ -327,7 +450,7 @@ pub async fn preview_space_wake(
     Ok(WakePreview {
         will_wake: nicknames.len(),
         nicknames,
-        broadcast: !mentioned,
+        broadcast: explicit_broadcast,
         asleep,
     })
 }
@@ -360,37 +483,6 @@ pub fn agent_reply_chain_max() -> usize {
         DEFAULT_AGENT_REPLY_CHAIN_MAX as i64,
     )
     .max(1) as usize
-}
-
-pub(crate) async fn consecutive_agent_messages_since_last_user(
-    pool: &SqlitePool,
-    space_id: &str,
-    up_to_seq: i64,
-) -> Result<usize, CollaborationError> {
-    let limit = (agent_reply_chain_max() as i64).saturating_add(10).max(20);
-    let rows = sqlx::query_scalar::<_, String>(
-        r#"SELECT origin
-           FROM collaboration_space_messages
-           WHERE space_id = ? AND seq <= ?
-           ORDER BY seq DESC
-           LIMIT ?"#,
-    )
-    .bind(space_id)
-    .bind(up_to_seq)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(db)?;
-
-    let mut count = 0usize;
-    for origin in rows {
-        if origin == "agent" {
-            count += 1;
-        } else {
-            break;
-        }
-    }
-    Ok(count)
 }
 
 pub(crate) fn env_i64(key: &str, default: i64) -> i64 {
@@ -669,11 +761,11 @@ mod tests {
         add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
             .await
             .unwrap();
-        let broadcast = preview_space_wake(&pool, &space, None, "大家看看", &[])
+        let default_wake = preview_space_wake(&pool, &space, None, "大家看看", &[])
             .await
             .unwrap();
-        assert!(broadcast.broadcast);
-        assert_eq!(broadcast.will_wake, 3);
+        assert!(!default_wake.broadcast);
+        assert_eq!(default_wake.will_wake, 1);
         let mentioned = preview_space_wake(&pool, &space, None, "@小B 看看", &[])
             .await
             .unwrap();
@@ -723,11 +815,12 @@ mod tests {
         let preview = preview_space_wake(&pool, &space, None, "大家", &[])
             .await
             .unwrap();
-        assert_eq!(preview.asleep, 4);
+        assert_eq!(preview.will_wake, 1);
+        assert_eq!(preview.asleep, 1);
 
-        // One user message is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
+        // One user broadcast is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
         // sleeping sessions wake; the rest are deferred.
-        let posted = post_as(&pool, None, &space, "大家醒醒", &[]).await;
+        let posted = post_as(&pool, None, &space, "@所有人 大家醒醒", &[]).await;
         let woken = posted
             .receipts
             .iter()
@@ -757,7 +850,7 @@ mod tests {
         .unwrap();
         assert_eq!(still_asleep, 1);
         // A new message is a new turn and may wake the deferred member.
-        let next = post_as(&pool, None, &space, "再叫一次", &[]).await;
+        let next = post_as(&pool, None, &space, "@所有人 再叫一次", &[]).await;
         assert!(next.receipts.iter().all(|r| r.error_code.is_none()));
     }
 
@@ -891,7 +984,7 @@ mod tests {
         sleep_idle_sessions(&pool, 30).await.unwrap();
 
         // User posts a broadcast message -> wake_turn_key is "message:<message_id>"
-        let posted = post_as(&pool, None, &space, "请大家汇报进展", &[]).await;
+        let posted = post_as(&pool, None, &space, "@所有人 请大家汇报进展", &[]).await;
         let delivered_convs: Vec<Uuid> = posted
             .receipts
             .iter()
@@ -939,7 +1032,137 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn agent_to_agent_reply_chain_stops_waking_after_max_depth() {
+    async fn default_user_post_wakes_only_the_lead() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        let lead = add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        set_space_lead(&pool, &space, Some(&lead.member_id))
+            .await
+            .unwrap();
+        let posted = post_as(&pool, None, &space, "请推进鉴权", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert_eq!(posted.receipts[0].conversation_id, b);
+        assert_eq!(input_count(&pool, a).await, 0);
+        assert_eq!(input_count(&pool, c).await, 0);
+        assert_eq!(input_count(&pool, b).await, 1);
+    }
+
+    #[tokio::test]
+    async fn default_user_post_wakes_last_mentioned_when_no_lead() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        post_as(&pool, None, &space, "@小C 先看接口", &[]).await;
+        let posted = post_as(&pool, None, &space, "继续", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert_eq!(posted.receipts[0].conversation_id, c);
+        assert_eq!(input_count(&pool, b).await, 0);
+    }
+
+    #[tokio::test]
+    async fn default_user_post_wakes_creator_then_first_member() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, None, &space, "开工", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert_eq!(posted.receipts[0].conversation_id, a);
+
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let owned = create_workspace_space(&pool, workspace, "无群主群", Uuid::new_v4())
+            .await
+            .unwrap()
+            .space_id;
+        add_space_member(&pool, a, &owned, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &owned, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let first = post_as(&pool, None, &owned, "开工", &[]).await;
+        assert_eq!(first.receipts.len(), 1);
+        assert_eq!(first.receipts[0].nickname, "小B");
+    }
+
+    #[tokio::test]
+    async fn agent_post_without_mention_does_not_wake_assistants() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, Some(a), &space, "我这边好了", &[]).await;
+        assert!(posted.receipts.is_empty());
+        assert_eq!(input_count(&pool, b).await, 0);
+    }
+
+    #[tokio::test]
+    async fn explicit_multi_mention_still_wakes_each_named_assistant() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, None, &space, "@小B @小C 一起看", &[]).await;
+        let ids: Vec<Uuid> = posted
+            .receipts
+            .iter()
+            .map(|receipt| receipt.conversation_id)
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&b));
+        assert!(ids.contains(&c));
+    }
+
+    #[tokio::test]
+    async fn ninth_assistant_hop_is_blocked_with_a_system_notice() {
         let pool = setup_pool().await;
         let workspace = Uuid::new_v4();
         let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
@@ -950,15 +1173,11 @@ mod tests {
             .await
             .unwrap();
 
-        // User starts the topic
         post_as(&pool, None, &space, "@小A 请和小B对齐一下接口", &["小A"]).await;
-        let initial_a_inputs = input_count(&pool, a).await;
-        let initial_b_inputs = input_count(&pool, b).await;
-        assert_eq!(initial_a_inputs, 1);
-        assert_eq!(initial_b_inputs, 0);
+        assert_eq!(input_count(&pool, a).await, 1);
+        assert_eq!(input_count(&pool, b).await, 0);
 
-        // Up to DEFAULT_AGENT_REPLY_CHAIN_MAX (4) consecutive agent messages wake the peer
-        for step in 1..=DEFAULT_AGENT_REPLY_CHAIN_MAX {
+        for step in 1..=MAX_ASSISTANT_HOPS_PER_ROOT {
             let (sender, target_nick) = if step % 2 == 1 {
                 (a, "小B")
             } else {
@@ -972,23 +1191,23 @@ mod tests {
                 &[target_nick],
             )
             .await;
-            assert_eq!(posted.receipts.len(), 1);
-            assert_ne!(
-                posted.receipts[0].delivered, "skipped_chain_limit",
-                "step {step} within limit must still wake peer"
-            );
+            assert_eq!(posted.receipts.len(), 1, "hop {step} must still wake");
         }
 
         let b_inputs_before_over = input_count(&pool, b).await;
-        // The (DEFAULT_AGENT_REPLY_CHAIN_MAX + 1)-th consecutive agent message must NOT wake the peer
-        let over_limit = post_as(&pool, Some(a), &space, "@小B 第5轮继续追问", &["小B"]).await;
-        assert_eq!(over_limit.receipts.len(), 1);
-        assert_eq!(over_limit.receipts[0].delivered, "skipped_chain_limit");
-        assert_eq!(over_limit.receipts[0].state, "replied");
-        assert_eq!(
-            input_count(&pool, b).await,
-            b_inputs_before_over,
-            "must stop dispatching new inputs once DEFAULT_AGENT_REPLY_CHAIN_MAX is reached"
+        let over_limit = post_as(&pool, Some(a), &space, "@小B 第9轮继续追问", &["小B"]).await;
+        assert!(over_limit.receipts.is_empty());
+        assert_eq!(input_count(&pool, b).await, b_inputs_before_over);
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert!(
+            messages.iter().any(|message| {
+                message.origin == "system"
+                    && message.envelope.get("content").and_then(Value::as_str)
+                        == Some(COLLABORATION_LIMIT_NOTICE_ZH)
+            }),
+            "hop cap must insert the system notice"
         );
     }
 }

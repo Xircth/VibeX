@@ -505,10 +505,32 @@ impl HostCollaborationHost {
 
     async fn rename_space(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id", "id"])?;
-        let name = text(input, &["name"]);
-        let space = collaboration::rename_workspace_space(&self.pool, &space_id, &name)
-            .await
-            .map_err(host_error)?;
+        let name = optional_text(input, &["name"]);
+        let lead_present = ["leadMemberId", "lead_member_id"]
+            .iter()
+            .any(|key| input.get(*key).is_some());
+        if name.is_none() && !lead_present {
+            required_text(input, &["name"])?;
+        }
+        let lead = if lead_present {
+            optional_text(input, &["leadMemberId", "lead_member_id"])
+        } else {
+            None
+        };
+        let mut space = if let Some(name) = name.as_deref() {
+            collaboration::rename_workspace_space(&self.pool, &space_id, name)
+                .await
+                .map_err(host_error)?
+        } else {
+            collaboration::set_space_lead(&self.pool, &space_id, lead.as_deref())
+                .await
+                .map_err(host_error)?
+        };
+        if lead_present && name.is_some() {
+            space = collaboration::set_space_lead(&self.pool, &space_id, lead.as_deref())
+                .await
+                .map_err(host_error)?;
+        }
         self.events.emit(
             COLLABORATION_SPACE_CHANGED_EVENT,
             CollaborationSpaceChangedEvent {

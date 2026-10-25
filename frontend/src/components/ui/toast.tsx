@@ -115,8 +115,33 @@ function resumeToast(id: ToastId) {
   if (item) scheduleToast(item);
 }
 
+const MAX_VISIBLE_TOASTS = 3;
+
+/**
+ * Keep at most MAX_VISIBLE_TOASTS. Errors are the last to go: the oldest
+ * non-error toast is evicted first, so a burst of success/info toasts can
+ * never push an unread error off the stack.
+ */
+function evictOverflow(items: ToastItem[]): ToastItem[] {
+  const next = [...items];
+  while (next.length > MAX_VISIBLE_TOASTS) {
+    let index = next.findIndex((candidate) => candidate.kind !== 'error');
+    if (index < 0 || index === next.length - 1) index = 0;
+    const [removed] = next.splice(index, 1);
+    clearToastTimer(removed.id);
+  }
+  return next;
+}
+
 function fallbackTitle(kind: ToastKind): string {
-  return i18n.t(`app:toast.${kind}Title`);
+  const fallback: Record<ToastKind, string> = {
+    success: 'Done',
+    info: 'Notice',
+    warning: 'Warning',
+    error: 'Something went wrong',
+    loading: 'Working…',
+  };
+  return i18n.t(`app:toast.${kind}Title`, { defaultValue: fallback[kind] });
 }
 
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
@@ -363,10 +388,7 @@ function showToast(
       candidate.id === id ? item : candidate
     );
   } else {
-    const next = [...toastItems, item];
-    const removed = next.slice(0, Math.max(0, next.length - 3));
-    removed.forEach((candidate) => clearToastTimer(candidate.id));
-    toastItems = next.slice(-3);
+    toastItems = evictOverflow([...toastItems, item]);
   }
 
   emitChange();

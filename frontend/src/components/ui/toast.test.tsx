@@ -218,4 +218,28 @@ describe('unified toast', () => {
     expect(screen.getByText('第四条')).toBeInTheDocument();
     expect(document.querySelectorAll('.vu-toast-host')).toHaveLength(3);
   });
+
+  it('evicts older non-error toasts before an unread error', () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('保存失败');
+      toast.info('第二条');
+      toast.info('第三条');
+      toast.info('第四条');
+    });
+
+    expect(screen.getByText('保存失败')).toBeInTheDocument();
+    expect(screen.queryByText('第二条')).not.toBeInTheDocument();
+    expect(screen.getByText('第四条')).toBeInTheDocument();
+    expect(document.querySelectorAll('.vu-toast-host')).toHaveLength(3);
+  });
+
+  it('shows a translated fallback title instead of a raw key', () => {
+    render(<Toaster />);
+    act(() => {
+      toast.error('磁盘已满');
+    });
+    expect(document.body.textContent).not.toContain('app:toast');
+  });
 });

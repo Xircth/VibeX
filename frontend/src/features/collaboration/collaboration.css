@@ -11,7 +11,7 @@
   height: 100%;
   min-height: 0;
   min-width: 0;
-  background: #ffffff;
+  background: var(--surface-content);
   color: var(--text-primary);
 }
 
@@ -105,25 +105,24 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: #ffffff;
+  background: var(--surface-content);
 }
 
 .collaboration-thread .conv-message-nav-anchor {
   display: block;
 }
 
-.collaboration-thread-overlay,
-.dark .collaboration-thread-overlay {
-  background: rgba(255, 255, 255, 0.86) !important;
+.collaboration-thread-overlay {
+  background: color-mix(in srgb, var(--surface-content) 86%, transparent) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
 }
 
-.collaboration-thread-overlay .dialog-surface,
-.dark .collaboration-thread-overlay .dialog-surface {
-  background: #ffffff !important;
+/* Opaque Dialog Rule: the dialog itself is always the solid dialog surface. */
+.collaboration-thread-overlay .dialog-surface {
+  background: var(--surface-dialog) !important;
   border-color: var(--border-subtle) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: var(--shadow-popover) !important;
 }
 
 .collaboration-default-space-empty {
@@ -331,11 +330,11 @@
     linear-gradient(var(--surface-control), var(--surface-control)),
     linear-gradient(
       115deg,
-      rgba(59, 130, 246, 0.28) 0%,
-      rgba(96, 165, 250, 0.92) 35%,
-      rgba(147, 197, 253, 0.98) 50%,
-      rgba(96, 165, 250, 0.92) 65%,
-      rgba(59, 130, 246, 0.28) 100%
+      hsl(var(--primary) / 0.28) 0%,
+      hsl(var(--primary) / 0.92) 35%,
+      hsl(var(--primary) / 0.98) 50%,
+      hsl(var(--primary) / 0.92) 65%,
+      hsl(var(--primary) / 0.28) 100%
     );
   background-origin: border-box;
   background-clip: padding-box, border-box;
@@ -343,8 +342,8 @@
     100% 100%,
     240% 240%;
   box-shadow:
-    0 0 0 1px rgba(59, 130, 246, 0.22),
-    0 0 8px rgba(59, 130, 246, 0.32);
+    0 0 0 1px hsl(var(--primary) / 0.22),
+    0 0 8px hsl(var(--primary) / 0.32);
   animation: collaboration-member-flowing-blue-glow 2.6s linear infinite;
 }
 
@@ -359,8 +358,8 @@
   background-image: none;
   background: transparent;
   box-shadow:
-    0 0 0 1.5px rgba(147, 197, 253, 0.75),
-    0 0 10px rgba(59, 130, 246, 0.48);
+    0 0 0 1.5px hsl(var(--primary) / 0.75),
+    0 0 10px hsl(var(--primary) / 0.48);
 }
 
 @keyframes collaboration-member-flowing-blue-glow {
@@ -369,24 +368,24 @@
       0 0,
       0% 50%;
     box-shadow:
-      0 0 0 1px rgba(59, 130, 246, 0.18),
-      0 0 6px rgba(59, 130, 246, 0.24);
+      0 0 0 1px hsl(var(--primary) / 0.18),
+      0 0 6px hsl(var(--primary) / 0.24);
   }
   50% {
     background-position:
       0 0,
       100% 50%;
     box-shadow:
-      0 0 0 1px rgba(96, 165, 250, 0.38),
-      0 0 10px rgba(59, 130, 246, 0.42);
+      0 0 0 1px hsl(var(--primary) / 0.38),
+      0 0 10px hsl(var(--primary) / 0.42);
   }
   100% {
     background-position:
       0 0,
       200% 50%;
     box-shadow:
-      0 0 0 1px rgba(59, 130, 246, 0.18),
-      0 0 6px rgba(59, 130, 246, 0.24);
+      0 0 0 1px hsl(var(--primary) / 0.18),
+      0 0 6px hsl(var(--primary) / 0.24);
   }
 }
 
@@ -432,8 +431,8 @@
   gap: 0.25rem;
   padding: 0.125rem 0.375rem;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.1);
-  color: hsl(214 88% 52%);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
   font-size: 0.6875rem;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -463,9 +462,9 @@
 }
 
 .collaboration-top-collection-btn.is-active {
-  border-color: hsl(214 88% 56%);
-  background: rgba(59, 130, 246, 0.12);
-  color: hsl(214 88% 52%);
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
 }
 
 .collaboration-top-member-collapsed-bar {
@@ -512,8 +511,8 @@
 }
 
 .collaboration-top-member-chrome .collaboration-top-collection-btn.is-active {
-  background: rgba(59, 130, 246, 0.14);
-  color: hsl(214 88% 52%);
+  background: hsl(var(--primary) / 0.14);
+  color: hsl(var(--primary));
 }
 
 .collaboration-top-member-toggle {
@@ -548,8 +547,8 @@
 }
 
 .collaboration-top-collection-btn.is-collapsed-bar.is-active {
-  background: rgba(59, 130, 246, 0.14);
-  color: hsl(214 88% 52%);
+  background: hsl(var(--primary) / 0.14);
+  color: hsl(var(--primary));
 }
 
 .collaboration-top-member-collapsed-divider {
@@ -852,13 +851,9 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  background-color: rgba(148, 163, 184, 0.28);
+  background-color: var(--surface-control-hover);
   overflow: hidden;
   transition: background-color 140ms ease;
-}
-
-.dark .collaboration-space-icon {
-  background-color: rgba(148, 163, 184, 0.22);
 }
 
 .collaboration-space-icon--sm {
@@ -905,12 +900,12 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  background-color: #e2e8f0 !important;
+  background-color: var(--surface-control-hover) !important;
   overflow: hidden;
 }
 
 .dark .collaboration-space-icon-cell {
-  background-color: rgba(51, 65, 85, 0.88) !important;
+  background-color: var(--surface-control-hover) !important;
 }
 
 .collaboration-space-icon-cell-avatar {
@@ -954,7 +949,7 @@
 .collaboration-delete-checkbox {
   border-width: 1.75px !important;
   border-color: var(--text-muted) !important;
-  background-color: #ffffff;
+  background-color: var(--surface-control-solid);
 }
 
 .dark .collaboration-delete-checkbox {
@@ -1084,7 +1079,7 @@
 .collaboration-space-hover-actions .collaboration-edit-name-btn:hover,
 .collaboration-space-hover-actions .collaboration-edit-name-btn:focus-visible {
   border-radius: 9999px !important;
-  background: rgba(15, 23, 42, 0.08) !important;
+  background: var(--surface-control-hover) !important;
 }
 
 .dark .collaboration-shell .collaboration-edit-name-btn:hover,
@@ -1097,7 +1092,7 @@
 .dark
   .collaboration-space-hover-actions
   .collaboration-edit-name-btn:focus-visible {
-  background: rgba(255, 255, 255, 0.12) !important;
+  background: var(--surface-control-hover) !important;
 }
 
 .collaboration-member-list {
@@ -2203,7 +2198,7 @@ body.is-dragging-collaboration-member * {
   padding: 0.625rem 0.75rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface-card);
 }
 
 .collaboration-avatar-color-grid {
@@ -2234,8 +2229,8 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-avatar-color-dot.is-selected {
   box-shadow:
-    0 0 0 2.5px #ffffff,
-    0 0 0 4px #d1d5db;
+    0 0 0 2.5px var(--surface-dialog),
+    0 0 0 4px var(--border-strong, var(--border-subtle));
 }
 
 .collaboration-avatar-shape-grid {
@@ -2267,16 +2262,11 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-settings-modal-overlay {
-  background: rgba(255, 255, 255, 0.56) !important;
+  background: color-mix(in srgb, var(--surface-content) 56%, transparent) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
 }
 
-.dark .collaboration-settings-modal-overlay {
-  background: rgba(18, 18, 18, 0.58) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-}
 
 .settings-page.collaboration-settings-window-blurred {
   filter: blur(10px);
@@ -2310,8 +2300,8 @@ body.is-dragging-collaboration-member * {
 .collaboration-settings-modal-overlay
   .astryx-button[data-testid^='session-control-'] {
   border: 1px solid var(--border-subtle) !important;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
   color: var(--text-strong) !important;
   box-shadow: var(--shadow-inset) !important;
 }
@@ -2328,8 +2318,8 @@ body.is-dragging-collaboration-member * {
   button[role='combobox']:hover:not(:disabled),
 .collaboration-settings-modal-overlay
   [data-testid^='session-control-']:hover:not(:disabled) {
-  background: var(--surface-control-solid-hover, #f5f5f5) !important;
-  background-color: var(--surface-control-solid-hover, #f5f5f5) !important;
+  background: var(--surface-control-solid-hover) !important;
+  background-color: var(--surface-control-solid-hover) !important;
 }
 
 .dark
@@ -2343,8 +2333,8 @@ body.is-dragging-collaboration-member * {
 .dark .collaboration-settings-modal-overlay .custom-role-agent-trigger,
 .dark .collaboration-settings-modal-overlay button[role='combobox'],
 .dark .collaboration-settings-modal-overlay [data-testid^='session-control-'] {
-  background: var(--surface-control-solid, #262626) !important;
-  background-color: var(--surface-control-solid, #262626) !important;
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
 }
 
 .collaboration-settings-modal-overlay .custom-role-persona-textarea,
@@ -2354,14 +2344,14 @@ body.is-dragging-collaboration-member * {
   line-height: 1.4 !important;
   overflow-y: auto;
   resize: none;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
 }
 
 .dark .collaboration-settings-modal-overlay .custom-role-persona-textarea,
 .dark .settings-page .custom-role-persona-textarea {
-  background: var(--surface-control-solid, #262626) !important;
-  background-color: var(--surface-control-solid, #262626) !important;
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
 }
 
 @media (max-width: 1180px) {
@@ -2391,9 +2381,9 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-collection-panel.is-drag-over {
-  outline: 2px dashed hsl(214 88% 56%);
+  outline: 2px dashed hsl(var(--primary));
   outline-offset: -4px;
-  background: rgba(59, 130, 246, 0.04);
+  background: hsl(var(--primary) / 0.04);
 }
 
 .collaboration-group-details-hero {
@@ -2695,25 +2685,15 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-collection-action-btn {
   border: 1px solid var(--border-subtle) !important;
-  background: rgba(148, 163, 184, 0.18) !important;
-  background-color: rgba(148, 163, 184, 0.18) !important;
+  background: var(--surface-control) !important;
+  background-color: var(--surface-control) !important;
   color: var(--text-strong) !important;
   box-shadow: none !important;
 }
 
-.dark .collaboration-collection-action-btn {
-  background: rgba(148, 163, 184, 0.15) !important;
-  background-color: rgba(148, 163, 184, 0.15) !important;
-}
-
 .collaboration-collection-action-btn:hover:not(:disabled) {
-  background: rgba(148, 163, 184, 0.28) !important;
-  background-color: rgba(148, 163, 184, 0.28) !important;
-}
-
-.dark .collaboration-collection-action-btn:hover:not(:disabled) {
-  background: rgba(148, 163, 184, 0.24) !important;
-  background-color: rgba(148, 163, 184, 0.24) !important;
+  background: var(--surface-control-hover) !important;
+  background-color: var(--surface-control-hover) !important;
 }
 
 .collaboration-collection-add-form {
@@ -2749,8 +2729,8 @@ body.is-dragging-collaboration-member * {
 .collaboration-collection-dropzone:hover,
 .collaboration-collection-panel.is-drag-over
   .collaboration-collection-dropzone {
-  border-color: hsl(214 88% 56%);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
   color: var(--text-strong);
 }
 
@@ -3363,7 +3343,7 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  background: rgba(15, 23, 42, 0.24);
+  background: var(--surface-scrim);
 }
 
 .collaboration-global-search-modal {
@@ -3373,7 +3353,7 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   max-height: min(26rem, 72vh);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: var(--surface-dialog, #ffffff);
+  background: var(--surface-dialog);
   overflow: hidden;
 }
 
@@ -3493,4 +3473,14 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   color: var(--text-muted);
   font-size: 0.8125rem;
   text-align: center;
+}
+
+/* Reduce-Transparency Rule: translucent collaboration overlays become opaque. */
+@media (prefers-reduced-transparency: reduce) {
+  .collaboration-thread-overlay,
+  .collaboration-settings-modal-overlay {
+    background: var(--surface-scrim) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

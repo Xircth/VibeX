@@ -222,7 +222,16 @@ describe('collaboration assistant list and message cluster chrome', () => {
       '.collaboration-thread .conv-message-nav-anchor'
     );
     expect(nav.right?.value).toBe('0.75rem');
-    expect(nav.display?.value).toBe('block');
+    expect(nav.display?.value).toBe('flex');
+    expect(nav['align-items']?.value).toBe('center');
+
+    const rail = declarationsFor(
+      '.collaboration-thread .conv-message-nav-rail'
+    );
+    expect(rail.position?.value).toBe('relative');
+    expect(rail.top?.value).toBe('auto');
+    expect(rail.transform?.value).toBe('none');
+    expect(rail['max-height']?.value).toBe('100%');
   });
 
   it('caps user bubbles to content width so they do not fill the log', () => {

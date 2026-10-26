@@ -109,8 +109,46 @@
 }
 
 .collaboration-thread .conv-message-nav-anchor {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   right: 0.75rem;
+}
+
+.collaboration-thread .conv-message-nav-rail {
+  position: relative;
+  top: auto;
+  transform: none;
+  max-height: 100%;
+}
+
+.collaboration-back-to-bottom {
+  pointer-events: none;
+  position: relative;
+  z-index: 20;
+  height: 0;
+}
+
+.collaboration-back-to-bottom-btn {
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-dialog);
+  color: color-mix(in srgb, var(--text-primary) 80%, transparent);
+  transform: translate(-50%, calc(-100% - 0.5rem));
+}
+
+.collaboration-back-to-bottom-btn:hover,
+.collaboration-back-to-bottom-btn:focus-visible {
+  color: var(--text-primary);
 }
 
 .collaboration-thread-overlay {

@@ -265,6 +265,9 @@ export const COPY = {
   get rangeError() {
     return i18n.t('panels:collabCopy.rangeError');
   },
+  get backToBottom() {
+    return i18n.t('panels:collabCopy.backToBottom');
+  },
 } as const;
 
 export const VIRTUAL_DEFAULT_SPACE_ID = '__default_space__';

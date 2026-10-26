@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -155,6 +156,11 @@ import {
   resolveMemberSession,
   updateThreadTagColor,
 } from './threadApi';
+import { buildCollaborationUserMessageNavEntries } from './collaborationMessageNav';
+import {
+  isCollabThreadLogAtBottom,
+  scrollCollabThreadLogToBottom,
+} from './collaborationThreadLog';
 import { CollaborationReplyCapsule } from './CollaborationReplyCapsule';
 import { buildMemberAvatarMenuItems } from './memberAvatarMenu';
 import { buildMessageBubbleMenuItems } from './messageBubbleMenu';
@@ -550,6 +556,9 @@ export function CollaborationSpacePage({
   const composerContainerRef = useRef<HTMLDivElement | null>(null);
   const threadLogRef = useRef<HTMLDivElement | null>(null);
   const messageItemRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const followThreadBottomRef = useRef(true);
+  const ignoreThreadScrollRef = useRef(false);
+  const [isAtThreadBottom, setIsAtThreadBottom] = useState(true);
   const [activeNavIndex, setActiveNavIndex] = useState<number | null>(null);
   const [topMemberBarExpanded, setTopMemberBarExpanded] = useState(true);
   const [composerMembersMenuOpen, setComposerMembersMenuOpen] = useState(false);
@@ -561,6 +570,8 @@ export function CollaborationSpacePage({
   selectedIdRef.current = selectedId;
   useEffect(() => {
     setReplyingTo(null);
+    followThreadBottomRef.current = true;
+    setIsAtThreadBottom(true);
   }, [selectedId]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [membersBySpace, setMembersBySpace] = useState<
@@ -3922,6 +3933,8 @@ export function CollaborationSpacePage({
       setOperationId(crypto.randomUUID());
       setReplyingTo(null);
     };
+    followThreadBottomRef.current = true;
+    setIsAtThreadBottom(true);
     setSending(true);
     try {
       const directThreadId =
@@ -4361,28 +4374,15 @@ export function CollaborationSpacePage({
   );
 
   const navEntries = useMemo<ConversationMessageNavEntry[]>(
-    () =>
-      filteredMessages.map((message, index) => {
-        const text = bubbleText(message.envelope);
-        const singleLine = text.replace(/\s+/g, ' ').trim();
-        return {
-          key: `space-msg-${message.seq}`,
-          index,
-          ordinal: index + 1,
-          preview:
-            singleLine.length > 80
-              ? `${singleLine.slice(0, 80)}…`
-              : singleLine || `Message ${index + 1}`,
-          additions: 0,
-          deletions: 0,
-        };
-      }),
+    () => buildCollaborationUserMessageNavEntries(filteredMessages),
     [filteredMessages]
   );
 
   const scrollToMessage = useCallback(
     (index: number) => {
       setActiveNavIndex(index);
+      followThreadBottomRef.current = false;
+      setIsAtThreadBottom(false);
       const target = filteredMessages[index];
       if (!target) return;
       const el = messageItemRefs.current.get(String(target.seq));
@@ -4392,6 +4392,37 @@ export function CollaborationSpacePage({
     },
     [filteredMessages]
   );
+
+  const pinThreadLogToBottom = useCallback(
+    (behavior: ScrollBehavior = 'auto') => {
+      const el = threadLogRef.current;
+      if (!el) return;
+      followThreadBottomRef.current = true;
+      setIsAtThreadBottom(true);
+      ignoreThreadScrollRef.current = true;
+      scrollCollabThreadLogToBottom(el, behavior);
+      requestAnimationFrame(() => {
+        ignoreThreadScrollRef.current = false;
+      });
+    },
+    []
+  );
+
+  const pendingThreadCount = pendingDirectMessages.filter(
+    (item) => item.threadId === (activeDirectThreadId || selected?.space_id)
+  ).length;
+
+  useLayoutEffect(() => {
+    if (!followThreadBottomRef.current) return;
+    pinThreadLogToBottom('auto');
+  }, [
+    pinThreadLogToBottom,
+    selectedId,
+    filteredMessages,
+    pendingThreadCount,
+    workingMembers.length,
+    workingConversationIds.length,
+  ]);
 
   const selectedTagConfig = useMemo(() => {
     if (!selected) return undefined;
@@ -7030,6 +7061,13 @@ export function CollaborationSpacePage({
                   if (selected) {
                     markSpaceInReviewMembersViewed(selected.space_id);
                   }
+                  const el = threadLogRef.current;
+                  if (!el || ignoreThreadScrollRef.current) return;
+                  const atBottom = isCollabThreadLogAtBottom(el);
+                  followThreadBottomRef.current = atBottom;
+                  setIsAtThreadBottom((current) =>
+                    current === atBottom ? current : atBottom
+                  );
                 }}
                 onKeyDownCapture={() => {
                   if (selected) {
@@ -7371,6 +7409,21 @@ export function CollaborationSpacePage({
                 </div>
               ) : null}
             </div>
+
+            {selected && !isAtThreadBottom ? (
+              <div className="collaboration-back-to-bottom">
+                <button
+                  type="button"
+                  className="tahoe-popover collaboration-back-to-bottom-btn"
+                  data-testid="collaboration-back-to-bottom"
+                  aria-label={COPY.backToBottom}
+                  title={COPY.backToBottom}
+                  onClick={() => pinThreadLogToBottom('smooth')}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
 
             {error ? <p className="collaboration-error">{error}</p> : null}
             {selected ? (

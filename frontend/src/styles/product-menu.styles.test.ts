@@ -115,6 +115,21 @@ describe('product option menus', () => {
     );
   });
 
+  it('stacks the @ card above an expanded attachment drawer', () => {
+    const drawer = declarationsFor(
+      '.legacy-design .session-composer-attachment-drawer'
+    );
+    const menu = declarationsFor(
+      '.legacy-design .composer-at-reference-menu.composer-status-surface'
+    );
+
+    expect(drawer.position?.value).toBe('relative');
+    expect(Number.parseInt(drawer['z-index']?.value ?? '', 10)).toBe(1);
+    expect(
+      Number.parseInt(menu['z-index']?.value ?? '', 10)
+    ).toBeGreaterThan(1);
+  });
+
   it('restores the composer send button fill over ghost button resets', () => {
     const button = declarationsFor(
       '.legacy-design button.composer-primary-action.astryx-button'

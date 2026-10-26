@@ -610,6 +610,8 @@
 
   .legacy-design .session-composer-attachment-drawer {
     --radius-chat: var(--radius);
+    position: relative;
+    z-index: 1;
     border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-control);
   }

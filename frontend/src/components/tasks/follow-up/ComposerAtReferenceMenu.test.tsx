@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { deriveMemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
-import { ComposerAtReferenceMenu } from './ComposerAtReferenceMenu';
+import {
+  ComposerAtReferenceMenu,
+  ComposerAtReferencePanel,
+} from './ComposerAtReferenceMenu';
 import type { AtReferenceGroup } from './composerAtReferences';
 
 const groups: AtReferenceGroup[] = [
@@ -186,5 +189,40 @@ describe('ComposerAtReferenceMenu', () => {
     expect(
       master.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
     ).toBeTruthy();
+  });
+
+  it('portals onto the composer body anchor so an expanded drawer stays underneath', () => {
+    const stack = document.createElement('div');
+    stack.dataset.testid = 'session-composer-stack';
+    const drawer = document.createElement('div');
+    drawer.dataset.testid = 'session-composer-attachment-drawer';
+    const anchor = document.createElement('div');
+    anchor.dataset.testid = 'session-composer-anchor';
+    const body = document.createElement('div');
+    body.dataset.testid = 'session-composer-body';
+    const dropZone = document.createElement('div');
+    dropZone.dataset.testid = 'session-composer-file-drop-zone';
+    body.append(dropZone);
+    anchor.append(body);
+    stack.append(drawer, anchor);
+    document.body.append(stack);
+
+    render(
+      <ComposerAtReferencePanel
+        groups={groups}
+        activeTab="file"
+        selectedIndex={0}
+        loading={false}
+        anchor={dropZone}
+        onSelectTab={vi.fn()}
+        onSelectItem={vi.fn()}
+      />
+    );
+
+    const menu = screen.getByTestId('composer-at-reference-menu');
+    expect(anchor).toContainElement(menu);
+    expect(body).not.toContainElement(menu);
+    expect(drawer.contains(menu)).toBe(false);
+    stack.remove();
   });
 });

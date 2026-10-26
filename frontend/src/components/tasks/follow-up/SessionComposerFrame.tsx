@@ -26,13 +26,18 @@ export function SessionComposerFrame({
       {overlay}
       {drawer}
       <div
-        className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible p-2"
-        data-testid="session-composer-body"
-        data-typeahead-surface="composer"
-        onFocus={onFocus}
-        onBlur={onBlur}
+        className="session-composer-anchor relative"
+        data-testid="session-composer-anchor"
       >
-        {children}
+        <div
+          className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible p-2"
+          data-testid="session-composer-body"
+          data-typeahead-surface="composer"
+          onFocus={onFocus}
+          onBlur={onBlur}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

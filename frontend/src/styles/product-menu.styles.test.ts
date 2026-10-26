@@ -102,6 +102,18 @@ describe('product option menus', () => {
     expect(menu.right?.value).toBe('0');
   });
 
+  it('tucks the @ card under the composer shell so the bottom corners disappear', () => {
+    const menu = declarationsFor(
+      '.legacy-design .composer-at-reference-menu.composer-status-surface'
+    );
+
+    expect(menu.bottom?.value).toBe('calc(100% - 1px)');
+    expect(Number.parseInt(menu['z-index']?.value ?? '', 10)).toBeLessThan(10);
+    expect(menu['border-radius']?.value).toBe(
+      'var(--radius) var(--radius) 0 0'
+    );
+  });
+
   it('restores the composer send button fill over ghost button resets', () => {
     const button = declarationsFor(
       '.legacy-design button.composer-primary-action.astryx-button'

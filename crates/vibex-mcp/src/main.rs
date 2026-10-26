@@ -663,10 +663,18 @@ fn resolve_conversation_id(flag: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// MCP revisions this companion can speak. Plugin stdio servers negotiate the
-/// same set so Agents that still request `2024-11-05` (Claude Code) can mount.
-const SUPPORTED_MCP_PROTOCOLS: &[&str] = &["2024-11-05", "2025-03-26", "2025-11-25", "2026-07-28"];
-const DEFAULT_MCP_PROTOCOL: &str = "2026-07-28";
+/// Handshake-era MCP revisions this companion can speak. `2026-07-28` is
+/// modern/stateless and is echoed only when the client asks for it; an omitted
+/// or unknown request must not be answered as modern, because Claude Code's
+/// MCP client then reports that it is too old for the server.
+const SUPPORTED_MCP_PROTOCOLS: &[&str] = &[
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25",
+    "2026-07-28",
+];
+const DEFAULT_MCP_PROTOCOL: &str = "2025-11-25";
 
 fn negotiate_protocol(params: Option<&Value>) -> &'static str {
     let requested = params
@@ -1041,7 +1049,7 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#,
         ));
         assert_eq!(value["result"]["serverInfo"]["name"], "vibex-mcp");
-        assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
+        assert_eq!(value["result"]["protocolVersion"], "2025-11-25");
         assert_eq!(value["id"], 1);
     }
 
@@ -1065,6 +1073,18 @@ mod tests {
     }
 
     #[test]
+    fn initialize_echoes_2025_06_18_when_claude_code_requests_it() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        ));
+        assert_eq!(
+            value["result"]["protocolVersion"], "2025-06-18",
+            "Claude Code's MCP client still requests 2025-06-18; answering 2026-07-28 makes it refuse the server as too new"
+        );
+    }
+
+    #[test]
     fn initialize_keeps_modern_protocol_when_requested() {
         let value = respond_text(classify(
             "delegation",
@@ -1079,7 +1099,7 @@ mod tests {
             "delegation",
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
         ));
-        assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
+        assert_eq!(value["result"]["protocolVersion"], "2025-11-25");
     }
 
     #[test]

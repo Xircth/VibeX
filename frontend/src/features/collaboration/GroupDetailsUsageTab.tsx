@@ -52,7 +52,8 @@ function GroupMemberUsageCard({
   member: SpaceMember;
   getAvatar: (
     conversationId?: string | null,
-    nickname?: string
+    nickname?: string,
+    identityMemberId?: string | null
   ) => MemberBotAvatarConfig;
   onSnapshot: (snapshot: MemberUsageSnapshot) => void;
 }) {
@@ -140,7 +141,7 @@ function GroupMemberUsageCard({
         onClick={() => setExpanded((open) => !open)}
       >
         <MemberBotAvatar
-          config={getAvatar(conversationId, nick)}
+          config={getAvatar(conversationId, nick, member.identity_member_id)}
           className="h-6 w-6 shrink-0"
         />
         <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
@@ -190,7 +191,8 @@ export function GroupDetailsUsageTab({
   workspaceId?: string;
   getAvatar: (
     conversationId?: string | null,
-    nickname?: string
+    nickname?: string,
+    identityMemberId?: string | null
   ) => MemberBotAvatarConfig;
 }) {
   const [members, setMembers] = useState<SpaceMember[]>([]);

@@ -3072,10 +3072,10 @@ describe('CollaborationSpacePage', () => {
     ).toHaveClass('h-10', 'w-10');
 
     expect(within(first).getByText('小A')).toHaveStyle({
-      color: deriveMemberBotAvatar('conv-1').color,
+      color: deriveMemberBotAvatar('小A').color,
     });
     expect(within(solo).getByText('小B')).toHaveStyle({
-      color: deriveMemberBotAvatar('conv-2').color,
+      color: deriveMemberBotAvatar('小B').color,
     });
   });
 

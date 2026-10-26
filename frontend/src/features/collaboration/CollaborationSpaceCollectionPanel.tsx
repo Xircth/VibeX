@@ -34,7 +34,7 @@ import {
 import {
   MemberBotAvatar,
   deriveMemberBotAvatar,
-  readMemberBotAvatars,
+  resolveMemberBotAvatar,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
 import { AssistantDetailsCustomizeTab } from './AssistantDetailsCustomizeTab';
@@ -298,7 +298,6 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const [editingNoteDraft, setEditingNoteDraft] = useState('');
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const memberAvatars = useMemo(() => readMemberBotAvatars(), []);
   const [liveSpaceAvatars, setLiveSpaceAvatars] = useState<
     MemberBotAvatarConfig[] | null
   >(null);
@@ -312,15 +311,15 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const getAvatar = useCallback(
     (
       conversationId?: string | null,
-      nickname?: string
-    ): MemberBotAvatarConfig => {
-      const convKey = conversationId?.trim() ?? '';
-      const nickKey = nickname?.trim() ?? '';
-      if (convKey && memberAvatars[convKey]) return memberAvatars[convKey];
-      if (nickKey && memberAvatars[nickKey]) return memberAvatars[nickKey];
-      return deriveMemberBotAvatar(convKey || nickKey || 'bot');
-    },
-    [memberAvatars]
+      nickname?: string,
+      identityMemberId?: string | null
+    ): MemberBotAvatarConfig =>
+      resolveMemberBotAvatar({
+        conversationId,
+        nickname,
+        identityMemberId,
+      }),
+    []
   );
 
   const refreshHeroAvatars = useCallback(async () => {

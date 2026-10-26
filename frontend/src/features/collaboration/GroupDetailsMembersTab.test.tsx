@@ -2,7 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { deriveMemberBotAvatar } from './MemberBotAvatar';
+import {
+  DEFAULT_MASTER_BOT_AVATAR,
+  deriveMemberBotAvatar,
+  resolveMemberBotAvatar,
+} from './MemberBotAvatar';
 import {
   COLLABORATION_ADD_MEMBER_EVENT,
   COLLABORATION_MEMBERS_CHANGED_EVENT,
@@ -97,12 +101,12 @@ describe('GroupDetailsMembersTab', () => {
     await waitFor(() => {
       expect(onMembersChanged).toHaveBeenCalled();
     });
-    expect(
-      (onMembersChanged.mock.calls[0]?.[0] as CustomEvent).detail
-    ).toEqual({
-      spaceId: 's1',
-      workspaceId: 'workspace-1',
-    });
+    expect((onMembersChanged.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(
+      {
+        spaceId: 's1',
+        workspaceId: 'workspace-1',
+      }
+    );
 
     await user.click(screen.getByTestId('collaboration-group-add-member'));
     await user.click(
@@ -129,6 +133,53 @@ describe('GroupDetailsMembersTab', () => {
     window.removeEventListener(
       COLLABORATION_MEMBERS_CHANGED_EVENT,
       onMembersChanged
+    );
+  });
+
+  it('shows Master with the identity avatar in a group seat', async () => {
+    collaborationCall.mockImplementation(
+      async (_capability: string, method: string) => {
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'seat-master',
+                nickname: 'Master',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+              },
+            ],
+          };
+        }
+        return { items: [] };
+      }
+    );
+
+    render(
+      <GroupDetailsMembersTab
+        spaceId="s1"
+        workspaceId="workspace-1"
+        getAvatar={(conversationId, nickname, identityMemberId) =>
+          resolveMemberBotAvatar({
+            conversationId,
+            nickname,
+            identityMemberId,
+            stored: {},
+          })
+        }
+      />
+    );
+
+    const row = await screen.findByTestId('collaboration-group-member-Master');
+    const avatar = row.querySelector('[data-bot-shape]');
+    expect(avatar).toHaveAttribute(
+      'data-bot-shape',
+      DEFAULT_MASTER_BOT_AVATAR.shape
+    );
+    expect(avatar).toHaveAttribute(
+      'data-bot-color',
+      DEFAULT_MASTER_BOT_AVATAR.color
     );
   });
 });

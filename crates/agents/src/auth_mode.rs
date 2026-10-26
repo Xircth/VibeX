@@ -627,6 +627,7 @@ pub fn apply_built_in_launch_policy(
                 "DISABLE_MCP_CONFIG_FILTERING".to_string(),
                 "true".to_string(),
             );
+            apply_codex_initial_agent_mode(env);
         }
         // pi-acp only advertises embedded-context support behind this switch.
         "pi" => {
@@ -718,6 +719,87 @@ fn read_grok_permission_mode(env: &HashMap<String, String>) -> Option<String> {
         "default" => "ask".to_string(),
         other => other.to_string(),
     })
+}
+
+const CODEX_APPROVAL_POLICIES: &[&str] = &["untrusted", "on-request", "never"];
+const CODEX_SANDBOX_MODES: &[&str] = &["read-only", "workspace-write", "danger-full-access"];
+
+/// Seed `INITIAL_AGENT_MODE` from `~/.codex/config.toml` before launch.
+/// codex-acp re-sends its own approval/sandbox preset every turn; without this
+/// the adapter default `agent` silently overrides the user's config (#442).
+/// An explicit non-empty env value wins.
+fn apply_codex_initial_agent_mode(env: &mut HashMap<String, String>) {
+    if env
+        .get("INITIAL_AGENT_MODE")
+        .map(|value| value.trim())
+        .is_some_and(|value| !value.is_empty())
+    {
+        return;
+    }
+    if let Some(mode) = read_codex_initial_agent_mode(env) {
+        env.insert("INITIAL_AGENT_MODE".to_string(), mode);
+    }
+}
+
+fn codex_config_dir(env: &HashMap<String, String>) -> PathBuf {
+    if let Some(home) = env
+        .get("CODEX_HOME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return PathBuf::from(home);
+    }
+    if let Some(home) = std::env::var_os("CODEX_HOME") {
+        return PathBuf::from(home);
+    }
+    env.get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".codex"))
+        .unwrap_or_else(|| PathBuf::from(".codex"))
+}
+
+fn read_codex_initial_agent_mode(env: &HashMap<String, String>) -> Option<String> {
+    let text = std::fs::read_to_string(codex_config_dir(env).join("config.toml")).ok()?;
+    codex_initial_agent_mode_from_toml(&text)
+}
+
+/// Map a `~/.codex/config.toml` sandbox/approval pair onto the preset id
+/// codex-acp accepts. `None` leaves the adapter default in place.
+pub(crate) fn codex_initial_agent_mode_from_toml(raw_toml: &str) -> Option<String> {
+    let table = raw_toml.parse::<toml::Table>().ok()?;
+    if table.contains_key("default_permissions") {
+        return None;
+    }
+    let approval = table
+        .get("approval_policy")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .map(|value| match value {
+            "on-failure" => "on-request",
+            other => other,
+        })
+        .filter(|value| CODEX_APPROVAL_POLICIES.contains(value));
+    let never = approval == Some("never");
+    let sandbox = table
+        .get("sandbox_mode")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| CODEX_SANDBOX_MODES.contains(value))?;
+    Some(
+        match sandbox {
+            "read-only" => "read-only",
+            "workspace-write" if never => "agent",
+            "workspace-write" => "workspace-write",
+            "danger-full-access" if never => "agent-full-access",
+            "danger-full-access" => "workspace-write",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 /// Point `pi` at the same native files VibeX projected, and export the bound
@@ -995,8 +1077,9 @@ mod tests {
     use super::{
         PI_COMMAND_ENV, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
         apply_built_in_launch_policy, auth_mode_kind, auto_approve_mode_for_launch,
-        bind_pi_acp_pi_command, built_in_auth_mode_policy, is_non_official_api_url,
-        official_api_url, resolve_built_in_auth_mode, resolve_pi_acp_command,
+        bind_pi_acp_pi_command, built_in_auth_mode_policy, codex_initial_agent_mode_from_toml,
+        is_non_official_api_url, official_api_url, resolve_built_in_auth_mode,
+        resolve_pi_acp_command,
     };
 
     #[test]
@@ -1017,6 +1100,68 @@ mod tests {
         );
         assert_eq!(override_env["CLINE_SESSION_BACKEND_MODE"], "hub");
         assert_eq!(override_env["CLINE_NO_AUTO_UPDATE"], "0");
+    }
+
+    #[test]
+    fn codex_initial_agent_mode_maps_sandbox_and_approval() {
+        assert_eq!(
+            codex_initial_agent_mode_from_toml("sandbox_mode = \"read-only\"\n").as_deref(),
+            Some("read-only")
+        );
+        assert_eq!(
+            codex_initial_agent_mode_from_toml("sandbox_mode = \"workspace-write\"\n").as_deref(),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            codex_initial_agent_mode_from_toml(
+                "sandbox_mode = \"workspace-write\"\napproval_policy = \"never\"\n"
+            )
+            .as_deref(),
+            Some("agent")
+        );
+        assert_eq!(
+            codex_initial_agent_mode_from_toml(
+                "sandbox_mode = \"danger-full-access\"\napproval_policy = \"never\"\n"
+            )
+            .as_deref(),
+            Some("agent-full-access")
+        );
+        assert_eq!(
+            codex_initial_agent_mode_from_toml("sandbox_mode = \"danger-full-access\"\n")
+                .as_deref(),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            codex_initial_agent_mode_from_toml(
+                "sandbox_mode = \"read-only\"\ndefault_permissions = \":read-only\"\n"
+            ),
+            None
+        );
+        assert_eq!(codex_initial_agent_mode_from_toml(""), None);
+    }
+
+    #[test]
+    fn codex_launch_injects_config_derived_initial_agent_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "sandbox_mode = \"read-only\"\n",
+        )
+        .unwrap();
+        let mut env = HashMap::from([(
+            "CODEX_HOME".to_string(),
+            temp.path().to_string_lossy().into_owned(),
+        )]);
+        apply_built_in_launch_policy(&AgentId::parse("codex").unwrap(), &mut env, &mut Vec::new());
+        assert_eq!(env["INITIAL_AGENT_MODE"], "read-only");
+        assert_eq!(env["DISABLE_MCP_CONFIG_FILTERING"], "true");
+
+        env.insert(
+            "INITIAL_AGENT_MODE".to_string(),
+            "agent-full-access".to_string(),
+        );
+        apply_built_in_launch_policy(&AgentId::parse("codex").unwrap(), &mut env, &mut Vec::new());
+        assert_eq!(env["INITIAL_AGENT_MODE"], "agent-full-access");
     }
 
     #[test]

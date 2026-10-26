@@ -549,8 +549,10 @@ pub struct AcpCapabilitySnapshot {
     pub fork_session: bool,
     pub list_sessions: bool,
     pub delete_session: bool,
-    /// Negotiated support for the ACP `_session/steering` extension. This is
-    /// true only when `InitializeResponse._meta.steering.supported` is true.
+    /// Negotiated support for native `_session/steering`. True only when the
+    /// adapter advertised the RPC, the agent has a `promptRequired` policy,
+    /// and `initialize.agent_info.version` meets the floor. Codex never
+    /// qualifies: it advertises steering with an empty `promptRequired` set.
     pub steering: bool,
     /// Per-session mid-turn delivery channel. Host-synthesized, never guessed
     /// from Agent identity. `none` when this session has neither native steering

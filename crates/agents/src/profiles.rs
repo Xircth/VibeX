@@ -304,14 +304,17 @@ impl BuiltInProfile {
     }
 
     /// Whether Host may put `mcpServers` on `session/new`, `session/load`, and
-    /// `session/resume`. OpenClaw's ACP bridge rejects any per-session list
-    /// (`assertSupportedSessionSetup`).
+    /// `session/resume`. OpenClaw rejects a non-empty list. Cline and Pi accept
+    /// the field but never connect those servers (companion is wire-only).
     pub fn delivers_session_mcp(&self) -> bool {
-        AgentKind::from_lenient(self.agent_id.as_str()) != Some(AgentKind::Openclaw)
+        !matches!(
+            AgentKind::from_lenient(self.agent_id.as_str()),
+            Some(AgentKind::Openclaw | AgentKind::Cline | AgentKind::Pi)
+        )
     }
 }
 
-/// Unknown / Registry agents keep wire MCP. Built-in OpenClaw is the exception.
+/// Unknown / Registry agents keep wire MCP. OpenClaw, Cline, and Pi skip it.
 pub fn profile_delivers_session_mcp(agent_id: &AgentId) -> bool {
     BuiltInProfileCatalog::bundled()
         .profile(agent_id)

@@ -153,6 +153,7 @@ describe('ComposerAtReferenceMenu', () => {
                 detail: 'conv-1',
                 insertText: '@Master',
                 memberAvatar: deriveMemberBotAvatar('Master'),
+                isLead: true,
               },
             ],
           },
@@ -175,5 +176,10 @@ describe('ComposerAtReferenceMenu', () => {
     expect(label).toHaveClass('font-bold');
     expect(label).toHaveClass('text-foreground');
     expect(label).not.toHaveAttribute('style');
+
+    const master = screen.getByRole('option', { name: /Master/ });
+    expect(
+      master.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
+    ).toBeTruthy();
   });
 });

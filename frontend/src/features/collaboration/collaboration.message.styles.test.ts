@@ -60,6 +60,7 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(avatar.height?.value).toBe(
       'var(--collaboration-assistant-avatar, 2.5rem)'
     );
+    expect(avatar.overflow?.value).toBe('visible');
 
     const name = declarationsFor('.collaboration-message-name');
     expect(name['font-size']?.value).toBe('0.9375rem');

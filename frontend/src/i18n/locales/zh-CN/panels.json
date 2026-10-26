@@ -743,7 +743,7 @@
     "groupCollectionTab": "群收藏",
     "groupMembersTab": "成员",
     "spaceLeadLabel": "负责人",
-    "spaceLeadNone": "不指定",
+    "spaceLeadSet": "设为负责人",
     "collaborationLimitNotice": "已达到自动协作上限，请 @ 助手继续",
     "assistantDetailsButton": "助手详情",
     "assistantDetailsTab": "详情",

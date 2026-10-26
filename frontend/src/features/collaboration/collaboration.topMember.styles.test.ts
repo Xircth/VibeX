@@ -107,14 +107,20 @@ describe('collaboration group details chrome', () => {
     );
     expect(hoverRow.background?.value).toBe('var(--surface-control-hover)');
 
-    const remove = declarationsFor('.collaboration-group-member-remove');
-    expect(remove['flex-shrink']?.value).toBe('0');
-    expect(remove.opacity?.value).toBe('0');
-    expect(remove['pointer-events']?.value).toBe('none');
+    const action = declarationsFor('.collaboration-group-member-action');
+    expect(action['flex-shrink']?.value).toBe('0');
+    expect(action.opacity?.value).toBe('0');
+    expect(action['pointer-events']?.value).toBe('none');
     const hover = declarationsFor(
-      '.collaboration-group-member-row:hover .collaboration-group-member-remove, .collaboration-group-member-row:focus-within .collaboration-group-member-remove'
+      '.collaboration-group-member-row:hover .collaboration-group-member-action, .collaboration-group-member-row:focus-within .collaboration-group-member-action'
     );
     expect(hover.opacity?.value).toBe('1');
     expect(hover['pointer-events']?.value).toBe('auto');
+
+    const star = declarationsFor('.collaboration-bot-avatar-lead-star');
+    expect(star.position?.value).toBe('absolute');
+    expect(star.color?.value).toBe('hsl(var(--warning))');
+    expect(star.right?.value).toBe('-12%');
+    expect(star.bottom?.value).toBe('-12%');
   });
 });

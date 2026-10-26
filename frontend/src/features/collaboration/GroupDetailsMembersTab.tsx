@@ -13,6 +13,7 @@ import {
   agentRoster,
   displayName,
   matchesSpaceMemberIdentity,
+  sortMembersLeadFirst,
   surfaceErrorCopy,
   unassignedSpaceId,
   type SidebarItem,
@@ -31,11 +32,12 @@ export function requestCreateAssistantForSpace(spaceId: string) {
 
 export function notifyCollaborationMembersChanged(
   spaceId: string,
-  workspaceId?: string
+  workspaceId?: string,
+  extras?: { leadMemberId?: string | null }
 ) {
   window.dispatchEvent(
     new CustomEvent(COLLABORATION_MEMBERS_CHANGED_EVENT, {
-      detail: { spaceId, workspaceId },
+      detail: { spaceId, workspaceId, ...extras },
     })
   );
 }
@@ -55,6 +57,7 @@ export function GroupDetailsMembersTab({
   onMembersChanged?: () => void;
 }) {
   const [members, setMembers] = useState<SpaceMember[]>([]);
+  const [leadMemberId, setLeadMemberId] = useState('');
   const [candidates, setCandidates] = useState<
     { conversationId: string; name: string }[]
   >([]);
@@ -63,17 +66,46 @@ export function GroupDetailsMembersTab({
 
   const loadMembers = useCallback(async () => {
     if (!spaceId) return;
-    const page = await collaborationCall<{ members?: SpaceMember[] }>(
-      'collaboration',
-      'space.listMembers',
-      { spaceId }
-    );
+    const [page, spacesPage] = await Promise.all([
+      collaborationCall<{ members?: SpaceMember[] }>(
+        'collaboration',
+        'space.listMembers',
+        { spaceId }
+      ),
+      workspaceId
+        ? collaborationCall<{
+            spaces?: Array<{
+              space_id?: string;
+              lead_member_id?: string | null;
+            }>;
+          }>('collaboration', 'space.list', { workspaceId }).catch(() => ({
+            spaces: [] as Array<{
+              space_id?: string;
+              lead_member_id?: string | null;
+            }>,
+          }))
+        : Promise.resolve({
+            spaces: [] as Array<{
+              space_id?: string;
+              lead_member_id?: string | null;
+            }>,
+          }),
+    ]);
     setMembers(agentRoster(page.members ?? []));
-  }, [spaceId]);
+    const match = (spacesPage.spaces ?? []).find(
+      (space) => space.space_id === spaceId
+    );
+    setLeadMemberId(String(match?.lead_member_id ?? '').trim());
+  }, [spaceId, workspaceId]);
 
   useEffect(() => {
     void loadMembers().catch(() => setMembers([]));
   }, [loadMembers]);
+
+  const listedMembers = useMemo(
+    () => sortMembersLeadFirst(members, leadMemberId),
+    [leadMemberId, members]
+  );
 
   const memberConvIds = useMemo(() => {
     const ids = new Set<string>();
@@ -143,6 +175,26 @@ export function GroupDetailsMembersTab({
     }
   };
 
+  const setLead = async (member: SpaceMember) => {
+    const nextLead = String(member.member_id ?? '').trim();
+    if (!nextLead || nextLead === leadMemberId) return;
+    const previous = leadMemberId;
+    setLeadMemberId(nextLead);
+    setActionError('');
+    try {
+      await collaborationCall('collaboration', 'space.update', {
+        spaceId,
+        leadMemberId: nextLead,
+      });
+      notifyCollaborationMembersChanged(spaceId, workspaceId, {
+        leadMemberId: nextLead,
+      });
+    } catch (cause) {
+      setLeadMemberId(previous);
+      setActionError(surfaceErrorCopy(cause));
+    }
+  };
+
   const addMember = async (conversationId: string, name: string) => {
     setActionError('');
     try {
@@ -166,9 +218,11 @@ export function GroupDetailsMembersTab({
       className="collaboration-group-members"
       data-testid="collaboration-group-members-tab"
     >
-      {members.map((member) => {
+      {listedMembers.map((member) => {
         const nick = displayName(member);
         const convId = member.conversation_id ?? '';
+        const memberId = String(member.member_id ?? '').trim();
+        const isLead = Boolean(memberId && memberId === leadMemberId);
         return (
           <div
             key={member.member_id ?? convId ?? nick}
@@ -178,13 +232,29 @@ export function GroupDetailsMembersTab({
             <MemberBotAvatar
               config={getAvatar(convId, nick)}
               className="h-7 w-7 shrink-0"
+              lead={isLead}
             />
             <span className="collaboration-group-member-name">{nick}</span>
+            {isLead || !memberId ? null : (
+              <Button
+                type="button"
+                variant="secondary"
+                size="xs"
+                className="collaboration-group-member-action"
+                data-testid={`collaboration-group-member-set-lead-${nick}`}
+                aria-label={`${COPY.spaceLeadSet} ${nick}`}
+                onClick={() => {
+                  void setLead(member);
+                }}
+              >
+                {COPY.spaceLeadSet}
+              </Button>
+            )}
             <Button
               type="button"
               variant="destructive"
               size="xs"
-              className="collaboration-group-member-remove border-transparent bg-destructive/10 hover:bg-destructive/15"
+              className="collaboration-group-member-action collaboration-group-member-remove border-transparent bg-destructive/10 hover:bg-destructive/15"
               aria-label={`${COPY.removeSpaceMember} ${nick}`}
               onClick={() => {
                 void removeMember(member);

@@ -99,12 +99,7 @@ export function MemberMentionChip({
         config={resolvedAvatar}
         className="collaboration-member-mention-avatar"
       />
-      <span
-        className="collaboration-member-mention-name"
-        style={{ color }}
-      >
-        {cleanName}
-      </span>
+      <span className="collaboration-member-mention-name">{cleanName}</span>
     </span>
   )
 }

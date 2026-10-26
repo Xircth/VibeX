@@ -808,6 +808,7 @@ describe('MessageTurnView', () => {
     expect(bubbleRule).toContain('line-height: 1.43;');
     expect(bubbleRule).toContain('background: var(--conv-user-bg);');
     expect(bubbleRule).toContain('color: var(--conv-user-text);');
+    expect(bubbleRule).toContain('width: fit-content;');
     expect(userMarkdownMock).toHaveBeenCalledWith(
       expect.objectContaining({ value: 'Inspect this project' }),
       undefined

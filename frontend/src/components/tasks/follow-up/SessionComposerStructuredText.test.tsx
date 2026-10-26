@@ -45,4 +45,33 @@ describe('SessionComposerTokenChip', () => {
     expect(chip).not.toHaveTextContent('&');
     expect(screen.getByRole('img', { name: 'Codex' })).toBeInTheDocument();
   });
+
+  it('keeps member mention color on a CSS variable instead of inline text color', () => {
+    render(
+      <SessionComposerTokenChip
+        token={{
+          kind: 'member_mention',
+          type: '@',
+          key: '小A',
+          label: '小A',
+          value: '小A',
+          raw: '@小A',
+          title: '小A',
+          memberAvatar: {
+            color: '#c2410c',
+            shape: 'circle',
+            expression: 'neutral',
+          },
+        }}
+      />
+    );
+
+    const chip = screen.getByTestId('session-composer-token-chip');
+    expect(chip.style.getPropertyValue('--member-mention-color')).toBe(
+      '#c2410c'
+    );
+    const name = chip.querySelector('.collaboration-member-mention-name');
+    expect(name).not.toBeNull();
+    expect((name as HTMLElement).style.color).toBe('');
+  });
 });

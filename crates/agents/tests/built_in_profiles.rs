@@ -335,25 +335,25 @@ fn codeg_pinned_distribution_matrix_is_exact() {
 }
 
 #[test]
-fn openclaw_is_the_only_built_in_that_rejects_session_mcp() {
+fn openclaw_cline_and_pi_skip_session_mcp() {
     let catalog = BuiltInProfileCatalog::bundled();
     for profile in catalog.profiles() {
         let delivers = profile.delivers_session_mcp();
-        if profile.agent_id.as_str() == "openclaw" {
-            assert!(
-                !delivers,
-                "OpenClaw ACP bridge rejects per-session mcpServers"
-            );
-        } else {
-            assert!(
-                delivers,
-                "{} must keep session MCP delivery",
-                profile.agent_id
-            );
-        }
+        let skips = matches!(profile.agent_id.as_str(), "openclaw" | "cline" | "pi");
+        assert_eq!(
+            delivers, !skips,
+            "{} session MCP delivery",
+            profile.agent_id
+        );
     }
     assert!(!agents::profile_delivers_session_mcp(
         &AgentId::parse("openclaw").unwrap()
+    ));
+    assert!(!agents::profile_delivers_session_mcp(
+        &AgentId::parse("cline").unwrap()
+    ));
+    assert!(!agents::profile_delivers_session_mcp(
+        &AgentId::parse("pi").unwrap()
     ));
     assert!(agents::profile_delivers_session_mcp(
         &AgentId::parse("claude_code").unwrap()

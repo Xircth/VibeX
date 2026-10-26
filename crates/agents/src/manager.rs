@@ -17,20 +17,18 @@ use agent_client_protocol::{
         ProtocolVersion,
         v1::{
             AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
-            BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
-            ClientResponse, ClientSessionCapabilities, CloseSessionRequest, ContentBlock,
-            CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
-            DeleteSessionRequest, ElicitationAcceptAction, ElicitationAction,
-            ElicitationCapabilities, ElicitationContentValue, ElicitationFormCapabilities,
-            ElicitationMode, ElicitationScope, ExtRequest, ExtResponse, ImageContent,
-            Implementation, InitializeRequest, KillTerminalRequest, KillTerminalResponse,
-            ListSessionsRequest, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-            NewSessionResponse, PermissionOptionKind, PromptRequest, ReleaseTerminalResponse,
-            RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-            ResourceLink, ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome,
+            CancelNotification, ClientCapabilities, ClientResponse, CloseSessionRequest,
+            ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
+            CreateTerminalResponse, DeleteSessionRequest, ElicitationAcceptAction,
+            ElicitationAction, ElicitationContentValue, ElicitationMode, ElicitationScope,
+            ExtRequest, ExtResponse, ImageContent, Implementation, InitializeRequest,
+            KillTerminalRequest, KillTerminalResponse, ListSessionsRequest, LoadSessionRequest,
+            LoadSessionResponse, NewSessionRequest, NewSessionResponse, PermissionOptionKind,
+            PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
+            RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
+            ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome,
             SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
-            SessionConfigOptionCategory, SessionConfigOptionValue,
-            SessionConfigOptionsCapabilities, SessionConfigSelectOption,
+            SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption,
             SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState,
             SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
             SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
@@ -1198,32 +1196,8 @@ pub(crate) fn format_acp_prompt_error(
     }
 }
 
-pub(crate) fn build_client_capabilities() -> ClientCapabilities {
-    let air_contract = serde_json::json!({
-        "version": 1,
-        "sessionFailure": true,
-        "asyncTasks": true,
-        "recommendedValue": true,
-        "capabilities": ["sessionFailure", "asyncTasks", "recommendedValue"],
-    });
-    let mut meta = serde_json::Map::new();
-    meta.insert("jetbrains.air".to_string(), air_contract.clone());
-    meta.insert(
-        "jetbrains".to_string(),
-        serde_json::json!({ "air": air_contract }),
-    );
-    ClientCapabilities::new()
-        .terminal(true)
-        .session(ClientSessionCapabilities::new().config_options(
-            SessionConfigOptionsCapabilities::new().boolean(BooleanConfigOptionCapabilities::new()),
-        ))
-        .elicitation(
-            // Form mode only: it covers AskUserQuestion and MCP
-            // form elicitations. URL mode needs a browser hand-off
-            // flow the app doesn't have yet.
-            ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
-        )
-        .meta(meta)
+pub(crate) fn build_client_capabilities(agent_id: &AgentId) -> ClientCapabilities {
+    crate::host_capabilities::build_client_capabilities(agent_id)
 }
 
 fn handshake_timeout() -> Duration {
@@ -2406,6 +2380,8 @@ struct AgentConnectionRunner {
     stderr_tail: Arc<StderrTail>,
     active_turn_probe: ActiveTurnProbeSlot,
     update_log_throttle: Arc<LeadingEdgeThrottle>,
+    air_tool_call_meta: Arc<Mutex<crate::air_contract::ToolCallMetaLedger>>,
+    hosted_terminal_output: Arc<Mutex<HashMap<String, String>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -2581,7 +2557,67 @@ impl AgentConnectionRunner {
             stderr_tail: Arc::new(StderrTail::new()),
             active_turn_probe: Arc::new(std::sync::Mutex::new(None)),
             update_log_throttle: Arc::new(LeadingEdgeThrottle::default()),
+            air_tool_call_meta: Arc::new(Mutex::new(
+                crate::air_contract::ToolCallMetaLedger::default(),
+            )),
+            hosted_terminal_output: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    fn agent_kind(&self) -> Option<crate::AgentKind> {
+        crate::AgentKind::from_lenient(self.snapshot.agent_id.as_str())
+    }
+
+    async fn fold_air_tool_meta(
+        &self,
+        id: &str,
+        frame: Option<serde_json::Map<String, serde_json::Value>>,
+        open: bool,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let Some(kind) = self.agent_kind() else {
+            return frame;
+        };
+        let mut ledger = self.air_tool_call_meta.lock().await;
+        if open {
+            ledger.open(kind, id, frame)
+        } else {
+            ledger.update(kind, id, frame)
+        }
+    }
+
+    async fn hosted_terminal_output(
+        &self,
+        id: &str,
+        meta: Option<&serde_json::Map<String, serde_json::Value>>,
+        status: Option<&str>,
+    ) -> Option<String> {
+        let kind = self.agent_kind()?;
+        let marks = crate::hosted_terminal::hosted_terminal_meta_marks_shell(kind, meta);
+        let chunk = crate::hosted_terminal::hosted_terminal_frame_chunk(kind, meta);
+        let mut tracked = self.hosted_terminal_output.lock().await;
+        if marks {
+            tracked.entry(id.to_string()).or_default();
+        }
+        let out = chunk.map(|chunk| {
+            let acc = tracked.entry(id.to_string()).or_default();
+            if acc.is_empty() {
+                *acc = chunk;
+            } else {
+                acc.push_str(&chunk);
+            }
+            acc.clone()
+        });
+        if matches!(
+            status,
+            Some("completed" | "failed" | "cancelled" | "canceled" | "error")
+        ) {
+            tracked.remove(id);
+        }
+        out
+    }
+
+    async fn hosted_terminal_is_tracked(&self, id: &str) -> bool {
+        self.hosted_terminal_output.lock().await.contains_key(id)
     }
 
     fn record_turn_probe_event(&self, session_id: Option<AgentSessionId>, event: &AgentEvent) {
@@ -3471,7 +3507,8 @@ impl AgentConnectionRunner {
             )
             .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
                 *runner.live_conn.lock().await = Some(conn.clone());
-                let client_capabilities = build_client_capabilities();
+                let client_capabilities =
+                    build_client_capabilities(&runner.snapshot.agent_id);
                 let initialize = AcpAuthStatusAdapter::initialize(
                     &conn,
                     InitializeRequest::new(ProtocolVersion::LATEST)
@@ -3496,8 +3533,11 @@ impl AgentConnectionRunner {
                     .meta
                     .as_ref()
                     .map(|meta| serde_json::Value::Object(meta.clone()));
-                capability_snapshot.steering =
-                    AcpCapabilityNormalizer::steering_is_advertised(initialize_meta.as_ref());
+                capability_snapshot.steering = crate::native_steering::synthesize_native_steering(
+                    &runner.snapshot.agent_id,
+                    initialize_meta.as_ref(),
+                    initialize_response.agent_info.as_ref(),
+                );
                 if capability_snapshot.steering {
                     capability_snapshot.delivery_channel =
                         crate::conversation::DeliveryChannel::Native;
@@ -4041,6 +4081,11 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
+            if let Some(meta) =
+                crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
+            {
+                request = request.meta(meta);
+            }
             *self.pending_session_id.lock().await = Some(session_id);
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
             let resume_result = conn
@@ -4118,6 +4163,11 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
+            if let Some(meta) =
+                crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
+            {
+                request = request.meta(meta);
+            }
             *self.pending_session_id.lock().await = Some(session_id);
             self.begin_load_replay(&external_session_id).await;
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
@@ -4295,7 +4345,11 @@ impl AgentConnectionRunner {
         let request = AcpForkSessionRequest {
             session_id: acp_session_id,
             cwd: working_dir.to_path_buf(),
-            meta: fork_point.map(|point| point.to_meta()),
+            meta: crate::session_meta::session_request_meta(
+                &self.snapshot.agent_id,
+                fork_point.as_ref(),
+            )
+            .map(serde_json::Value::Object),
         };
         let response = conn.send_request(request).block_task().await?;
         Ok(response.session_id.0.to_string())
@@ -4315,6 +4369,10 @@ impl AgentConnectionRunner {
         request.mcp_servers = self
             .session_mcp_servers_with_companion(working_dir, session_id, companion_capabilities)
             .await;
+        if let Some(meta) = crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
+        {
+            request = request.meta(meta);
+        }
         *self.pending_session_id.lock().await = Some(session_id);
         self.emit_connection_status(AgentConnectionStatus::Connecting, None, Some(session_id));
         let response = conn
@@ -6701,6 +6759,10 @@ impl AcpClientBridge {
             );
             return Err(acp::Error::invalid_params());
         };
+        let mut details = serde_json::to_value(&args.tool_call).ok();
+        if let Some(details) = details.as_mut() {
+            crate::air_contract::hoist_request_permission_meta(details, args.meta.as_ref());
+        }
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
@@ -6710,7 +6772,7 @@ impl AcpClientBridge {
                 .title
                 .clone()
                 .unwrap_or_else(|| "Permission requested".to_string()),
-            details: serde_json::to_value(&args.tool_call).ok(),
+            details,
             options: args
                 .options
                 .iter()
@@ -7317,8 +7379,25 @@ impl AcpClientBridge {
                     &tool_call.content,
                     &tool_call.locations,
                 );
-                let meta = bounded_optional_meta(tool_call.meta);
                 let call_id = tool_call.tool_call_id.0.to_string();
+                let folded = self
+                    .apply
+                    .fold_air_tool_meta(&call_id, tool_call.meta.clone(), true)
+                    .await;
+                let was_hosted = self.apply.hosted_terminal_is_tracked(&call_id).await;
+                let hosted = self
+                    .apply
+                    .hosted_terminal_output(&call_id, folded.as_ref(), status.as_deref())
+                    .await;
+                let skip_placeholder = was_hosted
+                    || hosted.is_some()
+                    || self.apply.agent_kind().is_some_and(|kind| {
+                        crate::hosted_terminal::hosted_terminal_meta_marks_shell(
+                            kind,
+                            folded.as_ref(),
+                        )
+                    });
+                let meta = bounded_optional_meta(folded);
                 self.grok_subagent.lock().await.note_tool_call(
                     &call_id,
                     Some(tool_call.title.as_str()),
@@ -7337,11 +7416,23 @@ impl AcpClientBridge {
                 } else {
                     original_input_preview
                 };
-                let content = peeled
-                    .output_text
+                let content = hosted
                     .map(truncate_preview)
-                    .or_else(|| json_preview(tool_call.raw_output.as_ref()))
-                    .or_else(|| acp_tool_content_preview(&tool_call.content));
+                    .or_else(|| peeled.output_text.map(truncate_preview))
+                    .or_else(|| {
+                        if skip_placeholder {
+                            None
+                        } else {
+                            json_preview(tool_call.raw_output.as_ref())
+                        }
+                    })
+                    .or_else(|| {
+                        if skip_placeholder {
+                            None
+                        } else {
+                            acp_tool_content_preview(&tool_call.content)
+                        }
+                    });
                 Some(AgentEvent::ToolCall {
                     tool_call: AgentToolCall {
                         status,
@@ -7363,8 +7454,25 @@ impl AcpClientBridge {
                     update.fields.locations.as_deref().unwrap_or_default(),
                 );
                 let status = update.fields.status.as_ref().map(acp_enum_label);
-                let meta = bounded_optional_meta(update.meta);
                 let call_id = update.tool_call_id.0.to_string();
+                let folded = self
+                    .apply
+                    .fold_air_tool_meta(&call_id, update.meta.clone(), false)
+                    .await;
+                let was_hosted = self.apply.hosted_terminal_is_tracked(&call_id).await;
+                let hosted = self
+                    .apply
+                    .hosted_terminal_output(&call_id, folded.as_ref(), status.as_deref())
+                    .await;
+                let skip_placeholder = was_hosted
+                    || hosted.is_some()
+                    || self.apply.agent_kind().is_some_and(|kind| {
+                        crate::hosted_terminal::hosted_terminal_meta_marks_shell(
+                            kind,
+                            folded.as_ref(),
+                        )
+                    });
+                let meta = bounded_optional_meta(folded);
                 self.grok_subagent.lock().await.note_tool_call(
                     &call_id,
                     update.fields.title.as_deref(),
@@ -7383,15 +7491,25 @@ impl AcpClientBridge {
                 } else {
                     original_input_preview
                 };
-                let content = peeled
-                    .output_text
+                let content = hosted
                     .map(truncate_preview)
+                    .or_else(|| peeled.output_text.map(truncate_preview))
                     .or_else(|| {
-                        update.fields.raw_output.as_ref().and_then(|output| {
-                            serde_json::to_string(output).ok().map(truncate_preview)
-                        })
+                        if skip_placeholder {
+                            None
+                        } else {
+                            update.fields.raw_output.as_ref().and_then(|output| {
+                                serde_json::to_string(output).ok().map(truncate_preview)
+                            })
+                        }
                     })
-                    .or_else(|| acp_tool_content_preview(content_blocks));
+                    .or_else(|| {
+                        if skip_placeholder {
+                            None
+                        } else {
+                            acp_tool_content_preview(content_blocks)
+                        }
+                    });
                 let title =
                     grok_mcp::should_rewrite_title(update.fields.title.as_deref(), &peeled.title)
                         .then_some(peeled.title);
@@ -11753,7 +11871,7 @@ mod tests {
 
     #[test]
     fn jetbrains_air_capabilities_and_session_failure_extraction_work() {
-        let caps = build_client_capabilities();
+        let caps = build_client_capabilities(&AgentId::parse("claude_code").unwrap());
         let meta = caps.meta.expect("client capabilities must include _meta");
         assert_eq!(
             meta.get("jetbrains.air")

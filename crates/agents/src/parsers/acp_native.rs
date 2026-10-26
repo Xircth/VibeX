@@ -60,7 +60,7 @@ impl AcpNativeParser {
                 "no ACP transcript for {session_id}"
             )));
         }
-        let turns = project_turns(&transcript.entries);
+        let turns = project_turns_for(&transcript.entries, Some(self.agent_type));
         let mut summary = self.summarize(session_id, &transcript);
         summary.message_count = turns.len() as u32;
         let mut stats = session_stats(&turns).unwrap_or_default();
@@ -463,8 +463,18 @@ fn latest_context_window(entries: &[TranscriptEntry]) -> (Option<u64>, Option<u6
 
 /// Project recorded transcript entries into turns.
 pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
+    project_turns_for(entries, None)
+}
+
+/// Project recorded transcript entries into turns, folding AIR `_meta` and
+/// hosted-terminal deltas when `agent_kind` is known.
+pub fn project_turns_for(
+    entries: &[TranscriptEntry],
+    agent_kind: Option<AgentKind>,
+) -> Vec<MessageTurn> {
     let mut turns: Vec<MessageTurn> = Vec::new();
     let mut pending: Option<PendingTurn> = None;
+    let mut hosted_emitted: HashMap<String, bool> = HashMap::new();
     // True between a recorded outgoing prompt and the first agent output: the
     // agent's `user_message_chunk` echo of that same prompt must not become a
     // second user turn.
@@ -608,6 +618,8 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
                     &mut prompt_just_recorded,
                     &mut turn_start_hint,
                     &mut user_prose_open,
+                    agent_kind,
+                    &mut hosted_emitted,
                 );
             }
         }
@@ -786,6 +798,8 @@ fn apply_update(
     prompt_just_recorded: &mut bool,
     turn_start_hint: &mut Option<u64>,
     user_prose_open: &mut bool,
+    agent_kind: Option<AgentKind>,
+    hosted_emitted: &mut HashMap<String, bool>,
 ) {
     // Opening a turn consumes the prompt's timestamp, so the turn's span covers
     // time-to-first-token; without a recorded prompt (replay) it starts here.
@@ -900,6 +914,8 @@ fn apply_update(
                 kind.as_deref(),
                 tc.meta.clone().map(serde_json::Value::Object),
                 at_ms,
+                agent_kind,
+                hosted_emitted,
             );
         }
         SessionUpdate::ToolCallUpdate(tcu) => {
@@ -950,6 +966,8 @@ fn apply_update(
                         kind.as_deref(),
                         tcu.meta.clone().map(serde_json::Value::Object),
                         at_ms,
+                        agent_kind,
+                        hosted_emitted,
                     );
                     return;
                 }
@@ -968,6 +986,8 @@ fn apply_update(
                 kind.as_deref(),
                 tcu.meta.clone().map(serde_json::Value::Object),
                 at_ms,
+                agent_kind,
+                hosted_emitted,
             );
         }
         SessionUpdate::Plan(plan) => {
@@ -1071,12 +1091,52 @@ fn upsert_tool_call(
     kind: Option<&str>,
     meta: Option<serde_json::Value>,
     at_ms: u64,
+    agent_kind: Option<AgentKind>,
+    hosted_emitted: &mut HashMap<String, bool>,
 ) {
     let ToolCards {
         blocks,
         tool_use_index,
         tool_result_index,
     } = cards;
+    let incoming_map = meta
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .cloned();
+    let previous_map = tool_use_index
+        .get(id)
+        .copied()
+        .and_then(|idx| match blocks.get(idx) {
+            Some(ContentBlock::ToolUse { meta: existing, .. }) => existing
+                .as_ref()
+                .and_then(serde_json::Value::as_object)
+                .cloned(),
+            _ => None,
+        });
+    let folded_map = match agent_kind {
+        Some(kind) => crate::air_contract::ToolCallMetaLedger::fold_stored(
+            kind,
+            previous_map,
+            incoming_map.clone(),
+        ),
+        None => incoming_map.clone().or(previous_map),
+    };
+    let hosted_chunk = agent_kind.and_then(|kind| {
+        crate::hosted_terminal::hosted_terminal_frame_chunk(kind, incoming_map.as_ref())
+    });
+    let hosted_shell = agent_kind.is_some_and(|kind| {
+        crate::hosted_terminal::hosted_terminal_meta_marks_shell(kind, incoming_map.as_ref())
+            || hosted_emitted.contains_key(id)
+            || hosted_chunk.is_some()
+    });
+    if hosted_shell {
+        hosted_emitted.entry(id.to_string()).or_insert(false);
+    }
+    let append_hosted = hosted_chunk.is_some() && hosted_emitted.get(id).copied().unwrap_or(false);
+    if hosted_chunk.is_some() {
+        hosted_emitted.insert(id.to_string(), true);
+    }
+    let meta = folded_map.map(serde_json::Value::Object);
     let own_input = json_value_to_text(&raw_input.cloned()).filter(|t| !t.trim().is_empty());
     let synthesized_edit = if own_input.is_none() {
         synthesize_edit_input_from_diffs(content)
@@ -1084,8 +1144,12 @@ fn upsert_tool_call(
         None
     };
     let input_preview = synthesized_edit.clone().or(own_input);
-    let output = serialize_tool_call_content(content, synthesized_edit.is_none())
-        .or_else(|| json_value_to_text(&raw_output.cloned()));
+    let output = if hosted_shell {
+        hosted_chunk
+    } else {
+        serialize_tool_call_content(content, synthesized_edit.is_none())
+            .or_else(|| json_value_to_text(&raw_output.cloned()))
+    };
     let images: Vec<ImageData> = extract_tool_call_images(content).unwrap_or_default();
     let is_error = status == Some("failed");
 
@@ -1152,8 +1216,15 @@ fn upsert_tool_call(
                 ..
             }) = blocks.get_mut(idx)
             {
-                if output.is_some() {
-                    *output_preview = output;
+                if let Some(chunk) = output {
+                    if append_hosted {
+                        match output_preview {
+                            Some(existing) => existing.push_str(&chunk),
+                            None => *output_preview = Some(chunk),
+                        }
+                    } else {
+                        *output_preview = Some(chunk);
+                    }
                 }
                 *existing_error = is_error;
             }
@@ -1576,6 +1647,101 @@ mod tests {
                 assert_eq!(tool_use_id.as_deref(), Some("tc-1"));
                 assert_eq!(output_preview.as_deref(), Some("total 0"));
                 assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn claude_air_updates_merge_claude_code_keys() {
+        let entries = vec![
+            prompt(1_000, "hi"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "toolu_1",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "status": "in_progress",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "parentToolUseId": "toolu_task"}}
+                }),
+            },
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "toolu_1",
+                    "_meta": {"jetbrains": {"air": {"commandTitle": "Build"}}}
+                }),
+            },
+        ];
+        let turns = project_turns_for(&entries, Some(AgentKind::ClaudeCode));
+        match &turns[1].blocks[0] {
+            ContentBlock::ToolUse { meta, .. } => {
+                let meta = meta.as_ref().expect("merged meta");
+                assert_eq!(meta["claudeCode"]["toolName"], "Bash");
+                assert_eq!(meta["claudeCode"]["parentToolUseId"], "toolu_task");
+                assert_eq!(meta["claudeCode"]["title"], "Build");
+            }
+            other => panic!("expected ToolUse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn codex_terminal_output_delta_appends_across_frames() {
+        let entries = vec![
+            prompt(1_000, "run"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "exec_1",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "status": "in_progress",
+                    "content": [{"type": "terminal", "terminalId": "exec_1"}],
+                    "_meta": {"terminal_info": {"terminal_id": "exec_1", "cwd": "/w"}}
+                }),
+            },
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "exec_1",
+                    "_meta": {"terminal_output_delta": {"data": "hello ", "terminal_id": "exec_1"}}
+                }),
+            },
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "exec_1",
+                    "status": "completed",
+                    "_meta": {
+                        "terminal_output_delta": {"data": "world\n", "terminal_id": "exec_1"},
+                        "terminal_exit": {"exit_code": 0, "signal": null, "terminal_id": "exec_1"}
+                    }
+                }),
+            },
+        ];
+        let turns = project_turns_for(&entries, Some(AgentKind::Codex));
+        match &turns[1].blocks[1] {
+            ContentBlock::ToolResult { output_preview, .. } => {
+                assert_eq!(
+                    output_preview.as_deref(),
+                    Some("hello world\n[terminal exited: exit code: 0]")
+                );
             }
             other => panic!("expected ToolResult, got {other:?}"),
         }

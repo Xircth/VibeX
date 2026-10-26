@@ -14,7 +14,7 @@ use agents::{
         ContentBlock, ConversationEvent, ConversationTimeline, ConversationTimelineRow,
         MessageTurn, SessionStats, TimelineRow, TurnRole, TurnUsage,
     },
-    parsers::{acp_native::project_turns, loader::load_import_conversation_detail},
+    parsers::{acp_native::project_turns_for, loader::load_import_conversation_detail},
 };
 use chrono::{DateTime, Utc};
 use db::models::{
@@ -185,7 +185,7 @@ pub fn read_existing_transcript_turns_with_external(
         for sid in &candidates {
             if acp_transcript::has_entries_in(&root, &agent_dir, sid) {
                 let chain = acp_transcript::read_chain_in(&root, &agent_dir, sid);
-                let turns = project_turns(&chain.entries);
+                let turns = project_turns_for(&chain.entries, AgentKind::from_lenient(&agent_dir));
                 if !turns.is_empty() {
                     return Some(turns);
                 }
@@ -481,11 +481,11 @@ async fn load_turns(
         && acp_transcript::has_entries_in(&root, &agent_dir, legacy_sid)
     {
         let existing = acp_transcript::read_chain_in(&root, &agent_dir, legacy_sid);
-        return Ok(project_turns(&existing.entries));
+        return Ok(project_turns_for(&existing.entries, kind));
     }
     if acp_transcript::has_entries_in(&root, &agent_dir, &session_id) {
         let existing = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
-        return Ok(project_turns(&existing.entries));
+        return Ok(project_turns_for(&existing.entries, kind));
     }
     // A file that exists — even a header claimed by an in-flight session/load
     // replay or session bind — is the transcript. Overwriting it would duplicate history.
@@ -493,13 +493,13 @@ async fn load_turns(
         && acp_transcript::has_entries_in(&root, &agent_dir, legacy_sid)
     {
         let existing = acp_transcript::read_chain_in(&root, &agent_dir, legacy_sid);
-        return Ok(project_turns(&existing.entries));
+        return Ok(project_turns_for(&existing.entries, kind));
     }
     if acp_transcript::transcript_path_in(&root, &agent_dir, &session_id)
         .is_some_and(|path| path.is_file())
     {
         let existing = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
-        return Ok(project_turns(&existing.entries));
+        return Ok(project_turns_for(&existing.entries, kind));
     }
 
     let timeline = ConversationProjector::project(pool, summary.id).await?;
@@ -537,7 +537,7 @@ async fn load_turns(
     }
     write_migrated_transcript(&root, &agent_dir, &session_id, summary, &extracted);
     let written = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
-    Ok(project_turns(&written.entries))
+    Ok(project_turns_for(&written.entries, kind))
 }
 
 fn message_turns(timeline: &ConversationTimeline) -> Vec<MessageTurn> {
@@ -1132,6 +1132,7 @@ mod tests {
     use agents::{
         AgentAutoApproveMode, AgentContentBlock, AgentId, AgentRuntime, CancelAgentPromptInput,
         EnsureAgentSessionInput, NoopEventSink, SendAgentPromptInput, SessionLaunchLock,
+        parsers::acp_native::project_turns,
     };
     use chrono::TimeZone;
 

@@ -6,13 +6,8 @@
 use std::collections::HashMap;
 
 use agent_client_protocol::schema::v1::{ContentBlock as WireBlock, ToolCallContent};
-use serde_json::{Map, Value};
 
-use crate::conversation::ImageData;
-
-fn air_meta_value<'a>(meta: Option<&'a Map<String, Value>>, key: &str) -> Option<&'a Value> {
-    meta?.get("jetbrains")?.get("air")?.get(key)
-}
+use crate::{air_contract::air_meta_value, conversation::ImageData};
 
 /// Serialize tool-call `content` blocks into a single human-readable string.
 ///

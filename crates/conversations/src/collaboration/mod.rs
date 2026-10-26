@@ -22,6 +22,7 @@ mod collection;
 mod delivery;
 mod hot_group;
 mod prompt;
+mod reactions;
 mod roles;
 mod routing;
 mod scheduled;
@@ -58,6 +59,11 @@ pub(crate) use prompt::{
     format_collaboration_space_rules,
 };
 pub use prompt::{invalidate_space_delivery_prompt_injections, prefix_persona_prompt};
+pub use reactions::{
+    SPACE_REACTION_USER_ACTOR, SpaceReaction, attach_reactions_to_json_messages,
+    canonical_space_message_id, list_space_reactions, list_space_reactions_batch,
+    toggle_space_reaction,
+};
 pub use roles::{
     BatchDeleteMemberTarget, BatchDeleteResult, CollaborationSpaceChangedEvent,
     ConversationListItem, ConversationPersonaView, CreateSpawnedConversation, CreatedConversation,

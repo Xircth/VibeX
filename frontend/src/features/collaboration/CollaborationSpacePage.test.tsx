@@ -17,6 +17,7 @@ import { CollaborationSpacePage } from './CollaborationSpacePage';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
+const writeClipboard = vi.hoisted(() => vi.fn(async () => true));
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 const toastInfo = vi.hoisted(() => vi.fn());
@@ -86,6 +87,10 @@ vi.mock('./collaborationApi', () => ({
 
 vi.mock('@/hooks/useAttemptRepo', () => ({
   useAttemptRepo: () => ({ repos: [] }),
+}));
+
+vi.mock('@/vscode/bridge', () => ({
+  writeClipboardViaBridge: writeClipboard,
 }));
 
 vi.mock('@/components/kanban/KanbanSessionConversationView', async () => {
@@ -186,6 +191,8 @@ describe('CollaborationSpacePage', () => {
       respondPermission: vi.fn(),
     }));
     sessionPreviewSpy.mockReset();
+    writeClipboard.mockReset();
+    writeClipboard.mockResolvedValue(true);
     uploadForAttemptMock.mockReset();
     uploadMock.mockReset();
     uploadForAttemptMock.mockResolvedValue({
@@ -327,6 +334,16 @@ describe('CollaborationSpacePage', () => {
                 conversation_id: 'conv-1',
                 nickname: '小A',
                 delivered: 'queued',
+              },
+            ],
+          };
+        }
+        if (method === 'space.react') {
+          return {
+            reactions: [
+              {
+                emoji: String(input?.emoji ?? ''),
+                actor: 'user',
               },
             ],
           };
@@ -3343,8 +3360,9 @@ describe('CollaborationSpacePage', () => {
   it('keeps message-area avatars static while working chrome animates independently', async () => {
     renderPage();
     await screen.findByRole('button', { name: '设计' });
+    await screen.findByText('你好');
 
-    const messageAvatar = screen.getByTestId(
+    const messageAvatar = await screen.findByTestId(
       'collaboration-message-bot-avatar-1'
     );
     expect(messageAvatar).toHaveAttribute('data-bot-session-active', 'false');
@@ -3912,5 +3930,114 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     expect(screen.getByRole('heading', { name: '权限申请' })).toBeTruthy();
     expect(screen.getByText('Edit README.md')).toBeTruthy();
+  });
+
+  it('opens a message bubble menu to react, reply, copy and copy request id', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMessages') {
+          if (input?.sinceSeq) return { messages: [] };
+          return {
+            messages: [
+              {
+                id: 'msg-hello',
+                seq: 1,
+                envelope: { actor: 'space/member/小A', content: '你好' },
+              },
+              {
+                id: 'msg-doc',
+                seq: 2,
+                envelope: {
+                  actor: 'space/member/小B',
+                  content: '请查看 [架构文档](src/arch.md)',
+                },
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    const bubble = await screen.findByTestId('collaboration-message-1');
+    fireEvent.contextMenu(bubble);
+    expect(screen.getByRole('menuitem', { name: '回复' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '复制' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '复制请求 ID' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '👍' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.react',
+        { spaceId: 's1', messageId: 'msg-hello', emoji: '👍' }
+      );
+    });
+    expect(
+      await screen.findByTestId('collaboration-bubble-reaction')
+    ).toHaveTextContent('👍');
+
+    fireEvent.contextMenu(screen.getByTestId('collaboration-message-1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '回复' }));
+    expect(screen.getByTestId('collaboration-reply-capsule')).toHaveTextContent(
+      '你好'
+    );
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, '收到');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.post',
+        expect.objectContaining({
+          spaceId: 's1',
+          content: '收到',
+          inReplyTo: 'msg-hello',
+        })
+      );
+    });
+    expect(screen.queryByTestId('collaboration-reply-capsule')).toBeNull();
+
+    fireEvent.contextMenu(screen.getByTestId('collaboration-message-1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制请求 ID' }));
+    expect(writeClipboard).toHaveBeenCalledWith('msg-hello');
+  });
+
+  it('right-clicks a chat avatar to mention, open private chat, or open the session', async () => {
+    renderPage();
+    const avatar = await screen.findByTestId(
+      'collaboration-message-bot-avatar-1'
+    );
+    fireEvent.contextMenu(avatar);
+    const mention = screen.getByRole('menuitem', { name: '@小A' });
+    expect(mention).toHaveTextContent('@小A');
+    expect(within(mention).getByText('@小A')).toHaveStyle({
+      color: deriveMemberBotAvatar('小A').color,
+      fontWeight: '600',
+    });
+
+    fireEvent.click(mention);
+    await waitFor(() => {
+      expect(getComposerEditor().textContent).toContain('小A');
+    });
+
+    fireEvent.contextMenu(avatar);
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开会话' }));
+    expect(await screen.findByTestId('session-preview')).toBeTruthy();
+
+    fireEvent.contextMenu(avatar);
+    fireEvent.click(screen.getByRole('menuitem', { name: '进入私聊' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '小A'
+      );
+    });
   });
 });

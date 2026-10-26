@@ -796,7 +796,15 @@
     "searchPlaceholder": "Search groups or Bots...",
     "crossChatSentPrefix": "Sent to",
     "crossChatReceivedPrefix": "Received",
-    "crossChatReceivedSuffix": "'s message"
+    "crossChatReceivedSuffix": "'s message",
+    "reply": "Reply",
+    "copy": "Copy",
+    "copyRequestId": "Copy request ID",
+    "moreReactions": "More reactions",
+    "replyPlaceholder": "Reply...",
+    "dismissReply": "Cancel reply",
+    "openPrivateChat": "Open private chat",
+    "openSession": "Open session"
   },
   "spaceTag": {
     "blue": "Blue",

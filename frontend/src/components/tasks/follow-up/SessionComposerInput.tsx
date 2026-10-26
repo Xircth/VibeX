@@ -174,6 +174,7 @@ type SessionComposerInputProps = {
   value: string;
   disabled?: boolean;
   className?: string;
+  placeholder?: string;
   context?: SessionComposerInputContext;
   messageHistory?: readonly string[];
   acceptExternalInserts?: boolean;
@@ -1162,6 +1163,7 @@ export function SessionComposerInput({
   value,
   disabled = false,
   className,
+  placeholder = '',
   context,
   messageHistory,
   acceptExternalInserts = true,
@@ -2246,7 +2248,7 @@ export function SessionComposerInput({
             className
           )}
           maxRows={7}
-          placeholder=""
+          placeholder={placeholder}
           label={t('composer.inputLabel')}
           hasHistory={false}
           pasteAsToken={false}

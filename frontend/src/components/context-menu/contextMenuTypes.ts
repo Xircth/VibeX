@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 export type ProductContextMenuHeader = {
@@ -13,10 +13,19 @@ export type ProductContextMenuItem =
       label: string;
       icon?: LucideIcon;
       iconNode?: ReactNode;
+      labelStyle?: CSSProperties;
       disabled?: boolean;
       disabledReason?: string;
       danger?: boolean;
       onSelect: () => void;
+    }
+  | {
+      type: 'emoji-row';
+      id: string;
+      emojis: readonly string[];
+      extraEmojis?: readonly string[];
+      moreLabel?: string;
+      onPick: (emoji: string) => void;
     }
   | {
       type: 'separator';

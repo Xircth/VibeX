@@ -3,11 +3,12 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, type LucideIcon } from 'lucide-react';
+import { ChevronRight, SmilePlus, type LucideIcon } from 'lucide-react';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { cn } from '@/lib/utils';
@@ -266,7 +267,14 @@ function MenuItems({
   const reserveIconSpace = items.some(
     (item) =>
       item.type !== 'separator' &&
-      Boolean(item.iconNode || contextMenuIcon(item.id, item.icon))
+      item.type !== 'emoji-row' &&
+      Boolean(
+        item.iconNode ||
+          contextMenuIcon(
+            item.id,
+            'icon' in item ? item.icon : undefined
+          )
+      )
   );
 
   return (
@@ -278,6 +286,15 @@ function MenuItems({
               key={item.id}
               className="mx-1 my-1 border-t border-border/60"
               role="separator"
+            />
+          );
+        }
+        if (item.type === 'emoji-row') {
+          return (
+            <EmojiRow
+              key={item.id}
+              item={item}
+              onClose={onClose}
             />
           );
         }
@@ -318,6 +335,7 @@ function MenuItems({
             label={item.label}
             icon={item.icon}
             iconNode={item.iconNode}
+            labelStyle={item.labelStyle}
             reserveIconSpace={reserveIconSpace}
             disabled={item.disabled}
             disabledReason={item.disabledReason}
@@ -336,11 +354,58 @@ function MenuItems({
   );
 }
 
+function EmojiRow({
+  item,
+  onClose,
+}: {
+  item: Extract<ProductContextMenuItem, { type: 'emoji-row' }>;
+  onClose: () => void;
+}) {
+  const [showExtra, setShowExtra] = useState(false);
+  const extra = item.extraEmojis ?? [];
+  const visible = showExtra ? [...item.emojis, ...extra] : [...item.emojis];
+  return (
+    <div
+      className="flex flex-wrap items-center gap-0.5 px-1 py-0.5"
+      data-testid="product-context-emoji-row"
+      role="group"
+      aria-label={item.moreLabel}
+    >
+      {visible.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          className="flex h-8 w-8 items-center justify-center rounded-sm text-base leading-none hover:bg-accent"
+          aria-label={emoji}
+          onClick={() => {
+            item.onPick(emoji);
+            onClose();
+          }}
+        >
+          {emoji}
+        </button>
+      ))}
+      {extra.length > 0 ? (
+        <button
+          type="button"
+          className="flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          aria-label={item.moreLabel ?? 'more'}
+          aria-expanded={showExtra}
+          onClick={() => setShowExtra((current) => !current)}
+        >
+          <SmilePlus className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function MenuButton({
   id,
   label,
   icon,
   iconNode,
+  labelStyle,
   reserveIconSpace,
   disabled,
   disabledReason,
@@ -355,6 +420,7 @@ function MenuButton({
   label: string;
   icon?: LucideIcon;
   iconNode?: ReactNode;
+  labelStyle?: CSSProperties;
   reserveIconSpace?: boolean;
   disabled?: boolean;
   disabledReason?: string;
@@ -416,7 +482,9 @@ function MenuButton({
       ) : reserveIconSpace ? (
         <span className={CONTEXT_MENU_ICON_CLASS} aria-hidden="true" />
       ) : null}
-      <span className="min-w-0 flex-1">{label}</span>
+      <span className="min-w-0 flex-1" style={labelStyle}>
+        {label}
+      </span>
       {trailing}
     </button>
   );

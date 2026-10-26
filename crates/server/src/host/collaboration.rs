@@ -151,6 +151,7 @@ impl CollaborationHost for HostCollaborationHost {
                 "space.updateScheduledMessage" | "space.update_scheduled_message",
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
+            ("collaboration", "space.react") => self.react(&input).await,
             ("collaboration", "space.submit") => self.submit(&input).await,
             ("collaboration", "card.list" | "card.list_cards") => self.list_cards(&input).await,
             ("collaboration", "card.resolve") => self.resolve_card(&input).await,
@@ -1007,7 +1008,7 @@ impl HostCollaborationHost {
             .map_err(host_error)?;
         let user_actor = format!("vibex://space/{thread_id}/user");
         let member_actor = format!("vibex://space/{thread_id}/member/{}", member.name);
-        let messages = messages
+        let mut messages = messages
             .into_iter()
             .map(|message| {
                 let from_user = message.origin == "user";
@@ -1040,6 +1041,9 @@ impl HostCollaborationHost {
                 })
             })
             .collect::<Vec<_>>();
+        collaboration::attach_reactions_to_json_messages(&self.pool, thread_id, &mut messages)
+            .await
+            .map_err(host_error)?;
         Ok(json!({
             "messages": messages,
             "scheduled": [],
@@ -1160,6 +1164,41 @@ impl HostCollaborationHost {
         serde_json::to_value(posted).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
+    }
+
+    async fn react(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let message_id = required_text(input, &["messageId", "message_id", "id"])?;
+        let emoji = required_text(input, &["emoji"])?;
+        if let Some(actor) = optional_text(input, &["actor"])
+            && !actor.eq_ignore_ascii_case(collaboration::SPACE_REACTION_USER_ACTOR)
+        {
+            return Err(CollaborationHostError::new(
+                "permission_denied",
+                "host space.react can only act as the user",
+            ));
+        }
+        let reactions = collaboration::toggle_space_reaction(
+            &self.pool,
+            &space_id,
+            &message_id,
+            collaboration::SPACE_REACTION_USER_ACTOR,
+            &emoji,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                },
+            );
+        }
+        Ok(json!({ "reactions": reactions }))
     }
 
     /// User submit: post into a group thread and return the per-member
@@ -2534,6 +2573,77 @@ mod tests {
             json!(first_id),
             "URI reduced to bare id"
         );
+    }
+
+    #[tokio::test]
+    async fn host_space_react_toggles_user_emoji_and_lists_it_on_the_envelope() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call(
+            "host",
+            "collaboration",
+            "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }),
+        )
+        .await
+        .unwrap();
+        let posted = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({ "spaceId": space_id, "content": "你好", "to": ["小A"], "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let message_id = posted["message_id"].as_str().unwrap().to_string();
+        let reacted = host
+            .call(
+                "host",
+                "collaboration",
+                "space.react",
+                json!({ "spaceId": space_id, "messageId": message_id, "emoji": "👍" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reacted["reactions"][0]["emoji"], json!("👍"));
+        assert_eq!(reacted["reactions"][0]["actor"], json!("user"));
+        let listed = host
+            .call(
+                "host",
+                "collaboration",
+                "space.listMessages",
+                json!({ "spaceId": space_id }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            listed["messages"][0]["envelope"]["reactions"][0]["emoji"],
+            json!("👍")
+        );
+        let cleared = host
+            .call(
+                "host",
+                "collaboration",
+                "space.react",
+                json!({ "spaceId": space_id, "messageId": message_id, "emoji": "👍" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cleared["reactions"], json!([]));
     }
 
     #[tokio::test]

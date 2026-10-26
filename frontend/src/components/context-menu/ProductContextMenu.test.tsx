@@ -19,6 +19,33 @@ const items = [
 ];
 
 describe('ProductContextMenu submenu', () => {
+  it('renders an emoji row and picks an emoji', () => {
+    const onPick = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <ProductContextMenu
+        x={20}
+        y={20}
+        onClose={onClose}
+        items={[
+          {
+            type: 'emoji-row',
+            id: 'reactions',
+            emojis: ['👍', '🎉'],
+            extraEmojis: ['🔥'],
+            moreLabel: '更多表情',
+            onPick,
+          },
+          { id: 'reply', label: '回复', onSelect: () => undefined },
+        ]}
+      />
+    );
+    expect(screen.getByTestId('product-context-emoji-row')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '👍' }));
+    expect(onPick).toHaveBeenCalledWith('👍');
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('keeps the submenu open when the pointer crosses the hover bridge', () => {
     render(
       <ProductContextMenu

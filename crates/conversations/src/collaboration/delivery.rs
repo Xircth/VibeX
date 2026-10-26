@@ -1964,7 +1964,7 @@ pub async fn list_space_messages(
     } else {
         std::collections::HashMap::new()
     };
-    Ok(rows
+    let mut messages: Vec<SpaceMessage> = rows
         .into_iter()
         .filter_map(|(seq, raw, origin, id)| {
             let mut envelope: Value = serde_json::from_str(&raw).ok()?;
@@ -1997,7 +1997,17 @@ pub async fn list_space_messages(
                 receipts,
             })
         })
-        .collect())
+        .collect();
+    let reaction_ids: Vec<String> = messages.iter().map(|message| message.id.clone()).collect();
+    let reactions_by_message = list_space_reactions_batch(pool, space_id, &reaction_ids).await?;
+    for message in &mut messages {
+        if let Some(reactions) = reactions_by_message.get(&message.id)
+            && !reactions.is_empty()
+        {
+            message.envelope["reactions"] = json!(reactions);
+        }
+    }
+    Ok(messages)
 }
 
 /// Structured agent-to-agent handoff envelope.

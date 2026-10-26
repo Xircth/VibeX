@@ -1226,6 +1226,42 @@ mod tests {
     }
 
     #[test]
+    fn send_session_input_member_id_distinguishes_identity_and_seat() {
+        let value = respond_text(classify(
+            "collaboration",
+            r#"{"jsonrpc":"2.0","id":24,"method":"tools/list"}"#,
+        ));
+        let tools = value["result"]["tools"].as_array().unwrap();
+        let send = tools
+            .iter()
+            .find(|tool| tool["name"] == "send_session_input")
+            .expect("send_session_input");
+        let member_id = send["inputSchema"]["properties"]["member_id"]["description"]
+            .as_str()
+            .expect("member_id description");
+        assert!(member_id.contains("identity_member_id"));
+        assert!(member_id.contains("list_space_members"));
+        assert!(member_id.contains("add_space_member"));
+        assert!(member_id.contains("different namespaces"));
+
+        let list = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_space_members")
+            .expect("list_space_members");
+        let list_desc = list["description"].as_str().expect("list description");
+        assert!(list_desc.contains("identity_member_id"));
+        assert!(list_desc.contains("per-space seat"));
+
+        let add = tools
+            .iter()
+            .find(|tool| tool["name"] == "add_space_member")
+            .expect("add_space_member");
+        let add_desc = add["description"].as_str().expect("add description");
+        assert!(add_desc.contains("identity_member_id"));
+        assert!(add_desc.contains("per-space seat"));
+    }
+
+    #[test]
     fn tool_schema_explains_agent_mentions() {
         let value = respond_text(classify(
             "delegation",

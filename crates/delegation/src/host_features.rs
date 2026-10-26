@@ -713,7 +713,7 @@ async fn collaboration_tool(
                     member_id: Some(member.member_id.clone()),
                 });
             }
-            Ok(serde_json::to_value(member).unwrap_or(json!({})))
+            collaboration::space_member_tool_value(pool, &member).await
         }
         "set_space_identity" => {
             let operation_id = uuid_arg("operation_id").ok_or_else(|| {

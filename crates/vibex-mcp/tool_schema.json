@@ -135,11 +135,11 @@
         },
         "member_id": {
           "type": "string",
-          "description": "Collaboration member id. With thread_id, targets that member's conversation for the thread (created when missing) instead of conversation_id."
+          "description": "Bot identity id (identity_member_id) or the per-space seat id returned as member_id by list_space_members / add_space_member. Those are different namespaces: one identity per bot, one seat per group. Prefer identity_member_id when the listing tool returned it. With thread_id, targets that bot's conversation for the thread (created when missing) instead of conversation_id."
         },
         "thread_id": {
           "type": "string",
-          "description": "Collaboration thread id: a space id for its group thread, or direct:<member_id>. Pass with member_id."
+          "description": "Collaboration thread id: a space id for its group thread, or direct:<identity_member_id>. Pass with member_id."
         },
         "operation_id": {
           "type": "string",
@@ -346,7 +346,7 @@
   },
   {
     "name": "list_space_members",
-    "description": "List all members and their details (nickname, conversation_id, agent_id, status, team_name, summary, and whether it is yourself) in a collaboration space, plus how to address the user (to: [\"User\"]).",
+    "description": "List members of a space. member_id is the per-space seat id; identity_member_id is the bot identity. send_session_input.member_id accepts either. Also includes nickname, conversation_id, agent_id, status, team_name, summary, is_self, and how to address the user (to: [\"User\"]).",
     "inputSchema": {
       "type": "object",
       "required": ["space_id"],
@@ -369,7 +369,7 @@
   },
   {
     "name": "add_space_member",
-    "description": "Add a Conversation from this workspace to a space you belong to. nickname is a proposal; the member can rename itself later. Nicknames are unique in the space.",
+    "description": "Add a Conversation from this workspace to a space you belong to. Returns member_id (per-space seat) and identity_member_id (bot identity). send_session_input.member_id accepts either. nickname is a proposal; the member can rename itself later. Nicknames are unique in the space.",
     "inputSchema": {
       "type": "object",
       "required": ["operation_id", "space_id", "conversation_id", "nickname"],

@@ -2764,18 +2764,21 @@ pub async fn list_collaboration_spaces_for_caller(
         let my_member = members
             .iter()
             .find(|m| m.conversation_id.as_deref() == Some(caller_str.as_str()));
-        let member_views: Vec<Value> = members
-            .iter()
-            .map(|m| {
-                json!({
-                    "member_id": m.member_id,
-                    "nickname": m.nickname,
-                    "conversation_id": m.conversation_id,
-                    "kind": m.kind,
-                    "is_self": m.conversation_id.as_deref() == Some(caller_str.as_str()),
-                })
-            })
-            .collect();
+        let mut member_views = Vec::with_capacity(members.len());
+        for m in &members {
+            member_views.push(json!({
+                "member_id": m.member_id,
+                "identity_member_id": identity_member_id_for_conversation(
+                    pool,
+                    m.conversation_id.as_deref(),
+                )
+                .await?,
+                "nickname": m.nickname,
+                "conversation_id": m.conversation_id,
+                "kind": m.kind,
+                "is_self": m.conversation_id.as_deref() == Some(caller_str.as_str()),
+            }));
+        }
         items.push(json!({
             "space_id": space.space_id,
             "name": space.name,
@@ -2880,6 +2883,11 @@ pub async fn list_space_members_detailed(
         let persona = parsed_cid.and_then(|cid| personas_by_conv.get(&cid.to_string()));
         detailed.push(json!({
             "member_id": member.member_id,
+            "identity_member_id": identity_member_id_for_conversation(
+                pool,
+                member.conversation_id.as_deref(),
+            )
+            .await?,
             "conversation_id": member.conversation_id,
             "nickname": member.nickname,
             "kind": member.kind,
@@ -3483,9 +3491,108 @@ pub(crate) async fn prepare_member_conversation(
     Ok(())
 }
 
+/// Map `send_session_input.member_id` to a collaboration identity id.
+/// Accepts `collaboration_members.id`, or a per-space seat id from
+/// `list_space_members` / `add_space_member` (`collaboration_space_members.member_id`).
+async fn identity_id_for_member_ref(
+    pool: &SqlitePool,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<String, CollaborationError> {
+    if identity::load_member(pool, member_id)
+        .await
+        .map_err(db)?
+        .is_some()
+    {
+        return Ok(member_id.to_string());
+    }
+    let seats: Vec<(String, Option<String>)> = sqlx::query_as(
+        r#"SELECT space_id, conversation_id
+           FROM collaboration_space_members
+           WHERE member_id = ?"#,
+    )
+    .bind(member_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let seat = seats
+        .iter()
+        .find(|(space_id, _)| space_id == thread_id)
+        .or(seats.first());
+    let Some((_, conversation_id)) = seat else {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    };
+    let Some(conversation_id) = conversation_id
+        .as_deref()
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+    else {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    };
+    if let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+    {
+        return Ok(binding.member_id);
+    }
+    let derived = identity::member_id_for_conversation(conversation_id);
+    if identity::load_member(pool, &derived)
+        .await
+        .map_err(db)?
+        .is_some()
+    {
+        return Ok(derived);
+    }
+    Err(CollaborationError::new("not_found", "member was not found"))
+}
+
+pub(crate) async fn identity_member_id_for_conversation(
+    pool: &SqlitePool,
+    conversation_id: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
+    let Some(conversation_id) = conversation_id.and_then(|raw| Uuid::parse_str(raw).ok()) else {
+        return Ok(None);
+    };
+    if let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+    {
+        return Ok(Some(binding.member_id));
+    }
+    let derived = identity::member_id_for_conversation(conversation_id);
+    if identity::load_member(pool, &derived)
+        .await
+        .map_err(db)?
+        .is_some()
+    {
+        return Ok(Some(derived));
+    }
+    Ok(None)
+}
+
+/// Agent-facing member payload: `member_id` is the space seat, `identity_member_id`
+/// is the bot identity accepted by `send_session_input`.
+pub async fn space_member_tool_value(
+    pool: &SqlitePool,
+    member: &MemberRecord,
+) -> Result<Value, CollaborationError> {
+    Ok(json!({
+        "member_id": member.member_id,
+        "identity_member_id": identity_member_id_for_conversation(
+            pool,
+            member.conversation_id.as_deref(),
+        )
+        .await?,
+        "conversation_id": member.conversation_id,
+        "nickname": member.nickname,
+        "kind": member.kind,
+        "visible_to_agents": member.visible_to_agents,
+    }))
+}
+
 /// Resolve a target for a caller conversation: `member_id` plus `thread_id`
-/// (a space id, a `direct:` thread id, or the undecided space id). The thread
-/// must live in the caller's workspace, and nothing is created otherwise.
+/// (a space id, a `direct:` thread id, or the undecided space id). `member_id`
+/// may be a bot identity id or a space seat id. The thread must live in the
+/// caller's workspace, and nothing is created otherwise.
 pub async fn resolve_member_target(
     pool: &SqlitePool,
     caller_id: Uuid,
@@ -3493,23 +3600,16 @@ pub async fn resolve_member_target(
     thread_id: &str,
 ) -> Result<Uuid, CollaborationError> {
     let caller = live_session(load_session(pool, caller_id).await?)?;
-    let member_id = member_id.trim();
+    let member_id = identity_id_for_member_ref(pool, member_id.trim(), thread_id.trim()).await?;
     let mut thread_id = thread_id.trim().to_string();
     if parse_unassigned_space_id(&thread_id).is_some() {
-        thread_id = identity::direct_thread_id(member_id);
-    }
-    if identity::load_member(pool, member_id)
-        .await
-        .map_err(db)?
-        .is_none()
-    {
-        return Err(CollaborationError::new("not_found", "member was not found"));
+        thread_id = identity::direct_thread_id(&member_id);
     }
     let thread_workspace = match identity::load_thread(pool, &thread_id).await.map_err(db)? {
         Some(thread) => thread.workspace_id,
         None if !thread_id.starts_with(identity::DIRECT_PREFIX) => {
             let space = load_space(pool, &thread_id).await?;
-            identity::ensure_thread_for_seat(pool, &thread_id, member_id)
+            identity::ensure_thread_for_seat(pool, &thread_id, &member_id)
                 .await
                 .map_err(identity_error)?;
             Some(space.workspace_id)
@@ -3519,7 +3619,7 @@ pub async fn resolve_member_target(
     if thread_workspace.as_deref() != Some(caller.workspace_id.to_string().as_str()) {
         return Err(CollaborationError::new("not_found", "thread was not found"));
     }
-    resolve_session(pool, member_id, &thread_id).await
+    resolve_session(pool, &member_id, &thread_id).await
 }
 
 /// Bind an agent seat's conversation to its `(member, thread)` and return the
@@ -4794,6 +4894,70 @@ mod tests {
         assert!(to_b[0].contains("第一空间"));
         assert_eq!(to_forked.len(), 1);
         assert!(to_forked[0].contains("第二空间"));
+    }
+
+    #[tokio::test]
+    async fn resolve_member_target_accepts_space_seat_id_from_add_space_member() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        let in_first = add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let in_second = add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(in_second.conversation_id.as_deref().unwrap()).unwrap();
+        let identity = identity::member_id_for_conversation(b);
+        assert_ne!(
+            in_first.member_id, identity,
+            "space seat id and identity member id are distinct namespaces"
+        );
+        assert_ne!(in_first.member_id, in_second.member_id);
+
+        assert_eq!(
+            resolve_member_target(&pool, a, &in_first.member_id, &first)
+                .await
+                .unwrap(),
+            b
+        );
+        assert_eq!(
+            resolve_member_target(&pool, a, &in_second.member_id, &second)
+                .await
+                .unwrap(),
+            forked
+        );
+        assert_eq!(
+            resolve_member_target(&pool, a, &in_first.member_id, &second)
+                .await
+                .unwrap(),
+            forked
+        );
+        assert_eq!(
+            resolve_member_target(&pool, a, &identity, &first)
+                .await
+                .unwrap(),
+            b
+        );
+
+        let listed = list_space_members_detailed(&pool, a, &first).await.unwrap();
+        let listed_b = listed["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["nickname"] == "小B")
+            .expect("小B in roster");
+        assert_eq!(listed_b["member_id"], in_first.member_id);
+        assert_eq!(listed_b["identity_member_id"], identity);
+        assert_ne!(listed_b["member_id"], listed_b["identity_member_id"]);
+        let tool = space_member_tool_value(&pool, &in_first).await.unwrap();
+        assert_eq!(tool["member_id"], in_first.member_id);
+        assert_eq!(tool["identity_member_id"], identity);
     }
 
     #[tokio::test]

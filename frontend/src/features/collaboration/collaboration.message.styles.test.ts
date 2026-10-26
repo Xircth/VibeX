@@ -175,4 +175,26 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(nav.right?.value).toBe('0.75rem');
     expect(nav.display?.value).toBe('block');
   });
+
+  it('caps user bubbles to content width so they do not fill the log', () => {
+    const userMsg = declarationsFor('.collaboration-message .conv-user-msg');
+    expect(userMsg.width?.value).toBe('fit-content');
+    expect(userMsg['max-width']?.value).toBe('75%');
+    expect(userMsg['margin-left']?.value).toBe('auto');
+
+    const bubble = declarationsFor(
+      '.collaboration-message .vibex-user-message .conv-user-bubble'
+    );
+    expect(bubble.width?.value).toBe('fit-content');
+    expect(bubble['max-width']?.value).toBe('100%');
+  });
+
+  it('paints mention names with fill-color so composer typing keeps default color', () => {
+    const name = declarationsFor('.collaboration-member-mention-name');
+    expect(name.color?.value).toBe('inherit');
+    expect(name['-webkit-text-fill-color']?.value).toBe(
+      'var(--member-mention-color)'
+    );
+    expect(name['-webkit-text-fill-color']?.important).toBe(true);
+  });
 });

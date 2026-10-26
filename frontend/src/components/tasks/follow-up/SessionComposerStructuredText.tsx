@@ -178,10 +178,7 @@ export function toSessionComposerChatToken(
             config={avatar}
             className="collaboration-member-mention-avatar"
           />
-          <span
-            className="collaboration-member-mention-name"
-            style={{ color }}
-          >
+          <span className="collaboration-member-mention-name">
             {token.label}
           </span>
         </span>
@@ -253,7 +250,7 @@ export function appendSessionComposerTokenContents(
     label.className =
       'session-composer-token-label collaboration-member-mention-name truncate font-bold';
     if (avatar.color) {
-      label.style.color = avatar.color;
+      label.style.setProperty('--member-mention-color', avatar.color);
     }
   } else {
     label.className = 'session-composer-token-label truncate font-medium';
@@ -357,9 +354,6 @@ export function SessionComposerTokenChip({
             token.kind === 'member_mention'
               ? 'collaboration-member-mention-name truncate font-bold'
               : 'truncate font-medium'
-          }
-          style={
-            memberAvatar?.color ? { color: memberAvatar.color } : undefined
           }
         >
           {token.label}

@@ -67,4 +67,17 @@ describe('collaboration group and assistant details width', () => {
       declarationsFor('.collaboration-create-member-list')['overflow']?.value
     ).toBe('auto');
   });
+
+  it('stacks collection notes under the label so long notes wrap', () => {
+    const note = declarationsFor('.collaboration-collection-note');
+    expect(note.display?.value).toBe('flex');
+    expect(note['flex-direction']?.value).toBe('column');
+    expect(note['align-items']?.value).toBe('stretch');
+
+    const display = declarationsFor('.collaboration-collection-note-display');
+    expect(display.display?.value).toBe('flex');
+    expect(display.width?.value).toBe('100%');
+    expect(display['white-space']?.value).toBe('pre-wrap');
+    expect(display['word-break']?.value).toBe('break-word');
+  });
 });

@@ -235,6 +235,7 @@
   color: var(--conv-user-text);
   border-radius: var(--radius);
   border: 0;
+  width: fit-content;
   max-width: 100%;
   padding: 10px 14px;
   font-size: 0.875rem;

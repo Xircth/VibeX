@@ -878,7 +878,11 @@ function decorateStructuredTokenElement(
           '.collaboration-member-mention-name, .astryx-chat-composer__token-label, .session-composer-token-label'
         ) ?? element.querySelector<HTMLElement>('span:last-of-type');
       if (labelEl) {
-        labelEl.style.color = token.memberAvatar.color;
+        labelEl.style.removeProperty('color');
+        labelEl.style.setProperty(
+          '--member-mention-color',
+          token.memberAvatar.color
+        );
         labelEl.style.fontWeight = '700';
       }
     }

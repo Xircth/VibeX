@@ -296,11 +296,10 @@ export function bubbleText(envelope: {
   summary?: string;
 }): string {
   const content = String(envelope.content ?? '');
-  const summary = String(envelope.summary ?? '');
-  if (!summary || summary === content || content.startsWith(summary)) {
+  if (content) {
     return content;
   }
-  return `${summary}\n\n${content}`;
+  return String(envelope.summary ?? '');
 }
 
 export type MessageDeliveryTickStatus = 'sent' | 'delivered' | null;

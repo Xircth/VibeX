@@ -1262,6 +1262,25 @@ mod tests {
     }
 
     #[test]
+    fn post_to_space_schema_asks_for_progress_reports() {
+        let value = respond_text(classify(
+            "collaboration",
+            r#"{"jsonrpc":"2.0","id":25,"method":"tools/list"}"#,
+        ));
+        let tools = value["result"]["tools"].as_array().unwrap();
+        let post = tools
+            .iter()
+            .find(|tool| tool["name"] == "post_to_space")
+            .expect("post_to_space");
+        let desc = post["description"].as_str().expect("description");
+        assert!(
+            desc.contains("what you are doing") || desc.contains("progress"),
+            "{desc}"
+        );
+        assert!(!desc.contains("acknowledgment/plan"), "{desc}");
+    }
+
+    #[test]
     fn tool_schema_explains_agent_mentions() {
         let value = respond_text(classify(
             "delegation",

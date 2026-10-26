@@ -12,9 +12,11 @@ describe('SessionComposerFrame', () => {
 
     const status = screen.getByTestId('status-notices');
     const body = screen.getByTestId('session-composer-body');
+    const anchor = screen.getByTestId('session-composer-anchor');
 
-    expect(status.parentElement).toBe(body.parentElement);
-    expect(status.nextElementSibling).toBe(body);
+    expect(status.parentElement).toBe(anchor.parentElement);
+    expect(body.parentElement).toBe(anchor);
+    expect(status.nextElementSibling).toBe(anchor);
     expect(body).not.toContainElement(status);
   });
 
@@ -53,9 +55,11 @@ describe('SessionComposerFrame', () => {
 
     const drawer = screen.getByTestId('attachment-drawer');
     const body = screen.getByTestId('session-composer-body');
+    const anchor = screen.getByTestId('session-composer-anchor');
 
-    expect(drawer.parentElement).toBe(body.parentElement);
-    expect(drawer.nextElementSibling).toBe(body);
+    expect(drawer.parentElement).toBe(anchor.parentElement);
+    expect(drawer.nextElementSibling).toBe(anchor);
+    expect(body.parentElement).toBe(anchor);
     expect(body).not.toContainElement(drawer);
   });
 });

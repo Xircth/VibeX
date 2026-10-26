@@ -215,6 +215,9 @@ export function ComposerAtReferencePanel({
     />
   );
   const host =
-    anchor?.closest('[data-testid="session-composer-stack"]') ?? anchor ?? null;
+    anchor?.closest('[data-testid="session-composer-anchor"]') ??
+    anchor?.closest('[data-testid="session-composer-stack"]') ??
+    anchor ??
+    null;
   return host ? createPortal(menu, host) : menu;
 }

@@ -130,6 +130,30 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(userRow['align-items']?.value).toBe('flex-end');
   });
 
+  it('vertically centers the working avatar with the status copy', () => {
+    const status = declarationsFor('.collaboration-working-status');
+    expect(status.display?.value).toBe('flex');
+    expect(status['align-items']?.value).toBe('center');
+
+    const slot = declarationsFor('.collaboration-working-avatar-slot');
+    expect(slot.display?.value).toBe('flex');
+    expect(slot['align-items']?.value).toBe('center');
+    expect(slot['justify-content']?.value).toBe('center');
+    expect(slot.width?.value).toBe('1.25rem');
+    expect(slot.height?.value).toBe('1.25rem');
+
+    const avatar = declarationsFor('.collaboration-working-avatar');
+    expect(avatar.display?.value).toBe('block');
+    expect(avatar.width?.value).toBe('1.25rem');
+    expect(avatar.height?.value).toBe('1.25rem');
+
+    const copy = declarationsFor('.collaboration-working-copy');
+    expect(copy.display?.value).toBe('flex');
+    expect(copy['align-items']?.value).toBe('center');
+    expect(copy['line-height']?.value).toBe('1.25rem');
+    expect(copy.height?.value).toBe('1.25rem');
+  });
+
   it('flips the working avatar horizontally when cycling', () => {
     const slot = declarationsFor('.collaboration-working-avatar-slot');
     expect(slot.perspective?.value).toBe('2.5rem');

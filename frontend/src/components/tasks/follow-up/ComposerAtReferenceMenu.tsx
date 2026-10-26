@@ -130,7 +130,15 @@ export function ComposerAtReferenceMenu({
                     onSelectItem(item);
                   }}
                 >
-                  {mentionAll ? null : memberAvatar ? (
+                  {mentionAll ? (
+                    <span
+                      aria-hidden="true"
+                      data-composer-at-mention-all-icon
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-control)] text-foreground"
+                    >
+                      <AtSign className="h-3.5 w-3.5" />
+                    </span>
+                  ) : memberAvatar ? (
                     <MemberBotAvatar
                       config={memberAvatar}
                       className="h-7 w-7 shrink-0"

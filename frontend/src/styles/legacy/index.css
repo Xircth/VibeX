@@ -640,7 +640,8 @@
     z-index: 3;
     overflow: hidden;
     padding-bottom: var(--radius);
-    border-radius: var(--radius);
+    /* Square join sits under the composer top radius so sides stay flush. */
+    border-radius: var(--radius) var(--radius) 0 0;
   }
 
   .legacy-design .composer-at-reference-tabs {

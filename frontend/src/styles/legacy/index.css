@@ -637,9 +637,9 @@
     right: 0;
     bottom: calc(100% - 1px);
     left: 0;
-    z-index: 20;
+    z-index: 3;
     overflow: hidden;
-    border-radius: var(--radius);
+    border-radius: var(--radius) var(--radius) 0 0;
   }
 
   .legacy-design .composer-at-reference-tabs {

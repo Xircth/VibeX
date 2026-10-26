@@ -1060,15 +1060,6 @@ impl HostCollaborationHost {
             .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
         let operation_id = required_uuid(input, &["operationId", "operation_id"])?;
         let delivery = self.delivery.lock().expect("delivery").clone();
-        let (receipt, workspace_id) = collaboration::send_user_text_to_conversation(
-            &self.pool,
-            conversation,
-            operation_id,
-            &text(input, &["content"]),
-            &delivery,
-        )
-        .await
-        .map_err(host_error)?;
         let mention_targets: Vec<String> = string_list(input, &["to"])
             .into_iter()
             .map(|name| name.trim().trim_start_matches('@').trim().to_string())
@@ -1090,13 +1081,22 @@ impl HostCollaborationHost {
                     summary: None,
                     to: mention_targets,
                     in_reply_to: None,
-                    operation_id,
+                    operation_id: Uuid::new_v5(&operation_id, b"dm-mention"),
                 },
                 &delivery,
             )
             .await
             .map_err(host_error)?;
         }
+        let (receipt, workspace_id) = collaboration::send_user_text_to_conversation(
+            &self.pool,
+            conversation,
+            operation_id,
+            &text(input, &["content"]),
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
         self.events.emit(
             COLLABORATION_SPACE_CHANGED_EVENT,
             CollaborationSpaceChangedEvent {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -661,6 +661,8 @@ const EMOTE_TO_EXPRESSION: Record<BotSessionEmote, BotAvatarExpression> = {
   proud: 'proud',
 };
 
+let animationNonceSeq = 0;
+
 export function MemberBotAvatar({
   config,
   className,
@@ -694,6 +696,12 @@ export function MemberBotAvatar({
 
   const [sessionEmote, setSessionEmote] = useState<BotSessionEmote>('idle');
   const [completedReactionKey, setCompletedReactionKey] = useState(0);
+  const animationNonceRef = useRef<string | null>(null);
+  if (animationNonceRef.current === null) {
+    animationNonceSeq += 1;
+    animationNonceRef.current = String(animationNonceSeq);
+  }
+  const animationNonce = animationNonceRef.current;
 
   useEffect(() => {
     if (!reactionKey || reactionKey <= 0) {
@@ -711,7 +719,8 @@ export function MemberBotAvatar({
       return;
     }
     const seed = hashSeed(`${config.color}:${config.shape}`);
-    let step = seed % SESSION_EMOTE_SEQUENCE.length;
+    const nonce = Number(animationNonce) || 0;
+    let step = (seed + nonce) % SESSION_EMOTE_SEQUENCE.length;
     let clearTimer: number | null = null;
 
     const triggerNextEmote = () => {
@@ -725,14 +734,14 @@ export function MemberBotAvatar({
     };
 
     triggerNextEmote();
-    const intervalMs = 2600 + (seed % 900);
+    const intervalMs = 2600 + ((seed + nonce * 97) % 900);
     const timer = window.setInterval(triggerNextEmote, intervalMs);
 
     return () => {
       window.clearInterval(timer);
       if (clearTimer !== null) window.clearTimeout(clearTimer);
     };
-  }, [animated, sessionActive, config.color, config.shape]);
+  }, [animated, sessionActive, animationNonce, config.color, config.shape]);
 
   const isReactingNow = Boolean(
     reactionKey && reactionKey > 0 && completedReactionKey < reactionKey
@@ -782,6 +791,7 @@ export function MemberBotAvatar({
       data-bot-expression={effectiveExpression}
       data-bot-emote={activeReactionEmote}
       data-bot-session-active={sessionActive ? 'true' : 'false'}
+      data-bot-animation-nonce={sessionActive ? animationNonce : undefined}
       aria-hidden="true"
     >
       <g

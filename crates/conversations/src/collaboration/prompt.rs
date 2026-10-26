@@ -373,7 +373,8 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接结束当前回合；向其他成员发消息时也不要要求“收到请回复”；\n\
            4) 对用户屏蔽内部参数：向用户发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
            5) 空间感知与群收藏（临界区）工具：投递信封不再附带成员名单或未引用的历史。需要名单时自行调用 `list_space_members`（`space_id`）；需要更早消息时自行调用 `list_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。以及使用 `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` 在群收藏中沉淀或读取跨成员共享的文本、图片、文件产物（群收藏仅保存磁盘地址索引与元数据，不可直接传入二进制，调用 `add_to_space_collection` 传入 `content` 或 `source_path` 即落盘到共享目录，调用 `read_space_collection_item` 登记读取记录并获取 `file_path` 后按路径访问）；\n\
-           6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史、`list_space_messages` 结果或 `<handoff><done>` 中其他成员的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。"
+           6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史、`list_space_messages` 结果或 `<handoff><done>` 中其他成员的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。\n\
+           7) 跨会话投递保持当前 space_id：`post_to_space` / `ask_person` / `handoff` 必须传入当前会话的 space_id。联系其他助手时 `to` 传对方昵称（投到对方私聊）；发到其他群时 `to` 传群名。禁止把 space_id 换成目标私聊或共同群。"
     )
 }
 
@@ -505,6 +506,22 @@ mod tests {
         assert!(!rules.contains("已收到及处理计划"), "{rules}");
         assert!(rules.contains("to: [\"User\"]"), "{rules}");
         assert!(!rules.contains("content 以 `@User ` 开头"), "{rules}");
+    }
+
+    #[test]
+    fn post_to_space_rules_keep_current_space_id_for_cross_chat() {
+        let dm = "direct:member-a";
+        let rules = format_collaboration_space_rules(Some(dm));
+        assert!(rules.contains(dm), "{rules}");
+        assert!(
+            rules.contains("当前会话的 space_id") || rules.contains("当前 space_id"),
+            "{rules}"
+        );
+        assert!(rules.contains("to"), "{rules}");
+        assert!(
+            rules.contains("不要把 space_id 换成") || rules.contains("禁止把 space_id 换成"),
+            "{rules}"
+        );
     }
 
     #[test]

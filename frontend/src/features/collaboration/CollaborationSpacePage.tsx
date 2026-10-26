@@ -6672,6 +6672,7 @@ export function CollaborationSpacePage({
                                   sessionActive={memberSessionActive}
                                   silhouetteOutline={listAvatarOutline}
                                   className="h-full w-full"
+                                  data-testid={`collaboration-top-member-bot-avatar-${nick}`}
                                 />
                               </span>
                               <span
@@ -7013,10 +7014,8 @@ export function CollaborationSpacePage({
                                 >
                                   <MemberBotAvatar
                                     config={avatar}
-                                    sessionActive={Boolean(
-                                      authorConv?.turn_in_flight ||
-                                        authorConv?.status === 'inprogress'
-                                    )}
+                                    animated={false}
+                                    sessionActive={false}
                                     className="h-10 w-10"
                                     lead={leadConversationIds.has(
                                       authorConversationId

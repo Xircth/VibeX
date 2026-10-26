@@ -2687,6 +2687,35 @@ mod tests {
     }
 
     #[test]
+    fn multi_agent_skill_states_progress_lead_and_no_repeat_as_principles() {
+        let skill = include_str!("skills/vibex-multi-agent/SKILL.md");
+        let playbook = include_str!("skills/vibex-multi-agent/COLLABORATION-SPACE.md");
+        for body in [skill, playbook] {
+            assert!(
+                !body.contains("我正在查看项目中"),
+                "progress examples must stay out of skill text"
+            );
+            assert!(
+                !body.contains("我已经查看了项目的完整架构"),
+                "progress examples must stay out of skill text"
+            );
+            assert!(
+                body.contains("正在做的事") || body.contains("正在做什么"),
+                "{body}"
+            );
+            assert!(
+                body.contains("不重复") || body.contains("已说过"),
+                "missing no-repeat principle"
+            );
+            assert!(body.contains("负责人"), "missing space-lead principle");
+        }
+        assert!(
+            skill.contains("lead_nickname") || playbook.contains("lead_nickname"),
+            "bots must be told how to discover the lead"
+        );
+    }
+
+    #[test]
     fn shared_hosting_destinations_keep_a_selected_owner() {
         let shared = PathBuf::from("/tmp/shared-skills/example");
         let mut destinations = BTreeMap::new();

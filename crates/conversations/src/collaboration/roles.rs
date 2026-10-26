@@ -2785,6 +2785,11 @@ pub async fn list_collaboration_spaces_for_caller(
         let my_member = members
             .iter()
             .find(|m| m.conversation_id.as_deref() == Some(caller_str.as_str()));
+        let lead_id = space.lead_member_id.clone();
+        let lead_nickname = members
+            .iter()
+            .find(|m| Some(m.member_id.as_str()) == lead_id.as_deref())
+            .map(|m| m.nickname.clone());
         let mut member_views = Vec::with_capacity(members.len());
         for m in &members {
             member_views.push(json!({
@@ -2798,6 +2803,7 @@ pub async fn list_collaboration_spaces_for_caller(
                 "conversation_id": m.conversation_id,
                 "kind": m.kind,
                 "is_self": m.conversation_id.as_deref() == Some(caller_str.as_str()),
+                "is_lead": lead_id.as_deref() == Some(m.member_id.as_str()),
             }));
         }
         items.push(json!({
@@ -2806,6 +2812,8 @@ pub async fn list_collaboration_spaces_for_caller(
             "workspace_id": space.workspace_id,
             "is_member": my_member.is_some(),
             "my_nickname": my_member.map(|m| m.nickname.clone()),
+            "lead_member_id": lead_id,
+            "lead_nickname": lead_nickname,
             "member_count": member_views.len(),
             "members": member_views,
             "user_recipient": "User",
@@ -2838,6 +2846,15 @@ pub async fn list_space_members_detailed(
             space_id.to_string()
         }
     });
+    let lead_member_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT lead_member_id FROM collaboration_spaces WHERE id = ?",
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    .flatten()
+    .filter(|id| !id.trim().is_empty());
     let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
     let workspace_uuid = Uuid::parse_str(&space_row.workspace_id).ok();
     let conversations = match workspace_uuid {
@@ -2914,6 +2931,7 @@ pub async fn list_space_members_detailed(
             "kind": member.kind,
             "visible_to_agents": member.visible_to_agents,
             "is_self": member.conversation_id.as_deref() == Some(caller_str.as_str()),
+            "is_lead": lead_member_id.as_deref() == Some(member.member_id.as_str()),
             "agent_id": conv_opt.and_then(|c| c.agent_id.clone()).or_else(|| persona.map(|p| p.agent_name.clone())),
             "status": conv_opt.map(|c| c.status.clone()),
             "turn_in_flight": conv_opt.map(|c| c.turn_in_flight).unwrap_or(false),
@@ -2921,11 +2939,18 @@ pub async fn list_space_members_detailed(
             "summary": persona.and_then(|p| p.summary.clone()),
         }));
     }
+    let lead_nickname = detailed
+        .iter()
+        .find(|row| row["member_id"].as_str() == lead_member_id.as_deref())
+        .and_then(|row| row["nickname"].as_str())
+        .map(str::to_string);
     Ok(json!({
         "space_id": space_id,
         "space_name": space_name,
         "my_conversation_id": caller_id,
         "my_nickname": my_nickname,
+        "lead_member_id": lead_member_id,
+        "lead_nickname": lead_nickname,
         "members": detailed,
         "user_recipient": {
             "nickname": "User",
@@ -4902,10 +4927,8 @@ mod tests {
 
         let member_a = identity::member_id_for_conversation(a);
         let a_in_second = resolve_session(&pool, &member_a, &second).await.unwrap();
-        for (caller, space, text) in [
-            (a, &first, "第一空间"),
-            (a_in_second, &second, "第二空间"),
-        ] {
+        for (caller, space, text) in [(a, &first, "第一空间"), (a_in_second, &second, "第二空间")]
+        {
             post_to_space(
                 &pool,
                 PostToSpace {
@@ -5003,6 +5026,68 @@ mod tests {
         let tool = space_member_tool_value(&pool, &in_first).await.unwrap();
         assert_eq!(tool["member_id"], in_first.member_id);
         assert_eq!(tool["identity_member_id"], identity);
+    }
+
+    #[tokio::test]
+    async fn list_space_views_expose_space_lead_nickname() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        let in_space = add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+
+        let before = list_space_members_detailed(&pool, a, &space).await.unwrap();
+        assert!(before["lead_member_id"].is_null() || before.get("lead_member_id").is_none());
+        assert!(before["lead_nickname"].is_null() || before.get("lead_nickname").is_none());
+        for row in before["members"].as_array().unwrap() {
+            assert_eq!(row["is_lead"], false);
+        }
+
+        set_space_lead(&pool, &space, Some(&in_space.member_id))
+            .await
+            .unwrap();
+
+        let members_view = list_space_members_detailed(&pool, a, &space).await.unwrap();
+        assert_eq!(members_view["lead_member_id"], in_space.member_id);
+        assert_eq!(members_view["lead_nickname"], "小B");
+        let listed_b = members_view["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["nickname"] == "小B")
+            .expect("小B in roster");
+        assert_eq!(listed_b["is_lead"], true);
+        let listed_a = members_view["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["nickname"] == "小A")
+            .expect("小A in roster");
+        assert_eq!(listed_a["is_lead"], false);
+
+        let spaces_view = list_collaboration_spaces_for_caller(&pool, a)
+            .await
+            .unwrap();
+        let space_item = spaces_view["spaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["space_id"] == space)
+            .expect("space in caller list");
+        assert_eq!(space_item["lead_member_id"], in_space.member_id);
+        assert_eq!(space_item["lead_nickname"], "小B");
+        let listed_b = space_item["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["nickname"] == "小B")
+            .expect("小B in space overview");
+        assert_eq!(listed_b["is_lead"], true);
     }
 
     #[tokio::test]

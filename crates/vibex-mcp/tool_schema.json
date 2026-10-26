@@ -338,7 +338,7 @@
   },
   {
     "name": "list_collaboration_spaces",
-    "description": "List collaboration spaces in this workspace, including which spaces you belong to, your member nickname in each space, and the members in each space.",
+    "description": "List collaboration spaces in this workspace, including which spaces you belong to, your member nickname in each space, the space lead (lead_nickname / lead_member_id) when set, and the members in each space (is_lead).",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -346,7 +346,7 @@
   },
   {
     "name": "list_space_members",
-    "description": "List members of a space. member_id is the per-space seat id; identity_member_id is the bot identity. send_session_input.member_id accepts either. Also includes nickname, conversation_id, agent_id, status, team_name, summary, is_self, and how to address the user (to: [\"User\"]).",
+    "description": "List members of a space. member_id is the per-space seat id; identity_member_id is the bot identity. send_session_input.member_id accepts either. Also includes nickname, conversation_id, agent_id, status, team_name, summary, is_self, space lead (lead_nickname / lead_member_id), is_lead, and how to address the user (to: [\"User\"]).",
     "inputSchema": {
       "type": "object",
       "required": ["space_id"],
@@ -396,7 +396,7 @@
   },
   {
     "name": "post_to_space",
-    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. to is a list of member nicknames (or \"User\" to reply/report to the user). delay_seconds (optional integer, default 0) schedules the message to be posted into the space after the specified number of seconds. Rules (see vibex-multi-agent COLLABORATION-SPACE.md): (1) When a User task takes time, post_to_space (to: [\"User\"]) with what you are doing now so the user can see progress; post again on a real update; at completion post the result or a decision question. If the work finishes quickly, post only the result. Ordinary chat posts content only. (2) Audience filtering: when messaging User (to: [\"User\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, operation_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call post_to_space to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. Use a new operation_id for each distinct message; reuse operation_id only when retrying the exact same post.",
+    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. to is a list of member nicknames (or \"User\" to reply/report to the user). delay_seconds (optional integer, default 0) schedules the message to be posted into the space after the specified number of seconds. Rules (see vibex-multi-agent COLLABORATION-SPACE.md): (1) When a User task takes time, post_to_space (to: [\"User\"]) with what you are doing now so the user can see progress; post again on a real update; at completion post the result or a decision question. If the work finishes quickly, post only the result. Ordinary chat posts content only. (2) Audience filtering: when messaging User (to: [\"User\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, operation_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call post_to_space to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. (4) Do not restate facts, reasons, or relay chains another member already posted; only send incremental new information. (5) For disputes, layout/format decisions, or aggregated results, address the space lead first (list_space_members lead_nickname / is_lead). Use a new operation_id for each distinct message; reuse operation_id only when retrying the exact same post.",
     "inputSchema": {
       "type": "object",
       "required": ["operation_id", "space_id", "content"],

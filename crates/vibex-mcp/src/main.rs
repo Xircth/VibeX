@@ -1278,6 +1278,44 @@ mod tests {
             "{desc}"
         );
         assert!(!desc.contains("acknowledgment/plan"), "{desc}");
+        assert!(
+            desc.contains("restate")
+                || desc.contains("already posted")
+                || desc.contains("incremental"),
+            "{desc}"
+        );
+        assert!(
+            desc.contains("lead") || desc.contains("space lead"),
+            "{desc}"
+        );
+    }
+
+    #[test]
+    fn list_space_member_schema_exposes_space_lead() {
+        let value = respond_text(classify(
+            "collaboration",
+            r#"{"jsonrpc":"2.0","id":26,"method":"tools/list"}"#,
+        ));
+        let tools = value["result"]["tools"].as_array().unwrap();
+        let list = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_space_members")
+            .expect("list_space_members");
+        let list_desc = list["description"].as_str().expect("list description");
+        assert!(
+            list_desc.contains("lead_nickname") && list_desc.contains("is_lead"),
+            "{list_desc}"
+        );
+
+        let spaces = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_collaboration_spaces")
+            .expect("list_collaboration_spaces");
+        let spaces_desc = spaces["description"].as_str().expect("spaces description");
+        assert!(
+            spaces_desc.contains("lead_nickname") || spaces_desc.contains("space lead"),
+            "{spaces_desc}"
+        );
     }
 
     #[test]

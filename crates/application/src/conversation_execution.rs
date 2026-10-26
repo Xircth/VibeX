@@ -205,13 +205,9 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         if let Err(error) = self.inputs.recover_stale_claims(chrono::Utc::now()).await {
             tracing::warn!(%conversation_id, %error, "failed to release expired input claims");
         }
-        if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
-            tracing::warn!(
-                %conversation_id,
-                %error,
-                "failed to dispatch a waiting conversation input"
-            );
-        }
+        // Listing is a read. Dispatching from here retried ensure_session_controls
+        // on every queue poll / conversation event, which re-emitted
+        // AgentBindingLoadFailed and desktop toasts for an expired ACP session.
         self.inputs
             .list(conversation_id)
             .await

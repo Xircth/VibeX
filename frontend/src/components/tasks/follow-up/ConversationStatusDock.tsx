@@ -34,6 +34,14 @@ export function ConversationStatusDock({
   const { dismiss: dismissNotice, isDismissed } =
     useConversationStatusDismissal(dismissalScope);
   const visibleNotices = notices.filter((notice) => !isDismissed(notice));
+  const blockingNotice = visibleNotices.some(
+    (notice) =>
+      notice.kind === 'turn-error' ||
+      Boolean(
+        notice.kind === 'session-notice' &&
+          (notice.onReload || notice.onRebind || notice.onNewConversation)
+      )
+  );
 
   useEffect(() => {
     rememberVisibleSessionAnnouncements(dismissalScope, visibleNotices);
@@ -50,6 +58,7 @@ export function ConversationStatusDock({
       }
       data-testid="conversation-status-dock"
       data-placement={placement}
+      data-expanded={blockingNotice ? 'true' : undefined}
       aria-live="polite"
     >
       <div className="composer-status-surface rounded-lg">

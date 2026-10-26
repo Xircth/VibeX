@@ -216,15 +216,8 @@ impl ConversationAgentEventRecorder {
             Some(serde_json::to_string(&envelope.event)?)
         };
         let connection_id = envelope.connection_id.to_string();
-        let idempotency_key = match &event {
-            ConversationEvent::PermissionResponded { permission_id, .. } => {
-                format!("conversation:{conversation_id}:permission:{permission_id}:responded")
-            }
-            ConversationEvent::QuestionResponded { question_id, .. } => {
-                format!("conversation:{conversation_id}:question:{question_id}:responded")
-            }
-            _ => format!("agent:{}:{event_kind}", envelope.sequence),
-        };
+        let idempotency_key =
+            conversation_event_idempotency_key(conversation_id, envelope.sequence, &event);
         let complete_reply = matches!(
             &envelope.event,
             AgentEvent::PromptFinished { finished }
@@ -333,27 +326,30 @@ impl ConversationAgentEventRecorder {
                 let pool_for_collab = self.pool.clone();
                 tokio::spawn(async move {
                     if is_completed {
-                        let reply = crate::jsonl_history::load_all_turns(&pool_for_collab, conversation_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|turns| {
-                                turns
-                                    .into_iter()
-                                    .rev()
-                                    .find(|turn| turn.role == agents::TurnRole::Assistant)
-                                    .map(|turn| {
-                                        turn.blocks
-                                            .into_iter()
-                                            .filter_map(|block| match block {
-                                                agents::ContentBlock::Text { text } => Some(text),
-                                                _ => None,
-                                            })
-                                            .collect::<Vec<_>>()
-                                            .join("\n")
-                                    })
-                            })
-                            .unwrap_or_default();
+                        let reply =
+                            crate::jsonl_history::load_all_turns(&pool_for_collab, conversation_id)
+                                .await
+                                .ok()
+                                .flatten()
+                                .and_then(|turns| {
+                                    turns
+                                        .into_iter()
+                                        .rev()
+                                        .find(|turn| turn.role == agents::TurnRole::Assistant)
+                                        .map(|turn| {
+                                            turn.blocks
+                                                .into_iter()
+                                                .filter_map(|block| match block {
+                                                    agents::ContentBlock::Text { text } => {
+                                                        Some(text)
+                                                    }
+                                                    _ => None,
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join("\n")
+                                        })
+                                })
+                                .unwrap_or_default();
                         if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
                             &pool_for_collab,
                             conversation_id,
@@ -369,7 +365,11 @@ impl ConversationAgentEventRecorder {
                             );
                         }
                     }
-                    let _ = crate::collaboration::release_member_write(&pool_for_collab, conversation_id).await;
+                    let _ = crate::collaboration::release_member_write(
+                        &pool_for_collab,
+                        conversation_id,
+                    )
+                    .await;
                     if let Err(error) = crate::collaboration::redeliver_deferred(
                         &pool_for_collab,
                         &crate::collaboration::DeliveryContext::default(),
@@ -558,13 +558,40 @@ fn ephemeral_record(
     }
 }
 
+fn conversation_event_idempotency_key(
+    conversation_id: Uuid,
+    agent_sequence: i64,
+    event: &ConversationEvent,
+) -> String {
+    match event {
+        ConversationEvent::PermissionResponded { permission_id, .. } => {
+            format!("conversation:{conversation_id}:permission:{permission_id}:responded")
+        }
+        ConversationEvent::QuestionResponded { question_id, .. } => {
+            format!("conversation:{conversation_id}:question:{question_id}:responded")
+        }
+        ConversationEvent::AgentBindingLoadFailed { reason } => {
+            format!(
+                "conversation:{conversation_id}:agent-binding-load-failed:{}",
+                reason.code()
+            )
+        }
+        _ => format!(
+            "agent:{}:{}",
+            agent_sequence,
+            conversation_event_kind(event)
+        ),
+    }
+}
+
 fn append_event_input<'a>(
     mapped: &'a MappedConversationEventRecord,
     normalized_json: &'a str,
     turn_id: Option<Uuid>,
+    event_id: Uuid,
 ) -> AppendConversationEvent<'a> {
     AppendConversationEvent {
-        id: Uuid::new_v4(),
+        id: event_id,
         conversation_id: mapped.conversation_id,
         turn_id,
         binding_id: None,
@@ -583,21 +610,25 @@ async fn append_mapped_event(
     mapped: &MappedConversationEventRecord,
     normalized_json: &str,
 ) -> Result<Option<db::models::conversation_event::ConversationEventRecord>, sqlx::Error> {
+    let event_id = Uuid::new_v4();
     match ConversationEventAppender::append(
         pool,
-        append_event_input(mapped, normalized_json, mapped.turn_id),
+        append_event_input(mapped, normalized_json, mapped.turn_id, event_id),
     )
     .await
     {
+        Ok(record) if record.id != event_id => Ok(None),
         Ok(record) => Ok(Some(record)),
         Err(error) if is_foreign_key_constraint(&error) => {
             if mapped.turn_id.is_some() {
+                let retry_id = Uuid::new_v4();
                 match ConversationEventAppender::append(
                     pool,
-                    append_event_input(mapped, normalized_json, None),
+                    append_event_input(mapped, normalized_json, None, retry_id),
                 )
                 .await
                 {
+                    Ok(record) if record.id != retry_id => return Ok(None),
                     Ok(record) => return Ok(Some(record)),
                     Err(retry) if is_foreign_key_constraint(&retry) => {
                         tracing::debug!(
@@ -2685,5 +2716,71 @@ mod tests {
             q_count, 1,
             "QuestionResponded from host and runtime must deduplicate via shared idempotency_key"
         );
+    }
+
+    #[tokio::test]
+    async fn repeated_session_load_failures_do_not_reemit_binding_events() {
+        let pool = setup_pool().await;
+        let prompt_id = AgentPromptId::new();
+        let (conversation_id, _turn_id) =
+            seed_conversation_turn(&pool, &prompt_id.to_string(), "expired session").await;
+        let mut recorder = super::ConversationAgentEventRecorder {
+            pool: pool.clone(),
+            deployment: None,
+            conversation_context: None,
+            event_publisher: None,
+            coalescer: super::ConversationEventCoalescer::default(),
+            active_turn_cache: std::collections::HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            turn_db_lookups: 0,
+        };
+
+        let first = AgentEventEnvelope {
+            sequence: 10,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId(conversation_id)),
+            event: AgentEvent::SessionLoadFailed {
+                reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
+            },
+            created_at: Utc::now(),
+        };
+        let first_batch = recorder
+            .record(&first)
+            .await
+            .expect("record first session load failure");
+        assert_eq!(
+            first_batch.events.len(),
+            1,
+            "the first expired-session failure must persist a notice"
+        );
+
+        let second = AgentEventEnvelope {
+            sequence: 11,
+            workspace_id: first.workspace_id,
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId(conversation_id)),
+            event: AgentEvent::SessionLoadFailed {
+                reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
+            },
+            created_at: Utc::now(),
+        };
+        let second_batch = recorder
+            .record(&second)
+            .await
+            .expect("record repeated session load failure");
+        assert!(
+            second_batch.events.is_empty(),
+            "retrying session/load on the same expired ACP session must not emit another conversation event"
+        );
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ? AND event_kind = 'agent_binding_load_failed'",
+        )
+        .bind(conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
     }
 }

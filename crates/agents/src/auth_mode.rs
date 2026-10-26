@@ -653,6 +653,14 @@ pub fn apply_built_in_launch_policy(
             bind_pi_acp_pi_command(env, requested.as_deref());
         }
         "grok" => apply_grok_native_launch_env(env),
+        // In-process Cline runtime so model switches apply, and no
+        // `npm update -g cline` after stdin closes (Codeg pin 3.0.73).
+        "cline" => {
+            env.entry("CLINE_SESSION_BACKEND_MODE".to_string())
+                .or_insert_with(|| "local".into());
+            env.entry("CLINE_NO_AUTO_UPDATE".to_string())
+                .or_insert_with(|| "1".into());
+        }
         _ => {}
     }
     apply_built_in_launch_argument_policy(agent_id, env, args);
@@ -990,6 +998,26 @@ mod tests {
         bind_pi_acp_pi_command, built_in_auth_mode_policy, is_non_official_api_url,
         official_api_url, resolve_built_in_auth_mode, resolve_pi_acp_command,
     };
+
+    #[test]
+    fn cline_launch_pins_in_process_runtime_and_disables_self_update() {
+        let mut env = HashMap::new();
+        apply_built_in_launch_policy(&AgentId::parse("cline").unwrap(), &mut env, &mut Vec::new());
+        assert_eq!(env["CLINE_SESSION_BACKEND_MODE"], "local");
+        assert_eq!(env["CLINE_NO_AUTO_UPDATE"], "1");
+
+        let mut override_env = HashMap::from([
+            ("CLINE_SESSION_BACKEND_MODE".to_string(), "hub".to_string()),
+            ("CLINE_NO_AUTO_UPDATE".to_string(), "0".to_string()),
+        ]);
+        apply_built_in_launch_policy(
+            &AgentId::parse("cline").unwrap(),
+            &mut override_env,
+            &mut Vec::new(),
+        );
+        assert_eq!(override_env["CLINE_SESSION_BACKEND_MODE"], "hub");
+        assert_eq!(override_env["CLINE_NO_AUTO_UPDATE"], "0");
+    }
 
     #[test]
     fn codex_and_pi_force_required_acp_capability_environment() {

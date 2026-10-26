@@ -266,6 +266,7 @@ pub use profiles::{
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
     ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
     acp_launch_args, adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
+    profile_delivers_session_mcp,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,

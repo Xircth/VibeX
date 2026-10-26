@@ -243,15 +243,14 @@ fn npx_plans_fail_without_node_when_the_host_cannot_bootstrap() {
 }
 
 #[test]
-fn hermes_install_requires_uv_but_not_a_system_python() {
+fn hermes_install_uses_the_npx_bridge() {
     let plan = InstallPlanner::bundled()
         .plan(InstallPlanningInput {
             agent_id: AgentId::parse("hermes").unwrap(),
             source: InstallCandidateSource::BuiltInProfile,
             platform: "linux-x86_64".to_string(),
             environment: InstallEnvironment {
-                uv_verified: true,
-                python_verified: false,
+                node_verified: true,
                 ..Default::default()
             },
         })
@@ -260,12 +259,9 @@ fn hermes_install_requires_uv_but_not_a_system_python() {
     assert_eq!(plan.components.len(), 1);
     assert_eq!(
         plan.components[0].distribution_kind,
-        PlannedDistributionKind::Uvx
+        PlannedDistributionKind::Npx
     );
-    assert_eq!(
-        plan.components[0].resolved_source,
-        "hermes-agent[acp,mcp]==0.19.0"
-    );
+    assert_eq!(plan.components[0].resolved_source, "hermes-agent@0.22.2");
 }
 
 #[test]
@@ -595,7 +591,7 @@ fn built_in_update_target_pins_profile_locked_versions() {
         })
         .unwrap();
 
-    assert_eq!(plan.version, "1.7.0");
+    assert_eq!(plan.version, "2.2.2");
     assert!(
         plan.components
             .iter()
@@ -608,9 +604,9 @@ fn built_in_update_target_pins_profile_locked_versions() {
         .expect("codex declares an acp_adapter component");
     assert_eq!(
         adapter.resolved_source,
-        "@agentclientprotocol/codex-acp@1.7.0"
+        "@agentclientprotocol/codex-acp@2.2.2"
     );
-    assert_eq!(adapter.version, "1.7.0");
+    assert_eq!(adapter.version, "2.2.2");
 }
 
 #[test]

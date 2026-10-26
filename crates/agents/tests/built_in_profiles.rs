@@ -38,41 +38,65 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     for (id, component, package, version, command, node) in [
         (
             "claude_code",
+            ProfileComponent::AgentRuntime,
+            "@anthropic-ai/claude-code",
+            "2.1.303",
+            "claude",
+            ">=20",
+        ),
+        (
+            "claude_code",
             ProfileComponent::AcpAdapter,
             "@agentclientprotocol/claude-agent-acp",
-            "0.69.0",
+            "0.94.0",
             "claude-agent-acp",
             ">=22",
         ),
         (
             "codex",
-            ProfileComponent::AcpAdapter,
-            "@agentclientprotocol/codex-acp",
-            "1.7.0",
-            "codex-acp",
+            ProfileComponent::AgentRuntime,
+            "@openai/codex",
+            "0.160.1",
+            "codex",
             ">=20",
         ),
         (
+            "codex",
+            ProfileComponent::AcpAdapter,
+            "@agentclientprotocol/codex-acp",
+            "2.2.2",
+            "codex-acp",
+            ">=20.3",
+        ),
+        (
             "openclaw",
             ProfileComponent::CombinedRuntime,
             "openclaw",
-            "2026.7.1",
+            "2026.9.8",
             "openclaw",
-            ">=22.22.3",
+            ">=24.16.0",
         ),
         (
             "cline",
             ProfileComponent::CombinedRuntime,
             "cline",
-            "3.0.49",
+            "3.0.73",
             "cline",
             ">=22",
+        ),
+        (
+            "hermes",
+            ProfileComponent::CombinedRuntime,
+            "hermes-agent",
+            "0.22.2",
+            "hermes",
+            ">=20",
         ),
         (
             "codebuddy",
             ProfileComponent::CombinedRuntime,
             "@tencent-ai/codebuddy-code",
-            "2.132.0",
+            "2.168.2",
             "codebuddy",
             ">=22",
         ),
@@ -80,7 +104,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "kimi_code",
             ProfileComponent::CombinedRuntime,
             "@moonshot-ai/kimi-code",
-            "0.31.1",
+            "2.2.0",
             "kimi",
             ">=22.19",
         ),
@@ -88,7 +112,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "pi",
             ProfileComponent::AcpAdapter,
             "pi-acp",
-            "0.0.33",
+            "0.0.34",
             "pi-acp",
             ">=22",
         ),
@@ -96,7 +120,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "grok",
             ProfileComponent::CombinedRuntime,
             "@xai-official/grok",
-            "0.2.118",
+            "1.0.62",
             "grok",
             ">=20",
         ),
@@ -104,9 +128,17 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "deepseek_harness",
             ProfileComponent::CombinedRuntime,
             "deepseek-acp",
-            "0.8.0",
+            "0.9.0",
             "deepseek-acp",
             ">=22",
+        ),
+        (
+            "qoder",
+            ProfileComponent::CombinedRuntime,
+            "@qoder-ai/qodercli",
+            "1.1.73",
+            "qodercli",
+            ">=20",
         ),
     ] {
         let source = profile(id)
@@ -120,6 +152,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             package: actual_package,
             version: actual_version,
             command: actual_command,
+            args,
             node_requirement,
             integrity,
             ..
@@ -135,9 +168,19 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         if id == "deepseek_harness" {
             assert_eq!(
                 *integrity,
-                "sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg==",
-                "deepseek-acp 0.8.0 npm integrity"
+                "sha512-OG6Ia7GkdjP7UCnFPT8yooZncMo/c2fjpR7BlzuBp7EPF8b+Kohzkhj5U4kJN0vIS9txf50jb3R8CHZcmIZSgg==",
+                "deepseek-acp 0.9.0 npm integrity"
             );
+        }
+        if id == "claude_code" && component == ProfileComponent::AcpAdapter {
+            assert_eq!(
+                *integrity,
+                "sha512-3quBG9QaMKhETZPF0QaD/Ue2C0UCQDzDztDbzs8AVYM8RQKX93TPL0YzJl7sx06qYPLQvxrCDdiAp5a6cgFfZg==",
+                "claude-agent-acp 0.94.0 npm integrity"
+            );
+        }
+        if id == "hermes" {
+            assert_eq!(*args, ["acp"], "hermes launches `hermes acp`");
         }
     }
 
@@ -146,7 +189,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         opencode,
         ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.18.23",
+            version: "1.19.3",
             command: "opencode",
             ..
         }
@@ -156,7 +199,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         cursor,
         ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "2026.07.23-e383d2b",
+            version: "2026.10.16-e3cb207",
             command: "cursor-agent",
             ..
         }
@@ -166,7 +209,7 @@ fn codeg_pinned_distribution_matrix_is_exact() {
         antigravity,
         ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.0.0",
+            version: "1.4.1",
             command: "agy_acp_server",
             ..
         }
@@ -180,12 +223,13 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     else {
         panic!("antigravity must be a binary");
     };
-    assert_eq!(artifacts.len(), 5);
-    assert!(
-        !artifacts
-            .iter()
-            .any(|artifact| artifact.platform == "darwin-x86_64")
-    );
+    assert_eq!(artifacts.len(), 6);
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.platform == "darwin-x86_64"
+            && artifact
+                .archive_url
+                .contains("agy-acp-server-1.4.1-darwin-x86_64.zip")
+    }));
     let entry = entry
         .as_ref()
         .expect("antigravity keeps the extracted tree");
@@ -210,19 +254,114 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     } else {
         assert!(args.is_empty());
     }
-    let hermes = profile("hermes").install_sources.first().unwrap();
-    assert!(matches!(
-        hermes,
-        ProfileInstallSource::Uvx {
-            component: ProfileComponent::CombinedRuntime,
-            package: "hermes-agent[acp,mcp]==0.19.0",
-            version: "0.19.0",
-            command: "hermes-acp",
-            uv_requirement: ">=0.5",
-            python_requirement: ">=3.11,<3.14",
-            ..
+
+    let ProfileInstallSource::Binary {
+        artifacts: opencode_artifacts,
+        ..
+    } = opencode
+    else {
+        panic!("opencode must be a binary");
+    };
+    let opencode_hash = |platform: &str| {
+        opencode_artifacts
+            .iter()
+            .find(|artifact| artifact.platform == platform)
+            .and_then(|artifact| artifact.sha256)
+            .unwrap_or_else(|| panic!("missing OpenCode hash for {platform}"))
+    };
+    assert_eq!(
+        opencode_hash("darwin-aarch64"),
+        "c2d0fecd27acf6e08be02c1f5d384614d07495587766bcc4a6bff3971749bb64"
+    );
+    assert_eq!(
+        opencode_hash("darwin-x86_64"),
+        "4e29dbe2f61ace728370523c88027d0742b3a79edcdd2c70e404f616d4ef8f36"
+    );
+    assert_eq!(
+        opencode_hash("linux-aarch64"),
+        "7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405"
+    );
+    assert_eq!(
+        opencode_hash("linux-x86_64"),
+        "13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b"
+    );
+    assert_eq!(
+        opencode_hash("windows-aarch64"),
+        "c1b9daf18c97564b2d171703279621f7edc3613e70750d796ef78db87257ad89"
+    );
+    assert_eq!(
+        opencode_hash("windows-x86_64"),
+        "e4ce9117f55fc068414513789f8c7d1049f855d7518bb4e350b9170a3a20d8c3"
+    );
+
+    let ProfileInstallSource::Binary {
+        artifacts: cursor_artifacts,
+        ..
+    } = cursor
+    else {
+        panic!("cursor must be a binary");
+    };
+    let cursor_hash = |platform: &str| {
+        cursor_artifacts
+            .iter()
+            .find(|artifact| artifact.platform == platform)
+            .and_then(|artifact| artifact.sha256)
+            .unwrap_or_else(|| panic!("missing Cursor hash for {platform}"))
+    };
+    assert_eq!(
+        cursor_hash("darwin-aarch64"),
+        "5f04d196a84ddb5c20a4a466bdd74e3695bfb447e3c4a1e6071364b2b9497dd0"
+    );
+    assert_eq!(
+        cursor_hash("darwin-x86_64"),
+        "93372e384e9397b54b1e4fdb1812662f68e7b61c0c60cb3f2f4b788c9e0779c4"
+    );
+    assert_eq!(
+        cursor_hash("linux-aarch64"),
+        "4cf077f150eb8d1e270bf1dea69700184c39a4847fe192d523f5bb34d4b62597"
+    );
+    assert_eq!(
+        cursor_hash("linux-x86_64"),
+        "3aa3f48cd7a3909a98c9b3f2a4085f0c021088bf826690b22c61f424c843e552"
+    );
+    assert_eq!(
+        cursor_hash("windows-aarch64"),
+        "2cc883fbd67b18f55cd9f65455a472f62abe577da6fbebbd33b0130d0d79d9d0"
+    );
+    assert_eq!(
+        cursor_hash("windows-x86_64"),
+        "8ec735f06234310c062c07d68d2940a249356aff49a40fb158b27af210310848"
+    );
+}
+
+#[test]
+fn openclaw_is_the_only_built_in_that_rejects_session_mcp() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    for profile in catalog.profiles() {
+        let delivers = profile.delivers_session_mcp();
+        if profile.agent_id.as_str() == "openclaw" {
+            assert!(
+                !delivers,
+                "OpenClaw ACP bridge rejects per-session mcpServers"
+            );
+        } else {
+            assert!(
+                delivers,
+                "{} must keep session MCP delivery",
+                profile.agent_id
+            );
         }
+    }
+    assert!(!agents::profile_delivers_session_mcp(
+        &AgentId::parse("openclaw").unwrap()
     ));
+    assert!(agents::profile_delivers_session_mcp(
+        &AgentId::parse("claude_code").unwrap()
+    ));
+    assert!(
+        agents::profile_delivers_session_mcp(&AgentId::parse("vendor-agent").unwrap()),
+        "unknown agents default to delivering session MCP"
+    );
 }
 
 /// Every Profile must resolve to a non-ambiguous ACP invocation, and the two
@@ -304,7 +443,7 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
         ProfileInstallSource::Npx {
             component: ProfileComponent::CombinedRuntime,
             package: "@qoder-ai/qodercli",
-            version: "1.1.44",
+            version: "1.1.73",
             command: "qodercli",
             args: ["--acp"],
             ..

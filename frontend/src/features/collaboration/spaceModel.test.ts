@@ -749,6 +749,8 @@ describe('collab DM bootstrap prompt', () => {
     expect(prompt).not.toContain('以 `@User ` 开头');
     expect(prompt).not.toContain('先应答，再执行，再交付');
     expect(prompt).toContain('正在做什么');
+    expect(prompt).toContain('不重复已说内容');
+    expect(prompt).toContain('负责人');
     expect(prompt).toContain('vibex-multi-agent');
     expect(prompt).toContain('COLLABORATION-SPACE.md');
     expect(prompt).toContain('list_space_collection');

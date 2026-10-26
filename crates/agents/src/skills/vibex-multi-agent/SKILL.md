@@ -22,8 +22,8 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 
 | 协同意图与场景 | 选用工具 | 详细规范 |
 |---|---|---|
-| 查看本工作区协作空间、自己所在空间与昵称 | `list_collaboration_spaces` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
-| 查看指定协作空间内的全部成员、角色摘要与忙闲状态 | `list_space_members` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
+| 查看本工作区协作空间、自己所在空间与昵称、各群负责人 | `list_collaboration_spaces` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
+| 查看指定协作空间内的全部成员、负责人、角色摘要与忙闲状态 | `list_space_members` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 在协作空间向用户应答/汇报，或向其他成员沟通（**必传 `to`**） | `post_to_space` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | **结构化交接**：将已完成阶段的工作、输入约束与具体诉求移交给另一位群成员 | `handoff` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | **向用户提问（阻塞选择题，出现在当前私聊/群聊）** | `ask_user_question` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
@@ -43,9 +43,9 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 - **当你需要检索跨群/跨会话活动或沉淀长期记忆（`memory_search` / `memory_write`）时**：**阅读并遵循 [`MEMORY.md`](MEMORY.md)**。
 - **当你需要创建一等会话、点对点发 `send_session_input` 或执行 `delegate_to_agent` 时**：**阅读并遵循 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md)**。协作空间成员模型见宿主文档 `docs/collaboration-member-identity.md`（用户侧）；Agent 侧只通过空间工具与隐藏会话工作。
 
-## 4. 协作空间六大核心纪律（必守）
+## 4. 协作空间核心纪律（必守）
 
-在协作空间内工作时，所有成员无论扮演何种角色，均须严格执行以下六条准则：
+在协作空间内工作时，所有成员无论扮演何种角色，均须严格执行以下准则：
 
 1. **在对应空间回复，严防全群广播风暴（ Anti-Broadcast Storm ）**
    - **来源空间回复**：收到 `[协作空间消息]` 时，用消息里的 `space_id` 调用 `post_to_space`（私聊是 `direct:<member_id>`，群聊是群组 UUID）。用户只在协作空间看见空间消息；普通会话文本不会出现在私聊/群聊中，因此不要再写一段重复的普通会话回复。跨会话投递也保持当前 `space_id`：`to` 传助手昵称或群名，不要把 `space_id` 换成目标会话或共同群。
@@ -54,12 +54,13 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
    - **移交工作优先用 `handoff`**：完成当前阶段需下游成员接棒时，优先调用原生的结构化交接工具 `handoff`（自带深度上限 `VIBEX_HANDOFF_MAX_DEPTH=3` 与单轮扇出上限 `VIBEX_HANDOFF_MAX_PER_TURN=2` 保护），而非手写无约束的自由文本广播。
 
 2. **收到群内用户消息：向用户积极汇报进展**
-   - 用户必须能从空间消息确认你在推进。工作需要一段时间时，尽快 `post_to_space(to: ["User"])` 写正在做的事（例如「好的，我正在查看项目中，有进展会及时汇报」）；有实质进展再发（例如「我已经查看了项目的完整架构，正在梳理中」）；完成时直接给出结果，或提出需要用户拍板的问题。
+   - 用户必须能从空间消息确认你在推进。工作需要一段时间时，尽快 `post_to_space(to: ["User"])` 写正在做的事；有实质进展再发；完成时直接给出结果，或提出需要用户拍板的问题。
    - 发出进展后继续在当前回合内推进工作；后续用 `handoff` / `post_to_space` 与其他成员协作，或在完成/遇到需用户决策的分叉点时通过 `post_to_space`（或 `ask_user_question` / `request_approval`）向 `User` 交付。
    - 能很快完成的任务，只发结果。正文写你正在做或已经做成的事。普通消息只发 `content`。
 
-3. **成员间交互：有增量才发信，无需回复即静默终止（Silent Closure）**
+3. **成员间交互：有增量才发信，不重复已说内容，无需回复即静默终止（Silent Closure）**
    - 每次调用 `post_to_space` 或 `handoff` 必须携带**推进工作的实质增量**（派发新任务、回答具体问题、交付产出物、同步关键变更或阻塞求助）。
+   - **不重复已说内容**：其他成员已经在本群说过的事实、理由、出处或转述链，不要再解释一遍。只发自己尚未出现在群里的增量。转达已完成且群内已可见时，不要再向 User 复述同一句话。
    - **当无需再回复时立即停止**：若收到的消息仅是确认或礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”、“没问题”），或对方已就你的问题给出闭环确认且不需要你提供新信息、做新决策或执行新动作，**直接结束当前回合，严禁再调用 `post_to_space` 回复“好的 / 收到 / 不客气”**，杜绝成员间无意义的来回刷屏。
    - 向其他成员布置任务或同步信息时，一次写清背景、边界与预期产出，**不要附加“收到请回复”**等纯确认要求。
 
@@ -74,6 +75,12 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
    - **结构化交接（`handoff`）**：跨成员移交阶段性成果时，使用 `handoff(operation_id, space_id, to, done, inputs_constraints, ask)`，让下游在专属 `<handoff>` 卡片中清晰获知「已完成内容 + 输入约束 + 具体诉求」。
    - **结构化卡片（`ask_user_question` / `ask_person` / `request_approval` / `resolve_card`）**：需要用户做选择题/明确决策时调 `ask_user_question`（阻塞，问题出现在当前私聊/群聊）；向其他成员提问时调 `ask_person`；执行删除、强推、迁移等高风险操作前调 `request_approval`（等待 `allow_once` / `allow_always` / `deny`）；收到其他成员发给你的提问卡时调 `resolve_card(card_id, answer)` 响应。`ask_person` / `request_approval` 发出后立即结束当前回合等待回调消息，不要轮询。
    - **群收藏（临界区）共享规范**：群收藏用于沉淀跨工作区/跨成员共享的文本片段、设计规范、截图或文件（实际持久化在项目外部的 `~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name}`，数据库中仅保存地址索引 `file_path` 与元数据）。成员写入时调用 `add_to_space_collection`（传 `content` 文本或 `source_path` 本地文件路径及 `note` 备注，**严禁直接传入二进制数据**）；成员访问时先调用 `list_space_collection` 或 `read_space_collection_item` 获取 `file_path` 地址并登记读取记录，再用文件读取工具访问该 `file_path`。
+
+7. **争议、排版决策与汇总优先找负责人**
+   - 用 `list_space_members` 或 `list_collaboration_spaces` 查看 `lead_nickname` 与成员上的 `is_lead`，确认本群负责人。
+   - 遇到有争议的问题、需要拍板的排版/格式决策、或要把多方结果汇总成一份交付时，优先 `post_to_space` / `ask_person` / `handoff` 给负责人，由负责人裁决或统一向 User 交付。
+   - 没有负责人时，由任务主责人（User `@` 点名牵头的人）汇总；再没有则直接向 User 请示。
+   - 你自己就是负责人时，承担裁决与汇总，不要让每位成员各自向 User 解释同一件事。
 
 ## 5. 常见异常处理
 

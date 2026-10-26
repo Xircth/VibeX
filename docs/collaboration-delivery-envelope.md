@@ -83,7 +83,7 @@ ACP 会话重建或恢复后会清掉该记录，下一次投递重新注入。�
   你的成员昵称：小A (conversation_id: conv-a)
   需要成员名单时调用 `list_space_members`（`space_id`）；需要更早历史时调用 `list_space_messages`（`space_id`、`since_seq`、`limit`）
 - 多智能体协同 MCP 工具：……（含 list_space_members / list_space_messages）
-- 协作空间交互规则：……（第 5 条要求按需拉名单和历史）
+- 协作空间交互规则：……（含按需拉名单和历史、不重复已说内容、找负责人）
 
 [协作空间消息]
 - 来源：User

@@ -1667,7 +1667,8 @@ export function buildCollabDmBootstrapPrompt(input: {
     '# 之后遵守的协同规范（读 skill 后执行）',
     '- 凡是要让用户在协作空间看到的内容，必须 `post_to_space`。',
     '- 收到用户任务：工作需要一段时间时先汇报正在做什么，有进展再发，完成时交付结果；很快完成的直接发结果。',
-    '- 成员间有增量才发信，无需回复即静默终止。',
+    '- 成员间有增量才发信，不重复已说内容，无需回复即静默终止。',
+    '- 群聊中争议、排版决策、汇总优先找负责人。',
     '- 跨成员共享长文或文件用群收藏（`list_space_collection` / `add_to_space_collection` / `read_space_collection_item`）。',
   ].join('\n');
   return `${COLLAB_DM_BOOTSTRAP_PREFIX}\n${body}\n${COLLAB_DM_BOOTSTRAP_SUFFIX}`;

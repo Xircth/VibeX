@@ -26,6 +26,27 @@ function declarationsFor(
   return declarations;
 }
 
+function keyframesFor(
+  name: string
+): Record<string, Record<string, string>> {
+  const css = readFileSync(
+    resolve(process.cwd(), 'src/features/collaboration/collaboration.css'),
+    'utf8'
+  );
+  const frames: Record<string, Record<string, string>> = {};
+  parse(css).walkAtRules('keyframes', (rule) => {
+    if (rule.params !== name) return;
+    rule.walkRules((frame) => {
+      const decls: Record<string, string> = {};
+      frame.walkDecls((declaration) => {
+        decls[declaration.prop] = declaration.value;
+      });
+      frames[frame.selector] = decls;
+    });
+  });
+  return frames;
+}
+
 describe('collaboration assistant list and message cluster chrome', () => {
   it('sizes assistant-list chips from the list-avatar token', () => {
     const chip = declarationsFor('.collaboration-top-member-chip');
@@ -129,18 +150,13 @@ describe('collaboration assistant list and message cluster chrome', () => {
     ).toBe('hidden');
   });
 
-  it('shimmers working-status copy between muted and strong text', () => {
+  it('pulses working-status copy between faint and strong text', () => {
     const copy = declarationsFor('.collaboration-working-copy');
-    expect(copy.animation?.value).toContain('collaboration-working-shimmer');
-    expect(copy['background-image']?.value ?? copy.background?.value).toContain(
-      '--text-muted'
-    );
-    expect(copy['background-image']?.value ?? copy.background?.value).toContain(
-      '--text-strong'
-    );
-    expect(
-      copy['-webkit-background-clip']?.value ?? copy['background-clip']?.value
-    ).toBe('text');
+    expect(copy.animation?.value).toContain('collaboration-working-pulse');
+    expect(copy.color?.value).toBe('var(--text-strong)');
+    const pulse = keyframesFor('collaboration-working-pulse');
+    expect(JSON.stringify(pulse)).toContain('--text-faint');
+    expect(JSON.stringify(pulse)).toContain('--text-strong');
   });
 
   it('raises the log fade so 40px chips stay clear of the first bubble', () => {

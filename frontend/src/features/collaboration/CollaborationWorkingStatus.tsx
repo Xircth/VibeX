@@ -7,10 +7,11 @@ import {
 } from 'react';
 
 import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
-import { formatWorkingMembersCopy } from './spaceModel';
+import { COPY, formatWorkingMembersCopy } from './spaceModel';
 
 export const WORKING_AVATAR_CYCLE_MS = 1600;
 export const WORKING_AVATAR_FLIP_MS = 560;
+export const WORKING_PHRASE_CYCLE_MS = 2600;
 
 export type WorkingStatusMember = {
   name: string;
@@ -47,12 +48,15 @@ export function CollaborationWorkingStatus({
   const [index, setIndex] = useState(0);
   const [outgoingIndex, setOutgoingIndex] = useState(0);
   const [flipping, setFlipping] = useState(false);
+  const [phraseIndex, setPhraseIndex] = useState(0);
   const indexRef = useRef(0);
+  const phrases = COPY.workingNowPhrases;
 
   useEffect(() => {
     setIndex(0);
     setOutgoingIndex(0);
     setFlipping(false);
+    setPhraseIndex(0);
     indexRef.current = 0;
   }, [namesKey]);
 
@@ -74,6 +78,15 @@ export function CollaborationWorkingStatus({
   }, [members.length, namesKey]);
 
   useEffect(() => {
+    if (phrases.length < 2) return;
+    const count = phrases.length;
+    const id = window.setInterval(() => {
+      setPhraseIndex((current) => (current + 1) % count);
+    }, WORKING_PHRASE_CYCLE_MS);
+    return () => window.clearInterval(id);
+  }, [namesKey, phrases.length]);
+
+  useEffect(() => {
     if (!flipping) return;
     const id = window.setTimeout(() => {
       setFlipping(false);
@@ -84,7 +97,10 @@ export function CollaborationWorkingStatus({
   if (members.length === 0) return null;
   const shown = members[index % members.length];
   const outgoing = members[outgoingIndex % members.length];
-  const copy = formatWorkingMembersCopy(members.map((member) => member.name));
+  const copy = formatWorkingMembersCopy(
+    members.map((member) => member.name),
+    phrases[phraseIndex % phrases.length] ?? COPY.workingNow
+  );
   const showFlip = Boolean(
     flipping && outgoing && shown && outgoing.name !== shown.name
   );

@@ -1004,35 +1004,24 @@
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.3;
-  background-image: linear-gradient(
-    90deg,
-    var(--text-muted) 0%,
-    var(--text-strong) 45%,
-    var(--text-muted) 90%
-  );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: collaboration-working-shimmer 1.8s ease-in-out infinite;
+  color: var(--text-strong);
+  animation: collaboration-working-pulse 1.35s ease-in-out infinite;
 }
 
-@keyframes collaboration-working-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
+@keyframes collaboration-working-pulse {
+  0%,
   100% {
-    background-position: -100% 0;
+    color: var(--text-faint);
+  }
+  50% {
+    color: var(--text-strong);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .collaboration-working-copy {
     animation: none;
-    background-image: none;
     color: var(--text-muted);
-    -webkit-background-clip: unset;
-    background-clip: unset;
   }
 
   .collaboration-working-avatar-flipper.is-flipping {

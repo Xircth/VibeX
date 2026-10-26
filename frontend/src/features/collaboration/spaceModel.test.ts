@@ -91,6 +91,14 @@ describe('collaboration space model', () => {
     expect(COPY.createContactGroupButton).toBe('新建分组');
     expect(COPY.defaultContactGroupName).toBe('新分组');
     expect(COPY.workingNow).toBe('正在工作...');
+    expect(COPY.workingNowPhrases).toEqual([
+      '正在工作...',
+      '正在深度求索...',
+      '正在一点点推进...',
+      '正在仔细推敲...',
+      '正在埋头赶工...',
+      '正在理清头绪...',
+    ]);
     expect(COPY.groupDetailsButton).toBe('群组详情');
     expect(COPY.groupDetailsTab).toBe('详情');
     expect(COPY.groupCollectionTab).toBe('群收藏');
@@ -625,14 +633,17 @@ describe('resolveMessageDeliveryStatus', () => {
 });
 
 describe('working members copy', () => {
-  it('joins nicknames with 顿号 and 和, then 正在工作...', () => {
+  it('joins nicknames with 顿号 and 和, then a spaced working phrase', () => {
     expect(formatWorkingMembersCopy([])).toBe('');
-    expect(formatWorkingMembersCopy(['小A'])).toBe('小A正在工作...');
+    expect(formatWorkingMembersCopy(['小A'])).toBe('小A 正在工作...');
     expect(formatWorkingMembersCopy(['小A', '小B'])).toBe(
-      '小A和小B正在工作...'
+      '小A和小B 正在工作...'
     );
     expect(formatWorkingMembersCopy(['Ulwonder', 'Designer', 'Master'])).toBe(
-      'Ulwonder、Designer和Master正在工作...'
+      'Ulwonder、Designer和Master 正在工作...'
+    );
+    expect(formatWorkingMembersCopy(['小A'], '正在深度求索...')).toBe(
+      '小A 正在深度求索...'
     );
   });
 

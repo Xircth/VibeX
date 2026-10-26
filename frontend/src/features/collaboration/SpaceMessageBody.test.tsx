@@ -12,6 +12,7 @@ import {
 } from './MemberMentionChip';
 import {
   SpaceMessageBody,
+  bubbleText,
   messagePreviewText,
   parseCard,
 } from './SpaceMessageBody';
@@ -221,5 +222,33 @@ describe('messagePreviewText', () => {
       'srcdoc',
       expect.stringContaining('<p>hi</p>')
     );
+  });
+});
+
+describe('bubbleText', () => {
+  it('shows content when summary differs, without prepending the title', () => {
+    expect(
+      bubbleText({
+        summary: '用户让我分析项目',
+        content: '我已经完成了项目完整分析，是否需要给出完整分析报告？',
+      })
+    ).toBe('我已经完成了项目完整分析，是否需要给出完整分析报告？');
+  });
+
+  it('falls back to summary when content is empty', () => {
+    expect(bubbleText({ summary: '阶段进展', content: '' })).toBe('阶段进展');
+    expect(bubbleText({ summary: '阶段进展' })).toBe('阶段进展');
+  });
+
+  it('returns content when there is no distinct summary', () => {
+    expect(bubbleText({ content: '好的，我正在查看项目中' })).toBe(
+      '好的，我正在查看项目中'
+    );
+    expect(
+      bubbleText({
+        summary: '好的，我正在查看项目中',
+        content: '好的，我正在查看项目中',
+      })
+    ).toBe('好的，我正在查看项目中');
   });
 });

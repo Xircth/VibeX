@@ -62,10 +62,7 @@ pub(crate) fn format_slim_space_envelope(envelope: &SlimSpaceEnvelope) -> String
     }
     if let Some(quoted) = &envelope.quoted {
         let body = truncate_chars(quoted.body.trim(), 200);
-        lines.push(format!(
-            "- 引用：#{} {}：{body}",
-            quoted.seq, quoted.sender
-        ));
+        lines.push(format!("- 引用：#{} {}：{body}", quoted.seq, quoted.sender));
     }
     format!("{}\n{}", lines.join("\n"), envelope.body)
 }
@@ -241,13 +238,11 @@ pub async fn invalidate_space_delivery_prompt_injections(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<(), CollaborationError> {
-    sqlx::query(
-        "DELETE FROM collaboration_space_prompt_injections WHERE conversation_id = ?",
-    )
-    .bind(conversation_id.to_string())
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    sqlx::query("DELETE FROM collaboration_space_prompt_injections WHERE conversation_id = ?")
+        .bind(conversation_id.to_string())
+        .execute(pool)
+        .await
+        .map_err(db)?;
     Ok(())
 }
 
@@ -279,9 +274,7 @@ async fn load_quoted_space_message(
     let Some(raw) = raw else {
         return Ok(None);
     };
-    let message_id = raw
-        .strip_prefix("vibex://space-message/")
-        .unwrap_or(raw);
+    let message_id = raw.strip_prefix("vibex://space-message/").unwrap_or(raw);
     let row: Option<(i64, String)> = sqlx::query_as(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
            WHERE id = ? AND space_id = ?"#,
@@ -376,7 +369,7 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
     format!(
         "{header}\n\
            1) 在对应空间回复：来自群聊空间的消息，用 `post_to_space` 发到同一 `space_id`；用户在协作空间里只看见空间消息，普通会话文本不会出现在群聊中，因此不要再写一段重复的普通会话回复；\n\
-           2) 收到 User 消息先应答再执行：若本条消息来自 User 且需要调用工具、排查代码、检索资料或找成员协作，必须先调用一次 `post_to_space`（`to: [\"User\"]`）简短回复已收到及处理计划（1~2 句），然后再继续开展工作，后续视进展向用户或 `@成员昵称` 同步与交付结果；\n\
+           2) 向用户积极汇报进展：收到 User 任务后，用户必须能从空间消息确认你在推进。工作需要一段时间时，尽快 `post_to_space`（`to: [\"User\"]`）写正在做的事；有实质进展再发；完成时直接发结果或拍板问题。能很快完成的直接发结果。正文写正在做或已经做成的事；普通消息只发 content；\n\
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接结束当前回合；向其他成员发消息时也不要要求“收到请回复”；\n\
            4) 对用户屏蔽内部参数：向用户发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
            5) 空间感知与群收藏（临界区）工具：投递信封不再附带成员名单或未引用的历史。需要名单时自行调用 `list_space_members`（`space_id`）；需要更早消息时自行调用 `list_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。以及使用 `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` 在群收藏中沉淀或读取跨成员共享的文本、图片、文件产物（群收藏仅保存磁盘地址索引与元数据，不可直接传入二进制，调用 `add_to_space_collection` 传入 `content` 或 `source_path` 即落盘到共享目录，调用 `read_space_collection_item` 登记读取记录并获取 `file_path` 后按路径访问）；\n\
@@ -386,12 +379,13 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::collaboration::test_support::{
-        create_session, inputs_of, post_as, setup_pool, space_of,
-    };
-    use crate::collaboration::{PostToSpace, add_space_member, post_to_space};
     use serde_json::json;
+
+    use super::*;
+    use crate::collaboration::{
+        PostToSpace, add_space_member, post_to_space,
+        test_support::{create_session, inputs_of, post_as, setup_pool, space_of},
+    };
 
     const SAMPLE_SPACE: &str = "space-demo";
     const SAMPLE_ROOT: &str = "root-msg-1";
@@ -495,6 +489,22 @@ mod tests {
             COLLABORATION_MCP_TOOLS_SUMMARY.contains("以 `@成员昵称 ` 开头"),
             "{COLLABORATION_MCP_TOOLS_SUMMARY}"
         );
+    }
+
+    #[test]
+    fn post_to_space_rules_report_progress_to_user() {
+        let rules = format_collaboration_space_rules(Some(SAMPLE_SPACE));
+        assert!(rules.contains("向用户积极汇报进展"), "{rules}");
+        assert!(rules.contains("正在做的事"), "{rules}");
+        assert!(rules.contains("实质进展"), "{rules}");
+        assert!(
+            rules.contains("直接发结果") || rules.contains("很快完成"),
+            "{rules}"
+        );
+        assert!(!rules.contains("简短回复已收到"), "{rules}");
+        assert!(!rules.contains("已收到及处理计划"), "{rules}");
+        assert!(rules.contains("to: [\"User\"]"), "{rules}");
+        assert!(!rules.contains("content 以 `@User ` 开头"), "{rules}");
     }
 
     #[test]
@@ -606,7 +616,10 @@ mod tests {
         let second: Value = serde_json::from_str(&texts[1]).unwrap();
         let first = first["text"].as_str().unwrap();
         let second = second["text"].as_str().unwrap();
-        assert!(first.contains("协同交互规则") || first.contains("协作空间交互规则"), "{first}");
+        assert!(
+            first.contains("协同交互规则") || first.contains("协作空间交互规则"),
+            "{first}"
+        );
         assert!(first.contains("list_space_members"), "{first}");
         assert!(first.contains("[协作空间消息]"), "{first}");
         assert!(first.contains("请分析登录"), "{first}");
@@ -617,7 +630,10 @@ mod tests {
         );
         assert!(!second.contains("list_space_members"), "{second}");
         assert!(second.contains("[协作空间消息]"), "{second}");
-        assert!(second.contains("请再看缓存") || second.contains("再看缓存"), "{second}");
+        assert!(
+            second.contains("请再看缓存") || second.contains("再看缓存"),
+            "{second}"
+        );
     }
 
     #[tokio::test]
@@ -647,11 +663,20 @@ mod tests {
             let payload: Value = serde_json::from_str(&texts[i]).unwrap();
             payload["text"].as_str().unwrap().to_string()
         };
-        let has_rules = |text: &str| text.contains("协同交互规则") || text.contains("协作空间交互规则");
+        let has_rules =
+            |text: &str| text.contains("协同交互规则") || text.contains("协作空间交互规则");
         assert!(has_rules(&text_at(0)), "{}", text_at(0));
         assert!(!has_rules(&text_at(1)), "{}", text_at(1));
-        assert!(has_rules(&text_at(2)), "rebuild should re-inject {}", text_at(2));
-        assert!(has_rules(&text_at(3)), "resume should re-inject {}", text_at(3));
+        assert!(
+            has_rules(&text_at(2)),
+            "rebuild should re-inject {}",
+            text_at(2)
+        );
+        assert!(
+            has_rules(&text_at(3)),
+            "resume should re-inject {}",
+            text_at(3)
+        );
     }
 
     #[tokio::test]

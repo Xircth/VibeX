@@ -3141,7 +3141,7 @@ describe('CollaborationSpacePage', () => {
     renderPage();
     await screen.findByRole('button', { name: '设计' });
     const status = await screen.findByTestId('collaboration-working-status');
-    expect(status).toHaveTextContent('小A正在工作...');
+    expect(status).toHaveTextContent('小A 正在工作...');
     expect(
       within(status).getByTestId('collaboration-working-avatar')
     ).toHaveAttribute('data-working-name', '小A');
@@ -3210,7 +3210,7 @@ describe('CollaborationSpacePage', () => {
     await screen.findByRole('button', { name: '设计' });
     expect(
       await screen.findByTestId('collaboration-working-status')
-    ).toHaveTextContent('小A、小B和小C正在工作...');
+    ).toHaveTextContent('小A、小B和小C 正在工作...');
   });
 
   it('shows working status in a private chat', async () => {
@@ -3252,7 +3252,7 @@ describe('CollaborationSpacePage', () => {
     await user.click(await screen.findByRole('button', { name: '小A' }));
     expect(
       await screen.findByTestId('collaboration-working-status')
-    ).toHaveTextContent('小A正在工作...');
+    ).toHaveTextContent('小A 正在工作...');
   });
 
   it('opens the current-chat bot session from the assistant list and the message sender', async () => {

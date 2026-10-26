@@ -42,6 +42,16 @@ export const COPY = {
   get workingNow() {
     return i18n.t('panels:collabCopy.workingNow');
   },
+  get workingNowPhrases() {
+    return [
+      i18n.t('panels:collabCopy.workingNow'),
+      i18n.t('panels:collabCopy.workingSeeking'),
+      i18n.t('panels:collabCopy.workingNudging'),
+      i18n.t('panels:collabCopy.workingWeighing'),
+      i18n.t('panels:collabCopy.workingHeadsDown'),
+      i18n.t('panels:collabCopy.workingSorting'),
+    ];
+  },
   get newMemberFromSessionButton() {
     return i18n.t('panels:collabCopy.newMemberFromSessionButton');
   },
@@ -781,9 +791,14 @@ export function formatWorkingMembersCopy(
 ): string {
   const nicks = names.map((name) => name.trim()).filter(Boolean);
   if (nicks.length === 0) return '';
-  if (nicks.length === 1) return `${nicks[0]}${suffix}`;
-  if (nicks.length === 2) return `${nicks[0]}和${nicks[1]}${suffix}`;
-  return `${nicks.slice(0, -1).join('、')}和${nicks[nicks.length - 1]}${suffix}`;
+  const phrase = suffix.trim();
+  const joined =
+    nicks.length === 1
+      ? nicks[0]
+      : nicks.length === 2
+        ? `${nicks[0]}和${nicks[1]}`
+        : `${nicks.slice(0, -1).join('、')}和${nicks[nicks.length - 1]}`;
+  return phrase ? `${joined} ${phrase}` : joined;
 }
 
 /**

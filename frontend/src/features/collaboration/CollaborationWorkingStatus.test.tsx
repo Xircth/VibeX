@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CollaborationWorkingStatus,
   WORKING_AVATAR_FLIP_MS,
+  WORKING_PHRASE_CYCLE_MS,
 } from './CollaborationWorkingStatus';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
@@ -28,7 +29,7 @@ describe('CollaborationWorkingStatus', () => {
       />
     );
     const status = screen.getByTestId('collaboration-working-status');
-    expect(status).toHaveTextContent('小A正在工作...');
+    expect(status).toHaveTextContent('小A 正在工作...');
     expect(screen.getByTestId('collaboration-working-avatar')).toHaveAttribute(
       'data-working-name',
       '小A'
@@ -58,7 +59,7 @@ describe('CollaborationWorkingStatus', () => {
     );
     expect(
       screen.getByTestId('collaboration-working-status')
-    ).toHaveTextContent('Ulwonder和Designer正在工作...');
+    ).toHaveTextContent('Ulwonder和Designer 正在工作...');
     expect(screen.getByTestId('collaboration-working-avatar')).toHaveAttribute(
       'data-working-name',
       'Ulwonder'
@@ -117,5 +118,23 @@ describe('CollaborationWorkingStatus', () => {
       'data-bot-session-active',
       'true'
     );
+  });
+
+  it('cycles the working phrase while keeping a space after the name', () => {
+    render(
+      <CollaborationWorkingStatus
+        members={[{ name: '小A', avatar: deriveMemberBotAvatar('小A') }]}
+      />
+    );
+    const status = screen.getByTestId('collaboration-working-status');
+    expect(status).toHaveTextContent('小A 正在工作...');
+    act(() => {
+      vi.advanceTimersByTime(WORKING_PHRASE_CYCLE_MS);
+    });
+    expect(status).toHaveTextContent('小A 正在深度求索...');
+    act(() => {
+      vi.advanceTimersByTime(WORKING_PHRASE_CYCLE_MS);
+    });
+    expect(status).toHaveTextContent('小A 正在一点点推进...');
   });
 });

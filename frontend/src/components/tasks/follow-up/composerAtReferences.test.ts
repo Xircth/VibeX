@@ -5,6 +5,7 @@ import {
   commitReferenceUri,
   conversationReferenceUri,
   cycleAtReferenceTab,
+  memberToAtReference,
   projectReferenceUri,
   firstNonEmptyTab,
   isAtReferenceNavigationKey,
@@ -336,5 +337,23 @@ describe('composer @ references', () => {
     expect(firstNonEmptyTab(groups)).toBe('member');
     expect(cycleAtReferenceTab('member', 1, groups)).toBe('file');
     expect(cycleAtReferenceTab('action', 1, groups)).toBe('member');
+  });
+
+  it('maps a broadcast member without an avatar', () => {
+    expect(
+      memberToAtReference({
+        id: '__all__',
+        nickname: '全体成员',
+        detail: '通知本群所有成员',
+        mentionAll: true,
+      })
+    ).toEqual({
+      id: 'member:__all__',
+      tab: 'member',
+      label: '全体成员',
+      detail: '通知本群所有成员',
+      insertText: '@全体成员',
+      mentionAll: true,
+    });
   });
 });

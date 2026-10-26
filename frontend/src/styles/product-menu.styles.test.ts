@@ -58,6 +58,50 @@ describe('product option menus', () => {
     expect(declarationsFor('.branch-selector-menu').background).toBeUndefined();
   });
 
+  it('lets the inner listbox own the trigger-menu frame so the popover stays invisible', () => {
+    const popover = declarationsFor(
+      ".legacy-design [popover]:has([role='listbox'])"
+    );
+    const inner = declarationsFor(
+      ".legacy-design [popover]:has([role='listbox']) > div"
+    );
+    const composerPopover = declarationsFor(
+      '.legacy-design .session-composer-editor [popover]:has(.astryx-trigger-menu)'
+    );
+
+    expect(popover.background?.value).toBe('transparent');
+    expect(popover.border?.value).toBe('none');
+    expect(popover.padding?.value).toBe('0');
+    expect(popover.overflow?.value).toBe('visible');
+    expect(popover['box-shadow']?.value).toBe('none');
+    expect(inner.overflow?.value).toBe('auto');
+    expect(inner['border-radius']?.value).toBe('var(--radius)');
+    expect(composerPopover.background?.value).toBe('transparent');
+    expect(composerPopover.overflow?.value).toBe('visible');
+    expect(composerPopover.border?.value).toBe('none');
+    expect(composerPopover['box-shadow']?.value).toBe('none');
+    const composerInner = declarationsFor(
+      '.legacy-design .session-composer-editor [popover]:has(.astryx-trigger-menu) > div'
+    );
+    expect(composerInner.width?.value).toBe('100%');
+    expect(composerInner.overflow?.value).toBe('auto');
+    expect(composerInner['box-shadow']?.value).toBe('none');
+    expect(composerInner['border-radius']?.value).toBe('var(--radius)');
+  });
+
+  it('hides the @ reference tab scrollbar while keeping overflow for tab switching', () => {
+    const tabs = declarationsFor('.legacy-design .composer-at-reference-tabs');
+    const menu = declarationsFor(
+      '.legacy-design .composer-at-reference-menu.composer-status-surface'
+    );
+
+    expect(tabs['overflow-x']?.value).toBe('auto');
+    expect(tabs['scrollbar-width']?.value).toBe('none');
+    expect(menu.position?.value).toBe('absolute');
+    expect(menu.left?.value).toBe('0');
+    expect(menu.right?.value).toBe('0');
+  });
+
   it('restores the composer send button fill over ghost button resets', () => {
     const button = declarationsFor(
       '.legacy-design button.composer-primary-action.astryx-button'

@@ -1267,7 +1267,13 @@ export function CollaborationSpacePage({
       seen.add(nick);
       ordered.push(member);
     }
-    const refs = ordered.map((member) => {
+    const refs: Array<{
+      id: string;
+      nickname: string;
+      detail?: string;
+      avatar?: MemberBotAvatarConfig;
+      mentionAll?: boolean;
+    }> = ordered.map((member) => {
       const nick = String(member.nickname ?? '').trim();
       const conv = member.conversation_id
         ? conversationById.get(member.conversation_id)
@@ -1279,12 +1285,16 @@ export function CollaborationSpacePage({
         avatar: getMemberAvatar(member.conversation_id ?? undefined, nick),
       };
     });
-    if (refs.length > 0 && !seen.has('全体')) {
+    if (
+      refs.length > 0 &&
+      !seen.has('全体') &&
+      !seen.has('全体成员')
+    ) {
       refs.unshift({
         id: '__all__',
-        nickname: '全体',
+        nickname: '全体成员',
         detail: '通知本群所有成员',
-        avatar: deriveMemberBotAvatar('全体'),
+        mentionAll: true,
       });
     }
     return refs;

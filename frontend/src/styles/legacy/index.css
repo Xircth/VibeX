@@ -632,6 +632,50 @@
     position: relative;
   }
 
+  .legacy-design .composer-at-reference-menu.composer-status-surface {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% - 1px);
+    left: 0;
+    z-index: 20;
+    overflow: hidden;
+    border-radius: var(--radius);
+  }
+
+  .legacy-design .composer-at-reference-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .legacy-design .composer-at-reference-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .legacy-design .composer-at-reference-option {
+    border-radius: var(--radius);
+    color: inherit;
+  }
+
+  .legacy-design .composer-at-reference-option:hover,
+  .legacy-design .composer-at-reference-option:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
+  .legacy-design .composer-at-reference-option[aria-selected='true'] {
+    background: transparent;
+    color: inherit;
+    font-weight: 500;
+  }
+
+  .legacy-design .composer-at-reference-option[aria-selected='true']:hover,
+  .legacy-design
+    .composer-at-reference-option[aria-selected='true']:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
   .legacy-design .session-composer-drop-overlay {
     position: absolute;
     z-index: 2;
@@ -823,18 +867,25 @@
   .legacy-design .session-composer-editor [popover]:has(.astryx-trigger-menu) {
     inset: auto;
     max-width: calc(100vw - 24px);
+    overflow: visible;
+    border: none;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .legacy-design
     .session-composer-editor
     [popover]:has(.astryx-trigger-menu)
     > div {
-    overflow: hidden;
+    width: 100%;
+    overflow: auto;
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     background: var(--surface-popover);
-    box-shadow: var(--shadow-popover);
-    backdrop-filter: blur(24px) saturate(1.55);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .legacy-design .session-composer-editor .astryx-trigger-menu {
@@ -877,8 +928,34 @@
   .legacy-design
     .session-composer-editor
     .astryx-trigger-menu
-    [role='option']:is(:hover, [aria-selected='true']) {
-    background: hsl(var(--primary) / 0.1);
+    [role='option']:hover,
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option']:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option'][aria-selected='true'] {
+    background: transparent;
+    color: inherit;
+    font-weight: 500;
+  }
+
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option'][aria-selected='true']:hover,
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option'][aria-selected='true']:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
   }
 
   @media (prefers-reduced-transparency: reduce) {
@@ -1250,12 +1327,17 @@ html.dark {
 
 .legacy-design [popover]:has([role='listbox']) {
   margin-block: 4px !important;
-  max-height: calc(100dvh - 16px);
-  overflow: auto;
+  overflow: visible;
+  border: none;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
 }
 
 .legacy-design [popover]:has([role='listbox']) > div {
-  overflow: hidden;
+  overflow: auto;
+  max-height: calc(100dvh - 16px);
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: #ffffff;

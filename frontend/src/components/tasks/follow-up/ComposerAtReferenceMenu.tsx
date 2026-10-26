@@ -40,7 +40,6 @@ export function ComposerAtReferenceMenu({
   loading,
   onSelectTab,
   onSelectItem,
-  onHighlight,
 }: {
   groups: AtReferenceGroup[];
   activeTab: AtReferenceTab;
@@ -48,7 +47,7 @@ export function ComposerAtReferenceMenu({
   loading: boolean;
   onSelectTab: (tab: AtReferenceTab) => void;
   onSelectItem: (item: AtReferenceItem) => void;
-  onHighlight: (index: number) => void;
+  onHighlight?: (index: number) => void;
 }) {
   const { t } = useTranslation('tasks');
   const groupByTab = new Map(groups.map((group) => [group.tab, group]));
@@ -58,14 +57,14 @@ export function ComposerAtReferenceMenu({
 
   return (
     <div
-      className="composer-at-reference-menu dialog-surface flex max-h-[min(18rem,calc(100dvh_-_1rem))] w-full flex-col overflow-hidden rounded-lg text-popover-foreground shadow-[var(--shadow-popover)]"
+      className="composer-at-reference-menu composer-status-surface flex max-h-[min(18rem,calc(100dvh_-_1rem))] w-full flex-col overflow-hidden text-foreground"
       data-testid="composer-at-reference-menu"
     >
       <div
         role="tablist"
         aria-label={t('composer.atReference.listbox')}
         aria-orientation="horizontal"
-        className="flex shrink-0 gap-0.5 overflow-x-auto p-1"
+        className="composer-at-reference-tabs flex shrink-0 gap-0.5 overflow-x-auto p-1"
       >
         {tabOrder.map((tab) => {
           const count = groupByTab.get(tab)?.items.length ?? 0;
@@ -88,9 +87,7 @@ export function ComposerAtReferenceMenu({
             >
               <span>{t(`composer.atReference.tabs.${tab}`)}</span>
               {!loading && count > 0 ? (
-                <span className="text-xs tabular-nums opacity-80">
-                  {count}
-                </span>
+                <span className="text-xs tabular-nums opacity-80">{count}</span>
               ) : null}
             </button>
           );
@@ -115,8 +112,9 @@ export function ComposerAtReferenceMenu({
             {items.map((item, index) => {
               const Icon = TAB_ICON[item.tab];
               const active = index === selectedIndex;
+              const mentionAll = item.mentionAll === true;
               const memberAvatar =
-                item.tab === 'member'
+                item.tab === 'member' && !mentionAll
                   ? (item.memberAvatar ?? deriveMemberBotAvatar(item.label))
                   : null;
               return (
@@ -126,37 +124,39 @@ export function ComposerAtReferenceMenu({
                   role="option"
                   aria-selected={active}
                   data-active={active}
-                  className={cn(
-                    'relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start',
-                    // Never color alone: the active option also gets a
-                    // leading accent bar.
-                    active
-                      ? 'bg-primary/10 text-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
-                      : 'hover:bg-[var(--surface-control)]'
-                  )}
+                  className="composer-at-reference-option relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     onSelectItem(item);
                   }}
-                  onMouseEnter={() => onHighlight(index)}
                 >
-                  {memberAvatar ? (
+                  {mentionAll ? null : memberAvatar ? (
                     <MemberBotAvatar
                       config={memberAvatar}
-                      className="h-4 w-4 shrink-0"
+                      className="h-7 w-7 shrink-0"
                     />
                   ) : (
-                    <Icon
-                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    <span
                       aria-hidden="true"
-                    />
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
                   )}
                   <span
-                    className="min-w-0 truncate text-xs font-semibold"
+                    data-composer-at-reference-label
+                    className={cn(
+                      'min-w-0 truncate text-xs',
+                      mentionAll
+                        ? 'font-bold text-foreground'
+                        : 'font-medium text-foreground'
+                    )}
                     style={
-                      memberAvatar?.color
-                        ? { color: memberAvatar.color }
-                        : undefined
+                      mentionAll
+                        ? undefined
+                        : memberAvatar?.color
+                          ? { color: memberAvatar.color }
+                          : undefined
                     }
                   >
                     {item.label}
@@ -181,46 +181,31 @@ export function ComposerAtReferencePanel({
   activeTab,
   selectedIndex,
   loading,
-  left,
-  top,
-  width,
+  anchor,
   onSelectTab,
   onSelectItem,
-  onHighlight,
 }: {
   groups: AtReferenceGroup[];
   activeTab: AtReferenceTab;
   selectedIndex: number;
   loading: boolean;
-  left: number;
-  top: number;
-  width: number;
+  anchor?: HTMLElement | null;
   onSelectTab: (tab: AtReferenceTab) => void;
   onSelectItem: (item: AtReferenceItem) => void;
-  onHighlight: (index: number) => void;
+  onHighlight?: (index: number) => void;
 }) {
   if (typeof document === 'undefined') return null;
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        left,
-        width,
-        top: Math.max(8, top - 8),
-        transform: 'translateY(-100%)',
-        zIndex: 50,
-      }}
-    >
-      <ComposerAtReferenceMenu
-        groups={groups}
-        activeTab={activeTab}
-        selectedIndex={selectedIndex}
-        loading={loading}
-        onSelectTab={onSelectTab}
-        onSelectItem={onSelectItem}
-        onHighlight={onHighlight}
-      />
-    </div>,
-    document.body
+  const menu = (
+    <ComposerAtReferenceMenu
+      groups={groups}
+      activeTab={activeTab}
+      selectedIndex={selectedIndex}
+      loading={loading}
+      onSelectTab={onSelectTab}
+      onSelectItem={onSelectItem}
+    />
   );
+  const host =
+    anchor?.closest('[data-testid="session-composer-stack"]') ?? anchor ?? null;
+  return host ? createPortal(menu, host) : menu;
 }

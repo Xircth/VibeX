@@ -20,6 +20,7 @@ import {
   resolveMessageDeliveryStatus,
   sendErrorCopy,
   sortConversationsForSpaceMemberPicker,
+  sortMembersLeadFirst,
   strayMentions,
   surfaceErrorCopy,
   toggleMemberDeleteSelection,
@@ -95,7 +96,7 @@ describe('collaboration space model', () => {
     expect(COPY.groupCollectionTab).toBe('群收藏');
     expect(COPY.groupMembersTab).toBe('成员');
     expect(COPY.spaceLeadLabel).toBe('负责人');
-    expect(COPY.spaceLeadNone).toBe('不指定');
+    expect(COPY.spaceLeadSet).toBe('设为负责人');
     expect(COPY.collaborationLimitNotice).toBe(
       '已达到自动协作上限，请 @ 助手继续'
     );
@@ -653,6 +654,22 @@ describe('memberTabTitle', () => {
     expect(memberTabTitle('小A', { kind: 'direct' })).toBe('小A');
     expect(memberTabTitle('小A', { kind: 'group', name: ' ' })).toBe('小A');
     expect(memberTabTitle('小A', undefined)).toBe('小A');
+  });
+});
+
+describe('sortMembersLeadFirst', () => {
+  it('moves the lead member to the front and keeps the rest stable', () => {
+    const roster = [
+      { member_id: 'm1', nickname: '小A' },
+      { member_id: 'm2', nickname: '小B' },
+      { member_id: 'm3', nickname: '小C' },
+    ];
+    expect(sortMembersLeadFirst(roster, 'm2').map((item) => item.nickname)).toEqual(
+      ['小B', '小A', '小C']
+    );
+    expect(sortMembersLeadFirst(roster, '').map((item) => item.nickname)).toEqual(
+      ['小A', '小B', '小C']
+    );
   });
 });
 

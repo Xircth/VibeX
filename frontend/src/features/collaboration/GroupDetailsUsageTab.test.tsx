@@ -125,15 +125,7 @@ function factsFor(sessionId: string, agentId: string) {
 describe('GroupDetailsUsageTab', () => {
   beforeEach(() => {
     collaborationCall.mockReset();
-    collaborationCall.mockImplementation(async (_capability, method) => {
-      if (method === 'space.list') {
-        return {
-          spaces: [{ space_id: 's1', name: '设计', lead_member_id: null }],
-        };
-      }
-      if (method === 'space.update') {
-        return { space_id: 's1', name: '设计', lead_member_id: 'm1' };
-      }
+    collaborationCall.mockImplementation(async () => {
       return {
         members: [
           {
@@ -214,42 +206,6 @@ describe('GroupDetailsUsageTab', () => {
     expect(within(cardA).queryByText('grok-4.6')).toBeNull();
     expect(cardA).toHaveTextContent('小A');
     expect(cardA).toHaveTextContent('Grok');
-  });
-
-  it('lets the user pick a group lead', async () => {
-    const user = userEvent.setup();
-    render(
-      <GroupDetailsUsageTab
-        spaceId="s1"
-        workspaceId="workspace-1"
-        getAvatar={(conversationId, nickname) =>
-          deriveMemberBotAvatar(conversationId || nickname || 'bot')
-        }
-      />
-    );
-
-    const select = await screen.findByLabelText('负责人');
-    expect(within(select).getByRole('option', { name: '不指定' })).toBeTruthy();
-    await waitFor(() => {
-      expect(select).toHaveValue('');
-      expect(within(select).getByRole('option', { name: '小A' })).toBeTruthy();
-    });
-    await waitFor(() => {
-      expect(collaborationCall).toHaveBeenCalledWith(
-        'collaboration',
-        'space.list',
-        { workspaceId: 'workspace-1' }
-      );
-    });
-
-    await user.selectOptions(select, 'm1');
-    await waitFor(() => {
-      expect(collaborationCall).toHaveBeenCalledWith(
-        'collaboration',
-        'space.update',
-        { spaceId: 's1', leadMemberId: 'm1' }
-      );
-    });
-    expect(select).toHaveValue('m1');
+    expect(screen.queryByLabelText('负责人')).toBeNull();
   });
 });

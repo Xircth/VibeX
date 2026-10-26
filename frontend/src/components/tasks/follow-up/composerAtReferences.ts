@@ -34,6 +34,7 @@ export type AtReferenceItem = {
   insertText: string;
   memberAvatar?: MemberBotAvatarConfig;
   mentionAll?: boolean;
+  isLead?: boolean;
   onActivate?: () => void | Promise<void>;
 };
 
@@ -70,6 +71,7 @@ export type AtReferenceMember = {
   detail?: string;
   avatar?: MemberBotAvatarConfig;
   mentionAll?: boolean;
+  isLead?: boolean;
 };
 
 export type AtReferenceSources = {
@@ -269,6 +271,7 @@ export function memberToAtReference(
       : member.avatar
         ? { memberAvatar: member.avatar }
         : {}),
+    ...(member.isLead ? { isLead: true } : {}),
   };
 }
 

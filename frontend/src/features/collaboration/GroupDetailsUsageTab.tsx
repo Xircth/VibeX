@@ -183,18 +183,15 @@ function GroupMemberUsageCard({
 
 export function GroupDetailsUsageTab({
   spaceId,
-  workspaceId,
   getAvatar,
 }: {
   spaceId: string;
-  workspaceId?: string;
   getAvatar: (
     conversationId?: string | null,
     nickname?: string
   ) => MemberBotAvatarConfig;
 }) {
   const [members, setMembers] = useState<SpaceMember[]>([]);
-  const [leadMemberId, setLeadMemberId] = useState('');
   const [snapshots, setSnapshots] = useState<
     Record<string, MemberUsageSnapshot>
   >({});
@@ -217,43 +214,6 @@ export function GroupDetailsUsageTab({
       active = false;
     };
   }, [spaceId]);
-
-  useEffect(() => {
-    if (!workspaceId || !spaceId) return;
-    let active = true;
-    void collaborationCall<{
-      spaces?: Array<{ space_id?: string; lead_member_id?: string | null }>;
-    }>('collaboration', 'space.list', { workspaceId })
-      .then((page) => {
-        if (!active) return;
-        const match = (page.spaces ?? []).find(
-          (space) => space.space_id === spaceId
-        );
-        setLeadMemberId(String(match?.lead_member_id ?? '').trim());
-      })
-      .catch(() => {
-        if (active) setLeadMemberId('');
-      });
-    return () => {
-      active = false;
-    };
-  }, [spaceId, workspaceId]);
-
-  const saveLead = useCallback(
-    async (nextLead: string) => {
-      const previous = leadMemberId;
-      setLeadMemberId(nextLead);
-      try {
-        await collaborationCall('collaboration', 'space.update', {
-          spaceId,
-          leadMemberId: nextLead,
-        });
-      } catch {
-        setLeadMemberId(previous);
-      }
-    },
-    [leadMemberId, spaceId]
-  );
 
   const onSnapshot = useCallback((snapshot: MemberUsageSnapshot) => {
     setSnapshots((prev) => {
@@ -296,36 +256,6 @@ export function GroupDetailsUsageTab({
       className="collaboration-group-details-usage"
       data-testid="collaboration-group-details-tab"
     >
-      <section
-        className={CARD_CLASS}
-        data-testid="group-details-lead"
-      >
-        <label
-          className="flex flex-col gap-1.5 text-sm font-semibold text-foreground"
-          htmlFor="group-details-lead-select"
-        >
-          {COPY.spaceLeadLabel}
-          <select
-            id="group-details-lead-select"
-            className="h-8 rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2 text-sm font-normal text-foreground"
-            value={leadMemberId}
-            onChange={(event) => {
-              void saveLead(event.target.value);
-            }}
-          >
-            <option value="">{COPY.spaceLeadNone}</option>
-            {members.map((member) => {
-              const id = String(member.member_id ?? '').trim();
-              if (!id) return null;
-              return (
-                <option key={id} value={id}>
-                  {displayName(member)}
-                </option>
-              );
-            })}
-          </select>
-        </label>
-      </section>
       {members.length > 0 ? (
         <section
           className={CARD_CLASS}

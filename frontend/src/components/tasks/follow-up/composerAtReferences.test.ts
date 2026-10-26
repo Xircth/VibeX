@@ -356,4 +356,19 @@ describe('composer @ references', () => {
       mentionAll: true,
     });
   });
+
+  it('maps a lead member through to the @ item', () => {
+    expect(
+      memberToAtReference({
+        id: 'm1',
+        nickname: '小A',
+        isLead: true,
+      })
+    ).toMatchObject({
+      id: 'member:m1',
+      tab: 'member',
+      label: '小A',
+      isLead: true,
+    });
+  });
 });

@@ -743,7 +743,7 @@
     "groupCollectionTab": "Group saved",
     "groupMembersTab": "Members",
     "spaceLeadLabel": "Lead",
-    "spaceLeadNone": "None",
+    "spaceLeadSet": "Set as lead",
     "collaborationLimitNotice": "Automatic collaboration limit reached. @ a Bot to continue.",
     "assistantDetailsButton": "Bot details",
     "assistantDetailsTab": "Details",

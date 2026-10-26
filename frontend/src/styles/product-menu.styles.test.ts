@@ -107,11 +107,10 @@ describe('product option menus', () => {
       '.legacy-design .composer-at-reference-menu.composer-status-surface'
     );
 
-    expect(menu.bottom?.value).toBe('calc(100% - 1px)');
+    expect(menu.bottom?.value).toBe('calc(100% - var(--radius))');
+    expect(menu['padding-bottom']?.value).toBe('var(--radius)');
     expect(Number.parseInt(menu['z-index']?.value ?? '', 10)).toBeLessThan(10);
-    expect(menu['border-radius']?.value).toBe(
-      'var(--radius) var(--radius) 0 0'
-    );
+    expect(menu['border-radius']?.value).toBe('var(--radius)');
   });
 
   it('restores the composer send button fill over ghost button resets', () => {

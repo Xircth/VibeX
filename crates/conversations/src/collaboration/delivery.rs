@@ -883,6 +883,9 @@ pub async fn post_to_space_with(
             "content must not be empty",
         ));
     }
+    if let Some(caller_id) = input.caller_id {
+        require_caller_thread(pool, caller_id, &input.space_id).await?;
+    }
     let mut sender_nickname = None;
     let mut sender_member_id = None;
     let (actor, attributed_to, sender) = match input.caller_id {
@@ -2114,14 +2117,22 @@ pub async fn handoff_with(
         ));
     }
     let to = input.to.trim().trim_start_matches('@').trim().to_string();
+    require_caller_thread(pool, input.caller_id, &input.space_id).await?;
     let caller = caller_seat(pool, &input.space_id, input.caller_id).await?;
     let seat = seat_conversation(&caller).unwrap_or(input.caller_id);
     let members = list_space_members(pool, &input.space_id, MessageAudience::Agent).await?;
-    let target = members
-        .iter()
-        .find(|member| member.nickname == to)
-        .ok_or_else(|| CollaborationError::new("not_found", "nickname was not found"))?;
-    let target_conversation = seat_conversation(target);
+    let target_conversation = if let Some(member) =
+        members.iter().find(|member| member.nickname == to)
+    {
+        seat_conversation(member)
+    } else {
+        let peers = resolve_workspace_peer(pool, &input.space_id, &to).await?;
+        let peer = peers
+            .into_iter()
+            .find(|peer| peer.peer_kind == "member" && peer.nickname == to)
+            .ok_or_else(|| CollaborationError::new("not_found", "nickname was not found"))?;
+        peer.conversation_id
+    };
     if target_conversation == Some(seat) {
         return Err(CollaborationError::new(
             "conversation_control_failed",
@@ -3315,6 +3326,274 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_dm_mention_of_workspace_peer_does_not_return_not_found() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let created_b = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Peter".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+        let a_member = identity::binding_of_conversation(&pool, a_conv)
+            .await
+            .unwrap()
+            .expect("identity")
+            .member_id;
+        let a_thread = identity::direct_thread_id(&a_member);
+        let posted = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: None,
+                space_id: a_thread,
+                content: "@Peter 给Peter说让它给Liber发个消息".to_string(),
+                summary: None,
+                to: vec!["Peter".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect("user @ in a private chat must resolve the workspace peer");
+        assert!(
+            posted
+                .receipts
+                .iter()
+                .any(|receipt| receipt.conversation_id == b_conv),
+            "Peter's private chat is woken"
+        );
+        assert_eq!(posted.receipts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn dm_caller_cannot_replace_space_id_with_shared_group() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let created_b = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Peter".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+        let group = create_collaboration_space(&pool, a_conv, "海鸥计划", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(
+            &pool,
+            a_conv,
+            &group.space_id,
+            b_conv,
+            "Peter",
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        let error = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(a_conv),
+                space_id: group.space_id.clone(),
+                content: "@Peter 请转达 User 要找 Liber 干活了".to_string(),
+                summary: None,
+                to: vec!["Peter".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect_err("private-chat session must not post with a group space_id");
+        assert_eq!(error.code, "invalid_origin_space");
+        let group_json = serde_json::to_string(
+            &list_space_messages(&pool, &group.space_id, None, None, MessageAudience::User)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !group_json.contains("请转达"),
+            "shared group must not receive a forged post from the DM session"
+        );
+    }
+
+    #[tokio::test]
+    async fn dm_caller_addresses_group_by_name_keeps_origin_thread() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let a_member = identity::binding_of_conversation(&pool, a_conv)
+            .await
+            .unwrap()
+            .expect("identity")
+            .member_id;
+        let a_thread = identity::direct_thread_id(&a_member);
+        let group = create_collaboration_space(&pool, a_conv, "海鸥计划", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(a_conv),
+                space_id: a_thread.clone(),
+                content: "@海鸥计划 进度同步".to_string(),
+                summary: None,
+                to: vec!["海鸥计划".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect("private chat addresses a group by name with the current space_id");
+        assert!(posted.seq >= 1);
+        let origin_dm =
+            crate::collaboration_sidebar::list_dm_messages(&pool, a_conv, None, Some(50))
+                .await
+                .unwrap();
+        let origin = origin_dm
+            .iter()
+            .find(|message| message.text.contains("进度同步"))
+            .expect("sender private chat keeps the body");
+        assert!(
+            origin
+                .cross_chat_sent_to
+                .as_ref()
+                .is_some_and(|value| value.to_string().contains("海鸥计划")),
+            "sender private chat marks the destination group"
+        );
+        let group_messages =
+            list_space_messages(&pool, &group.space_id, None, None, MessageAudience::User)
+                .await
+                .unwrap();
+        assert!(
+            group_messages.iter().any(|message| {
+                message
+                    .envelope
+                    .get("crossChatReceivedFrom")
+                    .is_some_and(|value| value.to_string().contains("Faker"))
+            }),
+            "group lists an empty receipt from the private-chat sender"
+        );
+    }
+
+    #[tokio::test]
     async fn direct_user_message_wraps_space_context_for_agent() {
         let pool = setup_pool().await;
         let workspace = Uuid::new_v4();
@@ -3874,7 +4153,7 @@ mod tests {
         let mut wrong_space = request.clone();
         wrong_space.space_id = other.space_id.clone();
         let missing = post_to_space(&pool, wrong_space).await.unwrap_err();
-        assert_eq!(missing.code, "not_found");
+        assert_eq!(missing.code, "invalid_origin_space");
         let leaked: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?",
         )

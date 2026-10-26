@@ -2484,6 +2484,27 @@ pub async fn ensure_user_member(
     pool: &SqlitePool,
     space_id: &str,
 ) -> Result<MemberRecord, CollaborationError> {
+    if space_id.starts_with(identity::DIRECT_PREFIX) {
+        load_space_or_unassigned(pool, space_id).await?;
+        if let Some(existing) = sqlx::query_as::<_, MemberRecord>(
+            r#"SELECT member_id, conversation_id, nickname, kind, visible_to_agents
+               FROM collaboration_space_members WHERE space_id = ? AND kind = 'user' LIMIT 1"#,
+        )
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?
+        {
+            return Ok(existing);
+        }
+        return Ok(MemberRecord {
+            member_id: "user".to_string(),
+            conversation_id: None,
+            nickname: "你".to_string(),
+            kind: "user".to_string(),
+            visible_to_agents: 0,
+        });
+    }
     load_space(pool, space_id).await?;
     if let Some(existing) = sqlx::query_as::<_, MemberRecord>(
         r#"SELECT member_id, conversation_id, nickname, kind, visible_to_agents
@@ -3851,6 +3872,25 @@ pub async fn thread_id_for_conversation(
     .map_err(db)
 }
 
+/// A collaboration conversation may only post with its own thread as `space_id`.
+/// Address another private chat or group through `to` (nickname or group name).
+pub(crate) async fn require_caller_thread(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    space_id: &str,
+) -> Result<(), CollaborationError> {
+    let Some(origin) = thread_id_for_conversation(pool, caller_id).await? else {
+        return Ok(());
+    };
+    if origin == space_id {
+        return Ok(());
+    }
+    Err(CollaborationError::new(
+        "invalid_origin_space",
+        "请使用当前会话的 space_id，通过 to 联系其他助手或群；不要把 space_id 换成目标会话。",
+    ))
+}
+
 pub(crate) async fn nickname_owner(
     pool: &SqlitePool,
     space_id: &str,
@@ -4860,11 +4900,16 @@ mod tests {
             "not_found"
         );
 
-        for (space, text) in [(&second, "第二空间"), (&first, "第一空间")] {
+        let member_a = identity::member_id_for_conversation(a);
+        let a_in_second = resolve_session(&pool, &member_a, &second).await.unwrap();
+        for (caller, space, text) in [
+            (a, &first, "第一空间"),
+            (a_in_second, &second, "第二空间"),
+        ] {
             post_to_space(
                 &pool,
                 PostToSpace {
-                    caller_id: Some(a),
+                    caller_id: Some(caller),
                     space_id: space.clone(),
                     content: text.to_string(),
                     summary: None,
@@ -4993,12 +5038,11 @@ mod tests {
     .unwrap();
         assert_eq!(shared, 1, "creator conversation must sit in one space only");
 
-        // The creator can still act in the new space from its original
-        // conversation; it posts as its seat and never receives its own post.
+        // The creator acts in the new space through its per-thread seat.
         add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
             .await
             .unwrap();
-        let posted = post_as(&pool, Some(a), &second, "@所有人 大家好", &[]).await;
+        let posted = post_as(&pool, Some(seat_in_second), &second, "@所有人 大家好", &[]).await;
         assert_eq!(posted.receipts.len(), 1);
         assert!(inputs_of(&pool, seat_in_second).await.is_empty());
         assert!(inputs_of(&pool, a).await.is_empty());
@@ -5539,7 +5583,9 @@ mod tests {
         assert!(try_acquire_member_write(&pool, b).await.unwrap());
         let turn = mark_running(&pool, b).await;
         // A delivery to the same member's other session waits.
-        let posted = post_as(&pool, Some(a), &second, "@小B 第二空间的活", &[]).await;
+        let member_a = identity::member_id_for_conversation(a);
+        let a_in_second = resolve_session(&pool, &member_a, &second).await.unwrap();
+        let posted = post_as(&pool, Some(a_in_second), &second, "@小B 第二空间的活", &[]).await;
         let deferred = posted
             .receipts
             .iter()

@@ -3340,6 +3340,47 @@ describe('CollaborationSpacePage', () => {
     ).toHaveAttribute('data-working-name', '小A');
   });
 
+  it('keeps message-area avatars static while working chrome animates independently', async () => {
+    renderPage();
+    await screen.findByRole('button', { name: '设计' });
+
+    const messageAvatar = screen.getByTestId(
+      'collaboration-message-bot-avatar-1'
+    );
+    expect(messageAvatar).toHaveAttribute('data-bot-session-active', 'false');
+    expect(messageAvatar).not.toHaveClass(
+      'collaboration-bot-avatar--session-active'
+    );
+
+    const sidebarAvatar = screen.getByTestId(
+      'collaboration-member-bot-avatar-conv-1'
+    );
+    expect(sidebarAvatar).toHaveAttribute('data-bot-session-active', 'true');
+
+    const workingAvatar = within(
+      await screen.findByTestId('collaboration-working-status')
+    )
+      .getByTestId('collaboration-working-avatar')
+      .querySelector('svg');
+    expect(workingAvatar).toHaveAttribute('data-bot-session-active', 'true');
+
+    expect(
+      screen.getByRole('button', { name: '收起助手列表' })
+    ).toBeInTheDocument();
+    const topAvatar = screen.getByTestId(
+      'collaboration-top-member-bot-avatar-小A'
+    );
+    expect(topAvatar).toHaveAttribute('data-bot-session-active', 'true');
+
+    const nonces = [
+      sidebarAvatar.getAttribute('data-bot-animation-nonce'),
+      topAvatar.getAttribute('data-bot-animation-nonce'),
+      workingAvatar?.getAttribute('data-bot-animation-nonce'),
+    ];
+    expect(nonces.every((nonce) => Boolean(nonce))).toBe(true);
+    expect(new Set(nonces).size).toBe(3);
+  });
+
   it('joins every in-flight bot in the working-status copy', async () => {
     const defaultImpl = collaborationCall.getMockImplementation();
     collaborationCall.mockImplementation(

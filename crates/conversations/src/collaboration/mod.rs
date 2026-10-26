@@ -81,8 +81,8 @@ pub use roles::{
     try_acquire_member_write, unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
-    caller_seat, load_space, load_space_or_unassigned, member_nickname, resolve_seat_target,
-    seat_conversation,
+    caller_seat, load_space, load_space_or_unassigned, member_nickname, require_caller_thread,
+    resolve_seat_target, seat_conversation,
 };
 pub use routing::{
     DEFAULT_AGENT_REPLY_CHAIN_MAX, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_CAP_PER_TURN,
@@ -91,8 +91,8 @@ pub use routing::{
     spawn_idle_session_sweeper, wake_cap_per_turn,
 };
 pub(crate) use routing::{
-    env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, session_is_asleep,
-    touch_session_activity, wake_turn_in_flight, wake_turn_key,
+    env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, resolve_workspace_peer,
+    session_is_asleep, touch_session_activity, wake_turn_in_flight, wake_turn_key,
 };
 pub use scheduled::{
     ScheduledSpaceMessage, cancel_space_scheduled_message, list_space_scheduled_messages,

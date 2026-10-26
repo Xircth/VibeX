@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::collaboration::{
     self, CollaborationError, DeliveryContext, PostToSpace, caller_seat, db, now_stamp,
-    seat_conversation,
+    require_caller_thread, resolve_workspace_peer, seat_conversation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +226,7 @@ pub async fn post_card(
     {
         return Err(bad(format!("{required} is required")));
     }
+    require_caller_thread(pool, input.caller_id, &input.space_id).await?;
     let seat = caller_seat(pool, &input.space_id, input.caller_id).await?;
     let from = seat_conversation(&seat).unwrap_or(input.caller_id);
     let mut payload = input.payload.clone();
@@ -245,18 +246,39 @@ pub async fn post_card(
             collaboration::MessageAudience::User,
         )
         .await?;
-        let member = members
+        if let Some(member) = members
             .iter()
             .find(|m| m.nickname == nick && m.member_id != seat.member_id)
-            .ok_or_else(|| {
-                CollaborationError::new(
-                    "not_a_member",
-                    format!("{nick} is not another member of this thread"),
-                )
-            })?;
-        payload["to"] = json!(member.nickname);
-        payload["target_member_id"] = json!(member.member_id);
-        to = vec![member.nickname.clone()];
+        {
+            payload["to"] = json!(member.nickname);
+            payload["target_member_id"] = json!(member.member_id);
+            to = vec![member.nickname.clone()];
+        } else {
+            let peers = resolve_workspace_peer(pool, &input.space_id, &nick).await?;
+            let peer = peers
+                .into_iter()
+                .find(|peer| peer.peer_kind == "member" && peer.nickname == nick)
+                .ok_or_else(|| {
+                    CollaborationError::new(
+                        "not_a_member",
+                        format!("{nick} is not another member of this thread"),
+                    )
+                })?;
+            let member_id = peer
+                .dest_thread_id
+                .as_deref()
+                .and_then(|id| id.strip_prefix("direct:"))
+                .filter(|id| !id.is_empty() && *id != seat.member_id)
+                .ok_or_else(|| {
+                    CollaborationError::new(
+                        "not_a_member",
+                        format!("{nick} is not another member of this thread"),
+                    )
+                })?;
+            payload["to"] = json!(peer.nickname);
+            payload["target_member_id"] = json!(member_id);
+            to = vec![peer.nickname];
+        }
     }
     let input = PostCard { payload, ..input };
     let content = render_card(&id, input.kind, &input.payload);
@@ -502,6 +524,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::AgentId;
+    use db::models::collaboration_identity as identity;
     use db::models::session::{CreateSession, Session};
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
@@ -620,6 +643,161 @@ mod tests {
             post_card(&pool, ask(c, &space, Uuid::new_v4()), &d)
                 .await
                 .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_person_from_dm_cannot_use_shared_group_space_id() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let created_b = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Peter".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+        let group = collaboration::create_collaboration_space(
+            &pool,
+            a_conv,
+            "海鸥计划",
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        collaboration::add_space_member(
+            &pool,
+            a_conv,
+            &group.space_id,
+            b_conv,
+            "Peter",
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        let mut card = ask(a_conv, &group.space_id, Uuid::new_v4());
+        card.payload = json!({
+            "question": "请转达 User 要找 Liber 干活了",
+            "to": "Peter",
+        });
+        let error = post_card(&pool, card, &DeliveryContext::default())
+            .await
+            .expect_err("DM session must not ask_person with a group space_id");
+        assert_eq!(error.code, "invalid_origin_space");
+    }
+
+    #[tokio::test]
+    async fn ask_person_from_dm_addresses_workspace_peer_on_current_thread() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let created_b = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Peter".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+        let a_member = identity::binding_of_conversation(&pool, a_conv)
+            .await
+            .unwrap()
+            .expect("identity")
+            .member_id;
+        let b_member = identity::binding_of_conversation(&pool, b_conv)
+            .await
+            .unwrap()
+            .expect("identity")
+            .member_id;
+        let a_thread = identity::direct_thread_id(&a_member);
+        let mut card = ask(a_conv, &a_thread, Uuid::new_v4());
+        card.payload = json!({
+            "question": "请转达 User 要找 Liber 干活了",
+            "to": "Peter",
+        });
+        let posted = post_card(&pool, card, &DeliveryContext::default())
+            .await
+            .expect("ask_person from a DM resolves the workspace peer");
+        assert_eq!(posted.space_id, a_thread);
+        assert_eq!(
+            posted.payload.get("target_member_id").and_then(Value::as_str),
+            Some(b_member.as_str())
         );
     }
 

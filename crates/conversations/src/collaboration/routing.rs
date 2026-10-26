@@ -379,7 +379,7 @@ async fn workspace_direct_peers(
         .collect())
 }
 
-async fn resolve_workspace_peer(
+pub(crate) async fn resolve_workspace_peer(
     pool: &SqlitePool,
     origin_space_id: &str,
     nickname: &str,

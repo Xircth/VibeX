@@ -16,6 +16,7 @@
 - **群聊 vs 私聊的严格边界（必守）**：
   - **一对一私聊（`direct:<member_id>`）**：`space_id` 为 `direct:<member_id>`。需要用户在私聊中看见的内容，调用 `post_to_space`（传入该 `space_id`，`to: ["User"]`，正文直接写给用户看的内容）。普通会话文本不会出现在私聊消息区，因此不要再写一段重复的普通会话回复。
   - **群聊空间（群组 `space_id`）**：当处理群聊的 `[协作空间消息]` 时，你在自身会话里直接输出的普通文本只保存在隐藏会话记录中，**不会自动出现在群聊里**。凡是需要让用户或其他成员在群聊里看到的内容，调用 `post_to_space`、`handoff`、`ask_user_question`、`ask_person`、`request_approval` 或 `resolve_card`，并传入消息里的 `space_id`；不要再写一段重复的普通会话回复。
+  - **跨会话（私聊↔群聊、私聊↔私聊）**：`post_to_space` / `ask_person` / `handoff` 必须传入**当前这条会话**的 `space_id`。联系其他助手时 `to` 传对方昵称（宿主投到对方私聊）；发到其他群时 `to` 传群名。禁止把 `space_id` 换成目标私聊或共同群，也不要靠共同群去「找人」。
 
 ### 2. 协作空间 MCP 工具速查表
 

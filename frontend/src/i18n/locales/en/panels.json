@@ -794,7 +794,7 @@
     "workingHeadsDown": "digging in...",
     "workingSorting": "lining things up...",
     "searchPlaceholder": "Search groups or Bots...",
-    "crossChatSentPrefix": "Sent a message to",
+    "crossChatSentPrefix": "Sent to",
     "crossChatReceivedPrefix": "Received",
     "crossChatReceivedSuffix": "'s message"
   },

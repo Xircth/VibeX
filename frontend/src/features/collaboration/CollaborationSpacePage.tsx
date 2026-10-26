@@ -201,6 +201,8 @@ import {
 } from './CollaborationPreviewDockview';
 import { spaceCollectionPreviewPanelId } from './CollaborationSpaceCollectionPanel';
 import { CollaborationWorkingStatus } from './CollaborationWorkingStatus';
+import { CollaborationCrossChatNotice } from './CollaborationCrossChatNotice';
+import { CollaborationThreadPermissionDock } from './CollaborationThreadPermissionDock';
 import {
   COLLABORATION_ADD_MEMBER_EVENT,
   COLLABORATION_MEMBERS_CHANGED_EVENT,
@@ -288,7 +290,6 @@ import {
 } from './SpaceMessageBody';
 import {
   CollaborationMemberMentionContext,
-  MemberMentionChip,
   buildMemberMentionContextValue,
 } from './MemberMentionChip';
 import './collaboration.css';
@@ -329,12 +330,12 @@ type SpaceMessage = {
     content?: string;
     summary?: string;
     to?: string[];
-    crossChatSentTo?: string[];
-    cross_chat_sent_to?: string[];
-    crossChatReceivedFrom?: string | string[];
-    cross_chat_received_from?: string | string[];
-    crossChatReplyReceivedFrom?: string[];
-    cross_chat_reply_received_from?: string[];
+    crossChatSentTo?: unknown;
+    cross_chat_sent_to?: unknown;
+    crossChatReceivedFrom?: unknown;
+    cross_chat_received_from?: unknown;
+    crossChatReplyReceivedFrom?: unknown;
+    cross_chat_reply_received_from?: unknown;
   };
 };
 type ScheduledSpaceMessage = {
@@ -1271,12 +1272,12 @@ export function CollaborationSpacePage({
   const selectedLeadMemberId = String(selected?.lead_member_id ?? '').trim();
 
   const spaceMemberRefs = useMemo(() => {
-    if (isPrivateChatActive) {
-      return [];
-    }
     const ordered: SpaceMember[] = [];
     const seen = new Set<string>();
-    for (const member of activeChatRoster) {
+    const source = isPrivateChatActive
+      ? allWorkspaceMembers
+      : activeChatRoster;
+    for (const member of source) {
       const nick = String(member.nickname ?? '').trim();
       if (!nick || seen.has(nick)) continue;
       seen.add(nick);
@@ -1306,6 +1307,7 @@ export function CollaborationSpacePage({
       };
     });
     if (
+      !isPrivateChatActive &&
       refs.length > 0 &&
       !seen.has('全体') &&
       !seen.has('全体成员')
@@ -1320,6 +1322,7 @@ export function CollaborationSpacePage({
     return refs;
   }, [
     activeChatRoster,
+    allWorkspaceMembers,
     conversationById,
     getMemberAvatar,
     isPrivateChatActive,
@@ -3735,9 +3738,8 @@ export function CollaborationSpacePage({
       Boolean(directThreadRef.current) ||
       selected.space_id.startsWith('direct:');
     if (
-      !sendingDirect &&
       textPart &&
-      strayMentions(textPart, activeChatRoster).length > 0
+      strayMentions(textPart, allWorkspaceMembers).length > 0
     ) {
       restoreDraft(rawText);
       setError(COPY.nicknameMissing);
@@ -3784,11 +3786,19 @@ export function CollaborationSpacePage({
           },
         ]);
         try {
+          const currentDmNick = String(
+            visibleRoster[0]?.nickname ?? ''
+          ).trim();
+          const mentionTargets = postRecipients(
+            textPart || content,
+            allWorkspaceMembers
+          ).filter((nick) => nick !== currentDmNick);
           await postDirectMessage(
             collaborationCall,
             directThreadId,
             content,
-            op
+            op,
+            mentionTargets
           );
         } catch (cause) {
           setPendingDirectMessages((current) =>
@@ -3808,7 +3818,10 @@ export function CollaborationSpacePage({
         }
         return;
       }
-      const recipients = postRecipients(textPart || content, activeChatRoster);
+      const recipients = postRecipients(
+        textPart || content,
+        allWorkspaceMembers
+      );
       const op = operationId;
       const spaceId = selected.space_id;
       setPendingDirectMessages((current) => [
@@ -4128,6 +4141,25 @@ export function CollaborationSpacePage({
         }),
     [conversationById, getMemberAvatar, visibleRoster]
   );
+
+  const workingConversationIds = useMemo(() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const member of visibleRoster) {
+      const convId = String(member.conversation_id ?? '').trim();
+      if (!convId || seen.has(convId)) continue;
+      if (
+        !isMemberWorking(
+          conversationById.get(convId)
+        )
+      ) {
+        continue;
+      }
+      seen.add(convId);
+      ids.push(convId);
+    }
+    return ids;
+  }, [conversationById, visibleRoster]);
 
   const filteredMessages = useMemo(
     () =>
@@ -6909,17 +6941,37 @@ export function CollaborationSpacePage({
                     const envelopeCrossMeta = extractEnvelopeCrossChatMeta(
                       message.envelope
                     );
-                    const crossSentTargets = [
-                      ...new Set(envelopeCrossMeta.sentTo),
-                    ];
-                    const crossReceivedSources = [
-                      ...new Set(envelopeCrossMeta.receivedFrom),
-                    ];
+                    const crossSentTargets = envelopeCrossMeta.sentTo;
+                    const crossReceivedSources = envelopeCrossMeta.receivedFrom;
+                    const hasBody =
+                      bubbleText(message.envelope).trim().length > 0;
+                    if (
+                      !hasBody &&
+                      crossSentTargets.length === 0 &&
+                      crossReceivedSources.length === 0
+                    ) {
+                      return null;
+                    }
                     const messageKey = String(message.seq);
                     const cluster = messageClusters[index] ?? null;
                     const showName = showsClusterName(cluster);
                     const showAvatar = showsClusterAvatar(cluster);
                     const avatar = getMemberAvatar(authorConversationId, name);
+                    const noticeLineColor =
+                      (crossReceivedSources[0]
+                        ? getMemberAvatar(
+                            undefined,
+                            crossReceivedSources[0].name
+                          ).color
+                        : '') ||
+                      (!fromYou ? avatar.color : '') ||
+                      (visibleRoster[0]
+                        ? getMemberAvatar(
+                            visibleRoster[0].conversation_id ?? undefined,
+                            displayName(visibleRoster[0])
+                          ).color
+                        : '') ||
+                      'var(--text-muted)';
                     const openAuthorPreview = () => {
                       const authorMember = visibleRoster.find(
                         (item) => displayName(item) === name
@@ -6949,7 +7001,7 @@ export function CollaborationSpacePage({
                         data-testid={`collaboration-message-${message.seq}`}
                         data-cluster={cluster ?? undefined}
                       >
-                        {!fromYou ? (
+                        {hasBody && !fromYou ? (
                           <div className="collaboration-message-row">
                             <div className="collaboration-message-avatar-slot">
                               {showAvatar ? (
@@ -6992,7 +7044,8 @@ export function CollaborationSpacePage({
                               />
                             </div>
                           </div>
-                        ) : (
+                        ) : null}
+                        {hasBody && fromYou ? (
                           <SpaceMessageBody
                             fromYou={fromYou}
                             text={bubbleText(message.envelope)}
@@ -7000,52 +7053,53 @@ export function CollaborationSpacePage({
                             workspaceId={workspace || undefined}
                             deliveryStatus={deliveryStatus}
                           />
-                        )}
-                        {crossReceivedSources.length > 0 ? (
-                          <div
-                            className="collaboration-cross-chat-notices is-received"
-                            data-testid={`collaboration-cross-chat-received-${message.seq}`}
-                          >
-                            {crossReceivedSources.map((srcNick) => (
-                              <span
-                                key={`recv-${message.seq}-${srcNick}`}
-                                className="collaboration-cross-chat-notice"
-                              >
-                                <span>{COPY.crossChatReceivedPrefix}</span>
-                                <MemberMentionChip
-                                  nickname={srcNick}
-                                  avatar={getMemberAvatar(undefined, srcNick)}
-                                />
-                                <span>{COPY.crossChatReceivedSuffix}</span>
-                              </span>
-                            ))}
-                          </div>
                         ) : null}
-                        {crossSentTargets.length > 0 ? (
-                          <div
-                            className={cn(
-                              'collaboration-cross-chat-notices',
-                              fromYou ? 'is-from-you' : 'is-from-member'
-                            )}
-                            data-testid={`collaboration-cross-chat-sent-${message.seq}`}
-                          >
-                            {crossSentTargets.map((targetNick) => (
-                              <span
-                                key={`sent-${message.seq}-${targetNick}`}
-                                className="collaboration-cross-chat-notice"
-                              >
-                                <span>{COPY.crossChatSentPrefix}</span>
-                                <MemberMentionChip
-                                  nickname={targetNick}
-                                  avatar={getMemberAvatar(
-                                    undefined,
-                                    targetNick
-                                  )}
-                                />
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
+                        <CollaborationCrossChatNotice
+                          kind="received"
+                          seq={message.seq}
+                          peers={crossReceivedSources}
+                          lineColor={noticeLineColor}
+                          memberAvatarFor={(peer) =>
+                            getMemberAvatar(undefined, peer.name)
+                          }
+                          groupAvatarsFor={(peer) => {
+                            const spaceId =
+                              peer.id ||
+                              spaces.find((space) => space.name === peer.name)
+                                ?.space_id;
+                            return agentRoster(
+                              spaceId ? membersBySpace[spaceId] ?? [] : []
+                            ).map((member) =>
+                              getMemberAvatar(
+                                member.conversation_id ?? undefined,
+                                displayName(member)
+                              )
+                            );
+                          }}
+                        />
+                        <CollaborationCrossChatNotice
+                          kind="sent"
+                          seq={message.seq}
+                          peers={crossSentTargets}
+                          lineColor={noticeLineColor}
+                          memberAvatarFor={(peer) =>
+                            getMemberAvatar(undefined, peer.name)
+                          }
+                          groupAvatarsFor={(peer) => {
+                            const spaceId =
+                              peer.id ||
+                              spaces.find((space) => space.name === peer.name)
+                                ?.space_id;
+                            return agentRoster(
+                              spaceId ? membersBySpace[spaceId] ?? [] : []
+                            ).map((member) =>
+                              getMemberAvatar(
+                                member.conversation_id ?? undefined,
+                                displayName(member)
+                              )
+                            );
+                          }}
+                        />
                         {failedReceipts.length > 0 ? (
                           <ul className="collaboration-receipts">
                             {failedReceipts.map((receipt, index) => {
@@ -7105,6 +7159,12 @@ export function CollaborationSpacePage({
                 {selected ? (
                   <CollaborationWorkingStatus members={workingMembers} />
                 ) : null}
+                {workingConversationIds.map((conversationId) => (
+                  <CollaborationThreadPermissionDock
+                    key={`permission-dock-${conversationId}`}
+                    conversationId={conversationId}
+                  />
+                ))}
               </div>
 
               <ConversationSelectionToolbar

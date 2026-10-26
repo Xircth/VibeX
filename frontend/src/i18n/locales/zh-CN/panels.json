@@ -794,7 +794,7 @@
     "workingHeadsDown": "正在埋头赶工...",
     "workingSorting": "正在理清头绪...",
     "searchPlaceholder": "搜索协作空间或助手...",
-    "crossChatSentPrefix": "已发消息给",
+    "crossChatSentPrefix": "已发送给",
     "crossChatReceivedPrefix": "已收到",
     "crossChatReceivedSuffix": "的消息"
   },

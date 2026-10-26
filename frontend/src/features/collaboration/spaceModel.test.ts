@@ -41,6 +41,7 @@ import {
   isCollabDmBootstrapPrompt,
   contactLastMessagePreview,
   COLLAB_DM_BOOTSTRAP_PREFIX,
+  extractEnvelopeCrossChatMeta,
 } from './spaceModel';
 
 const members: SpaceMember[] = [
@@ -764,5 +765,30 @@ describe('collab DM bootstrap prompt', () => {
       })
     ).toBe('');
     expect(contactLastMessagePreview({}, '备选一句')).toBe('备选一句');
+  });
+
+  it('parses cross-chat peers from nicknames or structured envelopes', () => {
+    expect(
+      extractEnvelopeCrossChatMeta({
+        crossChatSentTo: ['小B', 'vibex://space/direct/member/小C'],
+        crossChatReceivedFrom: { kind: 'member', name: '小A' },
+      })
+    ).toEqual({
+      sentTo: [
+        { kind: 'member', name: '小B' },
+        { kind: 'member', name: '小C' },
+      ],
+      receivedFrom: [{ kind: 'member', name: '小A' }],
+      replyReceivedFrom: [],
+    });
+    expect(
+      extractEnvelopeCrossChatMeta({
+        cross_chat_sent_to: [{ kind: 'group', name: '设计', id: 's1' }],
+      })
+    ).toEqual({
+      sentTo: [{ kind: 'group', name: '设计', id: 's1' }],
+      receivedFrom: [],
+      replyReceivedFrom: [],
+    });
   });
 });

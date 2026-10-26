@@ -860,49 +860,81 @@ function parseMemberNameFromUriOrName(raw: unknown): string {
   return value.replace(/^@+/, '').trim();
 }
 
+export type CrossChatPeerKind = 'member' | 'group';
+
+export type CrossChatPeer = {
+  kind: CrossChatPeerKind;
+  name: string;
+  id?: string;
+};
+
+function parseCrossChatPeer(raw: unknown): CrossChatPeer | null {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const record = raw as {
+      kind?: unknown;
+      name?: unknown;
+      id?: unknown;
+      nickname?: unknown;
+    };
+    const kind = record.kind === 'group' ? 'group' : 'member';
+    const name = parseMemberNameFromUriOrName(
+      record.name ?? record.nickname ?? record.id
+    );
+    if (!name) return null;
+    const id = String(record.id ?? '').trim();
+    return id ? { kind, name, id } : { kind, name };
+  }
+  const name = parseMemberNameFromUriOrName(raw);
+  return name ? { kind: 'member', name } : null;
+}
+
+function parseCrossChatPeers(input: unknown): CrossChatPeer[] {
+  const items = Array.isArray(input)
+    ? input
+    : input == null
+      ? []
+      : [input];
+  const seen = new Set<string>();
+  const out: CrossChatPeer[] = [];
+  for (const item of items) {
+    const peer = parseCrossChatPeer(item);
+    if (!peer) continue;
+    const key = `${peer.kind}:${peer.id ?? peer.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(peer);
+  }
+  return out;
+}
+
 export function extractEnvelopeCrossChatMeta(
   envelope:
     | {
-        crossChatSentTo?: readonly string[] | null;
-        cross_chat_sent_to?: readonly string[] | null;
-        crossChatReceivedFrom?: string | readonly string[] | null;
-        cross_chat_received_from?: string | readonly string[] | null;
-        crossChatReplyReceivedFrom?: readonly string[] | null;
-        cross_chat_reply_received_from?: readonly string[] | null;
+        crossChatSentTo?: unknown;
+        cross_chat_sent_to?: unknown;
+        crossChatReceivedFrom?: unknown;
+        cross_chat_received_from?: unknown;
+        crossChatReplyReceivedFrom?: unknown;
+        cross_chat_reply_received_from?: unknown;
       }
     | null
     | undefined
 ): {
-  sentTo: string[];
-  receivedFrom: string[];
-  replyReceivedFrom: string[];
+  sentTo: CrossChatPeer[];
+  receivedFrom: CrossChatPeer[];
+  replyReceivedFrom: CrossChatPeer[];
 } {
   if (!envelope) {
     return { sentTo: [], receivedFrom: [], replyReceivedFrom: [] };
   }
-  const toList = (input: unknown): string[] => {
-    const items = Array.isArray(input)
-      ? input
-      : typeof input === 'string'
-        ? [input]
-        : [];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const item of items) {
-      const parsed = parseMemberNameFromUriOrName(item);
-      if (parsed && !seen.has(parsed)) {
-        seen.add(parsed);
-        out.push(parsed);
-      }
-    }
-    return out;
-  };
   return {
-    sentTo: toList(envelope.crossChatSentTo ?? envelope.cross_chat_sent_to),
-    receivedFrom: toList(
+    sentTo: parseCrossChatPeers(
+      envelope.crossChatSentTo ?? envelope.cross_chat_sent_to
+    ),
+    receivedFrom: parseCrossChatPeers(
       envelope.crossChatReceivedFrom ?? envelope.cross_chat_received_from
     ),
-    replyReceivedFrom: toList(
+    replyReceivedFrom: parseCrossChatPeers(
       envelope.crossChatReplyReceivedFrom ??
         envelope.cross_chat_reply_received_from
     ),

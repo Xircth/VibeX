@@ -189,6 +189,26 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(bubble['max-width']?.value).toBe('100%');
   });
 
+  it('draws cross-chat notice lines in the sender avatar color, thicker toward the copy', () => {
+    const lines = declarationsFor(
+      '.collaboration-cross-chat-notice::before, .collaboration-cross-chat-notice::after'
+    );
+    expect(lines.height?.value).toBe('3px');
+    expect(lines.background?.value).toBe(
+      'var(--cross-chat-line-color, var(--border-subtle))'
+    );
+
+    const before = declarationsFor('.collaboration-cross-chat-notice::before');
+    expect(before['clip-path']?.value).toBe(
+      'polygon(0 42%, 100% 0, 100% 100%, 0 58%)'
+    );
+
+    const after = declarationsFor('.collaboration-cross-chat-notice::after');
+    expect(after['clip-path']?.value).toBe(
+      'polygon(0 0, 100% 42%, 100% 58%, 0 100%)'
+    );
+  });
+
   it('paints mention names with fill-color so composer typing keeps default color', () => {
     const name = declarationsFor('.collaboration-member-mention-name');
     expect(name.color?.value).toBe('inherit');

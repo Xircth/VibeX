@@ -717,6 +717,9 @@ pub(crate) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
 
 pub(crate) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
     let line = omit_null_error_data(line);
+    if notification_has_null_session_id(&line) {
+        return String::new();
+    }
     if !line.contains("null") || !line.contains("usage_update") {
         return line;
     }
@@ -735,6 +738,26 @@ pub(crate) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
     } else {
         line
     }
+}
+
+/// Grok 1.0.40+ narrates `session/new` on `_x.ai/session/setup` with
+/// `"sessionId": null` before the id exists. A notification with a null id
+/// is never a valid session-bound frame; drop it so the runtime neither
+/// parks it nor fails to parse the null as a string.
+fn notification_has_null_session_id(line: &str) -> bool {
+    if !line.contains("\"sessionId\"") || !line.contains("null") {
+        return false;
+    }
+    let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    if message.get("method").is_none() || message.get("id").is_some() {
+        return false;
+    }
+    message
+        .get("params")
+        .and_then(|params| params.get("sessionId"))
+        .is_some_and(serde_json::Value::is_null)
 }
 
 /// Tracks whether a single `session/prompt` turn produced any user-visible output
@@ -3318,6 +3341,9 @@ impl AgentConnectionRunner {
                             let has_newline = raw_str.ends_with('\n');
                             let trimmed = raw_str.trim_end_matches(['\r', '\n']);
                             let cleaned = sanitize_incoming_jsonrpc_line(trimmed.to_string());
+                            if cleaned.is_empty() {
+                                continue;
+                            }
                             if to_acp_writer.write_all(cleaned.as_bytes()).await.is_err() {
                                 break;
                             }
@@ -4690,6 +4716,9 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
     ) -> Vec<acp::schema::v1::McpServer> {
+        if !crate::profile_delivers_session_mcp(&self.snapshot.agent_id) {
+            return Vec::new();
+        }
         let mut servers = self.session_mcp_servers().await;
         // Restored sessions need the same companion as newly created sessions.
         if companion_capabilities.accepts_session_mcp_servers
@@ -11801,6 +11830,21 @@ mod tests {
         assert_eq!(parsed_usage["params"]["update"]["size"], 0);
         assert_eq!(parsed_usage["params"]["update"]["used"], 0);
         assert!(parsed_usage["params"]["update"].get("cost").is_none());
+    }
+
+    #[test]
+    fn sanitize_drops_notifications_with_a_null_session_id() {
+        let setup = r#"{"jsonrpc":"2.0","method":"_x.ai/session/setup","params":{"sessionId":null,"phase":"auth"}}"#;
+        assert!(sanitize_incoming_jsonrpc_line(setup.to_string()).is_empty());
+
+        let missing = r#"{"jsonrpc":"2.0","method":"_x.ai/models/update","params":{"models":[]}}"#;
+        assert_eq!(sanitize_incoming_jsonrpc_line(missing.to_string()), missing);
+
+        let named = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk"}}}"#;
+        assert_eq!(sanitize_incoming_jsonrpc_line(named.to_string()), named);
+
+        let request = r#"{"jsonrpc":"2.0","id":1,"method":"session/request_permission","params":{"sessionId":null}}"#;
+        assert_eq!(sanitize_incoming_jsonrpc_line(request.to_string()), request);
     }
 
     #[test]

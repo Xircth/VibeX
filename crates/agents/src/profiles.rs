@@ -302,6 +302,21 @@ impl BuiltInProfile {
     pub fn adapter_bundles_runtime(&self) -> bool {
         adapter_bundles_runtime(&self.agent_id)
     }
+
+    /// Whether Host may put `mcpServers` on `session/new`, `session/load`, and
+    /// `session/resume`. OpenClaw's ACP bridge rejects any per-session list
+    /// (`assertSupportedSessionSetup`).
+    pub fn delivers_session_mcp(&self) -> bool {
+        AgentKind::from_lenient(self.agent_id.as_str()) != Some(AgentKind::Openclaw)
+    }
+}
+
+/// Unknown / Registry agents keep wire MCP. Built-in OpenClaw is the exception.
+pub fn profile_delivers_session_mcp(agent_id: &AgentId) -> bool {
+    BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .map(BuiltInProfile::delivers_session_mcp)
+        .unwrap_or(true)
 }
 
 /// Env keys that must not reach an ACP adapter which bundles its own vendor CLI.
@@ -512,6 +527,7 @@ const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
 ];
 const ANTIGRAVITY_PLATFORMS: &[&str] = &[
     "darwin-aarch64",
+    "darwin-x86_64",
     "linux-aarch64",
     "linux-x86_64",
     "windows-aarch64",
@@ -524,7 +540,11 @@ const ANTIGRAVITY_LAUNCH_ARGS: &[&str] = if cfg!(target_os = "linux") {
 };
 const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] = &[external("openclaw")];
 const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external("cline")];
-const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[external("hermes-acp")];
+const HERMES_ACP_ARGS: &[&str] = &["acp"];
+const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[
+    external_acp("hermes", HERMES_ACP_ARGS),
+    external("hermes-acp"),
+];
 const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] = &[external("codebuddy")];
 const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
 const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
@@ -609,20 +629,9 @@ const NODE_22_19_DEPENDENCIES: &[ProfileDependency] = &[
     dependency("node", "Node.js", "node", &["--version"], ">=22.19", true),
     dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
 ];
-const NODE_22_22_DEPENDENCIES: &[ProfileDependency] = &[
-    dependency("node", "Node.js", "node", &["--version"], ">=22.22.3", true),
+const NODE_24_16_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=24.16.0", true),
     dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
-];
-const UV_DEPENDENCIES: &[ProfileDependency] = &[
-    dependency("uv", "uv", "uv", &["--version"], ">=0.5", true),
-    dependency(
-        "python",
-        "系统 Python（可选）",
-        "python3",
-        &["--version"],
-        "uv 将自动安装 Python 3.13",
-        false,
-    ),
 ];
 const ARCHIVE_DEPENDENCIES: &[ProfileDependency] = &[dependency(
     "archive",
@@ -760,7 +769,10 @@ const HERMES_ACTIONS: &[ProfileManagementAction] = &[
         "运行 Hermes Setup",
         "配置 Provider 与凭据",
         ProfileManagementActionKind::Setup,
-        &[program("hermes-acp", &["--setup"])],
+        &[
+            program("hermes", &["acp", "--setup"]),
+            program("hermes-acp", &["--setup"]),
+        ],
     ),
     terminal_action(
         "model",
@@ -2604,18 +2616,18 @@ fn claude_code_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AgentRuntime,
                 "@anthropic-ai/claude-code",
-                "2.1.222",
+                "2.1.303",
                 "claude",
                 ">=20",
-                "sha512-T8i+1SvOIL6rWEE7g7Of4xJ5MTwP7sT7O5fFFD1zlWL54XkKhshZWFQhz0reANbziBIV0AEkI5QdSXZkTgSBwA==",
+                "sha512-vGwsxL/bjxl7crYg2/BLBs75ErQ22x9L3LKqZqwqZ9vwp6A41sVCDdBXsPftM19V5LAwK6/s/sAxIVjX6F4O6Q==",
             ),
             npx(
                 ProfileComponent::AcpAdapter,
                 "@agentclientprotocol/claude-agent-acp",
-                "0.69.0",
+                "0.94.0",
                 "claude-agent-acp",
                 ">=22",
-                "sha512-YH4k22QvewY4dlxR7IOEhPk4IyTSvvUMUYfTF1cfD/JasPWonjylCJjeUCp3bOyQhlh3LvxsCCAPKkTa+V/a/g==",
+                "sha512-3quBG9QaMKhETZPF0QaD/Ue2C0UCQDzDztDbzs8AVYM8RQKX93TPL0YzJl7sx06qYPLQvxrCDdiAp5a6cgFfZg==",
             ),
         ],
         external_candidates: CLAUDE_CANDIDATES,
@@ -2654,18 +2666,18 @@ fn codex_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AgentRuntime,
                 "@openai/codex",
-                "0.146.0",
+                "0.160.1",
                 "codex",
                 ">=20",
-                "sha512-yG3sPWNda/2YAIQIDq9MrrjoCTIQ7rxYM5IasrG3VBcuhCLTkgeg/JzqmJq1V98RE4MJ5jCxDXXQlOjrditFRw==",
+                "sha512-f1yrJhwgimKQI1kYQlxdPJcFwkNZxZrbz7Hf89EAcnLqkQ7TiESzr2FgSZn13Ga5RuHjlVUfurzwq10wk9zw2g==",
             ),
             npx(
                 ProfileComponent::AcpAdapter,
                 "@agentclientprotocol/codex-acp",
-                "1.7.0",
+                "2.2.2",
                 "codex-acp",
-                ">=20",
-                "sha512-+nUhAJyunx8Zc7r3jjLPoMPPUkkk02TmBIosln4l+ugRNUOdNQAMm6toZo7xb+mF1yM5zxJB83qvy/bPmOTaaw==",
+                ">=20.3",
+                "sha512-vNdeNV3jxbqaH7MYvVWzyB6cMOz+YGIV9W1xyBDsQfoii92DulZLM+ahCL2T2G6uohlaB1Yma347p2kLfAab2w==",
             ),
         ],
         external_candidates: CODEX_CANDIDATES,
@@ -2702,29 +2714,33 @@ fn antigravity_profile() -> BuiltInProfile {
         supported_platforms: ANTIGRAVITY_PLATFORMS,
         install_sources: vec![ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.0.0",
+            version: "1.4.1",
             command: "agy_acp_server",
             args: ANTIGRAVITY_LAUNCH_ARGS,
             artifacts: vec![
                 tofu_binary_artifact(
                     "darwin-aarch64",
-                    "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-agy_acp_server_20260818_01_RC01-darwin-arm64.zip",
+                    "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.1-darwin-arm64.zip",
+                ),
+                tofu_binary_artifact(
+                    "darwin-x86_64",
+                    "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.1-darwin-x86_64.zip",
                 ),
                 tofu_binary_artifact(
                     "linux-aarch64",
-                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-agy_acp_server_20260818_01_RC01-linux-arm64.zip",
+                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.1-linux-arm64.zip",
                 ),
                 tofu_binary_artifact(
                     "linux-x86_64",
-                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-agy_acp_server_20260818_01_RC01-linux-x86_64.zip",
+                    "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.1-linux-x86_64.zip",
                 ),
                 tofu_binary_artifact(
                     "windows-aarch64",
-                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-agy_acp_server_20260818_01_RC01-windows-arm64.zip",
+                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.1-windows-arm64.zip",
                 ),
                 tofu_binary_artifact(
                     "windows-x86_64",
-                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-agy_acp_server_20260818_01_RC01-windows-x86_64.zip",
+                    "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.1-windows-x86_64.zip",
                 ),
             ],
             entry: Some(ProfileBinaryEntry {
@@ -2767,14 +2783,14 @@ fn openclaw_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "openclaw",
-            "2026.7.1",
+            "2026.9.8",
             "openclaw",
             &["acp"],
-            ">=22.22.3",
-            "sha512-ge/Xss99CHAjPL/ikmH/UFoiOrjcxDB4sW3y9mhyCD+dYW3wzV7TKbAVdkrXFgAG2d2BjpJofP97zUZ+umxo8g==",
+            ">=24.16.0",
+            "sha512-G+JkNUhtpDE3cXR4AEi2NyyG9fqI/T2WUSl8ZnR8AATH8Dh1kC3qYFL7wwPoZtgHiP/cszA86PEiE0PDysxb9Q==",
         )],
         external_candidates: OPENCLAW_CANDIDATES,
-        dependencies: NODE_22_22_DEPENDENCIES,
+        dependencies: NODE_24_16_DEPENDENCIES,
         management_actions: OPENCLAW_ACTIONS,
         runtime_executable_env: None,
         native_config: OPENCLAW_CONFIG,
@@ -2805,39 +2821,39 @@ fn opencode_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.18.23",
+            version: "1.19.3",
             command: "opencode",
             args: &["acp"],
             artifacts: vec![
                 artifact(
                     "darwin-aarch64",
                     "opencode-darwin-arm64.zip",
-                    "373cf36673836f2ce8847295a0bb2cd2447d03c769b44d84185916bd471b4274",
+                    "c2d0fecd27acf6e08be02c1f5d384614d07495587766bcc4a6bff3971749bb64",
                 ),
                 artifact(
                     "darwin-x86_64",
                     "opencode-darwin-x64.zip",
-                    "6b617da75b5773836fcdc7247d7ea2bd39aec942a58b89a041bafb3d4d2a8c23",
+                    "4e29dbe2f61ace728370523c88027d0742b3a79edcdd2c70e404f616d4ef8f36",
                 ),
                 artifact(
                     "linux-aarch64",
                     "opencode-linux-arm64.tar.gz",
-                    "86d3afaf4e8784f9adab189be2a315c12b27ec40a04b70defbe70595c3cc7c65",
+                    "7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405",
                 ),
                 artifact(
                     "linux-x86_64",
                     "opencode-linux-x64.tar.gz",
-                    "ab7015cd8113e011a461f30a0c2b77d8299a144ff688cb62e93e8802835d7288",
+                    "13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b",
                 ),
                 artifact(
                     "windows-aarch64",
                     "opencode-windows-arm64.zip",
-                    "3ff8c553ae270e89499808fbce7635535762f75cfaae4b0bb818b10d7eb18d9b",
+                    "c1b9daf18c97564b2d171703279621f7edc3613e70750d796ef78db87257ad89",
                 ),
                 artifact(
                     "windows-x86_64",
                     "opencode-windows-x64.zip",
-                    "a2fe9e8c2d074d26975024d494927b966680b3efdc3e0377eadb9afb05f7e191",
+                    "e4ce9117f55fc068414513789f8c7d1049f855d7518bb4e350b9170a3a20d8c3",
                 ),
             ],
             entry: None,
@@ -2876,11 +2892,11 @@ fn cline_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "cline",
-            "3.0.49",
+            "3.0.73",
             "cline",
             &["--acp"],
             ">=22",
-            "sha512-yZj+L/gGORrb/5YBCUwOEmwgwExdlTU0hEcBA9a+es7Usd0iuAWAHwrWCPwMfHdBwvvuw9qxpwqdMa2v7KbisQ==",
+            "sha512-4lx7qC8X2neX7k3RIshwkFw0zuzSFQ7Tua+8v/6MgLDcAI/hjUWiR7GVUmbyFtH1oOazaoAD/xR1GQeX1f2NNQ==",
         )],
         external_candidates: CLINE_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,
@@ -2919,17 +2935,16 @@ fn hermes_profile() -> BuiltInProfile {
         }),
         topology: ProfileTopology::NativeAcp,
         supported_platforms: DESKTOP_PLATFORMS,
-        install_sources: vec![ProfileInstallSource::Uvx {
-            component: ProfileComponent::CombinedRuntime,
-            package: "hermes-agent[acp,mcp]==0.19.0",
-            version: "0.19.0",
-            command: "hermes-acp",
-            args: &[],
-            uv_requirement: ">=0.5",
-            python_requirement: ">=3.11,<3.14",
-        }],
+        install_sources: vec![native_npx(
+            "hermes-agent",
+            "0.22.2",
+            "hermes",
+            HERMES_ACP_ARGS,
+            ">=20",
+            "sha512-kIOJcnV6pKkNXgszXIJbXtc46sx/Lp1k2VJ2hV8CYF7KsGGwcHnBjkALYFHj/cfXbFZ6uo/mYy12D6BMjrMCdw==",
+        )],
         external_candidates: HERMES_CANDIDATES,
-        dependencies: UV_DEPENDENCIES,
+        dependencies: NODE_20_DEPENDENCIES,
         management_actions: HERMES_ACTIONS,
         runtime_executable_env: None,
         native_config: HERMES_CONFIG,
@@ -2961,11 +2976,11 @@ fn codebuddy_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "@tencent-ai/codebuddy-code",
-            "2.132.0",
+            "2.168.2",
             "codebuddy",
             &["--acp"],
             ">=22",
-            "sha512-JFa1q0ZXK+TUmqW3X7zgg9RLCHb5dAInLKrTZtEdtAjfhIDwQeBXjYlyPNDLYJg6Y2Ic3p4SGhbXaE+slnjP1Q==",
+            "sha512-3E4/YB1S5+wQabbXCR2DBb5GDs3fo6XxVf+sA05Kj7gXGCTzcaaJ10MBNbb9A69uVx/S2PAOunVS10QBjG+Wow==",
         )],
         external_candidates: CODEBUDDY_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,
@@ -3000,11 +3015,11 @@ fn kimi_code_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "@moonshot-ai/kimi-code",
-            "0.31.1",
+            "2.2.0",
             "kimi",
             &["acp"],
             ">=22.19",
-            "sha512-Hyly4EjzemSjla479jC47h+K98wNvRKOqGwu6mBncI/MlIafqEByUXeGl/9+DsOKdiE6fQTxkxiAcgusBay56Q==",
+            "sha512-I1w2l6JGYEUSwA1DTvYrw/kDJYjJQKHFON+RON61epDeTITvwpXoDn4Kgl4atA82RfwcsMp3KG6k8Yaoj6LT0A==",
         )],
         external_candidates: KIMI_CANDIDATES,
         dependencies: NODE_22_19_DEPENDENCIES,
@@ -3033,22 +3048,22 @@ fn artifact(
         platform,
         archive_url: match filename {
             "opencode-darwin-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-darwin-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-darwin-arm64.zip"
             }
             "opencode-darwin-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-darwin-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-darwin-x64.zip"
             }
             "opencode-linux-arm64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-linux-arm64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-linux-arm64.tar.gz"
             }
             "opencode-linux-x64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-linux-x64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-linux-x64.tar.gz"
             }
             "opencode-windows-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-windows-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-arm64.zip"
             }
             "opencode-windows-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.23/opencode-windows-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-x64.zip"
             }
             _ => unreachable!("bundled OpenCode artifact"),
         },
@@ -3082,10 +3097,10 @@ fn pi_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AcpAdapter,
                 "pi-acp",
-                "0.0.33",
+                "0.0.34",
                 "pi-acp",
                 ">=22",
-                "sha512-vX9kY1tK14E72G4dBAx+RGCk/k7XPjTHls6dLUxA8WSkBav6B6JHuSBv3eusp50LCR/GTRsR2kIKsG0Z5jANzw==",
+                "sha512-MrCp37UbpUzkTkzTIMJQf1RYrT+kr4fgGDGFoLmBN26UupuCZp0XxVIY+7XYsMo3yDnzDeZUJ0jPyM3Si6Bkkg==",
             ),
         ],
         external_candidates: PI_CANDIDATES,
@@ -3122,11 +3137,11 @@ fn grok_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "@xai-official/grok",
-            "0.2.118",
+            "1.0.62",
             "grok",
             &["agent", "stdio"],
             ">=20",
-            "sha512-51BumA66Y9Xp1Qv2HCphEE/lTmMF4DPPueX945b3nH30/VN0T3QsbxBQLVrRtv0Q6FmDAR3bns4T9fRebpCBbg==",
+            "sha512-MYDKmYYv4CiYdvgWe575fIko5s1KnvShvHXbobkEusR7rVG0B61t6fOgTFZ8BoIloqkfrC0EBQDB9F0r3P7L6w==",
         )],
         external_candidates: GROK_CANDIDATES,
         dependencies: NODE_20_DEPENDENCIES,
@@ -3147,7 +3162,7 @@ fn grok_profile() -> BuiltInProfile {
 }
 
 fn cursor_profile() -> BuiltInProfile {
-    const VERSION: &str = "2026.07.23-e383d2b";
+    const VERSION: &str = "2026.10.16-e3cb207";
     BuiltInProfile {
         agent_id: AgentId::parse("cursor").expect("bundled AgentId"),
         display_name: "Cursor",
@@ -3169,33 +3184,33 @@ fn cursor_profile() -> BuiltInProfile {
             artifacts: vec![
                 binary_artifact(
                     "darwin-aarch64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/darwin/arm64/agent-cli-package.tar.gz",
-                    "f2eb25851f2079dcdf0558a816e06c402d187abfca93255d35167020439ebbf2",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/darwin/arm64/agent-cli-package.tar.gz",
+                    "5f04d196a84ddb5c20a4a466bdd74e3695bfb447e3c4a1e6071364b2b9497dd0",
                 ),
                 binary_artifact(
                     "darwin-x86_64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/darwin/x64/agent-cli-package.tar.gz",
-                    "f44194dfcb41468f85bfb4e53978ac098a2a78ce629806490c32b80b40975aa2",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/darwin/x64/agent-cli-package.tar.gz",
+                    "93372e384e9397b54b1e4fdb1812662f68e7b61c0c60cb3f2f4b788c9e0779c4",
                 ),
                 binary_artifact(
                     "linux-aarch64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/linux/arm64/agent-cli-package.tar.gz",
-                    "f40b99647cb24e0da885e97620a2048034f1fe8961910d573d827d77c4d26dcb",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/linux/arm64/agent-cli-package.tar.gz",
+                    "4cf077f150eb8d1e270bf1dea69700184c39a4847fe192d523f5bb34d4b62597",
                 ),
                 binary_artifact(
                     "linux-x86_64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/linux/x64/agent-cli-package.tar.gz",
-                    "702ad595213bee5df0268be9f80a19f29fcceaa2a42fc55e39f2b5199051f0c4",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/linux/x64/agent-cli-package.tar.gz",
+                    "3aa3f48cd7a3909a98c9b3f2a4085f0c021088bf826690b22c61f424c843e552",
                 ),
                 binary_artifact(
                     "windows-aarch64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/windows/arm64/agent-cli-package.zip",
-                    "1d94e23b6901c3ab3092ed4094d77843d7a4978df24a873cc8c6421026f5efdc",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/windows/arm64/agent-cli-package.zip",
+                    "2cc883fbd67b18f55cd9f65455a472f62abe577da6fbebbd33b0130d0d79d9d0",
                 ),
                 binary_artifact(
                     "windows-x86_64",
-                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/windows/x64/agent-cli-package.zip",
-                    "96c7b739eaf2fc68869341f2e0781ccbefd631a7493d373728bf14141749035f",
+                    "https://downloads.cursor.com/lab/2026.10.16-e3cb207/windows/x64/agent-cli-package.zip",
+                    "8ec735f06234310c062c07d68d2940a249356aff49a40fb158b27af210310848",
                 ),
             ],
             entry: Some(ProfileBinaryEntry {
@@ -3231,16 +3246,15 @@ fn deepseek_harness_profile() -> BuiltInProfile {
         }),
         topology: ProfileTopology::NativeAcp,
         supported_platforms: DESKTOP_PLATFORMS,
-        // 0.8.0 matches Codeg: stdio ACP, no args. 0.6.0 added image prompts
-        // and compaction log events; 0.8.0 names AIR historical fork via log
-        // `message.id`. Keep `version` and `package` in lockstep.
+        // 0.9.0 matches Codeg: stdio ACP, no args. Keep `version` and
+        // `package` in lockstep with the reviewed Codeg pin.
         install_sources: vec![native_npx(
             "deepseek-acp",
-            "0.8.0",
+            "0.9.0",
             "deepseek-acp",
             &[],
             ">=22",
-            "sha512-tLEJTKCTnMUNvpxGDjQq0Kul4E9fGeUbb0TDOvXhzdc93kAqZh/xakIvRAJRUucCfgJD/6yBmn6XyJ24gHFTgg==",
+            "sha512-OG6Ia7GkdjP7UCnFPT8yooZncMo/c2fjpR7BlzuBp7EPF8b+Kohzkhj5U4kJN0vIS9txf50jb3R8CHZcmIZSgg==",
         )],
         external_candidates: DEEPSEEK_HARNESS_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,
@@ -3312,11 +3326,11 @@ fn qoder_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![native_npx(
             "@qoder-ai/qodercli",
-            "1.1.44",
+            "1.1.73",
             "qodercli",
             QODER_ACP_ARGS,
             ">=20",
-            "sha512-OFZFj6w6Zckuz/o8KT3LCLctS7g5UZbSSyoF66+8seYNrQkkFmU0GrnGCsduHK7ZBrlpRVWXPQg6h9gUWo3v4A==",
+            "sha512-OdmmSppZUAZWL5ZEEORV5BNplXgAaa5cFMXnmNPStvIlknJ1fiyykgY6AjsP1t7OgWuVlh76vDK8lpbPNRlmBQ==",
         )],
         external_candidates: QODER_CANDIDATES,
         dependencies: NODE_20_DEPENDENCIES,

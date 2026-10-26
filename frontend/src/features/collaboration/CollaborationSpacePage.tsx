@@ -117,6 +117,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { imagesApi, sessionsApi } from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import { requestComposerTokenInsert } from '@/lib/composerInsert';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
   WORKSPACE_SESSIONS_CHANGED_EVENT,
   type WorkspaceSessionsChangedPayload,
@@ -150,9 +151,17 @@ import {
   markThreadRead,
   markThreadUnread,
   postDirectMessage,
+  reactToSpaceMessage,
   resolveMemberSession,
   updateThreadTagColor,
 } from './threadApi';
+import { CollaborationReplyCapsule } from './CollaborationReplyCapsule';
+import { buildMemberAvatarMenuItems } from './memberAvatarMenu';
+import { buildMessageBubbleMenuItems } from './messageBubbleMenu';
+import {
+  reactionsFromUnknown,
+  toggleSpaceReaction,
+} from './spaceReactions';
 import { CollaborationGlobalSearchModal } from './CollaborationGlobalSearchModal';
 import {
   applyContactListView,
@@ -319,17 +328,22 @@ type Space = {
   lead_member_id?: string | null;
 };
 type SpaceMessage = {
+  id?: string;
   seq: number;
   origin?: string;
   operationId?: string | null;
   operation_id?: string | null;
+  in_reply_to?: string | null;
+  inReplyTo?: string | null;
   receipts?: DeliveryReceipt[];
   envelope: {
+    id?: string;
     actor?: string;
     attributedTo?: string;
     content?: string;
     summary?: string;
     to?: string[];
+    reactions?: unknown;
     crossChatSentTo?: unknown;
     cross_chat_sent_to?: unknown;
     crossChatReceivedFrom?: unknown;
@@ -338,6 +352,11 @@ type SpaceMessage = {
     cross_chat_reply_received_from?: unknown;
   };
 };
+
+function stableSpaceMessageId(message: SpaceMessage): string {
+  const raw = String(message.id ?? message.envelope.id ?? '').trim();
+  return raw.replace(/^vibex:\/\/space-message\//, '');
+}
 type ScheduledSpaceMessage = {
   id?: string;
   delayed_input_id?: string;
@@ -540,6 +559,9 @@ export function CollaborationSpacePage({
   const [selectedId, setSelectedId] = useState('');
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
+  useEffect(() => {
+    setReplyingTo(null);
+  }, [selectedId]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [membersBySpace, setMembersBySpace] = useState<
     Record<string, SpaceMember[]>
@@ -845,6 +867,15 @@ export function CollaborationSpacePage({
     x: number;
     y: number;
     items: ProductContextMenuItem[];
+  } | null>(null);
+  const [messageMenu, setMessageMenu] = useState<{
+    x: number;
+    y: number;
+    items: ProductContextMenuItem[];
+  } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: string;
+    text: string;
   } | null>(null);
   const contactGroupFailed = useCallback(() => {
     toast.error(t('collaborationSpace.contactGroupFailed', '分组操作失败'));
@@ -3726,6 +3757,128 @@ export function CollaborationSpacePage({
     editable.dispatchEvent(new Event('input', { bubbles: true }));
   }, [draft]);
 
+  const insertMemberMention = useCallback((nickname: string) => {
+    const name = nickname.trim();
+    if (!name) return;
+    requestComposerTokenInsert({
+      value: `@${name}`,
+      label: name,
+      conversationId: 'collaboration-space-composer',
+    });
+  }, []);
+
+  const openMessageBubbleMenu = (
+    event: React.MouseEvent,
+    message: SpaceMessage
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = stableSpaceMessageId(message);
+    const text = bubbleText(message.envelope);
+    setContactMenu(null);
+    setMessageMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: buildMessageBubbleMenuItems({
+        canCopyRequestId: Boolean(id),
+        onReact: (emoji) => {
+          void (async () => {
+            const spaceId =
+              directThreadRef.current || selectedIdRef.current;
+            if (!id || !spaceId) return;
+            const current = reactionsFromUnknown(
+              message.envelope.reactions
+            );
+            const optimistic = toggleSpaceReaction(current, emoji);
+            setMessages((msgs) =>
+              msgs.map((item) =>
+                item.seq === message.seq
+                  ? {
+                      ...item,
+                      envelope: {
+                        ...item.envelope,
+                        reactions: optimistic,
+                      },
+                    }
+                  : item
+              )
+            );
+            try {
+              const reactions = await reactToSpaceMessage(
+                collaborationCall,
+                spaceId,
+                id,
+                emoji
+              );
+              setMessages((msgs) =>
+                msgs.map((item) =>
+                  item.seq === message.seq
+                    ? {
+                        ...item,
+                        envelope: { ...item.envelope, reactions },
+                      }
+                    : item
+                )
+              );
+            } catch (cause) {
+              setMessages((msgs) =>
+                msgs.map((item) =>
+                  item.seq === message.seq
+                    ? {
+                        ...item,
+                        envelope: {
+                          ...item.envelope,
+                          reactions: current,
+                        },
+                      }
+                    : item
+                )
+              );
+              setError(surfaceErrorCopy(cause));
+            }
+          })();
+        },
+        onReply: () => {
+          if (!id) return;
+          setReplyingTo({ id, text });
+        },
+        onCopy: () => {
+          void writeClipboardViaBridge(text);
+        },
+        onCopyRequestId: () => {
+          if (!id) return;
+          void writeClipboardViaBridge(id);
+        },
+      }),
+    });
+  };
+
+  const openMemberAvatarMenu = (
+    event: React.MouseEvent,
+    member: SpaceMember,
+    name: string,
+    color: string
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContactMenu(null);
+    setMessageMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: buildMemberAvatarMenuItems({
+        nickname: name,
+        color,
+        onMention: () => insertMemberMention(name),
+        onOpenPrivateChat: () => {
+          openPrivateChat(selectedIdRef.current, member);
+        },
+        onOpenSession: () => {
+          selectMemberForPreview(selectedIdRef.current, member);
+        },
+      }),
+    });
+  };
+
   const send = async (rawText: string) => {
     const sendingAttachments = attachedImagesRef.current;
     const content = buildCollaborationSendContent(
@@ -3761,11 +3914,13 @@ export function CollaborationSpacePage({
         return restored;
       });
     };
+    const replyTargetId = replyingTo?.id;
     const finishSuccessfulSend = () => {
       revokeCollaborationSendAttachments(sentAttachmentsRef.current);
       sentAttachmentsRef.current = [];
       setError('');
       setOperationId(crypto.randomUUID());
+      setReplyingTo(null);
     };
     setSending(true);
     try {
@@ -3798,7 +3953,8 @@ export function CollaborationSpacePage({
             directThreadId,
             content,
             op,
-            mentionTargets
+            mentionTargets,
+            replyTargetId
           );
         } catch (cause) {
           setPendingDirectMessages((current) =>
@@ -3846,6 +4002,7 @@ export function CollaborationSpacePage({
           content,
           to: recipients,
           operationId: op,
+          ...(replyTargetId ? { inReplyTo: replyTargetId } : {}),
         });
       } catch (cause) {
         setPendingDirectMessages((current) =>
@@ -6481,6 +6638,15 @@ export function CollaborationSpacePage({
                     ariaLabel={i18n.t('panels:ui.collabPage.contactMenu')}
                   />
                 ) : null}
+                {messageMenu ? (
+                  <ProductContextMenu
+                    x={messageMenu.x}
+                    y={messageMenu.y}
+                    items={messageMenu.items}
+                    onClose={() => setMessageMenu(null)}
+                    ariaLabel={i18n.t('panels:collabCopy.reply')}
+                  />
+                ) : null}
               </div>
             </div>
             {hasThread || showPreview ? (
@@ -6973,21 +7139,25 @@ export function CollaborationSpacePage({
                           ).color
                         : '') ||
                       'var(--text-muted)';
-                    const openAuthorPreview = () => {
-                      const authorMember = visibleRoster.find(
+                    const authorMember =
+                      visibleRoster.find(
                         (item) => displayName(item) === name
                       ) ??
-                        members.find(
-                          (item) =>
-                            item.conversation_id === authorConversationId
-                        ) ??
-                        members.find((item) => displayName(item) === name) ?? {
-                          kind: 'agent',
-                          nickname: name,
-                          conversation_id: authorConversationId,
-                        };
+                      members.find(
+                        (item) =>
+                          item.conversation_id === authorConversationId
+                      ) ??
+                      members.find((item) => displayName(item) === name) ?? {
+                        kind: 'agent' as const,
+                        nickname: name,
+                        conversation_id: authorConversationId,
+                      };
+                    const openAuthorPreview = () => {
                       selectMemberForPreview(selected.space_id, authorMember);
                     };
+                    const messageReactions = reactionsFromUnknown(
+                      message.envelope.reactions
+                    );
                     return (
                       <article
                         key={message.seq}
@@ -7001,6 +7171,9 @@ export function CollaborationSpacePage({
                         className="collaboration-message"
                         data-testid={`collaboration-message-${message.seq}`}
                         data-cluster={cluster ?? undefined}
+                        onContextMenu={(event) =>
+                          openMessageBubbleMenu(event, message)
+                        }
                       >
                         {hasBody && !fromYou ? (
                           <div className="collaboration-message-row">
@@ -7011,6 +7184,14 @@ export function CollaborationSpacePage({
                                   className="collaboration-message-avatar"
                                   aria-label={i18n.t('panels:ui.collabPage.previewNameSession', { name: name })}
                                   onClick={openAuthorPreview}
+                                  onContextMenu={(event) =>
+                                    openMemberAvatarMenu(
+                                      event,
+                                      authorMember,
+                                      name,
+                                      avatar.color
+                                    )
+                                  }
                                 >
                                   <MemberBotAvatar
                                     config={avatar}
@@ -7040,6 +7221,7 @@ export function CollaborationSpacePage({
                                 workspacePath={workspacePath}
                                 workspaceId={workspace || undefined}
                                 deliveryStatus={deliveryStatus}
+                                reactions={messageReactions}
                               />
                             </div>
                           </div>
@@ -7051,6 +7233,7 @@ export function CollaborationSpacePage({
                             workspacePath={workspacePath}
                             workspaceId={workspace || undefined}
                             deliveryStatus={deliveryStatus}
+                            reactions={messageReactions}
                           />
                         ) : null}
                         <CollaborationCrossChatNotice
@@ -7338,9 +7521,21 @@ export function CollaborationSpacePage({
                     )}
                   </div>
 
+                  {replyingTo ? (
+                    <CollaborationReplyCapsule
+                      text={replyingTo.text}
+                      onDismiss={() => setReplyingTo(null)}
+                    />
+                  ) : null}
+
                   <SessionComposerInput
                     value={draft}
                     disabled={sending}
+                    placeholder={
+                      replyingTo
+                        ? i18n.t('panels:collabCopy.replyPlaceholder')
+                        : ''
+                    }
                     replaceValueRef={replaceDraftRef}
                     context={{
                       sessionId: 'collaboration-space-composer',

@@ -5,6 +5,7 @@ import {
   ArrowRight,
   ArrowUpDown,
   ArrowUpFromLine,
+  AtSign,
   Bot,
   Bug,
   ChevronsDown,
@@ -15,6 +16,7 @@ import {
   Clock,
   Columns2,
   Copy,
+  CornerUpLeft,
   Crosshair,
   Download,
   ExternalLink,
@@ -31,7 +33,9 @@ import {
   Group,
   Image as ImageIcon,
   ListTree,
+  MessageCircle,
   PanelRightClose,
+  PanelsTopLeft,
   Pencil,
   Plus,
   RefreshCw,
@@ -44,6 +48,11 @@ import {
 } from 'lucide-react';
 
 const ICONS: Record<string, LucideIcon> = {
+  reply: CornerUpLeft,
+  mention: AtSign,
+  'open-private-chat': MessageCircle,
+  'open-session': PanelsTopLeft,
+  'copy-request-id': Copy,
   copy: Copy,
   'copy-selection': Copy,
   'copy-turn': Copy,

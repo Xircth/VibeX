@@ -17,6 +17,10 @@ import { UserMessageMarkdown } from '@/components/NormalizedConversation/UserMes
 import { splitDisplayContentImages } from '@/components/NormalizedConversation/userMessageImages';
 
 import { collaborationCall } from './collaborationApi';
+import {
+  reactionBadgeEmojis,
+  type SpaceReaction,
+} from './spaceReactions';
 import i18n from '@/i18n';
 
 export type ParsedCard = {
@@ -343,6 +347,23 @@ export function MessageDeliveryTicks({
   );
 }
 
+export function SpaceMessageReactionBadge({
+  reactions,
+}: {
+  reactions?: readonly SpaceReaction[] | null;
+}) {
+  const emojis = reactionBadgeEmojis(reactions ?? []);
+  if (emojis.length === 0) return null;
+  return (
+    <span
+      className="collaboration-bubble-reaction"
+      data-testid="collaboration-bubble-reaction"
+    >
+      {emojis.join('')}
+    </span>
+  );
+}
+
 export function SpaceMessageBody({
   fromYou,
   text,
@@ -350,6 +371,7 @@ export function SpaceMessageBody({
   workspaceId,
   deliveryStatus = null,
   deliveryTickTestId,
+  reactions,
 }: {
   fromYou: boolean;
   text: string;
@@ -357,6 +379,7 @@ export function SpaceMessageBody({
   workspaceId?: string;
   deliveryStatus?: MessageDeliveryTickStatus;
   deliveryTickTestId?: string;
+  reactions?: readonly SpaceReaction[] | null;
 }) {
   const memberMentionCtx = useCollaborationMemberMention();
   const effectiveMentionCtx = memberMentionCtx.enableMemberMentions
@@ -385,12 +408,15 @@ export function SpaceMessageBody({
               className="vibex-user-message"
             >
               <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
-                <ChatMessageBubble className="conv-user-bubble">
-                  <UserMessageMarkdown
-                    value={cleanText}
-                    workspacePath={workspacePath}
-                  />
-                </ChatMessageBubble>
+                <div className="collaboration-bubble-shell">
+                  <ChatMessageBubble className="conv-user-bubble">
+                    <UserMessageMarkdown
+                      value={cleanText}
+                      workspacePath={workspacePath}
+                    />
+                  </ChatMessageBubble>
+                  <SpaceMessageReactionBadge reactions={reactions} />
+                </div>
                 <MessageDeliveryTicks
                   status={deliveryStatus}
                   testId={deliveryTickTestId}
@@ -414,26 +440,29 @@ export function SpaceMessageBody({
     <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
       <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
         <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member">
-          <div
-            className="conv-assistant-body collaboration-member-bubble"
-            data-testid="collaboration-member-bubble"
-          >
-            <AstryxMarkdown
-              value={
-                card
-                  ? [
-                      card.before,
-                      card.questions && card.questions.length > 0
-                        ? ''
-                        : card.body,
-                    ]
-                      .filter(Boolean)
-                      .join('\n\n')
-                  : text
-              }
-              workspacePath={workspacePath}
-            />
-            {card ? <SpaceCardActions card={card} /> : null}
+          <div className="collaboration-bubble-shell">
+            <div
+              className="conv-assistant-body collaboration-member-bubble"
+              data-testid="collaboration-member-bubble"
+            >
+              <AstryxMarkdown
+                value={
+                  card
+                    ? [
+                        card.before,
+                        card.questions && card.questions.length > 0
+                          ? ''
+                          : card.body,
+                      ]
+                        .filter(Boolean)
+                        .join('\n\n')
+                    : text
+                }
+                workspacePath={workspacePath}
+              />
+              {card ? <SpaceCardActions card={card} /> : null}
+            </div>
+            <SpaceMessageReactionBadge reactions={reactions} />
           </div>
           <MessageDeliveryTicks
             status={deliveryStatus}

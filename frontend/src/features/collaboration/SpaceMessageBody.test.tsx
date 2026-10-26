@@ -204,6 +204,22 @@ describe('messagePreviewText', () => {
     ).toBeTruthy();
   });
 
+  it('nests reaction emojis on the bubble', () => {
+    render(
+      <SpaceMessageBody
+        fromYou={false}
+        text="你好"
+        reactions={[
+          { emoji: '😄', actor: 'user' },
+          { emoji: '🎉', actor: '小A' },
+        ]}
+      />
+    );
+    expect(screen.getByTestId('collaboration-bubble-reaction')).toHaveTextContent(
+      '😄🎉'
+    );
+  });
+
   it('renders markdown images and live HTML previews in member bubbles', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>

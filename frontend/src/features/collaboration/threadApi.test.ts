@@ -3,6 +3,7 @@ import {
   loadDirectMessages,
   loadSidebarItems,
   postDirectMessage,
+  reactToSpaceMessage,
   markThreadRead,
   markThreadUnread,
   resolveMemberSession,
@@ -134,6 +135,38 @@ describe('threadApi', () => {
       spaceId: 'direct:m1',
       content: 'hi',
       operationId: 'op-1',
+    });
+  });
+
+  it('posts DM messages with an inReplyTo target', async () => {
+    const call = caller(() => ({ seq: 11 }));
+    await postDirectMessage(
+      call,
+      'direct:m1',
+      '收到',
+      'op-3',
+      undefined,
+      'msg-parent'
+    );
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.post', {
+      spaceId: 'direct:m1',
+      content: '收到',
+      operationId: 'op-3',
+      inReplyTo: 'msg-parent',
+    });
+  });
+
+  it('toggles a reaction on a space message', async () => {
+    const call = caller(() => ({
+      reactions: [{ emoji: '👍', actor: 'user' }],
+    }));
+    await expect(
+      reactToSpaceMessage(call, 's1', 'msg-1', '👍')
+    ).resolves.toEqual([{ emoji: '👍', actor: 'user' }]);
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.react', {
+      spaceId: 's1',
+      messageId: 'msg-1',
+      emoji: '👍',
     });
   });
 

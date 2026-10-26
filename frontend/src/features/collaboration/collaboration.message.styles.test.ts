@@ -124,6 +124,31 @@ describe('collaboration assistant list and message cluster chrome', () => {
     );
   });
 
+  it('nests the reaction badge on the bubble corner', () => {
+    const shell = declarationsFor('.collaboration-bubble-shell');
+    expect(shell.position?.value).toBe('relative');
+    expect(shell.overflow?.value).toBe('visible');
+
+    const badge = declarationsFor('.collaboration-bubble-reaction');
+    expect(badge.position?.value).toBe('absolute');
+    expect(badge.top?.value).toBe('-0.55rem');
+    expect(badge.right?.value).toBe('-0.4rem');
+    expect(badge['border-radius']?.value).toBe('999px');
+  });
+
+  it('paints the reply capsule as a full-width muted bar', () => {
+    const capsule = declarationsFor('.collaboration-reply-capsule');
+    expect(capsule.display?.value).toBe('flex');
+    expect(capsule.width?.value).toBe('100%');
+    expect(capsule.background?.value).toBe('var(--surface-subtle)');
+    expect(capsule['border-radius']?.value).toBe('var(--radius)');
+
+    const text = declarationsFor('.collaboration-reply-capsule-text');
+    expect(text.overflow?.value).toBe('hidden');
+    expect(text['text-overflow']?.value).toBe('ellipsis');
+    expect(text['white-space']?.value).toBe('nowrap');
+  });
+
   it('places user delivery ticks below the bubble', () => {
     const userRow = declarationsFor('.collaboration-bubble-outer-row--user');
     expect(userRow['flex-direction']?.value).toBe('column');

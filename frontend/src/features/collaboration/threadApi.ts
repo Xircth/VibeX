@@ -198,7 +198,8 @@ export async function postDirectMessage(
   threadId: string,
   content: string,
   operationId: string,
-  to?: readonly string[]
+  to?: readonly string[],
+  inReplyTo?: string | null
 ): Promise<{ seq?: number }> {
   const result = await collab<{ seq?: number } | null>(
     'collaboration',
@@ -208,7 +209,28 @@ export async function postDirectMessage(
       content,
       operationId,
       ...(to && to.length > 0 ? { to: [...to] } : {}),
+      ...(inReplyTo ? { inReplyTo } : {}),
     }
   );
   return result ?? {};
+}
+
+export type SpaceReactionRecord = {
+  emoji: string;
+  actor: string;
+};
+
+/** Toggle the current user's emoji reaction on a space or DM message. */
+export async function reactToSpaceMessage(
+  collab: CollaborationCaller,
+  spaceId: string,
+  messageId: string,
+  emoji: string
+): Promise<SpaceReactionRecord[]> {
+  const result = await collab<{ reactions?: SpaceReactionRecord[] } | null>(
+    'collaboration',
+    'space.react',
+    { spaceId, messageId, emoji }
+  );
+  return Array.isArray(result?.reactions) ? result.reactions : [];
 }

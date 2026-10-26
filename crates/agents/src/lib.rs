@@ -185,7 +185,9 @@ pub use history::{
     scan_configured_history_with_progress,
 };
 pub use idle_sweep::{
-    DEFAULT_IDLE_TIMEOUT_SECS, idle_timeout_from_env, touch_interval_from_idle_timeout,
+    DEFAULT_HOT_GROUP_IDLE_TIMEOUT_SECS, DEFAULT_HOT_GROUP_WINDOW_SECS, DEFAULT_IDLE_TIMEOUT_SECS,
+    HOT_GROUP_IDLE_TIMEOUT_ENV, HOT_GROUP_WINDOW_ENV, IdleExtension, hot_group_idle_timeout_from_env,
+    hot_group_window_from_env, idle_timeout_from_env, touch_interval_from_idle_timeout,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,

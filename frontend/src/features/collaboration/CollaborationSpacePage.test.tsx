@@ -301,6 +301,9 @@ describe('CollaborationSpacePage', () => {
             ],
           };
         }
+        if (method === 'space.warmup') {
+          return { nicknames: [], started: 0, alreadyRunning: 0 };
+        }
         if (method === 'space.post') {
           return {
             message_id: String(input?.operationId ?? 'msg-1'),
@@ -697,6 +700,55 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('warms the group composer target after debounce and does not toast on failure', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.warmup') {
+          throw new Error('warmup boom');
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, '开工');
+    await waitFor(
+      () => {
+        expect(collaborationCall).toHaveBeenCalledWith(
+          'collaboration',
+          'space.warmup',
+          expect.objectContaining({
+            spaceId: 's1',
+            content: expect.stringContaining('开工'),
+            to: [],
+          })
+        );
+      },
+      { timeout: 2000 }
+    );
+    const warmupCalls = collaborationCall.mock.calls.filter(
+      (call) => call[1] === 'space.warmup'
+    );
+    expect(warmupCalls.length).toBe(1);
+    expect(toastError).not.toHaveBeenCalled();
+    await user.type(editor, '再写一点');
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(
+      collaborationCall.mock.calls.filter((call) => call[1] === 'space.warmup')
+        .length
+    ).toBe(1);
+  }, 15_000);
+
   it('shows a group message in the log before space.post resolves', async () => {
     const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();
@@ -853,7 +905,7 @@ describe('CollaborationSpacePage', () => {
       async (
         _capability: string,
         method: string,
-        input?: Record<string, unknown>
+        _input?: Record<string, unknown>
       ) => {
         if (method === 'space.list') {
           return { spaces: [{ space_id: 's1', name: '设计' }] };
@@ -2823,6 +2875,12 @@ describe('CollaborationSpacePage', () => {
     const editor = getComposerEditor();
     await user.click(editor);
     await user.type(editor, '忙的时候也要收到');
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(collaborationCall).not.toHaveBeenCalledWith(
+      'collaboration',
+      'space.warmup',
+      expect.anything()
+    );
     await user.click(screen.getByRole('button', { name: '发送' }));
 
     const postCall = await waitFor(() => {

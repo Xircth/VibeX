@@ -343,6 +343,7 @@ pub struct AgentRuntime {
     /// Conversations whose surface is on screen. The backend bumps their
     /// activity; the UI only adds and removes ids.
     keepalive_sessions: Arc<Mutex<HashSet<AgentSessionId>>>,
+    idle_extension: crate::idle_sweep::IdleExtension,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -401,6 +402,7 @@ impl AgentRuntime {
             driver_enabled,
         ));
         let keepalive_sessions = Arc::new(Mutex::new(HashSet::new()));
+        let idle_extension = crate::idle_sweep::IdleExtension::default();
         let runtime = Self {
             state: Arc::clone(&state),
             connection_manager: Arc::clone(&connection_manager),
@@ -408,6 +410,7 @@ impl AgentRuntime {
             event_tx: event_tx.clone(),
             session_locks,
             keepalive_sessions: Arc::clone(&keepalive_sessions),
+            idle_extension: idle_extension.clone(),
         };
         Self::spawn_manager_event_pump(
             Arc::clone(&state),
@@ -421,6 +424,7 @@ impl AgentRuntime {
                 Arc::clone(&connection_manager),
                 idle_timeout,
                 Duration::from_secs(crate::idle_sweep::SWEEP_INTERVAL_SECS),
+                idle_extension,
             ));
             Self::spawn_keepalive_touch(
                 keepalive_sessions,
@@ -2078,6 +2082,10 @@ impl AgentRuntime {
             return Ok(());
         };
         self.connection_manager.touch(connection_id).await
+    }
+
+    pub fn idle_extension(&self) -> crate::idle_sweep::IdleExtension {
+        self.idle_extension.clone()
     }
 
     /// Remember that this conversation's surface is on screen, and bump it now.

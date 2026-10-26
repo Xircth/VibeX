@@ -1045,6 +1045,26 @@ pub struct ConversationSessionService {
     ctx: ConversationContext,
 }
 
+pub struct ConversationSessionWarmup {
+    context: ConversationContext,
+}
+
+impl ConversationSessionWarmup {
+    pub fn new(context: ConversationContext) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::collaboration::SessionProcessWarmup for ConversationSessionWarmup {
+    async fn ensure_process(&self, conversation_id: Uuid) -> Result<bool, String> {
+        ConversationSessionService::new(self.context.clone())
+            .warmup_session_process(conversation_id)
+            .await
+            .map_err(|error| error.to_string())
+    }
+}
+
 impl ConversationSessionService {
     pub fn new(ctx: ConversationContext) -> Self {
         Self { ctx }
@@ -2472,6 +2492,27 @@ impl ConversationSessionService {
             crate::commit_reminder::USER_ORIGIN,
         )
         .await
+    }
+
+    /// Start or resume the ACP process without sending a prompt or opening a
+    /// turn. Returns `true` when the process was already running.
+    pub async fn warmup_session_process(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<bool, ConversationServiceError> {
+        let session_id = AgentSessionId(conversation_id);
+        if self
+            .ctx
+            .agent_runtime
+            .session_has_ready_connection(session_id)
+            .await
+        {
+            let _ = self.touch_session(conversation_id).await;
+            return Ok(true);
+        }
+        self.ensure_session_controls(conversation_id).await?;
+        let _ = self.touch_session(conversation_id).await;
+        Ok(false)
     }
 
     pub async fn touch_session(

@@ -32,6 +32,8 @@ pub struct HostCollaborationHost {
     runtime: Option<Arc<AgentRuntime>>,
     delivery: std::sync::Mutex<DeliveryContext>,
     companion: std::sync::Mutex<Option<Arc<InMemoryCompanionFeatures>>>,
+    warmup: std::sync::Mutex<Option<Arc<dyn collaboration::SessionProcessWarmup>>>,
+    hot_groups: std::sync::Mutex<Option<Arc<collaboration::HotGroupTracker>>>,
 }
 
 impl HostCollaborationHost {
@@ -42,6 +44,8 @@ impl HostCollaborationHost {
             runtime: None,
             delivery: std::sync::Mutex::new(DeliveryContext::default()),
             companion: std::sync::Mutex::new(None),
+            warmup: std::sync::Mutex::new(None),
+            hot_groups: std::sync::Mutex::new(None),
         }
     }
 
@@ -61,6 +65,27 @@ impl HostCollaborationHost {
 
     pub fn install_companion_memory(&self, memory: Arc<InMemoryCompanionFeatures>) {
         *self.companion.lock().expect("companion") = Some(memory);
+    }
+
+    pub fn with_session_warmup(
+        self,
+        warmup: Arc<dyn collaboration::SessionProcessWarmup>,
+    ) -> Self {
+        self.install_session_warmup(warmup);
+        self
+    }
+
+    pub fn install_session_warmup(&self, warmup: Arc<dyn collaboration::SessionProcessWarmup>) {
+        *self.warmup.lock().expect("warmup") = Some(warmup);
+    }
+
+    pub fn with_hot_groups(self, tracker: Arc<collaboration::HotGroupTracker>) -> Self {
+        self.install_hot_groups(tracker);
+        self
+    }
+
+    pub fn install_hot_groups(&self, tracker: Arc<collaboration::HotGroupTracker>) {
+        *self.hot_groups.lock().expect("hot groups") = Some(tracker);
     }
 }
 
@@ -342,6 +367,7 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "space.wakePreview" | "space.wake_preview") => {
                 self.wake_preview(&input).await
             }
+            ("collaboration", "space.warmup") => self.warmup(&input).await,
             ("collaboration", "space.listCollection" | "space.list_collection") => {
                 self.list_collection(&input).await
             }
@@ -1315,6 +1341,35 @@ impl HostCollaborationHost {
         serde_json::to_value(preview).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
+    }
+
+    async fn warmup(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        if space_id.starts_with("direct:") {
+            return Ok(json!({ "skipped": true }));
+        }
+        let warmer = self.warmup.lock().expect("warmup").clone();
+        let hot_groups = self.hot_groups.lock().expect("hot groups").clone();
+        match collaboration::warmup_space_members(
+            &self.pool,
+            &space_id,
+            &text(input, &["content"]),
+            &string_list(input, &["to"]),
+            warmer.as_deref(),
+            hot_groups.as_deref(),
+        )
+        .await
+        {
+            Ok(result) => serde_json::to_value(result).map_err(|error| {
+                CollaborationHostError::new("conversation_control_failed", error.to_string())
+            }),
+            Err(error) => {
+                tracing::warn!(%error, space_id, "space warmup failed");
+                Ok(json!({ "ok": false }))
+            }
+        }
     }
 
     async fn list_collection(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -2914,6 +2969,65 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string()
+    }
+
+    struct RecordingWarmer {
+        calls: std::sync::Mutex<Vec<Uuid>>,
+    }
+
+    #[async_trait::async_trait]
+    impl collaboration::SessionProcessWarmup for RecordingWarmer {
+        async fn ensure_process(&self, conversation_id: Uuid) -> Result<bool, String> {
+            self.calls.lock().expect("calls").push(conversation_id);
+            Ok(false)
+        }
+    }
+
+    #[tokio::test]
+    async fn space_warmup_starts_no_turn_and_writes_no_message() {
+        let (pool, host, workspace) = sidebar_host().await;
+        let space = new_space(&host, workspace, "g1").await;
+        let warmer = Arc::new(RecordingWarmer {
+            calls: std::sync::Mutex::new(Vec::new()),
+        });
+        host.install_session_warmup(warmer.clone());
+        host.install_hot_groups(Arc::new(collaboration::HotGroupTracker::default()));
+        let before: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?")
+                .bind(&space)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let turns_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let result = call(
+            &host,
+            "space.warmup",
+            json!({ "spaceId": space, "content": "开工", "to": [] }),
+        )
+        .await;
+        assert!(result["nicknames"].as_array().is_some());
+        let after: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?")
+                .bind(&space)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let turns_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(after, before);
+        assert_eq!(turns_after, turns_before);
+        let dm = call(
+            &host,
+            "space.warmup",
+            json!({ "spaceId": "direct:mem-a", "content": "hi", "to": [] }),
+        )
+        .await;
+        assert_eq!(dm["skipped"], json!(true));
     }
 
     #[tokio::test]

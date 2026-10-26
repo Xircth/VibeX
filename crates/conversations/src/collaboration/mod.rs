@@ -20,10 +20,12 @@ use crate::ConversationRelationControl;
 
 mod collection;
 mod delivery;
+mod hot_group;
 mod prompt;
 mod roles;
 mod routing;
 mod scheduled;
+mod warmup;
 
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -79,11 +81,15 @@ pub(crate) use roles::{
     caller_seat, load_space, load_space_or_unassigned, member_nickname, resolve_seat_target,
     seat_conversation,
 };
+pub use hot_group::HotGroupTracker;
 pub use routing::{
     DEFAULT_AGENT_REPLY_CHAIN_MAX, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_CAP_PER_TURN,
     WAKE_LIMIT_REACHED, WakePreview, agent_reply_chain_max, clean_space_display_text,
     idle_sleep_minutes, is_broadcast_target_name, preview_space_wake, sleep_idle_sessions,
     spawn_idle_session_sweeper, wake_cap_per_turn,
+};
+pub use warmup::{
+    SessionProcessWarmup, SpaceWarmupResult, warmup_space_members,
 };
 pub(crate) use routing::{
     env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, session_is_asleep,

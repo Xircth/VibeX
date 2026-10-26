@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
     fs::File,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
 };
 
@@ -127,6 +129,20 @@ impl HeadlessServer {
                 crate::host::HostRowOpPublisher::new(pool.clone(), row_projectors, events.clone()),
             ))),
         };
+        let hot_groups = Arc::new(conversations::HotGroupTracker::default());
+        agent_runtime
+            .idle_extension()
+            .install({
+                let pool = pool.clone();
+                let hot_groups = hot_groups.clone();
+                Arc::new(move || {
+                    let pool = pool.clone();
+                    let hot_groups = hot_groups.clone();
+                    Box::pin(async move { hot_groups.hot_member_sessions(&pool).await })
+                        as Pin<Box<dyn Future<Output = _> + Send>>
+                })
+            })
+            .await;
         let agent_event_task = {
             let events = events.clone();
             start_agent_event_persistence_with_observer(
@@ -263,7 +279,11 @@ impl HeadlessServer {
                 .with_delivery(
                     conversations::ScopedConversationControl::new(conversation_context.clone())
                         .delivery_context(),
-                ),
+                )
+                .with_hot_groups(hot_groups.clone())
+                .with_session_warmup(Arc::new(conversations::ConversationSessionWarmup::new(
+                    conversation_context.clone(),
+                ))),
         );
         let capability_broker = Arc::new(
             plugins::HostCapabilityBroker::with_hosts_and_prompts(

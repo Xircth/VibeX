@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
 
@@ -149,10 +151,28 @@ impl AppState {
             .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
         // Build the delegation broker over the same ConversationContext used by
         // desktop commands, so companion send/wait cannot grow a second runtime.
+        let hot_groups = std::sync::Arc::new(conversations::HotGroupTracker::default());
+        agent_runtime
+            .idle_extension()
+            .install({
+                let pool = pool.clone();
+                let hot_groups = hot_groups.clone();
+                std::sync::Arc::new(move || {
+                    let pool = pool.clone();
+                    let hot_groups = hot_groups.clone();
+                    Box::pin(async move { hot_groups.hot_member_sessions(&pool).await })
+                        as Pin<Box<dyn Future<Output = _> + Send>>
+                })
+            })
+            .await;
         collaboration_host.install_delivery(
             conversations::ScopedConversationControl::new(conversation_context.clone())
                 .delivery_context(),
         );
+        collaboration_host.install_hot_groups(hot_groups);
+        collaboration_host.install_session_warmup(std::sync::Arc::new(
+            conversations::ConversationSessionWarmup::new(conversation_context.clone()),
+        ));
         let delegation = crate::delegation::build_delegation(
             agent_runtime.clone(),
             pool,

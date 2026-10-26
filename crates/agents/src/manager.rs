@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     future::Future,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -2246,6 +2246,16 @@ impl AgentConnectionManager {
     /// Skips in-flight turns (including the ADR-0071 cancel window), pending
     /// permission prompts, and connections that are not Ready.
     pub async fn sweep_idle(&self, idle_timeout: Duration) -> usize {
+        self.sweep_idle_with_extended(idle_timeout, None).await
+    }
+
+    /// Same as [`Self::sweep_idle`], but sessions in `extended` use the longer
+    /// timeout until the next sweep sees them drop out of that set.
+    pub async fn sweep_idle_with_extended(
+        &self,
+        idle_timeout: Duration,
+        extended: Option<(HashSet<AgentSessionId>, Duration)>,
+    ) -> usize {
         let mut stale = Vec::new();
         {
             let connections = self.connections.lock().await;
@@ -2262,7 +2272,23 @@ impl AgentConnectionManager {
                 if !connection.pending_permissions.lock().await.is_empty() {
                     continue;
                 }
-                if connection.last_activity.lock().await.elapsed() < idle_timeout {
+                let timeout = match &extended {
+                    Some((ids, extended_timeout)) if !ids.is_empty() => {
+                        let is_hot = connection
+                            .session_map
+                            .read()
+                            .await
+                            .keys()
+                            .any(|session_id| ids.contains(session_id));
+                        if is_hot {
+                            (*extended_timeout).max(idle_timeout)
+                        } else {
+                            idle_timeout
+                        }
+                    }
+                    _ => idle_timeout,
+                };
+                if connection.last_activity.lock().await.elapsed() < timeout {
                     continue;
                 }
                 stale.push(*id);
@@ -11073,6 +11099,82 @@ mod tests {
             .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Ready)
             .await;
         assert_eq!(manager.sweep_idle(Duration::from_secs(0)).await, 1);
+    }
+
+    async fn ready_connection(manager: &AgentConnectionManager) -> AgentConnectionId {
+        let (snapshot, ready_rx) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: std::env::temp_dir(),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        ready_rx.await.unwrap().unwrap();
+        manager
+            .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Ready)
+            .await;
+        snapshot.connection_id
+    }
+
+    #[tokio::test]
+    async fn sweep_idle_keeps_hot_group_sessions_past_default_timeout() {
+        let (event_tx, _event_rx) = manager_event_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+        let hot_connection = ready_connection(&manager).await;
+        let cold_connection = ready_connection(&manager).await;
+        let dm_connection = ready_connection(&manager).await;
+        let hot_session = AgentSessionId::new();
+        let cold_session = AgentSessionId::new();
+        let dm_session = AgentSessionId::new();
+        manager
+            .bind_known_acp_session(hot_connection, hot_session, "acp-hot".into())
+            .await;
+        manager
+            .bind_known_acp_session(cold_connection, cold_session, "acp-cold".into())
+            .await;
+        manager
+            .bind_known_acp_session(dm_connection, dm_session, "acp-dm".into())
+            .await;
+        let idle = Duration::from_secs(180);
+        manager
+            .set_last_activity_elapsed(hot_connection, Duration::from_secs(200))
+            .await;
+        manager
+            .set_last_activity_elapsed(cold_connection, Duration::from_secs(200))
+            .await;
+        manager
+            .set_last_activity_elapsed(dm_connection, Duration::from_secs(200))
+            .await;
+
+        let mut hot = HashSet::new();
+        hot.insert(hot_session);
+        assert_eq!(
+            manager
+                .sweep_idle_with_extended(
+                    idle,
+                    Some((hot.clone(), Duration::from_secs(20 * 60))),
+                )
+                .await,
+            2,
+            "cold group and DM use the ordinary 180s timeout"
+        );
+        assert_eq!(
+            manager
+                .sweep_idle_with_extended(idle, Some((hot, Duration::from_secs(20 * 60))))
+                .await,
+            0,
+            "hot group member stays until the extended timeout"
+        );
+        assert_eq!(
+            manager.sweep_idle(idle).await,
+            1,
+            "once the group is cold the next sweep uses the ordinary rule"
+        );
     }
 
     #[test]

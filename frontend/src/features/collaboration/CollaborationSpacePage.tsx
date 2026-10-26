@@ -132,6 +132,11 @@ import {
   listenCollaborationSpaceChanged,
 } from './collaborationApi';
 import {
+  SPACE_WARMUP_DEBOUNCE_MS,
+  SpaceWarmupCooldown,
+  shouldWarmupGroupComposer,
+} from './spaceComposerWarmup';
+import {
   beginCollaborationComposerSend,
   buildCollaborationSendContent,
   restoreCollaborationComposerAfterSendFailure,
@@ -3433,6 +3438,36 @@ export function CollaborationSpacePage({
     setDraft(value);
     replaceDraftRef.current?.(value);
   };
+
+  const warmupCooldownRef = useRef(new SpaceWarmupCooldown());
+  useEffect(() => {
+    const spaceId = selected?.space_id;
+    const isDirect =
+      Boolean(activeDirectThreadId) || Boolean(spaceId?.startsWith('direct:'));
+    if (
+      !shouldWarmupGroupComposer({
+        spaceId,
+        isDirect,
+        content: draft,
+      })
+    ) {
+      return;
+    }
+    const to = postRecipients(draft, activeChatRoster);
+    const handle = window.setTimeout(() => {
+      if (!spaceId || !warmupCooldownRef.current.tryAcquire(spaceId, to)) {
+        return;
+      }
+      void collaborationCall('collaboration', 'space.warmup', {
+        spaceId,
+        content: draft,
+        to,
+      }).catch((error) => {
+        console.debug('collaboration space warmup failed', error);
+      });
+    }, SPACE_WARMUP_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [activeChatRoster, activeDirectThreadId, draft, selected?.space_id]);
 
   const promptContextMessages = useMemo(
     () =>

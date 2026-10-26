@@ -642,11 +642,12 @@ function handle(message) {
     const protocolVersion = [
       '2024-11-05',
       '2025-03-26',
+      '2025-06-18',
       '2025-11-25',
       '2026-07-28',
     ].includes(requested)
       ? requested
-      : '2026-07-28';
+      : '2025-11-25';
     send({
       jsonrpc: '2.0',
       id,

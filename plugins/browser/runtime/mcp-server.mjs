@@ -19,6 +19,7 @@ const pluginRoot = currentDir.endsWith(join('dist', 'mcp'))
 const SUPPORTED_PROTOCOLS = [
   '2024-11-05',
   '2025-03-26',
+  '2025-06-18',
   '2025-11-25',
   '2026-07-28',
 ];
@@ -592,7 +593,7 @@ function negotiateProtocol(requested) {
   if (typeof requested === 'string' && SUPPORTED_PROTOCOLS.includes(requested)) {
     return requested;
   }
-  return '2026-07-28';
+  return '2025-11-25';
 }
 
 function isUnimplementedHostError(error) {

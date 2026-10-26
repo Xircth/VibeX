@@ -218,6 +218,44 @@ test('MCP server answers NDJSON initialize without closing', async () => {
   }
 });
 
+test('MCP server echoes handshake revision 2025-06-18', async () => {
+  const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const stdout = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+  child.stdin.write(
+    `${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18' },
+    })}\n`
+  );
+  const reply = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('2025-06-18 initialize timed out')),
+      2000
+    );
+    const check = () => {
+      const line = Buffer.concat(stdout)
+        .toString('utf8')
+        .split('\n')
+        .find((item) => item.trim());
+      if (!line) return;
+      clearTimeout(timer);
+      resolve(JSON.parse(line));
+    };
+    child.stdout.on('data', check);
+    check();
+  });
+  try {
+    assert.equal(reply.result.protocolVersion, '2025-06-18');
+  } finally {
+    child.kill();
+  }
+});
+
 test('MCP server answers Content-Length initialize without closing', async () => {
   const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
     stdio: ['pipe', 'pipe', 'pipe'],

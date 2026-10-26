@@ -162,6 +162,31 @@ describe('ConversationStatusDock', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps an expired-session notice expanded above the composer', () => {
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'notice:agent-binding-load-failed',
+            kind: 'session-notice',
+            notice: {
+              title: '代理会话已过期',
+              message: '确认重新绑定后才能继续。',
+              severity: 'warning',
+            },
+            onReload: vi.fn().mockResolvedValue(undefined),
+            onNewConversation: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId('conversation-status-dock')).toHaveAttribute(
+      'data-expanded',
+      'true'
+    );
+  });
+
   it('keeps local, turn, and interruption details behind disclosure controls', () => {
     render(
       <ConversationStatusDock

@@ -6673,6 +6673,7 @@ html.dark {
      target. Hover-expand would then lose hover and flicker. */
   .conversation-status-dock:hover,
   .conversation-status-dock:focus-within,
+  .conversation-status-dock[data-expanded='true'],
   .agent-question-composer-stack[data-has-overlay='true']
     .conversation-status-dock {
     transform: translateY(0);
@@ -6872,6 +6873,7 @@ html.dark {
 
   .conversation-status-dock:hover .composer-status-action-slot,
   .conversation-status-dock:focus-within .composer-status-action-slot,
+  .conversation-status-dock[data-expanded='true'] .composer-status-action-slot,
   .agent-question-composer-stack[data-has-overlay='true']
     .composer-status-action-slot {
     opacity: 1;

@@ -79,6 +79,15 @@ pub enum ConversationServiceError {
     SessionUnavailable { code: &'static str, message: String },
 }
 
+impl ConversationServiceError {
+    /// Queue dispatch may retry a transient Internal failure. Bind/load failures
+    /// that need the user to rebind or reload must not spawn another attempt:
+    /// that loop re-emits `AgentBindingLoadFailed` and desktop session toasts.
+    pub fn should_retry_queued_dispatch(&self) -> bool {
+        matches!(self, Self::Internal(_))
+    }
+}
+
 impl From<sqlx::Error> for ConversationServiceError {
     fn from(e: sqlx::Error) -> Self {
         ConversationServiceError::Internal(e.to_string())
@@ -1121,7 +1130,11 @@ impl ConversationSessionService {
             self.commit_new_turn(input, origin).await?
         };
         let result = self.complete_committed_turn(committed).await;
-        if result.is_err() {
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(ConversationServiceError::should_retry_queued_dispatch)
+        {
             self.spawn_next_queued_input_after_failure(conversation_id);
         }
         result
@@ -1625,6 +1638,22 @@ impl ConversationSessionService {
         });
     }
 
+    fn spawn_dispatch_queued_after_bind(&self, conversation_id: Uuid) {
+        let context = self.ctx.clone();
+        tokio::spawn(async move {
+            if let Err(error) = ConversationSessionService::new(context)
+                .dispatch_next_queued_input(conversation_id)
+                .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "failed to dispatch queued conversation input after session bind"
+                );
+            }
+        });
+    }
+
     async fn turn_lock(&self, conversation_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.ctx.turn_locks.lock().await;
         Arc::clone(
@@ -1644,7 +1673,11 @@ impl ConversationSessionService {
         conversation_id: Uuid,
     ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
         let result = self.dispatch_one_queued_input(conversation_id).await;
-        if result.is_err() {
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(ConversationServiceError::should_retry_queued_dispatch)
+        {
             self.spawn_next_queued_input_after_failure(conversation_id);
         }
         result
@@ -2366,13 +2399,17 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         reload: bool,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        let turn_lock = self.turn_lock(conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
-        if reload {
-            self.drop_live_agent_connection(conversation_id).await;
-        }
-        self.ensure_session_controls_locked(conversation_id, None)
-            .await
+        let controls = {
+            let turn_lock = self.turn_lock(conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            if reload {
+                self.drop_live_agent_connection(conversation_id).await;
+            }
+            self.ensure_session_controls_locked(conversation_id, None)
+                .await?
+        };
+        self.spawn_dispatch_queued_after_bind(conversation_id);
+        Ok(controls)
     }
 
     /// Bind ACP for an existing conversation, optionally using a subdirectory
@@ -2382,10 +2419,14 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         working_dir: Option<PathBuf>,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        let turn_lock = self.turn_lock(conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
-        self.ensure_session_controls_locked(conversation_id, working_dir)
-            .await
+        let controls = {
+            let turn_lock = self.turn_lock(conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            self.ensure_session_controls_locked(conversation_id, working_dir)
+                .await?
+        };
+        self.spawn_dispatch_queued_after_bind(conversation_id);
+        Ok(controls)
     }
 
     /// First prompt of a delegated child: same persist + bind + send path as a
@@ -2689,11 +2730,9 @@ impl ConversationSessionService {
             .agent_runtime
             .commit_prepared_session(runtime_session_id)
             .await;
-        if let Err(error) = crate::collaboration::invalidate_space_delivery_prompt_injections(
-            pool,
-            conversation_id,
-        )
-        .await
+        if let Err(error) =
+            crate::collaboration::invalidate_space_delivery_prompt_injections(pool, conversation_id)
+                .await
         {
             tracing::warn!(
                 error = %error.message,
@@ -2933,18 +2972,22 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        let turn_lock = self.turn_lock(conversation_id).await;
-        let _turn_guard = turn_lock.lock().await;
-        self.interrupt_orphaned_turn(conversation_id).await?;
-        self.detach_agent_session(conversation_id).await?;
-        self.record_agent_binding_recovered(
-            conversation_id,
-            agents::SessionRecoveryStrategy::Rebound,
-            None,
-        )
-        .await?;
-        self.ensure_session_controls_locked(conversation_id, None)
-            .await
+        let controls = {
+            let turn_lock = self.turn_lock(conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            self.interrupt_orphaned_turn(conversation_id).await?;
+            self.detach_agent_session(conversation_id).await?;
+            self.record_agent_binding_recovered(
+                conversation_id,
+                agents::SessionRecoveryStrategy::Rebound,
+                None,
+            )
+            .await?;
+            self.ensure_session_controls_locked(conversation_id, None)
+                .await?
+        };
+        self.spawn_dispatch_queued_after_bind(conversation_id);
+        Ok(controls)
     }
 
     /// Drop the live Agent connection and point the binding at a fresh placeholder
@@ -4871,6 +4914,26 @@ mod tests {
                 .map(|item| (item.key.as_str(), item.value.as_str()))
                 .collect::<Vec<_>>(),
             vec![("model", "opus"), ("thought_level", "low")]
+        );
+    }
+
+    #[test]
+    fn queued_dispatch_does_not_retry_an_expired_agent_session() {
+        let expired = ConversationServiceError::SessionUnavailable {
+            code: "resource_not_found",
+            message: "gone".into(),
+        };
+        assert!(
+            !expired.should_retry_queued_dispatch(),
+            "ResourceNotFound needs rebind; retrying ensure_session_controls storms toasts"
+        );
+        assert!(
+            !ConversationServiceError::AuthenticationRequired("login".into())
+                .should_retry_queued_dispatch()
+        );
+        assert!(
+            ConversationServiceError::Internal("agent spawn timeout".into())
+                .should_retry_queued_dispatch()
         );
     }
 

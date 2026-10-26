@@ -248,6 +248,7 @@ import {
   memberTabTitle,
   buildCollabDmBootstrapPrompt,
   isCollabDmBootstrapPrompt,
+  isCollaborationLimitNotice,
   contactLastMessagePreview,
   isMemberWorking,
 } from './spaceModel';
@@ -306,6 +307,7 @@ if (
 type Space = { space_id: string; name: string; kind?: string };
 type SpaceMessage = {
   seq: number;
+  origin?: string;
   operationId?: string | null;
   operation_id?: string | null;
   receipts?: DeliveryReceipt[];
@@ -4065,6 +4067,9 @@ export function CollaborationSpacePage({
     () =>
       memberMessageClusters(
         filteredMessages.map((message, index) => {
+          if (isCollaborationLimitNotice(message)) {
+            return { fromYou: false, authorKey: `system:${index}` };
+          }
           const author = messageAuthor(message.envelope);
           const fromYou = author === COPY.you;
           if (fromYou) return { fromYou: true, authorKey: '' };
@@ -6778,6 +6783,17 @@ export function CollaborationSpacePage({
                   </div>
                 ) : selected && filteredMessages.length > 0 ? (
                   filteredMessages.map((message, index) => {
+                    if (isCollaborationLimitNotice(message)) {
+                      return (
+                        <div
+                          key={`space-notice-${message.seq}`}
+                          className="collaboration-system-notice"
+                          data-testid="collaboration-limit-notice"
+                        >
+                          {COPY.collaborationLimitNotice}
+                        </div>
+                      );
+                    }
                     const author = messageAuthor(message.envelope);
                     const fromYou = author === COPY.you;
                     const name = fromYou

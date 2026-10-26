@@ -1498,6 +1498,16 @@ async fn persist_session_linked_external_id(
     acp_session_id: &str,
 ) -> Result<(), RuntimeEventRecordError> {
     Session::update_external_session_id(pool, conversation_id, acp_session_id).await?;
+    if let Err(error) =
+        crate::collaboration::invalidate_space_delivery_prompt_injections(pool, conversation_id)
+            .await
+    {
+        tracing::warn!(
+            error = %error.message,
+            %conversation_id,
+            "failed to reset collaboration prompt injection after ACP bind"
+        );
+    }
     Ok(())
 }
 

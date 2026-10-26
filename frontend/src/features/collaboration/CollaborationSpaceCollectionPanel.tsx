@@ -697,7 +697,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
         isAssistant ? (
           <AssistantDetailsSessionTab conversationId={conversationId} />
         ) : (
-          <GroupDetailsUsageTab spaceId={spaceId} getAvatar={getAvatar} />
+          <GroupDetailsUsageTab
+            spaceId={spaceId}
+            workspaceId={workspaceId}
+            getAvatar={getAvatar}
+          />
         )
       ) : null}
 

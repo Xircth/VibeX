@@ -114,14 +114,19 @@ vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
   default: () => <div data-testid="file-preview" />,
 }));
 
-vi.mock('@/features/conversation/useConversationTimeline', () => ({
-  useConversationTimeline: () => ({
+const useConversationTimeline = vi.hoisted(() =>
+  vi.fn(() => ({
     timeline: [],
     items: [],
     sideRows: [],
     sessionConfigOptions: [],
     currentTurnId: null,
-  }),
+    respondPermission: vi.fn(),
+  }))
+);
+
+vi.mock('@/features/conversation/useConversationTimeline', () => ({
+  useConversationTimeline,
   useConversationSessionFacts: () => ({
     sessionId: 'conv-1',
     hasDetail: true,
@@ -171,6 +176,15 @@ describe('CollaborationSpacePage', () => {
       sessionFocus: null,
     });
     collaborationCall.mockReset();
+    useConversationTimeline.mockReset();
+    useConversationTimeline.mockImplementation(() => ({
+      timeline: [],
+      items: [],
+      sideRows: [],
+      sessionConfigOptions: [],
+      currentTurnId: null,
+      respondPermission: vi.fn(),
+    }));
     sessionPreviewSpy.mockReset();
     uploadForAttemptMock.mockReset();
     uploadMock.mockReset();
@@ -3677,7 +3691,7 @@ describe('CollaborationSpacePage', () => {
               operationId: input?.operationId,
               envelope: {
                 actor: 'vibex://space/direct/member/小A',
-                content: input?.content,
+                content: '',
                 crossChatReceivedFrom: ['小A'],
               },
             });
@@ -3716,12 +3730,12 @@ describe('CollaborationSpacePage', () => {
     await user.type(editor, '@小B 请协助');
     await user.click(screen.getByRole('button', { name: '发送' }));
 
-    // Verify "已发消息给 小B" notice with MemberMentionChip is displayed in 小A's chat
     await waitFor(() => {
-      expect(screen.getByText('已发消息给')).toBeTruthy();
+      expect(screen.getByText('已发送给')).toBeTruthy();
     });
+    expect(screen.getByText('请协助')).toBeTruthy();
     const sentNotice = screen
-      .getByText('已发消息给')
+      .getByText('已发送给')
       .closest('.collaboration-cross-chat-notice');
     expect(sentNotice).toBeTruthy();
     expect(
@@ -3730,12 +3744,12 @@ describe('CollaborationSpacePage', () => {
       )
     ).toBeTruthy();
 
-    // Switch to 小B's private chat and verify "已收到 小A 的消息" notice with MemberMentionChip is displayed
     await user.click(screen.getByRole('button', { name: '小B' }));
     await waitFor(() => {
       expect(screen.getByText('已收到')).toBeTruthy();
       expect(screen.getByText('的消息')).toBeTruthy();
     });
+    expect(screen.queryByText('请协助')).toBeNull();
     const recvNotice = screen
       .getByText('已收到')
       .closest('.collaboration-cross-chat-notice');
@@ -3745,5 +3759,117 @@ describe('CollaborationSpacePage', () => {
         'collaboration-member-mention-chip-小A'
       )
     ).toBeTruthy();
+  });
+
+  it('opens the @助手 panel in a private chat with other assistants and without 全体成员', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                unread_count: 0,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-b',
+                space_id: 'unassigned:workspace-1',
+                name: '小B',
+                unread_count: 0,
+                member: {
+                  member_id: 'mem-b',
+                  name: '小B',
+                  conversation_id: 'conv-2',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead') return {};
+        if (method === 'space.listMessages' && String(input?.spaceId ?? '').startsWith('direct:')) {
+          return { messages: [] };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    await user.click(screen.getByRole('button', { name: '@助手' }));
+
+    const menu = await screen.findByTestId('composer-at-reference-menu');
+    expect(menu).toBeVisible();
+    expect(screen.getByRole('tab', { name: /助手/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('option', { name: /小B/ })).toBeVisible();
+    expect(screen.getByRole('option', { name: /小A/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /全体成员/ })).toBeNull();
+  });
+
+  it('mirrors a pending bot permission request into the collaboration message log', async () => {
+    useConversationTimeline.mockImplementation((id: string | null) => ({
+      timeline: [],
+      items: [],
+      sideRows:
+        id === 'conv-1'
+          ? [
+              {
+                row: {
+                  kind: 'permission_request',
+                  request: {
+                    permission_id: 'perm-collab-1',
+                    title: 'Edit README.md',
+                    status: 'pending',
+                    details: {
+                      fields: {
+                        kind: 'edit',
+                        content: [
+                          {
+                            type: 'diff',
+                            path: 'README.md',
+                            oldText: 'old',
+                            newText: 'new',
+                          },
+                        ],
+                      },
+                    },
+                    options: [
+                      { id: 'allow', label: 'Allow', kind: 'allow_once' },
+                      { id: 'deny', label: 'Deny', kind: 'reject_once' },
+                    ],
+                  },
+                },
+              },
+            ]
+          : [],
+      sessionConfigOptions: [],
+      currentTurnId: null,
+      respondPermission: vi.fn(),
+    }));
+    renderPage();
+
+    expect(await screen.findByText('你好')).toBeTruthy();
+    expect(
+      await screen.findByTestId('collaboration-thread-permission-dock-conv-1')
+    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '权限申请' })).toBeTruthy();
+    expect(screen.getByText('Edit README.md')).toBeTruthy();
   });
 });

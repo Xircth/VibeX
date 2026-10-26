@@ -192,17 +192,23 @@ export async function loadDirectMessages<M>(
   }
 }
 
-/** `space.post` to a private chat. No `to`/`delaySeconds` (unsupported for DMs). */
+/** `space.post` to a private chat. `to` fans the mention out to other bots. */
 export async function postDirectMessage(
   collab: CollaborationCaller,
   threadId: string,
   content: string,
-  operationId: string
+  operationId: string,
+  to?: readonly string[]
 ): Promise<{ seq?: number }> {
   const result = await collab<{ seq?: number } | null>(
     'collaboration',
     'space.post',
-    { spaceId: threadId, content, operationId }
+    {
+      spaceId: threadId,
+      content,
+      operationId,
+      ...(to && to.length > 0 ? { to: [...to] } : {}),
+    }
   );
   return result ?? {};
 }

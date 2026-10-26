@@ -176,7 +176,7 @@ async fn session_updated_at(pool: &SqlitePool, conversation_id: &str) -> Option<
 /// conversation events. `seq` is the `conversation_events.sequence` of the
 /// message's first event: stable, monotonic, and the value `thread.markRead`
 /// takes for `direct:<id>` threads.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct DmMessage {
     pub id: String,
     pub seq: i64,
@@ -190,6 +190,10 @@ pub struct DmMessage {
     /// User-message delivery: `queued`, `claimed`, or `dispatched`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delivered: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cross_chat_sent_to: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cross_chat_received_from: Option<Value>,
 }
 
 const DM_VISIBLE_EVENT_KINDS: &str =
@@ -252,13 +256,130 @@ fn dm_user_message(
         created_at,
         operation_id,
         delivered: Some(delivered.to_string()),
+        cross_chat_sent_to: None,
+        cross_chat_received_from: None,
     }
+}
+
+fn collab_origin_is_foreign(space_id: Option<&str>, thread_id: &str) -> bool {
+    match space_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(space) if !thread_id.is_empty() => space != thread_id,
+        _ => false,
+    }
+}
+
+fn protocol_collab_space_id(blocks: &[agents::ConversationInputBlock]) -> Option<String> {
+    use agents::ConversationInputBlock;
+    for block in blocks {
+        let ConversationInputBlock::Protocol { content } = block else {
+            continue;
+        };
+        if content.get("kind").and_then(Value::as_str) != Some("collaboration_space_origin") {
+            continue;
+        }
+        return content
+            .get("spaceId")
+            .or_else(|| content.get("space_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+    }
+    None
+}
+
+async fn conversation_thread_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<String, CollaborationError> {
+    Ok(sqlx::query_scalar(
+        "SELECT thread_id FROM collaboration_thread_members WHERE conversation_id = ? LIMIT 1",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?
+    .unwrap_or_default())
+}
+
+fn cross_chat_field_present(value: &Option<Value>) -> bool {
+    match value {
+        Some(Value::Array(items)) => !items.is_empty(),
+        Some(Value::Null) | None => false,
+        Some(_) => true,
+    }
+}
+
+fn dm_row_is_visible(message: &DmMessage) -> bool {
+    !message.text.is_empty()
+        || cross_chat_field_present(&message.cross_chat_sent_to)
+        || cross_chat_field_present(&message.cross_chat_received_from)
+}
+
+fn last_previewable_dm(messages: Vec<DmMessage>) -> Option<DmMessage> {
+    messages
+        .into_iter()
+        .rev()
+        .find(|message| !message.text.trim().is_empty())
+}
+
+async fn grouped_dm_rows(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    rows: Vec<(i64, String, String)>,
+) -> Result<Vec<DmMessage>, CollaborationError> {
+    let thread_id = conversation_thread_id(pool, conversation_id).await?;
+    let mut messages = group_dm_rows(conversation_id, &thread_id, rows);
+    overlay_dm_cross_chat(pool, conversation_id, &mut messages).await?;
+    messages.retain(dm_row_is_visible);
+    Ok(messages)
+}
+
+async fn overlay_dm_cross_chat(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    messages: &mut [DmMessage],
+) -> Result<(), CollaborationError> {
+    let thread_id = conversation_thread_id(pool, conversation_id).await?;
+    if thread_id.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, envelope_json FROM collaboration_space_messages WHERE space_id = ?",
+    )
+    .bind(&thread_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    let mut by_id = HashMap::new();
+    for (id, raw) in rows {
+        if let Ok(env) = serde_json::from_str::<Value>(&raw) {
+            by_id.insert(id, env);
+        }
+    }
+    for message in messages {
+        let env = by_id
+            .get(&message.id)
+            .or_else(|| message.operation_id.as_ref().and_then(|op| by_id.get(op)));
+        let Some(env) = env else {
+            continue;
+        };
+        if let Some(sent) = env.get("crossChatSentTo").cloned() {
+            message.cross_chat_sent_to = Some(sent);
+        }
+        if let Some(received) = env.get("crossChatReceivedFrom").cloned() {
+            message.cross_chat_received_from = Some(received);
+        }
+    }
+    Ok(())
 }
 
 /// Group user-turn, queued conversation-input, and assistant-delta events
 /// into visible messages. Tool calls, reasoning, usage and system events
 /// are never selected. Bootstrap prompts stay off this list.
-fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec<DmMessage> {
+fn group_dm_rows(
+    conversation_id: Uuid,
+    thread_id: &str,
+    rows: Vec<(i64, String, String)>,
+) -> Vec<DmMessage> {
     use agents::{ConversationEvent, ConversationInputBlock, ConversationInputEvent};
 
     struct Grouped {
@@ -282,6 +403,15 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
                     payload,
                     ..
                 } => {
+                    if collab_origin_is_foreign(
+                        payload
+                            .collaboration_origin
+                            .as_ref()
+                            .map(|origin| origin.space_id.as_str()),
+                        thread_id,
+                    ) {
+                        continue;
+                    }
                     let raw = payload
                         .display_text
                         .as_deref()
@@ -319,6 +449,10 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
                 _ => {}
             },
             ConversationEvent::UserTurnCreated { blocks, .. } => {
+                if collab_origin_is_foreign(protocol_collab_space_id(&blocks).as_deref(), thread_id)
+                {
+                    continue;
+                }
                 let text = blocks
                     .into_iter()
                     .filter_map(|block| match block {
@@ -382,6 +516,8 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
                             created_at,
                             operation_id: None,
                             delivered: None,
+                            cross_chat_sent_to: None,
+                            cross_chat_received_from: None,
                         },
                         assistant_id: message_id,
                         input_id: None,
@@ -397,7 +533,6 @@ fn group_dm_rows(conversation_id: Uuid, rows: Vec<(i64, String, String)>) -> Vec
             row.message.text = row.message.text.trim().to_string();
             row.message
         })
-        .filter(|message| !message.text.is_empty())
         .collect()
 }
 
@@ -537,16 +672,20 @@ pub async fn list_dm_messages(
                 .fetch_optional(pool)
                 .await
                 .map_err(db_err)?;
-            let mut messages = group_dm_rows(
+            let mut messages = grouped_dm_rows(
+                pool,
                 conversation_id,
                 dm_rows_since(pool, conversation_id, since, upper_seq).await?,
-            );
+            )
+            .await?;
             messages.retain(|message| message.seq > since);
             if messages.len() < limit && upper_seq.is_some() {
-                messages = group_dm_rows(
+                messages = grouped_dm_rows(
+                    pool,
                     conversation_id,
                     dm_rows_since(pool, conversation_id, since, None).await?,
-                );
+                )
+                .await?;
                 messages.retain(|message| message.seq > since);
             }
             messages.truncate(limit);
@@ -554,15 +693,19 @@ pub async fn list_dm_messages(
         }
         None => {
             let start_seq = dm_tail_window_start_seq(pool, conversation_id, limit).await?;
-            let mut messages = group_dm_rows(
+            let mut messages = grouped_dm_rows(
+                pool,
                 conversation_id,
                 dm_rows_since(pool, conversation_id, start_seq, None).await?,
-            );
+            )
+            .await?;
             if messages.len() < limit && start_seq > 0 {
-                messages = group_dm_rows(
+                messages = grouped_dm_rows(
+                    pool,
                     conversation_id,
                     dm_rows_since(pool, conversation_id, 0, None).await?,
-                );
+                )
+                .await?;
             }
             let skip = messages.len().saturating_sub(limit);
             Ok(messages.into_iter().skip(skip).collect())
@@ -604,7 +747,8 @@ async fn dm_last_message(
     .await
     .map_err(db_err)?;
     if !delta_rows.is_empty()
-        && let Some(message) = group_dm_rows(conversation_id, delta_rows).pop()
+        && let Some(message) =
+            last_previewable_dm(grouped_dm_rows(pool, conversation_id, delta_rows).await?)
     {
         return Ok(Some(sidebar_last_from_dm(message)));
     }
@@ -630,7 +774,8 @@ async fn dm_last_message(
         .rev()
         .collect();
     if !trailing_user_rows.is_empty()
-        && let Some(message) = group_dm_rows(conversation_id, trailing_user_rows).pop()
+        && let Some(message) =
+            last_previewable_dm(grouped_dm_rows(pool, conversation_id, trailing_user_rows).await?)
     {
         return Ok(Some(sidebar_last_from_dm(message)));
     }
@@ -654,15 +799,17 @@ async fn dm_last_message(
         .fetch_all(pool)
         .await
         .map_err(db_err)?;
-        if let Some(message) = group_dm_rows(conversation_id, prev_deltas).pop() {
+        if let Some(message) =
+            last_previewable_dm(grouped_dm_rows(pool, conversation_id, prev_deltas).await?)
+        {
             return Ok(Some(sidebar_last_from_dm(message)));
         }
     }
 
-    Ok(list_dm_messages(pool, conversation_id, None, Some(1))
-        .await?
-        .pop()
-        .map(sidebar_last_from_dm))
+    Ok(
+        last_previewable_dm(list_dm_messages(pool, conversation_id, None, Some(20)).await?)
+            .map(sidebar_last_from_dm),
+    )
 }
 
 async fn read_mark(pool: &SqlitePool, thread_id: &str) -> Result<Option<i64>, CollaborationError> {
@@ -693,7 +840,7 @@ async fn dm_unread_count_with_read(
     if rows.is_empty() {
         return Ok(0);
     }
-    let messages = group_dm_rows(conversation_id, rows);
+    let messages = grouped_dm_rows(pool, conversation_id, rows).await?;
     Ok(messages
         .iter()
         .filter(|message| message.seq > read && message.origin == "agent")

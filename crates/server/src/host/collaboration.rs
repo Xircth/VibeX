@@ -1034,6 +1034,8 @@ impl HostCollaborationHost {
                         "summary": Value::Null,
                         "content": message.text,
                         "published": message.created_at,
+                        "crossChatSentTo": message.cross_chat_sent_to.clone().unwrap_or(Value::Null),
+                        "crossChatReceivedFrom": message.cross_chat_received_from.clone().unwrap_or(Value::Null),
                     },
                 })
             })
@@ -1067,6 +1069,34 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
+        let mention_targets: Vec<String> = string_list(input, &["to"])
+            .into_iter()
+            .map(|name| name.trim().trim_start_matches('@').trim().to_string())
+            .filter(|name| {
+                !name.is_empty()
+                    && !name.eq_ignore_ascii_case("user")
+                    && name != "你"
+                    && name != "用户"
+                    && name.as_str() != member.name
+            })
+            .collect();
+        if !mention_targets.is_empty() {
+            collaboration::post_to_space_with(
+                &self.pool,
+                collaboration::PostToSpace {
+                    caller_id: None,
+                    space_id: thread_id.to_string(),
+                    content: text(input, &["content"]),
+                    summary: None,
+                    to: mention_targets,
+                    in_reply_to: None,
+                    operation_id,
+                },
+                &delivery,
+            )
+            .await
+            .map_err(host_error)?;
+        }
         self.events.emit(
             COLLABORATION_SPACE_CHANGED_EVENT,
             CollaborationSpaceChangedEvent {

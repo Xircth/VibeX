@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use agents::{AgentId, CollaborationSpaceOrigin, ConversationEvent, ConversationInputPayload};
 use chrono::{Duration, Utc};
 use db::models::{
@@ -10,7 +12,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
-use super::*;
+use super::{routing::ResolvedTarget, *};
 use crate::{ConversationEventAppender, ConversationInputControl, SubmitConversationInput};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -605,6 +607,218 @@ pub(crate) fn delivery_operation_id(message_id: Uuid, conversation_id: Uuid) -> 
     )
 }
 
+fn cross_chat_peer_json(target: &ResolvedTarget) -> Value {
+    json!({
+        "kind": target.peer_kind,
+        "name": target.nickname,
+        "id": target.dest_thread_id,
+    })
+}
+
+fn unique_cross_chat_peers(origin_thread: &str, targets: &[ResolvedTarget]) -> Vec<Value> {
+    let mut seen = HashSet::new();
+    let mut peers = Vec::new();
+    for target in targets {
+        let Some(dest) = target.dest_thread_id.as_deref() else {
+            continue;
+        };
+        if dest == origin_thread {
+            continue;
+        }
+        let key = if target.peer_kind == "group" {
+            format!("group:{dest}")
+        } else {
+            format!("member:{}", target.nickname)
+        };
+        if !seen.insert(key) {
+            continue;
+        }
+        peers.push(cross_chat_peer_json(target));
+    }
+    peers
+}
+
+fn unique_cross_chat_dests(origin_thread: &str, targets: &[ResolvedTarget]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut dests = Vec::new();
+    for target in targets {
+        let Some(dest) = target.dest_thread_id.as_deref() else {
+            continue;
+        };
+        if dest == origin_thread {
+            continue;
+        }
+        if seen.insert(dest.to_string()) {
+            dests.push(dest.to_string());
+        }
+    }
+    dests
+}
+
+async fn sender_received_from_peer(
+    pool: &SqlitePool,
+    origin_thread: &str,
+    sender: Option<Uuid>,
+    sender_nickname: Option<&str>,
+    sender_member_id: Option<&str>,
+) -> Result<Value, CollaborationError> {
+    if sender.is_some() {
+        let name = sender_nickname.unwrap_or("").trim();
+        let id = sender_member_id
+            .map(identity::direct_thread_id)
+            .unwrap_or_else(|| origin_thread.to_string());
+        return Ok(json!({
+            "kind": "member",
+            "name": name,
+            "id": id,
+        }));
+    }
+    if origin_thread.starts_with(identity::DIRECT_PREFIX) {
+        let members = list_space_members(pool, origin_thread, MessageAudience::Agent)
+            .await
+            .unwrap_or_default();
+        if let Some(member) = members.into_iter().next() {
+            return Ok(json!({
+                "kind": "member",
+                "name": member.nickname,
+                "id": origin_thread,
+            }));
+        }
+        return Ok(json!({
+            "kind": "member",
+            "name": origin_thread,
+            "id": origin_thread,
+        }));
+    }
+    let name: String =
+        sqlx::query_scalar("SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1")
+            .bind(origin_thread)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .unwrap_or_else(|| origin_thread.to_string());
+    Ok(json!({
+        "kind": "group",
+        "name": name,
+        "id": origin_thread,
+    }))
+}
+
+async fn insert_space_log(
+    pool: &SqlitePool,
+    space_id: &str,
+    message_id: &str,
+    envelope: &Value,
+    origin: &str,
+    root_id: &str,
+    hop: i64,
+) -> Result<i64, CollaborationError> {
+    let published = envelope
+        .get("published")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let inserted = async {
+        let seq: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(space_id)
+        .fetch_one(&mut *conn)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO collaboration_space_messages
+               (id, space_id, seq, envelope_json, created_at, origin, root_id, hop)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(message_id)
+        .bind(space_id)
+        .bind(seq)
+        .bind(envelope.to_string())
+        .bind(&published)
+        .bind(origin)
+        .bind(root_id)
+        .bind(hop)
+        .execute(&mut *conn)
+        .await?;
+        Ok::<i64, sqlx::Error>(seq)
+    }
+    .await;
+    match inserted {
+        Ok(seq) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
+            Ok(seq)
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(db(error))
+        }
+    }
+}
+
+async fn project_cross_chat_receipts(
+    pool: &SqlitePool,
+    message_id: &str,
+    actor: &str,
+    attributed_to: Option<&str>,
+    published: &str,
+    origin_kind: &str,
+    received_from: &Value,
+    dests: &[String],
+    turn_delivery: &DeliveryContext,
+) -> Result<(), CollaborationError> {
+    for dest in dests {
+        let recv_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_OID,
+            format!("cross-chat-recv:{message_id}:{dest}").as_bytes(),
+        )
+        .to_string();
+        let envelope = json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Note",
+            "id": format!("vibex://space-message/{recv_id}"),
+            "actor": actor,
+            "attributedTo": attributed_to,
+            "to": [],
+            "summary": "",
+            "content": "",
+            "published": published,
+            "crossChatReceivedFrom": [received_from],
+        });
+        let seq =
+            insert_space_log(pool, dest, &recv_id, &envelope, origin_kind, &recv_id, 0).await?;
+        if dest.starts_with(identity::DIRECT_PREFIX) {
+            let dest_conv: Option<String> = sqlx::query_scalar(
+                r#"SELECT conversation_id FROM collaboration_thread_members
+                   WHERE thread_id = ? AND status = 'active' LIMIT 1"#,
+            )
+            .bind(dest)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+            if let Some(conversation_id) = dest_conv.and_then(|raw| Uuid::parse_str(&raw).ok()) {
+                project_direct_space_post(pool, conversation_id, &recv_id, "").await?;
+            }
+        }
+        if let Ok(workspace_id) = space_workspace_id(pool, dest).await {
+            turn_delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+                workspace_id,
+                space_id: dest.clone(),
+                seq: Some(seq),
+                member_id: None,
+            });
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct PostToSpace {
     pub caller_id: Option<Uuid>,
@@ -669,10 +883,14 @@ pub async fn post_to_space_with(
             "content must not be empty",
         ));
     }
+    let mut sender_nickname = None;
+    let mut sender_member_id = None;
     let (actor, attributed_to, sender) = match input.caller_id {
         Some(caller_id) => {
             let member = caller_seat(pool, &input.space_id, caller_id).await?;
             let seat = seat_conversation(&member).unwrap_or(caller_id);
+            sender_nickname = Some(member.nickname.clone());
+            sender_member_id = Some(member.member_id.clone());
             (
                 member_actor(&input.space_id, &member.nickname),
                 Some(format!("vibex://conversation/{seat}")),
@@ -773,7 +991,8 @@ pub async fn post_to_space_with(
         .map(str::to_string)
         .unwrap_or_else(|| content.lines().next().unwrap_or(content).trim().to_string());
     let published = now_stamp();
-    let envelope = json!({
+    let sent_to = unique_cross_chat_peers(&input.space_id, &targets);
+    let mut envelope = json!({
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Note",
         "id": format!("vibex://space-message/{message_id}"),
@@ -784,6 +1003,11 @@ pub async fn post_to_space_with(
             .map(|target| {
                 if target.conversation_id.is_none() {
                     user_actor(&input.space_id)
+                } else if target.dest_thread_id.is_some() {
+                    member_actor(
+                        target.dest_thread_id.as_deref().unwrap_or(&input.space_id),
+                        &target.nickname,
+                    )
                 } else {
                     member_actor(&input.space_id, &target.nickname)
                 }
@@ -794,6 +1018,9 @@ pub async fn post_to_space_with(
         "content": content,
         "published": published,
     });
+    if !sent_to.is_empty() {
+        envelope["crossChatSentTo"] = json!(sent_to);
+    }
     let mut conn = pool.acquire().await.map_err(db)?;
     sqlx::query("BEGIN IMMEDIATE")
         .execute(&mut *conn)
@@ -907,6 +1134,29 @@ pub async fn post_to_space_with(
         && let Some(sender) = sender
     {
         project_direct_space_post(pool, sender, &message_id, content).await?;
+    }
+    let dests = unique_cross_chat_dests(&input.space_id, &targets);
+    if !dests.is_empty() {
+        let received_from = sender_received_from_peer(
+            pool,
+            &input.space_id,
+            sender,
+            sender_nickname.as_deref(),
+            sender_member_id.as_deref(),
+        )
+        .await?;
+        project_cross_chat_receipts(
+            pool,
+            &message_id,
+            &actor,
+            attributed_to.as_deref(),
+            &published,
+            if sender.is_some() { "agent" } else { "user" },
+            &received_from,
+            &dests,
+            turn_delivery,
+        )
+        .await?;
     }
     Ok(result)
 }
@@ -1097,13 +1347,12 @@ pub(crate) async fn deliver_pending(
     turn_delivery: &DeliveryContext,
 ) -> Result<SpacePostResult, CollaborationError> {
     let envelope = load_envelope(pool, message_id).await?;
-    let (seq, root_id): (i64, Option<String>) = sqlx::query_as(
-        "SELECT seq, root_id FROM collaboration_space_messages WHERE id = ?",
-    )
-    .bind(message_id)
-    .fetch_one(pool)
-    .await
-    .map_err(db)?;
+    let (seq, root_id): (i64, Option<String>) =
+        sqlx::query_as("SELECT seq, root_id FROM collaboration_space_messages WHERE id = ?")
+            .bind(message_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db)?;
     let space_members = list_space_members(pool, space_id, MessageAudience::Agent)
         .await
         .unwrap_or_default();
@@ -1287,10 +1536,14 @@ pub(crate) async fn deliver_pending(
             .await
             .map_err(db)?;
         }
+        let dest_thread = thread_id_for_conversation(pool, conversation_id)
+            .await?
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| space_id.to_string());
         let packed = compose_space_delivery_prompt(
             pool,
             conversation_id,
-            space_id,
+            &dest_thread,
             seq,
             &envelope,
             root_id.as_deref(),
@@ -2943,6 +3196,125 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_bot_addresses_workspace_peer_keeps_body_on_sender_and_receipt_on_dest() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created_a = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "小A".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let created_b = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "小B".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+        let a_member = identity::binding_of_conversation(&pool, a_conv)
+            .await
+            .unwrap()
+            .expect("identity")
+            .member_id;
+        let a_thread = identity::direct_thread_id(&a_member);
+        let posted = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(a_conv),
+                space_id: a_thread,
+                content: "@小B 请支援".to_string(),
+                summary: None,
+                to: vec!["小B".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect("workspace DM peers can be addressed from a private chat");
+        assert!(
+            posted
+                .receipts
+                .iter()
+                .any(|receipt| receipt.conversation_id == b_conv),
+            "destination DM conversation is woken"
+        );
+
+        let origin_dm =
+            crate::collaboration_sidebar::list_dm_messages(&pool, a_conv, None, Some(50))
+                .await
+                .unwrap();
+        let origin = origin_dm
+            .iter()
+            .find(|message| message.text.contains("请支援"))
+            .expect("sender private chat keeps the body");
+        assert!(
+            origin
+                .cross_chat_sent_to
+                .as_ref()
+                .is_some_and(|value| value.to_string().contains("小B")),
+            "sender private chat marks the destination"
+        );
+
+        let dest_dm = crate::collaboration_sidebar::list_dm_messages(&pool, b_conv, None, Some(50))
+            .await
+            .unwrap();
+        assert!(
+            dest_dm
+                .iter()
+                .all(|message| !message.text.contains("请支援")),
+            "destination private chat hides the foreign body"
+        );
+        assert!(
+            dest_dm.iter().any(|message| {
+                message.text.is_empty()
+                    && message
+                        .cross_chat_received_from
+                        .as_ref()
+                        .is_some_and(|value| value.to_string().contains("小A"))
+            }),
+            "destination private chat lists an empty receipt from the sender"
+        );
+    }
+
+    #[tokio::test]
     async fn direct_user_message_wraps_space_context_for_agent() {
         let pool = setup_pool().await;
         let workspace = Uuid::new_v4();
@@ -3227,7 +3599,11 @@ mod tests {
             "history is pulled with list_space_messages: {}",
             to_b[0]
         );
-        assert!(to_b[0].contains("你来总结") || to_b[0].contains("来总结"), "{}", to_b[0]);
+        assert!(
+            to_b[0].contains("你来总结") || to_b[0].contains("来总结"),
+            "{}",
+            to_b[0]
+        );
         assert_eq!(
             seen(member_b.clone()).await,
             Some(mention.message_id.clone())
@@ -3241,7 +3617,10 @@ mod tests {
         let second: Value = serde_json::from_str(&to_b[1]).unwrap();
         let first = first["text"].as_str().unwrap();
         let second = second["text"].as_str().unwrap();
-        assert!(first.contains("协同交互规则") || first.contains("协作空间交互规则"), "{first}");
+        assert!(
+            first.contains("协同交互规则") || first.contains("协作空间交互规则"),
+            "{first}"
+        );
         assert!(
             !second.contains("协同交互规则") && !second.contains("协作空间交互规则"),
             "{second}"
@@ -3809,16 +4188,10 @@ mod tests {
     async fn group_bot_post_to_space_broadcast_all_default_user_and_no_cross_space_pull() {
         let pool = setup_pool().await;
         let workspace = Uuid::new_v4();
-        let (a, b, c, external) = (
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-        );
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         create_session(&pool, a, workspace, Some("小A")).await;
         create_session(&pool, b, workspace, Some("小B")).await;
         create_session(&pool, c, workspace, Some("小C")).await;
-        create_session(&pool, external, workspace, Some("外部专家")).await;
 
         let space1 = space_of(&pool, a).await;
         add_space_member(&pool, a, &space1, b, "小B", Uuid::new_v4())
@@ -3827,21 +4200,6 @@ mod tests {
         add_space_member(&pool, a, &space1, c, "小C", Uuid::new_v4())
             .await
             .unwrap();
-
-        let space2 = create_collaboration_space(&pool, external, "另一群", Uuid::new_v4())
-            .await
-            .unwrap()
-            .space_id;
-        add_space_member(
-            &pool,
-            external,
-            &space2,
-            external,
-            "外部专家",
-            Uuid::new_v4(),
-        )
-        .await
-        .unwrap();
 
         // 1. Bot omits `to: []` and content has no `@` -> delivers ONLY to User (0 agent receipts/wakes)
         let to_user_only = post_as(&pool, Some(a), &space1, "我已经完成初步分析", &[]).await;
@@ -3867,8 +4225,40 @@ mod tests {
         let broadcast_by_to = post_as(&pool, Some(a), &space1, "请大家同步进度", &["所有人"]).await;
         assert_eq!(broadcast_by_to.receipts.len(), 2);
 
-        // 3. Bot passes nickname from another group -> returns `not_found` and never pulls external bot in
-        let cross_err = post_to_space(
+        // 3. Bot addresses a workspace DM peer: deliver to that DM, do not add them to this group.
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let expert = host_create_space_member(
+            &pool,
+            HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "外部专家".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let expert_conv = Uuid::parse_str(expert.conversation_id.as_deref().unwrap()).unwrap();
+        let cross = post_to_space(
             &pool,
             PostToSpace {
                 caller_id: Some(a),
@@ -3881,12 +4271,48 @@ mod tests {
             },
         )
         .await
-        .unwrap_err();
-        assert_eq!(cross_err.code, "not_found");
+        .expect("workspace DM peers can be addressed from a group");
+        assert!(
+            cross
+                .receipts
+                .iter()
+                .any(|receipt| receipt.conversation_id == expert_conv),
+            "external bot's DM conversation is woken"
+        );
         let space1_members = list_space_members(&pool, &space1, MessageAudience::Agent)
             .await
             .unwrap();
         assert!(space1_members.iter().all(|m| m.nickname != "外部专家"));
+        let origin_messages =
+            list_space_messages(&pool, &space1, None, None, MessageAudience::User)
+                .await
+                .unwrap();
+        let origin = origin_messages
+            .iter()
+            .find(|message| {
+                message.envelope["content"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("请支援"))
+            })
+            .expect("origin group keeps the body");
+        assert!(origin.envelope.get("crossChatSentTo").is_some());
+        let dm = crate::collaboration_sidebar::list_dm_messages(&pool, expert_conv, None, Some(50))
+            .await
+            .unwrap();
+        assert!(
+            dm.iter().all(|message| !message.text.contains("请支援")),
+            "target DM does not list the foreign body"
+        );
+        assert!(
+            dm.iter().any(|message| {
+                message.text.is_empty()
+                    && message
+                        .cross_chat_received_from
+                        .as_ref()
+                        .is_some_and(|value| value.to_string().contains("小A"))
+            }),
+            "target DM lists an empty receipt from the sender"
+        );
     }
 
     #[tokio::test]

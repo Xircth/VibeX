@@ -1,4 +1,5 @@
 use chrono::{Duration, Utc};
+use db::models::collaboration_identity as identity;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -10,6 +11,30 @@ use super::*;
 pub(crate) struct ResolvedTarget {
     pub(crate) conversation_id: Option<Uuid>,
     pub(crate) nickname: String,
+    /// When set, this recipient lives in another thread (DM or group).
+    pub(crate) dest_thread_id: Option<String>,
+    /// `"member"`, `"group"`, or `"user"`.
+    pub(crate) peer_kind: String,
+}
+
+impl ResolvedTarget {
+    fn local(conversation_id: Option<Uuid>, nickname: impl Into<String>) -> Self {
+        Self {
+            conversation_id,
+            nickname: nickname.into(),
+            dest_thread_id: None,
+            peer_kind: "member".to_string(),
+        }
+    }
+
+    fn user() -> Self {
+        Self {
+            conversation_id: None,
+            nickname: "User".to_string(),
+            dest_thread_id: None,
+            peer_kind: "user".to_string(),
+        }
+    }
 }
 
 pub(crate) fn is_user_target_name(raw: &str) -> bool {
@@ -131,6 +156,9 @@ pub(crate) async fn resolve_targets(
 ) -> Result<Vec<ResolvedTarget>, CollaborationError> {
     let mut targets = resolve_seat_targets(pool, space_id, sender, nicknames, content).await?;
     for target in &mut targets {
+        if target.dest_thread_id.is_some() {
+            continue;
+        }
         if let Some(conversation_id) = target.conversation_id {
             target.conversation_id =
                 Some(resolve_seat_target(pool, space_id, conversation_id, &target.nickname).await?);
@@ -157,9 +185,8 @@ pub(crate) async fn resolve_seat_targets(
                 if conversation_id == sender {
                     return None;
                 }
-                conversation_id.map(|conversation_id| ResolvedTarget {
-                    conversation_id: Some(conversation_id),
-                    nickname: member.nickname,
+                conversation_id.map(|conversation_id| {
+                    ResolvedTarget::local(Some(conversation_id), member.nickname)
                 })
             })
             .collect()
@@ -189,10 +216,10 @@ pub(crate) async fn resolve_seat_targets(
                     continue;
                 }
                 if let Some(conversation_id) = conversation_id {
-                    mentioned.push(ResolvedTarget {
-                        conversation_id: Some(conversation_id),
-                        nickname: member.nickname.clone(),
-                    });
+                    mentioned.push(ResolvedTarget::local(
+                        Some(conversation_id),
+                        member.nickname.clone(),
+                    ));
                 }
             }
         }
@@ -201,19 +228,40 @@ pub(crate) async fn resolve_seat_targets(
                 .iter()
                 .any(|alias| contains_mention_token(content, alias))
         {
-            mentioned.push(ResolvedTarget {
-                conversation_id: None,
-                nickname: "User".to_string(),
-            });
+            mentioned.push(ResolvedTarget::user());
+        }
+        if let Ok(workspace_id) = space_workspace_id(pool, space_id).await {
+            for peer in workspace_direct_peers(pool, workspace_id).await? {
+                if peer.conversation_id == sender {
+                    continue;
+                }
+                if !contains_mention_token(content, &peer.nickname) {
+                    continue;
+                }
+                if mentioned
+                    .iter()
+                    .any(|existing| existing.nickname == peer.nickname)
+                {
+                    continue;
+                }
+                mentioned.push(peer);
+            }
+            if let Some(group) =
+                workspace_group_mentioned(pool, workspace_id, space_id, content).await?
+            {
+                if !mentioned
+                    .iter()
+                    .any(|existing| existing.dest_thread_id.as_deref() == Some(group.as_str()))
+                {
+                    mentioned.extend(workspace_group_targets(pool, &group).await?);
+                }
+            }
         }
         if !mentioned.is_empty() {
             return Ok(mentioned);
         }
         if sender.is_some() {
-            return Ok(vec![ResolvedTarget {
-                conversation_id: None,
-                nickname: "User".to_string(),
-            }]);
+            return Ok(vec![ResolvedTarget::user()]);
         }
         return pick_default_agent_targets(pool, space_id, &members).await;
     }
@@ -239,38 +287,51 @@ pub(crate) async fn resolve_seat_targets(
                     .iter()
                     .any(|t: &ResolvedTarget| t.conversation_id.is_none())
             {
-                targets.push(ResolvedTarget {
-                    conversation_id: None,
-                    nickname: "User".to_string(),
-                });
+                targets.push(ResolvedTarget::user());
             }
             continue;
         }
-        let Some(member) = members.iter().find(|member| {
+        if let Some(member) = members.iter().find(|member| {
             member.nickname == nickname || member.conversation_id.as_deref() == Some(nickname)
-        }) else {
+        }) {
+            let conversation_id = member
+                .conversation_id
+                .as_deref()
+                .and_then(|id| Uuid::parse_str(id).ok());
+            if conversation_id == sender {
+                continue;
+            }
+            if targets
+                .iter()
+                .any(|t| t.conversation_id == conversation_id && t.nickname == member.nickname)
+            {
+                continue;
+            }
+            targets.push(ResolvedTarget::local(
+                conversation_id,
+                member.nickname.clone(),
+            ));
+            continue;
+        }
+        let peers = resolve_workspace_peer(pool, space_id, nickname).await?;
+        if peers.is_empty() {
             return Err(CollaborationError::new(
                 "not_found",
                 "nickname was not found in this collaboration space",
             ));
-        };
-        let conversation_id = member
-            .conversation_id
-            .as_deref()
-            .and_then(|id| Uuid::parse_str(id).ok());
-        if conversation_id == sender {
-            continue;
         }
-        if targets
-            .iter()
-            .any(|t| t.conversation_id == conversation_id && t.nickname == member.nickname)
-        {
-            continue;
+        for peer in peers {
+            if peer.conversation_id == sender {
+                continue;
+            }
+            if targets.iter().any(|existing| {
+                existing.conversation_id == peer.conversation_id
+                    && existing.dest_thread_id == peer.dest_thread_id
+            }) {
+                continue;
+            }
+            targets.push(peer);
         }
-        targets.push(ResolvedTarget {
-            conversation_id,
-            nickname: member.nickname.clone(),
-        });
     }
     Ok(targets)
 }
@@ -280,10 +341,121 @@ fn member_as_target(member: &MemberRecord) -> Option<ResolvedTarget> {
         .conversation_id
         .as_deref()
         .and_then(|id| Uuid::parse_str(id).ok())?;
-    Some(ResolvedTarget {
-        conversation_id: Some(conversation_id),
-        nickname: member.nickname.clone(),
-    })
+    Some(ResolvedTarget::local(
+        Some(conversation_id),
+        member.nickname.clone(),
+    ))
+}
+
+async fn workspace_direct_peers(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, String, String)>(
+        r#"SELECT m.id, m.name, tm.conversation_id
+           FROM collaboration_members m
+           JOIN collaboration_thread_members tm
+             ON tm.member_id = m.id AND tm.status = 'active'
+           JOIN sessions s
+             ON lower(hex(s.id)) = replace(tm.conversation_id, '-', '')
+           WHERE lower(hex(s.workspace_id)) = replace(?, '-', '')
+             AND tm.thread_id LIKE 'direct:%'"#,
+    )
+    .bind(workspace_id.to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(member_id, name, conversation_id)| {
+            let conversation_id = Uuid::parse_str(&conversation_id).ok()?;
+            Some(ResolvedTarget {
+                conversation_id: Some(conversation_id),
+                nickname: name,
+                dest_thread_id: Some(identity::direct_thread_id(&member_id)),
+                peer_kind: "member".to_string(),
+            })
+        })
+        .collect())
+}
+
+async fn resolve_workspace_peer(
+    pool: &SqlitePool,
+    origin_space_id: &str,
+    nickname: &str,
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    let Ok(workspace_id) = space_workspace_id(pool, origin_space_id).await else {
+        return Ok(Vec::new());
+    };
+    let peers = workspace_direct_peers(pool, workspace_id).await?;
+    if let Some(peer) = peers.into_iter().find(|peer| peer.nickname == nickname) {
+        return Ok(vec![peer]);
+    }
+    let group_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM collaboration_spaces WHERE workspace_id = ? AND name = ? LIMIT 1",
+    )
+    .bind(workspace_id.to_string())
+    .bind(nickname)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some(group_id) = group_id.filter(|id| id != origin_space_id) else {
+        return Ok(Vec::new());
+    };
+    workspace_group_targets(pool, &group_id).await
+}
+
+async fn workspace_group_targets(
+    pool: &SqlitePool,
+    group_id: &str,
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    let group_name: String =
+        sqlx::query_scalar("SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1")
+            .bind(group_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .unwrap_or_else(|| group_id.to_string());
+    let members = list_space_members(pool, group_id, MessageAudience::Agent).await?;
+    let mut targets = pick_default_agent_targets(pool, group_id, &members).await?;
+    for target in &mut targets {
+        target.dest_thread_id = Some(group_id.to_string());
+        target.peer_kind = "group".to_string();
+        target.nickname = group_name.clone();
+    }
+    if targets.is_empty() {
+        targets.push(ResolvedTarget {
+            conversation_id: None,
+            nickname: group_name,
+            dest_thread_id: Some(group_id.to_string()),
+            peer_kind: "group".to_string(),
+        });
+    }
+    Ok(targets)
+}
+
+async fn workspace_group_mentioned(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    origin_space_id: &str,
+    content: &str,
+) -> Result<Option<String>, CollaborationError> {
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, name FROM collaboration_spaces WHERE workspace_id = ?")
+            .bind(workspace_id.to_string())
+            .fetch_all(pool)
+            .await
+            .map_err(db)?;
+    Ok(rows.into_iter().find_map(|(id, name)| {
+        if id == origin_space_id {
+            return None;
+        }
+        if contains_mention_token(content, &name) {
+            Some(id)
+        } else {
+            None
+        }
+    }))
 }
 
 /// Default recipient when a user posts with no `to` and no @ in the body:

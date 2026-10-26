@@ -137,6 +137,19 @@ describe('threadApi', () => {
     });
   });
 
+  it('posts DM messages with mention recipients so other bots can be addressed', async () => {
+    const call = caller(() => ({ seq: 10 }));
+    await expect(
+      postDirectMessage(call, 'direct:m1', '@小B 请协助', 'op-2', ['小B'])
+    ).resolves.toEqual({ seq: 10 });
+    expect(call).toHaveBeenCalledWith('collaboration', 'space.post', {
+      spaceId: 'direct:m1',
+      content: '@小B 请协助',
+      operationId: 'op-2',
+      to: ['小B'],
+    });
+  });
+
   it('marks a DM read by threadId with seq', async () => {
     const call = caller(() => ({}));
     await markThreadRead(call, 'direct:m1', 7);

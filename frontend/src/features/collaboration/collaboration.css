@@ -932,14 +932,27 @@
   content: '';
   flex: 1 1 0%;
   max-width: 9rem;
-  height: 1px;
-  background: var(--border-subtle);
+  height: 3px;
+  background: var(--cross-chat-line-color, var(--border-subtle));
 }
 
-.collaboration-CrossChat-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+.collaboration-cross-chat-notice::before {
+  clip-path: polygon(0 42%, 100% 0, 100% 100%, 0 58%);
+}
+
+.collaboration-cross-chat-notice::after {
+  clip-path: polygon(0 0, 100% 42%, 100% 58%, 0 100%);
+}
+
+.collaboration-thread-permission-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  padding-top: 0.5rem;
 }
 
 .collaboration-message .conv-assistant-body,

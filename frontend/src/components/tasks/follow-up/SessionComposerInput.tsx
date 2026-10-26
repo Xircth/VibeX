@@ -2351,12 +2351,9 @@ export function SessionComposerInput({
           activeTab={atReference.panel.activeTab}
           selectedIndex={atReference.panel.selectedIndex}
           loading={atReference.panel.loading}
-          left={atReference.panel.left}
-          top={atReference.panel.top}
-          width={atReference.panel.width}
+          anchor={dropZoneRef.current}
           onSelectTab={atReference.selectTab}
           onSelectItem={atReference.selectItem}
-          onHighlight={atReference.highlight}
         />
       ) : null}
     </div>

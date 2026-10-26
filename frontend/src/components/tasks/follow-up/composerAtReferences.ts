@@ -33,6 +33,7 @@ export type AtReferenceItem = {
   detail?: string;
   insertText: string;
   memberAvatar?: MemberBotAvatarConfig;
+  mentionAll?: boolean;
   onActivate?: () => void | Promise<void>;
 };
 
@@ -68,6 +69,7 @@ export type AtReferenceMember = {
   nickname: string;
   detail?: string;
   avatar?: MemberBotAvatarConfig;
+  mentionAll?: boolean;
 };
 
 export type AtReferenceSources = {
@@ -262,7 +264,11 @@ export function memberToAtReference(
     label: nickname,
     detail: member.detail,
     insertText: `@${nickname}`,
-    memberAvatar: member.avatar,
+    ...(member.mentionAll
+      ? { mentionAll: true }
+      : member.avatar
+        ? { memberAvatar: member.avatar }
+        : {}),
   };
 }
 

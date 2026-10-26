@@ -653,6 +653,8 @@ describe('CollaborationSpacePage', () => {
       'aria-selected',
       'true'
     );
+    expect(screen.getByRole('option', { name: /全体成员/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /^全体$/ })).toBeNull();
     expect(screen.queryByRole('option', { name: /你/ })).toBeNull();
 
     await user.click(screen.getByRole('option', { name: /小A/ }));

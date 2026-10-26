@@ -70,9 +70,6 @@ type PanelState = {
   selectedIndex: number;
   loading: boolean;
   pinnedTab: AtReferenceTab | null;
-  left: number;
-  top: number;
-  width: number;
 };
 
 const EMPTY_GROUPS: AtReferenceGroup[] = AT_REFERENCE_TAB_ORDER.map((tab) => ({
@@ -284,21 +281,6 @@ async function loadCommits(
 
 const AT_REFERENCE_SEARCH_DEBOUNCE_MS = 120;
 
-function measureComposerAnchorRect(
-  composerRoot: HTMLDivElement | null,
-  editable?: HTMLElement | null
-): { left: number; top: number; width: number } | null {
-  const target = editable ?? getEditor(composerRoot);
-  if (!target) return null;
-  const rect = target.getBoundingClientRect();
-  const rootRect = composerRoot?.getBoundingClientRect();
-  return {
-    left: rootRect?.left ?? rect.left,
-    top: rect.top,
-    width: rootRect?.width ?? rect.width,
-  };
-}
-
 export function useComposerAtReferencePanel({
   composerRootRef,
   composerHandleRef,
@@ -413,31 +395,16 @@ export function useComposerAtReferencePanel({
   );
 
   const openOrUpdate = useCallback(
-    (query: string, triggerStart: number, editable: HTMLElement) => {
+    (query: string, triggerStart: number, _editable: HTMLElement) => {
       triggerStartRef.current = triggerStart;
-      const anchor = measureComposerAnchorRect(
-        composerRootRef.current,
-        editable
-      );
       if (
         panelRef.current &&
         searchedQueryRef.current === query &&
         panelRef.current.query === query
       ) {
-        if (
-          anchor &&
-          (panelRef.current.left !== anchor.left ||
-            panelRef.current.top !== anchor.top ||
-            panelRef.current.width !== anchor.width)
-        ) {
-          setPanel((current) =>
-            current ? { ...current, ...anchor } : current
-          );
-        }
         return;
       }
       searchedQueryRef.current = query;
-      const rect = editable.getBoundingClientRect();
       setPanel((current) => {
         const initialGroups =
           current?.groups ??
@@ -464,9 +431,6 @@ export function useComposerAtReferencePanel({
           selectedIndex: current?.query === query ? current.selectedIndex : 0,
           loading: true,
           pinnedTab: pinnedTabRef.current,
-          left: anchor?.left ?? rect.left,
-          top: anchor?.top ?? rect.top,
-          width: anchor?.width ?? rect.width,
         };
       });
       clearDebounceTimer();
@@ -479,34 +443,8 @@ export function useComposerAtReferencePanel({
         }, AT_REFERENCE_SEARCH_DEBOUNCE_MS);
       }
     },
-    [clearDebounceTimer, composerRootRef, context, search]
+    [clearDebounceTimer, context, search]
   );
-
-  const isOpen = panel != null;
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const syncPosition = () => {
-      const anchor = measureComposerAnchorRect(composerRootRef.current);
-      if (!anchor) return;
-      setPanel((current) => {
-        if (!current) return current;
-        if (
-          current.left === anchor.left &&
-          current.top === anchor.top &&
-          current.width === anchor.width
-        ) {
-          return current;
-        }
-        return { ...current, ...anchor };
-      });
-    };
-    window.addEventListener('resize', syncPosition);
-    window.addEventListener('scroll', syncPosition, true);
-    return () => {
-      window.removeEventListener('resize', syncPosition);
-      window.removeEventListener('scroll', syncPosition, true);
-    };
-  }, [composerRootRef, isOpen]);
 
   const detect = useCallback(() => {
     if (disabled) {
@@ -565,9 +503,7 @@ export function useComposerAtReferencePanel({
         void Promise.resolve(item.onActivate()).catch(() => undefined);
       }
       if (item.insertText) {
-        handle.insertToken(
-          atReferenceItemToToken(item, context?.spaceMembers)
-        );
+        handle.insertToken(atReferenceItemToToken(item, context?.spaceMembers));
         onChange(handle.getValue());
       }
       close();
@@ -659,11 +595,7 @@ export function useComposerAtReferencePanel({
     );
   }, []);
 
-  const highlight = useCallback((index: number) => {
-    setPanel((current) =>
-      current ? { ...current, selectedIndex: index } : current
-    );
-  }, []);
+  const isOpen = panel != null;
 
   return {
     panel,
@@ -672,7 +604,6 @@ export function useComposerAtReferencePanel({
     handleKeyDown,
     selectTab,
     selectItem,
-    highlight,
     close,
   };
 }

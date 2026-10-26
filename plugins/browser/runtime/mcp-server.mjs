@@ -589,11 +589,44 @@ function formatToolOutput(toolName, result) {
   }
 }
 
+const MODERN_MCP_PROTOCOL = '2026-07-28';
+const SERVER_INFO = { name: 'vibex-browser', version: '1.0.0' };
+
 function negotiateProtocol(requested) {
   if (typeof requested === 'string' && SUPPORTED_PROTOCOLS.includes(requested)) {
     return requested;
   }
   return '2025-11-25';
+}
+
+function isModernRequest(params) {
+  return (
+    params &&
+    params._meta &&
+    params._meta['io.modelcontextprotocol/protocolVersion'] ===
+      MODERN_MCP_PROTOCOL
+  );
+}
+
+function discoverResult() {
+  return {
+    resultType: 'complete',
+    supportedVersions: [MODERN_MCP_PROTOCOL],
+    capabilities: { tools: {} },
+    _meta: { 'io.modelcontextprotocol/serverInfo': SERVER_INFO },
+  };
+}
+
+function modernize(params, result) {
+  if (!isModernRequest(params)) return result;
+  return {
+    resultType: 'complete',
+    ...result,
+    _meta: {
+      ...(result._meta || {}),
+      'io.modelcontextprotocol/serverInfo': SERVER_INFO,
+    },
+  };
 }
 
 function isUnimplementedHostError(error) {
@@ -731,7 +764,7 @@ function handleMessage(message) {
     reply(id, {
       protocolVersion: negotiateProtocol(params?.protocolVersion),
       capabilities: { tools: {} },
-      serverInfo: { name: 'vibex-browser', version: '1.0.0' },
+      serverInfo: SERVER_INFO,
     });
     return;
   }
@@ -739,15 +772,15 @@ function handleMessage(message) {
     return;
   }
   if (method === 'ping') {
-    if (id != null) reply(id, {});
+    if (id != null) reply(id, modernize(params, {}));
     return;
   }
   if (method === 'server/discover') {
-    reply(id, { versions: SUPPORTED_PROTOCOLS });
+    reply(id, discoverResult());
     return;
   }
   if (method === 'tools/list') {
-    reply(id, { tools: advertisedTools() });
+    reply(id, modernize(params, { tools: advertisedTools() }));
     return;
   }
   if (method === 'tools/call') {
@@ -799,7 +832,7 @@ function handleMessage(message) {
     executeBrowserTool(tool, args)
       .then((result) => {
         const content = formatToolOutput(tool.name, result);
-        reply(id, { content });
+        reply(id, modernize(params, { content }));
       })
       .catch((error) => {
         replyToolError(

@@ -175,7 +175,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 入口（`entrypoints.ap
 
 除 `hostFamilyBinary` 外，资源必须带 `tools`：字符串或 `{ "name", "group" }`。状态栏在 Agent 连接前就用这份目录。缺 `tools` 时 CLI 给警告，包仍能安装，但状态栏没有工具名。
 
-STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼容 `2024-11-05` / `2025-03-26` / `2025-11-25`）、`notifications/initialized`、`tools/list`、`tools/call`。行分隔 JSON-RPC 与 `Content-Length` 帧都要能读。`tools/list` 的名字与资源里的 `tools` 一致。
+STDIO 服务必须回答 MCP `server/discover`（`2026-07-28`：`resultType`、`supportedVersions`、`capabilities`、`_meta['io.modelcontextprotocol/serverInfo']`），以及握手期的 `initialize`（兼容 `2024-11-05` / `2025-03-26` / `2025-06-18` / `2025-11-25`）、`notifications/initialized`、`tools/list`、`tools/call`。Claude Code 2.1.292+ 会先探测 `server/discover`；方法不存在时才会退回握手。行分隔 JSON-RPC 与 `Content-Length` 帧都要能读。`tools/list` 的名字与资源里的 `tools` 一致。
 
 启用插件后，Host 把 MCP 写进兼容 Agent 的原生配置。新开会话才能调用。`vibex-plugin init --template mcp` 会写出带 `tools` 的资源和能完成握手的 `runtime/mcp.mjs`。
 

@@ -218,6 +218,58 @@ test('MCP server answers NDJSON initialize without closing', async () => {
   }
 });
 
+test('MCP server answers Claude Code server/discover with 2026-07-28', async () => {
+  const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const stdout = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+  child.stdin.write(
+    `${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'server-discover-probe-1',
+      method: 'server/discover',
+      params: {
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientInfo': {
+            name: 'claude-code',
+            version: '2.1.303',
+          },
+        },
+      },
+    })}\n`
+  );
+  const reply = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('server/discover timed out')),
+      2000
+    );
+    const check = () => {
+      const line = Buffer.concat(stdout)
+        .toString('utf8')
+        .split('\n')
+        .find((item) => item.trim());
+      if (!line) return;
+      clearTimeout(timer);
+      resolve(JSON.parse(line));
+    };
+    child.stdout.on('data', check);
+    check();
+  });
+  try {
+    assert.equal(reply.error, undefined);
+    assert.equal(reply.result.resultType, 'complete');
+    assert.deepEqual(reply.result.supportedVersions, ['2026-07-28']);
+    assert.equal(
+      reply.result._meta['io.modelcontextprotocol/serverInfo'].name,
+      'vibex-browser'
+    );
+  } finally {
+    child.kill();
+  }
+});
+
 test('MCP server echoes handshake revision 2025-06-18', async () => {
   const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
     stdio: ['pipe', 'pipe', 'pipe'],

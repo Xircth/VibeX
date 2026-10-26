@@ -167,6 +167,23 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
     });
 
   try {
+    const discoverRes = await request('server-discover-probe-1', 'server/discover', {
+      _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': {
+          name: 'claude-code',
+          version: '2.1.303',
+        },
+      },
+    });
+    assert.equal(discoverRes.error, undefined);
+    assert.equal(discoverRes.result.resultType, 'complete');
+    assert.deepEqual(discoverRes.result.supportedVersions, ['2026-07-28']);
+    assert.equal(
+      discoverRes.result._meta['io.modelcontextprotocol/serverInfo'].name,
+      'vibex-computer-use'
+    );
+
     const initRes = await request(1, 'initialize', {
       protocolVersion: '2026-07-28',
     });

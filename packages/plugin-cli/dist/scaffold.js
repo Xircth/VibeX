@@ -660,6 +660,19 @@ function handle(message) {
     return;
   }
   if (method === 'notifications/initialized' || method === 'initialized') return;
+  if (method === 'server/discover') {
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        resultType: 'complete',
+        supportedVersions: ['2026-07-28'],
+        capabilities: { tools: {} },
+        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'hello', version: '1.0.0' } },
+      },
+    });
+    return;
+  }
   if (method === 'tools/list') {
     send({ jsonrpc: '2.0', id, result: { tools } });
     return;

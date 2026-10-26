@@ -142,6 +142,7 @@ export function ComposerAtReferenceMenu({
                     <MemberBotAvatar
                       config={memberAvatar}
                       className="h-7 w-7 shrink-0"
+                      lead={item.isLead === true}
                     />
                   ) : (
                     <span

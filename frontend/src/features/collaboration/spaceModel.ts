@@ -120,8 +120,8 @@ export const COPY = {
   get spaceLeadLabel() {
     return i18n.t('panels:collabCopy.spaceLeadLabel');
   },
-  get spaceLeadNone() {
-    return i18n.t('panels:collabCopy.spaceLeadNone');
+  get spaceLeadSet() {
+    return i18n.t('panels:collabCopy.spaceLeadSet');
   },
   get collaborationLimitNotice() {
     return i18n.t('panels:collabCopy.collaborationLimitNotice');
@@ -640,6 +640,19 @@ export function agentRoster(
       member.kind === 'agent' &&
       Number(member.visible_to_agents) !== 0
   );
+}
+
+export function sortMembersLeadFirst<T extends { member_id?: string }>(
+  members: readonly T[],
+  leadMemberId?: string | null
+): T[] {
+  const lead = String(leadMemberId ?? '').trim();
+  if (!lead) return [...members];
+  return [...members].sort((left, right) => {
+    const leftLead = String(left.member_id ?? '').trim() === lead ? 0 : 1;
+    const rightLead = String(right.member_id ?? '').trim() === lead ? 0 : 1;
+    return leftLead - rightLead;
+  });
 }
 
 export function mentionQuery(text: string | null | undefined): string | null {

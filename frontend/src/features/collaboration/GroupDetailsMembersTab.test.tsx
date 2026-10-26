@@ -34,7 +34,19 @@ describe('GroupDetailsMembersTab', () => {
                 visible_to_agents: 1,
                 conversation_id: 'conv-1',
               },
+              {
+                member_id: 'm2',
+                nickname: '小B',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-2',
+              },
             ],
+          };
+        }
+        if (method === 'space.list') {
+          return {
+            spaces: [{ space_id: 's1', name: '设计', lead_member_id: 'm2' }],
           };
         }
         if (method === 'thread.listSidebar') {
@@ -42,12 +54,12 @@ describe('GroupDetailsMembersTab', () => {
             items: [
               {
                 kind: 'dm',
-                thread_id: 'direct:mem-b',
-                name: '小B',
+                thread_id: 'direct:mem-c',
+                name: '小C',
                 member: {
-                  member_id: 'mem-b',
-                  name: '小B',
-                  conversation_id: 'conv-2',
+                  member_id: 'mem-c',
+                  name: '小C',
+                  conversation_id: 'conv-3',
                 },
               },
             ],
@@ -77,8 +89,23 @@ describe('GroupDetailsMembersTab', () => {
       />
     );
 
+    const rowA = await screen.findByTestId('collaboration-group-member-小A');
+    const rowB = await screen.findByTestId('collaboration-group-member-小B');
+    const list = screen.getByTestId('collaboration-group-members-tab');
     expect(
-      await screen.findByTestId('collaboration-group-member-小A')
+      list.querySelectorAll('[data-testid^="collaboration-group-member-"]')[0]
+    ).toBe(rowB);
+    expect(
+      rowB.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
+    ).toBeTruthy();
+    expect(
+      rowA.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: '设为负责人 小B' })
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: '设为负责人 小A' })
     ).toBeTruthy();
     const remove = screen.getByRole('button', { name: '移除 小A' });
     expect(remove).toHaveAttribute('data-variant', 'destructive');
@@ -110,15 +137,15 @@ describe('GroupDetailsMembersTab', () => {
 
     await user.click(screen.getByTestId('collaboration-group-add-member'));
     await user.click(
-      await screen.findByTestId('collaboration-group-add-candidate-小B')
+      await screen.findByTestId('collaboration-group-add-candidate-小C')
     );
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.addMember',
       expect.objectContaining({
         spaceId: 's1',
-        conversationId: 'conv-2',
-        nickname: '小B',
+        conversationId: 'conv-3',
+        nickname: '小C',
       })
     );
 
@@ -134,6 +161,36 @@ describe('GroupDetailsMembersTab', () => {
       COLLABORATION_MEMBERS_CHANGED_EVENT,
       onMembersChanged
     );
+  });
+
+  it('sets the group lead from the member row', async () => {
+    const user = userEvent.setup();
+    render(
+      <GroupDetailsMembersTab
+        spaceId="s1"
+        workspaceId="workspace-1"
+        getAvatar={(conversationId, nickname) =>
+          deriveMemberBotAvatar(conversationId || nickname || 'bot')
+        }
+      />
+    );
+
+    await screen.findByTestId('collaboration-group-member-小A');
+    await user.click(screen.getByRole('button', { name: '设为负责人 小A' }));
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.update',
+        { spaceId: 's1', leadMemberId: 'm1' }
+      );
+    });
+    const rowA = screen.getByTestId('collaboration-group-member-小A');
+    expect(
+      rowA.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: '设为负责人 小A' })
+    ).toBeNull();
   });
 
   it('shows Master with the identity avatar in a group seat', async () => {

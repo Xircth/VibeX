@@ -226,6 +226,7 @@ import {
   resolveMessageDeliveryStatus,
   resolveMessageReceipts,
   sidebarMemberToSpaceMember,
+  sortMembersLeadFirst,
   strayMentions,
   surfaceErrorCopy,
   toggleMemberDeleteSelection,
@@ -305,7 +306,12 @@ if (
   ).ResizeObserver = FallbackResizeObserver;
 }
 
-type Space = { space_id: string; name: string; kind?: string };
+type Space = {
+  space_id: string;
+  name: string;
+  kind?: string;
+  lead_member_id?: string | null;
+};
 type SpaceMessage = {
   seq: number;
   origin?: string;
@@ -1257,6 +1263,8 @@ export function CollaborationSpacePage({
     selectedId.startsWith('direct:') ||
     (selectedId === unassignedId && Boolean(selectedMemberKey));
 
+  const selectedLeadMemberId = String(selected?.lead_member_id ?? '').trim();
+
   const spaceMemberRefs = useMemo(() => {
     if (isPrivateChatActive) {
       return [];
@@ -1275,16 +1283,21 @@ export function CollaborationSpacePage({
       detail?: string;
       avatar?: MemberBotAvatarConfig;
       mentionAll?: boolean;
-    }> = ordered.map((member) => {
+      isLead?: boolean;
+    }> = sortMembersLeadFirst(ordered, selectedLeadMemberId).map((member) => {
       const nick = String(member.nickname ?? '').trim();
       const conv = member.conversation_id
         ? conversationById.get(member.conversation_id)
         : undefined;
+      const memberId = String(member.member_id ?? '').trim();
       return {
         id: member.member_id ?? member.conversation_id ?? nick,
         nickname: nick,
         detail: conv?.title || member.conversation_id || undefined,
         avatar: getMemberAvatar(member.conversation_id ?? undefined, nick),
+        ...(memberId && memberId === selectedLeadMemberId
+          ? { isLead: true }
+          : {}),
       };
     });
     if (
@@ -1300,7 +1313,13 @@ export function CollaborationSpacePage({
       });
     }
     return refs;
-  }, [activeChatRoster, conversationById, getMemberAvatar, isPrivateChatActive]);
+  }, [
+    activeChatRoster,
+    conversationById,
+    getMemberAvatar,
+    isPrivateChatActive,
+    selectedLeadMemberId,
+  ]);
 
   const memberMentionContextValue = useMemo(() => {
     const entries: Array<{ nickname: string; avatar: MemberBotAvatarConfig }> = [];
@@ -1520,10 +1539,28 @@ export function CollaborationSpacePage({
 
   useEffect(() => {
     const onMembersChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          spaceId?: string;
+          leadMemberId?: string | null;
+        }>
+      ).detail;
       const targetSpaceId = detail?.spaceId || selectedId;
       if (targetSpaceId && !targetSpaceId.startsWith('direct:')) {
         void reloadSpaceMembers(targetSpaceId);
+        if (
+          detail &&
+          Object.prototype.hasOwnProperty.call(detail, 'leadMemberId')
+        ) {
+          const lead = String(detail.leadMemberId ?? '').trim() || undefined;
+          setSpaces((current) =>
+            current.map((space) =>
+              space.space_id === targetSpaceId
+                ? { ...space, lead_member_id: lead }
+                : space
+            )
+          );
+        }
       }
       void refreshSidebar();
     };
@@ -4026,6 +4063,19 @@ export function CollaborationSpacePage({
     selectedId,
     sidebarItems,
   ]);
+
+  const leadConversationIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!selectedLeadMemberId) return ids;
+    for (const member of [...members, ...visibleRoster]) {
+      if (String(member.member_id ?? '').trim() !== selectedLeadMemberId) {
+        continue;
+      }
+      const conversationId = String(member.conversation_id ?? '').trim();
+      if (conversationId) ids.add(conversationId);
+    }
+    return ids;
+  }, [members, selectedLeadMemberId, visibleRoster]);
 
   const workingMembers = useMemo(
     () =>
@@ -6881,6 +6931,9 @@ export function CollaborationSpacePage({
                                         authorConv?.status === 'inprogress'
                                     )}
                                     className="h-10 w-10"
+                                    lead={leadConversationIds.has(
+                                      authorConversationId
+                                    )}
                                     data-testid={`collaboration-message-bot-avatar-${message.seq}`}
                                   />
                                 </button>

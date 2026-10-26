@@ -1050,6 +1050,7 @@
   padding: 0;
   border: 0;
   border-radius: 0;
+  overflow: visible;
   background: transparent !important;
   color: var(--text-strong);
   cursor: pointer;
@@ -2824,18 +2825,37 @@ body.is-dragging-collaboration-member * {
   white-space: nowrap;
 }
 
-.collaboration-group-member-remove {
+.collaboration-group-member-action {
   flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.collaboration-group-member-row:hover .collaboration-group-member-remove,
+.collaboration-group-member-row:hover .collaboration-group-member-action,
 .collaboration-group-member-row:focus-within
-  .collaboration-group-member-remove {
+  .collaboration-group-member-action {
   opacity: 1;
   pointer-events: auto;
+}
+
+.collaboration-bot-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.collaboration-bot-avatar-lead-star {
+  position: absolute;
+  right: -12%;
+  bottom: -12%;
+  width: 42%;
+  height: 42%;
+  color: hsl(var(--warning));
+  stroke: var(--surface-dialog);
+  filter: drop-shadow(0 0 0.6px var(--surface-dialog));
+  pointer-events: none;
 }
 
 .collaboration-group-add-member-wrap {

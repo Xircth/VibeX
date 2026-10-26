@@ -3,6 +3,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
+import { Star } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
@@ -669,6 +670,7 @@ export function MemberBotAvatar({
   selectedOutline = false,
   silhouetteOutline,
   gaze,
+  lead = false,
   'data-testid': dataTestId,
 }: {
   /** Stroke that follows the avatar's own silhouette (drawn under the fill). */
@@ -681,6 +683,8 @@ export function MemberBotAvatar({
   animated?: boolean;
   sessionActive?: boolean;
   selectedOutline?: boolean;
+  /** Yellow star at the bottom-right; only pass on members / @ / group-message avatars. */
+  lead?: boolean;
   'data-testid'?: string;
 }) {
   const normalizedColor = normalizeHexColor(config.color);
@@ -750,7 +754,7 @@ export function MemberBotAvatar({
   const blinkDurationSec = (4.6 + (seed % 24) * 0.1).toFixed(2);
   const blinkDelaySec = ((seed % 35) * 0.1).toFixed(2);
 
-  return (
+  const svg = (
     <svg
       viewBox="0 0 64 64"
       fill="none"
@@ -762,7 +766,7 @@ export function MemberBotAvatar({
           activeReactionEmote === 'idle' &&
           'collaboration-bot-avatar--idle-blink',
         sessionActive && 'collaboration-bot-avatar--session-active',
-        className
+        lead ? 'h-full w-full' : className
       )}
       style={
         animated
@@ -816,6 +820,25 @@ export function MemberBotAvatar({
         </g>
       </g>
     </svg>
+  );
+
+  if (!lead) return svg;
+
+  return (
+    <span
+      className={cn('collaboration-bot-avatar-wrap', className)}
+      data-lead="true"
+    >
+      {svg}
+      <Star
+        className="collaboration-bot-avatar-lead-star"
+        fill="currentColor"
+        strokeWidth={2.25}
+        aria-label={i18n.t('panels:collabCopy.spaceLeadLabel')}
+        role="img"
+        data-testid="collaboration-bot-avatar-lead-star"
+      />
+    </span>
   );
 }
 

@@ -698,7 +698,6 @@ export function CollaborationSpaceCollectionDockviewPanel(
         ) : (
           <GroupDetailsUsageTab
             spaceId={spaceId}
-            workspaceId={workspaceId}
             getAvatar={getAvatar}
           />
         )

@@ -804,7 +804,8 @@
     "replyPlaceholder": "Reply...",
     "dismissReply": "Cancel reply",
     "openPrivateChat": "Open private chat",
-    "openSession": "Open session"
+    "openSession": "Open session",
+    "backToBottom": "Back to bottom"
   },
   "spaceTag": {
     "blue": "Blue",

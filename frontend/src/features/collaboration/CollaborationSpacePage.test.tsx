@@ -417,10 +417,10 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '展开助手列表' }));
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
 
-    // Piano-key message navigation is rendered in the message area
+    // Bot-only logs have no piano-key ticks; user messages are tested below.
     expect(
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
-    ).toBeTruthy();
+    ).toBeNull();
 
     // Setting a space tag color draws it as an outline ring around the group avatar
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
@@ -4039,5 +4039,113 @@ describe('CollaborationSpacePage', () => {
         '小A'
       );
     });
+  });
+
+  it('only draws piano-key ticks for user messages', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: { actor: 'space/user', content: '用户第一条' },
+              },
+              {
+                seq: 2,
+                envelope: { actor: 'space/member/小A', content: '助手回复' },
+              },
+              {
+                seq: 3,
+                envelope: { actor: 'space/user', content: '用户第二条' },
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect(await screen.findByText('用户第一条')).toBeTruthy();
+    expect(
+      screen.getAllByRole('button', { name: /跳转到第 \d+ 条消息/ })
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('button', { name: '跳转到第 3 条消息' })
+    ).toBeNull();
+  });
+
+  it('pins the message log to the bottom on enter and offers a back-to-bottom control', async () => {
+    const user = userEvent.setup();
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'scrollHeight'
+    );
+    const originalClientHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'clientHeight'
+    );
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return this.classList?.contains('collaboration-thread-log') ? 2000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() {
+        return this.classList?.contains('collaboration-thread-log') ? 400 : 0;
+      },
+    });
+    try {
+      renderPage();
+      await screen.findByText('你好');
+      const log = document.querySelector(
+        '.collaboration-thread-log'
+      ) as HTMLDivElement;
+      expect(log.scrollTop).toBeGreaterThanOrEqual(1600);
+      expect(screen.queryByTestId('collaboration-back-to-bottom')).toBeNull();
+
+      log.scrollTop = 0;
+      fireEvent.scroll(log);
+      const backToBottom = await screen.findByTestId(
+        'collaboration-back-to-bottom'
+      );
+      expect(backToBottom).toHaveAttribute('aria-label', '回到消息底部');
+      await user.click(backToBottom);
+      expect(log.scrollTop).toBeGreaterThanOrEqual(1600);
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId('collaboration-back-to-bottom')
+        ).toBeNull();
+      });
+    } finally {
+      if (originalScrollHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          'scrollHeight',
+          originalScrollHeight
+        );
+      } else {
+        delete (HTMLElement.prototype as { scrollHeight?: unknown })
+          .scrollHeight;
+      }
+      if (originalClientHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          'clientHeight',
+          originalClientHeight
+        );
+      } else {
+        delete (HTMLElement.prototype as { clientHeight?: unknown })
+          .clientHeight;
+      }
+    }
   });
 });

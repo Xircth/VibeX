@@ -19,6 +19,7 @@ import {
   type SidebarItem,
   type SpaceMember,
 } from './spaceModel';
+import { attachSidebarIdentityIds } from './threadApi';
 
 export const COLLABORATION_ADD_MEMBER_EVENT = 'vibex:collaboration-add-member';
 export const COLLABORATION_MEMBERS_CHANGED_EVENT =
@@ -52,7 +53,8 @@ export function GroupDetailsMembersTab({
   workspaceId?: string;
   getAvatar: (
     conversationId?: string | null,
-    nickname?: string
+    nickname?: string,
+    identityMemberId?: string | null
   ) => MemberBotAvatarConfig;
   onMembersChanged?: () => void;
 }) {
@@ -91,7 +93,20 @@ export function GroupDetailsMembersTab({
             }>,
           }),
     ]);
-    setMembers(agentRoster(page.members ?? []));
+    let next = agentRoster(page.members ?? []);
+    if (workspaceId) {
+      try {
+        const sidebar = await collaborationCall<{ items?: SidebarItem[] }>(
+          'collaboration',
+          'thread.listSidebar',
+          { workspaceId }
+        );
+        next = attachSidebarIdentityIds(next, sidebar.items);
+      } catch {
+        // Nickname resolve still works without sidebar identity ids.
+      }
+    }
+    setMembers(next);
     const match = (spacesPage.spaces ?? []).find(
       (space) => space.space_id === spaceId
     );
@@ -230,7 +245,7 @@ export function GroupDetailsMembersTab({
             data-testid={`collaboration-group-member-${nick}`}
           >
             <MemberBotAvatar
-              config={getAvatar(convId, nick)}
+              config={getAvatar(convId, nick, member.identity_member_id)}
               className="h-7 w-7 shrink-0"
               lead={isLead}
             />

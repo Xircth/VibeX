@@ -2,11 +2,7 @@ import { useMemo } from 'react';
 
 import { cn } from '@/lib/utils';
 
-import {
-  deriveMemberBotAvatar,
-  MemberBotAvatar,
-  readMemberBotAvatars,
-} from './MemberBotAvatar';
+import { MemberBotAvatar, resolveMemberBotAvatar } from './MemberBotAvatar';
 import i18n from '@/i18n';
 
 export function CollaborationSessionBadge({
@@ -20,16 +16,14 @@ export function CollaborationSessionBadge({
   onOpen: () => void;
   className?: string;
 }) {
-  const avatar = useMemo(() => {
-    const stored = readMemberBotAvatars();
-    const convKey = conversationId?.trim() ?? '';
-    const nickKey = memberName.trim();
-    return (
-      (convKey ? stored[convKey] : undefined) ||
-      (nickKey ? stored[nickKey] : undefined) ||
-      deriveMemberBotAvatar(convKey || nickKey || 'bot')
-    );
-  }, [conversationId, memberName]);
+  const avatar = useMemo(
+    () =>
+      resolveMemberBotAvatar({
+        conversationId,
+        nickname: memberName,
+      }),
+    [conversationId, memberName]
+  );
 
   return (
     <button

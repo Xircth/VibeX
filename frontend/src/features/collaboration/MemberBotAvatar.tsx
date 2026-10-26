@@ -202,6 +202,23 @@ export function readMemberBotAvatars(
   }
 }
 
+/** Avatar belongs to the bot identity, not a per-thread hidden conversation. */
+export function resolveMemberBotAvatar(input: {
+  conversationId?: string | null;
+  nickname?: string | null;
+  identityMemberId?: string | null;
+  stored?: Record<string, MemberBotAvatarConfig>;
+}): MemberBotAvatarConfig {
+  const stored = input.stored ?? readMemberBotAvatars();
+  const identity = input.identityMemberId?.trim() ?? '';
+  const nick = input.nickname?.trim() ?? '';
+  const conv = input.conversationId?.trim() ?? '';
+  for (const key of [identity, nick, conv]) {
+    if (key && stored[key]) return stored[key];
+  }
+  return deriveMemberBotAvatar(nick || identity || conv || 'bot');
+}
+
 export function writeMemberBotAvatars(
   avatars: Record<string, MemberBotAvatarConfig>,
   storage: Pick<Storage, 'setItem'> | undefined = typeof window !== 'undefined'

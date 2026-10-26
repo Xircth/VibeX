@@ -262,6 +262,7 @@ import {
   deriveMemberBotAvatar,
   randomMemberBotAvatar,
   readMemberBotAvatars,
+  resolveMemberBotAvatar,
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
@@ -1238,22 +1239,21 @@ export function CollaborationSpacePage({
   );
 
   const getMemberAvatar = useCallback(
-    (conversationId?: string, nickname?: string): MemberBotAvatarConfig => {
+    (
+      conversationId?: string,
+      nickname?: string,
+      identityMemberId?: string | null
+    ): MemberBotAvatarConfig => {
       const convKey = conversationId?.trim() ?? '';
-      const nickKey = nickname?.trim() ?? '';
       if (convKey && draftMemberMetaByConvId[convKey]?.avatar) {
         return draftMemberMetaByConvId[convKey].avatar;
       }
-      if (convKey && memberAvatars[convKey]) {
-        return memberAvatars[convKey];
-      }
-      if (nickKey && memberAvatars[nickKey]) {
-        return memberAvatars[nickKey];
-      }
-      if (nickKey.toLowerCase() === DEFAULT_MASTER_BOT_NAME.toLowerCase()) {
-        return { ...DEFAULT_MASTER_BOT_AVATAR };
-      }
-      return deriveMemberBotAvatar(convKey || nickKey || 'bot');
+      return resolveMemberBotAvatar({
+        conversationId,
+        nickname,
+        identityMemberId,
+        stored: memberAvatars,
+      });
     },
     [draftMemberMetaByConvId, memberAvatars]
   );

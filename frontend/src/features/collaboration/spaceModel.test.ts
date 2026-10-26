@@ -745,6 +745,7 @@ describe('collab DM bootstrap prompt', () => {
     expect(prompt).toContain('# 本回合立刻执行');
     expect(prompt).toContain('post_to_space');
     expect(prompt).toContain('to：`["User"]`');
+    expect(prompt).not.toContain('以 `@User ` 开头');
     expect(prompt).toContain('vibex-multi-agent');
     expect(prompt).toContain('COLLABORATION-SPACE.md');
     expect(prompt).toContain('list_space_collection');

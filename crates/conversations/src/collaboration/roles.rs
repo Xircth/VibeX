@@ -2696,7 +2696,7 @@ pub(crate) async fn member_identity_context_text(
             "[协作空间私聊身份]\n\
              - 你的昵称：{my_nickname} (conversation_id: {conversation_id}, thread_id: {thread_label})\n\
              - 角色说明：{role_desc}\n\
-             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。需要用户在私聊中看见的内容，调用 `post_to_space`（`space_id: \"{thread_label}\"`，`to: [\"User\"]`，`content` 以 `@User ` 开头）；不要再写一段重复的普通会话回复。向用户提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `list_space_messages`。若需读取或沉淀当前私聊收藏夹资料，可调用 `list_space_collection` / `read_space_collection_item` / `add_to_space_collection`（传入 `space_id: \"{thread_label}\"`）；可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
+             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。需要用户在私聊中看见的内容，调用 `post_to_space`（`space_id: \"{thread_label}\"`，`to: [\"User\"]`，正文直接写内容）；不要再写一段重复的普通会话回复。向用户提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `list_space_messages`。若需读取或沉淀当前私聊收藏夹资料，可调用 `list_space_collection` / `read_space_collection_item` / `add_to_space_collection`（传入 `space_id: \"{thread_label}\"`）；可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
         )));
     }
 
@@ -2901,7 +2901,7 @@ pub async fn list_space_members_detailed(
         "user_recipient": {
             "nickname": "User",
             "aliases": ["@User", "@你", "@用户"],
-            "usage": "在 post_to_space 的 to 中传入 \"User\" 并在 content 中以 @User 开头即可向用户汇报或提问"
+            "usage": "在 post_to_space 的 to 中传入 \"User\" 即可向用户汇报或提问。正文直接写内容；只有点名其他成员时才以 @成员昵称 开头"
         }
     }))
 }
@@ -5458,6 +5458,8 @@ mod tests {
         assert!(dm_context.contains("私聊助手"), "{dm_context}");
         assert!(dm_context.contains("一对一私聊"), "{dm_context}");
         assert!(dm_context.contains("post_to_space"), "{dm_context}");
+        assert!(dm_context.contains("to: [\"User\"]"), "{dm_context}");
+        assert!(!dm_context.contains("以 `@User ` 开头"), "{dm_context}");
         assert!(
             dm_context.contains(&identity::direct_thread_id(&identity_mid)),
             "{dm_context}"
@@ -5482,6 +5484,7 @@ mod tests {
             assert_eq!(err.code, "invalid_space_for_direct_chat");
             assert!(err.message.contains("一对一私聊"), "{}", err.message);
             assert!(err.message.contains("post_to_space"), "{}", err.message);
+            assert!(!err.message.contains("以 `@User ` 开头"), "{}", err.message);
         }
 
         // User adds a note to the direct assistant's collection (direct:<member_id>)

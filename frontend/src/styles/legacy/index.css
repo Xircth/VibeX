@@ -635,11 +635,12 @@
   .legacy-design .composer-at-reference-menu.composer-status-surface {
     position: absolute;
     right: 0;
-    bottom: calc(100% - 1px);
+    bottom: calc(100% - var(--radius));
     left: 0;
     z-index: 3;
     overflow: hidden;
-    border-radius: var(--radius) var(--radius) 0 0;
+    padding-bottom: var(--radius);
+    border-radius: var(--radius);
   }
 
   .legacy-design .composer-at-reference-tabs {

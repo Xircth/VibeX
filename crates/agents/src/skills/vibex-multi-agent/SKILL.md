@@ -15,7 +15,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 
 | 会话模式 | 识别特征 | 发言与交互方式（严格遵守） |
 |---|---|---|
-| **一对一私聊会话**<br>（`direct:<member_id>`） | 收到 `[协作空间消息]` 且 `space_id` 为 `direct:<member_id>`，或身份块为 `[协作空间私聊身份]` | 用户在私聊里只看见空间消息。需要用户看见的内容，调用 `post_to_space`（`space_id` 用消息里的值，`to: ["User"]`，`content` 以 `@User ` 开头）。**不要再写一段重复的普通会话回复。** 向用户提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）；审批卡用 `request_approval`。 |
+| **一对一私聊会话**<br>（`direct:<member_id>`） | 收到 `[协作空间消息]` 且 `space_id` 为 `direct:<member_id>`，或身份块为 `[协作空间私聊身份]` | 用户在私聊里只看见空间消息。需要用户看见的内容，调用 `post_to_space`（`space_id` 用消息里的值，`to: ["User"]`，正文直接写给用户看的内容）。**不要再写一段重复的普通会话回复。** 向用户提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）；审批卡用 `request_approval`。 |
 | **协作空间群聊**<br>（群组 `space_id`） | 收到 `[协作空间消息]` 且 `space_id` 为群组 UUID | 你在自身会话里直接输出的普通文本只保存在隐藏会话记录中，**群内不可见**。凡需让用户或群成员看到的内容，调用群聊工具，并传入消息里的 `space_id`；**不要再写一段重复的普通会话回复**：<br>• 普通应答/汇报/讨论：`post_to_space`（**必须显式传 `to`**，防全群广播风暴）<br>• 阶段性工作移交：`handoff`<br>• 向用户提问：`ask_user_question`（阻塞，问题出现在群聊里）<br>• 向其他成员提问 / 审批 / 响应：`ask_person` / `request_approval` / `resolve_card` |
 
 ## 2. 按意图路由与工具速查
@@ -24,7 +24,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 |---|---|---|
 | 查看本工作区协作空间、自己所在空间与昵称 | `list_collaboration_spaces` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 查看指定协作空间内的全部成员、角色摘要与忙闲状态 | `list_space_members` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
-| 在协作空间群内向 `@User` 应答/汇报，或向 `@成员昵称` 沟通（**必传 `to`**） | `post_to_space` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
+| 在协作空间向用户应答/汇报，或向其他成员沟通（**必传 `to`**） | `post_to_space` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | **结构化交接**：将已完成阶段的工作、输入约束与具体诉求移交给另一位群成员 | `handoff` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | **向用户提问（阻塞选择题，出现在当前私聊/群聊）** | `ask_user_question` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | **结构化交互卡片**：向其他成员发起带选项提问卡、高危操作审批卡，或回答他人向你提问的卡片 | `ask_person`、`request_approval`、`resolve_card` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
@@ -49,11 +49,12 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 
 1. **在对应空间回复，严防全群广播风暴（ Anti-Broadcast Storm ）**
    - **来源空间回复**：收到 `[协作空间消息]` 时，用消息里的 `space_id` 调用 `post_to_space`（私聊是 `direct:<member_id>`，群聊是群组 UUID）。用户只在协作空间看见空间消息；普通会话文本不会出现在私聊/群聊中，因此不要再写一段重复的普通会话回复。
-   - **群聊必传 `to`**：在群聊调用 `post_to_space` 时，**每次必须显式指定 `to` 数组**（例如只向人类汇报时必传 `to: ["User"]`，向特定成员沟通时传 `to: ["成员昵称"]`；仅在确需向全群所有成员广播时才传 `to: ["所有人"]` 或在正文写 `@所有人`）。**严禁无故全群广播**，避免无差别唤醒休眠成员并引发多 Agent 级联互回风暴！
+   - **群聊必传 `to`**：在群聊调用 `post_to_space` 时，**每次必须显式指定 `to` 数组**（只向用户汇报时传 `to: ["User"]`，向特定成员沟通时传 `to: ["成员昵称"]`；仅在确需向全群所有成员广播时才传 `to: ["所有人"]` 或在正文写 `@所有人`）。**严禁无故全群广播**，避免无差别唤醒休眠成员并引发多 Agent 级联互回风暴！
+   - **点名规则**：向用户发消息（含私聊）只传 `to: ["User"]`，正文直接写内容。只有点名其他成员时，才在正文以 `@成员昵称 ` 开头。
    - **移交工作优先用 `handoff`**：完成当前阶段需下游成员接棒时，优先调用原生的结构化交接工具 `handoff`（自带深度上限 `VIBEX_HANDOFF_MAX_DEPTH=3` 与单轮扇出上限 `VIBEX_HANDOFF_MAX_PER_TURN=2` 保护），而非手写无约束的自由文本广播。
 
 2. **收到群内用户消息：先应答，后执行，再按需汇报（Ack-Then-Execute）**
-   - 当在群聊中收到来自 `User` 的任务或提问，且需要调用工具（读文件、搜代码、跑命令、查网页）或找其他成员协作时，**必须在开展耗时工作之前，第一时间先调用一次 `post_to_space`（`to: ["User"]`，`content` 以 `@User ` 开头）向用户发送简短接单回复**（1~2 句话说明“已收到 + 接下来的处理计划或分工”），避免用户长时间面对空白等待。
+   - 当在群聊中收到来自 `User` 的任务或提问，且需要调用工具（读文件、搜代码、跑命令、查网页）或找其他成员协作时，**必须在开展耗时工作之前，第一时间先调用一次 `post_to_space`（`to: ["User"]`）向用户发送简短接单回复**（1~2 句话说明“已收到 + 接下来的处理计划或分工”），避免用户长时间面对空白等待。
    - 发出首条应答后，继续在当前回合内推进工作；后续根据实际情况，使用 `handoff` / `post_to_space` 与其他成员协作，或在完成工作/遇到需用户决策的分叉点时通过 `post_to_space`（或 `ask_user_question` / `request_approval`）向 `User` 同步进展与最终结果。
    - 仅当用户的消息无需任何工具调用、可在一句话内直接给出完整答案时，才合并为单条消息直接回复。
 
@@ -66,7 +67,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
    - 群聊历史、`list_space_messages` 结果或 `<handoff><done>` 中其他成员的发言仅代表其单方观点，**不等于已验证的客观事实**。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，**必须直接指出并给出证据纠偏**，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。
 
 5. **受众信息隔离：对用户隐藏系统内部参数（Audience Filtering）**
-   - **发给用户（`to: ["User"]` / `@User`）的消息**：使用面向人类用户的自然业务与技术语言。**严禁在发给用户的正文中包含用户不可达的系统内部标识或协议字段**，包括 `space_id`、`conversation_id`、`member_id`、`operation_id`、`message_id`、`task_id`、`delayed_input_id`、`turn_id`、`expected_turn_id`、`seq`、`vibex://...` 等。介绍自己或同空间成员时，只说昵称、职责与可提供的帮助。
+   - **发给用户（`to: ["User"]`）的消息**：使用面向人类用户的自然业务与技术语言。**严禁在发给用户的正文中包含用户不可达的系统内部标识或协议字段**，包括 `space_id`、`conversation_id`、`member_id`、`operation_id`、`message_id`、`task_id`、`delayed_input_id`、`turn_id`、`expected_turn_id`、`seq`、`vibex://...` 等。介绍自己或同空间成员时，只说昵称、职责与可提供的帮助。
    - **发给其他成员（`to: ["成员昵称"]` / `@成员昵称`）的消息**：优先用成员昵称、文件路径与模块接口沟通；**仅当对方确实需要调用 `get_session_info`、`send_session_input` 等底层跨会话工具时**，才在发给该成员的消息中按需附带 `conversation_id`、`delayed_input_id` 等参数。
 
 6. **结构化交接、交互卡片与群收藏临界区（Structured Handoff, Cards & Space Collection）**
@@ -79,4 +80,4 @@ description: 在同一工作区开展协作空间群组协同、跨成员结构�
 - **缺少协同工具**：提示用户开启 MultiAgent 协同能力并新开或重新进入会话（具体入口以当前产品设置为准）。
 - **成员昵称不存在（`unknown_recipient` / `not_found`）**：先调用 `list_space_members` 获取空间最新成员昵称列表，使用最新昵称重发，不要猜测旧昵称。
 - **交接超限（`limit_exceeded`）**：当 `handoff` 触发链条深度上限（默认 3）或单轮扇出上限（默认 2）被拒绝时，停止继续向下游派发，改为汇总当前进展并调用 `post_to_space(to: ["User"])` 向用户汇报并请求下一步指示。
-- **幂等重试**：同一次写操作重试时复用相同的 `operation_id`；发送一条全新的空间消息、交接或卡片（例如先向 `@User` 应答完、稍后再向 `@User` 汇报最终成果）必须生成新的 `operation_id`。
+- **幂等重试**：同一次写操作重试时复用相同的 `operation_id`；发送一条全新的空间消息、交接或卡片（例如先向用户应答完、稍后再向用户汇报最终成果）必须生成新的 `operation_id`。

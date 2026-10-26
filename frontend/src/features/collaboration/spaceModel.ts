@@ -1620,7 +1620,7 @@ export function buildCollabDmBootstrapPrompt(input: {
     spaceLine,
     '- to：`["User"]`',
     '- operation_id：新的 UUID',
-    '- content：以 `@User ` 开头。先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。问题和选项直接写在这条私信正文里。',
+    '- content：先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。问题和选项直接写在这条私信正文里。',
     '2. 发给用户的正文不要出现 space_id、conversation_id、operation_id、member_id、vibex:// 等内部标识。',
     '3. 招呼只通过这一次 `post_to_space` 发出；不要再写一段重复的普通会话回复。',
     '4. 发出招呼后，再阅读 `vibex-multi-agent` Skill 与 `COLLABORATION-SPACE.md`。',

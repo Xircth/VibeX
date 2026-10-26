@@ -1681,7 +1681,7 @@ pub async fn list_space_messages(
         return Err(CollaborationError::new(
             "invalid_space_for_direct_chat",
             format!(
-                "当前会话属于一对一私聊（{space_id_trimmed}）。私聊历史已在当前会话中，不必调用 list_space_messages。回复用户请调用 `post_to_space`（`space_id: \"{space_id_trimmed}\"`，`to: [\"User\"]`，`content` 以 `@User ` 开头），不要再写一段重复的普通会话回复。"
+                "当前会话属于一对一私聊（{space_id_trimmed}）。私聊历史已在当前会话中，不必调用 list_space_messages。回复用户请调用 `post_to_space`（`space_id: \"{space_id_trimmed}\"`，`to: [\"User\"]`），不要再写一段重复的普通会话回复。"
             ),
         ));
     }
@@ -1988,7 +1988,7 @@ pub async fn handoff_with(
                 caller_id: Some(input.caller_id),
                 space_id: input.space_id.clone(),
                 content: format!(
-                    "@User 交接给 {to} 失败（{reason}）。待办：{}",
+                    "交接给 {to} 失败（{reason}）。待办：{}",
                     input.envelope.ask.trim()
                 ),
                 summary: Some(format!("handoff to {to} failed")),
@@ -2197,11 +2197,7 @@ pub async fn finalize_space_turn_deliveries(
                 )
                 .as_bytes(),
             );
-            let content = if trimmed.starts_with("@User") || trimmed.starts_with("@user") {
-                trimmed.to_string()
-            } else {
-                format!("@User {trimmed}")
-            };
+            let content = trimmed.to_string();
             match post_to_space_with(
                 pool,
                 PostToSpace {
@@ -3351,12 +3347,9 @@ mod tests {
             .find(|m| m.envelope["id"] == json!(format!("vibex://space-message/{report}")))
             .expect("report in thread");
         assert_eq!(posted.origin, "agent");
-        assert!(
-            posted.envelope["content"]
-                .as_str()
-                .unwrap()
-                .contains("失败")
-        );
+        let report_content = posted.envelope["content"].as_str().unwrap();
+        assert!(report_content.contains("失败"), "{report_content}");
+        assert!(!report_content.starts_with("@User"), "{report_content}");
         // Replaying the same operation returns the recorded outcome.
         assert_eq!(handoff(&pool, request).await.unwrap(), failed);
     }
@@ -3962,11 +3955,9 @@ mod tests {
             fallback.in_reply_to.as_deref(),
             Some(user_msg.message_id.as_str())
         );
-        assert!(
-            fallback.envelope["content"]
-                .as_str()
-                .unwrap()
-                .contains("鉴权模块已完成单元测试并通过验证。")
+        assert_eq!(
+            fallback.envelope["content"].as_str().unwrap(),
+            "鉴权模块已完成单元测试并通过验证。"
         );
     }
 

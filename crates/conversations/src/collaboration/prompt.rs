@@ -361,7 +361,7 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
     }
 }
 
-pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_collaboration_spaces`（查看所在协作空间）、`list_space_members`（查看同空间成员详情）、`list_space_messages`（单次读取空间消息，支持 `since_seq` 与 `limit`）、`post_to_space`（向用户发消息传 `to: [\"User\"]` 并以 `@User ` 开头；向其他成员发消息传 `to: [\"成员昵称\"]` 并以 `@成员昵称 ` 开头）、`handoff`（向空间内其他成员发起结构化任务移交，含 `done`、`inputs_constraints`、`ask`）、`ask_user_question`（向用户发起阻塞选择题，问题出现在当前私聊/群聊，等到用户作答才返回）、`ask_person`（向其他成员 `to` 发起非阻塞提问卡片；不要用它问用户）、`request_approval`（向用户发起危险操作或关键决策审批卡片）、`resolve_card`（回答其他成员向你发起的提问卡片），以及群收藏工具 `list_space_collection`（列出群收藏记录及地址索引）、`add_to_space_collection`（向群收藏写入共享文本 `content` 或文件/图片路径 `source_path` 及备注 `note`，严禁传二进制）、`read_space_collection_item`（登记读取记录并获取单条收藏的 `file_path` 地址）。";
+pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_collaboration_spaces`（查看所在协作空间）、`list_space_members`（查看同空间成员详情）、`list_space_messages`（单次读取空间消息，支持 `since_seq` 与 `limit`）、`post_to_space`（向用户发消息传 `to: [\"User\"]`，正文直接写内容；向其他成员发消息传 `to: [\"成员昵称\"]` 并以 `@成员昵称 ` 开头）、`handoff`（向空间内其他成员发起结构化任务移交，含 `done`、`inputs_constraints`、`ask`）、`ask_user_question`（向用户发起阻塞选择题，问题出现在当前私聊/群聊，等到用户作答才返回）、`ask_person`（向其他成员 `to` 发起非阻塞提问卡片；不要用它问用户）、`request_approval`（向用户发起危险操作或关键决策审批卡片）、`resolve_card`（回答其他成员向你发起的提问卡片），以及群收藏工具 `list_space_collection`（列出群收藏记录及地址索引）、`add_to_space_collection`（向群收藏写入共享文本 `content` 或文件/图片路径 `source_path` 及备注 `note`，严禁传二进制）、`read_space_collection_item`（登记读取记录并获取单条收藏的 `file_path` 地址）。";
 
 pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
     let header = match space_id_hint {
@@ -376,9 +376,9 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
     format!(
         "{header}\n\
            1) 在对应空间回复：来自群聊空间的消息，用 `post_to_space` 发到同一 `space_id`；用户在协作空间里只看见空间消息，普通会话文本不会出现在群聊中，因此不要再写一段重复的普通会话回复；\n\
-           2) 收到 User 消息先应答再执行：若本条消息来自 User 且需要调用工具、排查代码、检索资料或找成员协作，必须先调用一次 `post_to_space`（`to: [\"User\"]`，`content` 以 `@User ` 开头）简短回复已收到及处理计划（1~2 句），然后再继续开展工作，后续视进展向 `@User` 或 `@成员昵称` 同步与交付结果；\n\
+           2) 收到 User 消息先应答再执行：若本条消息来自 User 且需要调用工具、排查代码、检索资料或找成员协作，必须先调用一次 `post_to_space`（`to: [\"User\"]`）简短回复已收到及处理计划（1~2 句），然后再继续开展工作，后续视进展向用户或 `@成员昵称` 同步与交付结果；\n\
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接结束当前回合；向其他成员发消息时也不要要求“收到请回复”；\n\
-           4) 对用户屏蔽内部参数：向 `@User` 发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
+           4) 对用户屏蔽内部参数：向用户发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
            5) 空间感知与群收藏（临界区）工具：投递信封不再附带成员名单或未引用的历史。需要名单时自行调用 `list_space_members`（`space_id`）；需要更早消息时自行调用 `list_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。以及使用 `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` 在群收藏中沉淀或读取跨成员共享的文本、图片、文件产物（群收藏仅保存磁盘地址索引与元数据，不可直接传入二进制，调用 `add_to_space_collection` 传入 `content` 或 `source_path` 即落盘到共享目录，调用 `read_space_collection_item` 登记读取记录并获取 `file_path` 后按路径访问）；\n\
            6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史、`list_space_messages` 结果或 `<handoff><done>` 中其他成员的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。"
     )
@@ -472,6 +472,28 @@ mod tests {
              - root_id：root-msg-1\n\
              - 引用：#3 User：请核对接口\n\
              接口字段已对齐"
+        );
+    }
+
+    #[test]
+    fn post_to_space_rules_address_user_without_at_user_prefix() {
+        let rules = format_collaboration_space_rules(Some(SAMPLE_SPACE));
+        assert!(rules.contains("to: [\"User\"]"), "{rules}");
+        assert!(!rules.contains("content 以 `@User ` 开头"), "{rules}");
+        assert!(!rules.contains("以 `@User ` 开头"), "{rules}");
+        assert!(rules.contains("向用户发消息时"), "{rules}");
+        assert!(rules.contains("@成员昵称"), "{rules}");
+        assert!(
+            COLLABORATION_MCP_TOOLS_SUMMARY.contains("to: [\"User\"]"),
+            "{COLLABORATION_MCP_TOOLS_SUMMARY}"
+        );
+        assert!(
+            !COLLABORATION_MCP_TOOLS_SUMMARY.contains("以 `@User ` 开头"),
+            "{COLLABORATION_MCP_TOOLS_SUMMARY}"
+        );
+        assert!(
+            COLLABORATION_MCP_TOOLS_SUMMARY.contains("以 `@成员昵称 ` 开头"),
+            "{COLLABORATION_MCP_TOOLS_SUMMARY}"
         );
     }
 

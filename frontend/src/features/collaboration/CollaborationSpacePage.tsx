@@ -131,6 +131,12 @@ import {
   collaborationCall,
   listenCollaborationSpaceChanged,
 } from './collaborationApi';
+import {
+  beginCollaborationComposerSend,
+  buildCollaborationSendContent,
+  restoreCollaborationComposerAfterSendFailure,
+  revokeCollaborationSendAttachments,
+} from './collaborationComposerSend';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import {
   attachSidebarIdentityIds,
@@ -3408,6 +3414,7 @@ export function CollaborationSpacePage({
     SessionComposerImageAttachment[]
   >([]);
   const attachedImagesRef = useRef<SessionComposerImageAttachment[]>([]);
+  const sentAttachmentsRef = useRef<SessionComposerImageAttachment[]>([]);
   useEffect(() => {
     attachedImagesRef.current = attachedImages;
   }, [attachedImages]);
@@ -3633,11 +3640,12 @@ export function CollaborationSpacePage({
   }, [draft]);
 
   const send = async (rawText: string) => {
+    const sendingAttachments = attachedImagesRef.current;
+    const content = buildCollaborationSendContent(
+      rawText,
+      sendingAttachments
+    );
     const textPart = rawText.replace(/\u00a0/g, ' ').trim();
-    const attachmentMarkdown = attachedImages
-      .map((img) => `![${img.name}](${img.path})`)
-      .join('\n');
-    const content = [textPart, attachmentMarkdown].filter(Boolean).join('\n\n');
     if (!selected || !content || sending) return;
     const sendingDirect =
       Boolean(directThreadRef.current) ||
@@ -3651,6 +3659,28 @@ export function CollaborationSpacePage({
       setError(COPY.nicknameMissing);
       return;
     }
+    const beforeSend = beginCollaborationComposerSend(sendingAttachments);
+    sentAttachmentsRef.current = beforeSend.sentAttachments;
+    setDraft(beforeSend.message);
+    replaceDraftRef.current?.('');
+    setAttachedImages(beforeSend.attachments);
+    const restoreComposer = () => {
+      restoreDraft(rawText);
+      setAttachedImages((current) => {
+        const restored = restoreCollaborationComposerAfterSendFailure({
+          currentAttachments: current,
+          sentAttachments: sentAttachmentsRef.current,
+        });
+        sentAttachmentsRef.current = [];
+        return restored;
+      });
+    };
+    const finishSuccessfulSend = () => {
+      revokeCollaborationSendAttachments(sentAttachmentsRef.current);
+      sentAttachmentsRef.current = [];
+      setError('');
+      setOperationId(crypto.randomUUID());
+    };
     setSending(true);
     try {
       const directThreadId =
@@ -3682,14 +3712,7 @@ export function CollaborationSpacePage({
           );
           throw cause;
         }
-        setDraft('');
-        replaceDraftRef.current?.('');
-        setAttachedImages((prev) => {
-          clearComposerImageAttachments(prev);
-          return [];
-        });
-        setError('');
-        setOperationId(crypto.randomUUID());
+        finishSuccessfulSend();
         void loadConversations();
         void refreshSidebar();
         const page = await loadDirectMessages<SpaceMessage>(
@@ -3766,18 +3789,11 @@ export function CollaborationSpacePage({
       }
       const failure = deliveryFailureCopy(posted.receipts);
       if (failure) {
-        restoreDraft(rawText);
+        restoreComposer();
         setError(failure);
         return;
       }
-      setDraft('');
-      replaceDraftRef.current?.('');
-      setAttachedImages((prev) => {
-        clearComposerImageAttachments(prev);
-        return [];
-      });
-      setError('');
-      setOperationId(crypto.randomUUID());
+      finishSuccessfulSend();
       void loadConversations();
       const sinceSeq = latestMessageSeq(messagesRef.current);
       const messagePage = await collaborationCall<{
@@ -3803,7 +3819,7 @@ export function CollaborationSpacePage({
           : mergeSpaceMessages([optimisticMessage], incoming)
       );
     } catch (cause) {
-      restoreDraft(rawText);
+      restoreComposer();
       setError(surfaceErrorCopy(cause));
     } finally {
       setSending(false);

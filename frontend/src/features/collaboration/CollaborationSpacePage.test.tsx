@@ -20,12 +20,28 @@ const collaborationCall = vi.hoisted(() => vi.fn());
 const sessionPreviewSpy = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 const toastInfo = vi.hoisted(() => vi.fn());
+const { uploadForAttemptMock, uploadMock } = vi.hoisted(() => ({
+  uploadForAttemptMock: vi.fn(),
+  uploadMock: vi.fn(),
+}));
 const spaceEventListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
 const workspaceSessionsListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
+
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    imagesApi: {
+      ...actual.imagesApi,
+      uploadForAttempt: uploadForAttemptMock,
+      upload: uploadMock,
+    },
+  };
+});
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
   const actual =
@@ -156,6 +172,18 @@ describe('CollaborationSpacePage', () => {
     });
     collaborationCall.mockReset();
     sessionPreviewSpy.mockReset();
+    uploadForAttemptMock.mockReset();
+    uploadMock.mockReset();
+    uploadForAttemptMock.mockResolvedValue({
+      id: 'img-1',
+      original_name: 'shot.png',
+      file_path: '.vibe-images/shot.png',
+    });
+    uploadMock.mockResolvedValue({
+      id: 'img-1',
+      original_name: 'shot.png',
+      file_path: '.vibe-images/shot.png',
+    });
     spaceEventListeners.clear();
     workspaceSessionsListeners.clear();
     collaborationCall.mockImplementation(
@@ -730,6 +758,163 @@ describe('CollaborationSpacePage', () => {
         )
       ).toBe(true);
     });
+  });
+
+  it('clears the attachment drawer before space.post resolves', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    let releasePost: ((value: unknown) => void) | undefined;
+    const postGate = new Promise((resolve) => {
+      releasePost = resolve;
+    });
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.post') {
+          await postGate;
+          return {
+            message_id: String(input?.operationId ?? 'msg-1'),
+            seq: 3,
+            receipts: [
+              {
+                conversation_id: 'conv-1',
+                nickname: '小A',
+                delivered: 'queued',
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
+
+    Object.assign(URL, {
+      createObjectURL: () => 'blob:shot',
+      revokeObjectURL: () => undefined,
+    });
+    const imageFile = new File(['png'], 'shot.png', { type: 'image/png' });
+    fireEvent.paste(getComposerEditor(), {
+      clipboardData: {
+        files: [imageFile],
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => imageFile,
+          },
+        ],
+        getData: () => '',
+      },
+    });
+    await waitFor(() => {
+      expect(
+        uploadForAttemptMock.mock.calls.length + uploadMock.mock.calls.length
+      ).toBeGreaterThan(0);
+    });
+    expect(
+      await screen.findByTestId('session-composer-attachment-drawer')
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('session-composer-attachment-drawer')
+      ).toBeNull();
+    });
+    expect(
+      collaborationCall.mock.calls.some((call) => call[1] === 'space.post')
+    ).toBe(true);
+    const postCall = collaborationCall.mock.calls.find(
+      (call) => call[1] === 'space.post'
+    );
+    expect(postCall?.[2]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining('shot.png'),
+      })
+    );
+
+    releasePost?.({});
+  });
+
+  it('restores the attachment drawer when space.post fails', async () => {
+    const user = userEvent.setup();
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return { spaces: [{ space_id: 's1', name: '设计' }] };
+        }
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return { messages: [] };
+        }
+        if (method === 'space.post') {
+          throw new Error('post failed');
+        }
+        return {};
+      }
+    );
+
+    renderPage();
+    expect(await screen.findByRole('button', { name: '小A' })).toBeTruthy();
+
+    Object.assign(URL, {
+      createObjectURL: () => 'blob:shot',
+      revokeObjectURL: () => undefined,
+    });
+    const imageFile = new File(['png'], 'shot.png', { type: 'image/png' });
+    fireEvent.paste(getComposerEditor(), {
+      clipboardData: {
+        files: [imageFile],
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => imageFile,
+          },
+        ],
+        getData: () => '',
+      },
+    });
+    await waitFor(() => {
+      expect(
+        uploadForAttemptMock.mock.calls.length + uploadMock.mock.calls.length
+      ).toBeGreaterThan(0);
+    });
+    expect(
+      await screen.findByTestId('session-composer-attachment-drawer')
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByText('post failed')).toBeTruthy();
+    expect(
+      await screen.findByTestId('session-composer-attachment-drawer')
+    ).toBeTruthy();
   });
 
   it('retains draft and operationId when delivery receipt fails, and keeps draft on image paste', async () => {

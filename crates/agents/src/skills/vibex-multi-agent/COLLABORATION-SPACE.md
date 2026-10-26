@@ -22,7 +22,7 @@
 | 工具名称 | 核心参数（必填加粗） | 适用场景与行为说明 |
 |---|---|---|
 | `list_collaboration_spaces` | 无必填参数 | 查看当前工作区的所有协作空间、自己所属的空间、在各空间中的昵称及成员概览。 |
-| `list_space_members` | **`space_id`** | 查看指定空间内所有成员详情（`nickname`、`conversation_id`、`agent_id`、`status`、`turn_in_flight` 忙闲状态、`team_name`、`summary`）及向用户发信的方式（`User`）。 |
+| `list_space_members` | **`space_id`** | 查看指定空间内所有成员详情。`member_id` 是群内席位 id，`identity_member_id` 是成员身份 id；`send_session_input.member_id` 两者都认。另有 `nickname`、`conversation_id`、`agent_id`、`status`、`turn_in_flight`、`team_name`、`summary`，以及向用户发信的方式（`User`）。 |
 | `list_space_messages` | **`space_id`**、`since_seq`、`limit` | 单次非阻塞读取 `since_seq` 之后的空间历史消息。**严禁循环调用它来轮询等待别人回复**。 |
 | `post_to_space` | **`operation_id`**、**`space_id`**、**`content`**、`to`（**规范要求必传**）、`summary`、`in_reply_to`、`delay_seconds` | 向当前空间（私聊 `direct:<id>` 或群组）发送普通消息并立即返回。`space_id` 用 `[协作空间消息]` 里的值。**必须显式传入 `to` 数组**（如 `to: ["User"]` 或 `to: ["成员昵称"]`；仅在确需向全群所有成员广播时传 `to: ["所有人"]` 或在正文写 `@所有人`）。向用户发消息时正文直接写内容；向其他成员发消息时正文以 `@成员昵称 ` 开头。支持 `delay_seconds` 延时投递。 |
 | `handoff` | **`operation_id`**、**`space_id`**、**`to`**、**`ask`**、`done`、`inputs_constraints` | **原生结构化工作交接**。将当前阶段工作移交给空间内另一位成员（`to` 传接收方昵称），在群内渲染专属 `<handoff>` 卡片并唤醒接收方。受链条深度上限（`VIBEX_HANDOFF_MAX_DEPTH=3`）和单轮扇出上限（`VIBEX_HANDOFF_MAX_PER_TURN=2`）保护。 |

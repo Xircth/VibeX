@@ -4,7 +4,7 @@
 
 VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型。工作区内用户直接创建的会话、基于角色模板创建的会话、以及委派产生的会话，都是一等公民，支持多轮续聊。
 
-协作空间里的**成员**是身份，不是一条可单独拉进群的会话：每个成员在私聊与每个群聊各有一条**隐藏会话**。用户 UI 不展示这些会话；Agent 在群里通过 `post_to_space` 工作，在需要点对点控制时才用 `send_session_input`（可传 `member_id` + `thread_id`，由宿主解析）。权威模型见仓库 `docs/collaboration-member-identity.md`。
+协作空间里的**成员**是身份，不是一条可单独拉进群的会话：每个成员在私聊与每个群聊各有一条**隐藏会话**。用户 UI 不展示这些会话；Agent 在群里通过 `post_to_space` 工作，在需要点对点控制时才用 `send_session_input`（可传 `member_id` + `thread_id`，由宿主解析）。`member_id` 可以是 `list_space_members` / `add_space_member` 返回的 `identity_member_id`（成员身份），也可以是这两项工具返回的群内席位 `member_id`；二者不是同一套 id。优先用 `identity_member_id`。权威模型见仓库 `docs/collaboration-member-identity.md`。
 
 ---
 
@@ -35,7 +35,7 @@ VibeX 采用**自由协同与一等会话（First-Class Conversation）**模型�
 1. **异步非阻塞投递**
    - `send_session_input` 立即返回投递状态（`dispatched`、`queued` 或 `scheduled`）。调用后继续推进你自己的工作，不要在原地死等。
    - 若确实需要等待目标会话当前轮次完成后再做汇总，调用 `wait_for_session`（传入 `conversation_id` 与合理的 `wait_ms`）。
-   - 宿主也接受 `member_id` + `thread_id`：由宿主 `resolve_session` 后再发送。
+   - 宿主也接受 `member_id` + `thread_id`：`member_id` 用成员身份 id（`identity_member_id`）或群内席位 `member_id`（`list_space_members` / `add_space_member` 返回值），宿主解析到该成员在该 thread 的隐藏会话后再发送。点对点投递一条已有会话用 `conversation_id`。
 
 2. **插话引导（`steer`）与延时投递（`delay_seconds`）**
    - **默认排队/直发**：不传 `steer` 时，若目标会话空闲则立即启动新 Turn，若正忙则进入其输入队列。

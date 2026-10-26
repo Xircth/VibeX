@@ -52,10 +52,12 @@ pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
     load_stored_operation, seat_binding, store_operation, user_actor,
 };
-pub use prompt::{invalidate_space_delivery_prompt_injections, prefix_persona_prompt};
+pub use hot_group::HotGroupTracker;
 pub(crate) use prompt::{
-    COLLABORATION_MCP_TOOLS_SUMMARY, compose_space_delivery_prompt, format_collaboration_space_rules,
+    COLLABORATION_MCP_TOOLS_SUMMARY, compose_space_delivery_prompt,
+    format_collaboration_space_rules,
 };
+pub use prompt::{invalidate_space_delivery_prompt_injections, prefix_persona_prompt};
 pub use roles::{
     BatchDeleteMemberTarget, BatchDeleteResult, CollaborationSpaceChangedEvent,
     ConversationListItem, ConversationPersonaView, CreateSpawnedConversation, CreatedConversation,
@@ -75,22 +77,18 @@ pub use roles::{
     record_member_session_workspace, release_member_write, rename_workspace_space,
     resolve_member_target, resolve_session, resolve_thread_session, set_conversation_persona_team,
     set_member_session_config, set_member_write_access, set_space_identity, set_space_lead,
-    space_workspace_id, thread_id_for_conversation, try_acquire_member_write,
-    unassigned_space_id, update_role, update_team,
+    space_member_tool_value, space_workspace_id, thread_id_for_conversation,
+    try_acquire_member_write, unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
     caller_seat, load_space, load_space_or_unassigned, member_nickname, resolve_seat_target,
     seat_conversation,
 };
-pub use hot_group::HotGroupTracker;
 pub use routing::{
     DEFAULT_AGENT_REPLY_CHAIN_MAX, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_CAP_PER_TURN,
     WAKE_LIMIT_REACHED, WakePreview, agent_reply_chain_max, clean_space_display_text,
     idle_sleep_minutes, is_broadcast_target_name, preview_space_wake, sleep_idle_sessions,
     spawn_idle_session_sweeper, wake_cap_per_turn,
-};
-pub use warmup::{
-    SessionProcessWarmup, SpaceWarmupResult, warmup_space_members,
 };
 pub(crate) use routing::{
     env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, session_is_asleep,
@@ -102,6 +100,7 @@ pub use scheduled::{
     spawn_delayed_input_promoter, update_space_scheduled_message,
 };
 pub(crate) use scheduled::{schedule_input, scheduled_deadline};
+pub use warmup::{SessionProcessWarmup, SpaceWarmupResult, warmup_space_members};
 
 const ROLE_CAP: i64 = 100;
 const TEAM_CAP: i64 = 30;

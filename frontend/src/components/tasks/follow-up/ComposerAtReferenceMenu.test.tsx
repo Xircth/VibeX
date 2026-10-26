@@ -130,7 +130,7 @@ describe('ComposerAtReferenceMenu', () => {
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('renders the broadcast member as bold black text without an avatar', () => {
+  it('renders the broadcast member as bold black text with a leading @ icon', () => {
     render(
       <ComposerAtReferenceMenu
         groups={[
@@ -168,7 +168,12 @@ describe('ComposerAtReferenceMenu', () => {
 
     const allMembers = screen.getByRole('option', { name: /全体成员/ });
     expect(allMembers.querySelector('[data-bot-shape]')).toBeNull();
-    expect(allMembers.querySelector('svg')).toBeNull();
+    const mentionAllIcon = allMembers.querySelector(
+      '[data-composer-at-mention-all-icon]'
+    );
+    expect(mentionAllIcon).not.toBeNull();
+    expect(mentionAllIcon).toHaveClass('h-7', 'w-7');
+    expect(mentionAllIcon?.querySelector('svg')).not.toBeNull();
     const label = allMembers.querySelector(
       '[data-composer-at-reference-label]'
     );

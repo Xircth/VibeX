@@ -323,10 +323,13 @@ impl Companion {
             "initialize" => respond(id, initialize_result(params))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
-            "ping" => respond(id, json!({}))
+            "server/discover" => respond(id, discover_result())
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
-            "tools/list" => respond(id, json!({ "tools": self.tools }))
+            "ping" => respond(id, modernize_result(params, json!({})))
+                .map(LineAction::Respond)
+                .unwrap_or(LineAction::Ignore),
+            "tools/list" => respond(id, modernize_result(params, json!({ "tools": self.tools })))
                 .map(LineAction::Respond)
                 .unwrap_or(LineAction::Ignore),
             "tools/call" => match (id, params) {
@@ -431,7 +434,11 @@ impl Companion {
                 } else {
                     Vec::new()
                 };
-                let relayed = write_opt(&stdout, respond(id, render_result(&outcome))).await;
+                let relayed = write_opt(
+                    &stdout,
+                    respond(id, modernize_result(meta.as_ref(), render_result(&outcome))),
+                )
+                .await;
                 if relayed && !feedback_ids.is_empty() {
                     let _ = self
                         .send(&BrokerMessage::CommitFeedback(
@@ -664,9 +671,10 @@ fn resolve_conversation_id(flag: Option<String>) -> Option<String> {
 }
 
 /// Handshake-era MCP revisions this companion can speak. `2026-07-28` is
-/// modern/stateless and is echoed only when the client asks for it; an omitted
-/// or unknown request must not be answered as modern, because Claude Code's
-/// MCP client then reports that it is too old for the server.
+/// modern/stateless: Claude Code 2.1.292+ stdio probes it via `server/discover`
+/// and stays on that revision when the probe returns `supportedVersions`.
+/// An `initialize` request still selects handshake semantics; an omitted or
+/// unknown handshake version must not be answered as modern.
 const SUPPORTED_MCP_PROTOCOLS: &[&str] = &[
     "2024-11-05",
     "2025-03-26",
@@ -675,6 +683,9 @@ const SUPPORTED_MCP_PROTOCOLS: &[&str] = &[
     "2026-07-28",
 ];
 const DEFAULT_MCP_PROTOCOL: &str = "2025-11-25";
+const MODERN_MCP_PROTOCOL: &str = "2026-07-28";
+const MCP_PROTOCOL_VERSION_META: &str = "io.modelcontextprotocol/protocolVersion";
+const MCP_SERVER_INFO_META: &str = "io.modelcontextprotocol/serverInfo";
 
 fn negotiate_protocol(params: Option<&Value>) -> &'static str {
     let requested = params
@@ -687,11 +698,55 @@ fn negotiate_protocol(params: Option<&Value>) -> &'static str {
         .unwrap_or(DEFAULT_MCP_PROTOCOL)
 }
 
+fn server_info() -> Value {
+    json!({
+        "name": "vibex-mcp",
+        "version": env!("CARGO_PKG_VERSION")
+    })
+}
+
+fn meta_protocol_version(params: Option<&Value>) -> Option<&str> {
+    params.and_then(|value| {
+        value
+            .get(MCP_PROTOCOL_VERSION_META)
+            .or_else(|| {
+                value
+                    .get("_meta")
+                    .and_then(|meta| meta.get(MCP_PROTOCOL_VERSION_META))
+            })
+            .and_then(Value::as_str)
+    })
+}
+
+fn discover_result() -> Value {
+    json!({
+        "resultType": "complete",
+        "supportedVersions": [MODERN_MCP_PROTOCOL],
+        "capabilities": { "tools": {} },
+        "_meta": { MCP_SERVER_INFO_META: server_info() }
+    })
+}
+
+fn modernize_result(params: Option<&Value>, mut result: Value) -> Value {
+    if meta_protocol_version(params) != Some(MODERN_MCP_PROTOCOL) {
+        return result;
+    }
+    if let Some(object) = result.as_object_mut() {
+        object
+            .entry("resultType")
+            .or_insert_with(|| json!("complete"));
+        object
+            .entry("_meta")
+            .or_insert_with(|| json!({ MCP_SERVER_INFO_META: server_info() }));
+    }
+    result
+}
+
 fn initialize_result(params: Option<&Value>) -> Value {
     json!({
         "protocolVersion": negotiate_protocol(params),
         "capabilities": { "tools": {} },
-        "serverInfo": { "name": "vibex-mcp", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": server_info()
     })
 }
 
@@ -1100,6 +1155,43 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
         ));
         assert_eq!(value["result"]["protocolVersion"], "2025-11-25");
+    }
+
+    #[test]
+    fn discover_answers_claude_code_2026_stdio_probe() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":"server-discover-probe-1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"claude-code","version":"2.1.303"}}}}"#,
+        ));
+        assert!(
+            value.get("error").is_none(),
+            "Claude Code 2.1.292+ stdio probes server/discover first; method-not-found makes it fall back to the handshake"
+        );
+        assert_eq!(value["result"]["resultType"], "complete");
+        assert_eq!(
+            value["result"]["supportedVersions"],
+            json!(["2026-07-28"]),
+            "listing only the modern revision keeps Claude on 2026-07-28 after the probe"
+        );
+        assert_eq!(value["result"]["capabilities"]["tools"], json!({}));
+        assert_eq!(
+            value["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "vibex-mcp"
+        );
+    }
+
+    #[test]
+    fn tools_list_after_modern_discover_does_not_need_initialize() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}"#,
+        ));
+        assert!(value["result"]["tools"].is_array());
+        assert_eq!(value["result"]["resultType"], "complete");
+        assert_eq!(
+            value["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "vibex-mcp"
+        );
     }
 
     #[test]

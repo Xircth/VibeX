@@ -268,8 +268,41 @@ const FALLBACK_TOOLS = [
   },
 ];
 
+const MODERN_MCP_PROTOCOL = '2026-07-28';
+const SERVER_INFO = { name: 'vibex-computer-use', version: '0.34.0' };
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function isModernRequest(params) {
+  return (
+    params &&
+    params._meta &&
+    params._meta['io.modelcontextprotocol/protocolVersion'] ===
+      MODERN_MCP_PROTOCOL
+  );
+}
+
+function discoverResult() {
+  return {
+    resultType: 'complete',
+    supportedVersions: [MODERN_MCP_PROTOCOL],
+    capabilities: { tools: {} },
+    _meta: { 'io.modelcontextprotocol/serverInfo': SERVER_INFO },
+  };
+}
+
+function modernize(params, result) {
+  if (!isModernRequest(params)) return result;
+  return {
+    resultType: 'complete',
+    ...result,
+    _meta: {
+      ...(result._meta || {}),
+      'io.modelcontextprotocol/serverInfo': SERVER_INFO,
+    },
+  };
 }
 
 async function handle(message) {
@@ -293,10 +326,7 @@ async function handle(message) {
       result: {
         protocolVersion,
         capabilities: { tools: {} },
-        serverInfo: {
-          name: 'vibex-computer-use',
-          version: '0.34.0',
-        },
+        serverInfo: SERVER_INFO,
       },
     });
     return;
@@ -306,8 +336,13 @@ async function handle(message) {
     return;
   }
 
+  if (method === 'server/discover') {
+    send({ jsonrpc: '2.0', id, result: discoverResult() });
+    return;
+  }
+
   if (method === 'ping') {
-    send({ jsonrpc: '2.0', id, result: {} });
+    send({ jsonrpc: '2.0', id, result: modernize(params, {}) });
     return;
   }
 
@@ -318,9 +353,13 @@ async function handle(message) {
         res && Array.isArray(res.tools) && res.tools.length > 0
           ? res.tools
           : FALLBACK_TOOLS;
-      send({ jsonrpc: '2.0', id, result: { tools } });
+      send({ jsonrpc: '2.0', id, result: modernize(params, { tools }) });
     } catch {
-      send({ jsonrpc: '2.0', id, result: { tools: FALLBACK_TOOLS } });
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: modernize(params, { tools: FALLBACK_TOOLS }),
+      });
     }
     return;
   }
@@ -339,16 +378,19 @@ async function handle(message) {
       send({
         jsonrpc: '2.0',
         id,
-        result: result ?? {
-          content: [{ type: 'text', text: 'Empty tool response' }],
-          isError: true,
-        },
+        result: modernize(
+          params,
+          result ?? {
+            content: [{ type: 'text', text: 'Empty tool response' }],
+            isError: true,
+          }
+        ),
       });
     } catch (error) {
       send({
         jsonrpc: '2.0',
         id,
-        result: {
+        result: modernize(params, {
           content: [
             {
               type: 'text',
@@ -356,7 +398,7 @@ async function handle(message) {
             },
           ],
           isError: true,
-        },
+        }),
       });
     }
     return;

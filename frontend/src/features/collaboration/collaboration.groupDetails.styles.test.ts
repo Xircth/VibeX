@@ -80,4 +80,21 @@ describe('collaboration group and assistant details width', () => {
     expect(display['white-space']?.value).toBe('pre-wrap');
     expect(display['word-break']?.value).toBe('break-word');
   });
+
+  it('keeps collection copy and delete icon buttons backgroundless', () => {
+    const copy = declarationsFor('.collaboration-collection-copy-btn');
+    expect(copy.background?.value).toBe('transparent');
+    expect(copy['background-color']?.value ?? 'transparent').toBe(
+      'transparent'
+    );
+    expect(copy.border?.value).toBe('none');
+
+    const remove = declarationsFor('.collaboration-collection-delete-btn');
+    expect(remove.background?.value).toBe('transparent');
+    expect(remove['background-color']?.value ?? 'transparent').toBe(
+      'transparent'
+    );
+    expect(remove.border?.value).toBe('none');
+    expect(remove.color?.value).toBe('hsl(var(--destructive) / 0.72)');
+  });
 });

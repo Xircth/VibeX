@@ -7,7 +7,16 @@ import {
   type CSSProperties,
 } from 'react';
 import { type IDockviewPanelProps } from 'dockview-react';
-import { Check, ChevronDown, Pencil, Plus, Upload, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 
 import { AttachmentFileCard } from '@/components/NormalizedConversation/attachments/AttachmentFileCard';
 import { Button } from '@/components/ui/button';
@@ -45,6 +54,7 @@ import {
   GroupDetailsMembersTab,
 } from './GroupDetailsMembersTab';
 import { GroupDetailsUsageTab } from './GroupDetailsUsageTab';
+import { copySpaceCollectionItem } from './copySpaceCollectionItem';
 import {
   COPY,
   SPACE_TAG_PRESETS,
@@ -234,7 +244,9 @@ export function SpaceCollectionImagePreview({
       <button
         type="button"
         className="collaboration-collection-image-btn"
-        aria-label={i18n.t('panels:ui.collection.previewImageName', { name: name })}
+        aria-label={i18n.t('panels:ui.collection.previewImageName', {
+          name: name,
+        })}
         onClick={() => {
           panelActions?.openImagePreview(src || filePath, { title: name });
         }}
@@ -295,6 +307,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(
     null
   );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingNoteDraft, setEditingNoteDraft] = useState('');
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -457,6 +470,38 @@ export function CollaborationSpaceCollectionDockviewPanel(
       }
     },
     [loadCollection, savingNoteItemId, spaceId]
+  );
+
+  const handleCopyItem = useCallback(
+    async (item: SpaceCollectionItemRecord) => {
+      try {
+        await copySpaceCollectionItem(item);
+      } catch (cause) {
+        setError(surfaceErrorCopy(cause));
+      }
+    },
+    []
+  );
+
+  const handleDeleteItem = useCallback(
+    async (itemId: string) => {
+      if (!spaceId || !itemId || submitting) return;
+      setSubmitting(true);
+      setError('');
+      try {
+        await collaborationCall('collaboration', 'space.removeCollectionItem', {
+          spaceId,
+          itemId,
+        });
+        setItems((current) => current.filter((entry) => entry.id !== itemId));
+        setSelectedItemId((current) => (current === itemId ? null : current));
+      } catch (cause) {
+        setError(surfaceErrorCopy(cause));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [spaceId, submitting]
   );
 
   const handleAddTextSubmit = async () => {
@@ -696,10 +741,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
         isAssistant ? (
           <AssistantDetailsSessionTab conversationId={conversationId} />
         ) : (
-          <GroupDetailsUsageTab
-            spaceId={spaceId}
-            getAvatar={getAvatar}
-          />
+          <GroupDetailsUsageTab spaceId={spaceId} getAvatar={getAvatar} />
         )
       ) : null}
 
@@ -774,6 +816,21 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
                 {i18n.t('panels:ui.collection.uploadFile')}
               </Button>
+              <button
+                type="button"
+                className="collaboration-collection-delete-btn"
+                data-testid="collaboration-collection-delete-btn"
+                aria-label={i18n.t('panels:ui.collection.deleteSavedItem')}
+                disabled={submitting || !selectedItemId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (selectedItemId) {
+                    void handleDeleteItem(selectedItemId);
+                  }
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             </div>
           </div>
 
@@ -843,7 +900,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
             data-testid="collaboration-collection-list"
           >
             {loading ? (
-              <p className="collaboration-preview-empty">{i18n.t('panels:ui.collection.loading')}</p>
+              <p className="collaboration-preview-empty">
+                {i18n.t('panels:ui.collection.loading')}
+              </p>
             ) : items.length === 0 ? (
               <p className="collaboration-preview-empty">
                 {i18n.t('panels:ui.collection.nothingSavedInThisGroup')}
@@ -882,10 +941,16 @@ export function CollaborationSpaceCollectionDockviewPanel(
                     )}
                     data-testid={`collection-item-${item.id}`}
                     data-collapsed={isCollapsed ? 'true' : 'false'}
+                    data-selected={
+                      selectedItemId === item.id ? 'true' : 'false'
+                    }
                   >
                     <div
                       className="collaboration-collection-card-header"
-                      onClick={() => toggleItemCollapsed(item.id)}
+                      onClick={() => {
+                        setSelectedItemId(item.id);
+                        toggleItemCollapsed(item.id);
+                      }}
                     >
                       <div
                         className="collaboration-collection-creator"
@@ -907,13 +972,46 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         >
                           {kindLabel}
                         </span>
+                        {itemKind === 'text' || itemKind === 'image' ? (
+                          <button
+                            type="button"
+                            className="collaboration-collection-copy-btn"
+                            data-testid={`collection-item-copy-${item.id}`}
+                            aria-label={i18n.t(
+                              'panels:ui.collection.copySavedItem'
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleCopyItem(item);
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="collaboration-collection-delete-btn"
+                          data-testid={`collection-item-delete-${item.id}`}
+                          aria-label={i18n.t(
+                            'panels:ui.collection.deleteSavedItem'
+                          )}
+                          disabled={submitting}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteItem(item.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
                         <button
                           type="button"
                           className="collaboration-collection-collapse-btn"
                           data-testid={`collection-item-collapse-toggle-${item.id}`}
                           aria-expanded={!isCollapsed}
                           aria-label={
-                            isCollapsed ? i18n.t('panels:ui.collection.expandSavedItem') : i18n.t('panels:ui.collection.collapseSavedItem')
+                            isCollapsed
+                              ? i18n.t('panels:ui.collection.expandSavedItem')
+                              : i18n.t('panels:ui.collection.collapseSavedItem')
                           }
                           onClick={(event) => {
                             event.stopPropagation();
@@ -968,12 +1066,16 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           {isEditingNote ? (
                             <div className="collaboration-collection-note-editor">
                               <Input
-                                aria-label={i18n.t('panels:ui.collection.editSavedItemNote')}
+                                aria-label={i18n.t(
+                                  'panels:ui.collection.editSavedItemNote'
+                                )}
                                 data-testid={`collection-item-note-input-${item.id}`}
                                 value={editingNoteDraft}
                                 disabled={savingNoteItemId === item.id}
                                 autoFocus
-                                placeholder={i18n.t('panels:ui.collection.enterANote')}
+                                placeholder={i18n.t(
+                                  'panels:ui.collection.enterANote'
+                                )}
                                 className="h-6 flex-1 px-2 text-xs"
                                 onChange={(event) =>
                                   setEditingNoteDraft(event.target.value)
@@ -996,7 +1098,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
-                                aria-label={i18n.t('panels:ui.collection.saveNote')}
+                                aria-label={i18n.t(
+                                  'panels:ui.collection.saveNote'
+                                )}
                                 data-testid={`collection-item-note-save-${item.id}`}
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => {
@@ -1016,7 +1120,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 shrink-0"
-                                aria-label={i18n.t('panels:ui.collection.cancelNoteEdit')}
+                                aria-label={i18n.t(
+                                  'panels:ui.collection.cancelNoteEdit'
+                                )}
                                 data-testid={`collection-item-note-cancel-${item.id}`}
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => setEditingNoteItemId(null)}
@@ -1029,14 +1135,21 @@ export function CollaborationSpaceCollectionDockviewPanel(
                               type="button"
                               className="collaboration-collection-note-display"
                               data-testid={`collection-item-note-edit-${item.id}`}
-                              aria-label={i18n.t('panels:ui.collection.editNote')}
-                              title={i18n.t('panels:ui.collection.clickToEditNote')}
+                              aria-label={i18n.t(
+                                'panels:ui.collection.editNote'
+                              )}
+                              title={i18n.t(
+                                'panels:ui.collection.clickToEditNote'
+                              )}
                               onClick={() => {
                                 setEditingNoteItemId(item.id);
                                 setEditingNoteDraft(item.note || '');
                               }}
                             >
-                              <span>{item.note || i18n.t('panels:ui.collection.none')}</span>
+                              <span>
+                                {item.note ||
+                                  i18n.t('panels:ui.collection.none')}
+                              </span>
                               <Pencil
                                 className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
                                 aria-hidden="true"
@@ -1047,7 +1160,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
 
                         <div className="collaboration-collection-card-footer">
                           <span data-testid={`collection-item-time-${item.id}`}>
-                            {i18n.t('panels:ui.collection.createdAt', { time: formatCollectionTime(item.created_at) })}
+                            {i18n.t('panels:ui.collection.createdAt', {
+                              time: formatCollectionTime(item.created_at),
+                            })}
                           </span>
                           <button
                             type="button"
@@ -1056,7 +1171,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
                             aria-expanded={isReadsExpanded}
                             onClick={() => toggleReadLog(item.id)}
                           >
-                            <span>{i18n.t('panels:ui.collection.readsCount', { count: itemReads.length })}</span>
+                            <span>
+                              {i18n.t('panels:ui.collection.readsCount', {
+                                count: itemReads.length,
+                              })}
+                            </span>
                             <ChevronDown
                               className={cn(
                                 'h-3 w-3 transition-transform',
@@ -1100,7 +1219,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                       </span>
                                     </span>
                                     <span className="collaboration-collection-read-meta">
-                                      {i18n.t('panels:ui.collection.readTimes', { count: read.read_count ?? 1 })} ·{' '}
+                                      {i18n.t(
+                                        'panels:ui.collection.readTimes',
+                                        { count: read.read_count ?? 1 }
+                                      )}{' '}
+                                      ·{' '}
                                       {formatCollectionTime(
                                         read.last_read_at ?? read.read_at ?? ''
                                       )}

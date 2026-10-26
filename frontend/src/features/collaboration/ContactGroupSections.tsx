@@ -6,6 +6,9 @@ import type { ContactSection } from './contactGroups';
 /** Drag payload for moving a contact (thread id) between sections. */
 export const CONTACT_DRAG_TYPE = 'application/x-vibex-contact';
 
+/** Ignore blur from a just-closed menu restoring focus to its trigger. */
+export const CONTACT_GROUP_RENAME_BLUR_GRACE_MS = 250;
+
 /** Inline name input used for "新建分组" and renaming a section. */
 export function ContactGroupNameInput({
   initialValue = '',
@@ -29,7 +32,7 @@ export function ContactGroupNameInput({
     ref.current?.select();
     const id = window.setTimeout(() => {
       acceptBlurRef.current = true;
-    }, 0);
+    }, CONTACT_GROUP_RENAME_BLUR_GRACE_MS);
     return () => window.clearTimeout(id);
   }, []);
   const finish = (submit: boolean) => {
@@ -59,7 +62,12 @@ export function ContactGroupNameInput({
           }
         }}
         onBlur={() => {
-          if (!acceptBlurRef.current) return;
+          if (!acceptBlurRef.current) {
+            window.setTimeout(() => {
+              if (!doneRef.current) ref.current?.focus();
+            }, 0);
+            return;
+          }
           finish(true);
         }}
       />
@@ -124,21 +132,29 @@ export function ContactGroupSections<E extends { key: string }>({
             data-ungrouped={section.ungrouped ? 'true' : undefined}
           >
             {renamingId === section.id ? (
-              <ContactGroupNameInput
-                initialValue={section.name}
-                placeholder={renamePlaceholder}
-                testId="collaboration-contact-group-rename-input"
-                onSubmit={(name) => onRenameSubmit(section.id, name)}
-                onCancel={onRenameCancel}
-              />
+              <div
+                className="collaboration-contact-section-header is-renaming"
+                data-testid={`collaboration-contact-section-header-${section.id}`}
+              >
+                <ChevronRight
+                  aria-hidden
+                  className="collaboration-contact-section-chevron"
+                />
+                <ContactGroupNameInput
+                  initialValue={section.name}
+                  placeholder={renamePlaceholder}
+                  testId="collaboration-contact-group-rename-input"
+                  onSubmit={(name) => onRenameSubmit(section.id, name)}
+                  onCancel={onRenameCancel}
+                />
+                <span className="collaboration-contact-section-count">
+                  {section.entries.length}
+                </span>
+              </div>
             ) : (
               <button
                 type="button"
-                className={cn(
-                  'collaboration-contact-section-header',
-                  (dropTarget === section.id || dropTargetId === section.id) &&
-                    'is-drop-target'
-                )}
+                className="collaboration-contact-section-header"
                 aria-expanded={!isCollapsed}
                 aria-controls={bodyId}
                 aria-label={toggleLabel(section.name)}

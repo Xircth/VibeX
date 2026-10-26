@@ -2913,6 +2913,12 @@ describe('CollaborationSpacePage', () => {
       );
       expect(renameInput).toHaveValue('新分组');
       expect(renameInput).toHaveFocus();
+      const newSection = screen.getByTestId(
+        'collaboration-contact-section-g-new'
+      );
+      expect(
+        newSection.querySelector('.collaboration-contact-section-chevron')
+      ).not.toBeNull();
       await user.clear(renameInput);
       await user.type(renameInput, '伙伴{Enter}');
       await waitFor(() =>

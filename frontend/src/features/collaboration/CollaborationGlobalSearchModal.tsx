@@ -47,25 +47,27 @@ export function CollaborationGlobalSearchModal({
         className="collaboration-global-search-modal dialog-surface"
       >
         <div className="collaboration-global-search-header">
-          <Search
-            className="collaboration-global-search-icon"
-            aria-hidden="true"
-          />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                onClose();
-              }
-            }}
-            placeholder={COPY.globalSearchPlaceholder}
-            aria-label={i18n.t('panels:ui.globalSearch.searchSpacesOrBotsInput')}
-            data-testid="collaboration-global-search-input"
-            className="collaboration-global-search-input"
-          />
+          <div className="collaboration-global-search-field">
+            <Search
+              className="collaboration-global-search-icon"
+              aria-hidden="true"
+            />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  onClose();
+                }
+              }}
+              placeholder={COPY.globalSearchPlaceholder}
+              aria-label={i18n.t('panels:ui.globalSearch.searchSpacesOrBotsInput')}
+              data-testid="collaboration-global-search-input"
+              className="collaboration-global-search-input"
+            />
+          </div>
           {query ? (
             <button
               type="button"
@@ -77,7 +79,6 @@ export function CollaborationGlobalSearchModal({
             </button>
           ) : null}
         </div>
-        <div className="collaboration-global-search-divider" />
         <div
           className="collaboration-global-search-list"
           data-testid="collaboration-global-search-results"

@@ -80,19 +80,58 @@ describe('collaboration contact row chrome', () => {
   });
 
   it('leaves the contact search field chrome to the shared Input', () => {
+    const field = declarationsFor('.collaboration-global-search-field');
+    expect(field.position?.value).toBe('relative');
+    expect(field.flex?.value).toBe('1 1 0%');
+
+    const icon = declarationsFor('.collaboration-global-search-icon');
+    expect(icon.position?.value).toBe('absolute');
+    expect(icon.left?.value).toBe('0.625rem');
+    expect(icon['pointer-events']?.value).toBe('none');
+
     const input = declarationsFor(
       '.collaboration-global-search-header .collaboration-global-search-input'
     );
     expect(input.border).toBeUndefined();
     expect(input.background).toBeUndefined();
     expect(input['box-shadow']).toBeUndefined();
-    expect(input.flex?.value).toBe('1 1 0%');
+    expect(input['padding-left']?.value).toBe('2rem');
 
     const bare = declarationsFor('.collaboration-global-search-input');
     expect(bare.border).toBeUndefined();
     expect(bare.background).toBeUndefined();
     expect(bare['box-shadow']).toBeUndefined();
     expect(bare.outline).toBeUndefined();
+
+    const divider = declarationsFor('.collaboration-global-search-divider');
+    expect(divider.height).toBeUndefined();
+    expect(divider.background).toBeUndefined();
+  });
+
+  it('draws a single dashed ring on a contact-group drop target', () => {
+    const headerDrop = declarationsFor(
+      '.collaboration-contact-section-header.is-drop-target'
+    );
+    expect(headerDrop['border-style']).toBeUndefined();
+    expect(headerDrop['border-color']).toBeUndefined();
+
+    const sectionDrop = declarationsFor(
+      '.collaboration-contact-section.is-drop-target'
+    );
+    expect(sectionDrop['box-shadow']).toBeUndefined();
+    expect(sectionDrop.outline?.value).toBe(
+      '1px dashed hsl(var(--primary) / 0.45)'
+    );
+    expect(sectionDrop['outline-offset']?.value).toBe('-1px');
+    expect(sectionDrop.background?.value).toBe('hsl(var(--primary) / 0.06)');
+  });
+
+  it('keeps the group chevron when the name is an input', () => {
+    const nested = declarationsFor(
+      '.collaboration-contact-section-header .collaboration-contact-group-input'
+    );
+    expect(nested.flex?.value).toBe('1 1 0%');
+    expect(nested['min-width']?.value).toBe('0');
   });
 
   it('enlarges contact names and insets them from the row top', () => {

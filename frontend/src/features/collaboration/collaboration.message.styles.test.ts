@@ -166,6 +166,8 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(slot['justify-content']?.value).toBe('center');
     expect(slot.width?.value).toBe('1.25rem');
     expect(slot.height?.value).toBe('1.25rem');
+    expect(slot.position?.value).toBe('relative');
+    expect(slot.top?.value).toBe('-1px');
 
     const avatar = declarationsFor('.collaboration-working-avatar');
     expect(avatar.display?.value).toBe('block');

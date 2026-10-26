@@ -384,6 +384,13 @@ impl CollaborationHost for HostCollaborationHost {
                 | "space.updateCollectionItemNote"
                 | "space.update_collection_item_note",
             ) => self.update_collection_item(&input).await,
+            (
+                "collaboration",
+                "space.removeCollectionItem"
+                | "space.remove_collection_item"
+                | "space.deleteCollectionItem"
+                | "space.delete_collection_item",
+            ) => self.remove_collection_item(&input).await,
             ("collaboration", "space.listConversations" | "space.list_conversations") => {
                 self.list_conversations(&input).await
             }
@@ -1486,6 +1493,32 @@ impl HostCollaborationHost {
         serde_json::to_value(item).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
+    }
+
+    async fn remove_collection_item(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let item_id = required_text(input, &["itemId", "item_id", "id"])?;
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        collaboration::remove_space_collection_item_with(
+            &self.pool,
+            &space_id,
+            &item_id,
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                },
+            );
+        }
+        Ok(json!({ "removed": true, "id": item_id }))
     }
 
     async fn list_conversations(&self, input: &Value) -> Result<Value, CollaborationHostError> {

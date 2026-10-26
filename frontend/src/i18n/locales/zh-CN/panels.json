@@ -1077,6 +1077,8 @@
       "dragAFileHereOr": "拖拽文件到此处或点击上传（单文件最大 200MB）",
       "addText": "添加文本",
       "uploadFile": "上传文件",
+      "copySavedItem": "复制",
+      "deleteSavedItem": "删除",
       "cancel": "取消",
       "addToGroupSaved": "添加到群收藏",
       "nothingSavedInThisGroup": "暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里",

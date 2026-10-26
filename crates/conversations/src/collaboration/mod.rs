@@ -35,8 +35,9 @@ pub use collection::{
     AddSpaceCollectionItem, SPACE_COLLECTION_MAX_BYTES, SpaceCollectionItemRecord,
     SpaceCollectionReadRecord, add_to_space_collection, add_to_space_collection_with,
     is_team_space_collection_file, list_space_collection, list_space_collection_with,
-    read_space_collection_item, read_space_collection_item_with, space_collection_dir,
-    update_space_collection_item_note, update_space_collection_item_note_with,
+    read_space_collection_item, read_space_collection_item_with, remove_space_collection_item,
+    remove_space_collection_item_with, space_collection_dir, update_space_collection_item_note,
+    update_space_collection_item_note_with,
 };
 pub use delivery::{
     DEFAULT_HANDOFF_MAX_DEPTH, DEFAULT_HANDOFF_MAX_PER_TURN, DeliveryReceipt, Handoff,

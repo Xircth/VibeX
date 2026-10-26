@@ -1077,6 +1077,8 @@
       "dragAFileHereOr": "Drag a file here or click to upload (max 200MB per file)",
       "addText": "Add text",
       "uploadFile": "Upload file",
+      "copySavedItem": "Copy",
+      "deleteSavedItem": "Delete",
       "cancel": "Cancel",
       "addToGroupSaved": "Add to group saved",
       "nothingSavedInThisGroup": "Nothing saved in this group yet. Text, images and files added by you or Bots appear here.",

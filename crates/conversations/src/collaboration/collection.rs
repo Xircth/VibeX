@@ -1096,6 +1096,80 @@ pub async fn update_space_collection_item_note_with(
     hydrate_collection_item(pool, row, audience).await
 }
 
+pub async fn remove_space_collection_item(
+    pool: &SqlitePool,
+    space_id: &str,
+    item_id: &str,
+) -> Result<(), CollaborationError> {
+    remove_space_collection_item_with(pool, space_id, item_id, &DeliveryContext::default()).await
+}
+
+pub async fn remove_space_collection_item_with(
+    pool: &SqlitePool,
+    space_id: &str,
+    item_id: &str,
+    delivery: &DeliveryContext,
+) -> Result<(), CollaborationError> {
+    let space = load_space_or_unassigned(pool, space_id).await?;
+    let trimmed_id = item_id.trim();
+    if trimmed_id.is_empty() {
+        return Err(CollaborationError::new(
+            "invalid_argument",
+            "item_id is required",
+        ));
+    }
+
+    let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
+        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
+                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
+           FROM collaboration_space_collection_items
+           WHERE id = ? AND space_id = ?
+           LIMIT 1"#,
+    )
+    .bind(trimmed_id)
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
+
+    sqlx::query("DELETE FROM collaboration_space_collection_reads WHERE item_id = ?")
+        .bind(trimmed_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    let deleted = sqlx::query(
+        "DELETE FROM collaboration_space_collection_items WHERE id = ? AND space_id = ?",
+    )
+    .bind(trimmed_id)
+    .bind(space_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    if deleted.rows_affected() == 0 {
+        return Err(CollaborationError::new(
+            "not_found",
+            "collection item was not found",
+        ));
+    }
+
+    let path = std::path::Path::new(&row.file_path);
+    if is_team_space_collection_file(path) {
+        let _ = std::fs::remove_file(path);
+    }
+
+    if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
+        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+            workspace_id: workspace_uuid,
+            space_id: space_id.to_string(),
+            seq: None,
+            member_id: None,
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1191,5 +1265,42 @@ mod tests {
         assert_eq!(updated.note, "更新后的备注");
 
         let _ = std::fs::remove_file(saved_path);
+    }
+
+    #[tokio::test]
+    async fn space_collection_item_can_be_removed() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+
+        let added = add_to_space_collection(
+            &pool,
+            AddSpaceCollectionItem {
+                caller_id: Some(a),
+                space_id: space.clone(),
+                content: Some("temporary note".to_string()),
+                source_path: None,
+                base64_data: None,
+                file_name: Some("temp.md".to_string()),
+                note: Some("to delete".to_string()),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let saved_path = std::path::PathBuf::from(&added.file_path);
+        assert!(saved_path.exists());
+
+        remove_space_collection_item(&pool, &space, &added.id)
+            .await
+            .unwrap();
+
+        let remaining = list_space_collection(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert!(remaining.is_empty());
+        assert!(!saved_path.exists());
     }
 }

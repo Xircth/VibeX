@@ -547,13 +547,19 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
     ).toBeDisabled();
-    await user.click(within(dialogInThread).getByRole('button', { name: '小A' }));
-    await user.click(within(dialogInThread).getByRole('button', { name: '小B' }));
+    await user.click(
+      within(dialogInThread).getByRole('button', { name: '小A' })
+    );
+    await user.click(
+      within(dialogInThread).getByRole('button', { name: '小B' })
+    );
     expect(
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
     ).not.toBeDisabled();
 
-    const closeDialogBtn = screen.getByRole('button', { name: /^(关闭|Close)$/ });
+    const closeDialogBtn = screen.getByRole('button', {
+      name: /^(关闭|Close)$/,
+    });
     expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
     await user.click(closeDialogBtn);
     await waitFor(() => {
@@ -677,9 +683,9 @@ describe('CollaborationSpacePage', () => {
     });
     expect(screen.queryByText('小A 已收到')).toBeNull();
     const ticks = await screen.findAllByTestId('collaboration-message-ticks');
-    expect(ticks.some((el) => el.getAttribute('data-status') === 'queued')).toBe(
-      true
-    );
+    expect(
+      ticks.some((el) => el.getAttribute('data-status') === 'queued')
+    ).toBe(true);
     // User message does not render '你' header
     expect(screen.queryByRole('button', { name: '预览 你 会话' })).toBeNull();
 
@@ -1042,7 +1048,9 @@ describe('CollaborationSpacePage', () => {
     });
     expect(editor).toHaveTextContent('小A 重试这条');
     expect(
-      editor.querySelector('[data-token-kind="member_mention"][data-token-value="@小A"]')
+      editor.querySelector(
+        '[data-token-kind="member_mention"][data-token-value="@小A"]'
+      )
     ).not.toBeNull();
 
     await user.click(screen.getByRole('button', { name: '发送' }));
@@ -1504,9 +1512,7 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(
-      screen.queryByText(/vibex-private-bootstrap/)
-    ).toBeNull();
+    expect(screen.queryByText(/vibex-private-bootstrap/)).toBeNull();
     await act(async () => {
       for (const listener of spaceEventListeners) {
         listener({
@@ -2011,6 +2017,179 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(collectionPanel).queryByTestId('collection-item-note-col-1')
     ).toBeNull();
+  });
+
+  it('copies text and image collection items and deletes a saved item', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    let items: Array<Record<string, unknown>> = [
+      {
+        id: 'col-text',
+        space_id: 's1',
+        project_id: 'proj-1',
+        kind: 'text',
+        name: 'api-contract.md',
+        file_path: 'C:/tmp/col-text.md',
+        mime_type: 'text/plain',
+        byte_size: 42,
+        note: '',
+        creator_nickname: '小A',
+        creator_conversation_id: 'conv-1',
+        created_at: '2026-10-23T01:00:00Z',
+        text_content: 'GET /api/v1/spaces',
+        reads: [],
+      },
+      {
+        id: 'col-image',
+        space_id: 's1',
+        project_id: 'proj-1',
+        kind: 'image',
+        name: 'shot.png',
+        file_path: 'C:/tmp/shot.png',
+        mime_type: 'image/png',
+        byte_size: 128,
+        note: '',
+        creator_nickname: 'User',
+        created_at: '2026-10-23T01:02:00Z',
+        reads: [],
+      },
+      {
+        id: 'col-file',
+        space_id: 's1',
+        project_id: 'proj-1',
+        kind: 'file',
+        name: 'spec.pdf',
+        file_path: 'C:/tmp/spec.pdf',
+        mime_type: 'application/pdf',
+        byte_size: 2048,
+        note: '',
+        creator_nickname: 'User',
+        created_at: '2026-10-23T01:03:00Z',
+        reads: [],
+      },
+    ];
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listCollection') {
+          return { items };
+        }
+        if (method === 'space.removeCollectionItem') {
+          items = items.filter((item) => item.id !== input?.itemId);
+          return { removed: true, id: input?.itemId };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    await user.click(
+      await screen.findByTestId('collaboration-open-collection-btn')
+    );
+    const collectionPanel = await screen.findByTestId(
+      'collaboration-space-collection-panel'
+    );
+    await user.click(
+      within(collectionPanel).getByTestId(
+        'collaboration-group-details-tab-collection'
+      )
+    );
+
+    const textKind = await within(collectionPanel).findByTestId(
+      'collection-item-kind-col-text'
+    );
+    const textCopy = within(collectionPanel).getByTestId(
+      'collection-item-copy-col-text'
+    );
+    expect(textKind).toHaveTextContent('文本');
+    expect(textKind.nextElementSibling).toBe(textCopy);
+    expect(textCopy).toHaveAttribute('aria-label', '复制');
+    expect(textCopy.textContent).toBe('');
+
+    const imageKind = within(collectionPanel).getByTestId(
+      'collection-item-kind-col-image'
+    );
+    const imageCopy = within(collectionPanel).getByTestId(
+      'collection-item-copy-col-image'
+    );
+    expect(imageKind).toHaveTextContent('图片');
+    expect(imageKind.nextElementSibling).toBe(imageCopy);
+    expect(
+      within(collectionPanel).queryByTestId('collection-item-copy-col-file')
+    ).toBeNull();
+    const fileKind = within(collectionPanel).getByTestId(
+      'collection-item-kind-col-file'
+    );
+    const fileDelete = within(collectionPanel).getByTestId(
+      'collection-item-delete-col-file'
+    );
+    expect(fileKind.nextElementSibling).toBe(fileDelete);
+
+    const uploadBtn = within(collectionPanel).getByTestId(
+      'collaboration-collection-upload-file-btn'
+    );
+    const headerDelete = within(collectionPanel).getByTestId(
+      'collaboration-collection-delete-btn'
+    );
+    expect(uploadBtn.nextElementSibling).toBe(headerDelete);
+    expect(headerDelete).toHaveAttribute('aria-label', '删除');
+    expect(headerDelete.textContent).toBe('');
+    expect(headerDelete.className).toContain(
+      'collaboration-collection-delete-btn'
+    );
+    expect(headerDelete).toBeDisabled();
+
+    const textDelete = within(collectionPanel).getByTestId(
+      'collection-item-delete-col-text'
+    );
+    expect(textCopy.nextElementSibling).toBe(textDelete);
+    expect(textDelete).toHaveAttribute('aria-label', '删除');
+    expect(textDelete.textContent).toBe('');
+
+    await user.click(textCopy);
+    expect(writeText).toHaveBeenCalledWith('GET /api/v1/spaces');
+
+    await user.click(
+      within(collectionPanel).getByTestId('collection-item-delete-col-text')
+    );
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.removeCollectionItem',
+      expect.objectContaining({
+        spaceId: 's1',
+        itemId: 'col-text',
+      })
+    );
+    await waitFor(() => {
+      expect(
+        within(collectionPanel).queryByTestId('collection-item-col-text')
+      ).toBeNull();
+    });
+
+    await user.click(imageKind);
+    expect(headerDelete).not.toBeDisabled();
+    await user.click(headerDelete);
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.removeCollectionItem',
+      expect.objectContaining({
+        spaceId: 's1',
+        itemId: 'col-image',
+      })
+    );
+    await waitFor(() => {
+      expect(
+        within(collectionPanel).queryByTestId('collection-item-col-image')
+      ).toBeNull();
+    });
   });
 
   it('uses thread.listSidebar when available: unread/preview, markRead on open, tag via thread.update', async () => {
@@ -3481,7 +3660,8 @@ describe('CollaborationSpacePage', () => {
         }
         if (method === 'thread.markRead') return {};
         if (input?.spaceId === 'direct:mem-a') {
-          if (method === 'space.listMessages') return { messages: directAMessages };
+          if (method === 'space.listMessages')
+            return { messages: directAMessages };
           if (method === 'space.post') {
             directAMessages.push({
               seq: directAMessages.length + 1,
@@ -3505,7 +3685,8 @@ describe('CollaborationSpacePage', () => {
           }
         }
         if (input?.spaceId === 'direct:mem-b') {
-          if (method === 'space.listMessages') return { messages: directBMessages };
+          if (method === 'space.listMessages')
+            return { messages: directBMessages };
           if (method === 'space.post') {
             directBMessages.push({
               seq: directBMessages.length + 1,
@@ -3539,10 +3720,14 @@ describe('CollaborationSpacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('已发消息给')).toBeTruthy();
     });
-    const sentNotice = screen.getByText('已发消息给').closest('.collaboration-cross-chat-notice');
+    const sentNotice = screen
+      .getByText('已发消息给')
+      .closest('.collaboration-cross-chat-notice');
     expect(sentNotice).toBeTruthy();
     expect(
-      within(sentNotice as HTMLElement).getByTestId('collaboration-member-mention-chip-小B')
+      within(sentNotice as HTMLElement).getByTestId(
+        'collaboration-member-mention-chip-小B'
+      )
     ).toBeTruthy();
 
     // Switch to 小B's private chat and verify "已收到 小A 的消息" notice with MemberMentionChip is displayed
@@ -3551,10 +3736,14 @@ describe('CollaborationSpacePage', () => {
       expect(screen.getByText('已收到')).toBeTruthy();
       expect(screen.getByText('的消息')).toBeTruthy();
     });
-    const recvNotice = screen.getByText('已收到').closest('.collaboration-cross-chat-notice');
+    const recvNotice = screen
+      .getByText('已收到')
+      .closest('.collaboration-cross-chat-notice');
     expect(recvNotice).toBeTruthy();
     expect(
-      within(recvNotice as HTMLElement).getByTestId('collaboration-member-mention-chip-小A')
+      within(recvNotice as HTMLElement).getByTestId(
+        'collaboration-member-mention-chip-小A'
+      )
     ).toBeTruthy();
   });
 });

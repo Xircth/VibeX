@@ -427,4 +427,178 @@ describe('subagent card model', () => {
       ).agentKind
     ).toBe('claude_code');
   });
+
+  it('recognizes Claude AIR subagent meta, Cursor oneof subagentType, and CodeBuddy subagent meta', () => {
+    const claudeAirLaunch = use(
+      'Audit repository',
+      {},
+      {
+        claudeCode: { subagent: true, title: 'Audit repository' },
+      }
+    );
+    expect(isNativeSubagentTool(claudeAirLaunch)).toBe(true);
+    const claudeModel = buildSubagentCardModel(
+      claudeAirLaunch,
+      null,
+      'claude_code'
+    );
+    expect(claudeModel.title).toBe('Audit repository');
+    expect(claudeModel.agentKind).toBe('claude_code');
+
+    const cursorLaunch = use('Task', {
+      _toolName: 'task',
+      subagentType: { case: 'generalPurpose', value: {} },
+      description: 'Inspect build config',
+    });
+    expect(isNativeSubagentTool(cursorLaunch)).toBe(true);
+    const cursorModel = buildSubagentCardModel(cursorLaunch, null, 'cursor');
+    expect(cursorModel.subagentType).toBe('generalPurpose');
+    expect(cursorModel.title).toBe('generalPurpose: Inspect build config');
+
+    const codebuddyLaunch = use(
+      'Agent',
+      { description: 'Scan workspace' },
+      {
+        'codebuddy.ai/toolName': 'Agent',
+        'codebuddy.ai/isSubagent': true,
+        'codebuddy.ai/subagentType': 'Explore',
+        'codebuddy.ai/isBackground': true,
+      }
+    );
+    expect(isNativeSubagentTool(codebuddyLaunch)).toBe(true);
+    const cbModel = buildSubagentCardModel(codebuddyLaunch, null);
+    expect(cbModel.subagentType).toBe('Explore');
+    expect(cbModel.title).toBe('Explore: Scan workspace');
+    expect(cbModel.status).toBe('background');
+    expect(cbModel.agentKind).toBe('codebuddy');
+  });
+
+  it('folds Claude and CodeBuddy child tool calls into the parent subagent card', () => {
+    const parent = use(
+      'Audit repository',
+      { subagent_type: 'Explore', description: 'Audit repository' },
+      {
+        claudeCode: { subagent: true },
+        subagent: {
+          thinking: 'Checking Cargo.toml',
+          text: 'All crates verified.',
+        },
+      }
+    );
+    parent.tool_use_id = 'toolu_parent';
+    const childBash = use(
+      'Bash',
+      { command: 'cargo test --workspace' },
+      {
+        claudeCode: {
+          toolName: 'Bash',
+          parentToolUseId: 'toolu_parent',
+          title: 'Run workspace tests',
+        },
+      }
+    );
+    childBash.tool_use_id = 'toolu_child_bash';
+
+    const folded = foldSubagentLifecycle([
+      { use: parent, result: result('All crates verified.') },
+      { use: childBash, result: result('test result: ok') },
+    ]);
+
+    expect(folded.cards).toHaveLength(1);
+    expect(folded.cards[0].children).toHaveLength(1);
+    expect(folded.cards[0].children[0].use.tool_use_id).toBe(
+      'toolu_child_bash'
+    );
+    expect(folded.hiddenToolUseIds.has('toolu_child_bash')).toBe(true);
+
+    const model = buildSubagentCardModel(
+      parent,
+      result('All crates verified.'),
+      'claude_code',
+      folded.cards[0].children
+    );
+    expect(model.toolCallCount).toBe(1);
+    expect(model.thinkingText).toBe('Checking Cargo.toml');
+    expect(model.resultText).toBe('All crates verified.');
+  });
+
+  it('creates one Codex SubagentCard on started, suppresses interacted heartbeats, and folds completed', () => {
+    const started = use(
+      'subAgentActivity',
+      {
+        agentThreadId: 'thread-42',
+        agentPath: '/root/pnpm_build',
+        activityKind: 'started',
+      },
+      {
+        codex: {
+          subagent: {
+            threadId: 'thread-42',
+            path: '/root/pnpm_build',
+            activity: 'started',
+          },
+        },
+      }
+    );
+    started.tool_use_id = 'codex-start';
+    const interacted = use(
+      'subAgentActivity',
+      {
+        agentThreadId: 'thread-42',
+        agentPath: '/root/pnpm_build',
+        activityKind: 'interacted',
+      },
+      {
+        codex: {
+          subagent: {
+            threadId: 'thread-42',
+            path: '/root/pnpm_build',
+            activity: 'interacted',
+          },
+        },
+      }
+    );
+    interacted.tool_use_id = 'codex-heartbeat';
+    const completed = use(
+      'subAgentActivity',
+      {
+        agentThreadId: 'thread-42',
+        agentPath: '/root/pnpm_build',
+        activityKind: 'completed',
+      },
+      {
+        codex: {
+          subagent: {
+            threadId: 'thread-42',
+            path: '/root/pnpm_build',
+            activity: 'completed',
+          },
+        },
+      }
+    );
+    completed.tool_use_id = 'codex-complete';
+
+    expect(isNativeSubagentTool(started)).toBe(true);
+    expect(isNativeSubagentTool(interacted)).toBe(false);
+    expect(isNativeSubagentTool(completed)).toBe(false);
+
+    const folded = foldSubagentLifecycle([
+      { use: started, result: result('') },
+      { use: interacted, result: result('') },
+      { use: completed, result: result('Build succeeded') },
+    ]);
+
+    expect(folded.cards).toHaveLength(1);
+    expect(folded.hiddenToolUseIds).toEqual(
+      new Set(['codex-heartbeat', 'codex-complete'])
+    );
+    const model = applySubagentLifecycle(
+      buildSubagentCardModel(started, result('')),
+      folded.cards[0].lifecycle
+    );
+    expect(model.title).toBe('pnpm_build');
+    expect(model.agentKind).toBe('codex');
+    expect(model.status).toBe('completed');
+    expect(model.resultText).toBe('Build succeeded');
+  });
 });

@@ -16,6 +16,8 @@ import {
   applySubagentLifecycle,
   buildSubagentCardModel,
   formatTokenCount,
+  summarizeSubagentChildTool,
+  type SubagentChildTool,
   type SubagentLifecycleEvent,
   type SubagentStatus,
 } from './subagentCardModel';
@@ -24,6 +26,7 @@ export function SubagentCard({
   use,
   result,
   lifecycle = [],
+  childrenTools = [],
   parentAgentId = null,
   expansionKey,
   onExpandedChange,
@@ -31,13 +34,14 @@ export function SubagentCard({
   use: ToolUseBlock;
   result: ToolResultBlock | null;
   lifecycle?: SubagentLifecycleEvent[];
+  childrenTools?: SubagentChildTool[];
   parentAgentId?: string | null;
   expansionKey?: string;
   onExpandedChange?: (expanded: boolean) => void;
 }) {
   const { t } = useTranslation('conversation');
   const model = applySubagentLifecycle(
-    buildSubagentCardModel(use, result, parentAgentId),
+    buildSubagentCardModel(use, result, parentAgentId, childrenTools),
     lifecycle
   );
   const id = useId();
@@ -130,6 +134,57 @@ export function SubagentCard({
                   <AstryxMarkdown value={model.resultText} />
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {model.thinkingText ? (
+            <div
+              data-testid="subagent-thinking"
+              className="mt-1.5 whitespace-pre-wrap text-xs text-muted-foreground"
+            >
+              {model.thinkingText}
+            </div>
+          ) : null}
+
+          {model.liveText && !model.resultText ? (
+            <div
+              data-testid="subagent-live-text"
+              className="mt-1.5 text-xs text-foreground"
+            >
+              <AstryxMarkdown value={model.liveText} />
+            </div>
+          ) : null}
+
+          {model.children.length > 0 ? (
+            <div
+              data-testid="subagent-child-tools"
+              className="mt-2 space-y-1 border-l-2 border-border/60 pl-2.5 text-xs text-muted-foreground"
+            >
+              {model.children.map((child, index) => {
+                const summary = summarizeSubagentChildTool(child);
+                return (
+                  <div
+                    key={`${summary.id}:${index}`}
+                    className="flex min-w-0 items-center gap-1.5"
+                  >
+                    {summary.status === 'running' ? (
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
+                    ) : summary.status === 'failed' ? (
+                      <XCircle className="h-3 w-3 shrink-0 text-destructive" />
+                    ) : (
+                      <CheckCircle2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="shrink-0 font-medium text-foreground">
+                      {summary.label}
+                    </span>
+                    {summary.target ? (
+                      <span className="truncate font-mono text-[11px] text-muted-foreground">
+                        {summary.target}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
 

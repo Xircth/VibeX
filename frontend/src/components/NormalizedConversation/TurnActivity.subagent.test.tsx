@@ -416,4 +416,78 @@ describe('TurnActivity subagent expansion', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('ls')).toBeInTheDocument();
   });
+
+  it('nests Claude child tool calls inside SubagentCard and excludes them from top-level tool rows', () => {
+    captured.groups = [];
+    const parentSubagent = toolItem(
+      'Agent',
+      {
+        subagent_type: 'Explore',
+        description: 'Inspect repository structure',
+      },
+      'Repository structure verified.',
+      0
+    );
+    if (parentSubagent.item.kind === 'tool' && parentSubagent.item.use) {
+      parentSubagent.item.use.tool_use_id = 'toolu_parent';
+      parentSubagent.item.use.meta = {
+        claudeCode: { subagent: true },
+        subagent: { thinking: 'Scanning directories...' },
+      };
+      if (parentSubagent.item.result) {
+        parentSubagent.item.result.tool_use_id = 'toolu_parent';
+      }
+    }
+    const childBash = toolItem(
+      'Bash',
+      { command: 'git status --short' },
+      'M README.md',
+      1
+    );
+    if (childBash.item.kind === 'tool' && childBash.item.use) {
+      childBash.item.use.tool_use_id = 'toolu_child_bash';
+      childBash.item.use.meta = {
+        claudeCode: {
+          toolName: 'Bash',
+          parentToolUseId: 'toolu_parent',
+          title: 'Check git status',
+        },
+      };
+      if (childBash.item.result) {
+        childBash.item.result.tool_use_id = 'toolu_child_bash';
+      }
+    }
+
+    render(
+      <TurnActivity
+        turnId="turn-claude-nested"
+        timestamp="2026-08-18T00:00:00.000Z"
+        items={[parentSubagent, childBash]}
+        attempt={
+          {
+            id: 'ws-1',
+            container_ref: null,
+            session: { agent_id: 'claude_code' },
+          } as never
+        }
+        task={null}
+        isStreaming={true}
+      />
+    );
+
+    expect(
+      screen.getByRole('group', {
+        name: 'Explore: Inspect repository structure',
+      })
+    ).toBeInTheDocument();
+    const childTools = screen.getByTestId('subagent-child-tools');
+    expect(childTools).toHaveTextContent('Check git status');
+    expect(childTools).toHaveTextContent('git status --short');
+    expect(screen.getByTestId('subagent-thinking')).toHaveTextContent(
+      'Scanning directories...'
+    );
+    expect(
+      capturedNames().some((name) => /git status|Check git status/i.test(name))
+    ).toBe(false);
+  });
 });

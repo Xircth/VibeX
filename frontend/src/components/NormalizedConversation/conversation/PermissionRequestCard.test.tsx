@@ -225,4 +225,106 @@ describe('PermissionRequestCard', () => {
 
     expect(screen.getByRole('button', { name: '允许' })).toBeDisabled();
   });
+
+  it('uses _meta.claudeCode.title as the visible heading without duplicating the title', () => {
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'Build',
+          details: {
+            fields: {
+              kind: 'execute',
+              title: 'cargo build',
+              rawInput: { command: 'cargo build' },
+            },
+            _meta: {
+              claudeCode: { title: 'Build' },
+              permission: { title: 'cargo build' },
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: 'Build' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '权限申请' })
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText('Build')).toHaveLength(1);
+    expect(screen.getByText('cargo build')).toBeInTheDocument();
+  });
+
+  it('suppresses _meta.permission.title when it is byte-equal to the command', () => {
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'pnpm test --runInBand',
+          details: {
+            fields: {
+              kind: 'execute',
+              title: 'pnpm test --runInBand',
+              rawInput: { command: 'pnpm test --runInBand' },
+            },
+            _meta: {
+              permission: { title: 'pnpm test --runInBand' },
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('heading', { name: '权限申请' })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('pnpm test --runInBand')).toHaveLength(1);
+  });
+
+  it('uses _meta.permission.title when _meta.claudeCode.title is absent and falls back to toolCall.title without meta', () => {
+    const { rerender } = render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'Run command?',
+          details: {
+            fields: {
+              kind: 'execute',
+              title: 'Run command',
+              rawInput: { command: 'git status' },
+            },
+            _meta: {
+              permission: { title: 'Run command?' },
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Run command?' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('git status')).toBeInTheDocument();
+
+    rerender(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: '',
+          details: {
+            fields: {
+              kind: 'edit',
+              title: 'Update Cargo.toml',
+              locations: [{ path: 'Cargo.toml' }],
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('heading', { name: '权限申请' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('Update Cargo.toml')).toBeInTheDocument();
+  });
 });

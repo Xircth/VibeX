@@ -158,4 +158,57 @@ describe('SubagentCard', () => {
     expect(screen.getByTitle('Grok')).toBeInTheDocument();
     expect(document.querySelector('.lucide-bot')).not.toBeInTheDocument();
   });
+
+  it('renders nested subagent thinking, live text, and child tool calls inside SubagentCard', () => {
+    const childUse: ToolUseBlock = {
+      type: 'tool_use',
+      tool_use_id: 'toolu_child_1',
+      tool_name: 'Bash',
+      status: 'completed',
+      kind: 'execute',
+      input_preview: JSON.stringify({ command: 'cargo test -p agents' }),
+      meta: {
+        claudeCode: {
+          toolName: 'Bash',
+          parentToolUseId: 'call-1',
+          title: 'Run agents unit tests',
+        },
+      },
+    };
+    render(
+      <SubagentCard
+        use={use(
+          {
+            subagent_type: 'Explore',
+            description: 'Verify crates/agents',
+          },
+          {
+            claudeCode: { subagent: true },
+            subagent: {
+              thinking: 'Inspecting crates/agents test suite...',
+              text: 'Running cargo test now.',
+            },
+          }
+        )}
+        result={null}
+        childrenTools={[
+          {
+            use: childUse,
+            result: result('ok'),
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId('subagent-thinking')).toHaveTextContent(
+      'Inspecting crates/agents test suite...'
+    );
+    expect(screen.getByTestId('subagent-live-text')).toHaveTextContent(
+      'Running cargo test now.'
+    );
+    const childTools = screen.getByTestId('subagent-child-tools');
+    expect(childTools).toHaveTextContent('Run agents unit tests');
+    expect(childTools).toHaveTextContent('cargo test -p agents');
+    expect(screen.getByText('1 次工具调用')).toBeInTheDocument();
+  });
 });

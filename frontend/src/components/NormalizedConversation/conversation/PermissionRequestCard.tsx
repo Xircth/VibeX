@@ -52,8 +52,8 @@ export function PermissionRequestCard({
   const pending = request.status === 'pending';
   const options = request.options ?? [];
   const detail = useMemo(
-    () => parseToolDetail(request.details),
-    [request.details]
+    () => parseToolDetail(request.details, request.title),
+    [request.details, request.title]
   );
   const permissionType = permissionTypeFor(detail.kind);
   const PermissionTypeIcon = permissionType.icon;
@@ -88,14 +88,14 @@ export function PermissionRequestCard({
           <span>{t(`permissionRequestCard.types.${permissionType.key}`)}</span>
         </div>
         <h3 className="mt-3 text-sm font-semibold text-foreground">
-          {t('permissionRequestCard.title')}
+          {detail.heading ?? t('permissionRequestCard.title')}
         </h3>
-        {request.title || detail.body ? (
+        {detail.subtitle || detail.body ? (
           <div className="permission-request-preview-wrap mt-1" tabIndex={0}>
             <div className="permission-request-preview">
-              {request.title ? (
+              {detail.subtitle ? (
                 <p className="text-sm leading-5 text-foreground">
-                  {request.title}
+                  {detail.subtitle}
                 </p>
               ) : null}
               {detail.body ? <div className="mt-1">{detail.body}</div> : null}
@@ -212,26 +212,145 @@ function permissionTypeFor(kind: string | null): PermissionType {
   return { key: 'tool', icon: Wrench };
 }
 
-type ParsedDetail = { kind: string | null; body: React.ReactNode | null };
+type ParsedDetail = {
+  kind: string | null;
+  heading: string | null;
+  subtitle: string | null;
+  body: React.ReactNode | null;
+};
 
 /** ACP tool-call shape behind a permission request (camelCase from ACP serde). */
 type ToolDetail = {
+  kind?: string | null;
+  title?: string | null;
+  content?: unknown[] | null;
+  locations?: { path?: string }[] | null;
+  rawInput?: unknown;
+  _meta?: Record<string, unknown> | null;
   fields?: {
     kind?: string | null;
     title?: string | null;
     content?: unknown[] | null;
     locations?: { path?: string }[] | null;
     rawInput?: unknown;
+    _meta?: Record<string, unknown> | null;
   } | null;
 };
 
-/** Faithfully render whatever the agent actually sent — never fabricate. */
-function parseToolDetail(details: unknown): ParsedDetail {
-  if (!details || typeof details !== 'object') {
-    return { kind: null, body: null };
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function pickNonEmptyString(
+  obj: Record<string, unknown> | null | undefined,
+  key: string
+): string | null {
+  const value = obj?.[key];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractShellCommandLabel(
+  rawInput: unknown,
+  command: string | null
+): string | null {
+  const obj = asObject(rawInput);
+  if (!obj) return null;
+  for (const key of ['description', 'title', 'summary']) {
+    const label = pickNonEmptyString(obj, key);
+    if (label && label !== command) {
+      return label;
+    }
   }
-  const fields = (details as ToolDetail).fields ?? null;
+  return null;
+}
+
+/**
+ * Resolve permission heading & subtitle following Codeg `permission-request.ts`:
+ * 1. `_meta.claudeCode.title` (or `_meta.jetbrains.air.commandTitle`)
+ * 2. `_meta.permission.title` (or `_meta.jetbrains.air.permission.title`)
+ * 3. `toolCall.title` / `request.title`
+ *
+ * When a candidate is byte-equal to the shell command already rendered in the
+ * command block, suppress it as a heading so the command is never printed twice.
+ */
+function resolvePermissionHeadings(
+  record: ToolDetail | null,
+  fields: NonNullable<ToolDetail['fields']> | null,
+  requestTitle: string | null | undefined,
+  command: string | null
+): { heading: string | null; subtitle: string | null } {
+  const meta = asObject(record?._meta) ?? asObject(fields?._meta) ?? null;
+  const claudeCode = asObject(meta?.claudeCode);
+  const air = asObject(asObject(meta?.jetbrains)?.air);
+  const permission = asObject(meta?.permission) ?? asObject(air?.permission);
+
+  const claudeTitle =
+    pickNonEmptyString(claudeCode, 'title') ??
+    pickNonEmptyString(air, 'commandTitle');
+  const permissionTitle = pickNonEmptyString(permission, 'title');
+  const metaHeadingRaw = claudeTitle ?? permissionTitle ?? null;
+
+  const metaHeading =
+    metaHeadingRaw !== null && command !== null && metaHeadingRaw === command
+      ? extractShellCommandLabel(fields?.rawInput, command)
+      : metaHeadingRaw;
+
+  const toolCallTitle =
+    pickNonEmptyString(fields as Record<string, unknown> | null, 'title') ??
+    pickNonEmptyString(record as Record<string, unknown> | null, 'title');
+  const trimmedRequestTitle =
+    typeof requestTitle === 'string' && requestTitle.trim().length > 0
+      ? requestTitle.trim()
+      : null;
+
+  if (metaHeading) {
+    return {
+      heading: metaHeading,
+      subtitle: null,
+    };
+  }
+
+  const fallbackCandidate = trimmedRequestTitle ?? toolCallTitle;
+  const subtitle =
+    fallbackCandidate !== null &&
+    command !== null &&
+    fallbackCandidate === command
+      ? extractShellCommandLabel(fields?.rawInput, command)
+      : fallbackCandidate;
+
+  return {
+    heading: null,
+    subtitle,
+  };
+}
+
+/** Faithfully render whatever the agent actually sent — never fabricate. */
+function parseToolDetail(
+  details: unknown,
+  requestTitle?: string | null
+): ParsedDetail {
+  if (!details || typeof details !== 'object') {
+    const trimmed =
+      typeof requestTitle === 'string' && requestTitle.trim().length > 0
+        ? requestTitle.trim()
+        : null;
+    return { kind: null, heading: null, subtitle: trimmed, body: null };
+  }
+  const record = details as ToolDetail;
+  const fields =
+    record.fields && typeof record.fields === 'object' ? record.fields : record;
   const kind = typeof fields?.kind === 'string' ? fields.kind : null;
+  const command = extractCommand(fields?.rawInput);
+  const { heading, subtitle } = resolvePermissionHeadings(
+    record,
+    fields,
+    requestTitle,
+    command
+  );
   const blocks: React.ReactNode[] = [];
 
   // 1) Content blocks (diffs, text, terminal output) carry the richest preview.
@@ -263,17 +382,14 @@ function parseToolDetail(details: unknown): ParsedDetail {
   });
 
   // 2) Command preview from rawInput when no content block surfaced one.
-  if (blocks.length === 0) {
-    const command = extractCommand(fields?.rawInput);
-    if (command) {
-      blocks.push(
-        <div key="command" className="rounded-md bg-muted/40 px-2.5 py-1.5">
-          <code className="block max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-foreground">
-            {command}
-          </code>
-        </div>
-      );
-    }
+  if (blocks.length === 0 && command) {
+    blocks.push(
+      <div key="command" className="rounded-md bg-muted/40 px-2.5 py-1.5">
+        <code className="block max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-foreground">
+          {command}
+        </code>
+      </div>
+    );
   }
 
   // 3) File locations.
@@ -300,6 +416,8 @@ function parseToolDetail(details: unknown): ParsedDetail {
   // recognized the title alone describes the request.
   return {
     kind,
+    heading,
+    subtitle,
     body:
       blocks.length > 0 ? <div className="space-y-1.5">{blocks}</div> : null,
   };

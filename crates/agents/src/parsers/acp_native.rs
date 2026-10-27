@@ -863,6 +863,25 @@ fn apply_update(
         }
         SessionUpdate::AgentMessageChunk(chunk) => {
             *prompt_just_recorded = false;
+            if let Some(parent_id) =
+                crate::air_contract::chunk_parent_tool_use_id(agent_kind, chunk.meta.as_ref())
+            {
+                let text = content_block_text(&chunk.content);
+                append_subagent_chunk_to_card(
+                    &parent_id,
+                    "text",
+                    &text,
+                    between_turns,
+                    prompt_start,
+                    pending,
+                    turns,
+                );
+                return;
+            }
+            if crate::air_contract::codebuddy_chunk_marks_subagent(agent_kind, chunk.meta.as_ref())
+            {
+                return;
+            }
             let p = open_turn!();
             p.last_at_ms = at_ms;
             if p.agent_message_id.is_none() {
@@ -891,6 +910,25 @@ fn apply_update(
         }
         SessionUpdate::AgentThoughtChunk(chunk) => {
             *prompt_just_recorded = false;
+            if let Some(parent_id) =
+                crate::air_contract::chunk_parent_tool_use_id(agent_kind, chunk.meta.as_ref())
+            {
+                let text = content_block_text(&chunk.content);
+                append_subagent_chunk_to_card(
+                    &parent_id,
+                    "thinking",
+                    &text,
+                    between_turns,
+                    prompt_start,
+                    pending,
+                    turns,
+                );
+                return;
+            }
+            if crate::air_contract::codebuddy_chunk_marks_subagent(agent_kind, chunk.meta.as_ref())
+            {
+                return;
+            }
             let p = open_turn!();
             p.last_at_ms = at_ms;
             let text = content_block_text(&chunk.content);
@@ -1019,6 +1057,61 @@ fn content_block_text(block: &agent_client_protocol::schema::v1::ContentBlock) -
             _ => String::new(),
         },
         _ => String::new(),
+    }
+}
+
+/// Attach a streamed subagent text or thinking chunk onto the parent
+/// `ContentBlock::ToolUse`'s `_meta.subagent` record without polluting the
+/// parent turn's prose or `agent_message_id`.
+fn append_subagent_chunk_to_card(
+    parent_id: &str,
+    field: &str,
+    text: &str,
+    between_turns: bool,
+    prompt_start: Option<usize>,
+    pending: &mut Option<PendingTurn>,
+    turns: &mut [MessageTurn],
+) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(p) = pending.as_mut()
+        && let Some(&idx) = p.tool_use_index.get(parent_id)
+        && let Some(ContentBlock::ToolUse { meta, .. }) = p.blocks.get_mut(idx)
+    {
+        let mut map = meta
+            .as_ref()
+            .and_then(serde_json::Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        crate::air_contract::append_subagent_chunk_to_meta(&mut map, field, text);
+        *meta = Some(serde_json::Value::Object(map));
+        return;
+    }
+    let reach = if between_turns {
+        0
+    } else {
+        prompt_start.unwrap_or(0)
+    };
+    for turn in turns.iter_mut().skip(reach).rev() {
+        for block in turn.blocks.iter_mut() {
+            if let ContentBlock::ToolUse {
+                tool_use_id: Some(use_id),
+                meta,
+                ..
+            } = block
+                && use_id == parent_id
+            {
+                let mut map = meta
+                    .as_ref()
+                    .and_then(serde_json::Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                crate::air_contract::append_subagent_chunk_to_meta(&mut map, field, text);
+                *meta = Some(serde_json::Value::Object(map));
+                return;
+            }
+        }
     }
 }
 
@@ -1744,6 +1837,79 @@ mod tests {
                 );
             }
             other => panic!("expected ToolResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn claude_subagent_chunks_fold_into_parent_tool_use_without_leaking_to_main_turn() {
+        let entries = vec![
+            prompt(1_000, "delegate audit"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "toolu_task",
+                    "title": "Audit codebase",
+                    "kind": "other",
+                    "status": "in_progress",
+                    "_meta": {
+                        "jetbrains": {"air": {"subagent": true}}
+                    }
+                }),
+            },
+            TranscriptEntry {
+                t: 1_150,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": "Subagent thinking..."},
+                    "_meta": {"claudeCode": {"parentToolUseId": "toolu_task"}}
+                }),
+            },
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "msg_subagent_internal",
+                    "content": {"type": "text", "text": "Subagent summary"},
+                    "_meta": {"claudeCode": {"parentToolUseId": "toolu_task"}}
+                }),
+            },
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "msg_parent_turn",
+                    "content": {"type": "text", "text": "Parent reply"}
+                }),
+            },
+        ];
+        let turns = project_turns_for(&entries, Some(AgentKind::ClaudeCode));
+        assert_eq!(turns.len(), 2);
+        assert_eq!(
+            turns[1].agent_message_id.as_deref(),
+            Some("msg_parent_turn")
+        );
+        assert_eq!(turns[1].blocks.len(), 2);
+        match &turns[1].blocks[0] {
+            ContentBlock::ToolUse { meta, .. } => {
+                let meta = meta.as_ref().expect("meta on parent subagent card");
+                assert_eq!(meta["claudeCode"]["subagent"], true);
+                assert_eq!(meta["subagent"]["thinking"], "Subagent thinking...");
+                assert_eq!(meta["subagent"]["text"], "Subagent summary");
+            }
+            other => panic!("expected parent ToolUse, got {other:?}"),
+        }
+        match &turns[1].blocks[1] {
+            ContentBlock::Text { text } => assert_eq!(text, "Parent reply"),
+            other => panic!("expected parent Text block, got {other:?}"),
         }
     }
 }

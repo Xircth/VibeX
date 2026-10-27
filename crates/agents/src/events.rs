@@ -182,6 +182,19 @@ pub struct AgentSessionControlsSnapshot {
     /// until the first `available_commands_update`; not an empty guess.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
+    /// Active or paused session goal snapshot (`_meta.goal` / AIR / legacy `_meta.codex.goal`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<serde_json::Value>,
+    /// Agent-advertised goal control actions (`["pause", "clear", ...]`).
+    /// `None` before handshake or when the agent has no goal control channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_actions: Option<Vec<String>>,
+    /// Session-scoped background tasks (`asyncTasks` / Grok workflows).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub async_tasks: Vec<crate::AsyncTaskRecord>,
+    /// Latest ephemeral Composer prompt suggestion (`promptSuggestions`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_suggestion: Option<String>,
 }
 
 /// A real ACP session created ahead of conversation persistence so creation
@@ -274,6 +287,11 @@ pub struct SessionControlPreferences {
     pub mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub config: Vec<AgentSessionConfigOverride>,
+    /// Whether this session has an interactive Composer where a human can accept
+    /// prompt suggestions. Defaults to `false` so headless/one-shot/probe
+    /// sessions explicitly disable SDK post-turn prediction on Claude.
+    #[serde(default)]
+    pub wants_prompt_suggestions: bool,
 }
 
 impl SessionControlPreferences {
@@ -300,7 +318,11 @@ impl SessionControlPreferences {
                 });
             }
         }
-        Self { mode, config }
+        Self {
+            mode,
+            config,
+            wants_prompt_suggestions: false,
+        }
     }
 }
 
@@ -515,6 +537,19 @@ pub enum AgentEvent {
         #[serde(default)]
         generation: u64,
         notices: Vec<crate::conversation::ConversationSessionNotice>,
+    },
+    GoalUpdated {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal_actions: Option<Vec<String>>,
+    },
+    AsyncTasksUpdated {
+        tasks: Vec<crate::AsyncTaskRecord>,
+    },
+    PromptSuggestionUpdated {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        suggestion: Option<String>,
     },
 }
 

@@ -713,22 +713,82 @@ pub(crate) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
     changed
 }
 
+pub(crate) const AIR_SESSION_UPDATE_METHOD: &str = "_air/session_update";
+pub(crate) const GROK_WORKFLOW_UPDATED_METHOD: &str = "_x.ai/workflow_updated";
+
+pub(crate) fn rewrite_air_or_vendor_notification(val: &mut serde_json::Value) -> bool {
+    let Some(obj) = val.as_object_mut() else {
+        return false;
+    };
+    if obj.get("id").is_some() {
+        return false;
+    }
+    let Some(method) = obj.get("method").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    match method {
+        "session/workflow_updated" => {
+            obj.insert(
+                "method".to_string(),
+                serde_json::Value::String(GROK_WORKFLOW_UPDATED_METHOD.to_string()),
+            );
+            true
+        }
+        "session/update" => {
+            let tag = obj
+                .get("params")
+                .and_then(|params| params.get("update"))
+                .and_then(|update| {
+                    update
+                        .get("sessionUpdate")
+                        .or_else(|| update.get("session_update"))
+                })
+                .and_then(serde_json::Value::as_str);
+            if matches!(
+                tag,
+                Some(
+                    "async_task_spawned"
+                        | "async_task_progress"
+                        | "async_task_state_update"
+                        | "prompt_suggestion_update"
+                )
+            ) {
+                obj.insert(
+                    "method".to_string(),
+                    serde_json::Value::String(AIR_SESSION_UPDATE_METHOD.to_string()),
+                );
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
     let line = omit_null_error_data(line);
     if notification_has_null_session_id(&line) {
         return String::new();
     }
-    if !line.contains("null") || !line.contains("usage_update") {
+    let needs_usage_fix = line.contains("null") && line.contains("usage_update");
+    let needs_air_rewrite = line.contains("async_task_")
+        || line.contains("prompt_suggestion_update")
+        || line.contains("session/workflow_updated");
+    if !needs_usage_fix && !needs_air_rewrite {
         return line;
     }
     let Ok(mut message) = serde_json::from_str::<serde_json::Value>(&line) else {
         return line;
     };
-    let mut changed = fix_usage_update_nulls(&mut message);
-    if let Some(params) = message.get_mut("params") {
-        changed |= fix_usage_update_nulls(params);
-        if let Some(update) = params.get_mut("update") {
-            changed |= fix_usage_update_nulls(update);
+    let mut changed = rewrite_air_or_vendor_notification(&mut message);
+    if needs_usage_fix {
+        changed |= fix_usage_update_nulls(&mut message);
+        if let Some(params) = message.get_mut("params") {
+            changed |= fix_usage_update_nulls(params);
+            if let Some(update) = params.get_mut("update") {
+                changed |= fix_usage_update_nulls(update);
+            }
         }
     }
     if changed {
@@ -783,7 +843,9 @@ impl TurnOutputProbe {
             | AgentEvent::Plan { .. }
             | AgentEvent::PermissionRequested { .. }
             | AgentEvent::PermissionResponded { auto: true, .. }
-            | AgentEvent::ElicitationRequested { .. } => true,
+            | AgentEvent::ElicitationRequested { .. }
+            | AgentEvent::GoalUpdated { .. }
+            | AgentEvent::AsyncTasksUpdated { .. } => true,
             _ => false,
         };
         if visible {
@@ -1530,6 +1592,19 @@ pub enum AgentConnectionCommand {
         value: serde_json::Value,
         result_tx: oneshot::Sender<AgentResult<AgentSessionControlsSnapshot>>,
     },
+    /// Send a session goal control action (`pause`, `clear`, `set`, `resume`)
+    /// over `_session/goal` or legacy `_codex/session/goal_control`.
+    GoalControl {
+        session_id: AgentSessionId,
+        action: String,
+        result_tx: oneshot::Sender<AgentResult<crate::GoalControlReceipt>>,
+    },
+    /// Stop a background async task over `_session/async_task/stop`.
+    StopAsyncTask {
+        session_id: AgentSessionId,
+        task_id: String,
+        result_tx: oneshot::Sender<AgentResult<bool>>,
+    },
     Disconnect,
 }
 
@@ -2090,6 +2165,48 @@ impl AgentConnectionManager {
         })?
     }
 
+    pub async fn goal_control(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        action: impl Into<String>,
+    ) -> AgentResult<crate::GoalControlReceipt> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::GoalControl {
+                session_id,
+                action: action.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before goal control completed".into())
+        })?
+    }
+
+    pub async fn stop_async_task(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        task_id: impl Into<String>,
+    ) -> AgentResult<bool> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::StopAsyncTask {
+                session_id,
+                task_id: task_id.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before async task stop completed".into())
+        })?
+    }
+
     pub async fn disconnect(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
         let connection = self.connections.lock().await.remove(&connection_id);
         let Some(connection) = connection else {
@@ -2408,6 +2525,12 @@ struct AgentConnectionRunner {
     update_log_throttle: Arc<LeadingEdgeThrottle>,
     air_tool_call_meta: Arc<Mutex<crate::air_contract::ToolCallMetaLedger>>,
     hosted_terminal_output: Arc<Mutex<HashMap<String, String>>>,
+    neutral_goal_channel: Arc<AtomicBool>,
+    #[allow(clippy::type_complexity)]
+    goal_advertised_control: Arc<RwLock<Option<(Option<String>, Vec<String>)>>>,
+    handshake_completed: Arc<AtomicBool>,
+    connection_wants_prompt_suggestions: Arc<AtomicBool>,
+    session_wants_prompt_suggestions: Arc<RwLock<HashMap<AgentSessionId, bool>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -2462,6 +2585,16 @@ struct SessionControlState {
     asserted_config_values: BTreeMap<String, String>,
     /// Merged token & context-window usage accumulated during the active turn.
     last_turn_usage: Option<AgentUsage>,
+    /// Latest normalized goal snapshot (`_meta.goal` / AIR / legacy `_meta.codex.goal`).
+    goal: Option<serde_json::Value>,
+    /// Open active goal run tracked across `next_goal_marker` transitions.
+    open_goal_run: Option<serde_json::Value>,
+    /// Monotonic counter for synthetic `codex-goal-{seq}` tool calls.
+    goal_marker_sequence: u64,
+    /// Session-scoped background tasks (`asyncTasks` / Grok workflows).
+    async_tasks: Vec<crate::AsyncTaskRecord>,
+    /// Latest ephemeral Composer prompt suggestion (`promptSuggestions`).
+    prompt_suggestion: Option<String>,
 }
 
 impl SessionControlState {
@@ -2527,6 +2660,31 @@ struct AcpSteerRequest {
     meta: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
+#[request(method = "_session/goal", response = serde_json::Value)]
+#[serde(rename_all = "camelCase")]
+struct AcpNeutralGoalControlRequest {
+    session_id: String,
+    action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
+#[request(method = "_codex/session/goal_control", response = serde_json::Value)]
+#[serde(rename_all = "camelCase")]
+struct AcpLegacyGoalControlRequest {
+    session_id: String,
+    action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
+#[request(method = "_session/async_task/stop", response = serde_json::Value)]
+#[serde(rename_all = "camelCase")]
+struct AcpStopAsyncTaskRequest {
+    session_id: String,
+    async_task_id: String,
+    task_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonRpcResponse)]
 #[serde(rename_all = "camelCase")]
 struct AcpSteerResponse {
@@ -2588,7 +2746,48 @@ impl AgentConnectionRunner {
                 crate::air_contract::ToolCallMetaLedger::default(),
             )),
             hosted_terminal_output: Arc::new(Mutex::new(HashMap::new())),
+            neutral_goal_channel: Arc::new(AtomicBool::new(false)),
+            goal_advertised_control: Arc::new(RwLock::new(None)),
+            handshake_completed: Arc::new(AtomicBool::new(false)),
+            connection_wants_prompt_suggestions: Arc::new(AtomicBool::new(false)),
+            session_wants_prompt_suggestions: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    async fn record_wants_prompt_suggestions(&self, session_id: AgentSessionId, wants: bool) {
+        self.connection_wants_prompt_suggestions
+            .store(wants, Ordering::SeqCst);
+        self.session_wants_prompt_suggestions
+            .write()
+            .await
+            .insert(session_id, wants);
+    }
+
+    async fn wants_prompt_suggestions(&self, session_id: AgentSessionId) -> bool {
+        if let Some(&wants) = self
+            .session_wants_prompt_suggestions
+            .read()
+            .await
+            .get(&session_id)
+        {
+            return wants;
+        }
+        self.connection_wants_prompt_suggestions
+            .load(Ordering::SeqCst)
+    }
+
+    async fn resolve_session_goal_control(&self) -> Option<(String, Vec<String>)> {
+        if !self.handshake_completed.load(Ordering::SeqCst) {
+            return None;
+        }
+        let advertised = self.goal_advertised_control.read().await;
+        crate::codex_goal::resolve_goal_control(self.agent_kind(), advertised.as_ref())
+    }
+
+    async fn resolved_goal_actions(&self) -> Option<Vec<String>> {
+        self.resolve_session_goal_control()
+            .await
+            .map(|(_, actions)| actions)
     }
 
     fn agent_kind(&self) -> Option<crate::AgentKind> {
@@ -2951,6 +3150,52 @@ impl AgentConnectionRunner {
                         },
                     );
                     let _ = result_tx.send(Ok(self.session_controls_snapshot(session_id).await));
+                }
+                AgentConnectionCommand::GoalControl {
+                    session_id,
+                    action,
+                    result_tx,
+                } => {
+                    let kind = self.agent_kind();
+                    let goal_was_active = {
+                        let mut controls = self.session_controls.write().await;
+                        let state = controls.entry(session_id).or_default();
+                        let was_active = state
+                            .goal
+                            .as_ref()
+                            .and_then(|goal| goal.get("status"))
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("active")
+                            == "active";
+                        match action.as_str() {
+                            "pause" => {
+                                state.open_goal_run = None;
+                                state.goal = Some(serde_json::json!({
+                                    "objective": "in-memory goal",
+                                    "status": "paused",
+                                }));
+                            }
+                            "clear" => {
+                                state.open_goal_run = None;
+                                state.goal = None;
+                            }
+                            _ => {}
+                        }
+                        was_active
+                    };
+                    let should_interrupt_turn =
+                        crate::codex_goal::goal_control_is_out_of_band(kind)
+                            && goal_was_active
+                            && matches!(action.as_str(), "pause" | "clear");
+                    let _ = result_tx.send(Ok(crate::GoalControlReceipt {
+                        action,
+                        method: crate::codex_goal::NEUTRAL_GOAL_CONTROL_METHOD.to_string(),
+                        should_interrupt_turn,
+                        goal: None,
+                    }));
+                }
+                AgentConnectionCommand::StopAsyncTask { result_tx, .. } => {
+                    let _ = result_tx.send(Ok(false));
                 }
                 AgentConnectionCommand::Disconnect => break,
             }
@@ -3571,6 +3816,13 @@ impl AgentConnectionRunner {
                     .meta
                     .as_ref()
                     .map(|meta| serde_json::Value::Object(meta.clone()));
+                runner.neutral_goal_channel.store(
+                    crate::codex_goal::init_advertises_goal(initialize_response.meta.as_ref()),
+                    Ordering::SeqCst,
+                );
+                *runner.goal_advertised_control.write().await =
+                    crate::codex_goal::goal_advertised_control(initialize_response.meta.as_ref());
+                runner.handshake_completed.store(true, Ordering::SeqCst);
                 capability_snapshot.steering = crate::native_steering::synthesize_native_steering(
                     &runner.snapshot.agent_id,
                     initialize_meta.as_ref(),
@@ -3658,6 +3910,12 @@ impl AgentConnectionRunner {
                             result_tx,
                         } => {
                             runner
+                                .record_wants_prompt_suggestions(
+                                    session_id,
+                                    preferences.wants_prompt_suggestions,
+                                )
+                                .await;
+                            runner
                                 .store_preferred_controls(session_id, preferences)
                                 .await;
                             let result = match runner
@@ -3726,6 +3984,12 @@ impl AgentConnectionRunner {
                             result_tx,
                         } => {
                             runner
+                                .record_wants_prompt_suggestions(
+                                    session_id,
+                                    preferences.wants_prompt_suggestions,
+                                )
+                                .await;
+                            runner
                                 .store_preferred_controls(session_id, preferences)
                                 .await;
                             let result = runner
@@ -3769,6 +4033,9 @@ impl AgentConnectionRunner {
                                     crate::SessionControlPreferences {
                                         mode: mode_override.clone(),
                                         config: config_overrides.clone(),
+                                        wants_prompt_suggestions: runner
+                                            .wants_prompt_suggestions(session_id)
+                                            .await,
                                     },
                                 )
                                 .await;
@@ -4008,6 +4275,26 @@ impl AgentConnectionRunner {
                                 .await;
                             let _ = result_tx.send(result);
                         }
+                        AgentConnectionCommand::GoalControl {
+                            session_id,
+                            action,
+                            result_tx,
+                        } => {
+                            let result = runner
+                                .execute_goal_control(&conn, session_id, &action, true)
+                                .await;
+                            let _ = result_tx.send(result);
+                        }
+                        AgentConnectionCommand::StopAsyncTask {
+                            session_id,
+                            task_id,
+                            result_tx,
+                        } => {
+                            let result = runner
+                                .execute_stop_async_task(&conn, session_id, &task_id)
+                                .await;
+                            let _ = result_tx.send(result);
+                        }
                         AgentConnectionCommand::Disconnect => break,
                     }
                 }
@@ -4099,6 +4386,7 @@ impl AgentConnectionRunner {
             }
         }
 
+        let wants_prompt_suggestions = self.wants_prompt_suggestions(session_id).await;
         let mut resume_auth_error: Option<acp::Error> = None;
         {
             // Always attempt resume for a known sid, even when the agent did
@@ -4119,9 +4407,11 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
-            if let Some(meta) =
-                crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
-            {
+            if let Some(meta) = crate::session_meta::session_request_meta(
+                &self.snapshot.agent_id,
+                None,
+                wants_prompt_suggestions,
+            ) {
                 request = request.meta(meta);
             }
             *self.pending_session_id.lock().await = Some(session_id);
@@ -4201,9 +4491,11 @@ impl AgentConnectionRunner {
                 )
                 .await,
             );
-            if let Some(meta) =
-                crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
-            {
+            if let Some(meta) = crate::session_meta::session_request_meta(
+                &self.snapshot.agent_id,
+                None,
+                wants_prompt_suggestions,
+            ) {
                 request = request.meta(meta);
             }
             *self.pending_session_id.lock().await = Some(session_id);
@@ -4380,12 +4672,14 @@ impl AgentConnectionRunner {
         let acp_session_id = self
             .ensure_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await?;
+        let wants_prompt_suggestions = self.wants_prompt_suggestions(session_id).await;
         let request = AcpForkSessionRequest {
             session_id: acp_session_id,
             cwd: working_dir.to_path_buf(),
             meta: crate::session_meta::session_request_meta(
                 &self.snapshot.agent_id,
                 fork_point.as_ref(),
+                wants_prompt_suggestions,
             )
             .map(serde_json::Value::Object),
         };
@@ -4407,8 +4701,12 @@ impl AgentConnectionRunner {
         request.mcp_servers = self
             .session_mcp_servers_with_companion(working_dir, session_id, companion_capabilities)
             .await;
-        if let Some(meta) = crate::session_meta::session_request_meta(&self.snapshot.agent_id, None)
-        {
+        let wants_prompt_suggestions = self.wants_prompt_suggestions(session_id).await;
+        if let Some(meta) = crate::session_meta::session_request_meta(
+            &self.snapshot.agent_id,
+            None,
+            wants_prompt_suggestions,
+        ) {
             request = request.meta(meta);
         }
         *self.pending_session_id.lock().await = Some(session_id);
@@ -5010,6 +5308,7 @@ impl AgentConnectionRunner {
         &self,
         session_id: AgentSessionId,
     ) -> AgentSessionControlsSnapshot {
+        let goal_actions = self.resolved_goal_actions().await;
         let controls = self.session_controls.read().await;
         let Some(controls) = controls.get(&session_id) else {
             return AgentSessionControlsSnapshot {
@@ -5018,6 +5317,10 @@ impl AgentConnectionRunner {
                 config_options: Vec::new(),
                 capabilities: Some(self.capabilities.read().await.clone()),
                 available_commands: None,
+                goal: None,
+                goal_actions,
+                async_tasks: Vec::new(),
+                prompt_suggestion: None,
             };
         };
         let (modes, current_mode) = session_modes_from_config_options(&controls.config_options);
@@ -5027,6 +5330,10 @@ impl AgentConnectionRunner {
             config_options: agent_session_config_options_from_acp(controls.config_options.clone()),
             capabilities: Some(self.capabilities.read().await.clone()),
             available_commands: controls.available_commands.clone(),
+            goal: controls.goal.clone(),
+            goal_actions,
+            async_tasks: controls.async_tasks.clone(),
+            prompt_suggestion: controls.prompt_suggestion.clone(),
         }
     }
 
@@ -5062,6 +5369,308 @@ impl AgentConnectionRunner {
                 AgentEvent::AvailableCommands { commands },
             );
         }
+        if controls.goal.is_some() || controls.goal_actions.is_some() {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::GoalUpdated {
+                    goal: controls.goal.clone(),
+                    goal_actions: controls.goal_actions.clone(),
+                },
+            );
+        }
+        if !controls.async_tasks.is_empty() {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::AsyncTasksUpdated {
+                    tasks: controls.async_tasks.clone(),
+                },
+            );
+        }
+        if controls.prompt_suggestion.is_some() {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::PromptSuggestionUpdated {
+                    suggestion: controls.prompt_suggestion.clone(),
+                },
+            );
+        }
+    }
+
+    async fn execute_goal_control(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        session_id: AgentSessionId,
+        action: &str,
+        is_idle: bool,
+    ) -> AgentResult<crate::GoalControlReceipt> {
+        let action = action.trim();
+        if action.is_empty() {
+            return Err(AgentError::Runtime(
+                "goal control action cannot be empty".into(),
+            ));
+        }
+        let acp_session_id = self
+            .session_map
+            .read()
+            .await
+            .get(&session_id)
+            .cloned()
+            .filter(|id| crate::is_restorable_acp_session_id(id))
+            .ok_or(AgentError::AcpSessionNotBound)?;
+        let (method, actions) = self.resolve_session_goal_control().await.ok_or_else(|| {
+            AgentError::Runtime("agent does not advertise session goal control".into())
+        })?;
+        if !actions.iter().any(|candidate| candidate == action) {
+            return Err(AgentError::Runtime(format!(
+                "agent does not advertise goal action `{action}`"
+            )));
+        }
+        let goal_was_active = {
+            let controls = self.session_controls.read().await;
+            controls.get(&session_id).is_some_and(|state| {
+                state.open_goal_run.is_some()
+                    || state
+                        .goal
+                        .as_ref()
+                        .and_then(|goal| goal.get("status"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("active")
+            })
+        };
+
+        if method == crate::codex_goal::NEUTRAL_GOAL_CONTROL_METHOD {
+            conn.send_request(AcpNeutralGoalControlRequest {
+                session_id: acp_session_id.clone(),
+                action: action.to_string(),
+            })
+            .block_task()
+            .await
+            .map_err(|error| AgentError::Runtime(format!("{method} ({action}) failed: {error}")))?;
+        } else if method == crate::codex_goal::LEGACY_GOAL_CONTROL_METHOD {
+            conn.send_request(AcpLegacyGoalControlRequest {
+                session_id: acp_session_id.clone(),
+                action: action.to_string(),
+            })
+            .block_task()
+            .await
+            .map_err(|error| AgentError::Runtime(format!("{method} ({action}) failed: {error}")))?;
+        } else {
+            return Err(AgentError::Runtime(format!(
+                "unsupported goal control method `{method}`"
+            )));
+        }
+
+        let should_interrupt_turn =
+            crate::codex_goal::goal_control_is_out_of_band(self.agent_kind())
+                && goal_was_active
+                && matches!(action, "pause" | "clear");
+        if should_interrupt_turn && is_idle {
+            let _ = conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id)));
+        }
+
+        Ok(crate::GoalControlReceipt {
+            action: action.to_string(),
+            method,
+            should_interrupt_turn,
+            goal: None,
+        })
+    }
+
+    async fn execute_stop_async_task(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        session_id: AgentSessionId,
+        task_id: &str,
+    ) -> AgentResult<bool> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Err(AgentError::Runtime("async task id cannot be empty".into()));
+        }
+        let acp_session_id = self
+            .session_map
+            .read()
+            .await
+            .get(&session_id)
+            .cloned()
+            .filter(|id| crate::is_restorable_acp_session_id(id))
+            .ok_or(AgentError::AcpSessionNotBound)?;
+        let response = conn
+            .send_request(AcpStopAsyncTaskRequest {
+                session_id: acp_session_id,
+                async_task_id: task_id.to_string(),
+                task_id: task_id.to_string(),
+            })
+            .block_task()
+            .await
+            .map_err(|error| {
+                AgentError::Runtime(format!(
+                    "{} ({task_id}) failed: {error}",
+                    crate::async_tasks::ASYNC_TASK_STOP_METHOD
+                ))
+            })?;
+        Ok(response
+            .get("stopped")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false))
+    }
+
+    async fn apply_session_info_goal(
+        &self,
+        session_id: Option<AgentSessionId>,
+        goal: &serde_json::Value,
+        emit_events: bool,
+    ) {
+        let Some(session_id) = session_id else {
+            return;
+        };
+        let actions = self.resolved_goal_actions().await;
+        let (normalized_goal, marker_call) = {
+            let mut controls = self.session_controls.write().await;
+            let state = controls.entry(session_id).or_default();
+            let marker = crate::codex_goal::advance_goal_marker(&mut state.open_goal_run, goal);
+            let normalized = if goal.is_null() {
+                None
+            } else {
+                crate::codex_goal::normalize_goal_snapshot(goal)
+            };
+            state.goal = normalized.clone();
+            let marker_call = marker.map(|marker| {
+                state.goal_marker_sequence += 1;
+                let id = crate::codex_goal::goal_tool_call_id(state.goal_marker_sequence);
+                AgentToolCall {
+                    id,
+                    title: marker.tool_name.to_string(),
+                    kind: Some("other".to_string()),
+                    status: Some("completed".to_string()),
+                    content: Some(marker.output_json),
+                    input_preview: Some(marker.input_json),
+                    meta: normalized.clone(),
+                    images: Vec::new(),
+                }
+            });
+            (normalized, marker_call)
+        };
+        if !emit_events {
+            return;
+        }
+        let active_prompt_id = self
+            .active_prompt
+            .lock()
+            .await
+            .filter(|(active_session, _)| *active_session == session_id)
+            .map(|(_, prompt_id)| prompt_id);
+        self.emit(
+            Some(session_id),
+            active_prompt_id,
+            AgentEvent::GoalUpdated {
+                goal: normalized_goal,
+                goal_actions: actions,
+            },
+        );
+        if let Some(tool_call) = marker_call {
+            if let Some(acp_session_id) = self.session_map.read().await.get(&session_id).cloned()
+                && records_acp_jsonl(self.snapshot.agent_id.as_str())
+                && crate::acp_transcript::safe_component(&acp_session_id)
+            {
+                let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+                let raw_input = tool_call
+                    .input_preview
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                let raw_output = tool_call
+                    .content
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+                let payload = serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": tool_call.id,
+                    "title": tool_call.title,
+                    "kind": "other",
+                    "status": "completed",
+                    "rawInput": raw_input,
+                    "rawOutput": raw_output,
+                    "_meta": tool_call.meta,
+                });
+                drop(crate::acp_transcript::record_entry(
+                    &agent_dir,
+                    &acp_session_id,
+                    crate::acp_transcript::EntryKind::Update,
+                    payload,
+                ));
+            }
+            self.emit(
+                Some(session_id),
+                active_prompt_id,
+                AgentEvent::ToolCall { tool_call },
+            );
+        }
+    }
+
+    async fn apply_async_task_delta(
+        &self,
+        session_id: Option<AgentSessionId>,
+        delta: crate::AsyncTaskDelta,
+    ) {
+        let Some(session_id) = session_id else {
+            return;
+        };
+        let updated = {
+            let mut controls = self.session_controls.write().await;
+            let state = controls.entry(session_id).or_default();
+            if crate::async_tasks::apply_async_task_delta(&mut state.async_tasks, &delta) {
+                Some(state.async_tasks.clone())
+            } else {
+                None
+            }
+        };
+        let Some(tasks) = updated else {
+            return;
+        };
+        let active_prompt_id = self
+            .active_prompt
+            .lock()
+            .await
+            .filter(|(active_session, _)| *active_session == session_id)
+            .map(|(_, prompt_id)| prompt_id);
+        self.emit(
+            Some(session_id),
+            active_prompt_id,
+            AgentEvent::AsyncTasksUpdated { tasks },
+        );
+    }
+
+    async fn apply_prompt_suggestion(
+        &self,
+        session_id: Option<AgentSessionId>,
+        suggestion: Option<String>,
+    ) {
+        let Some(session_id) = session_id else {
+            return;
+        };
+        if !self.wants_prompt_suggestions(session_id).await {
+            return;
+        }
+        let changed = {
+            let mut controls = self.session_controls.write().await;
+            let state = controls.entry(session_id).or_default();
+            if state.prompt_suggestion == suggestion {
+                false
+            } else {
+                state.prompt_suggestion = suggestion.clone();
+                true
+            }
+        };
+        if !changed {
+            return;
+        }
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::PromptSuggestionUpdated { suggestion },
+        );
     }
 
     fn emit_session_load_failed(
@@ -5666,9 +6275,20 @@ impl AgentConnectionRunner {
         // `run()` closes the turn.
         *self.active_prompt.lock().await = Some((session_id, prompt_id));
         *self.last_activity.lock().await = Instant::now();
-        if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
-            stored.asserted_config_values.clear();
-            stored.last_turn_usage = None;
+        let cleared_suggestion =
+            if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
+                stored.asserted_config_values.clear();
+                stored.last_turn_usage = None;
+                stored.prompt_suggestion.take().is_some()
+            } else {
+                false
+            };
+        if cleared_suggestion {
+            self.emit(
+                Some(session_id),
+                Some(prompt_id),
+                AgentEvent::PromptSuggestionUpdated { suggestion: None },
+            );
         }
         let confirmed_mode = mode_override.clone();
         let confirmed_config = config_overrides.clone();
@@ -6220,6 +6840,33 @@ impl AgentConnectionRunner {
                             let _ = result_tx.send(Err(AgentError::Runtime(
                                 "cannot discard a session while a turn is in progress".into(),
                             )));
+                        }
+                        Some(AgentConnectionCommand::GoalControl {
+                            session_id: control_session,
+                            action,
+                            result_tx,
+                        }) => {
+                            *self.last_activity.lock().await = Instant::now();
+                            let result = self
+                                .execute_goal_control(
+                                    conn,
+                                    control_session,
+                                    &action,
+                                    control_session != session_id,
+                                )
+                                .await;
+                            let _ = result_tx.send(result);
+                        }
+                        Some(AgentConnectionCommand::StopAsyncTask {
+                            session_id: task_session,
+                            task_id,
+                            result_tx,
+                        }) => {
+                            *self.last_activity.lock().await = Instant::now();
+                            let result = self
+                                .execute_stop_async_task(conn, task_session, &task_id)
+                                .await;
+                            let _ = result_tx.send(result);
                         }
                         Some(other) => {
                             self.emit(
@@ -7193,6 +7840,36 @@ impl AcpClientBridge {
             }
             _ => {}
         }
+        if ext.method.as_ref() == AIR_SESSION_UPDATE_METHOD {
+            let update_payload = params.get("update").unwrap_or(&params);
+            let agent_kind = self.apply.agent_kind();
+            if let Some(delta) =
+                crate::async_tasks::parse_async_task_session_update(agent_kind, update_payload)
+            {
+                self.apply.apply_async_task_delta(session_id, delta).await;
+            } else if let Some(suggestion) =
+                crate::session_meta::prompt_suggestion_from_session_update(
+                    agent_kind,
+                    update_payload,
+                )
+            {
+                self.apply
+                    .apply_prompt_suggestion(session_id, suggestion)
+                    .await;
+            }
+            return Ok(());
+        }
+        if self.apply.agent_kind() == Some(AgentKind::Grok)
+            && matches!(
+                ext.method.as_ref(),
+                GROK_WORKFLOW_UPDATED_METHOD | "session/workflow_updated"
+            )
+            && let Some((_workflow_session_id, delta)) =
+                crate::async_tasks::parse_grok_workflow_updated(&params)
+        {
+            self.apply.apply_async_task_delta(session_id, delta).await;
+            return Ok(());
+        }
         if crate::grok_announcements::is_announcements_method(ext.method.as_ref()) {
             if let Some(update) = crate::grok_announcements::parse_update(&params) {
                 let notices =
@@ -7386,6 +8063,16 @@ impl AcpClientBridge {
             // Unbound notifications are `session/load` / `session/resume`
             // replaying history. They must not become a live turn. Record the
             // replay only when this load claimed an empty transcript file.
+            if let SessionUpdate::SessionInfoUpdate(ref info) = args.update {
+                let neutral_goal = self.apply.neutral_goal_channel.load(Ordering::SeqCst);
+                if let Some(goal) =
+                    crate::codex_goal::session_info_goal_value(info.meta.as_ref(), neutral_goal)
+                {
+                    self.apply
+                        .apply_session_info_goal(session_id, goal, false)
+                        .await;
+                }
+            }
             if is_session_transcript_update(&args.update) {
                 self.record_hydrated_update(&acp_session_id, &args.update)
                     .await;
@@ -7793,13 +8480,48 @@ impl AcpClientBridge {
                     usage: self.usage_with_session_model(session_id, usage).await,
                 })
             }
-            SessionUpdate::SessionInfoUpdate(update) => Some(AgentEvent::SessionInfoUpdated {
-                patch: session_info_patch_from_acp(update),
-            }),
+            SessionUpdate::SessionInfoUpdate(update) => {
+                let agent_kind = self.apply.agent_kind();
+                if let Some(suggestion) =
+                    crate::session_meta::prompt_suggestion_update(agent_kind, update.meta.as_ref())
+                {
+                    self.apply
+                        .apply_prompt_suggestion(session_id, suggestion)
+                        .await;
+                }
+                let neutral_goal = self.apply.neutral_goal_channel.load(Ordering::SeqCst);
+                if let Some(goal) =
+                    crate::codex_goal::session_info_goal_value(update.meta.as_ref(), neutral_goal)
+                {
+                    self.apply
+                        .apply_session_info_goal(session_id, goal, true)
+                        .await;
+                }
+                Some(AgentEvent::SessionInfoUpdated {
+                    patch: session_info_patch_from_acp(update),
+                })
+            }
             other => {
                 let mut raw_notification =
                     serde_json::to_value(other).unwrap_or(serde_json::Value::Null);
-                if let Some(usage) = crate::usage_from_session_update(&raw_notification) {
+                let agent_kind = self.apply.agent_kind();
+                if let Some(delta) = crate::async_tasks::parse_async_task_session_update(
+                    agent_kind,
+                    &raw_notification,
+                ) {
+                    self.apply.apply_async_task_delta(session_id, delta).await;
+                    None
+                } else if let Some(suggestion) =
+                    crate::session_meta::prompt_suggestion_from_session_update(
+                        agent_kind,
+                        &raw_notification,
+                    )
+                {
+                    self.apply
+                        .apply_prompt_suggestion(session_id, suggestion)
+                        .await;
+                    None
+                } else if let Some(usage) = crate::usage_from_session_update(&raw_notification) {
                     Some(AgentEvent::Usage {
                         usage: self.usage_with_session_model(session_id, usage).await,
                     })
@@ -12889,5 +13611,366 @@ mod tests {
             Some("fable")
         );
         assert!(!preferred_map.contains_key("mode"));
+    }
+
+    fn dummy_runner_for_agent(
+        agent_id: &str,
+        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    ) -> AgentConnectionRunner {
+        AgentConnectionRunner::new(
+            ManagedAgentConnectionSnapshot {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse(agent_id).unwrap(),
+                launch_lock: crate::SessionLaunchLock {
+                    agent_id: AgentId::parse(agent_id).unwrap(),
+                    absolute_acp_program: PathBuf::from("/managed/acp"),
+                    args: vec!["serve".into()],
+                    env: BTreeMap::new(),
+                    runtime_version: "2.0.0".into(),
+                    acp_version: "1.1.0".into(),
+                },
+                workspace_id: uuid::Uuid::nil(),
+                working_dir: PathBuf::from("C:/workspace"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::default(),
+                env: HashMap::new(),
+            },
+            event_tx,
+            None,
+        )
+    }
+
+    #[test]
+    fn sanitize_incoming_jsonrpc_line_rewrites_air_async_task_and_prompt_suggestion_updates() {
+        let spawned = sanitize_incoming_jsonrpc_line(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"async_task_spawned","taskId":"bg-1","name":"npm test","taskType":"shell","state":"running","canStop":true}}}"#.to_string(),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&spawned).unwrap();
+        assert_eq!(parsed["method"], AIR_SESSION_UPDATE_METHOD);
+        assert_eq!(
+            parsed["params"]["update"]["sessionUpdate"],
+            "async_task_spawned"
+        );
+
+        let suggestion = sanitize_incoming_jsonrpc_line(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"prompt_suggestion_update","_meta":{"promptSuggestions":{"version":1,"suggestions":[{"text":"Run tests"}]}}}}}"#.to_string(),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&suggestion).unwrap();
+        assert_eq!(parsed["method"], AIR_SESSION_UPDATE_METHOD);
+
+        let workflow = sanitize_incoming_jsonrpc_line(
+            r#"{"jsonrpc":"2.0","method":"session/workflow_updated","params":{"sessionId":"s1","workflowId":"wf-1","name":"Deploy","status":"running"}}"#.to_string(),
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&workflow).unwrap();
+        assert_eq!(parsed["method"], GROK_WORKFLOW_UPDATED_METHOD);
+    }
+
+    #[tokio::test]
+    async fn session_info_goal_synthesizes_timeline_markers_and_normalizes_status() {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("codex", event_tx);
+        *runner.goal_advertised_control.write().await = Some((
+            Some(crate::codex_goal::NEUTRAL_GOAL_CONTROL_METHOD.to_string()),
+            vec![
+                "pause".to_string(),
+                "resume".to_string(),
+                "clear".to_string(),
+                "set".to_string(),
+            ],
+        ));
+        runner.handshake_completed.store(true, Ordering::SeqCst);
+        runner.neutral_goal_channel.store(true, Ordering::SeqCst);
+
+        // Legacy _meta.codex.goal is ignored when neutral_goal_channel is true.
+        let legacy_meta = serde_json::json!({
+            "codex": {
+                "goal": {
+                    "objective": "Ignored legacy goal",
+                    "status": "active"
+                }
+            }
+        });
+        assert!(
+            crate::codex_goal::session_info_goal_value(legacy_meta.as_object(), true).is_none()
+        );
+
+        // Neutral active goal synthesizes create_goal (codex-goal-1) + GoalUpdated.
+        runner
+            .apply_session_info_goal(
+                Some(session_id),
+                &serde_json::json!({
+                    "objective": "Ship Goal Bar",
+                    "status": "active",
+                    "tokensUsed": 1200
+                }),
+                true,
+            )
+            .await;
+
+        let first = event_rx.try_recv().expect("GoalUpdated");
+        match first.event {
+            AgentEvent::GoalUpdated { goal, goal_actions } => {
+                assert_eq!(
+                    goal.as_ref().and_then(|g| g["objective"].as_str()),
+                    Some("Ship Goal Bar")
+                );
+                assert_eq!(
+                    goal_actions,
+                    Some(vec![
+                        "pause".to_string(),
+                        "resume".to_string(),
+                        "clear".to_string(),
+                        "set".to_string(),
+                    ])
+                );
+            }
+            other => panic!("expected GoalUpdated, got {other:?}"),
+        }
+
+        let second = event_rx.try_recv().expect("ToolCall create_goal");
+        match second.event {
+            AgentEvent::ToolCall { tool_call } => {
+                assert_eq!(tool_call.id, "codex-goal-1");
+                assert_eq!(tool_call.title, "create_goal");
+                assert_eq!(tool_call.status.as_deref(), Some("completed"));
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+
+        // Transition to budgetLimited normalizes to budget_limited and synthesizes update_goal.
+        runner
+            .apply_session_info_goal(
+                Some(session_id),
+                &serde_json::json!({
+                    "objective": "Ship Goal Bar",
+                    "status": "budgetLimited",
+                    "tokensUsed": 5000
+                }),
+                true,
+            )
+            .await;
+
+        let updated = event_rx.try_recv().expect("GoalUpdated");
+        match updated.event {
+            AgentEvent::GoalUpdated { goal, .. } => {
+                assert_eq!(
+                    goal.as_ref().and_then(|g| g["status"].as_str()),
+                    Some("budget_limited")
+                );
+            }
+            other => panic!("expected GoalUpdated, got {other:?}"),
+        }
+
+        let marker = event_rx.try_recv().expect("ToolCall update_goal");
+        match marker.event {
+            AgentEvent::ToolCall { tool_call } => {
+                assert_eq!(tool_call.id, "codex-goal-2");
+                assert_eq!(tool_call.title, "update_goal");
+                assert_eq!(tool_call.status.as_deref(), Some("completed"));
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+
+        // Starting the same objective again gets a new occurrence id (codex-goal-3).
+        runner
+            .apply_session_info_goal(
+                Some(session_id),
+                &serde_json::json!({
+                    "objective": "Ship Goal Bar",
+                    "status": "active"
+                }),
+                true,
+            )
+            .await;
+        let _ = event_rx.try_recv().expect("GoalUpdated");
+        let second_run = event_rx.try_recv().expect("ToolCall create_goal #2");
+        match second_run.event {
+            AgentEvent::ToolCall { tool_call } => {
+                assert_eq!(tool_call.id, "codex-goal-3");
+                assert_eq!(tool_call.title, "create_goal");
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn async_task_and_prompt_suggestion_ext_notifications_route_to_session_controls() {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("claude_code", event_tx.clone());
+        let bridge = AcpClientBridge::new(
+            AgentConnectionId::new(),
+            AgentId::parse("claude_code").unwrap(),
+            event_tx,
+            Arc::new(RwLock::new(HashMap::from([(
+                session_id,
+                "acp-claude".into(),
+            )]))),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(AgentAutoApproveMode::default())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(Instant::now())),
+            Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            Arc::new(Mutex::new(GrokMcpTracker::default())),
+            Arc::new(Mutex::new(None)),
+            PathBuf::from("C:/workspace"),
+            HashMap::new(),
+            runner.clone(),
+        );
+
+        let spawned_raw = serde_json::value::to_raw_value(&serde_json::json!({
+            "sessionId": "acp-claude",
+            "update": {
+                "sessionUpdate": "async_task_spawned",
+                "taskId": "task-1",
+                "name": "cargo test",
+                "taskType": "shell",
+                "state": "running",
+                "canStop": true
+            }
+        }))
+        .unwrap();
+        bridge
+            .handle_ext_notification(acp::schema::v1::ExtNotification::new(
+                AIR_SESSION_UPDATE_METHOD,
+                spawned_raw.into(),
+            ))
+            .await
+            .unwrap();
+
+        let task_event = event_rx.try_recv().expect("AsyncTasksUpdated");
+        match task_event.event {
+            AgentEvent::AsyncTasksUpdated { tasks } => {
+                assert_eq!(tasks.len(), 1);
+                assert_eq!(tasks[0].id, "task-1");
+                assert_eq!(tasks[0].name.as_deref(), Some("cargo test"));
+                assert!(tasks[0].can_stop);
+            }
+            other => panic!("expected AsyncTasksUpdated, got {other:?}"),
+        }
+
+        let suggestion_raw = serde_json::value::to_raw_value(&serde_json::json!({
+            "sessionId": "acp-claude",
+            "update": {
+                "sessionUpdate": "prompt_suggestion_update",
+                "_meta": {
+                    "promptSuggestions": {
+                        "version": 1,
+                        "suggestions": [{ "text": "Commit the changes" }]
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        bridge
+            .handle_ext_notification(acp::schema::v1::ExtNotification::new(
+                AIR_SESSION_UPDATE_METHOD,
+                suggestion_raw.clone().into(),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            event_rx.try_recv().is_err(),
+            "headless sessions without wants_prompt_suggestions must ignore suggestions"
+        );
+
+        runner
+            .record_wants_prompt_suggestions(session_id, true)
+            .await;
+        bridge
+            .handle_ext_notification(acp::schema::v1::ExtNotification::new(
+                AIR_SESSION_UPDATE_METHOD,
+                suggestion_raw.into(),
+            ))
+            .await
+            .unwrap();
+
+        let suggestion_event = event_rx.try_recv().expect("PromptSuggestionUpdated");
+        match suggestion_event.event {
+            AgentEvent::PromptSuggestionUpdated { suggestion } => {
+                assert_eq!(suggestion.as_deref(), Some("Commit the changes"));
+            }
+            other => panic!("expected PromptSuggestionUpdated, got {other:?}"),
+        }
+
+        let controls = runner.session_controls_snapshot(session_id).await;
+        assert_eq!(controls.async_tasks.len(), 1);
+        assert_eq!(
+            controls.prompt_suggestion.as_deref(),
+            Some("Commit the changes")
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_goal_control_orchestration_respects_claude_and_codex_rules() {
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+
+        // 1. Claude clear never interrupts the in-flight turn.
+        let (claude_snap, claude_ready) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("claude_code").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("claude_code").unwrap()),
+                workspace_id: uuid::Uuid::nil(),
+                working_dir: PathBuf::from("C:/workspace"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        claude_ready.await.unwrap().unwrap();
+        let claude_session = AgentSessionId::new();
+        manager
+            .prepare_session(
+                claude_snap.connection_id,
+                claude_session,
+                Default::default(),
+            )
+            .await
+            .unwrap();
+        let claude_receipt = manager
+            .goal_control(claude_snap.connection_id, claude_session, "clear")
+            .await
+            .unwrap();
+        assert!(!claude_receipt.should_interrupt_turn);
+
+        // 2. Codex pause interrupts turn; clear when paused does NOT interrupt turn.
+        let (codex_snap, codex_ready) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
+                workspace_id: uuid::Uuid::nil(),
+                working_dir: PathBuf::from("C:/workspace"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        codex_ready.await.unwrap().unwrap();
+        let codex_session = AgentSessionId::new();
+        manager
+            .prepare_session(codex_snap.connection_id, codex_session, Default::default())
+            .await
+            .unwrap();
+
+        let pause_receipt = manager
+            .goal_control(codex_snap.connection_id, codex_session, "pause")
+            .await
+            .unwrap();
+        assert!(pause_receipt.should_interrupt_turn);
+
+        let clear_when_paused = manager
+            .goal_control(codex_snap.connection_id, codex_session, "clear")
+            .await
+            .unwrap();
+        assert!(
+            !clear_when_paused.should_interrupt_turn,
+            "clearing a non-active goal must not cancel a user-initiated turn"
+        );
     }
 }

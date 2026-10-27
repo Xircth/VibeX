@@ -3,8 +3,8 @@
 use agents::{
     AgentAvailableCommand, AgentSessionConfigOption,
     conversation::{
-        AcpCapabilitySnapshot, ConversationSessionModes, ConversationTimeline, MessageTurn,
-        SessionStats,
+        AcpCapabilitySnapshot, ConversationSessionGoal, ConversationSessionModes,
+        ConversationTimeline, MessageTurn, SessionStats,
     },
 };
 use db::models::conversation::DbConversationSummary;
@@ -56,6 +56,12 @@ pub struct DbConversationDetail {
     /// publishes `available_commands_update`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_goal: Option<ConversationSessionGoal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub async_tasks: Vec<agents::AsyncTaskRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_suggestion: Option<String>,
     /// Snapshot of the role used to create this conversation. Absent when the
     /// conversation was not created from a role.
     #[serde(default, skip_serializing_if = "Option::is_none")]

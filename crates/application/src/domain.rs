@@ -589,6 +589,8 @@ domain_commands! {
     ConversationTimelinePage => "conversation_timeline_page" / "conversation.read",
     ConversationTimelineImage => "conversation_timeline_image" / "conversation.read",
     ConversationRebindSession => "conversation_rebind_session" / "conversation.write",
+    ConversationGoalControl => "conversation_goal_control" / "conversation.write",
+    ConversationStopAsyncTask => "conversation_stop_async_task" / "conversation.write",
     ConversationTruncateToTurn => "conversation_truncate_to_turn" / "conversation.write",
     ConversationCheckpointPreview => "conversation_checkpoint_file_changes_preview" / "conversation.read",
     ConversationClose => "conversation_close" / "conversation.write",

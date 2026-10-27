@@ -1,4 +1,7 @@
-use agents::conversation::{ConversationEvent, ConversationRowOpBatch, ConversationSessionModes};
+use agents::conversation::{
+    ConversationEvent, ConversationPromptSuggestion, ConversationRowOpBatch,
+    ConversationSessionGoal, ConversationSessionModes,
+};
 use async_trait::async_trait;
 use conversations::{
     CachedRowProjector, ConversationEventPublisher, ConversationRowProjectors,
@@ -128,6 +131,9 @@ impl ConversationEventPublisher for HostRowOpPublisher {
         let mut session_modes = None;
         let mut session_config_options = None;
         let mut available_commands = None;
+        let mut session_goal = None;
+        let mut async_tasks = None;
+        let mut prompt_suggestion = None;
         for item in &new_records {
             if let Ok(event) = serde_json::from_str::<ConversationEvent>(&item.normalized_json) {
                 match event {
@@ -139,6 +145,15 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                     }
                     ConversationEvent::AvailableCommandsUpdated { commands } => {
                         available_commands = Some(commands);
+                    }
+                    ConversationEvent::SessionGoalUpdated { goal, actions } => {
+                        session_goal = Some(ConversationSessionGoal { goal, actions });
+                    }
+                    ConversationEvent::AsyncTasksUpdated { tasks } => {
+                        async_tasks = Some(tasks);
+                    }
+                    ConversationEvent::PromptSuggestionUpdated { suggestion } => {
+                        prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
                     }
                     _ => {}
                 }
@@ -187,6 +202,9 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                 && session_modes.is_none()
                 && session_config_options.is_none()
                 && available_commands.is_none()
+                && session_goal.is_none()
+                && async_tasks.is_none()
+                && prompt_suggestion.is_none()
                 && !queue_changed);
             let result = if will_emit {
                 entry.last_emitted_sequence = last_sequence;
@@ -208,6 +226,9 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             }) || session_modes.is_some()
                 || session_config_options.is_some()
                 || available_commands.is_some()
+                || session_goal.is_some()
+                || async_tasks.is_some()
+                || prompt_suggestion.is_some()
                 || queue_changed;
             let batch = ConversationRowOpBatch {
                 conversation_id,
@@ -217,6 +238,9 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                 session_modes,
                 session_config_options,
                 available_commands,
+                session_goal,
+                async_tasks,
+                prompt_suggestion,
             };
             self.events
                 .emit(format!("conversation-events:{conversation_id}"), &batch);
@@ -290,9 +314,16 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             self.prune_conversation_locks(&map);
             (cursor, ops)
         };
-        if ops.is_empty() {
+        let mut prompt_suggestion = None;
+        if let Ok(ConversationEvent::PromptSuggestionUpdated { suggestion }) =
+            serde_json::from_str::<ConversationEvent>(&record.normalized_json)
+        {
+            prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
+        }
+        if ops.is_empty() && prompt_suggestion.is_none() {
             return;
         }
+        let emit_global = prompt_suggestion.is_some();
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence: cursor,
@@ -301,9 +332,15 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             session_modes: None,
             session_config_options: None,
             available_commands: None,
+            session_goal: None,
+            async_tasks: None,
+            prompt_suggestion,
         };
         self.events
             .emit(format!("conversation-events:{conversation_id}"), &batch);
+        if emit_global {
+            self.events.emit("conversation-events", &batch);
+        }
     }
 }
 

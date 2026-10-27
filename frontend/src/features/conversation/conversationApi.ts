@@ -33,6 +33,7 @@ import type {
   DbConversationDetail,
   DbConversationSummary,
   ExecutorProfileId,
+  GoalControlReceipt,
 } from 'shared/types';
 
 export type { ConversationWorkflowRef };
@@ -259,6 +260,24 @@ export function createConversationApi(transport: BackendTransport) {
       conversationId: string
     ): Promise<AgentSessionControlsSnapshot> =>
       call('conversation_rebind_session', { conversationId }),
+
+    goalControl: (
+      conversationId: string,
+      action: 'pause' | 'clear'
+    ): Promise<GoalControlReceipt> =>
+      call('conversation_goal_control', {
+        conversationId,
+        action,
+      }),
+
+    stopAsyncTask: (
+      conversationId: string,
+      taskId: string
+    ): Promise<{ stopped: boolean }> =>
+      call('conversation_stop_async_task', {
+        conversationId,
+        taskId,
+      }),
 
     startTurn: async (
       request: ConversationStartTurnRequest

@@ -53,6 +53,12 @@ import type {
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
 import { AskQuestionToolCard } from './tools/AskQuestionToolCard';
+import { GoalToolCall, isGoalToolUse } from './tools/GoalToolCall';
+import {
+  groupConsecutiveBackgroundTasks,
+  isToolCallBackgrounded,
+  parseBackgroundPollTaskId,
+} from '@/lib/asyncTasks';
 import {
   firstQuestionTitle,
   isAskQuestionTool,
@@ -611,6 +617,7 @@ export function TurnActivity({
             isHostDelegation: isHostDelegationTool(item.use),
             isSubagent: isNativeSubagentTool(item.use),
             isAskQuestion: isAskQuestionTool(item.use),
+            isGoal: isGoalToolUse(item.use),
           },
         ];
       }),
@@ -631,9 +638,14 @@ export function TurnActivity({
     () => entries.filter((entry) => isHostDelegationLifecycleTool(entry.use)),
     [entries]
   );
+  const goalEntries = useMemo(
+    () => entries.filter((entry) => entry.isGoal),
+    [entries]
+  );
   const regularEntries = useMemo(
     () =>
       entries.filter((entry) => {
+        if (entry.isGoal) return false;
         if (entry.isHostDelegation) return false;
         if (isHostDelegationLifecycleTool(entry.use)) return false;
         if (isCompanionMcpDiscoverySearch(entry.use)) return false;
@@ -695,8 +707,21 @@ export function TurnActivity({
   );
 
   const callCategories = new Map<string, ToolSummaryCategory>();
+  const groupedRegularEntries = useMemo(
+    () =>
+      groupConsecutiveBackgroundTasks(regularEntries, (item) =>
+        parseBackgroundPollTaskId(item.use)
+      ),
+    [regularEntries]
+  );
   const rawCalls: (ChatToolCallItem & { index: number })[] =
-    regularEntries.flatMap(({ entry, index, toolUseId, images }) => {
+    groupedRegularEntries.flatMap((group) => {
+      const primary =
+        group.kind === 'poll_group'
+          ? (group.items.at(-1) ?? group.items[0]!)
+          : group.item;
+      const pollCount = group.kind === 'poll_group' ? group.items.length : 1;
+      const { entry, index, toolUseId, images, use } = primary;
       if (images.length > 0) return [];
       if (entry.entry_type.type !== 'tool_use') {
         throw new Error('Turn tool aggregate received a non-tool entry');
@@ -706,6 +731,7 @@ export function TurnActivity({
       const description = getToolCallDescription(entry);
       const expansionKey = `${turnId}-${index}`;
       const action = toolEntry.action_type;
+      const backgrounded = isToolCallBackgrounded(use.meta);
       callCategories.set(
         toolUseId || expansionKey,
         summaryCategory(action.action)
@@ -722,33 +748,53 @@ export function TurnActivity({
           : entry.content.trim() && entry.content.trim() !== summary.label
             ? entry.content.trim()
             : '';
+      const baseName = description ?? summary.label;
+      const displayName =
+        pollCount > 1 ? `${baseName} ×${pollCount}` : baseName;
+      const baseStats = description ? undefined : action.action ===
+        'file_read' ? (
+        <FileReadStats
+          action={action}
+          workspacePath={workspacePath ?? attempt.container_ref}
+        />
+      ) : action.action === 'file_edit' ? (
+        <FileEditPath
+          action={action}
+          workspacePath={workspacePath ?? attempt.container_ref}
+        />
+      ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
+        <ToolCallTarget
+          text={listDirPath(action.arguments) || detailText}
+          path={listDirPath(action.arguments) || detailText}
+          isFolder
+        />
+      ) : detailText ? (
+        <ToolCallTarget text={detailText} />
+      ) : undefined;
+      const statsNode = backgrounded ? (
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {baseStats}
+          <span
+            data-testid="tool-backgrounded-badge"
+            className="shrink-0 rounded bg-muted px-1 py-0.5 text-[11px] font-normal text-[var(--text-muted,hsl(var(--muted-foreground)))]"
+          >
+            {t('asyncTasks.backgroundBadge')}
+          </span>
+        </span>
+      ) : (
+        baseStats
+      );
       return [
         {
           index,
           key: toolUseId || expansionKey,
-          name: description ?? summary.label,
+          name: displayName,
           additions: editStats.additions,
           deletions: editStats.deletions,
-          stats: description ? undefined : action.action === 'file_read' ? (
-            <FileReadStats
-              action={action}
-              workspacePath={workspacePath ?? attempt.container_ref}
-            />
-          ) : action.action === 'file_edit' ? (
-            <FileEditPath
-              action={action}
-              workspacePath={workspacePath ?? attempt.container_ref}
-            />
-          ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
-            <ToolCallTarget
-              text={listDirPath(action.arguments) || detailText}
-              path={listDirPath(action.arguments) || detailText}
-              isFolder
-            />
-          ) : detailText ? (
-            <ToolCallTarget text={detailText} />
-          ) : undefined,
-          status: getToolChatStatus(toolEntry.status),
+          stats: statsNode,
+          status: backgrounded
+            ? 'complete'
+            : getToolChatStatus(toolEntry.status),
           errorMessage:
             toolEntry.status.status === 'failed'
               ? t('messageTurnView.toolSummary.failed')
@@ -806,6 +852,24 @@ export function TurnActivity({
         key: `tool-batch:${turnId}:${call.key}`,
         index: call.index,
         call,
+      })
+    ),
+    ...goalEntries.map(
+      ({ entry, toolUseId, index }): ActivityEntry => ({
+        kind: 'visible',
+        key: `tool-batch:${turnId}:${toolUseId || index}`,
+        index,
+        content: (
+          <GoalToolCall
+            entry={entry}
+            expansionKey={`goal-details:${turnId}:${toolUseId || index}`}
+            sessionId={attempt.session?.id ?? null}
+            onExpandedChange={(expanded) => {
+              if (expanded)
+                setExpanded(`tool-batch:${turnId}:${toolUseId || index}`, true);
+            }}
+          />
+        ),
       })
     ),
     ...askQuestionEntries.map(

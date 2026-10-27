@@ -3,9 +3,11 @@ import type {
   AgentSessionConfigOption,
   AgentSessionControlsSnapshot,
   AgentSessionMode,
+  AsyncTaskRecord,
   ContentBlock,
   ConversationRowOp,
   ConversationRowOpBatch,
+  ConversationSessionGoal,
   ConversationTimeline,
   DbConversationDetail,
   MessageTurn,
@@ -97,6 +99,12 @@ export type ConversationStoreEntry = {
   sessionConfigOptions: AgentSessionConfigOption[];
   /** Agent-advertised slash/skill catalog. `null` until the first update. */
   availableCommands: AgentAvailableCommand[] | null;
+  /** Session goal snapshot and control actions (`_meta.goal` / AIR / `_meta.codex.goal`). */
+  sessionGoal: ConversationSessionGoal | null;
+  /** Live and settled background tasks (`asyncTasks` / Grok workflows). */
+  asyncTasks: AsyncTaskRecord[];
+  /** Latest ephemeral Composer prompt suggestion (`promptSuggestions`). */
+  promptSuggestion: string | null;
   olderCursor: string | null;
   /** Fingerprint of the turns above `olderCursor`, from the last window response. */
   prefixHash: string | null;
@@ -137,6 +145,7 @@ export type ConversationStoreAction =
     }
   | { type: 'optimistic_turn'; conversationId: string; turn: MessageTurn }
   | { type: 'remove_optimistic_turn'; conversationId: string; turnId: string }
+  | { type: 'clear_prompt_suggestion'; conversationId: string }
   | { type: 'reset'; conversationId: string };
 
 export const emptyConversationStoreState: ConversationStoreState = {
@@ -264,6 +273,20 @@ export function conversationStoreReducer(
             action.detail.available_commands !== null
               ? action.detail.available_commands
               : entry.availableCommands,
+          sessionGoal:
+            action.detail.session_goal !== undefined &&
+            action.detail.session_goal !== null
+              ? action.detail.session_goal
+              : entry.sessionGoal,
+          asyncTasks:
+            action.detail.async_tasks && action.detail.async_tasks.length > 0
+              ? action.detail.async_tasks
+              : entry.asyncTasks,
+          promptSuggestion:
+            action.detail.prompt_suggestion !== undefined &&
+            action.detail.prompt_suggestion !== null
+              ? action.detail.prompt_suggestion
+              : entry.promptSuggestion,
           olderCursor: keepRealtimeRows
             ? preferLoadedOlderCursor(
                 entry.olderCursor,
@@ -304,6 +327,28 @@ export function conversationStoreReducer(
             : entry.sessionConfigOptions,
         availableCommands:
           action.controls.available_commands ?? entry.availableCommands,
+        sessionGoal:
+          action.controls.goal !== undefined ||
+          action.controls.goal_actions !== undefined
+            ? {
+                goal:
+                  action.controls.goal !== undefined
+                    ? action.controls.goal
+                    : (entry.sessionGoal?.goal ?? null),
+                actions:
+                  action.controls.goal_actions !== undefined
+                    ? action.controls.goal_actions
+                    : (entry.sessionGoal?.actions ?? null),
+              }
+            : entry.sessionGoal,
+        asyncTasks:
+          action.controls.async_tasks && action.controls.async_tasks.length > 0
+            ? action.controls.async_tasks
+            : entry.asyncTasks,
+        promptSuggestion:
+          action.controls.prompt_suggestion !== undefined
+            ? (action.controls.prompt_suggestion ?? null)
+            : entry.promptSuggestion,
       }));
     case 'row_ops': {
       return updateEntry(state, action.batch.conversation_id, (entry) => {
@@ -422,6 +467,7 @@ export function conversationStoreReducer(
       return updateEntry(state, action.conversationId, (entry) => ({
         ...entry,
         optimisticTurns: [...entry.optimisticTurns, action.turn],
+        promptSuggestion: null,
       }));
     case 'remove_optimistic_turn':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -430,6 +476,15 @@ export function conversationStoreReducer(
           (turn) => turn.id !== action.turnId
         ),
       }));
+    case 'clear_prompt_suggestion':
+      return updateEntry(state, action.conversationId, (entry) =>
+        entry.promptSuggestion === null
+          ? entry
+          : {
+              ...entry,
+              promptSuggestion: null,
+            }
+      );
     case 'reset': {
       const next = { ...state.byConversationId };
       delete next[action.conversationId];
@@ -447,6 +502,7 @@ function applyRowOpBatch(
   let liveText = entry.liveText;
   let currentTurnId = entry.currentTurnId;
   let optimisticTurns = entry.optimisticTurns;
+  let sawUserTurnUpsert = false;
   const rowIndexById = new Map(
     liveRows.map((row, index) => [row.row_id, index] as const)
   );
@@ -472,6 +528,7 @@ function applyRowOpBatch(
         op.row.row.turn.role === 'user'
       ) {
         currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
+        sawUserTurnUpsert = true;
       }
     } else if (op.op === 'patch_blocks') {
       const applied = applyPatchBlocks(
@@ -548,6 +605,26 @@ function applyRowOpBatch(
     sessionConfigOptions:
       batch.session_config_options ?? entry.sessionConfigOptions,
     availableCommands: batch.available_commands ?? entry.availableCommands,
+    sessionGoal: batch.session_goal
+      ? {
+          goal:
+            batch.session_goal.goal !== undefined
+              ? batch.session_goal.goal
+              : null,
+          actions:
+            batch.session_goal.actions !== undefined &&
+            batch.session_goal.actions !== null
+              ? batch.session_goal.actions
+              : (entry.sessionGoal?.actions ?? null),
+        }
+      : entry.sessionGoal,
+    asyncTasks: batch.async_tasks ?? entry.asyncTasks,
+    promptSuggestion:
+      batch.prompt_suggestion != null
+        ? (batch.prompt_suggestion.suggestion ?? null)
+        : sawUserTurnUpsert
+          ? null
+          : entry.promptSuggestion,
   };
 }
 
@@ -2184,6 +2261,9 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     sessionModes: { current: null, modes: [] },
     sessionConfigOptions: [],
     availableCommands: null,
+    sessionGoal: null,
+    asyncTasks: [],
+    promptSuggestion: null,
     olderCursor: null,
     prefixHash: null,
     userTurnsBeforeOffset: 0,

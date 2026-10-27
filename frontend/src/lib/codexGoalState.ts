@@ -1,6 +1,15 @@
-import type { PatchType } from 'shared/types';
+import type { ConversationSessionGoal, PatchType } from 'shared/types';
+import {
+  isLimitedGoalStatus,
+  parseConversationSessionGoal,
+} from './sessionGoal';
 
-export type CodexGoalStatus = 'running' | 'paused' | 'completed';
+export type CodexGoalStatus =
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'limited'
+  | 'failed';
 
 export interface CodexGoalState {
   objective: string;
@@ -76,6 +85,26 @@ function applyTransition(
     case 'none':
       return current;
   }
+}
+
+export function codexGoalStateFromSessionGoal(
+  sessionGoal: ConversationSessionGoal | null | undefined
+): CodexGoalState | null {
+  const parsed = parseConversationSessionGoal(sessionGoal);
+  if (!parsed) return null;
+  if (parsed.status === 'paused') {
+    return { objective: parsed.objective, status: 'paused' };
+  }
+  if (parsed.status === 'completed') {
+    return { objective: parsed.objective, status: 'completed' };
+  }
+  if (isLimitedGoalStatus(parsed.status)) {
+    return { objective: parsed.objective, status: 'limited' };
+  }
+  if (parsed.status === 'failed') {
+    return { objective: parsed.objective, status: 'failed' };
+  }
+  return { objective: parsed.objective, status: 'running' };
 }
 
 export function deriveCodexGoalState(

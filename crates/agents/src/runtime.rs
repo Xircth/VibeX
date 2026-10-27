@@ -731,6 +731,7 @@ impl AgentRuntime {
         let preferences = crate::SessionControlPreferences {
             mode: recovery.options.mode_override.clone(),
             config: recovery.options.config_overrides.clone(),
+            ..Default::default()
         };
         if !bind_acp_thread_before_prompt(
             connection_manager,
@@ -1436,6 +1437,7 @@ impl AgentRuntime {
             let preferences = crate::SessionControlPreferences {
                 mode: mode_override.clone(),
                 config: config_overrides.clone(),
+                ..Default::default()
             };
             (
                 launch_input,
@@ -1574,6 +1576,43 @@ impl AgentRuntime {
                 options: controls.config_options,
             },
         );
+        if controls.goal.is_some() || controls.goal_actions.is_some() {
+            Self::emit_with_parts_locked(
+                &mut state,
+                self.event_sink.as_ref(),
+                &self.event_tx,
+                connection_id,
+                Some(session_id),
+                AgentEvent::GoalUpdated {
+                    goal: controls.goal,
+                    goal_actions: controls.goal_actions,
+                },
+            );
+        }
+        if !controls.async_tasks.is_empty() {
+            Self::emit_with_parts_locked(
+                &mut state,
+                self.event_sink.as_ref(),
+                &self.event_tx,
+                connection_id,
+                Some(session_id),
+                AgentEvent::AsyncTasksUpdated {
+                    tasks: controls.async_tasks,
+                },
+            );
+        }
+        if controls.prompt_suggestion.is_some() {
+            Self::emit_with_parts_locked(
+                &mut state,
+                self.event_sink.as_ref(),
+                &self.event_tx,
+                connection_id,
+                Some(session_id),
+                AgentEvent::PromptSuggestionUpdated {
+                    suggestion: controls.prompt_suggestion,
+                },
+            );
+        }
     }
 
     /// Atomically reserve the exact draft Session a caller is about to persist.
@@ -1889,6 +1928,46 @@ impl AgentRuntime {
         Ok(controls)
     }
 
+    pub async fn goal_control(
+        &self,
+        session_id: AgentSessionId,
+        action: impl Into<String>,
+    ) -> AgentResult<crate::GoalControlReceipt> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .goal_control(connection_id, session_id, action)
+            .await
+    }
+
+    pub async fn stop_async_task(
+        &self,
+        session_id: AgentSessionId,
+        task_id: impl Into<String>,
+    ) -> AgentResult<bool> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .stop_async_task(connection_id, session_id, task_id)
+            .await
+    }
+
     pub async fn send_prompt(
         &self,
         input: SendAgentPromptInput,
@@ -1933,12 +2012,13 @@ impl AgentRuntime {
             .map(|connection| connection.snapshot.workspace_id)
             .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
         let prompt_id = AgentPromptId::new();
-        let transition = {
+        let (transition, cleared_prompt_suggestion) = {
             let session = state
                 .sessions
                 .get_mut(&input.session_id)
                 .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
             session.snapshot.connection_id = connection_id;
+            let cleared_prompt_suggestion = session.controls.prompt_suggestion.take().is_some();
             let transition = session.queue.submit(prompt_id);
             session.snapshot.active_prompt_id = session.queue.active();
             session.snapshot.queued_prompt_ids = session.queue.queued();
@@ -1951,7 +2031,7 @@ impl AgentRuntime {
             if matches!(transition, QueueTransition::Started { .. }) {
                 session.turn_recovery_attempts = 0;
             }
-            transition
+            (transition, cleared_prompt_suggestion)
         };
         let status = match transition {
             QueueTransition::Started { .. } => AgentPromptStatus::Running,
@@ -1990,6 +2070,15 @@ impl AgentRuntime {
                 config_overrides: config_overrides.clone(),
             },
         );
+        if cleared_prompt_suggestion {
+            self.emit_locked(
+                &mut state,
+                workspace_id,
+                connection_id,
+                Some(session_id),
+                AgentEvent::PromptSuggestionUpdated { suggestion: None },
+            );
+        }
         self.emit_locked(
             &mut state,
             workspace_id,
@@ -2508,6 +2597,28 @@ impl AgentRuntime {
                     && let Some(session) = state.sessions.get_mut(&session_id)
                 {
                     session.controls.available_commands = Some(commands.clone());
+                }
+            }
+            AgentEvent::GoalUpdated { goal, goal_actions } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.goal = goal.clone();
+                    session.controls.goal_actions = goal_actions.clone();
+                }
+            }
+            AgentEvent::AsyncTasksUpdated { tasks } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.async_tasks = tasks.clone();
+                }
+            }
+            AgentEvent::PromptSuggestionUpdated { suggestion } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.prompt_suggestion = suggestion.clone();
                 }
             }
             AgentEvent::Error { error } => {

@@ -29,6 +29,7 @@ interface SessionComposerTopbarProps {
   added: number;
   deleted: number;
   codexGoalState: CodexGoalState | null;
+  onSelectCodexGoal?: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
   todos: TodoItem[];
   showSessionSelector: boolean;
@@ -54,6 +55,7 @@ export function SessionComposerTopbar({
   added,
   deleted,
   codexGoalState,
+  onSelectCodexGoal,
   tokenUsageInfo,
   todos,
   showSessionSelector,
@@ -96,7 +98,10 @@ export function SessionComposerTopbar({
 
       <div className="flex-1" />
 
-      <CodexGoalIndicator goalState={codexGoalState} />
+      <CodexGoalIndicator
+        goalState={codexGoalState}
+        onClick={onSelectCodexGoal}
+      />
 
       <TokenUsageIndicator tokenUsageInfo={tokenUsageInfo} />
 

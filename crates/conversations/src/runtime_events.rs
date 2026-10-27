@@ -210,7 +210,7 @@ impl ConversationAgentEventRecorder {
         if is_terminal_conversation_event(&event) {
             self.active_turn_cache.remove(&conversation_id);
         }
-        let raw_json = if crate::jsonl_history::is_transcript_delta(&event) {
+        let raw_json = if is_unpersisted_conversation_event(&event) {
             None
         } else {
             Some(serde_json::to_string(&envelope.event)?)
@@ -246,7 +246,7 @@ impl ConversationAgentEventRecorder {
         let mut batch = RecordedConversationBatch::default();
         for mapped in records {
             let normalized_json = serde_json::to_string(&mapped.event)?;
-            if crate::jsonl_history::is_transcript_delta(&mapped.event) {
+            if is_unpersisted_conversation_event(&mapped.event) {
                 if let Some(publisher) = &self.event_publisher {
                     let record = ephemeral_record(&mapped, &normalized_json);
                     publisher.publish_unpersisted(&record).await;
@@ -713,22 +713,32 @@ fn binds_only_to_in_flight_turn(event: &AgentEvent) -> bool {
     is_turn_scoped_content(event) || matches!(event, AgentEvent::Error { .. })
 }
 
+fn is_unpersisted_conversation_event(event: &ConversationEvent) -> bool {
+    crate::jsonl_history::is_transcript_delta(event)
+        || matches!(event, ConversationEvent::PromptSuggestionUpdated { .. })
+}
+
 /// Events that only mean something *inside* a Turn. Unlike `AgentEvent::Error`, which
 /// has a conversation-level representation (`AgentBindingRecoveryFailed`), these have
 /// nowhere to go once their Turn is gone, so they are dropped instead of recorded.
+///
+/// Synthesized goal timeline markers (`codex-goal-*`) are exempted because a user may
+/// pause or clear a session goal while the conversation is idle, and the resulting
+/// `update_goal` marker should attach to the latest turn rather than being dropped.
 fn is_turn_scoped_content(event: &AgentEvent) -> bool {
-    matches!(
-        event,
+    match event {
+        AgentEvent::ToolCall { tool_call } if tool_call.id.starts_with("codex-goal-") => false,
         AgentEvent::MessageChunk { .. }
-            | AgentEvent::ThoughtChunk { .. }
-            | AgentEvent::ToolCall { .. }
-            | AgentEvent::ToolCallUpdate { .. }
-            | AgentEvent::Plan { .. }
-            | AgentEvent::PermissionRequested { .. }
-            | AgentEvent::ElicitationRequested { .. }
-            | AgentEvent::TerminalCreated { .. }
-            | AgentEvent::TerminalOutput { .. }
-    )
+        | AgentEvent::ThoughtChunk { .. }
+        | AgentEvent::ToolCall { .. }
+        | AgentEvent::ToolCallUpdate { .. }
+        | AgentEvent::Plan { .. }
+        | AgentEvent::PermissionRequested { .. }
+        | AgentEvent::ElicitationRequested { .. }
+        | AgentEvent::TerminalCreated { .. }
+        | AgentEvent::TerminalOutput { .. } => true,
+        _ => false,
+    }
 }
 
 fn is_in_flight_turn_status(status: &str) -> bool {
@@ -1426,6 +1436,20 @@ fn map_agent_event(
             generation: *generation,
             notices: notices.clone(),
         }),
+        AgentEvent::GoalUpdated { goal, goal_actions } => {
+            Some(ConversationEvent::SessionGoalUpdated {
+                goal: goal.clone(),
+                actions: goal_actions.clone(),
+            })
+        }
+        AgentEvent::AsyncTasksUpdated { tasks } => Some(ConversationEvent::AsyncTasksUpdated {
+            tasks: tasks.clone(),
+        }),
+        AgentEvent::PromptSuggestionUpdated { suggestion } => {
+            Some(ConversationEvent::PromptSuggestionUpdated {
+                suggestion: suggestion.clone(),
+            })
+        }
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
@@ -1509,7 +1533,10 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
         | AgentEvent::TurnCompleted { .. }
         | AgentEvent::PromptFinished { .. }
         | AgentEvent::RawAcpDiagnostic { .. }
-        | AgentEvent::AnnouncementsUpdated { .. } => "acp",
+        | AgentEvent::AnnouncementsUpdated { .. }
+        | AgentEvent::GoalUpdated { .. }
+        | AgentEvent::AsyncTasksUpdated { .. }
+        | AgentEvent::PromptSuggestionUpdated { .. } => "acp",
         _ => "runtime",
     }
 }
@@ -1558,6 +1585,11 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
         ConversationEvent::TurnFailed { .. } => "turn_failed".to_string(),
         ConversationEvent::TurnCancelled { .. } => "turn_cancelled".to_string(),
         ConversationEvent::TurnInterrupted { .. } => "turn_interrupted".to_string(),
+        ConversationEvent::SessionGoalUpdated { .. } => "session_goal_updated".to_string(),
+        ConversationEvent::AsyncTasksUpdated { .. } => "async_tasks_updated".to_string(),
+        ConversationEvent::PromptSuggestionUpdated { .. } => {
+            "prompt_suggestion_updated".to_string()
+        }
         _ => serde_json::to_value(event)
             .ok()
             .and_then(|value| value["kind"].as_str().map(str::to_string))

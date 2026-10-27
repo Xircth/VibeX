@@ -166,6 +166,10 @@ impl ServerApplicationDomains {
             DomainCommand::ConversationRebindSession => {
                 self.conversation_rebind_session(args).await
             }
+            DomainCommand::ConversationGoalControl => self.conversation_goal_control(args).await,
+            DomainCommand::ConversationStopAsyncTask => {
+                self.conversation_stop_async_task(args).await
+            }
             DomainCommand::ConversationTruncateToTurn => {
                 self.conversation_truncate_to_turn(args).await
             }
@@ -749,7 +753,10 @@ impl ServerApplicationDomains {
             .await
             .ok()
             .flatten();
-        Ok(plugin_control_item_with_quarantine(&plugin, quarantine_reason))
+        Ok(plugin_control_item_with_quarantine(
+            &plugin,
+            quarantine_reason,
+        ))
     }
 
     async fn plugin_control_grant_permissions(

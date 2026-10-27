@@ -13,15 +13,16 @@ use agents::{
     AgentSessionId, AgentSessionListPage, AgentSessionMode, AgentSessionSnapshot,
     AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
     AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
-    AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
-    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary, ForkPointStatus,
-    HostTerminalSnapshot, ImportedAgentMessage, ImportedAgentMessageMetadata,
-    ImportedAgentMessageRole, ImportedAgentSession, LocalHistoryDestination,
-    LocalHistoryImportJobSnapshot, LocalHistoryImportJobStatus, LocalHistoryImportLogEntry,
-    LocalHistoryImportPhase, LocalHistoryImportProgress, LocalHistoryImportResult,
-    LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
-    LocalHistoryScanProgress, LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits,
-    PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
+    AgentToolCall, AgentToolCallUpdate, AgentUsage, AsyncTaskRecord, AsyncTaskUsage,
+    AuthenticationMethod, AuthenticationObservationState, AuthenticationSource,
+    DelegationResultSummary, ForkPointStatus, GoalControlReceipt, HostTerminalSnapshot,
+    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
+    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportJobSnapshot,
+    LocalHistoryImportJobStatus, LocalHistoryImportLogEntry, LocalHistoryImportPhase,
+    LocalHistoryImportProgress, LocalHistoryImportResult, LocalHistoryImportSelection,
+    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanProgress,
+    LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits, PlanUsageResult,
+    PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, CapturedInternalMessage, CollaborationSpaceOrigin, ContentBlock,
@@ -34,9 +35,10 @@ use agents::{
         ConversationFileChangeSummary, ConversationFileLocation, ConversationFileRef,
         ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
         ConversationNoticeAction, ConversationPermissionRequest, ConversationPermissionResponse,
-        ConversationPermissionView, ConversationPlanEntry, ConversationQuestionRequest,
-        ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
-        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
+        ConversationPermissionView, ConversationPlanEntry, ConversationPromptSuggestion,
+        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRelationKind,
+        ConversationRelationVisibility, ConversationRowOp, ConversationRowOpBatch,
+        ConversationRowPage, ConversationSessionGoal, ConversationSessionModes,
         ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
@@ -856,6 +858,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationRowOpBatch>(&mut decls);
     insert_declaration::<ConversationRowPage>(&mut decls);
     insert_declaration::<ConversationSessionModes>(&mut decls);
+    insert_declaration::<ConversationSessionGoal>(&mut decls);
+    insert_declaration::<ConversationPromptSuggestion>(&mut decls);
+    insert_declaration::<AsyncTaskUsage>(&mut decls);
+    insert_declaration::<AsyncTaskRecord>(&mut decls);
+    insert_declaration::<GoalControlReceipt>(&mut decls);
     insert_declaration::<ConversationTimeline>(&mut decls);
     insert_declaration::<ConversationEventsPage>(&mut decls);
     insert_declaration::<ConversationTimelinePage>(&mut decls);

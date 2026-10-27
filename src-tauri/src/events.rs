@@ -1,6 +1,9 @@
 use agents::{
     AgentEvent,
-    conversation::{ConversationEvent, ConversationRowOpBatch, ConversationSessionModes},
+    conversation::{
+        ConversationEvent, ConversationPromptSuggestion, ConversationRowOpBatch,
+        ConversationSessionGoal, ConversationSessionModes,
+    },
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use conversations::{
@@ -133,6 +136,9 @@ async fn emit_conversation_row_ops_after_inner(
     let mut session_modes = None;
     let mut session_config_options = None;
     let mut available_commands = None;
+    let mut session_goal = None;
+    let mut async_tasks = None;
+    let mut prompt_suggestion = None;
     for record in &new_records {
         if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
             match event {
@@ -144,6 +150,15 @@ async fn emit_conversation_row_ops_after_inner(
                 }
                 ConversationEvent::AvailableCommandsUpdated { commands } => {
                     available_commands = Some(commands);
+                }
+                ConversationEvent::SessionGoalUpdated { goal, actions } => {
+                    session_goal = Some(ConversationSessionGoal { goal, actions });
+                }
+                ConversationEvent::AsyncTasksUpdated { tasks } => {
+                    async_tasks = Some(tasks);
+                }
+                ConversationEvent::PromptSuggestionUpdated { suggestion } => {
+                    prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
                 }
                 _ => {}
             }
@@ -191,6 +206,9 @@ async fn emit_conversation_row_ops_after_inner(
             && session_modes.is_none()
             && session_config_options.is_none()
             && available_commands.is_none()
+            && session_goal.is_none()
+            && async_tasks.is_none()
+            && prompt_suggestion.is_none()
             && !queue_changed);
         let result = if will_emit {
             entry.last_emitted_sequence = last_sequence;
@@ -212,6 +230,9 @@ async fn emit_conversation_row_ops_after_inner(
         }) || session_modes.is_some()
             || session_config_options.is_some()
             || available_commands.is_some()
+            || session_goal.is_some()
+            || async_tasks.is_some()
+            || prompt_suggestion.is_some()
             || queue_changed;
         let batch = ConversationRowOpBatch {
             conversation_id,
@@ -221,6 +242,9 @@ async fn emit_conversation_row_ops_after_inner(
             session_modes,
             session_config_options,
             available_commands,
+            session_goal,
+            async_tasks,
+            prompt_suggestion,
         };
         let bus = crate::host_bus::bus();
         bus.emit(
@@ -303,9 +327,16 @@ pub async fn emit_unpersisted_row_op(
         prune_conversation_projector_locks(&map);
         cursor
     };
-    if ops.is_empty() {
+    let mut prompt_suggestion = None;
+    if let Ok(ConversationEvent::PromptSuggestionUpdated { suggestion }) =
+        serde_json::from_str::<ConversationEvent>(&record.normalized_json)
+    {
+        prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
+    }
+    if ops.is_empty() && prompt_suggestion.is_none() {
         return;
     }
+    let emit_global = prompt_suggestion.is_some();
     let batch = ConversationRowOpBatch {
         conversation_id,
         last_sequence: cursor,
@@ -314,11 +345,18 @@ pub async fn emit_unpersisted_row_op(
         session_modes: None,
         session_config_options: None,
         available_commands: None,
+        session_goal: None,
+        async_tasks: None,
+        prompt_suggestion,
     };
-    crate::host_bus::bus().emit(
+    let bus = crate::host_bus::bus();
+    bus.emit(
         format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
         &batch,
     );
+    if emit_global {
+        bus.emit(channels::CONVERSATION_EVENTS, &batch);
+    }
 }
 
 #[derive(Clone, Serialize)]

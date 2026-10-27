@@ -22,7 +22,10 @@ import { copyConversationMarkdown } from '@/lib/copyConversationMarkdown';
 import { exportConversation } from '@/lib/exportConversation';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import {
+  CONVERSATION_SCROLL_TO_GOAL_EVENT,
   CONVERSATION_SCROLL_TO_TURN_EVENT,
+  requestConversationScrollToGoal,
+  type ConversationScrollToGoalDetail,
   type ConversationScrollToTurnDetail,
 } from '@/lib/conversationScroll';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
@@ -49,6 +52,9 @@ import {
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
+import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
+import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
+import { isGoalToolUse } from '@/components/NormalizedConversation/tools/GoalToolCall';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import {
   appendChildConversationStack,
@@ -1343,6 +1349,32 @@ const AgentTimelineConversation = forwardRef<
     };
   }, [scrollToIndex, sessionId, timelineItems]);
 
+  useEffect(() => {
+    const onJumpToGoal = (event: Event) => {
+      const detail = (event as CustomEvent<ConversationScrollToGoalDetail>)
+        .detail;
+      if (!detail || detail.conversationId !== sessionId) return;
+      for (let i = timelineItems.length - 1; i >= 0; i -= 1) {
+        const item = timelineItems[i];
+        if (item?.kind !== 'message') continue;
+        const hasGoalTool = item.item.turn.blocks.some(
+          (block) => block.type === 'tool_use' && isGoalToolUse(block)
+        );
+        if (hasGoalTool) {
+          scrollToIndex(i);
+          return;
+        }
+      }
+    };
+    window.addEventListener(CONVERSATION_SCROLL_TO_GOAL_EVENT, onJumpToGoal);
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_SCROLL_TO_GOAL_EVENT,
+        onJumpToGoal
+      );
+    };
+  }, [scrollToIndex, sessionId, timelineItems]);
+
   const updateScrollMargin = useCallback(() => {
     const container = containerRef.current;
     const list = virtualListRef.current;
@@ -1977,6 +2009,21 @@ const AgentTimelineConversation = forwardRef<
         agentId={attempt.session?.agent_id ?? attempt.session?.executor}
         workingDir={workspaceRoot}
         turnInFlight={isTurnInFlight}
+      />
+      <SessionGoalBar
+        sessionGoal={conversation.sessionGoal}
+        sessionBindReady={conversation.sessionBindReady}
+        onGoalControl={conversation.goalControl}
+        onSelectGoal={
+          sessionId
+            ? () => requestConversationScrollToGoal(sessionId)
+            : undefined
+        }
+      />
+      <SessionAsyncTaskBar
+        tasks={conversation.asyncTasks}
+        sessionBindReady={conversation.sessionBindReady}
+        onStopTask={conversation.stopAsyncTask}
       />
       <div
         ref={containerRef}

@@ -125,6 +125,16 @@ pub(crate) fn legacy_or_air<'a>(
         .or_else(|| air_meta_value(meta, key))
 }
 
+/// Whether a tool call has been moved to the background
+/// (`_meta.jetbrains.air.asyncTasks.backgrounded === true`, not gated on version).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn tool_call_is_backgrounded(meta: Option<&Map<String, Value>>) -> bool {
+    air_meta_value(meta, "asyncTasks")
+        .and_then(|v| v.get("backgrounded"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
 const FRAME_DATA_KEYS: [&str; 5] = [
     "terminal_output",
     "terminal_output_delta",
@@ -134,7 +144,10 @@ const FRAME_DATA_KEYS: [&str; 5] = [
 ];
 
 fn merges_per_key(agent_kind: AgentKind) -> bool {
-    matches!(agent_kind, AgentKind::ClaudeCode | AgentKind::Codebuddy)
+    matches!(
+        agent_kind,
+        AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Codebuddy
+    )
 }
 
 fn merge_state(agent_kind: AgentKind, state: &mut Map<String, Value>, frame: &Map<String, Value>) {
@@ -832,5 +845,44 @@ mod tests {
             Some(AgentKind::Codebuddy),
             Some(&codebuddy_meta)
         ));
+    }
+
+    #[test]
+    fn backgrounded_async_task_meta_survives_subsequent_tool_call_updates() {
+        let mut ledger = ToolCallMetaLedger::default();
+        let opened = ledger
+            .open(
+                AgentKind::ClaudeCode,
+                "toolu_bg",
+                Some(obj(json!({
+                    "claudeCode": {"toolName": "Bash"},
+                    "jetbrains": {"air": {"commandTitle": "Run server"}}
+                }))),
+            )
+            .unwrap();
+        assert!(!tool_call_is_backgrounded(Some(&opened)));
+
+        let bg = ledger
+            .update(
+                AgentKind::ClaudeCode,
+                "toolu_bg",
+                Some(obj(json!({
+                    "jetbrains": {"air": {"asyncTasks": {"backgrounded": true}}}
+                }))),
+            )
+            .unwrap();
+        assert!(tool_call_is_backgrounded(Some(&bg)));
+        assert_eq!(bg["claudeCode"]["title"], "Run server");
+
+        let final_frame = ledger
+            .update(
+                AgentKind::ClaudeCode,
+                "toolu_bg",
+                Some(obj(json!({
+                    "claudeCode": {"toolResponse": {"output": "started"}}
+                }))),
+            )
+            .unwrap();
+        assert!(tool_call_is_backgrounded(Some(&final_frame)));
     }
 }

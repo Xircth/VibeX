@@ -155,7 +155,7 @@ export const ToolCallCard: FC<{
   }
 
   if (isGoalToolEntry(entry)) {
-    return <GoalToolCall entry={entry} />;
+    return <GoalToolCall entry={entry} expansionKey={expansionKey} />;
   }
 
   if (isAskQuestionToolEntry(entry)) {

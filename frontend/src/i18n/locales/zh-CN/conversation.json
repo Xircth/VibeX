@@ -24,6 +24,8 @@
     "status": {
       "running": "运行中",
       "paused": "已暂停",
+      "limited": "已受限",
+      "failed": "已失败",
       "completed": "已完成"
     }
   },
@@ -362,9 +364,50 @@
   },
   "goalTool": {
     "title": "目标",
+    "cardTitle": "目标 · {{objective}}",
     "objectiveLabel": "目标",
     "statusLabel": "状态",
+    "tokensUsedLabel": "已消耗",
+    "tokensBudgetLabel": "预算",
+    "tokensRemainingLabel": "剩余",
+    "durationLabel": "耗时",
     "resultLabel": "结果"
+  },
+  "sessionGoal": {
+    "label": "目标",
+    "pause": "暂停",
+    "pauseAria": "暂停目标",
+    "clear": "清除",
+    "clearAria": "清除目标",
+    "tokensUsedShort": "{{tokens}} tokens",
+    "tokensUsedLabel": "已消耗 {{tokens}}",
+    "tokenBudgetLabel": "预算 {{tokens}}",
+    "tokensRemainingLabel": "剩余 {{tokens}}",
+    "durationLabel": "耗时 {{duration}}",
+    "status": {
+      "active": "进行中",
+      "paused": "已暂停",
+      "completed": "已完成",
+      "limited": "已受限",
+      "failed": "已失败"
+    }
+  },
+  "asyncTasks": {
+    "regionAria": "后台任务",
+    "defaultName": "后台任务",
+    "backgroundBadge": "后台",
+    "pollGroupTitle": "查询后台任务（{{count}} 次）",
+    "tokensShort": "{{tokens}} tokens",
+    "output": "输出",
+    "outputButton": "输出",
+    "outputAria": "查看{{name}}输出",
+    "openOutputAria": "查看{{name}}输出",
+    "stop": "停止",
+    "stopAria": "停止{{name}}",
+    "stopFailed": "未能停止"
+  },
+  "composer": {
+    "promptSuggestion": "{{suggestion}}　Tab 采纳"
   },
   "messageNav": {
     "railLabel": "消息导航",

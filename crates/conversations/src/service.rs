@@ -2300,6 +2300,72 @@ impl ConversationSessionService {
         Ok(())
     }
 
+    /// Execute a session goal control action (`pause` or `clear`) on the live ACP
+    /// session. When the adapter handles goal control out of band (`Codex` with an
+    /// active goal) and the RPC succeeds, this also interrupts any in-flight turn
+    /// via `cancel_turn`.
+    pub async fn goal_control(
+        &self,
+        conversation_id: Uuid,
+        action: String,
+    ) -> Result<agents::GoalControlReceipt, ConversationServiceError> {
+        let action = action.trim().to_string();
+        if !matches!(action.as_str(), "pause" | "clear" | "resume" | "set") {
+            return Err(ConversationServiceError::BadRequest(format!(
+                "unsupported goal control action `{action}`"
+            )));
+        }
+        let runtime_session_id = AgentSessionId(conversation_id);
+        if !self
+            .ctx
+            .agent_runtime
+            .has_bound_acp_session(runtime_session_id)
+            .await
+        {
+            self.ensure_session_controls(conversation_id).await?;
+        }
+        let receipt = self
+            .ctx
+            .agent_runtime
+            .goal_control(runtime_session_id, action.clone())
+            .await?;
+        if receipt.should_interrupt_turn {
+            let reason = Some(format!("goal_{action}"));
+            if let Err(error) = self.cancel_turn(conversation_id, reason).await {
+                tracing::warn!(
+                    %conversation_id,
+                    %action,
+                    %error,
+                    "goal control succeeded but turn cancellation failed"
+                );
+            }
+        }
+        Ok(receipt)
+    }
+
+    /// Request the live ACP adapter to stop a background task via
+    /// `_session/async_task/stop`. Does not pre-validate `task_id` against the
+    /// local table so tasks whose spawn event raced can still be stopped.
+    pub async fn stop_async_task(
+        &self,
+        conversation_id: Uuid,
+        task_id: String,
+    ) -> Result<bool, ConversationServiceError> {
+        let task_id = task_id.trim().to_string();
+        if task_id.is_empty() {
+            return Err(ConversationServiceError::BadRequest(
+                "Async task id must not be empty".to_string(),
+            ));
+        }
+        let runtime_session_id = AgentSessionId(conversation_id);
+        let stopped = self
+            .ctx
+            .agent_runtime
+            .stop_async_task(runtime_session_id, task_id)
+            .await?;
+        Ok(stopped)
+    }
+
     /// Record the conversation's effective session-control selection on its binding so
     /// a later `session/resume` (or the first `session/new` of a new conversation)
     /// can replay it. Best-effort: failing to remember a selection must not fail
@@ -2647,13 +2713,15 @@ impl ConversationSessionService {
             ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
         let latest_binding = bindings.last().cloned();
         let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
-        let preferences = self
+        let mut preferences = self
             .resolved_session_control_preferences(
                 pool,
                 &agent_id,
                 restorable_binding.or(latest_binding.as_ref()),
             )
             .await;
+        preferences.wants_prompt_suggestions =
+            session_wants_prompt_suggestions(pool, &persisted_session).await;
         let external_session_id = resume_external_session_id(
             restorable_binding
                 .and_then(|binding| binding.acp_session_id.clone())
@@ -4712,7 +4780,30 @@ fn session_control_preferences(
                 .flatten()
         })
     });
-    SessionControlPreferences { mode, config }
+    SessionControlPreferences {
+        mode,
+        config,
+        wants_prompt_suggestions: false,
+    }
+}
+
+async fn session_wants_prompt_suggestions(pool: &SqlitePool, session: &Session) -> bool {
+    if session.parent_session_id.is_some() || session.delegation_call_id.is_some() {
+        return false;
+    }
+    let is_non_composer_child: Option<i64> = sqlx::query_scalar(
+        r#"SELECT 1
+           FROM conversation_relations
+           WHERE child_conversation_id = ?
+             AND (kind IN ('delegation', 'workflow_step') OR visibility = 'hidden')
+           LIMIT 1"#,
+    )
+    .bind(session.id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    is_non_composer_child.is_none()
 }
 
 fn binding_mode_selection(binding: Option<&ConversationAgentBindingRecord>) -> Option<String> {

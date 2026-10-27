@@ -27,8 +27,6 @@ mod update;
 mod weixin_ilink;
 mod ws;
 
-pub use conversations as vibex_conversations;
-
 pub use agent_install::{
     AgentCatalogEntry, AgentCatalogGroup, install_agent_unattended, install_resolved_plan,
     plan_host_agent_install, plan_host_agent_install_with_overlay, run_agents_command,
@@ -52,6 +50,7 @@ pub use cli::{
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
+pub use conversations as vibex_conversations;
 pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::ServerApplicationDomains;
 pub use host::{

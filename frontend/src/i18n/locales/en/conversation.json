@@ -24,6 +24,8 @@
     "status": {
       "running": "Running",
       "paused": "Paused",
+      "limited": "Limited",
+      "failed": "Failed",
       "completed": "Completed"
     }
   },
@@ -362,9 +364,50 @@
   },
   "goalTool": {
     "title": "Goal",
+    "cardTitle": "Goal · {{objective}}",
     "objectiveLabel": "Goal",
     "statusLabel": "Status",
+    "tokensUsedLabel": "Tokens used",
+    "tokensBudgetLabel": "Budget",
+    "tokensRemainingLabel": "Remaining",
+    "durationLabel": "Duration",
     "resultLabel": "Result"
+  },
+  "sessionGoal": {
+    "label": "Goal",
+    "pause": "Pause",
+    "pauseAria": "Pause goal",
+    "clear": "Clear",
+    "clearAria": "Clear goal",
+    "tokensUsedShort": "{{tokens}} tokens",
+    "tokensUsedLabel": "Used {{tokens}}",
+    "tokenBudgetLabel": "Budget {{tokens}}",
+    "tokensRemainingLabel": "Remaining {{tokens}}",
+    "durationLabel": "Duration {{duration}}",
+    "status": {
+      "active": "Active",
+      "paused": "Paused",
+      "completed": "Completed",
+      "limited": "Limited",
+      "failed": "Failed"
+    }
+  },
+  "asyncTasks": {
+    "regionAria": "Background tasks",
+    "defaultName": "Background task",
+    "backgroundBadge": "Background",
+    "pollGroupTitle": "Checked background task ({{count}} times)",
+    "tokensShort": "{{tokens}} tokens",
+    "output": "Output",
+    "outputButton": "Output",
+    "outputAria": "View {{name}} output",
+    "openOutputAria": "View {{name}} output",
+    "stop": "Stop",
+    "stopAria": "Stop {{name}}",
+    "stopFailed": "Could not stop task"
+  },
+  "composer": {
+    "promptSuggestion": "{{suggestion}}  Tab to accept"
   },
   "messageNav": {
     "railLabel": "Message navigation",

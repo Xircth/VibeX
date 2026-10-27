@@ -1274,7 +1274,7 @@ export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentC
 /**
  * The child's `sessions.id` — the conversation the user can open.
  */
-child_session_id: string, agent_id: AgentId, task_preview: string, } | { "kind": "delegation_completed", delegation_id: string, parent_tool_use_id: string, child_session_id: string, agent_id: AgentId, result: DelegationResultSummary, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, } | { "kind": "announcements_updated", generation: bigint, notices: Array<ConversationSessionNotice>, };
+child_session_id: string, agent_id: AgentId, task_preview: string, } | { "kind": "delegation_completed", delegation_id: string, parent_tool_use_id: string, child_session_id: string, agent_id: AgentId, result: DelegationResultSummary, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, } | { "kind": "announcements_updated", generation: bigint, notices: Array<ConversationSessionNotice>, } | { "kind": "goal_updated", goal?: JsonValue | null, goal_actions?: Array<string> | null, } | { "kind": "async_tasks_updated", tasks: Array<AsyncTaskRecord>, } | { "kind": "prompt_suggestion_updated", suggestion?: string | null, };
 
 export type AgentEventEnvelope = { sequence: bigint, workspace_id: string, connection_id: AgentConnectionId, session_id?: AgentSessionId | null, event: AgentEvent, created_at: string, };
 
@@ -1489,7 +1489,7 @@ session_config_options: Array<AgentSessionConfigOption>,
  * Latest agent-advertised slash/skill catalog. `None` until the agent
  * publishes `available_commands_update`.
  */
-available_commands?: Array<AgentAvailableCommand> | null,
+available_commands?: Array<AgentAvailableCommand> | null, session_goal?: ConversationSessionGoal | null, async_tasks?: Array<AsyncTaskRecord>, prompt_suggestion?: string | null,
 /**
  * Snapshot of the role used to create this conversation. Absent when the
  * conversation was not created from a role.
@@ -1506,8 +1506,10 @@ export type DelegationResultSummary = { "kind": "ok", duration_ms?: bigint | nul
 
 export type AcpCapabilitySnapshot = { protocol_version?: string | null, prompt: AgentPromptCapabilities, load_session: boolean, resume_session: boolean, close_session: boolean, fork_session: boolean, list_sessions: boolean, delete_session: boolean,
 /**
- * Negotiated support for the ACP `_session/steering` extension. This is
- * true only when `InitializeResponse._meta.steering.supported` is true.
+ * Negotiated support for native `_session/steering`. True only when the
+ * adapter advertised the RPC, the agent has a `promptRequired` policy,
+ * and `initialize.agent_info.version` meets the floor. Codex never
+ * qualifies: it advertises steering with an empty `promptRequired` set.
  */
 steering: boolean,
 /**
@@ -1546,7 +1548,7 @@ export type ConversationEvent = { "kind": "conversation_created", title: string 
  * same Conversation (Codeg `continues_from`). UI history stays one
  * chain; the live binding is the new id.
  */
-continues_from?: string | null, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, workflow_refs?: Array<ConversationWorkflowRef>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "assistant_content_appended", block: ContentBlock, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, payload?: JsonValue | null, } | { "kind": "announcements_updated", generation: bigint, notices: Array<ConversationSessionNotice>, };
+continues_from?: string | null, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, workflow_refs?: Array<ConversationWorkflowRef>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "assistant_content_appended", block: ContentBlock, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, payload?: JsonValue | null, } | { "kind": "announcements_updated", generation: bigint, notices: Array<ConversationSessionNotice>, } | { "kind": "session_goal_updated", goal?: JsonValue | null, actions?: Array<string> | null, } | { "kind": "async_tasks_updated", tasks: Array<AsyncTaskRecord>, } | { "kind": "prompt_suggestion_updated", suggestion?: string | null, };
 
 export type ConversationEventEnvelope = { id: string, conversation_id: string, turn_id?: string | null, sequence: bigint, source: string, event: ConversationEvent, created_at: string, };
 
@@ -1710,7 +1712,19 @@ session_config_options?: Array<AgentSessionConfigOption> | null,
 /**
  * Latest agent-advertised slash/skill catalog carried in this batch, if any.
  */
-available_commands?: Array<AgentAvailableCommand> | null, };
+available_commands?: Array<AgentAvailableCommand> | null,
+/**
+ * Latest session goal state carried in this batch, if any.
+ */
+session_goal?: ConversationSessionGoal | null,
+/**
+ * Latest session async tasks table carried in this batch, if any.
+ */
+async_tasks?: Array<AsyncTaskRecord> | null,
+/**
+ * Latest ephemeral prompt suggestion carried in this batch, if any.
+ */
+prompt_suggestion?: ConversationPromptSuggestion | null, };
 
 export type ConversationRowPage = { conversation_id: string, after_sequence: bigint, last_sequence: bigint, rows: Array<TimelineRow>, };
 
@@ -1787,7 +1801,24 @@ export type AgentSessionControlsSnapshot = { modes: Array<AgentSessionMode>, cur
  * Session-scoped slash/skill catalog advertised by the agent. `None`
  * until the first `available_commands_update`; not an empty guess.
  */
-available_commands?: Array<AgentAvailableCommand> | null, };
+available_commands?: Array<AgentAvailableCommand> | null,
+/**
+ * Active or paused session goal snapshot (`_meta.goal` / AIR / legacy `_meta.codex.goal`).
+ */
+goal?: JsonValue | null,
+/**
+ * Agent-advertised goal control actions (`["pause", "clear", ...]`).
+ * `None` before handshake or when the agent has no goal control channel.
+ */
+goal_actions?: Array<string> | null,
+/**
+ * Session-scoped background tasks (`asyncTasks` / Grok workflows).
+ */
+async_tasks?: Array<AsyncTaskRecord>,
+/**
+ * Latest ephemeral Composer prompt suggestion (`promptSuggestions`).
+ */
+prompt_suggestion?: string | null, };
 
 export type AgentSessionConfigDependency = { parent_key: string, choices_by_parent_value: { [key in string]?: Array<AgentSessionConfigChoice> }, };
 
@@ -2318,3 +2349,17 @@ threadKind: string,
  * `"user"` or `"member"`.
  */
 senderKind: string, senderNickname: string, senderConversationId?: string | null, senderMemberId?: string | null, };
+
+export type AsyncTaskRecord = { id: string, task_type?: string | null, name?: string | null,
+/**
+ * `"running"` | `"paused"` | `"completed"` | `"failed"` | `"stopped"`
+ */
+state: string, can_stop: boolean, phase?: string | null, current_agent?: string | null, last_tool_name?: string | null, output_file_path?: string | null, tool_call_id?: string | null, usage?: AsyncTaskUsage | null, };
+
+export type AsyncTaskUsage = { total_tokens?: bigint | null, tool_uses?: bigint | null, duration_ms?: bigint | null, };
+
+export type ConversationPromptSuggestion = { suggestion?: string | null, };
+
+export type ConversationSessionGoal = { goal?: JsonValue | null, actions?: Array<string> | null, };
+
+export type GoalControlReceipt = { action: string, method: string, should_interrupt_turn: boolean, goal?: JsonValue | null, };

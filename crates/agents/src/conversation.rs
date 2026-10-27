@@ -1247,6 +1247,19 @@ pub enum ConversationEvent {
         generation: u64,
         notices: Vec<ConversationSessionNotice>,
     },
+    SessionGoalUpdated {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actions: Option<Vec<String>>,
+    },
+    AsyncTasksUpdated {
+        tasks: Vec<crate::AsyncTaskRecord>,
+    },
+    PromptSuggestionUpdated {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        suggestion: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -1476,6 +1489,15 @@ pub struct ConversationRowOpBatch {
     /// Latest agent-advertised slash/skill catalog carried in this batch, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
+    /// Latest session goal state carried in this batch, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_goal: Option<ConversationSessionGoal>,
+    /// Latest session async tasks table carried in this batch, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_tasks: Option<Vec<crate::AsyncTaskRecord>>,
+    /// Latest ephemeral prompt suggestion carried in this batch, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_suggestion: Option<ConversationPromptSuggestion>,
 }
 
 /// Agent-advertised session modes (current + available), delivered with a row-op batch.
@@ -1485,6 +1507,24 @@ pub struct ConversationSessionModes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,
     pub modes: Vec<AgentSessionMode>,
+}
+
+/// Session goal snapshot + advertised control actions, delivered with a row-op batch.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationSessionGoal {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<String>>,
+}
+
+/// Ephemeral Composer prompt suggestion update, delivered with a row-op batch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationPromptSuggestion {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 /// Gap-backfill result: the timeline rows whose state changed after `after_sequence`

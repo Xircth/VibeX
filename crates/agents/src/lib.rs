@@ -11,11 +11,13 @@ mod air_contract;
 mod antigravity_auth;
 mod antigravity_login;
 mod antigravity_plan;
+pub mod async_tasks;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
 pub mod cli_exposure;
 mod codex_auth;
+pub mod codex_goal;
 mod community_acp_presets;
 pub mod contribution_capability;
 pub mod conversation;
@@ -98,6 +100,11 @@ pub use antigravity_login::{LOGIN_TIMEOUT as ANTIGRAVITY_LOGIN_TIMEOUT, run_anti
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
 };
+pub use async_tasks::{
+    ASYNC_TASK_STOP_METHOD, AsyncTaskDelta, AsyncTaskRecord, AsyncTaskUsage,
+    apply_async_task_delta, async_task_state_is_terminal, parse_async_task_session_update,
+    parse_grok_workflow_updated,
+};
 pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
     apply_built_in_launch_policy, apply_pi_native_launch_env, auth_mode_credential_env,
@@ -123,6 +130,12 @@ pub use cli_exposure::{
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
 };
+pub use codex_goal::{
+    CodexGoalMarker, GoalControlReceipt, LEGACY_GOAL_ACTIONS, LEGACY_GOAL_CONTROL_METHOD,
+    NEUTRAL_GOAL_CONTROL_METHOD, goal_advertised_control, goal_control_is_out_of_band, goal_marker,
+    goal_tool_call_id, init_advertises_goal, next_goal_marker, normalize_goal_snapshot,
+    normalize_goal_status, resolve_goal_control, session_info_goal_value,
+};
 pub use community_acp_presets::{CommunityAcpPreset, bundled_community_acp_presets};
 pub use conversation::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
@@ -135,8 +148,9 @@ pub use conversation::{
     ConversationFileLocation, ConversationFileRef, ConversationInputBlock, ConversationInputEvent,
     ConversationInputPayload, ConversationNoticeAction, ConversationPermissionRequest,
     ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
-    ConversationQuestionRequest, ConversationQuestionResponse, ConversationRelationKind,
-    ConversationRelationVisibility, ConversationSessionNotice, ConversationSteeringEvent,
+    ConversationPromptSuggestion, ConversationQuestionRequest, ConversationQuestionResponse,
+    ConversationRelationKind, ConversationRelationVisibility, ConversationSessionGoal,
+    ConversationSessionModes, ConversationSessionNotice, ConversationSteeringEvent,
     ConversationSummary, ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
     ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
     ConversationUsage, ConversationWorkflowRef, ImageData, InternalMessageExtraction,

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { ToolStatus } from 'shared/types';
 import type { ToolDisplayEntry } from '../messageTurnTool';
 import { useExpandable } from '@/stores/useExpandableStore';
+import { isToolCallBackgrounded } from '@/lib/asyncTasks';
 import {
   getToolCallDescription,
   getToolExitStatus,
@@ -88,32 +89,51 @@ export function CommandToolCard({
   const output = actionType?.result?.output ?? null;
   const hasDetails = Boolean(command || output);
   const exitStatus = toolEntry ? getToolExitStatus(toolEntry) : null;
-  const statusDotClass = getCommandStatusDotClassName(
-    exitStatus,
-    toolEntry?.status
-  );
-  const statusClass = getCommandStatusClassName(exitStatus, toolEntry?.status);
+  const backgrounded = isToolCallBackgrounded(entry.toolMeta);
+  const statusDotClass = backgrounded
+    ? 'conv-tool-dot conv-tool-dot-success'
+    : getCommandStatusDotClassName(exitStatus, toolEntry?.status);
+  const statusClass = backgrounded
+    ? 'conv-tool-card-success'
+    : getCommandStatusClassName(exitStatus, toolEntry?.status);
 
   if (!toolEntry || !actionType) return null;
+
+  const baseDetail = description ? undefined : summary.detail || command;
+  const detailNode = backgrounded ? (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {baseDetail ? <span className="truncate">{baseDetail}</span> : null}
+      <span
+        data-testid="tool-backgrounded-badge"
+        className="shrink-0 rounded bg-muted px-1 py-0.5 text-[11px] font-normal text-[var(--text-muted,hsl(var(--muted-foreground)))]"
+      >
+        {t('conversation:asyncTasks.backgroundBadge')}
+      </span>
+    </span>
+  ) : (
+    baseDetail
+  );
 
   return (
     <ToolCardShell
       icon={<TerminalSquare className="h-3 w-3" />}
       label={description ?? (hideLabel ? '' : t('entryUtils.terminal'))}
-      detail={description ? undefined : summary.detail || command}
+      detail={detailNode}
       statusClassName={statusClass}
       statusDotClassName={statusDotClass}
       status={toolEntry.status}
       chatStatus={
-        statusClass.includes('conv-tool-card-error')
-          ? 'error'
-          : toolEntry.status.status === 'created'
-            ? 'running'
-            : toolEntry.status.status === 'pending_approval'
-              ? 'pending'
-              : statusClass.includes('conv-tool-card-pending')
-                ? 'running'
-                : 'complete'
+        backgrounded
+          ? 'complete'
+          : statusClass.includes('conv-tool-card-error')
+            ? 'error'
+            : toolEntry.status.status === 'created'
+              ? 'running'
+              : toolEntry.status.status === 'pending_approval'
+                ? 'pending'
+                : statusClass.includes('conv-tool-card-pending')
+                  ? 'running'
+                  : 'complete'
       }
       expanded={effectiveExpanded}
       expandable={hasDetails}

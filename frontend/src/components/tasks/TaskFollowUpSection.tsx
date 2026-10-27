@@ -28,7 +28,10 @@ import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import {
+  clearConversationPromptSuggestion,
   getConversationPersona,
+  getConversationPromptSuggestion,
+  getConversationSessionGoal,
   subscribeConversationTimeline,
 } from '@/features/conversation/conversationTimelineRegistry';
 import { sessionsApi } from '@/lib/api';
@@ -136,8 +139,10 @@ import {
 } from './follow-up/useSessionComposerLocalState';
 import {
   codexGoalEntriesFromConversation,
+  codexGoalStateFromSessionGoal,
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
+import { requestConversationScrollToGoal } from '@/lib/conversationScroll';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
@@ -201,6 +206,24 @@ export function TaskFollowUpSection({
     () => getConversationPersona(sessionId ?? null),
     () => getConversationPersona(sessionId ?? null)
   );
+  const storedSessionGoal = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationSessionGoal(sessionId ?? null),
+    () => getConversationSessionGoal(sessionId ?? null)
+  );
+  const storedPromptSuggestion = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationPromptSuggestion(sessionId ?? null),
+    () => getConversationPromptSuggestion(sessionId ?? null)
+  );
+  const previousSessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    const previousSessionId = previousSessionIdRef.current;
+    if (previousSessionId && previousSessionId !== sessionId) {
+      clearConversationPromptSuggestion(previousSessionId);
+    }
+    previousSessionIdRef.current = sessionId;
+  }, [sessionId]);
   const persona = useMemo(() => {
     if (!storedPersona) return null;
     return {
@@ -749,6 +772,13 @@ export function TaskFollowUpSection({
     [setAttachedImages, setLocalMessage]
   );
   const codexGoalState = useMemo(() => {
+    const liveGoal = codexGoalStateFromSessionGoal(storedSessionGoal);
+    if (liveGoal) {
+      return liveGoal;
+    }
+    if (storedSessionGoal?.actions != null) {
+      return null;
+    }
     if (
       effectiveExecutorProfile?.executor !== 'codex' &&
       effectiveExecutorProfile?.executor !== 'claude_code'
@@ -757,7 +787,7 @@ export function TaskFollowUpSection({
     }
 
     return deriveCodexGoalState(codexGoalEntriesFromConversation(entries));
-  }, [effectiveExecutorProfile?.executor, entries]);
+  }, [effectiveExecutorProfile?.executor, entries, storedSessionGoal]);
   const promptEnhancementContext = useMemo(
     () => buildPromptEnhancementContext(entries),
     [entries]
@@ -1172,6 +1202,11 @@ export function TaskFollowUpSection({
               added={added}
               deleted={deleted}
               codexGoalState={codexGoalState}
+              onSelectCodexGoal={
+                sessionId
+                  ? () => requestConversationScrollToGoal(sessionId)
+                  : undefined
+              }
               tokenUsageInfo={tokenUsageInfo}
               todos={todos}
               showSessionSelector={showSessionSelector}
@@ -1199,6 +1234,19 @@ export function TaskFollowUpSection({
               onChange={handleEditorChange}
               replaceValueRef={composerReplaceValueRef}
               disabled={!isEditable}
+              promptSuggestion={
+                isEditable &&
+                canTypeFollowUp &&
+                !isComposerExecutionRunning &&
+                !editingInput
+                  ? storedPromptSuggestion
+                  : null
+              }
+              onDismissPromptSuggestion={() => {
+                if (sessionId) {
+                  clearConversationPromptSuggestion(sessionId);
+                }
+              }}
               messageHistory={userMessageHistory}
               context={{
                 workspaceId: workspaceIdValue,

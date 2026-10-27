@@ -768,7 +768,10 @@ impl ServerApplicationDomains {
                     acp_session_id: format!("pending-{session_id}"),
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
-                    preferences: Default::default(),
+                    preferences: agents::SessionControlPreferences {
+                        wants_prompt_suggestions: true,
+                        ..Default::default()
+                    },
                 })
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
@@ -818,7 +821,10 @@ impl ServerApplicationDomains {
                     external_session_id: args.external_session_id,
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
-                    preferences: Default::default(),
+                    preferences: agents::SessionControlPreferences {
+                        wants_prompt_suggestions: true,
+                        ..Default::default()
+                    },
                 })
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,

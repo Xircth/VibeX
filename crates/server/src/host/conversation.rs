@@ -4,8 +4,8 @@ use agents::{
     AgentAvailableCommand, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
     conversation::{
         AcpCapabilitySnapshot, ConversationBundlePayload, ConversationEvent, ConversationRowPage,
-        ConversationSessionModes, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-        SessionStats,
+        ConversationSessionGoal, ConversationSessionModes, ConversationTimeline,
+        ConversationTimelineRow, MessageTurn, SessionStats,
     },
 };
 use application::ApplicationError;
@@ -63,6 +63,12 @@ pub struct HostConversationDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_goal: Option<ConversationSessionGoal>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub async_tasks: Vec<agents::AsyncTaskRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_suggestion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona: Option<conversations::collaboration::ConversationPersonaView>,
 }
 
@@ -118,6 +124,23 @@ struct ConversationEnsureSessionControlsArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ConversationGoalControlArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
+    conversation_id: String,
+    action: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationStopAsyncTaskArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
+    conversation_id: String,
+    #[serde(alias = "task_id", alias = "asyncTaskId", alias = "async_task_id")]
+    task_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ConversationForkArgs {
     #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
     conversation_id: String,
@@ -158,7 +181,28 @@ impl ServerApplicationDomains {
         let id = parse_uuid(&args.conversation_id)?;
         let request = jsonl_history::parse_window(args.tail_turns, args.from_index)
             .map_err(ApplicationError::bad_request)?;
-        serialize(load_conversation_detail(&self.pool, id, request).await?)
+        let mut detail = load_conversation_detail(&self.pool, id, request).await?;
+        if let Some(detail) = detail.as_mut()
+            && let Some(retained) = self
+                .conversations
+                .agent_runtime
+                .retained_session_controls(AgentSessionId(id))
+                .await
+        {
+            if retained.goal.is_some() || retained.goal_actions.is_some() {
+                let fallback_goal = detail
+                    .session_goal
+                    .as_ref()
+                    .and_then(|goal| goal.goal.clone());
+                detail.session_goal = Some(ConversationSessionGoal {
+                    goal: retained.goal.or(fallback_goal),
+                    actions: retained.goal_actions,
+                });
+            }
+            detail.async_tasks = retained.async_tasks;
+            detail.prompt_suggestion = retained.prompt_suggestion;
+        }
+        serialize(detail)
     }
 
     pub(crate) async fn conversation_events_since(
@@ -226,6 +270,32 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         serialize(snapshot)
+    }
+
+    pub(crate) async fn conversation_goal_control(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: ConversationGoalControlArgs = parse(args)?;
+        let id = parse_uuid(&args.conversation_id)?;
+        let receipt = conversations::ConversationSessionService::new(self.conversations.clone())
+            .goal_control(id, args.action)
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        serialize(receipt)
+    }
+
+    pub(crate) async fn conversation_stop_async_task(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: ConversationStopAsyncTaskArgs = parse(args)?;
+        let id = parse_uuid(&args.conversation_id)?;
+        let stopped = conversations::ConversationSessionService::new(self.conversations.clone())
+            .stop_async_task(id, args.task_id)
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        serialize(json!({ "stopped": stopped }))
     }
 
     pub(crate) async fn conversation_timeline_page(
@@ -891,6 +961,16 @@ pub async fn load_conversation_detail(
             },
         )
         .await?,
+        session_goal: latest_event(pool, id, "session_goal_updated", |event| match event {
+            ConversationEvent::SessionGoalUpdated { goal, .. } => Some(ConversationSessionGoal {
+                goal,
+                actions: None,
+            }),
+            _ => None,
+        })
+        .await?,
+        async_tasks: Vec::new(),
+        prompt_suggestion: None,
     }))
 }
 

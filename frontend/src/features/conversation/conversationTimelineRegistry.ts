@@ -3,8 +3,11 @@ import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
   AgentSessionConfigOption,
+  AsyncTaskRecord,
   ConversationRowOpBatch,
+  ConversationSessionGoal,
   DeliveryChannel,
+  GoalControlReceipt,
   MessageTurn,
   SessionStats,
   SessionStatus,
@@ -35,6 +38,7 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
   modes: [],
 };
 const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+const EMPTY_ASYNC_TASKS: AsyncTaskRecord[] = [];
 
 export const STREAM_FLUSH_FRAME_MS = 16;
 export const STREAM_FLUSH_MAX_MS = 192;
@@ -55,7 +59,10 @@ export function isPureAppendBatch(batch: ConversationRowOpBatch): boolean {
   if (
     batch.session_modes != null ||
     batch.session_config_options != null ||
-    batch.available_commands != null
+    batch.available_commands != null ||
+    batch.session_goal != null ||
+    batch.async_tasks != null ||
+    batch.prompt_suggestion != null
   ) {
     return false;
   }
@@ -146,6 +153,12 @@ export type ConversationTimelineView = {
   lastSequence: bigint;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
+  sessionGoal: ConversationSessionGoal | null;
+  asyncTasks: AsyncTaskRecord[];
+  promptSuggestion: string | null;
+  goalControl: (action: 'pause' | 'clear') => Promise<GoalControlReceipt>;
+  stopAsyncTask: (taskId: string) => Promise<boolean>;
+  clearPromptSuggestion: () => void;
   sendOptimisticTurn: (turn: MessageTurn) => void;
   removeOptimisticTurn: (turnId: string) => void;
   refresh: () => void;
@@ -236,6 +249,17 @@ const EMPTY_VIEW: ConversationTimelineView = {
   lastSequence: 0n,
   sessionModes: EMPTY_SESSION_MODES,
   sessionConfigOptions: EMPTY_CONFIG_OPTIONS,
+  sessionGoal: null,
+  asyncTasks: EMPTY_ASYNC_TASKS,
+  promptSuggestion: null,
+  goalControl: () =>
+    Promise.resolve({
+      action: 'clear',
+      method: '_session/goal',
+      should_interrupt_turn: false,
+    }),
+  stopAsyncTask: () => Promise.resolve(false),
+  clearPromptSuggestion: () => undefined,
   sendOptimisticTurn: () => undefined,
   removeOptimisticTurn: () => undefined,
   refresh: () => undefined,
@@ -291,6 +315,43 @@ export function getConversationPersona(
     return null;
   }
   return persona;
+}
+
+export function getConversationSessionGoal(
+  conversationId: string | null
+): ConversationSessionGoal | null {
+  if (!conversationId) return null;
+  return state.byConversationId[conversationId]?.sessionGoal ?? null;
+}
+
+export function getConversationAsyncTasks(
+  conversationId: string | null
+): AsyncTaskRecord[] {
+  if (!conversationId) return EMPTY_ASYNC_TASKS;
+  return (
+    state.byConversationId[conversationId]?.asyncTasks ?? EMPTY_ASYNC_TASKS
+  );
+}
+
+export function getConversationBindReady(
+  conversationId: string | null
+): boolean {
+  if (!conversationId) return false;
+  return slots.get(conversationId)?.bindReady ?? false;
+}
+
+export function getConversationPromptSuggestion(
+  conversationId: string | null
+): string | null {
+  if (!conversationId) return null;
+  return state.byConversationId[conversationId]?.promptSuggestion ?? null;
+}
+
+export function clearConversationPromptSuggestion(
+  conversationId: string | null
+): void {
+  if (!conversationId) return;
+  dispatch({ type: 'clear_prompt_suggestion', conversationId });
 }
 
 function timelineTurnInFlight(rows: TimelineRow[] | undefined): boolean {
@@ -906,6 +967,18 @@ function buildView(
     lastSequence: entry?.lastSequence ?? 0n,
     sessionModes: entry?.sessionModes ?? EMPTY_SESSION_MODES,
     sessionConfigOptions: entry?.sessionConfigOptions ?? EMPTY_CONFIG_OPTIONS,
+    sessionGoal: entry?.sessionGoal ?? null,
+    asyncTasks: entry?.asyncTasks ?? EMPTY_ASYNC_TASKS,
+    promptSuggestion: entry?.promptSuggestion ?? null,
+    goalControl: (action) =>
+      conversationApi.goalControl(conversationId, action),
+    stopAsyncTask: async (taskId) => {
+      const res = await conversationApi.stopAsyncTask(conversationId, taskId);
+      return Boolean(res?.stopped);
+    },
+    clearPromptSuggestion: () => {
+      dispatch({ type: 'clear_prompt_suggestion', conversationId });
+    },
     sendOptimisticTurn: (turn) => {
       dispatch({ type: 'optimistic_turn', conversationId, turn });
     },

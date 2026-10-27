@@ -18,6 +18,8 @@ export type ToolDisplayEntry = NormalizedEntry & {
   fileEdits?: FileEditPreview[];
   toolResult?: ToolResult | null;
   toolArguments?: JsonValue | null;
+  toolUseId?: string | null;
+  toolMeta?: JsonValue | null;
 };
 
 /**
@@ -787,6 +789,7 @@ type CachedToolEntry = {
   status: string | null | undefined;
   toolName: string;
   inputPreview: string | null | undefined;
+  metaRef: JsonValue | null | undefined;
   resultRef: ToolResultBlock | null;
   outputPreview: string | null | undefined;
   isError: boolean | undefined;
@@ -814,6 +817,7 @@ export function toolBlockToNormalizedEntry(
     refHit.status === use.status &&
     refHit.toolName === use.tool_name &&
     refHit.inputPreview === use.input_preview &&
+    refHit.metaRef === use.meta &&
     (refHit.resultRef === result ||
       (refHit.outputPreview === outputPreview && refHit.isError === isError)) &&
     refHit.timestamp === timestamp &&
@@ -831,6 +835,7 @@ export function toolBlockToNormalizedEntry(
       keyHit &&
       keyHit.toolName === use.tool_name &&
       keyHit.inputPreview === use.input_preview &&
+      keyHit.metaRef === use.meta &&
       keyHit.outputPreview === outputPreview &&
       keyHit.isError === isError
     ) {
@@ -896,6 +901,8 @@ export function toolBlockToNormalizedEntry(
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
     toolResult,
     toolArguments: (parsed ?? null) as JsonValue,
+    toolUseId: use.tool_use_id ?? null,
+    toolMeta: (use.meta ?? null) as JsonValue,
     entry_type: {
       type: 'tool_use',
       tool_name: use.tool_name,
@@ -908,6 +915,7 @@ export function toolBlockToNormalizedEntry(
     status: use.status,
     toolName: use.tool_name,
     inputPreview: use.input_preview,
+    metaRef: use.meta,
     resultRef: result,
     outputPreview,
     isError,

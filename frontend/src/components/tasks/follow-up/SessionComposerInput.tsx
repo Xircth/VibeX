@@ -175,6 +175,9 @@ type SessionComposerInputProps = {
   disabled?: boolean;
   className?: string;
   placeholder?: string;
+  promptSuggestion?: string | null;
+  onAcceptPromptSuggestion?: (suggestion: string) => void;
+  onDismissPromptSuggestion?: () => void;
   context?: SessionComposerInputContext;
   messageHistory?: readonly string[];
   acceptExternalInserts?: boolean;
@@ -1164,6 +1167,9 @@ export function SessionComposerInput({
   disabled = false,
   className,
   placeholder = '',
+  promptSuggestion = null,
+  onAcceptPromptSuggestion,
+  onDismissPromptSuggestion,
   context,
   messageHistory,
   acceptExternalInserts = true,
@@ -1356,12 +1362,7 @@ export function SessionComposerInput({
       editor && document.activeElement === editor
         ? getEditorCaretOffset(editor)
         : null;
-  }, [
-    agentMentions.candidates,
-    agentMentions.capability,
-    spaceMembers,
-    value,
-  ]);
+  }, [agentMentions.candidates, agentMentions.capability, spaceMembers, value]);
 
   useEffect(() => {
     const savedCaretOffset = preSyncCaretOffsetRef.current;
@@ -1377,12 +1378,7 @@ export function SessionComposerInput({
         spaceMembers
       );
     }
-  }, [
-    agentMentions.candidates,
-    agentMentions.capability,
-    spaceMembers,
-    value,
-  ]);
+  }, [agentMentions.candidates, agentMentions.capability, spaceMembers, value]);
 
   useEffect(() => {
     if (!replaceValueRef) return;
@@ -2095,19 +2091,25 @@ export function SessionComposerInput({
   const handleComposerPaste = useCallback(
     (event: ClipboardEvent<HTMLDivElement>, text?: string) => {
       if (handleComposerImagePaste(event, onAttachImages, disabled)) {
+        if (promptSuggestion) {
+          onDismissPromptSuggestion?.();
+        }
         return true;
       }
       if (disabled) {
         return false;
       }
       const pasted = text ?? event.clipboardData?.getData('text/plain') ?? '';
+      if (pasted && promptSuggestion) {
+        onDismissPromptSuggestion?.();
+      }
       const editor = getSessionComposerEditable(composerRootRef.current);
       if (!editor) {
         return false;
       }
       return insertComposerTextWithUndo(editor, pasted);
     },
-    [disabled, onAttachImages]
+    [disabled, onAttachImages, onDismissPromptSuggestion, promptSuggestion]
   );
 
   useEffect(() => {
@@ -2204,6 +2206,55 @@ export function SessionComposerInput({
     [atReference, disabled, messageHistory, onChange, value]
   );
 
+  const activePromptSuggestion =
+    !value && !disabled && !atReference.panel && promptSuggestion?.trim()
+      ? promptSuggestion.trim()
+      : null;
+  const effectivePlaceholder = activePromptSuggestion
+    ? t('conversation:composer.promptSuggestion', {
+        suggestion: activePromptSuggestion,
+        defaultValue: `${activePromptSuggestion}\u3000Tab 采纳`,
+      })
+    : placeholder;
+  const tryAcceptPromptSuggestionOnTab = useCallback(
+    (event: KeyboardEvent<HTMLElement>): boolean => {
+      if (
+        event.defaultPrevented ||
+        event.key !== 'Tab' ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        !activePromptSuggestion
+      ) {
+        return false;
+      }
+      event.preventDefault();
+      const editor = getSessionComposerEditable(composerRootRef.current);
+      const replacedWithUndo =
+        editor != null &&
+        replaceComposerValueWithUndo(editor, activePromptSuggestion);
+      if (
+        !replacedWithUndo ||
+        (composerHandleRef.current?.getValue() ?? '') !== activePromptSuggestion
+      ) {
+        onChange(activePromptSuggestion);
+      }
+      if (editor) {
+        restoreEditorCaretOffset(editor, activePromptSuggestion.length);
+      }
+      onAcceptPromptSuggestion?.(activePromptSuggestion);
+      onDismissPromptSuggestion?.();
+      return true;
+    },
+    [
+      activePromptSuggestion,
+      onAcceptPromptSuggestion,
+      onChange,
+      onDismissPromptSuggestion,
+    ]
+  );
+
   return (
     <div
       ref={dropZoneRef}
@@ -2230,6 +2281,9 @@ export function SessionComposerInput({
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
+        onKeyDown={(event) => {
+          tryAcceptPromptSuggestionOnTab(event);
+        }}
         onPointerOver={handleTokenPointerOver}
         onPointerOut={handleTokenPointerOut}
         onFocusCapture={handleTokenFocus}
@@ -2239,6 +2293,9 @@ export function SessionComposerInput({
           ref={composerRootRef}
           value={value}
           onChange={(next) => {
+            if (next && promptSuggestion) {
+              onDismissPromptSuggestion?.();
+            }
             onChange(next);
             queueMicrotask(() => atReference.detect());
           }}
@@ -2248,7 +2305,7 @@ export function SessionComposerInput({
             className
           )}
           maxRows={7}
-          placeholder={placeholder}
+          placeholder={effectivePlaceholder}
           label={t('composer.inputLabel')}
           hasHistory={false}
           pasteAsToken={false}
@@ -2263,16 +2320,28 @@ export function SessionComposerInput({
             if (atReference.handleKeyDown(event)) {
               return;
             }
+            if (tryAcceptPromptSuggestionOnTab(event)) {
+              return;
+            }
             if (event.key === 'Backspace' || event.key === 'Delete') {
               const selection = window.getSelection();
-              const editor = getSessionComposerEditable(composerRootRef.current);
-              if (editor && selection && selection.isCollapsed && selection.rangeCount > 0) {
+              const editor = getSessionComposerEditable(
+                composerRootRef.current
+              );
+              if (
+                editor &&
+                selection &&
+                selection.isCollapsed &&
+                selection.rangeCount > 0
+              ) {
                 const range = selection.getRangeAt(0);
                 const startNode = range.startContainer;
                 const insideToken =
                   startNode instanceof HTMLElement
                     ? startNode.closest<HTMLElement>('[data-astryx-token]')
-                    : startNode.parentElement?.closest<HTMLElement>('[data-astryx-token]');
+                    : startNode.parentElement?.closest<HTMLElement>(
+                        '[data-astryx-token]'
+                      );
                 if (insideToken && editor.contains(insideToken)) {
                   event.preventDefault();
                   const next = insideToken.nextSibling;

@@ -413,6 +413,13 @@ pub async fn preflight(
         });
     let external_installer_url = (!has_managed_installer && agent_id.as_str() == "kiro")
         .then_some("https://kiro.dev/docs/getting-started/installation/");
+    let adapter_relation = agents::acp_adapter_relation(agent_id.as_str());
+    let vendor_cli_path = match adapter_relation {
+        Some(relation) => {
+            agents::resolve_vendor_cli(relation.native_cmd, relation.extra_dirs).await
+        }
+        None => None,
+    };
     let mut items = vec![
         launch_entry_preflight_item(view.retired, acp_version, acp_path),
         AgentPreflightItemView {
@@ -427,7 +434,7 @@ pub async fn preflight(
                 "Kiro CLI 在当前系统通过官方安装器分发，请先安装 kiro-cli 后点击立即检查。"
                     .to_string()
             } else if acp.is_none() {
-                "未发现 ACP 安装组件。".to_string()
+                acp_missing_preflight_detail(adapter_relation, vendor_cli_path.as_deref())
             } else {
                 "已记录安装路径，但找不到 ACP 可执行文件。".to_string()
             },
@@ -458,6 +465,62 @@ fn nonempty_preflight_text(value: Option<String>) -> Option<String> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+fn acp_missing_preflight_detail(
+    relation: Option<agents::AcpAdapterRelation>,
+    vendor_cli_path: Option<&Path>,
+) -> String {
+    match (relation, vendor_cli_path) {
+        (Some(relation), Some(path)) => format!(
+            "已检测到 {} ({})，但未发现 ACP 适配器；适配器与 CLI 共用 {} 登录态。",
+            relation.native_label,
+            path.display(),
+            relation.shared_config_dir
+        ),
+        (Some(relation), None) => format!(
+            "未发现 ACP 安装组件（适配器与 {} 共用 {} 登录态）。",
+            relation.native_label, relation.shared_config_dir
+        ),
+        (None, _) => "未发现 ACP 安装组件。".to_string(),
+    }
+}
+
+fn vendor_cli_diagnostic_check(
+    relation: agents::AcpAdapterRelation,
+    acp_present: bool,
+    vendor_cli_path: Option<&Path>,
+) -> AgentEnvironmentDiagnosticCheckView {
+    let value = match vendor_cli_path {
+        Some(path) if !acp_present => format!(
+            "{} ({}) · 共享 {} 登录态（仍需安装 ACP 适配器）",
+            relation.native_label,
+            path.display(),
+            relation.shared_config_dir
+        ),
+        Some(path) => format!(
+            "{} ({}) · 共享 {}",
+            relation.native_label,
+            path.display(),
+            relation.shared_config_dir
+        ),
+        None => format!(
+            "NOT RESOLVED ({}) · 共享 {}",
+            relation.native_cmd, relation.shared_config_dir
+        ),
+    };
+    let level = match (acp_present, vendor_cli_path.is_some()) {
+        (false, true) => AgentEnvironmentDiagnosticLevel::Warning,
+        (true, true) => AgentEnvironmentDiagnosticLevel::Ok,
+        (_, false) => AgentEnvironmentDiagnosticLevel::Info,
+    };
+    check(
+        "vendor_cli",
+        "agents.environmentDiagnosticVendorCli",
+        value,
+        level,
+        None,
+    )
 }
 
 fn launch_entry_preflight_item(
@@ -726,6 +789,14 @@ pub async fn environment_diagnostics(
         },
         managed_launchable.then_some("agents.environmentDiagnosticManagedLaunch"),
     ));
+    if let Some(relation) = agents::acp_adapter_relation(agent_id.as_str()) {
+        let vendor_cli = agents::resolve_vendor_cli(relation.native_cmd, relation.extra_dirs).await;
+        installation_checks.push(vendor_cli_diagnostic_check(
+            relation,
+            launchable,
+            vendor_cli.as_deref(),
+        ));
+    }
 
     let terminal_has_gap = target_on_app_path.is_none() && terminal.command_path.is_some();
     let mut terminal_checks = vec![check(
@@ -2161,6 +2232,12 @@ pub(crate) async fn resolve_management_program(
                 }
             }
         }
+    }
+    if let Some(relation) = agents::acp_adapter_relation(agent_id.as_str())
+        && relation.native_cmd.eq_ignore_ascii_case(program)
+        && let Some(path) = agents::resolve_vendor_cli(program, relation.extra_dirs).await
+    {
+        return Some(path);
     }
     if let Some(path) = utils::shell::resolve_executable_path(program).await {
         return Some(path);
@@ -3624,5 +3701,40 @@ mod tests {
         assert!(assignments.contains("OPENAI_BASE_URL"));
         assert!(!assignments.contains("OPENAI_API_KEY"));
         assert!(!assignments.contains("sk-secret"));
+    }
+
+    #[test]
+    fn vendor_cli_diagnostics_distinguish_adapter_missing_with_cli_vs_both_missing() {
+        let relation = agents::acp_adapter_relation("claude_code").expect("claude relation");
+        let cli_path = Path::new("/Users/alice/.claude/local/claude");
+
+        let detail_with_cli = acp_missing_preflight_detail(Some(relation), Some(cli_path));
+        assert!(detail_with_cli.contains("Claude Code CLI"));
+        assert!(detail_with_cli.contains("~/.claude"));
+        assert!(detail_with_cli.contains("未发现 ACP 适配器"));
+
+        let detail_without_cli = acp_missing_preflight_detail(Some(relation), None);
+        assert!(detail_without_cli.contains("未发现 ACP 安装组件"));
+        assert!(detail_without_cli.contains("~/.claude"));
+
+        let check_missing_adapter_with_cli =
+            vendor_cli_diagnostic_check(relation, false, Some(cli_path));
+        assert_eq!(
+            check_missing_adapter_with_cli.level,
+            AgentEnvironmentDiagnosticLevel::Warning
+        );
+        assert!(check_missing_adapter_with_cli.value.contains("~/.claude"));
+        assert!(
+            check_missing_adapter_with_cli
+                .value
+                .contains("仍需安装 ACP 适配器")
+        );
+
+        let check_both_missing = vendor_cli_diagnostic_check(relation, false, None);
+        assert_eq!(
+            check_both_missing.level,
+            AgentEnvironmentDiagnosticLevel::Info
+        );
+        assert!(check_both_missing.value.contains("NOT RESOLVED (claude)"));
     }
 }

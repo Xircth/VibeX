@@ -57,7 +57,7 @@ use crate::{
     AcpAuthStatusAdapter, AcpCapabilityNormalizer, AcpCapabilitySnapshot, AgentAutoApproveMode,
     AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentElicitationId,
     AgentElicitationRequest, AgentElicitationResponse, AgentError, AgentErrorEvent, AgentEvent,
-    AgentId, AgentListedSession, AgentPermissionId, AgentPermissionOption,
+    AgentId, AgentKind, AgentListedSession, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
@@ -2435,6 +2435,7 @@ struct KiroReasoning {
 
 #[derive(Debug, Clone, Default)]
 struct SessionControlState {
+    modes: Option<SessionModeState>,
     config_options: Vec<AcpSessionConfigOption>,
     /// Set when `config_options` were synthesized from a vendor `_meta`
     /// extension instead of the standard ACP response fields.
@@ -2609,6 +2610,17 @@ impl AgentConnectionRunner {
         } else {
             ledger.update(kind, id, frame)
         }
+    }
+
+    async fn append_subagent_chunk(
+        &self,
+        parent_id: &str,
+        field: &str,
+        chunk_text: &str,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let kind = self.agent_kind().unwrap_or(crate::AgentKind::ClaudeCode);
+        let mut ledger = self.air_tool_call_meta.lock().await;
+        ledger.append_subagent_chunk(kind, parent_id, field, chunk_text)
     }
 
     async fn hosted_terminal_output(
@@ -4892,6 +4904,7 @@ impl AgentConnectionRunner {
         vendor_config: Option<VendorConfigWire>,
         session_meta: Option<&serde_json::Map<String, serde_json::Value>>,
     ) {
+        let raw_modes = modes.clone();
         let (config_options, mode_uses_set_mode) = unify_session_config_options(
             modes,
             config_options.unwrap_or_default(),
@@ -4908,6 +4921,7 @@ impl AgentConnectionRunner {
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
+            entry.modes = raw_modes.clone();
             entry.config_options = config_options.clone();
             if let Some(reasoning) = entry.kiro_reasoning.as_ref() {
                 place_kiro_reasoning_selectors(&mut entry.config_options, reasoning);
@@ -4948,21 +4962,25 @@ impl AgentConnectionRunner {
             && !preferences.is_empty()
         {
             // Apply before the first broadcast so the UI never sees the agent's
-            // defaults (CodeG `acp_connect` + preferred_*).
-            let preferred_map = preferred_controls_map(
-                preferences.mode.as_deref(),
-                preferences
-                    .config
-                    .iter()
-                    .map(|item| (item.key.as_str(), item.value.as_str())),
-            );
+            // defaults (CodeG `acp_connect` + preferred_*). Heal retired Claude
+            // model spellings (`opus[1m]` -> `opus`, `claude-fable-5-1` -> `fable`)
+            // and drop mode/config picks the session's own advertisement rejects.
+            let agent_kind = AgentKind::from_lenient(self.snapshot.agent_id.as_str());
+            let (mode_to_apply, config_to_apply, preferred_map) =
+                prepare_preferred_controls_for_replay(
+                    agent_kind,
+                    raw_modes.as_ref(),
+                    &config_options,
+                    preferences.mode.as_deref(),
+                    &preferences.config,
+                );
             if let Err(error) = self
                 .apply_session_overrides(
                     conn,
                     acp_session_id,
                     session_id,
-                    preferences.mode,
-                    preferences.config,
+                    mode_to_apply,
+                    config_to_apply,
                 )
                 .await
             {
@@ -5108,6 +5126,21 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         requested_mode: &str,
     ) -> Result<(), acp::Error> {
+        let withdrawn = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .and_then(|controls| controls.modes.as_ref())
+            .is_some_and(|modes| session_modes_reject_id(modes, requested_mode));
+        if withdrawn {
+            tracing::info!(
+                %session_id,
+                requested_mode,
+                "[ACP] skipping mode override: the agent no longer offers that mode"
+            );
+            return Ok(());
+        }
         self.apply_config_override(conn, acp_session_id, session_id, "mode", requested_mode)
             .await
     }
@@ -5153,7 +5186,10 @@ impl AgentConnectionRunner {
             return Ok(());
         }
 
-        let Some(selection) = find_config_override_selection(&config_options, key, value) else {
+        let agent_kind = AgentKind::from_lenient(self.snapshot.agent_id.as_str());
+        let Some(selection) =
+            find_config_override_selection_for_agent(&config_options, agent_kind, key, value)
+        else {
             if vendor_config == Some(VendorConfigWire::KiroSessionConfig) {
                 if key == KIRO_THINKING_OPTION_ID
                     && let Some(enabled) = value.as_str().and_then(kiro_thinking_value)
@@ -6787,17 +6823,26 @@ impl AcpClientBridge {
         };
         let mut details = serde_json::to_value(&args.tool_call).ok();
         if let Some(details) = details.as_mut() {
-            crate::air_contract::hoist_request_permission_meta(details, args.meta.as_ref());
+            let ledger_meta = self
+                .apply
+                .air_tool_call_meta
+                .lock()
+                .await
+                .peek(args.tool_call.tool_call_id.0.as_ref());
+            crate::air_contract::hoist_request_permission_meta_with_ledger(
+                details,
+                args.meta.as_ref(),
+                ledger_meta.as_ref(),
+            );
         }
+        let title = crate::air_contract::resolve_permission_request_title(
+            details.as_ref(),
+            args.tool_call.fields.title.as_deref(),
+        );
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
-            title: args
-                .tool_call
-                .fields
-                .title
-                .clone()
-                .unwrap_or_else(|| "Permission requested".to_string()),
+            title,
             details,
             options: args
                 .options
@@ -7365,6 +7410,46 @@ impl AcpClientBridge {
                     Some(AgentEvent::RawAcpDiagnostic {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
+                } else if let Some(parent_id) = crate::air_contract::chunk_parent_tool_use_id(
+                    self.apply.agent_kind(),
+                    chunk.meta.as_ref(),
+                ) {
+                    let text = match acp_content_to_agent(chunk.content.clone()) {
+                        AgentContentBlock::Text { text } => text,
+                        _ => String::new(),
+                    };
+                    self.record_live_update(
+                        &acp_session_id,
+                        &SessionUpdate::AgentMessageChunk(chunk),
+                    );
+                    if text.is_empty() {
+                        None
+                    } else {
+                        let folded = self
+                            .apply
+                            .append_subagent_chunk(&parent_id, "text", &text)
+                            .await;
+                        Some(AgentEvent::ToolCallUpdate {
+                            update: AgentToolCallUpdate {
+                                id: parent_id,
+                                title: None,
+                                status: None,
+                                content: None,
+                                input_preview: None,
+                                meta: bounded_optional_meta(folded),
+                                images: Vec::new(),
+                            },
+                        })
+                    }
+                } else if crate::air_contract::codebuddy_chunk_marks_subagent(
+                    self.apply.agent_kind(),
+                    chunk.meta.as_ref(),
+                ) {
+                    self.record_live_update(
+                        &acp_session_id,
+                        &SessionUpdate::AgentMessageChunk(chunk),
+                    );
+                    None
                 } else {
                     let gated = self
                         .gate_stream_chunk(
@@ -7383,20 +7468,62 @@ impl AcpClientBridge {
                 }
             }
             SessionUpdate::AgentThoughtChunk(chunk) => {
-                let gated = self
-                    .gate_stream_chunk(
-                        &acp_session_id,
-                        StreamKind::Thought,
-                        acp_content_to_agent(chunk.content.clone()),
-                    )
-                    .await;
-                if gated.is_some() {
+                if let Some(parent_id) = crate::air_contract::chunk_parent_tool_use_id(
+                    self.apply.agent_kind(),
+                    chunk.meta.as_ref(),
+                ) {
+                    let text = match acp_content_to_agent(chunk.content.clone()) {
+                        AgentContentBlock::Text { text } => text,
+                        _ => String::new(),
+                    };
                     self.record_live_update(
                         &acp_session_id,
                         &SessionUpdate::AgentThoughtChunk(chunk),
                     );
+                    if text.is_empty() {
+                        None
+                    } else {
+                        let folded = self
+                            .apply
+                            .append_subagent_chunk(&parent_id, "thinking", &text)
+                            .await;
+                        Some(AgentEvent::ToolCallUpdate {
+                            update: AgentToolCallUpdate {
+                                id: parent_id,
+                                title: None,
+                                status: None,
+                                content: None,
+                                input_preview: None,
+                                meta: bounded_optional_meta(folded),
+                                images: Vec::new(),
+                            },
+                        })
+                    }
+                } else if crate::air_contract::codebuddy_chunk_marks_subagent(
+                    self.apply.agent_kind(),
+                    chunk.meta.as_ref(),
+                ) {
+                    self.record_live_update(
+                        &acp_session_id,
+                        &SessionUpdate::AgentThoughtChunk(chunk),
+                    );
+                    None
+                } else {
+                    let gated = self
+                        .gate_stream_chunk(
+                            &acp_session_id,
+                            StreamKind::Thought,
+                            acp_content_to_agent(chunk.content.clone()),
+                        )
+                        .await;
+                    if gated.is_some() {
+                        self.record_live_update(
+                            &acp_session_id,
+                            &SessionUpdate::AgentThoughtChunk(chunk),
+                        );
+                    }
+                    gated.map(|content| AgentEvent::ThoughtChunk { content })
                 }
-                gated.map(|content| AgentEvent::ThoughtChunk { content })
             }
             SessionUpdate::ToolCall(tool_call) => {
                 let status = Some(acp_enum_label(&tool_call.status));
@@ -8012,6 +8139,293 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
+/// Whether an advertised option IS the agent's model selector. Matches either
+/// the `Model` semantic category or the conventional `"model"` option id.
+fn is_model_config_option(option: &AcpSessionConfigOption) -> bool {
+    matches!(option.category, Some(SessionConfigOptionCategory::Model))
+        || option.id.0.as_ref() == "model"
+}
+
+/// Whether the option's OWN advertisement proves `value` is not selectable, so
+/// replaying a saved preference for it at connect is a guaranteed error.
+///
+/// Only non-empty `select` options reject values; an empty select list or a
+/// boolean option rejects nothing.
+fn config_option_rejects_value(option: &AcpSessionConfigOption, value: &str) -> bool {
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return false;
+    };
+    let mut advertised = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options
+            .iter()
+            .map(|o| o.value.0.to_string())
+            .collect::<Vec<_>>(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter().map(|o| o.value.0.to_string()))
+            .collect::<Vec<_>>(),
+        #[allow(unreachable_patterns)]
+        _ => Vec::new(),
+    };
+    if advertised.is_empty() {
+        return false;
+    }
+    advertised.sort_unstable();
+    advertised.binary_search(&value.to_string()).is_err()
+}
+
+/// `value` without its trailing `[1m]`, matched case-insensitively.
+fn strip_context_lane_suffix(value: &str) -> Option<&str> {
+    const SUFFIX: &str = "[1m]";
+    let split = value.len().checked_sub(SUFFIX.len())?;
+    let (twin, suffix) = (value.get(..split)?, value.get(split..)?);
+    (!twin.is_empty() && suffix.eq_ignore_ascii_case(SUFFIX)).then_some(twin)
+}
+
+/// The plain twin of a saved model pick whose `[1m]` spelling the model
+/// selector no longer lists — `opus[1m]` → `opus`, `sonnet[1m]` → `sonnet` —
+/// when the selector lists the twin. Never moves a plain pick onto `[1m]`, and
+/// never touches a `[1m]` pick the selector still offers.
+fn heal_retired_context_lane_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+    if !is_model_config_option(option) {
+        return None;
+    }
+    let twin = strip_context_lane_suffix(value)?;
+    (config_option_rejects_value(option, value) && !config_option_rejects_value(option, twin))
+        .then(|| twin.to_string())
+}
+
+/// Whether a model row's description opens with `name` as its own segment, the
+/// way Claude Code's CLI writes one: `Fable 5.1 · Most capable for …`.
+fn description_leads_with(description: &str, name: &str) -> bool {
+    let description = description.trim_start();
+    description
+        .get(..name.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(name))
+        && description[name.len()..].starts_with(" \u{b7} ")
+}
+
+/// The name Claude Code's model catalog gives a concrete model id:
+/// `claude-fable-5-1` → `Fable 5.1`, `claude-sonnet-5` → `Sonnet 5`,
+/// `claude-haiku-4-5-20251001` → `Haiku 4.5`.
+fn claude_catalog_label(id: &str) -> Option<String> {
+    let mut parts = id.strip_prefix("claude-")?.split('-');
+    let family = parts
+        .next()
+        .filter(|family| !family.is_empty() && family.bytes().all(|b| b.is_ascii_lowercase()))?;
+    let mut version: Vec<&str> = parts.collect();
+    if version
+        .last()
+        .is_some_and(|part| part.len() == 8 && part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        version.pop();
+    }
+    let numeric =
+        |part: &&str| (1..=2).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit());
+    if version.is_empty() || !version.iter().all(numeric) {
+        return None;
+    }
+    let (initial, tail) = family.split_at(1);
+    Some(format!(
+        "{}{tail} {}",
+        initial.to_ascii_uppercase(),
+        version.join(".")
+    ))
+}
+
+/// The row a saved CONCRETE Claude model id is now spelled as, when the model
+/// selector no longer lists the id itself: the one row whose label (or leading
+/// description segment) names that exact model (`claude-fable-5-1` → `fable`
+/// labelled `Fable 5.1`).
+fn heal_respelled_model_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+    if !is_model_config_option(option) || !config_option_rejects_value(option, value) {
+        return None;
+    }
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return None;
+    };
+    let rows: Vec<&SessionConfigSelectOption> = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options.iter().collect(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .collect(),
+        #[allow(unreachable_patterns)]
+        _ => Vec::new(),
+    };
+    let catalog_label = claude_catalog_label(value);
+    let names_the_pick = |row: &&SessionConfigSelectOption| {
+        let label = row.name.trim();
+        if label.eq_ignore_ascii_case(value) {
+            return true;
+        }
+        let Some(catalog) = catalog_label.as_deref() else {
+            return false;
+        };
+        label.eq_ignore_ascii_case(catalog)
+            || row
+                .description
+                .as_deref()
+                .is_some_and(|description| description_leads_with(description, catalog))
+    };
+    let mut matching = rows.into_iter().filter(names_the_pick);
+    let row = matching.next()?;
+    matching.next().is_none().then(|| row.value.0.to_string())
+}
+
+/// Heal a saved Claude model pick across retired `[1m]` context lanes, concrete
+/// id re-spellings (`claude-fable-5-1` → `fable`), or both at once
+/// (`claude-fable-5-1[1m]` → `fable`).
+fn heal_retired_model_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+    heal_retired_context_lane_pick(option, value)
+        .or_else(|| heal_respelled_model_pick(option, value))
+        .or_else(|| {
+            let twin = strip_context_lane_suffix(value)?;
+            if !config_option_rejects_value(option, value) {
+                return None;
+            }
+            heal_respelled_model_pick(option, twin)
+        })
+}
+
+/// [`heal_retired_model_pick`] over a whole preference set against the session's
+/// advertised options. Only applies to `AgentKind::ClaudeCode`; never mutates
+/// persisted preferences.
+fn heal_retired_model_picks(
+    agent_kind: Option<AgentKind>,
+    options: &[AcpSessionConfigOption],
+    preferred: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    if agent_kind != Some(AgentKind::ClaudeCode) {
+        return preferred.clone();
+    }
+    preferred
+        .iter()
+        .map(|(config_id, value_id)| {
+            let healed = options
+                .iter()
+                .find(|o| {
+                    o.id.0.as_ref() == config_id.as_str()
+                        || (config_id == "model" && is_model_config_option(o))
+                })
+                .and_then(|o| heal_retired_model_pick(o, value_id));
+            match healed {
+                Some(twin) => {
+                    tracing::info!(
+                        "[ACP] preferred config '{config_id}'='{value_id}' is no longer \
+                         offered; replaying '{twin}', the spelling the agent lists now"
+                    );
+                    (config_id.clone(), twin)
+                }
+                None => (config_id.clone(), value_id.clone()),
+            }
+        })
+        .collect()
+}
+
+/// [`config_option_rejects_value`] for the mode channel: whether the session's
+/// OWN mode list proves a saved `preferred_mode_id` (such as a withdrawn
+/// `bypassPermissions`) cannot be selected. An empty mode list rejects nothing.
+fn session_modes_reject_id(modes: &SessionModeState, mode_id: &str) -> bool {
+    !modes.available_modes.is_empty()
+        && !modes
+            .available_modes
+            .iter()
+            .any(|mode| mode.id.0.as_ref() == mode_id)
+}
+
+/// Prepare saved session preferences for connect-time replay:
+/// 1. Drop a preferred mode if `session_modes_reject_id` (or the unified mode
+///    config option) rejects it.
+/// 2. Heal retired Claude model picks (`heal_retired_model_picks`) in memory.
+/// 3. Order model selections first, and drop any config preference that the
+///    advertised option still rejects via `config_option_rejects_value`.
+fn prepare_preferred_controls_for_replay(
+    agent_kind: Option<AgentKind>,
+    modes: Option<&SessionModeState>,
+    options: &[AcpSessionConfigOption],
+    preferred_mode: Option<&str>,
+    preferred_config: &[AgentSessionConfigOverride],
+) -> (
+    Option<String>,
+    Vec<AgentSessionConfigOverride>,
+    BTreeMap<String, String>,
+) {
+    let mode_to_apply = preferred_mode
+        .and_then(non_empty_trimmed)
+        .filter(|pref_mode| {
+            let rejected_by_modes = modes.is_some_and(|m| session_modes_reject_id(m, pref_mode));
+            let rejected_by_option = options
+                .iter()
+                .find(|o| matches!(o.category, Some(SessionConfigOptionCategory::Mode)))
+                .is_some_and(|o| config_option_rejects_value(o, pref_mode));
+            if rejected_by_modes || rejected_by_option {
+                tracing::info!(
+                    "[ACP] skipping preferred mode '{pref_mode}' on connect: \
+                     the agent no longer offers that mode"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .map(str::to_string);
+
+    let mut raw_config_map = BTreeMap::new();
+    for item in preferred_config {
+        if let (Some(k), Some(v)) = (non_empty_trimmed(&item.key), non_empty_trimmed(&item.value)) {
+            raw_config_map.insert(k.to_string(), v.to_string());
+        }
+    }
+    let healed_map = heal_retired_model_picks(agent_kind, options, &raw_config_map);
+    let healed_overrides = preferred_config
+        .iter()
+        .filter_map(|item| {
+            let key = non_empty_trimmed(&item.key)?;
+            let value = healed_map.get(key)?;
+            Some(AgentSessionConfigOverride {
+                key: key.to_string(),
+                value: value.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut filtered_overrides = Vec::new();
+    for item in ordered_session_config_overrides(options, healed_overrides) {
+        if item.key == "mode"
+            && modes.is_some_and(|m| session_modes_reject_id(m, item.value.as_str()))
+        {
+            tracing::info!(
+                "[ACP] skipping preferred config 'mode'='{}' on connect: \
+                 the agent no longer offers that mode",
+                item.value
+            );
+            continue;
+        }
+        let advertised = options
+            .iter()
+            .find(|o| o.id.0.as_ref() == item.key.as_str() || config_option_matches(o, &item.key));
+        if advertised.is_some_and(|o| config_option_rejects_value(o, item.value.as_str())) {
+            tracing::info!(
+                "[ACP] skipping preferred config '{}'='{}' on connect: \
+                 the agent no longer offers that value",
+                item.key,
+                item.value
+            );
+            continue;
+        }
+        filtered_overrides.push(item);
+    }
+
+    let preferred_map = preferred_controls_map(
+        mode_to_apply.as_deref(),
+        filtered_overrides
+            .iter()
+            .map(|item| (item.key.as_str(), item.value.as_str())),
+    );
+    (mode_to_apply, filtered_overrides, preferred_map)
+}
+
 /// Apply a model selection before options that may depend on it. The category
 /// comes from the Agent's ACP session-config advertisement; `sort_by_key` is
 /// stable, so unrelated selections retain their caller-provided order.
@@ -8021,11 +8435,8 @@ fn ordered_session_config_overrides(
 ) -> Vec<AgentSessionConfigOverride> {
     overrides.sort_by_key(|override_item| {
         let is_model = options.iter().any(|option| {
-            matches!(
-                option.category.as_ref(),
-                Some(SessionConfigOptionCategory::Model)
-            ) && config_option_matches(option, &override_item.key)
-        });
+            is_model_config_option(option) && config_option_matches(option, &override_item.key)
+        }) || override_item.key.eq_ignore_ascii_case("model");
         u8::from(!is_model)
     });
     overrides
@@ -8048,6 +8459,15 @@ fn find_config_override_selection(
     key: &str,
     value: &serde_json::Value,
 ) -> Option<ConfigOverrideSelection> {
+    find_config_override_selection_for_agent(options, None, key, value)
+}
+
+fn find_config_override_selection_for_agent(
+    options: &[AcpSessionConfigOption],
+    agent_kind: Option<AgentKind>,
+    key: &str,
+    value: &serde_json::Value,
+) -> Option<ConfigOverrideSelection> {
     for option in options {
         if !config_option_matches(option, key) {
             continue;
@@ -8055,7 +8475,24 @@ fn find_config_override_selection(
         match &option.kind {
             SessionConfigKind::Select(select) => {
                 let requested = value.as_str()?;
-                if let Some(choice) = find_select_choice(select, key, requested) {
+                let healed = if agent_kind == Some(AgentKind::ClaudeCode)
+                    && is_model_config_option(option)
+                {
+                    heal_retired_model_pick(option, requested)
+                } else {
+                    None
+                };
+                let effective = healed.as_deref().unwrap_or(requested);
+                // For Claude Code's model selector, once healing has run, a value
+                // that the non-empty select still rejects must be dropped rather
+                // than fuzzy-matched onto a different model row.
+                if agent_kind == Some(AgentKind::ClaudeCode)
+                    && is_model_config_option(option)
+                    && config_option_rejects_value(option, effective)
+                {
+                    continue;
+                }
+                if let Some(choice) = find_select_choice(select, key, effective) {
                     let value_id = choice.value.0.to_string();
                     return Some(ConfigOverrideSelection {
                         config_id: option.id.0.to_string(),
@@ -8289,13 +8726,19 @@ fn find_select_choice<'a>(
         _ => return None,
     };
 
-    // Resolve exact IDs/names across the complete choice set before applying
-    // compatibility aliases. Otherwise an earlier short value such as
-    // `agent` steals the exact Codex value `agent-full-access` by substring.
+    // Resolve exact raw wire ID first (so `sonnet[1m]` vs `sonnet` never
+    // collides under alphanumeric normalization), then exact normalized IDs/names,
+    // and finally compatibility aliases.
     options
         .iter()
         .copied()
-        .find(|option| select_choice_matches_exact(option, &aliases))
+        .find(|option| option.value.0.as_ref() == value)
+        .or_else(|| {
+            options
+                .iter()
+                .copied()
+                .find(|option| select_choice_matches_exact(option, &aliases))
+        })
         .or_else(|| {
             options
                 .into_iter()
@@ -11155,10 +11598,7 @@ mod tests {
         hot.insert(hot_session);
         assert_eq!(
             manager
-                .sweep_idle_with_extended(
-                    idle,
-                    Some((hot.clone(), Duration::from_secs(20 * 60))),
-                )
+                .sweep_idle_with_extended(idle, Some((hot.clone(), Duration::from_secs(20 * 60))),)
                 .await,
             2,
             "cold group and DM use the ordinary 180s timeout"
@@ -12243,5 +12683,211 @@ mod tests {
                 content: serde_json::json!({"choice": "A"}),
             }
         );
+    }
+
+    fn claude_model_selector(opus_row: &str) -> AcpSessionConfigOption {
+        let rows: Vec<serde_json::Value> = [
+            opus_row,
+            "claude-fable-5-1[1m]",
+            "sonnet",
+            "sonnet[1m]",
+            "haiku",
+        ]
+        .iter()
+        .map(|value| serde_json::json!({"value": value, "name": value}))
+        .collect();
+        serde_json::from_value(serde_json::json!({
+            "type": "select",
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "currentValue": opus_row,
+            "options": rows,
+        }))
+        .expect("parses")
+    }
+
+    fn gateway_model_selector_2_1_287() -> AcpSessionConfigOption {
+        serde_json::from_value(serde_json::json!({
+            "id": "model",
+            "name": "Model",
+            "description": "AI model to use",
+            "category": "model",
+            "type": "select",
+            "currentValue": "opus",
+            "_meta": {"jetbrains": {"air": {"version": 1, "recommendedValue": "opus"}}},
+            "options": [
+                {"value": "opus", "name": "Opus 5.5", "description": "Opus 5.5 · Best for everyday, complex tasks · $4/$20 per Mtok"},
+                {"value": "fable", "name": "Fable 5.1", "description": "Fable 5.1 · Most capable for your hardest and longest-running tasks · $10/$50 per Mtok"},
+                {"value": "sonnet", "name": "Sonnet 5.5", "description": "Sonnet 5.5 · Efficient for routine tasks · $2/$10 per Mtok"},
+                {"value": "haiku", "name": "Haiku 4.5", "description": "Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok"},
+            ],
+        }))
+        .expect("parses")
+    }
+
+    fn claude_modes(bypass: bool) -> SessionModeState {
+        let mut modes = vec![
+            serde_json::json!({"id": "default", "name": "Manual"}),
+            serde_json::json!({"id": "acceptEdits", "name": "Accept edits"}),
+            serde_json::json!({"id": "plan", "name": "Plan"}),
+            serde_json::json!({"id": "auto", "name": "Auto"}),
+        ];
+        if bypass {
+            modes
+                .push(serde_json::json!({"id": "bypassPermissions", "name": "Bypass permissions"}));
+        }
+        serde_json::from_value(serde_json::json!({
+            "currentModeId": "default",
+            "availableModes": modes,
+        }))
+        .expect("parses")
+    }
+
+    #[test]
+    fn config_option_rejects_value_only_for_non_empty_selects() {
+        let model = claude_model_selector("opus[1m]");
+        assert!(config_option_rejects_value(&model, "default"));
+        assert!(!config_option_rejects_value(&model, "opus[1m]"));
+
+        let empty: AcpSessionConfigOption = serde_json::from_value(serde_json::json!({
+            "id": "model",
+            "name": "Model",
+            "type": "select",
+            "currentValue": "",
+            "options": [],
+        }))
+        .expect("parses");
+        assert!(!config_option_rejects_value(&empty, "opus[1m]"));
+
+        let toggle: AcpSessionConfigOption = serde_json::from_value(serde_json::json!({
+            "id": "auto_approve",
+            "name": "Auto-approve tools",
+            "type": "boolean",
+            "currentValue": false,
+        }))
+        .expect("parses");
+        assert!(!config_option_rejects_value(&toggle, "true"));
+    }
+
+    #[test]
+    fn retired_context_lane_and_respelled_fable_picks_heal_only_when_exact_is_gone() {
+        let renamed = claude_model_selector("opus");
+        assert_eq!(
+            heal_retired_context_lane_pick(&renamed, "opus[1m]").as_deref(),
+            Some("opus")
+        );
+        assert_eq!(
+            heal_retired_context_lane_pick(&renamed, "opus[1M]").as_deref(),
+            Some("opus")
+        );
+        // When both `sonnet` and `sonnet[1m]` are offered, `sonnet[1m]` is NOT healed away.
+        assert_eq!(heal_retired_context_lane_pick(&renamed, "sonnet[1m]"), None);
+        // Plain pick is never promoted to `[1m]`.
+        assert_eq!(
+            heal_retired_context_lane_pick(&claude_model_selector("opus[1m]"), "opus"),
+            None
+        );
+
+        let gateway = gateway_model_selector_2_1_287();
+        assert_eq!(
+            heal_retired_model_pick(&gateway, "claude-fable-5-1").as_deref(),
+            Some("fable")
+        );
+        assert_eq!(
+            heal_retired_model_pick(&gateway, "claude-fable-5-1[1m]").as_deref(),
+            Some("fable")
+        );
+        assert_eq!(
+            heal_retired_model_pick(&gateway, "opus[1m]").as_deref(),
+            Some("opus")
+        );
+        // Once the catalog version moves on (e.g. saved 5.0 against 5.1 row), it must NOT heal.
+        assert_eq!(heal_retired_model_pick(&gateway, "claude-fable-5-0"), None);
+        assert!(
+            find_config_override_selection_for_agent(
+                std::slice::from_ref(&gateway),
+                Some(AgentKind::ClaudeCode),
+                "model",
+                &serde_json::json!("claude-fable-5-0"),
+            )
+            .is_none(),
+            "retired Fable version must be dropped rather than fuzzy-matched onto Fable 5.1"
+        );
+    }
+
+    #[test]
+    fn withdrawn_bypass_mode_and_retired_picks_are_skipped_during_replay() {
+        assert!(session_modes_reject_id(
+            &claude_modes(false),
+            "bypassPermissions"
+        ));
+        assert!(!session_modes_reject_id(
+            &claude_modes(true),
+            "bypassPermissions"
+        ));
+        let empty_modes: SessionModeState = serde_json::from_value(serde_json::json!({
+            "currentModeId": "",
+            "availableModes": [],
+        }))
+        .expect("parses");
+        assert!(!session_modes_reject_id(&empty_modes, "bypassPermissions"));
+
+        let gateway = gateway_model_selector_2_1_287();
+        let effort: AcpSessionConfigOption = serde_json::from_value(serde_json::json!({
+            "id": "effort",
+            "name": "Effort",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": "medium",
+            "options": [
+                {"value": "low", "name": "Low"},
+                {"value": "medium", "name": "Medium"},
+                {"value": "high", "name": "High"},
+            ],
+        }))
+        .expect("parses");
+        let options = vec![gateway, effort];
+        let overrides = vec![
+            AgentSessionConfigOverride {
+                key: "effort".to_string(),
+                value: "high".to_string(),
+            },
+            AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "claude-fable-5-1[1m]".to_string(),
+            },
+        ];
+
+        let (mode_to_apply, config_to_apply, preferred_map) = prepare_preferred_controls_for_replay(
+            Some(AgentKind::ClaudeCode),
+            Some(&claude_modes(false)),
+            &options,
+            Some("bypassPermissions"),
+            &overrides,
+        );
+        assert_eq!(
+            mode_to_apply, None,
+            "withdrawn bypassPermissions must be dropped"
+        );
+        assert_eq!(
+            config_to_apply,
+            vec![
+                AgentSessionConfigOverride {
+                    key: "model".to_string(),
+                    value: "fable".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "effort".to_string(),
+                    value: "high".to_string(),
+                },
+            ],
+            "model must be healed and ordered before dependent options"
+        );
+        assert_eq!(
+            preferred_map.get("model").map(String::as_str),
+            Some("fable")
+        );
+        assert!(!preferred_map.contains_key("mode"));
     }
 }

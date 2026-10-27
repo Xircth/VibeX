@@ -3,24 +3,34 @@
 //!
 //! claude-agent-acp 0.82+ treats an AIR client that does not subscribe to raw
 //! SDK messages as missing tool `_meta`, subagent text, and permission
-//! presentation.
+//! presentation. claude-agent-acp 0.92.0+ also enables SDK promptSuggestions by
+//! default for AIR clients; VibeX disables it on every session RPC so the
+//! adapter does not run a post-turn prediction call or restart the session when
+//! options differ across new/load/resume/fork.
 
 use api_types::{AgentId, AgentKind};
 
 use crate::fork::ForkPoint;
 
-/// `_meta.claudeCode.emitRawSDKMessages: true` for Claude; `None` otherwise.
+/// `_meta.claudeCode` (`emitRawSDKMessages: true`, `options.promptSuggestions: false`)
+/// for Claude; `None` otherwise.
 pub(crate) fn claude_raw_sdk_session_meta(
     agent_id: &AgentId,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     if AgentKind::from_lenient(agent_id.as_str()) != Some(AgentKind::ClaudeCode) {
         return None;
     }
+    let mut options = serde_json::Map::new();
+    options.insert(
+        "promptSuggestions".to_string(),
+        serde_json::Value::Bool(false),
+    );
     let mut claude_code = serde_json::Map::new();
     claude_code.insert(
         "emitRawSDKMessages".to_string(),
         serde_json::Value::Bool(true),
     );
+    claude_code.insert("options".to_string(), serde_json::Value::Object(options));
     let mut meta = serde_json::Map::new();
     meta.insert(
         "claudeCode".to_string(),
@@ -61,8 +71,22 @@ mod tests {
             Some(true)
         );
         assert_eq!(
+            meta.get("claudeCode")
+                .and_then(|v| v.get("options"))
+                .and_then(|v| v.get("promptSuggestions"))
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert_eq!(
             serde_json::Value::Object(meta),
-            serde_json::json!({"claudeCode": {"emitRawSDKMessages": true}})
+            serde_json::json!({
+                "claudeCode": {
+                    "emitRawSDKMessages": true,
+                    "options": {
+                        "promptSuggestions": false
+                    }
+                }
+            })
         );
         assert!(claude_raw_sdk_session_meta(&AgentId::parse("codex").unwrap()).is_none());
         assert!(claude_raw_sdk_session_meta(&AgentId::parse("grok").unwrap()).is_none());
@@ -80,7 +104,12 @@ mod tests {
         assert_eq!(
             serde_json::Value::Object(meta),
             serde_json::json!({
-                "claudeCode": {"emitRawSDKMessages": true},
+                "claudeCode": {
+                    "emitRawSDKMessages": true,
+                    "options": {
+                        "promptSuggestions": false
+                    }
+                },
                 "jetbrains": {"air": {"fork": {"version": 1, "messageId": "msg_01"}}},
             })
         );

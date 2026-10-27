@@ -35,6 +35,9 @@ pub fn lifecycle_ready_for_path_acp(lifecycle: AgentLifecycleState) -> AgentLife
 /// Resolve the Built-in Profile ACP launch command the same way CodeG's
 /// connect gate uses `is_cmd_available` / `resolve_npx_command`: PATH (plus
 /// user npm prefix / login-shell repair), never a vendor CLI.
+///
+/// MUST NEVER call `resolve_vendor_cli` or accept a wrapper agent's native
+/// vendor CLI (`claude`, `codex`, `zcode`) as an ACP launch program.
 pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<SessionLaunchLock> {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = catalog.profile(agent_id)?;
@@ -46,7 +49,8 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
     })?;
     let executable = workspace_utils::shell::resolve_executable_path(candidate.executable).await?;
     let executable = prefer_direct_spawn_executable(executable);
-    if !launch_program_available(&executable) {
+    if !launch_program_available(&executable) || launch_program_is_vendor_cli(agent_id, &executable)
+    {
         return None;
     }
     let args = crate::acp_launch_args(profile, candidate.component);
@@ -58,6 +62,76 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
         runtime_version: String::new(),
         acp_version: String::new(),
     })
+}
+
+/// Deterministic directory-scoped helper used by tests to verify that ACP launch
+/// resolution only accepts the ACP adapter / combined runtime command and never
+/// falls back to a wrapper agent's vendor CLI (`claude`, `codex`, `zcode`), even
+/// when that vendor CLI is present in the searched directories.
+pub fn discover_acp_launch_lock_in_dirs(
+    agent_id: &AgentId,
+    dirs: &[PathBuf],
+) -> Option<SessionLaunchLock> {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let profile = catalog.profile(agent_id)?;
+    let candidate = profile.external_candidates.iter().find(|candidate| {
+        matches!(
+            candidate.component,
+            ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+        )
+    })?;
+    let executable = dirs.iter().find_map(|dir| {
+        #[cfg(windows)]
+        let names = [
+            format!("{}.exe", candidate.executable),
+            format!("{}.cmd", candidate.executable),
+            format!("{}.bat", candidate.executable),
+            candidate.executable.to_string(),
+        ];
+        #[cfg(not(windows))]
+        let names = [candidate.executable.to_string()];
+        names
+            .into_iter()
+            .map(|name| dir.join(name))
+            .find(|path| path.is_file())
+    })?;
+    let executable = prefer_direct_spawn_executable(executable);
+    if !launch_program_available(&executable) || launch_program_is_vendor_cli(agent_id, &executable)
+    {
+        return None;
+    }
+    let args = crate::acp_launch_args(profile, candidate.component);
+    Some(SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program: executable,
+        args,
+        env: BTreeMap::new(),
+        runtime_version: String::new(),
+        acp_version: String::new(),
+    })
+}
+
+/// Whether `program` names a wrapper agent's native vendor CLI (`claude`,
+/// `codex`, `zcode`) rather than its ACP adapter. Wrapper agents must never
+/// spawn the vendor CLI directly for ACP sessions.
+pub fn launch_program_is_vendor_cli(agent_id: &AgentId, program: &Path) -> bool {
+    let Some(name) = launch_command_name(program) else {
+        return false;
+    };
+    if let Some(relation) = crate::acp_adapter_relation(agent_id.as_str())
+        && name.eq_ignore_ascii_case(relation.native_cmd)
+    {
+        return true;
+    }
+    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id)
+        && profile.topology == crate::ProfileTopology::AdapterBacked
+    {
+        return profile.external_candidates.iter().any(|candidate| {
+            candidate.component == ProfileComponent::AgentRuntime
+                && name.eq_ignore_ascii_case(candidate.executable)
+        });
+    }
+    false
 }
 
 /// Prefer a same-named command on PATH over a stale Installation lock path.

@@ -552,6 +552,11 @@ async fn try_adopt(
     };
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
+        if candidate.component == ProfileComponent::AgentRuntime
+            && profile.adapter_bundles_runtime()
+        {
+            continue;
+        }
         if candidate.version_args.is_empty() {
             if candidate.component == ProfileComponent::AgentRuntime {
                 continue;

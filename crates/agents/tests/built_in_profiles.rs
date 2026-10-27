@@ -35,15 +35,23 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = |id: &str| catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
 
+    assert_eq!(
+        profile("claude_code").install_sources.len(),
+        1,
+        "claude_code must only pin AcpAdapter"
+    );
+    assert_eq!(
+        profile("codex").install_sources.len(),
+        1,
+        "codex must only pin AcpAdapter"
+    );
+    assert_eq!(
+        profile("pi").install_sources.len(),
+        2,
+        "pi still pins both AgentRuntime and AcpAdapter"
+    );
+
     for (id, component, package, version, command, node) in [
-        (
-            "claude_code",
-            ProfileComponent::AgentRuntime,
-            "@anthropic-ai/claude-code",
-            "2.1.303",
-            "claude",
-            ">=20",
-        ),
         (
             "claude_code",
             ProfileComponent::AcpAdapter,
@@ -51,14 +59,6 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "0.94.0",
             "claude-agent-acp",
             ">=22",
-        ),
-        (
-            "codex",
-            ProfileComponent::AgentRuntime,
-            "@openai/codex",
-            "0.160.1",
-            "codex",
-            ">=20",
         ),
         (
             "codex",
@@ -107,6 +107,14 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "2.2.0",
             "kimi",
             ">=22.19",
+        ),
+        (
+            "pi",
+            ProfileComponent::AgentRuntime,
+            "@earendil-works/pi-coding-agent",
+            "0.83.0",
+            "pi",
+            ">=22",
         ),
         (
             "pi",
@@ -1331,4 +1339,89 @@ fn official_account_evidence_requires_a_live_token_not_residue() {
         "tokens": { "refresh_token": "stale" }
     })));
     assert!(!codex.matches(&serde_json::json!({ "tokens": {} })));
+}
+
+#[test]
+fn acp_adapter_relation_covers_only_wrapper_agents() {
+    let claude = agents::acp_adapter_relation("claude_code").expect("claude relation");
+    assert_eq!(claude.native_cmd, "claude");
+    assert_eq!(claude.shared_config_dir, "~/.claude");
+    assert!(claude.extra_dirs.contains(&".claude/local"));
+    assert!(claude.extra_dirs.contains(&".local/bin"));
+    assert_eq!(claude.docs_url, agents::ACP_ADAPTER_DOCS_URL);
+
+    let codex = agents::acp_adapter_relation("codex").expect("codex relation");
+    assert_eq!(codex.native_cmd, "codex");
+    assert_eq!(codex.shared_config_dir, "~/.codex");
+    assert!(codex.extra_dirs.contains(&".local/bin"));
+
+    let zcode = agents::acp_adapter_relation("zcode").expect("zcode relation");
+    assert_eq!(zcode.native_cmd, "zcode");
+    assert_eq!(zcode.shared_config_dir, "~/.zcode");
+    assert!(zcode.extra_dirs.contains(&".local/bin"));
+
+    for direct in [
+        "opencode",
+        "gemini",
+        "grok",
+        "kimi_code",
+        "codebuddy",
+        "cline",
+        "hermes",
+        "openclaw",
+        "qoder",
+        "deepseek_harness",
+        "cursor",
+        "kiro",
+        "antigravity",
+        "pi",
+    ] {
+        assert!(
+            agents::acp_adapter_relation(direct).is_none(),
+            "{direct} ships native ACP or separate runtime policy and must not declare a wrapper relation"
+        );
+    }
+}
+
+#[test]
+fn resolve_vendor_cli_hits_extra_dirs_while_spawn_ignores_vendor_cli() {
+    let temp = tempfile::tempdir().unwrap();
+    let claude_local = temp.path().join(".claude").join("local");
+    std::fs::create_dir_all(&claude_local).unwrap();
+    #[cfg(windows)]
+    let claude_bin = claude_local.join("claude.exe");
+    #[cfg(not(windows))]
+    let claude_bin = claude_local.join("claude");
+    std::fs::write(&claude_bin, b"fake-claude").unwrap();
+
+    let relation = agents::acp_adapter_relation("claude_code").unwrap();
+    let resolved = agents::resolve_vendor_cli_in_extra_dirs(
+        relation.native_cmd,
+        relation.extra_dirs,
+        temp.path(),
+    );
+    assert_eq!(resolved.as_deref(), Some(claude_bin.as_path()));
+
+    let claude_id = AgentId::parse("claude_code").unwrap();
+    assert!(
+        agents::launch_program_is_vendor_cli(&claude_id, &claude_bin),
+        "claude binary must be recognized as vendor CLI and rejected for ACP launch"
+    );
+    assert!(
+        agents::discover_acp_launch_lock_in_dirs(&claude_id, &[claude_local.clone()]).is_none(),
+        "ACP spawn discovery must never select vendor CLI even when its directory is searched"
+    );
+
+    #[cfg(windows)]
+    let adapter_bin = claude_local.join("claude-agent-acp.cmd");
+    #[cfg(not(windows))]
+    let adapter_bin = claude_local.join("claude-agent-acp");
+    std::fs::write(&adapter_bin, b"fake-adapter").unwrap();
+    assert!(!agents::launch_program_is_vendor_cli(
+        &claude_id,
+        &adapter_bin
+    ));
+    let lock = agents::discover_acp_launch_lock_in_dirs(&claude_id, &[claude_local])
+        .expect("adapter binary should be accepted for ACP launch");
+    assert_eq!(lock.absolute_acp_program, adapter_bin);
 }

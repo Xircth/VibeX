@@ -191,8 +191,9 @@ pub use history::{
 };
 pub use idle_sweep::{
     DEFAULT_HOT_GROUP_IDLE_TIMEOUT_SECS, DEFAULT_HOT_GROUP_WINDOW_SECS, DEFAULT_IDLE_TIMEOUT_SECS,
-    HOT_GROUP_IDLE_TIMEOUT_ENV, HOT_GROUP_WINDOW_ENV, IdleExtension, hot_group_idle_timeout_from_env,
-    hot_group_window_from_env, idle_timeout_from_env, touch_interval_from_idle_timeout,
+    HOT_GROUP_IDLE_TIMEOUT_ENV, HOT_GROUP_WINDOW_ENV, IdleExtension,
+    hot_group_idle_timeout_from_env, hot_group_window_from_env, idle_timeout_from_env,
+    touch_interval_from_idle_timeout,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
@@ -207,7 +208,8 @@ pub use install_planner::{
 };
 pub use launch_gate::{
     LaunchComponentEvidence, LaunchGate, LaunchGateError, bind_runtime_executable_env,
-    component_dirs_precede_user_path, discover_path_acp_launch_lock, launch_program_available,
+    component_dirs_precede_user_path, discover_acp_launch_lock_in_dirs,
+    discover_path_acp_launch_lock, launch_program_available, launch_program_is_vendor_cli,
     lifecycle_ready_for_path_acp, missing_launch_program_error, prefer_path_launch_program,
     runtime_executable_env_key, sanitize_runtime_executable_env,
     sanitize_runtime_executable_lock_env,
@@ -266,14 +268,15 @@ pub use plan_usage::{
     PlanUsageWindow, cached_plan_usage, probe_plan_usage, probe_plan_usage_with,
 };
 pub use profiles::{
-    AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,
-    BuiltInProfileCatalog, NativeConfigBinding, NativeConfigField, NativeConfigFieldKind,
-    NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
-    ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
-    ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
-    acp_launch_args, adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
-    profile_delivers_session_mcp,
+    ACP_ADAPTER_DOCS_URL, AccountEvidence, AccountEvidenceKind, AcpAdapterRelation,
+    AuthenticationPrecedence, BuiltInProfile, BuiltInProfileCatalog, NativeConfigBinding,
+    NativeConfigField, NativeConfigFieldKind, NativeConfigFormat, NativeConfigSurface,
+    ProfileBinaryArtifact, ProfileBinaryEntry, ProfileComponent, ProfileDependency,
+    ProfileExternalCandidate, ProfileIcon, ProfileInstallSource, ProfileManagementAction,
+    ProfileManagementActionKind, ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology,
+    RegistryEntryIdentity, acp_adapter_relation, acp_launch_args, adapter_bundles_runtime,
+    bundled_adapter_runtime_env_keys, profile_delivers_session_mcp, resolve_vendor_cli,
+    resolve_vendor_cli_in_extra_dirs,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,

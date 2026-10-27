@@ -63,9 +63,11 @@ import {
   applySubagentLifecycle,
   buildSubagentCardModel,
   foldSubagentLifecycle,
+  isCodexSubagentHeartbeat,
   isNativeSubagentTool,
   isSubagentLifecycleTool,
   shouldHideLifecycleTool,
+  type SubagentChildTool,
   type SubagentLifecycleEvent,
   type SubagentStatus,
 } from './tools/subagentCardModel';
@@ -469,6 +471,7 @@ function SubagentToolCall({
   use,
   result,
   lifecycle,
+  childrenTools = [],
   parentAgentId,
   onExpandedChange,
 }: {
@@ -478,12 +481,13 @@ function SubagentToolCall({
   use: ToolUseBlock;
   result: ToolResultBlock | null;
   lifecycle: SubagentLifecycleEvent[];
+  childrenTools?: SubagentChildTool[];
   parentAgentId?: string | null;
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const [expanded, setExpanded] = useExpandable(expansionKey, true);
   const model = applySubagentLifecycle(
-    buildSubagentCardModel(use, result, parentAgentId),
+    buildSubagentCardModel(use, result, parentAgentId, childrenTools),
     lifecycle
   );
   const toggle = () => {
@@ -525,6 +529,7 @@ function SubagentToolCall({
             use={use}
             result={result}
             lifecycle={lifecycle}
+            childrenTools={childrenTools}
             parentAgentId={parentAgentId}
             expansionKey={`${expansionKey}:sections`}
             onExpandedChange={onExpandedChange}
@@ -641,10 +646,11 @@ export function TurnActivity({
         }
         if (entry.isSubagent) return false;
         if (entry.isAskQuestion) return false;
-        if (!isSubagentLifecycleTool(entry.use)) return true;
         if (entry.toolUseId && folded.hiddenToolUseIds.has(entry.toolUseId)) {
           return false;
         }
+        if (isCodexSubagentHeartbeat(entry.use)) return false;
+        if (!isSubagentLifecycleTool(entry.use)) return true;
         return !shouldHideLifecycleTool(
           entry.use,
           entry.result,
@@ -859,7 +865,14 @@ export function TurnActivity({
       })
     ),
     ...subagentEntries.map(
-      ({ use, result, lifecycle, toolUseId, index }): ActivityEntry => {
+      ({
+        use,
+        result,
+        lifecycle,
+        children,
+        toolUseId,
+        index,
+      }): ActivityEntry => {
         const match = entries.find(
           (entry) => entry.use.tool_use_id === use.tool_use_id
         );
@@ -886,6 +899,7 @@ export function TurnActivity({
               use={use}
               result={result}
               lifecycle={lifecycle}
+              childrenTools={children}
               parentAgentId={parentAgentId}
               onExpandedChange={(expanded) => {
                 if (expanded)

@@ -4,6 +4,17 @@ import { isRecord, readString } from './jsonValue';
 
 export type SubagentStatus = 'running' | 'background' | 'completed' | 'failed';
 
+export type SubagentChildTool = {
+  use: ToolUseBlock;
+  result: ToolResultBlock | null;
+};
+
+export type CodexSubagentActivity = {
+  threadId: string | null;
+  path: string | null;
+  activity: string | null;
+};
+
 export type SubagentCardModel = {
   title: string;
   subagentType: string | null;
@@ -16,7 +27,10 @@ export type SubagentCardModel = {
   durationMs: number | null;
   contextUsagePct: number | null;
   tokenCount: number | null;
+  thinkingText: string | null;
+  liveText: string | null;
   resultText: string | null;
+  children: SubagentChildTool[];
 };
 
 const BACKGROUND_ACK =
@@ -280,26 +294,122 @@ export function isCompanionMcpDiscoverySearch(use: ToolUseBlock): boolean {
   return wire === 'searchtool' || inner === 'searchtool';
 }
 
+export function extractParentToolUseId(use: ToolUseBlock): string | null {
+  const meta = asObject(use.meta);
+  const claude = asObject(meta?.claudeCode);
+  const fromClaude = readString(claude as JsonValue, 'parentToolUseId');
+  if (fromClaude) return fromClaude;
+  const fromCodebuddy = readString(
+    meta as JsonValue,
+    'codebuddy.ai/parentToolCallId'
+  );
+  if (fromCodebuddy) return fromCodebuddy;
+  return readString(meta as JsonValue, ['parentToolUseId', 'parentToolCallId']);
+}
+
+export function codexSubagentActivity(
+  use: ToolUseBlock
+): CodexSubagentActivity | null {
+  const meta = asObject(use.meta);
+  const codexSub = asObject(asObject(meta?.codex)?.subagent);
+  const input = inputRecord(use);
+  const name = canonicalToolName(use.tool_name);
+  if (!codexSub && name !== 'subagentactivity') {
+    return null;
+  }
+  const threadId =
+    readString(codexSub as JsonValue, ['threadId', 'agentThreadId']) ??
+    readString(input as JsonValue, ['agentThreadId', 'threadId', 'thread_id']);
+  const path =
+    readString(codexSub as JsonValue, ['path', 'agentPath']) ??
+    readString(input as JsonValue, ['agentPath', 'path']);
+  const activity =
+    readString(codexSub as JsonValue, ['activity', 'activityKind']) ??
+    readString(input as JsonValue, ['activityKind', 'activity']);
+  if (!threadId && !path && !activity && name !== 'subagentactivity') {
+    return null;
+  }
+  return { threadId, path, activity };
+}
+
+export function isCodexSubagentHeartbeat(use: ToolUseBlock): boolean {
+  const codex = codexSubagentActivity(use);
+  return codex?.activity?.toLowerCase() === 'interacted';
+}
+
+function codexSubagentName(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const segments = path
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return segments.at(-1) ?? null;
+}
+
+function readSubagentTypeFromInput(
+  input: Record<string, unknown> | null
+): string | null {
+  if (!input) return null;
+  const direct = readString(input as JsonValue, [
+    'subagent_type',
+    'agent_type',
+    'subagentType',
+  ]);
+  if (direct) return direct;
+  const cursorOneof = asObject(input.subagentType);
+  return readString(cursorOneof as JsonValue, 'case');
+}
+
 export function isNativeSubagentTool(use: ToolUseBlock): boolean {
   if (isHostDelegationTool(use) || isHostDelegationLifecycleTool(use)) {
     return false;
   }
   const input = inputRecord(use);
+  const meta = asObject(use.meta);
   const vendorName = readString(
-    asObject(asObject(use.meta)?.['x.ai/tool']) as JsonValue,
+    asObject(meta?.['x.ai/tool']) as JsonValue,
     'name'
   );
   if (vendorName === 'spawn_subagent') return true;
+  const codexSub = codexSubagentActivity(use);
+  if (codexSub) {
+    const act = codexSub.activity?.toLowerCase() ?? null;
+    return (
+      act === 'started' ||
+      (act === null && Boolean(codexSub.threadId || codexSub.path))
+    );
+  }
   const name = canonicalToolName(use.tool_name);
   if (LIFECYCLE_WAIT_NAMES.has(name) || LIFECYCLE_CLOSE_NAMES.has(name)) {
     return false;
   }
+  const claudeMeta = asObject(meta?.claudeCode);
+  const airMeta = asObject(asObject(meta?.jetbrains)?.air);
+  if (claudeMeta?.subagent === true || airMeta?.subagent === true) {
+    return true;
+  }
+  const parentToolUseId = extractParentToolUseId(use);
+  if (parentToolUseId) {
+    return false;
+  }
+  const cbToolName = readString(meta as JsonValue, 'codebuddy.ai/toolName');
+  const cbSubagentType = readString(
+    meta as JsonValue,
+    'codebuddy.ai/subagentType'
+  );
   if (
-    readString(input as JsonValue, [
-      'subagent_type',
-      'agent_type',
-      'subagentType',
-    ])
+    cbToolName === 'Agent' ||
+    Boolean(cbSubagentType) ||
+    meta?.['codebuddy.ai/isSubagent'] === true
+  ) {
+    return true;
+  }
+  if (readSubagentTypeFromInput(input)) {
+    return true;
+  }
+  if (
+    readString(input as JsonValue, '_toolName')?.toLowerCase() === 'task' &&
+    Boolean(readString(input as JsonValue, ['description', 'prompt']))
   ) {
     return true;
   }
@@ -313,6 +423,17 @@ export function isNativeSubagentTool(use: ToolUseBlock): boolean {
 export function subagentLifecycleKind(
   use: ToolUseBlock
 ): SubagentLifecycleKind | null {
+  const codexSub = codexSubagentActivity(use);
+  if (codexSub) {
+    const act = codexSub.activity?.toLowerCase() ?? null;
+    if (
+      (act === 'completed' || act === 'interrupted' || act === 'failed') &&
+      Boolean(codexSub.threadId)
+    ) {
+      return 'close';
+    }
+    return null;
+  }
   const name = hostCompanionCanonicalName(peelHostDelegationCall(use).name);
   if (LIFECYCLE_WAIT_NAMES.has(name)) {
     return name === 'wait' && collectBindingIds(use, null).length === 0
@@ -346,10 +467,15 @@ export function collectBindingIds(
   result: ToolResultBlock | null
 ): string[] {
   const ids: string[] = [];
+  const codexSub = codexSubagentActivity(use);
+  if (codexSub?.threadId) {
+    pushBindingId(ids, codexSub.threadId);
+  }
   const input = peelHostDelegationCall(use).input;
   if (input) {
     pushBindingId(ids, input.agent_id);
     pushBindingId(ids, input.agentId);
+    pushBindingId(ids, input.agentThreadId);
     pushBindingId(ids, input.thread_id);
     pushBindingId(ids, input.threadId);
     pushBindingId(ids, input.agent_ids);
@@ -366,6 +492,7 @@ export function collectBindingIds(
   if (outputRecord) {
     pushBindingId(ids, outputRecord.agent_id);
     pushBindingId(ids, outputRecord.agentId);
+    pushBindingId(ids, outputRecord.agentThreadId);
     pushBindingId(ids, outputRecord.thread_id);
     pushBindingId(ids, outputRecord.threadId);
     pushBindingId(ids, outputRecord.task_id);
@@ -401,6 +528,33 @@ export function parseSubagentLifecycleEvent(
 ): SubagentLifecycleEvent | null {
   const kind = subagentLifecycleKind(use);
   if (!kind) return null;
+  const codexSub = codexSubagentActivity(use);
+  const codexAct = codexSub?.activity?.toLowerCase() ?? null;
+  if (
+    codexAct === 'completed' ||
+    codexAct === 'interrupted' ||
+    codexAct === 'failed'
+  ) {
+    const failed =
+      codexAct === 'interrupted' ||
+      codexAct === 'failed' ||
+      result?.is_error === true;
+    const facts = parseLifecycleFacts(result);
+    return {
+      kind,
+      toolUseId: use.tool_use_id ?? null,
+      bindingIds: collectBindingIds(use, result),
+      inFlight: false,
+      failed,
+      resultText: facts.resultText,
+      childStatus: failed ? 'failed' : 'completed',
+      toolCallCount: facts.toolCallCount,
+      turnCount: facts.turnCount,
+      durationMs: facts.durationMs,
+      contextUsagePct: facts.contextUsagePct,
+      tokenCount: facts.tokenCount,
+    };
+  }
   const facts = parseLifecycleFacts(result);
   return {
     kind,
@@ -426,6 +580,7 @@ export function foldSubagentLifecycle(
     use: ToolUseBlock;
     result: ToolResultBlock | null;
     lifecycle: SubagentLifecycleEvent[];
+    children: SubagentChildTool[];
   }>;
   hiddenToolUseIds: Set<string>;
 } {
@@ -433,9 +588,11 @@ export function foldSubagentLifecycle(
     use: ToolUseBlock;
     result: ToolResultBlock | null;
     lifecycle: SubagentLifecycleEvent[];
+    children: SubagentChildTool[];
     bindingIds: string[];
   }> = [];
   const events: SubagentLifecycleEvent[] = [];
+  const hiddenToolUseIds = new Set<string>();
 
   for (const tool of tools) {
     if (isNativeSubagentTool(tool.use)) {
@@ -443,15 +600,32 @@ export function foldSubagentLifecycle(
         use: tool.use,
         result: tool.result,
         lifecycle: [],
+        children: [],
         bindingIds: collectBindingIds(tool.use, tool.result),
       });
+      continue;
+    }
+    if (isCodexSubagentHeartbeat(tool.use) && tool.use.tool_use_id) {
+      hiddenToolUseIds.add(tool.use.tool_use_id);
       continue;
     }
     const event = parseSubagentLifecycleEvent(tool.use, tool.result);
     if (event) events.push(event);
   }
 
-  const hiddenToolUseIds = new Set<string>();
+  for (const tool of tools) {
+    if (isNativeSubagentTool(tool.use)) continue;
+    const parentId = extractParentToolUseId(tool.use);
+    if (!parentId) continue;
+    const parentCard = cards.find((card) => card.use.tool_use_id === parentId);
+    if (parentCard) {
+      parentCard.children.push({ use: tool.use, result: tool.result });
+      if (tool.use.tool_use_id) {
+        hiddenToolUseIds.add(tool.use.tool_use_id);
+      }
+    }
+  }
+
   const remainingLocal = [...events];
   const remainingExtra = [...extraEvents];
 
@@ -501,10 +675,11 @@ export function foldSubagentLifecycle(
   }
 
   return {
-    cards: cards.map(({ use, result, lifecycle }) => ({
+    cards: cards.map(({ use, result, lifecycle, children }) => ({
       use,
       result,
       lifecycle,
+      children,
     })),
     hiddenToolUseIds,
   };
@@ -571,7 +746,10 @@ export function applySubagentLifecycle(
 
   const resultText =
     status === 'completed' || status === 'failed'
-      ? (lastWait?.resultText ?? lastClose?.resultText ?? model.resultText)
+      ? (lastWait?.resultText ??
+        lastClose?.resultText ??
+        model.resultText ??
+        model.liveText)
       : null;
 
   return {
@@ -583,6 +761,49 @@ export function applySubagentLifecycle(
     durationMs: latestFacts?.durationMs ?? model.durationMs,
     contextUsagePct: latestFacts?.contextUsagePct ?? model.contextUsagePct,
     tokenCount: latestFacts?.tokenCount ?? model.tokenCount,
+  };
+}
+
+export function summarizeSubagentChildTool(child: SubagentChildTool): {
+  id: string;
+  label: string;
+  target: string | null;
+  status: 'running' | 'completed' | 'failed';
+} {
+  const { use, result } = child;
+  const input = inputRecord(use);
+  const meta = asObject(use.meta);
+  const claudeMeta = asObject(meta?.claudeCode);
+  const airMeta = asObject(asObject(meta?.jetbrains)?.air);
+  const metaTitle =
+    readString(claudeMeta as JsonValue, 'title') ??
+    readString(airMeta as JsonValue, 'commandTitle');
+  const label = metaTitle ?? use.tool_name;
+  const candidateTarget =
+    readString(input as JsonValue, [
+      'command',
+      'cmd',
+      'file_path',
+      'filePath',
+      'path',
+      'pattern',
+      'query',
+      'url',
+      'description',
+    ]) ?? null;
+  const target =
+    candidateTarget && candidateTarget !== label ? candidateTarget : null;
+  const status =
+    result?.is_error || use.status === 'failed'
+      ? 'failed'
+      : use.status === 'completed' || result != null
+        ? 'completed'
+        : 'running';
+  return {
+    id: use.tool_use_id ?? `${use.tool_name}-${target ?? ''}`,
+    label,
+    target,
+    status,
   };
 }
 
@@ -654,8 +875,24 @@ function inferStatus(
 ): SubagentStatus {
   const declared = coerceStatus(readDeclaredStatus(use));
   if (declared) return declared;
-  if (result?.is_error) return 'failed';
-  if (!result) return 'running';
+  const meta = asObject(use.meta);
+  if (meta?.['codebuddy.ai/isBackground'] === true) {
+    return result?.is_error ? 'failed' : 'background';
+  }
+  const codexSub = codexSubagentActivity(use);
+  if (codexSub) {
+    const act = codexSub.activity?.toLowerCase() ?? null;
+    if (act === 'interrupted' || act === 'failed') return 'failed';
+    if (act === 'completed') return 'completed';
+    if (act === 'started' && !result?.output_preview?.trim()) {
+      return 'running';
+    }
+  }
+  if (result?.is_error || use.status === 'failed') return 'failed';
+  if (!result) {
+    if (use.status === 'completed') return 'completed';
+    return 'running';
+  }
   const launchAck = parseLifecycleFacts(result);
   if (launchAck.childStatus) return launchAck.childStatus;
   const input = inputRecord(use);
@@ -853,27 +1090,63 @@ export function normalizeAgentKind(
   return null;
 }
 
+const GENERIC_SUBAGENT_TOOL_NAMES = new Set([
+  'task',
+  'agent',
+  'spawnsubagent',
+  'spawnagent',
+  'subagentlaunch',
+  'subagentactivity',
+  'tool',
+]);
+
+function meaningfulToolNameDescription(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const canonical = canonicalToolName(trimmed);
+  if (GENERIC_SUBAGENT_TOOL_NAMES.has(canonical)) return null;
+  if (normalizeAgentKind(trimmed)) return null;
+  return trimmed;
+}
+
 export function resolveSubagentAgentKind(
   use: ToolUseBlock,
   parentAgentId?: string | null
 ): string | null {
   const input = inputRecord(use);
+  const meta = asObject(use.meta);
   const fromInput = normalizeAgentKind(
     readString(input as JsonValue, ['agent_type', 'agentType', 'agent'])
   );
   if (fromInput) return fromInput;
   const fromMeta = normalizeAgentKind(
-    readString(asObject(use.meta) as JsonValue, ['agent_type', 'agentType']) ??
+    readString(meta as JsonValue, ['agent_type', 'agentType']) ??
       readString(subagentMeta(use) as JsonValue, ['agent_type', 'agentType'])
   );
   if (fromMeta) return fromMeta;
   const vendorName = readString(
-    asObject(asObject(use.meta)?.['x.ai/tool']) as JsonValue,
+    asObject(meta?.['x.ai/tool']) as JsonValue,
     'name'
   );
   const name = canonicalToolName(use.tool_name);
   if (vendorName === 'spawn_subagent' || name === 'spawnsubagent') {
     return 'grok';
+  }
+  if (codexSubagentActivity(use)) {
+    return 'codex';
+  }
+  if (
+    readString(meta as JsonValue, 'codebuddy.ai/toolName') ||
+    readString(meta as JsonValue, 'codebuddy.ai/subagentType') ||
+    meta?.['codebuddy.ai/isSubagent'] === true
+  ) {
+    return 'codebuddy';
+  }
+  if (
+    asObject(meta?.claudeCode)?.subagent === true ||
+    asObject(asObject(meta?.jetbrains)?.air)?.subagent === true
+  ) {
+    return normalizeAgentKind(parentAgentId) ?? 'claude_code';
   }
   return normalizeAgentKind(parentAgentId);
 }
@@ -881,27 +1154,45 @@ export function resolveSubagentAgentKind(
 export function buildSubagentCardModel(
   use: ToolUseBlock,
   result: ToolResultBlock | null,
-  parentAgentId?: string | null
+  parentAgentId?: string | null,
+  children: SubagentChildTool[] = []
 ): SubagentCardModel {
   const input = inputRecord(use);
+  const meta = asObject(use.meta);
+  const claudeMeta = asObject(meta?.claudeCode);
+  const airMeta = asObject(asObject(meta?.jetbrains)?.air);
+  const codexSub = codexSubagentActivity(use);
   const agentKind = resolveSubagentAgentKind(use, parentAgentId);
+  const rawAgentType = readString(input as JsonValue, [
+    'agent_type',
+    'agentType',
+  ]);
   const subagentType =
     readString(input as JsonValue, ['subagent_type', 'subagentType']) ??
-    (normalizeAgentKind(
-      readString(input as JsonValue, ['agent_type', 'agentType'])
-    )
-      ? null
-      : readString(input as JsonValue, ['agent_type', 'agentType']));
+    readString(asObject(input?.subagentType) as JsonValue, 'case') ??
+    readString(meta as JsonValue, 'codebuddy.ai/subagentType') ??
+    codexSubagentName(codexSub?.path) ??
+    (normalizeAgentKind(rawAgentType) ? null : rawAgentType);
   const description =
-    readString(input as JsonValue, ['description', 'title', 'name']) ?? null;
+    readString(input as JsonValue, ['description', 'title', 'name']) ??
+    readString(claudeMeta as JsonValue, 'title') ??
+    readString(airMeta as JsonValue, 'commandTitle') ??
+    meaningfulToolNameDescription(use.tool_name) ??
+    null;
   const prompt = readString(input as JsonValue, ['prompt', 'task', 'input']);
   const progress = progressRecord(use, result);
+  const subMeta = subagentMeta(use);
+  const thinkingText = readString(subMeta as JsonValue, 'thinking') ?? null;
+  const liveText = readString(subMeta as JsonValue, 'text') ?? null;
   const title = subagentType
-    ? description
+    ? description && description !== subagentType
       ? `${subagentType}: ${description}`
       : subagentType
     : (description ?? agentKind ?? use.tool_name);
   const status = inferStatus(use, result);
+  const toolCallCount =
+    readNumber(progress, ['toolCallCount', 'tool_call_count']) ??
+    (children.length > 0 ? children.length : null);
 
   return {
     title,
@@ -910,7 +1201,7 @@ export function buildSubagentCardModel(
     prompt,
     status,
     agentKind,
-    toolCallCount: readNumber(progress, ['toolCallCount', 'tool_call_count']),
+    toolCallCount,
     turnCount: readNumber(progress, ['turnCount', 'turn_count']),
     durationMs: readElapsedMs(progress),
     contextUsagePct: readNumber(progress, [
@@ -922,10 +1213,14 @@ export function buildSubagentCardModel(
       'tokens_used',
       'total_tokens',
     ]),
+    thinkingText,
+    liveText,
     resultText:
       status === 'completed' || status === 'failed'
-        ? extractSubagentResultText(result?.output_preview ?? null)
+        ? (extractSubagentResultText(result?.output_preview ?? null) ??
+          liveText)
         : null,
+    children,
   };
 }
 

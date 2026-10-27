@@ -263,8 +263,6 @@ fn user_bin_directories(
             push(app_data.join("npm"));
             push(local_app_data.join("pnpm"));
             push(home.join(".local/bin"));
-            push(home.join(".claude/local"));
-            push(local_app_data.join("Programs").join("claude-code"));
             push(local_app_data.join("Programs").join("TraeCLI").join("bin"));
             let program_files = read_env("ProgramFiles")
                 .map(PathBuf::from)
@@ -742,10 +740,6 @@ mod tests {
                 Path::new(r"C:\Users\developer\AppData\Roaming").join("npm"),
                 Path::new(r"C:\Users\developer\AppData\Local").join("pnpm"),
                 home.join(".local/bin"),
-                home.join(".claude/local"),
-                Path::new(r"C:\Users\developer\AppData\Local")
-                    .join("Programs")
-                    .join("claude-code"),
                 Path::new(r"C:\Users\developer\AppData\Local")
                     .join("Programs")
                     .join("TraeCLI")

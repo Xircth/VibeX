@@ -287,7 +287,12 @@ impl SessionGate {
         if lock.agent_id != input.snapshot.agent_id {
             return Err(SessionGateError::LockAgentMismatch);
         }
-        if !lock.absolute_acp_program.is_absolute() {
+        if !lock.absolute_acp_program.is_absolute()
+            || crate::launch_program_is_vendor_cli(
+                &input.snapshot.agent_id,
+                &lock.absolute_acp_program,
+            )
+        {
             return Err(SessionGateError::InvalidLaunchPath);
         }
 

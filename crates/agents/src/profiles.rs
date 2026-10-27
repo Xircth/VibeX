@@ -335,6 +335,129 @@ pub fn adapter_bundles_runtime(agent_id: &AgentId) -> bool {
     !bundled_adapter_runtime_env_keys(agent_id).is_empty()
 }
 
+pub const ACP_ADAPTER_DOCS_URL: &str = "https://agentclientprotocol.com";
+
+/// Vendor CLI wrapped by a Built-in Profile whose ACP entry point is a
+/// third-party adapter (`claude-agent-acp`, `codex-acp`, `zcode-acp-server`).
+///
+/// BOUNDARY: `extra_dirs` and [`resolve_vendor_cli`] are strictly for
+/// login/logout management actions, installation diagnostics, preflight checks,
+/// and "adapter missing but vendor CLI present" explanations. ACP session
+/// spawn, `LaunchGate`, and `discover_path_acp_launch_lock` MUST NEVER use
+/// `AcpAdapterRelation` or `resolve_vendor_cli` to spawn a vendor CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcpAdapterRelation {
+    /// The vendor CLI users install themselves, e.g. `"claude"`.
+    pub native_cmd: &'static str,
+    /// Display name for that CLI, e.g. `"Claude Code CLI"`.
+    pub native_label: &'static str,
+    /// Config/credential dir BOTH the vendor CLI and the adapter read, so
+    /// installing the adapter needs no second login.
+    pub shared_config_dir: &'static str,
+    /// Home-relative dirs the vendor's own installers use that a GUI app's PATH
+    /// commonly lacks. Probed after PATH and the npm global prefix for
+    /// diagnostics/login only — NEVER for ACP spawn.
+    pub extra_dirs: &'static [&'static str],
+    /// Where the "learn more" action points.
+    pub docs_url: &'static str,
+}
+
+/// Adapter relation for an Agent, or `None` when the Profile's ACP command IS
+/// the vendor's own CLI.
+///
+/// Keep `acp_adapter_relation_covers_only_wrapper_agents` in sync when editing.
+pub fn acp_adapter_relation(agent_id: &str) -> Option<AcpAdapterRelation> {
+    match AgentKind::from_lenient(agent_id)? {
+        AgentKind::ClaudeCode => Some(AcpAdapterRelation {
+            native_cmd: "claude",
+            native_label: "Claude Code CLI",
+            shared_config_dir: "~/.claude",
+            extra_dirs: &[".local/bin", ".claude/local"],
+            docs_url: ACP_ADAPTER_DOCS_URL,
+        }),
+        AgentKind::Codex => Some(AcpAdapterRelation {
+            native_cmd: "codex",
+            native_label: "Codex CLI",
+            shared_config_dir: "~/.codex",
+            extra_dirs: &[".local/bin"],
+            docs_url: ACP_ADAPTER_DOCS_URL,
+        }),
+        AgentKind::ZCode => Some(AcpAdapterRelation {
+            native_cmd: "zcode",
+            native_label: "ZCode CLI",
+            shared_config_dir: "~/.zcode",
+            extra_dirs: &[".local/bin"],
+            docs_url: "https://github.com/william0wang/zcode-acp",
+        }),
+        _ => None,
+    }
+}
+
+/// Resolve `cmd` inside `home`-relative `extra_dirs` (for login/logout,
+/// preflight, and diagnostics ONLY — NEVER for ACP session spawn).
+pub fn resolve_vendor_cli_in_extra_dirs(
+    cmd: &str,
+    extra_dirs: &[&str],
+    home: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return None;
+    }
+    for dir in extra_dirs {
+        let base = home.join(dir);
+        let candidates: [std::path::PathBuf; 3] = [
+            base.join(format!("{cmd}.exe")),
+            base.join(format!("{cmd}.cmd")),
+            base.join(cmd),
+        ];
+        let slice: &[std::path::PathBuf] = if cfg!(windows) {
+            &candidates[..]
+        } else {
+            &candidates[2..]
+        };
+        if let Some(found) = slice.iter().find(|cand| cand.is_file()) {
+            return Some(found.clone());
+        }
+    }
+    #[cfg(windows)]
+    if cmd.eq_ignore_ascii_case("claude") {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData/Local"));
+        let base = local_app_data.join("Programs").join("claude-code");
+        for cand in [
+            base.join("claude.exe"),
+            base.join("claude.cmd"),
+            base.join("claude"),
+        ] {
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the vendor CLI wrapped by an ACP adapter (`claude`, `codex`, `zcode`
+/// — see [`acp_adapter_relation`]).
+///
+/// BOUNDARY: Strictly for login/logout management actions, installation
+/// diagnostics, preflight checks, and "adapter missing but CLI present"
+/// explanations. ACP session spawn, `LaunchGate`, and
+/// `discover_path_acp_launch_lock` MUST NEVER call this function.
+pub async fn resolve_vendor_cli(cmd: &str, extra_dirs: &[&str]) -> Option<std::path::PathBuf> {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return None;
+    }
+    if let Some(path) = workspace_utils::shell::resolve_executable_path(cmd).await {
+        return Some(path);
+    }
+    let home = dirs::home_dir()?;
+    resolve_vendor_cli_in_extra_dirs(cmd, extra_dirs, &home)
+}
+
 /// The arguments that make a Profile's component speak ACP over stdio.
 ///
 /// Managed installs pin the invocation on their install source. Detection-only
@@ -2615,24 +2738,14 @@ fn claude_code_profile() -> BuiltInProfile {
         }),
         topology: ProfileTopology::AdapterBacked,
         supported_platforms: DESKTOP_PLATFORMS,
-        install_sources: vec![
-            npx(
-                ProfileComponent::AgentRuntime,
-                "@anthropic-ai/claude-code",
-                "2.1.303",
-                "claude",
-                ">=20",
-                "sha512-vGwsxL/bjxl7crYg2/BLBs75ErQ22x9L3LKqZqwqZ9vwp6A41sVCDdBXsPftM19V5LAwK6/s/sAxIVjX6F4O6Q==",
-            ),
-            npx(
-                ProfileComponent::AcpAdapter,
-                "@agentclientprotocol/claude-agent-acp",
-                "0.94.0",
-                "claude-agent-acp",
-                ">=22",
-                "sha512-3quBG9QaMKhETZPF0QaD/Ue2C0UCQDzDztDbzs8AVYM8RQKX93TPL0YzJl7sx06qYPLQvxrCDdiAp5a6cgFfZg==",
-            ),
-        ],
+        install_sources: vec![npx(
+            ProfileComponent::AcpAdapter,
+            "@agentclientprotocol/claude-agent-acp",
+            "0.94.0",
+            "claude-agent-acp",
+            ">=22",
+            "sha512-3quBG9QaMKhETZPF0QaD/Ue2C0UCQDzDztDbzs8AVYM8RQKX93TPL0YzJl7sx06qYPLQvxrCDdiAp5a6cgFfZg==",
+        )],
         external_candidates: CLAUDE_CANDIDATES,
         dependencies: NODE_22_DEPENDENCIES,
         management_actions: CLAUDE_ACTIONS,
@@ -2665,24 +2778,14 @@ fn codex_profile() -> BuiltInProfile {
         }),
         topology: ProfileTopology::AdapterBacked,
         supported_platforms: DESKTOP_PLATFORMS,
-        install_sources: vec![
-            npx(
-                ProfileComponent::AgentRuntime,
-                "@openai/codex",
-                "0.160.1",
-                "codex",
-                ">=20",
-                "sha512-f1yrJhwgimKQI1kYQlxdPJcFwkNZxZrbz7Hf89EAcnLqkQ7TiESzr2FgSZn13Ga5RuHjlVUfurzwq10wk9zw2g==",
-            ),
-            npx(
-                ProfileComponent::AcpAdapter,
-                "@agentclientprotocol/codex-acp",
-                "2.2.2",
-                "codex-acp",
-                ">=20.3",
-                "sha512-vNdeNV3jxbqaH7MYvVWzyB6cMOz+YGIV9W1xyBDsQfoii92DulZLM+ahCL2T2G6uohlaB1Yma347p2kLfAab2w==",
-            ),
-        ],
+        install_sources: vec![npx(
+            ProfileComponent::AcpAdapter,
+            "@agentclientprotocol/codex-acp",
+            "2.2.2",
+            "codex-acp",
+            ">=20.3",
+            "sha512-vNdeNV3jxbqaH7MYvVWzyB6cMOz+YGIV9W1xyBDsQfoii92DulZLM+ahCL2T2G6uohlaB1Yma347p2kLfAab2w==",
+        )],
         external_candidates: CODEX_CANDIDATES,
         dependencies: NODE_20_DEPENDENCIES,
         management_actions: CODEX_ACTIONS,

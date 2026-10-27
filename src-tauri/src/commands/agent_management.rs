@@ -138,8 +138,9 @@ mod tests {
         // 会在 reconcile 时走错验证路径。
         let catalog = agents::BuiltInProfileCatalog::bundled();
         let codex = catalog.profile(&AgentId::parse("codex").unwrap()).unwrap();
+        let pi = catalog.profile(&AgentId::parse("pi").unwrap()).unwrap();
         assert_eq!(
-            profile_component_distribution_kind(codex, "agent_runtime"),
+            profile_component_distribution_kind(pi, "agent_runtime"),
             PlannedDistributionKind::Npx
         );
         assert_eq!(
@@ -981,6 +982,11 @@ async fn probe_one_built_in_external_installation(
     let configured_env = parse_agent_env(configured_env_json.as_deref())?;
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
+        if candidate.component == ProfileComponent::AgentRuntime
+            && profile.adapter_bundles_runtime()
+        {
+            continue;
+        }
         let is_runtime_candidate = matches!(
             candidate.component,
             ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime

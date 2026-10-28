@@ -563,7 +563,7 @@ export function WorktreeSelector() {
           onKeyDown={(event) => event.stopPropagation()}
         >
           <SegmentedControl
-            className="w-full"
+            className="w-full [&_.astryx-segmented-control-item]:!text-[0.625rem]"
             layout="fill"
             size="sm"
             value={mode}

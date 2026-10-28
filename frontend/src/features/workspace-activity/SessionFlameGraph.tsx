@@ -8,6 +8,8 @@ import {
   type PointerEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@astryxdesign/core/Icon';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import {
   AlertCircle,
   Bot,
@@ -16,7 +18,6 @@ import {
   Clock,
   Copy,
   GitFork,
-  Search,
   Settings,
   User,
   Wrench,
@@ -894,19 +895,18 @@ export function SessionFlameGraph({
           ) : null}
         </div>
 
-        {/* Single control frame search input */}
-        <div className="raised-control flex h-7 w-40 items-center gap-1.5 rounded-[var(--radius)] px-2.5 focus-within:ring-1 focus-within:ring-ring">
-          <Search
-            className="h-3 w-3 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            aria-label={t('workspaceActivity.trajectorySearch')}
+        <div className="w-44 min-w-0 shrink-0">
+          <TextInput
+            className="workspace-activity-search"
+            label={t('workspaceActivity.trajectorySearch')}
+            isLabelHidden
+            size="sm"
+            width="100%"
             placeholder={t('workspaceActivity.trajectorySearchPlaceholder')}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.currentTarget.value)}
-            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-foreground shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-0"
+            onChange={setSearchQuery}
+            hasClear
+            startIcon={<Icon icon="search" size="sm" />}
           />
         </div>
       </div>

@@ -118,11 +118,18 @@
     "tipsDot": "Tip {{index}}",
     "tipsDocs": "View docs",
     "tips": {
-      "projectFolder": "A project is a folder that isolates Agent sessions and working state.",
-      "shareWindow": "Computer Use can only view or operate windows you explicitly share.",
-      "stopShortcut": "The default emergency stop is Ctrl+Alt+Shift+., which revokes every window grant.",
-      "mentionAgent": "Type & in the composer to mention another enabled Agent and delegate work.",
-      "neverShare": "Apps on the never-share list stay excluded: terminals, password managers, and chat."
+      "promptEnhance": "In Settings → General, turn on **Prompt enhancement**, then click the lightbulb in the composer to rewrite your prompt.",
+      "pageLayout": "In Settings → Appearance, drag items in **Page layout** to rearrange the workspace.",
+      "rightSidebar": "In the workspace **right sidebar**, open **Session details**, **Processes**, and the **Git diff panel**.",
+      "leftSidebarOrder": "In the workspace **left sidebar**, drag to reorder icons. The first icon is the default left panel.",
+      "leftSidebarSplit": "Drag a left-sidebar icon onto the left panel to show more than one left panel at once.",
+      "composerAt": "Type **@** in the composer to reference files, projects, sessions, commits, and instructions.",
+      "fileSearch": "Press **Ctrl+Shift+F** to search project contents from the file tree.",
+      "kanban": "Open **Kanban** in the top bar to review sessions and usage together.",
+      "terminal": "Open a **Terminal** in the workspace. Long-running Agent commands appear in that list too.",
+      "runningTurn": "While a turn is running, **queue** the next message or **insert into the current turn**.",
+      "dockTabs": "Drag workspace **tabs** to split the editor and view sessions, files, and previews side by side.",
+      "settingsWindow": "**Settings** opens in its own window, so the current workspace stays put."
     }
   },
   "diffsReviewPanel": {

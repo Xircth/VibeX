@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -70,12 +77,39 @@ const WELCOME_RECENT_SESSION_LIMIT = 4;
 const WELCOME_RECENT_PROJECT_LIMIT = 5;
 const DOCS_URL = 'https://vibex.com/docs';
 const TIP_KEYS = [
-  'projectFolder',
-  'shareWindow',
-  'stopShortcut',
-  'mentionAgent',
-  'neverShare',
+  'promptEnhance',
+  'pageLayout',
+  'rightSidebar',
+  'leftSidebarOrder',
+  'leftSidebarSplit',
+  'composerAt',
+  'fileSearch',
+  'kanban',
+  'terminal',
+  'runningTurn',
+  'dockTabs',
+  'settingsWindow',
 ] as const;
+
+function renderWelcomeTip(text: string): ReactNode {
+  const nodes: ReactNode[] = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = pattern.exec(text))) {
+    if (match.index > last) {
+      nodes.push(text.slice(last, match.index));
+    }
+    nodes.push(<strong key={key}>{match[1]}</strong>);
+    key += 1;
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    nodes.push(text.slice(last));
+  }
+  return nodes;
+}
 
 function WelcomeSection({
   title,
@@ -170,7 +204,7 @@ function WelcomeTips() {
           ‹
         </button>
         <p className="workspace-welcome__tips-text">
-          {t(`welcomePanel.tips.${TIP_KEYS[index]}`)}
+          {renderWelcomeTip(t(`welcomePanel.tips.${TIP_KEYS[index]}`))}
         </p>
         <div className="workspace-welcome__tips-dots">
           {TIP_KEYS.map((key, tipIndex) => (

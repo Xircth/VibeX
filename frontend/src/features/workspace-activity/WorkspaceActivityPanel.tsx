@@ -441,7 +441,7 @@ export function WorkspaceActivityPanel({
               {t('workspaceActivity.emptyNotices')}
             </p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="max-h-64 space-y-1.5 overflow-y-auto">
               {notices.map((notice) => {
                 const isError = notice.severity === 'error';
                 const NoticeIcon = isError ? AlertCircle : AlertTriangle;

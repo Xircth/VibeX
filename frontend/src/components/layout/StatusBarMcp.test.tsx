@@ -272,6 +272,10 @@ describe('StatusBarMcp', () => {
     fireEvent.click(screen.getByRole('button', { name: '协作空间' }));
     expect(await screen.findByText('发到协作空间')).toBeInTheDocument();
     expect(screen.getByText('post_to_space')).toBeInTheDocument();
+    expect(screen.getByTestId('mcp-plugin-tools')).toHaveClass(
+      'max-h-64',
+      'overflow-y-auto'
+    );
 
     fireEvent.click(screen.getByRole('switch', { name: '协作空间' }));
     await waitFor(() =>

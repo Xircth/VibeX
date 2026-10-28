@@ -1671,7 +1671,7 @@ impl ServerApplicationDomains {
             .map_err(internal_error)?
             .into_iter()
             .map(|workspace| workspace.workspace)
-            .find(|workspace| !workspace.use_worktree)
+            .find(|workspace| !workspace.use_worktree && !workspace.archived)
         {
             if existing.container_ref.as_deref() != Some(project.root_path.as_str()) {
                 Workspace::update_container_ref(&self.pool, existing.id, &project.root_path)

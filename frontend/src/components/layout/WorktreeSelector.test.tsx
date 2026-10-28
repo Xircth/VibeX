@@ -502,4 +502,40 @@ describe('WorktreeSelector', () => {
       )
     );
   });
+
+  it('shows one 主目录 when the project has duplicate root workspaces', async () => {
+    const user = userEvent.setup();
+    const selectedRoot = workspace({
+      id: 'root-1',
+      branch: 'master',
+      use_worktree: false,
+    });
+    const duplicateRoot = workspace({
+      id: 'root-2',
+      task_id: 'task-root-2',
+      branch: 'master',
+      use_worktree: false,
+      updated_at: '2026-10-25T00:00:00.000Z',
+    });
+    harness.worktrees = [duplicateRoot, selectedRoot];
+    harness.repos = [
+      {
+        id: 'repo-1',
+        name: 'vibex',
+        path: 'C:/repo',
+        default_target_branch: 'master',
+      },
+    ];
+    harness.branches = [branch({ name: 'master', is_current: true })];
+
+    renderSelector();
+    await user.click(screen.getByRole('button', { name: '选择工作区' }));
+
+    const list = screen.getByTestId('workspace-switcher-list');
+    const items = within(list).getAllByRole('menuitem');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent('master');
+    expect(items[0]).toHaveTextContent('主目录');
+    expect(within(list).getAllByText('主目录')).toHaveLength(1);
+  });
 });

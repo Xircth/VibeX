@@ -33,6 +33,35 @@ describe('orderWorkspacesForSelector', () => {
       'wt-2',
     ]);
   });
+
+  it('keeps a single project-root workspace when duplicates exist', () => {
+    const ordered = orderWorkspacesForSelector([
+      { id: 'root-new', use_worktree: false },
+      { id: 'wt', use_worktree: true },
+      { id: 'root-old', use_worktree: false },
+    ]);
+
+    expect(ordered.map((workspace) => workspace.id)).toEqual([
+      'root-new',
+      'wt',
+    ]);
+  });
+
+  it('keeps the preferred project-root when it is a duplicate', () => {
+    const ordered = orderWorkspacesForSelector(
+      [
+        { id: 'root-new', use_worktree: false },
+        { id: 'wt', use_worktree: true },
+        { id: 'root-old', use_worktree: false },
+      ],
+      'root-old'
+    );
+
+    expect(ordered.map((workspace) => workspace.id)).toEqual([
+      'root-old',
+      'wt',
+    ]);
+  });
 });
 
 describe('buildBranchSegment', () => {

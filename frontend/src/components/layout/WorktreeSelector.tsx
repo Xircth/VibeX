@@ -191,8 +191,11 @@ export function WorktreeSelector() {
     ) {
       nextWorkspaces.unshift(routeWorkspace);
     }
-    return orderWorkspacesForSelector(nextWorkspaces);
-  }, [routeWorkspace, worktrees]);
+    return orderWorkspacesForSelector(
+      nextWorkspaces,
+      activeWorktreeId ?? workspaceId ?? routeWorkspace?.id
+    );
+  }, [activeWorktreeId, routeWorkspace, worktrees, workspaceId]);
   const projectRootWorkspace =
     selectorWorkspaces.find((workspace) => !workspace.use_worktree) ?? null;
   const effectiveWorktreeId =

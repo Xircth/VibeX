@@ -195,12 +195,9 @@ impl WorkspaceRepo {
         project_id: Uuid,
         repos: &[CreateWorkspaceRepo],
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        if repos.is_empty() {
-            return Ok(None);
-        }
-
-        let mut query = String::from(
-            r#"SELECT w.id
+        if !repos.is_empty() {
+            let mut query = String::from(
+                r#"SELECT w.id
                FROM workspaces w
                JOIN tasks t ON t.id = w.task_id
                JOIN workspace_repos wr ON wr.workspace_id = w.id
@@ -210,30 +207,49 @@ impl WorkspaceRepo {
                GROUP BY w.id
                HAVING COUNT(*) = ?
                   AND SUM(CASE WHEN "#,
-        );
+            );
 
-        for (index, _) in repos.iter().enumerate() {
-            if index > 0 {
-                query.push_str(" OR ");
+            for (index, _) in repos.iter().enumerate() {
+                if index > 0 {
+                    query.push_str(" OR ");
+                }
+                query.push_str("(wr.repo_id = ? AND wr.target_branch = ?)");
             }
-            query.push_str("(wr.repo_id = ? AND wr.target_branch = ?)");
-        }
 
-        query.push_str(
-            r#" THEN 1 ELSE 0 END) = ?
+            query.push_str(
+                r#" THEN 1 ELSE 0 END) = ?
                ORDER BY w.created_at ASC
                LIMIT 1"#,
-        );
+            );
 
-        let mut sql = sqlx::query_scalar::<_, Uuid>(&query)
-            .bind(project_id)
-            .bind(repos.len() as i64);
+            let mut sql = sqlx::query_scalar::<_, Uuid>(&query)
+                .bind(project_id)
+                .bind(repos.len() as i64);
 
-        for repo in repos {
-            sql = sql.bind(repo.repo_id).bind(repo.target_branch.clone());
+            for repo in repos {
+                sql = sql.bind(repo.repo_id).bind(repo.target_branch.clone());
+            }
+
+            if let Some(workspace_id) = sql.bind(repos.len() as i64).fetch_optional(pool).await? {
+                return Ok(Some(workspace_id));
+            }
         }
 
-        sql.bind(repos.len() as i64).fetch_optional(pool).await
+        // A project has one project-root workspace (the folder itself). Older
+        // directory-root rows may have no workspace_repos, and a later ensure
+        // for another branch used to create a second use_worktree=false row.
+        sqlx::query_scalar::<_, Uuid>(
+            r#"SELECT id
+               FROM workspaces
+               WHERE use_worktree = FALSE
+                 AND archived = FALSE
+                 AND project_id = ?
+               ORDER BY created_at ASC
+               LIMIT 1"#,
+        )
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await
     }
 
     pub async fn find_by_workspace_and_repo_id(

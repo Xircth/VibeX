@@ -33,6 +33,35 @@ test('desktop dev keeps an explicit signing identity from the process environmen
   );
 });
 
+test('desktop dev injects debug sidecar paths and watches official MCP crates', () => {
+  const env = createCargoLeanDevEnv(
+    { frontend: 3000, backend: 3001 },
+    { CARGO_TARGET_DIR: path.join('/custom-target') }
+  );
+  const source = fs.readFileSync(
+    path.join(__dirname, 'run-tauri-dev-desktop.js'),
+    'utf8'
+  );
+  const mcpName =
+    process.platform === 'win32' ? 'vibex-mcp.exe' : 'vibex-mcp';
+  const workflowName =
+    process.platform === 'win32'
+      ? 'vibex-workflow-mcp.exe'
+      : 'vibex-workflow-mcp';
+
+  assert.equal(
+    env.VIBEX_MCP_BIN,
+    path.join('/custom-target', 'debug', mcpName)
+  );
+  assert.equal(
+    env.VIBEX_WORKFLOW_MCP_BIN,
+    path.join('/custom-target', 'debug', workflowName)
+  );
+  assert.match(source, /watchHostSidecars/);
+  assert.match(source, /applySidecarDevEnv/);
+  assert.match(source, /rebuildHostSidecars/);
+});
+
 test('desktop dev uses a distinct app identity from the installed product', () => {
   const productConfigPath = path.join(
     __dirname,

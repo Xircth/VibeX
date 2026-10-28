@@ -868,12 +868,66 @@ describe('SessionComposerInput (Astryx)', () => {
     const option = (await screen.findAllByRole('option'))[0];
     const row = option.querySelector('[data-composer-trigger-kind="dollar"]');
     expect(row).toBeInTheDocument();
-    expect(row?.querySelector('[data-composer-trigger-label]')).toHaveClass(
-      'composer-trigger-label'
+    const label = row?.querySelector('[data-composer-trigger-label]');
+    const description = row?.querySelector(
+      '[data-composer-trigger-description]'
     );
-    expect(
-      row?.querySelector('[data-composer-trigger-description]')
-    ).toHaveClass('composer-trigger-description');
+    expect(label).toHaveClass('composer-trigger-label');
+    expect(label).not.toHaveClass('block');
+    expect(description).toHaveClass('composer-trigger-description');
+    expect(description).not.toHaveClass('block');
+    expect(row?.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(row?.querySelector('svg')).toBeNull();
+  });
+
+  it('renders slash commands on one line without source tags', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'codex' },
+        transport,
+        availableCommands: [
+          {
+            name: 'compact',
+            description: 'Compress conversation history to save context window',
+          },
+        ],
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/compact');
+
+    const option = await screen.findByRole('option', { name: /compact/i });
+    const row = option.querySelector('[data-composer-trigger-kind="slash"]');
+    expect(row).toBeInTheDocument();
+    const label = row?.querySelector('[data-composer-trigger-label]');
+    const description = row?.querySelector(
+      '[data-composer-trigger-description]'
+    );
+    expect(label).toHaveTextContent('/Compact');
+    expect(label).not.toHaveClass('block');
+    expect(description).toHaveTextContent(
+      'Compact conversation with an optional focus'
+    );
+    expect(description).not.toHaveClass('block');
+    expect(row?.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(row?.querySelector('svg')).toBeNull();
+    expect(option).not.toHaveTextContent('原生');
+    expect(option).not.toHaveTextContent('Native');
+    expect(option).not.toHaveTextContent('Skill');
+    expect(option).not.toHaveTextContent('插件');
   });
 
   it('switches @ reference tabs with arrow keys', async () => {

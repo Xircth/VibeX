@@ -89,6 +89,21 @@ describe('product option menus', () => {
     expect(composerInner['border-radius']?.value).toBe('var(--radius)');
   });
 
+  it('keeps slash and dollar command rows on a compact single line', () => {
+    const commandOption = declarationsFor(
+      ".legacy-design .session-composer-editor .astryx-trigger-menu [role='option']:has([data-composer-trigger-kind='slash']), .legacy-design .session-composer-editor .astryx-trigger-menu [role='option']:has([data-composer-trigger-kind='dollar'])"
+    );
+    const commandDescription = declarationsFor(
+      ".legacy-design .session-composer-editor .astryx-trigger-menu [data-composer-trigger-kind='slash'] .composer-trigger-description, .legacy-design .session-composer-editor .astryx-trigger-menu [data-composer-trigger-kind='dollar'] .composer-trigger-description"
+    );
+
+    expect(commandOption['min-height']?.value).toBe('28px');
+    expect(commandOption.padding?.value).toBe('4px 8px');
+    expect(commandDescription['font-size']?.value).toBe(
+      'var(--trigger-menu-font-size)'
+    );
+  });
+
   it('hides the @ reference tab scrollbar while keeping overflow for tab switching', () => {
     const tabs = declarationsFor('.legacy-design .composer-at-reference-tabs');
     const menu = declarationsFor(

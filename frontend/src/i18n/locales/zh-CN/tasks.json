@@ -16,11 +16,6 @@
       "loading": "正在加载命令...",
       "noMatches": "没有匹配的命令。"
     },
-    "commandSource": {
-      "plugin": "插件",
-      "skill": "Skill",
-      "native": "原生"
-    },
     "elementToken": {
       "type": "页面元素",
       "source": "源码",

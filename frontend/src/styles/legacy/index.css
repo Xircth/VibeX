@@ -932,6 +932,32 @@
   .legacy-design
     .session-composer-editor
     .astryx-trigger-menu
+    [role='option']:has([data-composer-trigger-kind='slash']),
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option']:has([data-composer-trigger-kind='dollar']) {
+    min-height: 28px;
+    padding: 4px 8px;
+  }
+
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [data-composer-trigger-kind='slash']
+    .composer-trigger-description,
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [data-composer-trigger-kind='dollar']
+    .composer-trigger-description {
+    font-size: var(--trigger-menu-font-size);
+    line-height: 1rem;
+  }
+
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
     [role='option']:hover,
   .legacy-design
     .session-composer-editor

@@ -207,15 +207,22 @@ function WelcomeTips() {
           {renderWelcomeTip(t(`welcomePanel.tips.${TIP_KEYS[index]}`))}
         </p>
         <div className="workspace-welcome__tips-dots">
-          {TIP_KEYS.map((key, tipIndex) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={t('welcomePanel.tipsDot', { index: tipIndex + 1 })}
-              aria-current={tipIndex === index}
-              onClick={() => show(tipIndex)}
-            />
-          ))}
+          {[-1, 0, 1].map((offset) => {
+            const tipIndex =
+              (index + offset + TIP_KEYS.length) % TIP_KEYS.length;
+            const isCurrent = offset === 0;
+            return (
+              <button
+                key={offset}
+                type="button"
+                aria-label={t('welcomePanel.tipsDot', {
+                  index: tipIndex + 1,
+                })}
+                aria-current={isCurrent}
+                onClick={() => show(tipIndex)}
+              />
+            );
+          })}
         </div>
         <button
           type="button"

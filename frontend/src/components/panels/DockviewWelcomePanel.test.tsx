@@ -291,17 +291,23 @@ describe('DockviewWelcomePanel', () => {
 
     const tips = screen.getByRole('contentinfo', { name: '使用小技巧' });
     expect(tips).toBeInTheDocument();
-    expect(
-      within(tips).getAllByRole('button', { name: /^技巧 / })
-    ).toHaveLength(12);
+    const dots = within(tips).getAllByRole('button', { name: /^技巧 / });
+    expect(dots).toHaveLength(3);
+    expect(dots[1]).toHaveAttribute('aria-current', 'true');
     expect(screen.getByText('提示词优化').tagName).toBe('STRONG');
     expect(tips).toHaveTextContent('提示词优化');
     expect(tips).not.toHaveTextContent('电脑控制');
     expect(tips).not.toHaveTextContent('永不共享');
 
-    fireEvent.click(screen.getByRole('button', { name: '下一条技巧' }));
+    fireEvent.click(dots[2]);
     expect(screen.getByText('页面布局').tagName).toBe('STRONG');
     expect(tips).toHaveTextContent('页面布局');
+    expect(
+      within(tips).getAllByRole('button', { name: /^技巧 / })[1]
+    ).toHaveAttribute('aria-current', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: '下一条技巧' }));
+    expect(tips).toHaveTextContent('右边栏');
   });
 
   it('renders continue sessions, start actions, projects, and recommended cards', () => {

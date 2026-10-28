@@ -250,6 +250,18 @@ export const COPY = {
   get receiptFailed() {
     return i18n.t('panels:collabCopy.receiptFailed');
   },
+  get receiptPassed() {
+    return i18n.t('panels:collabCopy.receiptPassed');
+  },
+  get receiptTimedOut() {
+    return i18n.t('panels:collabCopy.receiptTimedOut');
+  },
+  get receiptCancelled() {
+    return i18n.t('panels:collabCopy.receiptCancelled');
+  },
+  get receiptReplied() {
+    return i18n.t('panels:collabCopy.receiptReplied');
+  },
   get crossChatSentPrefix() {
     return i18n.t('panels:collabCopy.crossChatSentPrefix');
   },
@@ -618,21 +630,65 @@ export function matchesSpaceMemberIdentity(
   return false;
 }
 
+export type DeliveryReceiptState =
+  | 'queued'
+  | 'processing'
+  | 'replied'
+  | 'passed'
+  | 'timed_out'
+  | 'cancelled'
+  | 'failed'
+  | 'limit_reached';
+
 export type DeliveryReceipt = {
   conversation_id?: string;
   nickname?: string;
   delivered?: string;
-  state?: string;
+  state?: DeliveryReceiptState | string;
   input_id?: string | null;
   error_code?: string | null;
+  outcome?: string | null;
+  deadline_at?: string | null;
   cross_chat?: boolean;
+  turn_id?: string | null;
+  round_id?: string | null;
+  round_ordinal?: number | null;
+  round_state?: string | null;
 };
+
+export type CollaborationSpaceEventKind =
+  | 'message'
+  | 'roster'
+  | 'space'
+  | 'turn';
 
 export type CollaborationSpaceChangedPayload = {
   workspaceId: string;
   spaceId: string;
   seq?: number;
   memberId?: string;
+  kind?: CollaborationSpaceEventKind | string;
+  generation?: number;
+};
+
+export type SpaceEventRecord = {
+  spaceId?: string;
+  space_id?: string;
+  seq: number;
+  kind: CollaborationSpaceEventKind | string;
+  messageId?: string | null;
+  message_id?: string | null;
+  payload?: Record<string, unknown> | null;
+  createdAt?: string;
+  created_at?: string;
+};
+
+export type SpaceEventsPage = {
+  spaceId: string;
+  generation: number;
+  events: SpaceEventRecord[];
+  nextSeq: number;
+  reset?: boolean;
 };
 
 const MENTION_TAIL = /(?:^|\s)@([^\s@]*)$/;
@@ -726,17 +782,32 @@ export function receiptStatusCopy(
     queued?: string;
     claimed?: string;
     failed?: string;
+    passed?: string;
+    timedOut?: string;
+    cancelled?: string;
+    replied?: string;
   } = {}
 ): string {
+  const state = String(receipt?.state ?? '');
+  if (state === 'passed') return labels.passed ?? COPY.receiptPassed;
+  if (state === 'timed_out') return labels.timedOut ?? COPY.receiptTimedOut;
+  if (state === 'cancelled') return labels.cancelled ?? COPY.receiptCancelled;
+  if (state === 'replied') return labels.replied ?? COPY.receiptReplied;
   const delivered = String(receipt?.delivered ?? '');
   const hasError =
+    state === 'failed' ||
     delivered === 'failed' ||
-    (typeof receipt?.error_code === 'string' && Boolean(receipt.error_code));
+    (typeof receipt?.error_code === 'string' &&
+      Boolean(receipt.error_code) &&
+      state !== 'cancelled' &&
+      state !== 'timed_out' &&
+      state !== 'passed');
   if (hasError) return labels.failed ?? COPY.receiptFailed;
   if (
     delivered === 'dispatched' ||
     delivered === 'claimed' ||
-    delivered === 'started'
+    delivered === 'started' ||
+    state === 'processing'
   ) {
     return labels.claimed ?? COPY.receiptClaimed;
   }
@@ -804,10 +875,82 @@ export function formatWorkingMembersCopy(
   return phrase ? `${joined} ${phrase}` : joined;
 }
 
+function receiptLooksFailed(receipt: DeliveryReceipt | null | undefined): boolean {
+  if (!receipt) return false;
+  const state = String(receipt.state ?? '');
+  if (state === 'failed') return true;
+  if (
+    state === 'passed' ||
+    state === 'timed_out' ||
+    state === 'cancelled' ||
+    state === 'replied' ||
+    state === 'processing' ||
+    state === 'queued' ||
+    state === 'limit_reached'
+  ) {
+    return false;
+  }
+  return (
+    receipt.delivered === 'failed' ||
+    (typeof receipt.error_code === 'string' && Boolean(receipt.error_code))
+  );
+}
+
+export type RoundProgressSummary = {
+  completed: number;
+  total: number;
+  state: string;
+  label: string;
+};
+
+export function isReceiptRoundTerminal(
+  receipt: DeliveryReceipt | null | undefined
+): boolean {
+  if (!receipt) return false;
+  const state = String(receipt.state ?? '');
+  return (
+    state === 'replied' ||
+    state === 'passed' ||
+    state === 'timed_out' ||
+    state === 'cancelled' ||
+    state === 'failed' ||
+    receiptLooksFailed(receipt)
+  );
+}
+
+export function formatRoundProgress(
+  receipts: ReadonlyArray<DeliveryReceipt> | null | undefined
+): RoundProgressSummary | null {
+  if (!Array.isArray(receipts) || receipts.length < 2) return null;
+  const hasRound = receipts.some(
+    (receipt) =>
+      Boolean(receipt?.round_id) ||
+      (typeof receipt?.round_ordinal === 'number' &&
+        Number.isFinite(receipt.round_ordinal))
+  );
+  if (!hasRound) return null;
+  const total = receipts.length;
+  const completed = receipts.filter((receipt) =>
+    isReceiptRoundTerminal(receipt)
+  ).length;
+  const explicitState = receipts.find((receipt) =>
+    Boolean(receipt?.round_state)
+  )?.round_state;
+  const state = String(
+    explicitState || (completed >= total ? 'closed' : 'open')
+  );
+  return {
+    completed,
+    total,
+    state,
+    label: `${completed}/${total} 已完成`,
+  };
+}
+
 /**
  * Resolve Telegram-style checkmark status for a message container:
- * - 'sent' (1 check): message sent/queued, not yet claimed/received by target
- * - 'delivered' (2 overlapping checks): message sent and received by target
+ * - 'sent' (1 check): queued, passed, timed out, cancelled, or round still in progress
+ * - 'delivered' (2 overlapping checks): processing or replied (and round finished if applicable)
  * - null: delivery failed (show error receipt instead)
  */
 export function resolveMessageDeliveryStatus(
@@ -815,13 +958,16 @@ export function resolveMessageDeliveryStatus(
 ): 'sent' | 'delivered' | null {
   if (Array.isArray(receipts)) {
     if (receipts.length === 0) return 'sent';
-    const hasFailed = receipts.some(
-      (receipt) =>
-        receipt &&
-        (receipt.delivered === 'failed' ||
-          (typeof receipt.error_code === 'string' && Boolean(receipt.error_code)))
-    );
-    if (hasFailed) return null;
+    if (receipts.some(receiptLooksFailed)) return null;
+    const roundProgress = formatRoundProgress(receipts);
+    if (
+      roundProgress &&
+      (roundProgress.state === 'open' ||
+        roundProgress.state === 'closing' ||
+        roundProgress.completed < roundProgress.total)
+    ) {
+      return 'sent';
+    }
     const anyDelivered = receipts.some((receipt) => {
       const delivered = String(receipt?.delivered ?? '');
       const state = String(receipt?.state ?? '');
@@ -1082,12 +1228,29 @@ export function parseSpaceChangedEvent(
     typeof rawMemberId === 'string' && rawMemberId.trim()
       ? rawMemberId.trim()
       : undefined;
-  if (seq === undefined && memberId === undefined) return null;
+  const rawKind = record.kind;
+  const kind =
+    typeof rawKind === 'string' && rawKind.trim() ? rawKind.trim() : undefined;
+  const rawGeneration = record.generation;
+  const generation =
+    typeof rawGeneration === 'number' && Number.isInteger(rawGeneration)
+      ? rawGeneration
+      : undefined;
+  if (
+    seq === undefined &&
+    memberId === undefined &&
+    kind === undefined &&
+    generation === undefined
+  ) {
+    return null;
+  }
   return {
     workspaceId,
     spaceId,
     ...(seq !== undefined ? { seq } : {}),
     ...(memberId !== undefined ? { memberId } : {}),
+    ...(kind !== undefined ? { kind } : {}),
+    ...(generation !== undefined ? { generation } : {}),
   };
 }
 
@@ -1120,6 +1283,80 @@ export function mergeSpaceMessages<T extends { seq: number }>(
     }
   }
   return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+}
+
+function directMessageTurnId(message: {
+  turnId?: string | null;
+  turn_id?: string | null;
+}): string {
+  return String(message?.turnId ?? message?.turn_id ?? '').trim();
+}
+
+function directMessageId(message: {
+  id?: string | null;
+  envelope?: { id?: string | null } | null;
+}): string {
+  return String(message?.id ?? message?.envelope?.id ?? '').trim();
+}
+
+/**
+ * Merge or deduplicate DM messages (`direct:<member_id>`).
+ * - Preserves chronological order across pre-cutover (`conversation_events`) and
+ *   post-cutover (`collaboration_space_messages`) segments without re-sorting by `seq`.
+ * - Replaces streaming drafts (`streaming: true`) with persisted messages sharing
+ *   the same `turnId` (`collaboration_turns.id`).
+ */
+export function mergeDirectSpaceMessages<
+  T extends {
+    id?: string | null;
+    seq: number;
+    turnId?: string | null;
+    turn_id?: string | null;
+    streaming?: boolean | null;
+    envelope?: { id?: string | null; [key: string]: unknown } | null;
+  },
+>(existing: ReadonlyArray<T>, incoming: ReadonlyArray<T>, merge = false): T[] {
+  const out: T[] = [];
+  const upsert = (item: T) => {
+    if (!item) return;
+    const turnId = directMessageTurnId(item);
+    if (turnId) {
+      const turnIdx = out.findIndex(
+        (cand) => directMessageTurnId(cand) === turnId
+      );
+      if (turnIdx >= 0) {
+        const current = out[turnIdx];
+        if (!current.streaming && item.streaming) {
+          return;
+        }
+        out[turnIdx] = item;
+        return;
+      }
+    }
+    const id = directMessageId(item);
+    if (id) {
+      const idIdx = out.findIndex((cand) => directMessageId(cand) === id);
+      if (idIdx >= 0) {
+        out[idIdx] = item;
+        return;
+      }
+    } else if (Number.isInteger(item.seq)) {
+      const seqIdx = out.findIndex(
+        (cand) => !directMessageId(cand) && cand.seq === item.seq
+      );
+      if (seqIdx >= 0) {
+        out[seqIdx] = item;
+        return;
+      }
+    }
+    out.push(item);
+  };
+
+  if (merge) {
+    for (const item of existing) upsert(item);
+  }
+  for (const item of incoming) upsert(item);
+  return out;
 }
 
 export type ActiveTimeFilterWindow = 'all' | 'active' | '24h' | '7d';
@@ -1604,9 +1841,7 @@ export const COLLAB_DM_BOOTSTRAP_SUFFIX = '</vibex-private-bootstrap>';
 export function isCollabDmBootstrapPrompt(
   text: string | null | undefined
 ): boolean {
-  return String(text ?? '')
-    .trimStart()
-    .startsWith(COLLAB_DM_BOOTSTRAP_PREFIX);
+  return String(text ?? '').includes(COLLAB_DM_BOOTSTRAP_PREFIX);
 }
 
 export function contactLastMessagePreview(

@@ -46,7 +46,8 @@ export function AssistantDetailsSessionTab({
       data-testid="collaboration-assistant-details-session"
     >
       <SessionDetailsView
-        model={model}
+        model={model.kind === 'ready' ? { ...model, messages: [] } : model}
+        showMessages={false}
         quota={
           <SessionQuota agentId={facts.agentId} onActive={setQuotaActive} />
         }

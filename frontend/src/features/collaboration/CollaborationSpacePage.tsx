@@ -34,6 +34,7 @@ import {
   Search,
   Tag,
   Trash2,
+  Type,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -232,9 +233,11 @@ import {
   agentRoster,
   deliveryFailureCopy,
   displayName,
+  formatRoundProgress,
   latestMessageSeq,
   matchesSpaceMemberIdentity,
   memberSelectionKey as deleteMemberKey,
+  mergeDirectSpaceMessages,
   mergeSpaceMessages,
   messageAuthor,
   parseMemberSelectionKey,
@@ -255,7 +258,9 @@ import {
   toggleSpaceDeleteSelection,
   unassignedSpaceId,
   writeSpaceTags,
+  type CollaborationSpaceChangedPayload,
   type DeliveryReceipt,
+  type SpaceEventsPage,
   type SpaceMember,
   type SpaceTagConfig,
   buildChatList,
@@ -341,6 +346,9 @@ type SpaceMessage = {
   operation_id?: string | null;
   in_reply_to?: string | null;
   inReplyTo?: string | null;
+  turnId?: string | null;
+  turn_id?: string | null;
+  streaming?: boolean | null;
   receipts?: DeliveryReceipt[];
   envelope: {
     id?: string;
@@ -1019,7 +1027,7 @@ export function CollaborationSpacePage({
     (threadId: string, incoming: SpaceMessage[], merge: boolean) => {
       setScheduledMessages([]);
       setMessages((current) => {
-        const next = merge ? mergeSpaceMessages(current, incoming) : [...incoming];
+        const next = mergeDirectSpaceMessages(current, incoming, merge);
         setMessagesBySpace((bySpace) => ({ ...bySpace, [threadId]: next }));
         return next;
       });
@@ -1060,10 +1068,14 @@ export function CollaborationSpacePage({
     setHasMountedPreviewTabs,
     sessionFocus,
     consumeSessionFocus,
+    spaceCursors,
+    setSpaceCursor,
     resetCollaborationLayout,
   } = useCollaborationLayoutStore();
   const sessionFocusRef = useRef(sessionFocus);
   sessionFocusRef.current = sessionFocus;
+  const spaceCursorsRef = useRef(spaceCursors);
+  spaceCursorsRef.current = spaceCursors;
 
   const listedSelected =
     selectedId.startsWith('direct:')
@@ -2169,8 +2181,13 @@ export function CollaborationSpacePage({
       }));
     };
 
-    const syncIncrementalMessages = async (spaceId: string) => {
-      const sinceSeq = latestMessageSeq(messagesRef.current);
+    const syncIncrementalMessages = async (
+      spaceId: string,
+      forceFullReload = false
+    ) => {
+      const sinceSeq = forceFullReload
+        ? 0
+        : latestMessageSeq(messagesRef.current);
       const directThreadId = directThreadRef.current;
       if (directThreadId) {
         const direct = await loadDirectMessages<SpaceMessage>(
@@ -2214,6 +2231,47 @@ export function CollaborationSpacePage({
       );
     };
 
+    const refreshMessageReceipts = async (
+      spaceId: string,
+      messageId: string
+    ) => {
+      if (!messageId) return;
+      try {
+        const receiptPage = await collaborationCall<{
+          receipts?: DeliveryReceipt[];
+        }>('collaboration', 'space.receipts', {
+          spaceId,
+          messageId,
+        });
+        if (cancelled || !Array.isArray(receiptPage?.receipts)) return;
+        const nextReceipts = receiptPage.receipts;
+        setMessages((current) => {
+          let matchedSeq: number | null = null;
+          const updated = current.map((msg) => {
+            if (stableSpaceMessageId(msg) === messageId) {
+              matchedSeq = msg.seq;
+              return { ...msg, receipts: nextReceipts };
+            }
+            return msg;
+          });
+          if (matchedSeq !== null) {
+            const seqKey = matchedSeq;
+            setReceiptsBySeq((prev) => ({
+              ...prev,
+              [seqKey]: nextReceipts,
+            }));
+          }
+          setMessagesBySpace((bySpace) => ({
+            ...bySpace,
+            [spaceId]: updated,
+          }));
+          return updated;
+        });
+      } catch {
+        // Fallback if space.receipts is unavailable
+      }
+    };
+
     const refreshSpaces = async () => {
       const page = await collaborationCall<{ spaces?: Space[] }>(
         'collaboration',
@@ -2230,19 +2288,22 @@ export function CollaborationSpacePage({
       );
     };
 
-    void listenCollaborationSpaceChanged((payload) => {
-      const event = parseSpaceChangedEvent(payload);
-      if (!event || event.workspaceId !== workspace) return;
-      void refreshSidebar();
+    const applyLegacySpaceEventFallback = (
+      event: CollaborationSpaceChangedPayload
+    ) => {
       if (
         (event.seq === undefined && event.memberId === undefined) ||
-        event.memberId === 'batch_delete'
+        event.memberId === 'batch_delete' ||
+        event.kind === 'space'
       ) {
         void refreshSpaces().catch((cause: unknown) => {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
       }
-      if (event.memberId && activeSpaceIds.has(event.spaceId)) {
+      if (
+        (event.memberId || event.kind === 'roster') &&
+        activeSpaceIds.has(event.spaceId)
+      ) {
         void refreshSpaceMembers(event.spaceId).catch((cause: unknown) => {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
@@ -2258,7 +2319,11 @@ export function CollaborationSpacePage({
           });
         }
       }
-      if (event.seq !== undefined) {
+      if (
+        event.seq !== undefined ||
+        event.kind === 'message' ||
+        event.kind === 'turn'
+      ) {
         void loadConversations();
         if (
           selectedId &&
@@ -2272,6 +2337,159 @@ export function CollaborationSpacePage({
           });
         }
       }
+    };
+
+    const syncSpaceEvents = async (
+      spaceId: string,
+      hintEvent?: CollaborationSpaceChangedPayload
+    ) => {
+      if (
+        !spaceId ||
+        spaceId === VIRTUAL_DEFAULT_SPACE_ID ||
+        spaceId.startsWith('unassigned:') ||
+        spaceId.startsWith('session:')
+      ) {
+        if (hintEvent) applyLegacySpaceEventFallback(hintEvent);
+        return;
+      }
+      const local = spaceCursorsRef.current[spaceId];
+      const generationChangedFromHint =
+        hintEvent?.generation !== undefined &&
+        local !== undefined &&
+        local.generation > 0 &&
+        hintEvent.generation !== local.generation;
+      try {
+        const page = await collaborationCall<SpaceEventsPage>(
+          'collaboration',
+          'space.listEvents',
+          local && local.cursor > 0 && !generationChangedFromHint
+            ? { spaceId, afterSeq: local.cursor, limit: 200 }
+            : { spaceId, limit: 200 }
+        );
+        if (cancelled) return;
+        if (
+          !page ||
+          typeof page !== 'object' ||
+          typeof page.generation !== 'number'
+        ) {
+          if (hintEvent) applyLegacySpaceEventFallback(hintEvent);
+          return;
+        }
+        const generationMismatch =
+          generationChangedFromHint ||
+          Boolean(page.reset) ||
+          (local !== undefined &&
+            local.generation > 0 &&
+            page.generation !== local.generation);
+        const nextCursorState = {
+          cursor:
+            typeof page.nextSeq === 'number'
+              ? page.nextSeq
+              : (local?.cursor ?? 0),
+          generation: page.generation,
+        };
+        spaceCursorsRef.current = {
+          ...spaceCursorsRef.current,
+          [spaceId]: nextCursorState,
+        };
+        setSpaceCursor(spaceId, nextCursorState);
+
+        const isCurrentSelected =
+          selectedId &&
+          selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          (spaceId === selectedId ||
+            (Boolean(directThreadRef.current) &&
+              spaceId === directThreadRef.current));
+
+        if (generationMismatch) {
+          void refreshSpaces().catch((cause: unknown) => {
+            if (!cancelled) setError(surfaceErrorCopy(cause));
+          });
+          if (activeSpaceIds.has(spaceId)) {
+            void refreshSpaceMembers(spaceId).catch((cause: unknown) => {
+              if (!cancelled) setError(surfaceErrorCopy(cause));
+            });
+          }
+          void loadConversations();
+          if (isCurrentSelected) {
+            setReceiptsBySeq({});
+            void syncIncrementalMessages(selectedId, true).catch(
+              (cause: unknown) => {
+                if (!cancelled) setError(surfaceErrorCopy(cause));
+              }
+            );
+          }
+          return;
+        }
+
+        const events = Array.isArray(page.events) ? page.events : [];
+        if (events.length === 0) {
+          if (hintEvent) applyLegacySpaceEventFallback(hintEvent);
+          return;
+        }
+
+        let needMessages = false;
+        let needRoster = false;
+        let needSpace = false;
+        const turnMessageIds = new Set<string>();
+
+        for (const item of events) {
+          const kind = String(item?.kind ?? '');
+          if (kind === 'message') {
+            needMessages = true;
+          } else if (kind === 'roster') {
+            needRoster = true;
+          } else if (kind === 'space') {
+            needSpace = true;
+          } else if (kind === 'turn') {
+            const msgId = String(
+              item?.messageId ?? item?.message_id ?? ''
+            ).trim();
+            if (msgId) turnMessageIds.add(msgId);
+            if (spaceId.startsWith('direct:')) {
+              needMessages = true;
+            }
+          }
+        }
+
+        if (needSpace || hintEvent?.memberId === 'batch_delete') {
+          void refreshSpaces().catch((cause: unknown) => {
+            if (!cancelled) setError(surfaceErrorCopy(cause));
+          });
+        }
+        if (needRoster && activeSpaceIds.has(spaceId)) {
+          void refreshSpaceMembers(spaceId).catch((cause: unknown) => {
+            if (!cancelled) setError(surfaceErrorCopy(cause));
+          });
+        }
+        if (needRoster || needMessages || turnMessageIds.size > 0) {
+          void loadConversations();
+        }
+        if (isCurrentSelected) {
+          if (needMessages || (needRoster && hintEvent?.memberId)) {
+            void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
+              if (!cancelled) setError(surfaceErrorCopy(cause));
+            });
+          }
+          for (const msgId of turnMessageIds) {
+            void refreshMessageReceipts(spaceId, msgId);
+          }
+        }
+      } catch {
+        if (hintEvent) applyLegacySpaceEventFallback(hintEvent);
+      }
+    };
+
+    if (selectedId && selectedId !== VIRTUAL_DEFAULT_SPACE_ID) {
+      const targetSpaceId = directThreadRef.current || selectedId;
+      void syncSpaceEvents(targetSpaceId);
+    }
+
+    void listenCollaborationSpaceChanged((payload) => {
+      const event = parseSpaceChangedEvent(payload);
+      if (!event || event.workspaceId !== workspace) return;
+      void refreshSidebar();
+      void syncSpaceEvents(event.spaceId, event);
     }).then((stop) => {
       if (cancelled) stop();
       else unlisten = stop;
@@ -2309,6 +2527,8 @@ export function CollaborationSpacePage({
         });
       }
       if (selectedId && selectedId !== VIRTUAL_DEFAULT_SPACE_ID) {
+        const targetSpaceId = directThreadRef.current || selectedId;
+        void syncSpaceEvents(targetSpaceId);
         void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
@@ -2330,6 +2550,7 @@ export function CollaborationSpacePage({
     refreshSidebar,
     openSpaceKey,
     selectedId,
+    setSpaceCursor,
     spaces,
     unassignedId,
     workspace,
@@ -3898,9 +4119,6 @@ export function CollaborationSpacePage({
     );
     const textPart = rawText.replace(/\u00a0/g, ' ').trim();
     if (!selected || !content || sending) return;
-    const sendingDirect =
-      Boolean(directThreadRef.current) ||
-      selected.space_id.startsWith('direct:');
     if (
       textPart &&
       strayMentions(textPart, allWorkspaceMembers).length > 0
@@ -4247,6 +4465,13 @@ export function CollaborationSpacePage({
       queued: COPY.receiptQueued,
       claimed: COPY.receiptClaimed,
       failed: t('collaborationSpace.receiptFailed', COPY.receiptFailed),
+      passed: t('collaborationSpace.receiptPassed', COPY.receiptPassed),
+      timedOut: t('collaborationSpace.receiptTimedOut', COPY.receiptTimedOut),
+      cancelled: t(
+        'collaborationSpace.receiptCancelled',
+        COPY.receiptCancelled
+      ),
+      replied: t('collaborationSpace.receiptReplied', COPY.receiptReplied),
     }),
     [t]
   );
@@ -6477,19 +6702,31 @@ export function CollaborationSpacePage({
                           onCloseAutoFocus={(event) => event.preventDefault()}
                         >
                           <DropdownMenuItem onSelect={openCreateSpaceDialog}>
-                            {COPY.newSpaceButton}
+                            <MessageSquare
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>{COPY.newSpaceButton}</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => openCreateMemberDialog()}
                           >
-                            {COPY.createAssistantButton}
+                            <Bot
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>{COPY.createAssistantButton}</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => {
                               void createGroup();
                             }}
                           >
-                            {COPY.createContactGroupButton}
+                            <FolderPlus
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>{COPY.createContactGroupButton}</span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -6520,6 +6757,7 @@ export function CollaborationSpacePage({
                               {
                                 id: 'name' as const,
                                 label: COPY.filterByName,
+                                icon: Type,
                                 active: listSort === 'name',
                                 onSelect: () => {
                                   setListSort('name');
@@ -6533,6 +6771,7 @@ export function CollaborationSpacePage({
                                     ? COPY.filterTypeGroup
                                     : COPY.filterTypeAssistant
                                 }`,
+                                icon: Tag,
                                 active: listSort === 'type',
                                 onSelect: () => {
                                   const next = cycleTypeFilter(
@@ -6546,6 +6785,7 @@ export function CollaborationSpacePage({
                               {
                                 id: 'activity' as const,
                                 label: COPY.filterByActiveTime,
+                                icon: Clock,
                                 active: listSort === 'activity',
                                 onSelect: () => {
                                   setListSort('activity');
@@ -6553,29 +6793,36 @@ export function CollaborationSpacePage({
                                 },
                               },
                             ] as const
-                          ).map((option) => (
-                            <button
-                              key={option.id}
-                              type="button"
-                              role="menuitem"
-                              data-testid={`collaboration-filter-${option.id}`}
-                              className={cn(
-                                PRODUCT_MENU_ITEM_CLASS,
-                                'w-full px-2.5 py-1.5'
-                              )}
-                              onClick={option.onSelect}
-                            >
-                              <span className="min-w-0 flex-1 text-left">
-                                {option.label}
-                              </span>
-                              {option.active ? (
-                                <Check
+                          ).map((option) => {
+                            const OptionIcon = option.icon;
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                role="menuitem"
+                                data-testid={`collaboration-filter-${option.id}`}
+                                className={cn(
+                                  PRODUCT_MENU_ITEM_CLASS,
+                                  'w-full px-2.5 py-1.5'
+                                )}
+                                onClick={option.onSelect}
+                              >
+                                <OptionIcon
                                   className="size-3.5 shrink-0"
                                   aria-hidden="true"
                                 />
-                              ) : null}
-                            </button>
-                          ))}
+                                <span className="min-w-0 flex-1 text-left">
+                                  {option.label}
+                                </span>
+                                {option.active ? (
+                                  <Check
+                                    className="size-3.5 shrink-0"
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                              </button>
+                            );
+                          })}
                         </PopoverContent>
                       </Popover>
 
@@ -7126,20 +7373,44 @@ export function CollaborationSpacePage({
                       message.envelope,
                       members
                     );
-                    const authorConv = authorConversationId
-                      ? conversationById.get(authorConversationId)
-                      : undefined;
                     const messageReceipts = resolveMessageReceipts(
                       message.envelope,
                       (message.receipts && message.receipts.length > 0
                         ? message.receipts
                         : receiptsBySeq[message.seq]) ?? EMPTY_RECEIPTS
                     );
+                    const roundProgress = !isPrivateChatActive
+                      ? formatRoundProgress(messageReceipts)
+                      : null;
                     const failedReceipts = messageReceipts.filter(
                       (receipt) =>
+                        receipt.state === 'failed' ||
                         receipt.delivered === 'failed' ||
-                        Boolean(receipt.error_code)
+                        (Boolean(receipt.error_code) &&
+                          receipt.state !== 'cancelled' &&
+                          receipt.state !== 'timed_out' &&
+                          receipt.state !== 'passed')
                     );
+                    const outcomeReceipts = messageReceipts.filter((receipt) => {
+                      const state = String(receipt.state ?? '');
+                      return (
+                        state === 'passed' ||
+                        state === 'timed_out' ||
+                        state === 'cancelled' ||
+                        state === 'replied'
+                      );
+                    });
+                    const statusReceipts = [
+                      ...failedReceipts,
+                      ...outcomeReceipts.filter(
+                        (receipt) =>
+                          !failedReceipts.some(
+                            (failed) =>
+                              (failed.conversation_id ?? failed.nickname) ===
+                              (receipt.conversation_id ?? receipt.nickname)
+                          )
+                      ),
+                    ];
                     const deliveryStatus = fromYou
                       ? resolveMessageDeliveryStatus(messageReceipts)
                       : null;
@@ -7320,12 +7591,28 @@ export function CollaborationSpacePage({
                             );
                           }}
                         />
-                        {failedReceipts.length > 0 ? (
+                        {roundProgress || statusReceipts.length > 0 ? (
                           <ul className="collaboration-receipts">
-                            {failedReceipts.map((receipt, index) => {
+                            {roundProgress ? (
+                              <li
+                                key={`round-progress-${message.seq}`}
+                                className="collaboration-receipt collaboration-round-progress"
+                                data-testid={`collaboration-round-progress-${message.seq}`}
+                                data-round-state={roundProgress.state}
+                              >
+                                <span>{roundProgress.label}</span>
+                              </li>
+                            ) : null}
+                            {statusReceipts.map((receipt, index) => {
                               const status = receiptStatusCopy(
                                 receipt,
                                 receiptLabels
+                              );
+                              const statusKey = String(
+                                receipt.state ??
+                                  (receipt.delivered === 'failed'
+                                    ? 'failed'
+                                    : 'queued')
                               );
                               return (
                                 <li
@@ -7335,7 +7622,7 @@ export function CollaborationSpacePage({
                                     `${message.seq}-${index}`
                                   }
                                   className="collaboration-receipt"
-                                  data-status="failed"
+                                  data-status={statusKey}
                                 >
                                   <span>
                                     {receipt.nickname

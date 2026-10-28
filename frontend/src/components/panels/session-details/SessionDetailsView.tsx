@@ -192,12 +192,14 @@ export function SessionDetailsView({
   model,
   quota,
   quotaActive = false,
+  showMessages = true,
   onJumpToMessage,
   onOpenFile,
 }: {
   model: SessionDetailsModel;
   quota?: ReactNode;
   quotaActive?: boolean;
+  showMessages?: boolean;
   onJumpToMessage: (turnId: string) => void;
   onOpenFile: (path: string) => void;
 }) {
@@ -353,7 +355,7 @@ export function SessionDetailsView({
         </DetailCard>
       ) : null}
 
-      {model.messages.length > 0 ? (
+      {showMessages && model.messages.length > 0 ? (
         <section className={detailCardClass}>
           <button
             type="button"

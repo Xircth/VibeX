@@ -790,29 +790,52 @@ pub async fn add_to_space_collection_with(
 
     let created_at = now_stamp();
     let file_path_str = dest_path.to_string_lossy().replace('\\', "/");
-    sqlx::query(
-        r#"INSERT INTO collaboration_space_collection_items
-           (id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
-            creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-    )
-    .bind(&item_id)
-    .bind(space_id)
-    .bind(&space.workspace_id)
-    .bind(&project_id)
-    .bind(&creator_kind)
-    .bind(creator_conversation_id.as_deref())
-    .bind(&creator_nickname)
-    .bind(&item_kind)
-    .bind(&file_name)
-    .bind(&file_path_str)
-    .bind(&mime_type)
-    .bind(byte_size)
-    .bind(&note)
-    .bind(&created_at)
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    {
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let add_outcome = async {
+            sqlx::query(
+                r#"INSERT INTO collaboration_space_collection_items
+                   (id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
+                    creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+            )
+            .bind(&item_id)
+            .bind(space_id)
+            .bind(&space.workspace_id)
+            .bind(&project_id)
+            .bind(&creator_kind)
+            .bind(creator_conversation_id.as_deref())
+            .bind(&creator_nickname)
+            .bind(&item_kind)
+            .bind(&file_name)
+            .bind(&file_path_str)
+            .bind(&mime_type)
+            .bind(byte_size)
+            .bind(&note)
+            .bind(&created_at)
+            .execute(&mut *conn)
+            .await?;
+            append_space_event_tx(
+                &mut conn,
+                space_id,
+                "space",
+                None,
+                &json!({
+                    "action": "collection_added",
+                    "item_id": item_id,
+                }),
+                &created_at,
+            )
+            .await?;
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, add_outcome).await?;
+    }
 
     let audience = if input.caller_id.is_some() {
         MessageAudience::Agent
@@ -853,12 +876,8 @@ pub async fn add_to_space_collection_with(
     .await?;
 
     if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
-        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-            workspace_id: workspace_uuid,
-            space_id: space_id.to_string(),
-            seq: None,
-            member_id: None,
-        });
+        let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
+        delivery.notify_space_changed(ev);
     }
 
     Ok(record)
@@ -929,13 +948,17 @@ pub async fn list_space_collection_with(
             )
             .await;
         }
+        let _ = append_space_event(
+            pool,
+            space_id,
+            "space",
+            None,
+            &json!({ "action": "collection_read" }),
+        )
+        .await;
         if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
-            delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-                workspace_id: workspace_uuid,
-                space_id: space_id.to_string(),
-                seq: None,
-                member_id: None,
-            });
+            let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
+            delivery.notify_space_changed(ev);
         }
     }
 
@@ -1010,14 +1033,18 @@ pub async fn read_space_collection_item_with(
         &reader_nickname,
     )
     .await?;
+    let _ = append_space_event(
+        pool,
+        space_id,
+        "space",
+        None,
+        &json!({ "action": "collection_read", "item_id": row.id }),
+    )
+    .await;
 
     if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
-        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-            workspace_id: workspace_uuid,
-            space_id: space_id.to_string(),
-            seq: None,
-            member_id: None,
-        });
+        let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
+        delivery.notify_space_changed(ev);
     }
 
     hydrate_collection_item(pool, row, audience).await
@@ -1052,22 +1079,46 @@ pub async fn update_space_collection_item_note_with(
     let space = load_space_or_unassigned(pool, space_id).await?;
     let trimmed_id = item_id.trim();
     let trimmed_note = note.trim();
-    let changed = sqlx::query(
-        r#"UPDATE collaboration_space_collection_items
-           SET note = ?
-           WHERE id = ? AND space_id = ?"#,
-    )
-    .bind(trimmed_note)
-    .bind(trimmed_id)
-    .bind(space_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
-    if changed.rows_affected() == 0 {
-        return Err(CollaborationError::new(
-            "not_found",
-            "collection item was not found",
-        ));
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let upd_outcome = async {
+            let changed = sqlx::query(
+                r#"UPDATE collaboration_space_collection_items
+                   SET note = ?
+                   WHERE id = ? AND space_id = ?"#,
+            )
+            .bind(trimmed_note)
+            .bind(trimmed_id)
+            .bind(space_id)
+            .execute(&mut *conn)
+            .await?;
+            if changed.rows_affected() == 0 {
+                return Err(CollaborationError::new(
+                    "not_found",
+                    "collection item was not found",
+                ));
+            }
+            append_space_event_tx(
+                &mut conn,
+                space_id,
+                "space",
+                None,
+                &json!({
+                    "action": "collection_updated",
+                    "item_id": trimmed_id,
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok(())
+        }
+        .await;
+        finish_tx(&mut conn, upd_outcome).await?;
     }
 
     let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
@@ -1085,12 +1136,8 @@ pub async fn update_space_collection_item_note_with(
     .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
 
     if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
-        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-            workspace_id: workspace_uuid,
-            space_id: space_id.to_string(),
-            seq: None,
-            member_id: None,
-        });
+        let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
+        delivery.notify_space_changed(ev);
     }
 
     hydrate_collection_item(pool, row, audience).await
@@ -1133,24 +1180,47 @@ pub async fn remove_space_collection_item_with(
     .map_err(db)?
     .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
 
-    sqlx::query("DELETE FROM collaboration_space_collection_reads WHERE item_id = ?")
-        .bind(trimmed_id)
-        .execute(pool)
-        .await
-        .map_err(db)?;
-    let deleted = sqlx::query(
-        "DELETE FROM collaboration_space_collection_items WHERE id = ? AND space_id = ?",
-    )
-    .bind(trimmed_id)
-    .bind(space_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
-    if deleted.rows_affected() == 0 {
-        return Err(CollaborationError::new(
-            "not_found",
-            "collection item was not found",
-        ));
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let del_outcome = async {
+            sqlx::query("DELETE FROM collaboration_space_collection_reads WHERE item_id = ?")
+                .bind(trimmed_id)
+                .execute(&mut *conn)
+                .await?;
+            let deleted = sqlx::query(
+                "DELETE FROM collaboration_space_collection_items WHERE id = ? AND space_id = ?",
+            )
+            .bind(trimmed_id)
+            .bind(space_id)
+            .execute(&mut *conn)
+            .await?;
+            if deleted.rows_affected() == 0 {
+                return Err(CollaborationError::new(
+                    "not_found",
+                    "collection item was not found",
+                ));
+            }
+            append_space_event_tx(
+                &mut conn,
+                space_id,
+                "space",
+                None,
+                &json!({
+                    "action": "collection_removed",
+                    "item_id": trimmed_id,
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok(())
+        }
+        .await;
+        finish_tx(&mut conn, del_outcome).await?;
     }
 
     let path = std::path::Path::new(&row.file_path);
@@ -1159,12 +1229,8 @@ pub async fn remove_space_collection_item_with(
     }
 
     if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
-        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-            workspace_id: workspace_uuid,
-            space_id: space_id.to_string(),
-            seq: None,
-            member_id: None,
-        });
+        let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
+        delivery.notify_space_changed(ev);
     }
 
     Ok(())

@@ -33,8 +33,10 @@ import {
   type SpaceMember,
   buildChatList,
   defaultGroupChatNameFromMembers,
+  formatRoundProgress,
   formatWorkingMembersCopy,
   isMemberWorking,
+  mergeDirectSpaceMessages,
   resolvePrivateChatTarget,
   uniqueBotsForGroupMemberPicker,
   buildCollabDmBootstrapPrompt,
@@ -109,10 +111,15 @@ describe('collaboration space model', () => {
     expect(COPY.collaborationLimitNotice).toBe(
       '已达到自动协作上限，请 @ 助手继续'
     );
+    expect(COPY.receiptPassed).toBe('已跳过');
+    expect(COPY.receiptTimedOut).toBe('未回应');
+    expect(COPY.receiptCancelled).toBe('已取消');
+    expect(COPY.receiptReplied).toBe('已回复');
     expect(COPY.assistantDetailsButton).toBe('助手详情');
     expect(COPY.assistantDetailsTab).toBe('详情');
     expect(COPY.assistantCollectionTab).toBe('收藏');
     expect(COPY.assistantCustomizeTab).toBe('自定义');
+    expect(COPY.personaPromptLabel).toBe('人设（可选）');
     expect(COPY.addSpaceMember).toBe('添加成员');
     expect(COPY.removeSpaceMember).toBe('移除');
     expect(COPY.globalSearchPlaceholder).toBe('搜索');
@@ -631,6 +638,29 @@ describe('resolveMessageDeliveryStatus', () => {
       'delivered'
     );
   });
+
+  it('maps seven receipt states without changing sent/delivered', () => {
+    expect(resolveMessageDeliveryStatus([{ state: 'queued' }])).toBe('sent');
+    expect(resolveMessageDeliveryStatus([{ state: 'processing' }])).toBe(
+      'delivered'
+    );
+    expect(resolveMessageDeliveryStatus([{ state: 'replied' }])).toBe(
+      'delivered'
+    );
+    expect(resolveMessageDeliveryStatus([{ state: 'passed' }])).toBe('sent');
+    expect(resolveMessageDeliveryStatus([{ state: 'timed_out' }])).toBe(
+      'sent'
+    );
+    expect(resolveMessageDeliveryStatus([{ state: 'cancelled' }])).toBe(
+      'sent'
+    );
+    expect(resolveMessageDeliveryStatus([{ state: 'failed' }])).toBe(null);
+    expect(
+      resolveMessageDeliveryStatus([
+        { state: 'cancelled', error_code: 'chain_limit_exceeded' },
+      ])
+    ).toBe('sent');
+  });
 });
 
 describe('working members copy', () => {
@@ -738,6 +768,9 @@ describe('collab DM bootstrap prompt', () => {
       spaceId: 'direct:member-e',
     });
     expect(isCollabDmBootstrapPrompt(prompt)).toBe(true);
+    expect(
+      isCollabDmBootstrapPrompt(`[协作空间消息]\n${COLLAB_DM_BOOTSTRAP_PREFIX}\n引导`)
+    ).toBe(true);
     expect(prompt.startsWith(COLLAB_DM_BOOTSTRAP_PREFIX)).toBe(true);
     expect(prompt).toContain('称呼用户：你');
     expect(prompt).toContain('你的名字：小E');
@@ -794,5 +827,124 @@ describe('collab DM bootstrap prompt', () => {
       receivedFrom: [],
       replyReceivedFrom: [],
     });
+  });
+});
+
+describe('DM streaming draft replacement and space event/round helpers', () => {
+  it('replaces streaming DM draft with persisted message for the same turnId while preserving pre/post-cutover order', () => {
+    const existing = [
+      { id: 'legacy-10', seq: 10, envelope: { content: '旧版用户消息' } },
+      { id: 'legacy-11', seq: 11, envelope: { content: '旧版助手回复' } },
+      { id: 'msg-1', seq: 1, envelope: { content: '新版用户消息' } },
+      {
+        id: 'draft:turn-1',
+        seq: 1,
+        turnId: 'turn-1',
+        streaming: true,
+        envelope: { content: '正在输入...' },
+      },
+    ];
+    const incoming = [
+      { id: 'legacy-10', seq: 10, envelope: { content: '旧版用户消息' } },
+      { id: 'legacy-11', seq: 11, envelope: { content: '旧版助手回复' } },
+      { id: 'msg-1', seq: 1, envelope: { content: '新版用户消息' } },
+      {
+        id: 'msg-2',
+        seq: 2,
+        turnId: 'turn-1',
+        envelope: { content: '新版助手最终回复' },
+      },
+    ];
+    const replaced = mergeDirectSpaceMessages(existing, incoming, true);
+    expect(replaced.map((m) => m.id)).toEqual([
+      'legacy-10',
+      'legacy-11',
+      'msg-1',
+      'msg-2',
+    ]);
+    expect(replaced[3]?.envelope?.content).toBe('新版助手最终回复');
+    expect((replaced[3] as { streaming?: boolean } | undefined)?.streaming).toBeUndefined();
+  });
+
+  it('parses kind and generation from collaboration space changed events', () => {
+    expect(
+      parseSpaceChangedEvent({
+        workspaceId: 'w1',
+        spaceId: 's1',
+        seq: 7,
+        kind: 'turn',
+        generation: 3,
+      })
+    ).toEqual({
+      workspaceId: 'w1',
+      spaceId: 's1',
+      seq: 7,
+      kind: 'turn',
+      generation: 3,
+    });
+  });
+
+  it('formats round progress and keeps delivery status as sent until the round finishes', () => {
+    const inFlightRound = [
+      {
+        nickname: '小A',
+        state: 'replied',
+        round_id: 'r1',
+        round_ordinal: 1,
+        round_state: 'open',
+      },
+      {
+        nickname: '小B',
+        state: 'processing',
+        round_id: 'r1',
+        round_ordinal: 2,
+        round_state: 'open',
+      },
+      {
+        nickname: '小C',
+        state: 'queued',
+        round_id: 'r1',
+        round_ordinal: 3,
+        round_state: 'open',
+      },
+    ];
+    expect(formatRoundProgress(inFlightRound)).toEqual({
+      completed: 1,
+      total: 3,
+      state: 'open',
+      label: '1/3 已完成',
+    });
+    expect(resolveMessageDeliveryStatus(inFlightRound)).toBe('sent');
+
+    const finishedRound = [
+      {
+        nickname: '小A',
+        state: 'replied',
+        round_id: 'r1',
+        round_ordinal: 1,
+        round_state: 'closed',
+      },
+      {
+        nickname: '小B',
+        state: 'passed',
+        round_id: 'r1',
+        round_ordinal: 2,
+        round_state: 'closed',
+      },
+      {
+        nickname: '小C',
+        state: 'timed_out',
+        round_id: 'r1',
+        round_ordinal: 3,
+        round_state: 'closed',
+      },
+    ];
+    expect(formatRoundProgress(finishedRound)).toEqual({
+      completed: 3,
+      total: 3,
+      state: 'closed',
+      label: '3/3 已完成',
+    });
+    expect(resolveMessageDeliveryStatus(finishedRound)).toBe('delivered');
   });
 });

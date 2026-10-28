@@ -239,7 +239,14 @@ impl PendingQuestionWait {
     }
 
     pub async fn wait(self) -> Result<Value, oneshot::error::RecvError> {
-        self.answer_rx.await
+        let Self {
+            question: _,
+            answer_rx,
+            _guard,
+        } = self;
+        let result = answer_rx.await;
+        drop(_guard);
+        result
     }
 }
 
@@ -581,6 +588,104 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.await.unwrap()["declined"], false);
+    }
+
+    #[tokio::test]
+    async fn wait_receives_answer_posted_after_awaiting() {
+        let features = InMemoryCompanionFeatures::new();
+        let parent = Uuid::new_v4();
+        let wait = features
+            .begin_question(
+                DelegationScope {
+                    parent_connection_id: "parent".to_string(),
+                    parent_conversation_id: parent,
+                },
+                json!([{ "question": "Continue?" }]),
+            )
+            .await
+            .unwrap();
+        let question_id = wait.question().id.clone();
+        let waiter = tokio::spawn(async move { wait.wait().await });
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        features
+            .answer_question(&question_id, parent, json!({ "answer": "yes" }))
+            .await
+            .expect("pending question must still be answerable while wait() is in flight");
+        let answered = tokio::time::timeout(std::time::Duration::from_millis(500), waiter)
+            .await
+            .expect("waiter should finish")
+            .expect("join")
+            .expect("recv");
+        assert_eq!(answered["answer"], "yes");
+    }
+
+    #[tokio::test]
+    async fn ask_stays_pending_until_answered_after_wait_starts() {
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let scope = DelegationScope {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::new_v4(),
+        };
+        let pending_ask = tokio::spawn({
+            let features = features.clone();
+            let scope = scope.clone();
+            async move {
+                features
+                    .ask(&scope, json!([{ "question": "Pick one?" }]))
+                    .await
+            }
+        });
+        let pending = features.next_question(&scope).await;
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        features
+            .answer_question(
+                &pending.id,
+                scope.parent_conversation_id,
+                json!([{ "labels": ["A"] }]),
+            )
+            .await
+            .expect("ask() must keep the waiter until the user answers");
+        let result = tokio::time::timeout(std::time::Duration::from_millis(500), pending_ask)
+            .await
+            .expect("ask should finish after answer")
+            .expect("join");
+        assert_eq!(result["declined"], false);
+        assert_eq!(result["answers"][0]["labels"][0], json!("A"));
+    }
+
+    #[tokio::test]
+    async fn ask_keeps_guard_across_intervening_await_before_wait() {
+        let features = InMemoryCompanionFeatures::new();
+        let parent = Uuid::new_v4();
+        let wait = features
+            .begin_question(
+                DelegationScope {
+                    parent_connection_id: "parent".to_string(),
+                    parent_conversation_id: parent,
+                },
+                json!([{ "question": "Continue?" }]),
+            )
+            .await
+            .unwrap();
+        let question_id = wait.question().id.clone();
+        let waiter = tokio::spawn(async move {
+            let _pending = wait.question().clone();
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            wait.wait().await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        features
+            .answer_question(&question_id, parent, json!({ "answer": "yes" }))
+            .await
+            .expect("question must stay pending during the Host post_blocking await");
+        let answered = tokio::time::timeout(std::time::Duration::from_millis(500), waiter)
+            .await
+            .expect("waiter should finish")
+            .expect("join")
+            .expect("recv");
+        assert_eq!(answered["answer"], "yes");
     }
 
     #[tokio::test]

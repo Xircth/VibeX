@@ -226,13 +226,14 @@ pub async fn ensure_thread_for_seat_in(
                 .fetch_optional(&mut *conn)
                 .await?;
         sqlx::query(
-            "INSERT INTO collaboration_threads (id, kind, title, workspace_id, created_at)
-             VALUES (?, 'direct', ?, ?, ?)
+            "INSERT INTO collaboration_threads (id, kind, title, workspace_id, created_at, space_cutover_seq, space_cutover_at)
+             VALUES (?, 'direct', ?, ?, ?, 0, ?)
              ON CONFLICT(id) DO NOTHING",
         )
         .bind(&thread_id)
         .bind(title.unwrap_or_default())
         .bind(workspace_id.to_string())
+        .bind(now())
         .bind(now())
         .execute(&mut *conn)
         .await?;

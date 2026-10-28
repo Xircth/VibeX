@@ -187,6 +187,7 @@ impl CompanionFeaturePort for HostCompanionFeatures {
             });
         };
         let pending = wait.question().clone();
+        let wait_fut = wait.wait();
         let mut delivery = self.conversations.delivery_context();
         delivery.space_changed = self.space_changed_listener();
         let posted_to_space = match conversations::collaboration_cards::post_blocking_user_question(
@@ -203,12 +204,14 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                     && let Ok(workspace_id) =
                         collaboration::space_workspace_id(&self.pool, &card.space_id).await
                 {
-                    listener(collaboration::CollaborationSpaceChangedEvent {
+                    let event = collaboration::latest_space_changed_event(
+                        &self.pool,
                         workspace_id,
-                        space_id: card.space_id,
-                        seq: None,
-                        member_id: card.member_id,
-                    });
+                        &card.space_id,
+                        card.member_id,
+                    )
+                    .await;
+                    listener(event);
                 }
                 true
             }
@@ -253,7 +256,7 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                 )
                 .await;
         }
-        match wait.wait().await {
+        match wait_fut.await {
             Ok(answer) if answer["__declined"] == true => json!({
                 "question_id": pending.id,
                 "declined": true,
@@ -674,12 +677,14 @@ async fn collaboration_tool(
             )
             .await?;
             if let Some(listener) = on_space_changed.as_ref() {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id: space.workspace_id,
-                    space_id: space.space_id.clone(),
-                    seq: None,
-                    member_id: None,
-                });
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
+                    space.workspace_id,
+                    &space.space_id,
+                    None,
+                )
+                .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(space).unwrap_or(json!({})))
         }
@@ -706,12 +711,14 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
                     workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: Some(member.member_id.clone()),
-                });
+                    &space_id,
+                    Some(member.member_id.clone()),
+                )
+                .await;
+                listener(evt);
             }
             collaboration::space_member_tool_value(pool, &member).await
         }
@@ -731,12 +738,14 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
                     workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: Some(member.member_id.clone()),
-                });
+                    &space_id,
+                    Some(member.member_id.clone()),
+                )
+                .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
         }
@@ -779,12 +788,10 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(card).unwrap_or(json!({})))
         }
@@ -804,12 +811,14 @@ async fn collaboration_tool(
                 && let Ok(workspace_id) =
                     collaboration::space_workspace_id(pool, &card.space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
                     workspace_id,
-                    space_id: card.space_id.clone(),
-                    seq: None,
-                    member_id: card.member_id.clone(),
-                });
+                    &card.space_id,
+                    card.member_id.clone(),
+                )
+                .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(card).unwrap_or(json!({})))
         }
@@ -855,12 +864,10 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(result).unwrap_or(json!({})))
         }
@@ -908,12 +915,10 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: Some(posted.seq),
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(posted).unwrap_or(json!({})))
         }
@@ -946,12 +951,10 @@ async fn collaboration_tool(
                 && !items.is_empty()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(json!({ "items": items }))
         }
@@ -994,12 +997,10 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(item).unwrap_or(json!({})))
         }
@@ -1024,12 +1025,10 @@ async fn collaboration_tool(
             if let Some(listener) = on_space_changed.as_ref()
                 && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
             {
-                listener(collaboration::CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                });
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
             }
             Ok(serde_json::to_value(item).unwrap_or(json!({})))
         }

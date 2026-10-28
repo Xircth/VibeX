@@ -64,12 +64,12 @@ describe('AssistantDetailsCustomizeTab', () => {
     expect(screen.queryByRole('combobox', { name: '选择 Agent' })).toBeNull();
     await user.click(agentReadonly);
     expect(agentReadonly).toHaveClass('is-shaking');
-    expect(screen.getByLabelText('人设提示词（可选）')).toHaveValue('你是小A');
+    expect(screen.getByLabelText('人设（可选）')).toHaveValue('你是小A');
 
     await user.clear(screen.getByRole('textbox', { name: '助手名称' }));
     await user.type(screen.getByRole('textbox', { name: '助手名称' }), '小A改');
-    await user.clear(screen.getByLabelText('人设提示词（可选）'));
-    await user.type(screen.getByLabelText('人设提示词（可选）'), '新的人设');
+    await user.clear(screen.getByLabelText('人设（可选）'));
+    await user.type(screen.getByLabelText('人设（可选）'), '新的人设');
     await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {

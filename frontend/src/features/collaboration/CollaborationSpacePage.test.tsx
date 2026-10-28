@@ -120,12 +120,12 @@ vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
 }));
 
 const useConversationTimeline = vi.hoisted(() =>
-  vi.fn(() => ({
-    timeline: [],
-    items: [],
-    sideRows: [],
-    sessionConfigOptions: [],
-    currentTurnId: null,
+  vi.fn((_id: string | null) => ({
+    timeline: [] as unknown[],
+    items: [] as unknown[],
+    sideRows: [] as unknown[],
+    sessionConfigOptions: [] as unknown[],
+    currentTurnId: null as string | null,
     respondPermission: vi.fn(),
   }))
 );
@@ -538,8 +538,15 @@ describe('CollaborationSpacePage', () => {
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
       name: '创建群聊',
     });
-    expect(screen.getByRole('menuitem', { name: '创建助手' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: '新建分组' })).toBeTruthy();
+    const createAssistantMenuItem = screen.getByRole('menuitem', {
+      name: '创建助手',
+    });
+    const createGroupMenuItem = screen.getByRole('menuitem', {
+      name: '新建分组',
+    });
+    expect(createSpaceMenuItem.querySelector('svg')).toBeTruthy();
+    expect(createAssistantMenuItem.querySelector('svg')).toBeTruthy();
+    expect(createGroupMenuItem.querySelector('svg')).toBeTruthy();
     await user.click(createSpaceMenuItem);
 
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
@@ -1256,15 +1263,21 @@ describe('CollaborationSpacePage', () => {
     ).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '筛选' }));
-    expect(
-      await screen.findByTestId('collaboration-filter-name')
-    ).toHaveTextContent('按名称');
-    expect(screen.getByTestId('collaboration-filter-type')).toHaveTextContent(
-      '按类型 · 群聊'
+    const filterNameItem = await screen.findByTestId(
+      'collaboration-filter-name'
     );
-    expect(
-      screen.getByTestId('collaboration-filter-activity')
-    ).toHaveTextContent('按活跃时间');
+    const filterTypeItem = screen.getByTestId('collaboration-filter-type');
+    const filterActivityItem = screen.getByTestId(
+      'collaboration-filter-activity'
+    );
+    expect(filterNameItem).toHaveTextContent('按名称');
+    expect(filterTypeItem).toHaveTextContent('按类型 · 群聊');
+    expect(filterActivityItem).toHaveTextContent('按活跃时间');
+    expect(filterNameItem.querySelector('svg')).toBeTruthy();
+    expect(filterTypeItem.querySelector('svg')).toBeTruthy();
+    expect(filterActivityItem.querySelectorAll('svg').length).toBeGreaterThanOrEqual(
+      2
+    );
     await user.click(screen.getByTestId('collaboration-filter-type'));
     expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '小A' })).toBeNull();
@@ -3630,6 +3643,22 @@ describe('CollaborationSpacePage', () => {
         return defaultImpl?.(capability, method, input);
       }
     );
+    useConversationTimeline.mockImplementation(() => ({
+      timeline: [
+        {
+          turn: {
+            id: 'turn-user-1',
+            role: 'user',
+            blocks: [{ type: 'text', text: '私聊一条' }],
+          },
+        },
+      ],
+      items: [],
+      sideRows: [],
+      sessionConfigOptions: [],
+      currentTurnId: null,
+      respondPermission: vi.fn(),
+    }));
     renderPage();
     await user.click(await screen.findByRole('button', { name: '小A' }));
     expect(
@@ -3665,6 +3694,8 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(panel).getByTestId('collaboration-assistant-details-session')
     ).toBeTruthy();
+    expect(within(panel).queryByText('消息导航')).toBeNull();
+    expect(within(panel).queryByTestId('session-message-nav')).toBeNull();
     expect(within(panel).queryByText('群收藏')).toBeNull();
     expect(within(panel).getByText('收藏')).toBeTruthy();
     expect(within(panel).getByText('自定义')).toBeTruthy();
@@ -3690,7 +3721,7 @@ describe('CollaborationSpacePage', () => {
       within(panel).queryByRole('combobox', { name: '选择 Agent' })
     ).toBeNull();
     await waitFor(() => {
-      expect(within(panel).getByLabelText('人设提示词（可选）')).toHaveValue(
+      expect(within(panel).getByLabelText('人设（可选）')).toHaveValue(
         '你是小A'
       );
     });

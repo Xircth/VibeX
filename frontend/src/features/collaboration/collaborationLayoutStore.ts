@@ -9,6 +9,11 @@ export type CollaborationSessionFocus = {
   threadName: string;
 };
 
+export type CollaborationSpaceCursorState = {
+  cursor: number;
+  generation: number;
+};
+
 export interface CollaborationLayoutState {
   isSpacesVisible: boolean;
   isThreadVisible: boolean;
@@ -16,6 +21,7 @@ export interface CollaborationLayoutState {
   hasOpenedSpaceThread: boolean;
   hasMountedPreviewTabs: boolean;
   sessionFocus: CollaborationSessionFocus | null;
+  spaceCursors: Record<string, CollaborationSpaceCursorState>;
   setSpacesVisible: (visible: boolean) => void;
   toggleSpacesVisible: () => void;
   setThreadVisible: (visible: boolean) => void;
@@ -26,6 +32,11 @@ export interface CollaborationLayoutState {
   setHasMountedPreviewTabs: (hasTarget: boolean) => void;
   requestSessionFocus: (focus: CollaborationSessionFocus) => void;
   consumeSessionFocus: () => void;
+  setSpaceCursor: (
+    spaceId: string,
+    state: CollaborationSpaceCursorState
+  ) => void;
+  clearSpaceCursor: (spaceId?: string) => void;
   resetCollaborationLayout: () => void;
 }
 
@@ -37,6 +48,7 @@ export const useCollaborationLayoutStore = create<CollaborationLayoutState>(
     hasOpenedSpaceThread: false,
     hasMountedPreviewTabs: false,
     sessionFocus: null,
+    spaceCursors: {},
 
     setSpacesVisible: (visible) => set({ isSpacesVisible: visible }),
 
@@ -125,6 +137,24 @@ export const useCollaborationLayoutStore = create<CollaborationLayoutState>(
 
     consumeSessionFocus: () => set({ sessionFocus: null }),
 
+    setSpaceCursor: (spaceId, cursorState) =>
+      set((state) => ({
+        spaceCursors: {
+          ...state.spaceCursors,
+          [spaceId]: cursorState,
+        },
+      })),
+
+    clearSpaceCursor: (spaceId) =>
+      set((state) => {
+        if (!spaceId) {
+          return { spaceCursors: {} };
+        }
+        const next = { ...state.spaceCursors };
+        delete next[spaceId];
+        return { spaceCursors: next };
+      }),
+
     resetCollaborationLayout: () =>
       set((state) => ({
         isSpacesVisible: true,
@@ -133,6 +163,7 @@ export const useCollaborationLayoutStore = create<CollaborationLayoutState>(
         hasOpenedSpaceThread: false,
         hasMountedPreviewTabs: false,
         sessionFocus: state.sessionFocus,
+        spaceCursors: {},
       })),
   })
 );

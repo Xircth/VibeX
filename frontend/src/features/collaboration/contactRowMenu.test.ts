@@ -44,7 +44,13 @@ const handlers = () => ({
 });
 
 const labels = (items: ReturnType<typeof buildContactRowMenuItems>) =>
-  items.map((item) => (item.type === 'separator' ? '---' : item.label));
+  items.map((item) =>
+    item.type === 'separator'
+      ? '---'
+      : item.type === 'emoji-row'
+        ? 'emojis'
+        : item.label
+  );
 
 describe('contact row menu', () => {
   it('lists pin, move, unread, rename 助手, copy, hide and delete for a DM', () => {

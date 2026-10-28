@@ -5,15 +5,15 @@
 //! session with a bot badge. `member.session.resolve` still opens the
 //! hidden conversation from a chat.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ::db::models::collaboration_identity as identity;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::collaboration::{CollaborationError, db as db_err, now_stamp};
+use crate::collaboration::{CollaborationError, append_space_event_tx, db as db_err, now_stamp};
 
 /// Group avatars show at most this many members.
 pub const MEMBERS_PREVIEW_LIMIT: usize = 4;
@@ -194,6 +194,10 @@ pub struct DmMessage {
     pub cross_chat_sent_to: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cross_chat_received_from: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streaming: Option<bool>,
 }
 
 const DM_VISIBLE_EVENT_KINDS: &str =
@@ -205,12 +209,16 @@ const DM_USER_EVENT_KINDS: &str = "'user_turn_created', 'conversation_input'";
 pub const PRIVATE_BOOTSTRAP_PREFIX: &str = "<vibex-private-bootstrap>";
 
 fn is_private_bootstrap_prompt(text: &str) -> bool {
-    text.trim_start().starts_with(PRIVATE_BOOTSTRAP_PREFIX)
+    text.contains(PRIVATE_BOOTSTRAP_PREFIX)
 }
 
 fn flatten_preview(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     flat.chars().take(120).collect()
+}
+
+fn normalize_dm_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The DM thread's hidden conversation and its member, for `direct:<id>`.
@@ -258,6 +266,8 @@ fn dm_user_message(
         delivered: Some(delivered.to_string()),
         cross_chat_sent_to: None,
         cross_chat_received_from: None,
+        turn_id: None,
+        streaming: None,
     }
 }
 
@@ -518,6 +528,8 @@ fn group_dm_rows(
                             delivered: None,
                             cross_chat_sent_to: None,
                             cross_chat_received_from: None,
+                            turn_id: None,
+                            streaming: None,
                         },
                         assistant_id: message_id,
                         input_id: None,
@@ -645,17 +657,247 @@ async fn dm_tail_window_start_seq(
     Ok(prev_delta_seq.unwrap_or(0))
 }
 
-/// DM history. `since_seq`: messages after that ordinal (oldest first);
-/// otherwise the latest `limit` messages.
-pub async fn list_dm_messages(
+async fn dm_cutover_info(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    thread_id: &str,
+) -> Result<Option<i64>, CollaborationError> {
+    if thread_id.is_empty() {
+        return Ok(None);
+    }
+    let row = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+        "SELECT space_cutover_seq, space_cutover_at FROM collaboration_threads WHERE id = ?",
+    )
+    .bind(thread_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let Some((cutover_seq, cutover_at)) = row else {
+        return Ok(None);
+    };
+    let Some(cutover_at) = cutover_at.filter(|s| !s.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if let Some(seq) = cutover_seq {
+        return Ok(Some(seq));
+    }
+    let inferred: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ? AND CAST(created_at AS TEXT) < ?"#,
+    )
+    .bind(conversation_id)
+    .bind(&cutover_at)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(Some(inferred.unwrap_or(0)))
+}
+
+async fn dm_space_messages_since(
+    pool: &SqlitePool,
+    thread_id: &str,
+    after_seq: i64,
+) -> Result<Vec<DmMessage>, CollaborationError> {
+    type SpaceDmRow = (
+        String,
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let rows = sqlx::query_as::<_, SpaceDmRow>(
+        r#"SELECT m.id, m.seq, m.envelope_json, m.origin, m.created_at,
+                  d.status, d.receipt_state,
+                  COALESCE(
+                    d.turn_id,
+                    (SELECT ct.id FROM collaboration_turns ct
+                     WHERE ct.space_id = m.space_id
+                       AND ct.space_message_id = replace(
+                         COALESCE(json_extract(m.envelope_json, '$.inReplyTo'), ''),
+                         'vibex://space-message/',
+                         ''
+                       )
+                     ORDER BY ct.created_at DESC LIMIT 1)
+                  ) AS resolved_turn_id
+           FROM collaboration_space_messages m
+           LEFT JOIN collaboration_space_deliveries d
+             ON d.space_message_id = m.id
+           WHERE m.space_id = ? AND m.seq > ?
+           ORDER BY m.seq ASC"#,
+    )
+    .bind(thread_id)
+    .bind(after_seq)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, seq, envelope_raw, origin, created_at, status, receipt_state, turn_id) in rows {
+        let envelope: Value = serde_json::from_str(&envelope_raw).unwrap_or(Value::Null);
+        let raw_content = envelope
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let cross_chat_sent_to = envelope.get("crossChatSentTo").cloned();
+        let cross_chat_received_from = envelope.get("crossChatReceivedFrom").cloned();
+        let text = if origin == "user" {
+            match visible_user_text(&raw_content) {
+                Some(t) => t,
+                None if cross_chat_field_present(&cross_chat_sent_to)
+                    || cross_chat_field_present(&cross_chat_received_from) =>
+                {
+                    String::new()
+                }
+                None => continue,
+            }
+        } else {
+            raw_content
+        };
+        let (operation_id, delivered) = if origin == "user" {
+            let deliv = if status.as_deref() == Some("failed") {
+                Some("failed".to_string())
+            } else {
+                receipt_state.or(status)
+            };
+            (Some(id.clone()), deliv)
+        } else {
+            (None, None)
+        };
+        let message = DmMessage {
+            id,
+            seq,
+            origin,
+            text,
+            created_at,
+            operation_id,
+            delivered,
+            cross_chat_sent_to,
+            cross_chat_received_from,
+            turn_id,
+            streaming: None,
+        };
+        if dm_row_is_visible(&message) {
+            out.push(message);
+        }
+    }
+    Ok(out)
+}
+
+async fn dm_streaming_draft(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    thread_id: &str,
+    cutover_seq: i64,
+) -> Result<Option<DmMessage>, CollaborationError> {
+    let open_turn: Option<(String, String, i64)> = sqlx::query_as(
+        r#"SELECT t.id, t.space_message_id, m.seq
+           FROM collaboration_turns t
+           JOIN collaboration_space_messages m ON m.id = t.space_message_id
+           WHERE t.space_id = ? AND t.conversation_id = ? AND t.state = 'running'
+           ORDER BY m.seq DESC, t.created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(thread_id)
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let Some((turn_id, _trigger_msg_id, trigger_seq)) = open_turn else {
+        return Ok(None);
+    };
+    let already_posted: Option<i64> = sqlx::query_scalar(
+        r#"SELECT 1 FROM collaboration_space_messages
+           WHERE space_id = ? AND seq > ? AND origin = 'agent'
+           LIMIT 1"#,
+    )
+    .bind(thread_id)
+    .bind(trigger_seq)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    if already_posted.is_some() {
+        return Ok(None);
+    }
+    let user_sql = format!(
+        r#"SELECT COALESCE(MAX(sequence), 0)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind IN ({DM_USER_EVENT_KINDS})"#
+    );
+    let latest_user_seq: i64 = sqlx::query_scalar(&user_sql)
+        .bind(conversation_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+    let lower_seq = latest_user_seq.max(cutover_seq);
+    let delta_rows = sqlx::query_as::<_, (i64, String, String)>(
+        r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+           FROM conversation_events
+           WHERE conversation_id = ? AND sequence > ?
+             AND event_kind = 'assistant_text_delta'
+           ORDER BY sequence ASC"#,
+    )
+    .bind(conversation_id)
+    .bind(lower_seq)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    if delta_rows.is_empty() {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    let mut created_at = String::new();
+    for (_seq, raw, ts) in delta_rows {
+        if let Ok(agents::ConversationEvent::AssistantTextDelta { text: delta, .. }) =
+            serde_json::from_str::<agents::ConversationEvent>(&raw)
+        {
+            text.push_str(&delta);
+            created_at = ts;
+        }
+    }
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DmMessage {
+        id: format!("draft:{turn_id}"),
+        seq: trigger_seq,
+        origin: "agent".into(),
+        text,
+        created_at,
+        operation_id: None,
+        delivered: None,
+        cross_chat_sent_to: None,
+        cross_chat_received_from: None,
+        turn_id: Some(turn_id),
+        streaming: Some(true),
+    }))
+}
+
+async fn list_pre_cutover_dm_messages(
     pool: &SqlitePool,
     conversation_id: Uuid,
     since_seq: Option<i64>,
-    limit: Option<i64>,
+    limit: usize,
+    cutover_seq: Option<i64>,
 ) -> Result<Vec<DmMessage>, CollaborationError> {
-    let limit = usize::try_from(limit.unwrap_or(200).clamp(1, 1000)).unwrap_or(200);
+    if cutover_seq == Some(0) {
+        return Ok(Vec::new());
+    }
+    let cutover_upper = cutover_seq.map(|seq| seq.saturating_add(1));
     match since_seq {
         Some(since) => {
+            if let Some(c_seq) = cutover_seq
+                && since >= c_seq
+            {
+                return Ok(Vec::new());
+            }
             let user_event_offset = (limit.saturating_mul(4).saturating_add(4)) as i64;
             let upper_sql = format!(
                 r#"SELECT sequence
@@ -665,50 +907,119 @@ pub async fn list_dm_messages(
                    ORDER BY sequence ASC
                    LIMIT 1 OFFSET ?"#
             );
-            let upper_seq = sqlx::query_scalar::<_, i64>(&upper_sql)
+            let mut upper_seq = sqlx::query_scalar::<_, i64>(&upper_sql)
                 .bind(conversation_id)
                 .bind(since)
                 .bind(user_event_offset)
                 .fetch_optional(pool)
                 .await
                 .map_err(db_err)?;
+            if let Some(c_upper) = cutover_upper {
+                upper_seq = Some(match upper_seq {
+                    Some(u) => u.min(c_upper),
+                    None => c_upper,
+                });
+            }
             let mut messages = grouped_dm_rows(
                 pool,
                 conversation_id,
                 dm_rows_since(pool, conversation_id, since, upper_seq).await?,
             )
             .await?;
-            messages.retain(|message| message.seq > since);
-            if messages.len() < limit && upper_seq.is_some() {
+            messages.retain(|message| {
+                message.seq > since && cutover_seq.is_none_or(|c_seq| message.seq <= c_seq)
+            });
+            if messages.len() < limit && upper_seq != cutover_upper {
                 messages = grouped_dm_rows(
                     pool,
                     conversation_id,
-                    dm_rows_since(pool, conversation_id, since, None).await?,
+                    dm_rows_since(pool, conversation_id, since, cutover_upper).await?,
                 )
                 .await?;
-                messages.retain(|message| message.seq > since);
+                messages.retain(|message| {
+                    message.seq > since && cutover_seq.is_none_or(|c_seq| message.seq <= c_seq)
+                });
             }
             messages.truncate(limit);
             Ok(messages)
         }
         None => {
-            let start_seq = dm_tail_window_start_seq(pool, conversation_id, limit).await?;
+            let start_seq = if cutover_seq.is_some() {
+                0
+            } else {
+                dm_tail_window_start_seq(pool, conversation_id, limit).await?
+            };
             let mut messages = grouped_dm_rows(
                 pool,
                 conversation_id,
-                dm_rows_since(pool, conversation_id, start_seq, None).await?,
+                dm_rows_since(pool, conversation_id, start_seq, cutover_upper).await?,
             )
             .await?;
+            if let Some(c_seq) = cutover_seq {
+                messages.retain(|message| message.seq <= c_seq);
+            }
             if messages.len() < limit && start_seq > 0 {
                 messages = grouped_dm_rows(
                     pool,
                     conversation_id,
-                    dm_rows_since(pool, conversation_id, 0, None).await?,
+                    dm_rows_since(pool, conversation_id, 0, cutover_upper).await?,
                 )
                 .await?;
+                if let Some(c_seq) = cutover_seq {
+                    messages.retain(|message| message.seq <= c_seq);
+                }
             }
             let skip = messages.len().saturating_sub(limit);
             Ok(messages.into_iter().skip(skip).collect())
+        }
+    }
+}
+
+/// DM history. `since_seq`: messages after that ordinal (oldest first);
+/// otherwise the latest `limit` messages.
+pub async fn list_dm_messages(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    since_seq: Option<i64>,
+    limit: Option<i64>,
+) -> Result<Vec<DmMessage>, CollaborationError> {
+    let limit = usize::try_from(limit.unwrap_or(200).clamp(1, 1000)).unwrap_or(200);
+    let thread_id = conversation_thread_id(pool, conversation_id).await?;
+    let cutover_seq = dm_cutover_info(pool, conversation_id, &thread_id).await?;
+
+    let Some(cutover_seq) = cutover_seq else {
+        return list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, None).await;
+    };
+
+    let mut pre =
+        list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, Some(cutover_seq))
+            .await?;
+    let post = dm_space_messages_since(pool, &thread_id, since_seq.unwrap_or(0)).await?;
+    let post_keys: HashSet<(String, String)> = post
+        .iter()
+        .map(|message| (message.origin.clone(), normalize_dm_text(&message.text)))
+        .collect();
+    pre.retain(|message| {
+        !post_keys.contains(&(message.origin.clone(), normalize_dm_text(&message.text)))
+    });
+    pre.extend(post);
+    if let Some(draft) = dm_streaming_draft(pool, conversation_id, &thread_id, cutover_seq).await? {
+        let draft_key = (draft.origin.clone(), normalize_dm_text(&draft.text));
+        if !pre
+            .iter()
+            .any(|message| (message.origin.clone(), normalize_dm_text(&message.text)) == draft_key)
+        {
+            pre.push(draft);
+        }
+    }
+    match since_seq {
+        Some(_) => {
+            pre.truncate(limit);
+            Ok(pre)
+        }
+        None => {
+            let skip = pre.len().saturating_sub(limit);
+            Ok(pre.into_iter().skip(skip).collect())
         }
     }
 }
@@ -719,6 +1030,17 @@ async fn dm_last_message(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<SidebarLastMessage>, CollaborationError> {
+    let thread_id = conversation_thread_id(pool, conversation_id).await?;
+    if dm_cutover_info(pool, conversation_id, &thread_id)
+        .await?
+        .is_some()
+    {
+        let post = dm_space_messages_since(pool, &thread_id, 0).await?;
+        if let Some(last) = last_previewable_dm(post) {
+            return Ok(Some(sidebar_last_from_dm(last)));
+        }
+    }
+
     let user_sql = format!(
         r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
            FROM conversation_events
@@ -835,6 +1157,31 @@ async fn dm_unread_count_with_read(
     };
     if tail_seq.is_some_and(|tail| tail <= read) {
         return Ok(0);
+    }
+    if dm_cutover_info(pool, conversation_id, thread_id)
+        .await?
+        .is_some()
+    {
+        let space_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(thread_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db_err)?;
+        if space_count > 0 {
+            let unread: i64 = sqlx::query_scalar(
+                r#"SELECT COUNT(*)
+                   FROM collaboration_space_messages
+                   WHERE space_id = ? AND seq > ? AND origin = 'agent'"#,
+            )
+            .bind(thread_id)
+            .bind(read)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+            return Ok(unread);
+        }
     }
     let rows = dm_rows_since(pool, conversation_id, read, None).await?;
     if rows.is_empty() {
@@ -1190,16 +1537,50 @@ pub async fn set_space_tag_color(
     space_id: &str,
     tag_color: Option<&str>,
 ) -> Result<(), CollaborationError> {
-    let updated = sqlx::query("UPDATE collaboration_spaces SET tag_color = ? WHERE id = ?")
-        .bind(tag_color)
-        .bind(space_id)
-        .execute(pool)
+    let mut conn = pool.acquire().await.map_err(db_err)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
         .await
         .map_err(db_err)?;
-    if updated.rows_affected() == 0 {
-        return Err(CollaborationError::new("not_found", "space was not found"));
+    let res = async {
+        let updated = sqlx::query("UPDATE collaboration_spaces SET tag_color = ? WHERE id = ?")
+            .bind(tag_color)
+            .bind(space_id)
+            .execute(&mut *conn)
+            .await
+            .map_err(db_err)?;
+        if updated.rows_affected() == 0 {
+            return Err(CollaborationError::new("not_found", "space was not found"));
+        }
+        append_space_event_tx(
+            &mut conn,
+            space_id,
+            "space",
+            None,
+            &json!({
+                "action": "tag_color_updated",
+                "tag_color": tag_color,
+            }),
+            &now_stamp(),
+        )
+        .await
+        .map_err(db_err)?;
+        Ok::<(), CollaborationError>(())
     }
-    Ok(())
+    .await;
+    match res {
+        Ok(()) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(err)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1290,81 +1671,120 @@ pub async fn update_member_profile(
     avatar: Option<&str>,
     color: Option<&str>,
 ) -> Result<(), CollaborationError> {
-    let exists: Option<String> =
-        sqlx::query_scalar("SELECT id FROM collaboration_members WHERE id = ?")
-            .bind(member_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
-    if exists.is_none() {
-        return Err(CollaborationError::new("not_found", "member was not found"));
-    }
-    if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
-        sqlx::query("UPDATE collaboration_members SET name = ? WHERE id = ?")
-            .bind(name)
-            .bind(member_id)
-            .execute(pool)
-            .await
-            .map_err(db_err)?;
-        let direct_tid = identity::direct_thread_id(member_id);
-        sqlx::query("UPDATE collaboration_threads SET title = ? WHERE id = ?")
-            .bind(name)
-            .bind(&direct_tid)
-            .execute(pool)
-            .await
-            .map_err(db_err)?;
-        sqlx::query(
-            r#"UPDATE collaboration_space_members
-               SET nickname = ?
-               WHERE member_id = ?
-                  OR conversation_id IN (
-                       SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
-                  )"#,
-        )
-        .bind(name)
-        .bind(member_id)
-        .bind(member_id)
-        .execute(pool)
+    let mut conn = pool.acquire().await.map_err(db_err)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
         .await
         .map_err(db_err)?;
-        sqlx::query(
-            r#"UPDATE conversation_personas
-               SET name = ?
-               WHERE conversation_id IN (
-                   SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
-               )"#,
-        )
-        .bind(name)
-        .bind(member_id)
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
-    }
-    let blank = |v: &str| {
-        let v = v.trim();
-        if v.is_empty() {
-            None
-        } else {
-            Some(v.to_string())
+    let res = async {
+        let exists: Option<String> =
+            sqlx::query_scalar("SELECT id FROM collaboration_members WHERE id = ?")
+                .bind(member_id)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db_err)?;
+        if exists.is_none() {
+            return Err(CollaborationError::new("not_found", "member was not found"));
         }
-    };
-    if let Some(avatar) = avatar {
-        sqlx::query("UPDATE collaboration_members SET avatar = ? WHERE id = ?")
-            .bind(blank(avatar))
+        if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            sqlx::query("UPDATE collaboration_members SET name = ? WHERE id = ?")
+                .bind(name)
+                .bind(member_id)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            let direct_tid = identity::direct_thread_id(member_id);
+            sqlx::query("UPDATE collaboration_threads SET title = ? WHERE id = ?")
+                .bind(name)
+                .bind(&direct_tid)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            sqlx::query(
+                r#"UPDATE collaboration_space_members
+                   SET nickname = ?
+                   WHERE member_id = ?
+                      OR conversation_id IN (
+                           SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
+                      )"#,
+            )
+            .bind(name)
             .bind(member_id)
-            .execute(pool)
+            .bind(member_id)
+            .execute(&mut *conn)
             .await
             .map_err(db_err)?;
-    }
-    if let Some(color) = color {
-        sqlx::query("UPDATE collaboration_members SET color = ? WHERE id = ?")
-            .bind(blank(color))
+            sqlx::query(
+                r#"UPDATE conversation_personas
+                   SET name = ?
+                   WHERE conversation_id IN (
+                       SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ?
+                   )"#,
+            )
+            .bind(name)
             .bind(member_id)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(db_err)?;
+        }
+        let blank = |v: &str| {
+            let v = v.trim();
+            if v.is_empty() {
+                None
+            } else {
+                Some(v.to_string())
+            }
+        };
+        if let Some(avatar) = avatar {
+            sqlx::query("UPDATE collaboration_members SET avatar = ? WHERE id = ?")
+                .bind(blank(avatar))
+                .bind(member_id)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+        }
+        if let Some(color) = color {
+            sqlx::query("UPDATE collaboration_members SET color = ? WHERE id = ?")
+                .bind(blank(color))
+                .bind(member_id)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+        }
+        let threads: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT thread_id FROM collaboration_thread_members WHERE member_id = ? AND status = 'active'",
+        )
+        .bind(member_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db_err)?;
+        let now = now_stamp();
+        let payload = json!({
+            "action": "member_updated",
+            "member_id": member_id,
+            "name": name,
+        });
+        for tid in threads {
+            append_space_event_tx(&mut conn, &tid, "roster", None, &payload, &now)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok::<(), CollaborationError>(())
     }
-    Ok(())
+    .await;
+    match res {
+        Ok(()) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            Ok(())
+        }
+        Err(err) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(err)
+        }
+    }
 }
 
 /// Identity id behind a seat conversation (`space.createMember` result).

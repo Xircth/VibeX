@@ -893,19 +893,39 @@ pub async fn create_collaboration_space(
         .map_err(db)?
         .is_some();
     let space_id = operation_id.to_string();
-    sqlx::query(
-        r#"INSERT INTO collaboration_spaces
-           (id, workspace_id, name, created_by_conversation_id, created_at)
-           VALUES (?, ?, ?, ?, ?)"#,
-    )
-    .bind(&space_id)
-    .bind(caller.workspace_id.to_string())
-    .bind(&name)
-    .bind(caller_id.to_string())
-    .bind(now_stamp())
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let create_outcome = async {
+        sqlx::query(
+            r#"INSERT INTO collaboration_spaces
+               (id, workspace_id, name, created_by_conversation_id, created_at)
+               VALUES (?, ?, ?, ?, ?)"#,
+        )
+        .bind(&space_id)
+        .bind(caller.workspace_id.to_string())
+        .bind(&name)
+        .bind(caller_id.to_string())
+        .bind(&stamp)
+        .execute(&mut *conn)
+        .await?;
+        append_space_event_tx(
+            &mut conn,
+            &space_id,
+            "space",
+            None,
+            &json!({ "action": "created", "name": name }),
+            &stamp,
+        )
+        .await?;
+        Ok::<(), CollaborationError>(())
+    }
+    .await;
+    finish_tx(&mut conn, create_outcome).await?;
+    drop(conn);
     if is_collab_bot {
         let nickname = caller
             .name
@@ -969,18 +989,38 @@ pub async fn create_workspace_space(
         });
     }
     let space_id = operation_id.to_string();
-    sqlx::query(
-        r#"INSERT INTO collaboration_spaces
-           (id, workspace_id, name, created_by_conversation_id, created_at)
-           VALUES (?, ?, ?, NULL, ?)"#,
-    )
-    .bind(&space_id)
-    .bind(workspace_id.to_string())
-    .bind(&name)
-    .bind(now_stamp())
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let create_outcome = async {
+        sqlx::query(
+            r#"INSERT INTO collaboration_spaces
+               (id, workspace_id, name, created_by_conversation_id, created_at)
+               VALUES (?, ?, ?, NULL, ?)"#,
+        )
+        .bind(&space_id)
+        .bind(workspace_id.to_string())
+        .bind(&name)
+        .bind(&stamp)
+        .execute(&mut *conn)
+        .await?;
+        append_space_event_tx(
+            &mut conn,
+            &space_id,
+            "space",
+            None,
+            &json!({ "action": "created", "name": name }),
+            &stamp,
+        )
+        .await?;
+        Ok::<(), CollaborationError>(())
+    }
+    .await;
+    finish_tx(&mut conn, create_outcome).await?;
+    drop(conn);
     let record = SpaceRecord {
         space_id,
         name,
@@ -1004,19 +1044,39 @@ pub async fn rename_workspace_space(
     name: &str,
 ) -> Result<SpaceRecord, CollaborationError> {
     let name = require_name(name)?;
-    let updated = sqlx::query(
-        r#"UPDATE collaboration_spaces
-           SET name = ?
-           WHERE id = ?"#,
-    )
-    .bind(&name)
-    .bind(space_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
-    if updated.rows_affected() == 0 {
-        return Err(CollaborationError::new("not_found", "space was not found"));
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let outcome = async {
+        let updated = sqlx::query(
+            r#"UPDATE collaboration_spaces
+               SET name = ?
+               WHERE id = ?"#,
+        )
+        .bind(&name)
+        .bind(space_id)
+        .execute(&mut *conn)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(CollaborationError::new("not_found", "space was not found"));
+        }
+        append_space_event_tx(
+            &mut conn,
+            space_id,
+            "space",
+            None,
+            &json!({ "action": "renamed", "name": name }),
+            &stamp,
+        )
+        .await?;
+        Ok(())
     }
+    .await;
+    finish_tx(&mut conn, outcome).await?;
+    drop(conn);
     load_space_record(pool, space_id).await
 }
 
@@ -1048,16 +1108,36 @@ pub async fn set_space_lead(
             ));
         }
     }
-    sqlx::query(
-        r#"UPDATE collaboration_spaces
-           SET lead_member_id = ?
-           WHERE id = ?"#,
-    )
-    .bind(lead.as_deref())
-    .bind(space_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let outcome = async {
+        sqlx::query(
+            r#"UPDATE collaboration_spaces
+               SET lead_member_id = ?
+               WHERE id = ?"#,
+        )
+        .bind(lead.as_deref())
+        .bind(space_id)
+        .execute(&mut *conn)
+        .await?;
+        append_space_event_tx(
+            &mut conn,
+            space_id,
+            "roster",
+            None,
+            &json!({ "action": "lead_changed", "lead_member_id": lead }),
+            &stamp,
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    finish_tx(&mut conn, outcome).await?;
+    drop(conn);
     load_space_record(pool, space_id).await
 }
 
@@ -1349,6 +1429,387 @@ pub struct CollaborationSpaceChangedEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub generation: Option<i64>,
+}
+
+pub fn space_tracks_events(space_id: &str) -> bool {
+    let trimmed = space_id.trim();
+    !trimmed.is_empty()
+        && parse_unassigned_space_id(trimmed).is_none()
+        && !trimmed.starts_with("session:")
+}
+
+pub(crate) async fn append_space_event_tx(
+    conn: &mut sqlx::SqliteConnection,
+    space_id: &str,
+    kind: &str,
+    message_id: Option<&str>,
+    payload: &Value,
+    created_at: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    let trimmed = space_id.trim();
+    if !space_tracks_events(trimmed) {
+        return Ok(None);
+    }
+    let seq: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(seq), 0) + 1 FROM collaboration_space_events WHERE space_id = ?",
+    )
+    .bind(trimmed)
+    .fetch_one(&mut *conn)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO collaboration_space_events
+           (space_id, seq, kind, message_id, payload_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)"#,
+    )
+    .bind(trimmed)
+    .bind(seq)
+    .bind(kind)
+    .bind(message_id)
+    .bind(payload.to_string())
+    .bind(created_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(Some(seq))
+}
+
+pub(crate) async fn append_space_event(
+    pool: &SqlitePool,
+    space_id: &str,
+    kind: &str,
+    message_id: Option<&str>,
+    payload: &Value,
+) -> Result<Option<i64>, CollaborationError> {
+    if !space_tracks_events(space_id) {
+        return Ok(None);
+    }
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let outcome = append_space_event_tx(&mut conn, space_id, kind, message_id, payload, &stamp)
+        .await
+        .map_err(db);
+    finish_tx(&mut conn, outcome).await
+}
+
+pub(crate) use append_space_event as append_space_event_pool;
+
+pub(crate) async fn load_space_generation_tx(
+    conn: &mut sqlx::SqliteConnection,
+    space_id: &str,
+) -> Result<i64, sqlx::Error> {
+    let trimmed = space_id.trim();
+    if trimmed.starts_with(identity::DIRECT_PREFIX) {
+        let generation: Option<i64> =
+            sqlx::query_scalar("SELECT generation FROM collaboration_threads WHERE id = ?")
+                .bind(trimmed)
+                .fetch_optional(&mut *conn)
+                .await?;
+        Ok(generation.unwrap_or(1).max(1))
+    } else {
+        let generation: Option<i64> =
+            sqlx::query_scalar("SELECT generation FROM collaboration_spaces WHERE id = ?")
+                .bind(trimmed)
+                .fetch_optional(&mut *conn)
+                .await?;
+        Ok(generation.unwrap_or(1).max(1))
+    }
+}
+
+pub async fn load_space_generation(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<i64, CollaborationError> {
+    let mut conn = pool.acquire().await.map_err(db)?;
+    load_space_generation_tx(&mut conn, space_id)
+        .await
+        .map_err(db)
+}
+
+pub(crate) async fn bump_space_generation_tx(
+    conn: &mut sqlx::SqliteConnection,
+    space_id: &str,
+) -> Result<i64, sqlx::Error> {
+    let trimmed = space_id.trim();
+    if trimmed.starts_with(identity::DIRECT_PREFIX) {
+        sqlx::query(
+            "UPDATE collaboration_threads SET generation = COALESCE(generation, 1) + 1 WHERE id = ?",
+        )
+        .bind(trimmed)
+        .execute(&mut *conn)
+        .await?;
+    } else {
+        sqlx::query(
+            "UPDATE collaboration_spaces SET generation = COALESCE(generation, 1) + 1 WHERE id = ?",
+        )
+        .bind(trimmed)
+        .execute(&mut *conn)
+        .await?;
+    }
+    load_space_generation_tx(conn, trimmed).await
+}
+
+pub async fn bump_space_generation(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<i64, CollaborationError> {
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let outcome = bump_space_generation_tx(&mut conn, space_id)
+        .await
+        .map_err(db);
+    finish_tx(&mut conn, outcome).await
+}
+
+pub async fn restore_space_from_archive(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<i64, CollaborationError> {
+    let stamp = now_stamp();
+    let mut conn = pool.acquire().await.map_err(db)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let outcome = async {
+        let generation = bump_space_generation_tx(&mut conn, space_id).await?;
+        append_space_event_tx(
+            &mut conn,
+            space_id,
+            "space",
+            None,
+            &json!({ "action": "restored", "generation": generation }),
+            &stamp,
+        )
+        .await?;
+        Ok(generation)
+    }
+    .await;
+    finish_tx(&mut conn, outcome).await
+}
+
+pub async fn latest_space_changed_event(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    space_id: &str,
+    member_id: Option<String>,
+) -> CollaborationSpaceChangedEvent {
+    let trimmed = space_id.trim();
+    if !space_tracks_events(trimmed) {
+        return CollaborationSpaceChangedEvent {
+            workspace_id,
+            space_id: space_id.to_string(),
+            seq: None,
+            member_id,
+            kind: None,
+            generation: None,
+        };
+    }
+    let latest: Option<(i64, String)> = sqlx::query_as(
+        r#"SELECT seq, kind
+           FROM collaboration_space_events
+           WHERE space_id = ?
+           ORDER BY seq DESC
+           LIMIT 1"#,
+    )
+    .bind(trimmed)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let generation = load_space_generation(pool, trimmed).await.unwrap_or(1);
+    let (seq, kind) = match latest {
+        Some((seq, kind)) => (Some(seq), Some(kind)),
+        None => (Some(0), None),
+    };
+    CollaborationSpaceChangedEvent {
+        workspace_id,
+        space_id: space_id.to_string(),
+        seq,
+        member_id,
+        kind,
+        generation: Some(generation),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceEventRecord {
+    pub space_id: String,
+    pub seq: i64,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    pub payload: Value,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceEventList {
+    pub space_id: String,
+    pub generation: i64,
+    pub events: Vec<SpaceEventRecord>,
+    pub next_seq: i64,
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub reset: bool,
+}
+
+pub async fn list_space_events(
+    pool: &SqlitePool,
+    space_id: &str,
+    caller_id: Option<Uuid>,
+    after_seq: Option<i64>,
+    limit: Option<i64>,
+) -> Result<SpaceEventList, CollaborationError> {
+    let space_id = space_id.trim();
+    if space_id.is_empty() || !space_tracks_events(space_id) {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
+    if space_id.starts_with(identity::DIRECT_PREFIX) {
+        load_space_or_unassigned(pool, space_id).await?;
+        if let Some(caller_id) = caller_id
+            && direct_thread_caller_seat(pool, space_id, caller_id)
+                .await?
+                .is_none()
+        {
+            return Err(CollaborationError::new(
+                "not_a_member",
+                "caller is not a member of this space",
+            ));
+        }
+    } else {
+        load_space(pool, space_id).await?;
+        if let Some(caller_id) = caller_id {
+            let _ = caller_seat(pool, space_id, caller_id).await?;
+        }
+    }
+
+    let limit = limit.unwrap_or(200).clamp(1, 1000);
+    let (min_seq, max_seq): (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT MIN(seq), MAX(seq) FROM collaboration_space_events WHERE space_id = ?",
+    )
+    .bind(space_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+
+    if let Some(after) = after_seq {
+        let pruned = min_seq.is_some_and(|min| min > 1 && after < min)
+            || (max_seq.is_none() && after > 0);
+        if pruned {
+            let generation = bump_space_generation(pool, space_id).await?;
+            return Ok(SpaceEventList {
+                space_id: space_id.to_string(),
+                generation,
+                events: Vec::new(),
+                next_seq: max_seq.unwrap_or(0),
+                reset: true,
+            });
+        }
+        let generation = load_space_generation(pool, space_id).await?;
+        let rows = sqlx::query_as::<_, (i64, String, Option<String>, String, String)>(
+            r#"SELECT seq, kind, message_id, payload_json, created_at
+               FROM collaboration_space_events
+               WHERE space_id = ? AND seq > ?
+               ORDER BY seq ASC
+               LIMIT ?"#,
+        )
+        .bind(space_id)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
+        let events: Vec<SpaceEventRecord> = rows
+            .into_iter()
+            .map(|(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
+                space_id: space_id.to_string(),
+                seq,
+                kind,
+                message_id,
+                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+                created_at,
+            })
+            .collect();
+        let next_seq = events.last().map(|e| e.seq).unwrap_or(after);
+        return Ok(SpaceEventList {
+            space_id: space_id.to_string(),
+            generation,
+            events,
+            next_seq,
+            reset: false,
+        });
+    }
+
+    let generation = load_space_generation(pool, space_id).await?;
+    let mut rows = sqlx::query_as::<_, (i64, String, Option<String>, String, String)>(
+        r#"SELECT seq, kind, message_id, payload_json, created_at
+           FROM collaboration_space_events
+           WHERE space_id = ?
+           ORDER BY seq DESC
+           LIMIT ?"#,
+    )
+    .bind(space_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    rows.reverse();
+    let events: Vec<SpaceEventRecord> = rows
+        .into_iter()
+        .map(|(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
+            space_id: space_id.to_string(),
+            seq,
+            kind,
+            message_id,
+            payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+            created_at,
+        })
+        .collect();
+    let next_seq = events
+        .last()
+        .map(|e| e.seq)
+        .unwrap_or_else(|| max_seq.unwrap_or(0));
+    Ok(SpaceEventList {
+        space_id: space_id.to_string(),
+        generation,
+        events,
+        next_seq,
+        reset: false,
+    })
+}
+
+pub fn space_event_retention_days() -> i64 {
+    env_i64("VIBEX_COLLAB_EVENT_RETENTION_DAYS", 7).max(1)
+}
+
+pub async fn sweep_expired_space_events(pool: &SqlitePool) -> Result<u32, CollaborationError> {
+    let cutoff = stamp(Utc::now() - Duration::days(space_event_retention_days()));
+    sweep_expired_space_events_before(pool, &cutoff).await
+}
+
+pub async fn sweep_expired_space_events_before(
+    pool: &SqlitePool,
+    cutoff: &str,
+) -> Result<u32, CollaborationError> {
+    let result = sqlx::query("DELETE FROM collaboration_space_events WHERE created_at < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    Ok(u32::try_from(result.rows_affected()).unwrap_or(u32::MAX))
 }
 
 pub async fn space_workspace_id(
@@ -1714,14 +2175,40 @@ pub async fn host_move_space_member(
     let pre_binding = identity::binding_of_conversation(pool, conversation_id)
         .await
         .map_err(db)?;
-    sqlx::query(
-        "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
-    )
-    .bind(from_space_id)
-    .bind(conversation_id.to_string())
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let del_outcome = async {
+            let deleted = sqlx::query(
+                "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+            )
+            .bind(from_space_id)
+            .bind(conversation_id.to_string())
+            .execute(&mut *conn)
+            .await?;
+            if deleted.rows_affected() > 0 {
+                append_space_event_tx(
+                    &mut conn,
+                    from_space_id,
+                    "roster",
+                    None,
+                    &json!({
+                        "action": "member_removed",
+                        "conversation_id": conversation_id,
+                    }),
+                    &stamp,
+                )
+                .await?;
+            }
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, del_outcome).await?;
+    }
     let record = if parse_unassigned_space_id(to_space_id).is_some() {
         identity::unbind_conversation(pool, conversation_id)
             .await
@@ -2017,6 +2504,21 @@ pub async fn host_batch_delete_space_items(
         .execute(pool)
         .await
         .map_err(db)?;
+        sqlx::query("DELETE FROM collaboration_space_events WHERE space_id = ?")
+            .bind(space_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        sqlx::query("DELETE FROM collaboration_rounds WHERE space_id = ?")
+            .bind(space_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        sqlx::query("DELETE FROM collaboration_turns WHERE space_id = ?")
+            .bind(space_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
         sqlx::query("DELETE FROM collaboration_cards WHERE space_id = ?")
             .bind(space_id)
             .execute(pool)
@@ -2083,32 +2585,70 @@ pub async fn host_batch_delete_space_items(
                     Some(candidate)
                 }),
         };
-        sqlx::query(
-            "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
-        )
-        .bind(&target.space_id)
-        .bind(target.conversation_id.to_string())
-        .execute(pool)
-        .await
-        .map_err(db)?;
-        sqlx::query(
-            "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
-        )
-        .bind(&unassigned_id)
-        .bind(target.conversation_id.to_string())
-        .execute(pool)
-        .await
-        .map_err(db)?;
-        sqlx::query(
-            r#"DELETE FROM collaboration_space_members
+        let affected_spaces: Vec<String> = sqlx::query_scalar(
+            r#"SELECT DISTINCT space_id FROM collaboration_space_members
                WHERE conversation_id = ?
                  AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
         )
         .bind(target.conversation_id.to_string())
         .bind(workspace_id.to_string())
-        .execute(pool)
+        .fetch_all(pool)
         .await
         .map_err(db)?;
+        {
+            let stamp = now_stamp();
+            let mut conn = pool.acquire().await.map_err(db)?;
+            sqlx::query("BEGIN IMMEDIATE")
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
+            let batch_member_outcome = async {
+                sqlx::query(
+                    "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+                )
+                .bind(&target.space_id)
+                .bind(target.conversation_id.to_string())
+                .execute(&mut *conn)
+                .await?;
+                sqlx::query(
+                    "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+                )
+                .bind(&unassigned_id)
+                .bind(target.conversation_id.to_string())
+                .execute(&mut *conn)
+                .await?;
+                sqlx::query(
+                    r#"DELETE FROM collaboration_space_members
+                       WHERE conversation_id = ?
+                         AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
+                )
+                .bind(target.conversation_id.to_string())
+                .bind(workspace_id.to_string())
+                .execute(&mut *conn)
+                .await?;
+                for affected_sid in &affected_spaces {
+                    if !deleting_space_set.contains(affected_sid) {
+                        let generation = bump_space_generation_tx(&mut conn, affected_sid).await?;
+                        append_space_event_tx(
+                            &mut conn,
+                            affected_sid,
+                            "roster",
+                            None,
+                            &json!({
+                                "action": "member_removed",
+                                "conversation_id": target.conversation_id,
+                                "generation": generation,
+                            }),
+                            &stamp,
+                        )
+                        .await?;
+                    }
+                }
+                Ok::<(), CollaborationError>(())
+            }
+            .await;
+            finish_tx(&mut conn, batch_member_outcome).await?;
+        }
         sqlx::query(
             "UPDATE sessions SET status = 'archived', updated_at = datetime('now', 'subsec') WHERE id = ? AND workspace_id = ?",
         )
@@ -2154,6 +2694,33 @@ pub async fn host_batch_delete_space_items(
                 }
             }
             purge_space_collection(pool, &direct_tid, &workspace_id.to_string()).await?;
+            sqlx::query(
+                "DELETE FROM collaboration_space_deliveries WHERE space_message_id IN (SELECT id FROM collaboration_space_messages WHERE space_id = ?)",
+            )
+            .bind(&direct_tid)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+            sqlx::query("DELETE FROM collaboration_space_messages WHERE space_id = ?")
+                .bind(&direct_tid)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            sqlx::query("DELETE FROM collaboration_space_events WHERE space_id = ?")
+                .bind(&direct_tid)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            sqlx::query("DELETE FROM collaboration_rounds WHERE space_id = ?")
+                .bind(&direct_tid)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            sqlx::query("DELETE FROM collaboration_turns WHERE space_id = ?")
+                .bind(&direct_tid)
+                .execute(pool)
+                .await
+                .map_err(db)?;
             sqlx::query("DELETE FROM collaboration_thread_reads WHERE thread_id = ?")
                 .bind(&direct_tid)
                 .execute(pool)
@@ -2353,15 +2920,40 @@ pub async fn set_space_identity(
             "nickname is already used in this space",
         ));
     }
-    sqlx::query(
-        "UPDATE collaboration_space_members SET nickname = ? WHERE space_id = ? AND member_id = ?",
-    )
-    .bind(&nickname)
-    .bind(space_id)
-    .bind(&member.member_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let id_outcome = async {
+            sqlx::query(
+                "UPDATE collaboration_space_members SET nickname = ? WHERE space_id = ? AND member_id = ?",
+            )
+            .bind(&nickname)
+            .bind(space_id)
+            .bind(&member.member_id)
+            .execute(&mut *conn)
+            .await?;
+            append_space_event_tx(
+                &mut conn,
+                space_id,
+                "roster",
+                None,
+                &json!({
+                    "action": "member_renamed",
+                    "member_id": member.member_id,
+                    "nickname": nickname,
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, id_outcome).await?;
+    }
     let is_direct_or_unassigned = parse_unassigned_space_id(space_id).is_some()
         || space_id.starts_with(identity::DIRECT_PREFIX);
     let binding = identity::binding_of_conversation(pool, caller_id)
@@ -3821,20 +4413,48 @@ pub(crate) async fn insert_member_with(
     }
     let nickname = unique_nickname(pool, space_id, nickname).await?;
     let member_id = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"INSERT INTO collaboration_space_members
-           (space_id, member_id, conversation_id, nickname, kind, visible_to_agents)
-           VALUES (?, ?, ?, ?, ?, ?)"#,
-    )
-    .bind(space_id)
-    .bind(&member_id)
-    .bind(conversation_id.map(|id| id.to_string()))
-    .bind(&nickname)
-    .bind(kind)
-    .bind(if visible { 1 } else { 0 })
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let ins_outcome = async {
+            sqlx::query(
+                r#"INSERT INTO collaboration_space_members
+                   (space_id, member_id, conversation_id, nickname, kind, visible_to_agents)
+                   VALUES (?, ?, ?, ?, ?, ?)"#,
+            )
+            .bind(space_id)
+            .bind(&member_id)
+            .bind(conversation_id.map(|id| id.to_string()))
+            .bind(&nickname)
+            .bind(kind)
+            .bind(if visible { 1 } else { 0 })
+            .execute(&mut *conn)
+            .await?;
+            if kind == "agent" {
+                append_space_event_tx(
+                    &mut conn,
+                    space_id,
+                    "roster",
+                    None,
+                    &json!({
+                        "action": "member_added",
+                        "member_id": member_id,
+                        "nickname": nickname,
+                        "kind": kind,
+                    }),
+                    &stamp,
+                )
+                .await?;
+            }
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, ins_outcome).await?;
+    }
     let conversation_id = match (kind, conversation_id) {
         ("agent", Some(conversation_id)) => {
             let resolved = attach_seat(pool, space_id, conversation_id, &nickname, mode).await?;

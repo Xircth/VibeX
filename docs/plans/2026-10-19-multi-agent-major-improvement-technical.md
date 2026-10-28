@@ -489,7 +489,7 @@ persona?: {
 
 **覆盖：** R3、R4.2，以及 R4.1 的创建一半（摘要在 D）。
 
-**改动：** 迁移 §4.1；`host.call collaboration.role.*` / `team.*`；MCP 八个工具；`create_conversation`；`spawned` 关系不级联取消；设置页角色/团队 CRUD；首条 Host 说明含人设提示词。
+**改动：** 迁移 §4.1；`host.call collaboration.role.*` / `team.*`；MCP 八个工具；`create_conversation`；`spawned` 关系不级联取消；设置页角色/团队 CRUD；首条 Host 说明含人设。
 
 **测试：**
 
@@ -502,9 +502,9 @@ persona?: {
 
 **验收：**
 
-1. 设置页新建团队「评审」，再建角色「评审员」：Agent、简介、人设提示词、会话配置填全。
+1. 设置页新建团队「评审」，再建角色「评审员」：Agent、简介、人设、会话配置填全。
 2. Agent `list_roles` 能看到「评审员」。
-3. Agent `create_conversation({ role_id })`。新会话出现在工作区列表，不是插件 scratch。时间线首条能看到人设提示词。
+3. Agent `create_conversation({ role_id })`。新会话出现在工作区列表，不是插件 scratch。时间线首条能看到人设。
 4. 改角色简介。已创建会话的人格投影简介不变。
 5. 删除角色。会话仍在，仍可发消息。
 6. Agent `create_conversation` 不带 `role_id`，只带 `agent_id`。会话出现在同一列表。
@@ -520,12 +520,12 @@ persona?: {
 
 **改动：** 会话详情附带 persona；`SessionSettingsSummary` 按设计方案 §6.2 分支。
 
-**测试：** `frontend` Vitest `SessionSettingsSummary.persona.test.tsx`：有投影时折叠文本是角色名；展开一级含名称、团队、简介、Agent，不含 UUID 和人设提示词；「会话配置」子菜单仍能改 mode。无投影时快照与改前一致。
+**测试：** `frontend` Vitest `SessionSettingsSummary.persona.test.tsx`：有投影时折叠文本是角色名；展开一级含名称、团队、简介、Agent，不含 UUID 和人设；「会话配置」子菜单仍能改 mode。无投影时快照与改前一致。
 
 **验收：**
 
 1. 打开批次 C 创建的角色会话。左下角显示「评审员」，不显示 mode/model 短句。
-2. 展开。一级是名称、团队、简介、Agent。没有角色 ID，没有人设提示词。
+2. 展开。一级是名称、团队、简介、Agent。没有角色 ID，没有人设。
 3. 打开「会话配置」，改 mode。该会话配置变了，角色模板的 mode 不变。
 4. 打开一个直接创建、无角色的会话。左下角仍是原来的短句。
 5. 完成标准：组件不读取插件 ID。
@@ -624,7 +624,7 @@ persona?: {
 前置：批次 A–G 都已合并。启用多智能体协同。打开一个有仓库的工作区。会话增强可关可开，两种都要跑第 2 步。
 
 1. 设置页把查询窗口设为 7，延时上限设为 24。
-2. 在设置页创建团队「评审组」、角色「评审员」（人设提示词写「只评论 diff，不改文件」）。
+2. 在设置页创建团队「评审组」、角色「评审员」（人设写「只评论 diff，不改文件」）。
 3. 用户打开会话 A。A 调用 `list_conversations`，再对其中一个 ID `get_session_info`。关掉会话增强后重复，仍然成功。
 4. A `create_conversation({ role_id: 评审员 })` 得到 B。再直接 `create_conversation` 得到 C。B 的 Composer 折叠为「评审员」。C 仍是普通摘要。
 5. A 创建空间「评审工作」，身份「小A」，拉入 B「小B」、C「小C」。

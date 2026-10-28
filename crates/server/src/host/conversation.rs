@@ -1126,6 +1126,9 @@ mod tests {
             }),
             session_config_options: Vec::new(),
             available_commands: None,
+            session_goal: None,
+            async_tasks: Vec::new(),
+            prompt_suggestion: None,
             persona: None,
         };
 

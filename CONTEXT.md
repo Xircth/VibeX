@@ -95,14 +95,14 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **群组（代码中为 space / group thread）** — 多个 bot 与用户所在的群；「群聊」指在群组里聊天这一场景，不是对象名。
 - **Contact group（联系人分组）** — 联系人列表里私聊与群组的归档；无分组时平铺，「未分组」由前端生成。
 - **Conversation persona（会话人格投影）** — 创建当时从角色或 bot 配置抄下的名称、团队、简介和 Agent，绑在那一个 Conversation 上。之后改角色/bot 配置都不改写已有会话。
-- **Persona notice（人设说明）** — 创建会话时写入时间线的第一条可见说明，内容是当时的人设提示词。它不是 Composer 一级菜单里的一项。
+- **Persona notice（人设说明）** — 创建会话时写入时间线的第一条可见说明，内容是当时的人设。它不是 Composer 一级菜单里的一项。
 - **Spawned conversation（派生会话）** — 用 `create_conversation` 留下的一等 Conversation。它和父 Conversation 只有导航关系：不级联取消，也不套用一次性委派的先到终态。
 - **Delayed input（延时输入）** — 尚未进入普通队列的定时输入。到期后才提升为排队输入。它不是排队输入，也不是 Steering。
 - **Same-workspace send（同工作区发送）** — 协同写路径可以提交到同一工作区里的自己、子孙和其它会话。其它工作区、已删除或已归档的会话表现为不存在。
 - **Collaboration space（协作空间）** — 私聊与群组所在的内置 IM 界面；群组共享房间日志，按收件人向各 bot 的隐藏会话各提交一次。它不是 Conversation，也不是任务图。见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
 - **Space member seat（空间座位）** — 群组里的一个昵称座位，绑定该 bot 在该 thread 的隐藏会话。用户座位对 Agent 不可见。
 - **Space message（空间消息）** — 房间日志里的一条记录，带单调序号。它不是任一成员会话的历史。
-- **Delivery receipt（投递回执）** — 一条空间消息对一个 bot 会话的提交结果：`queued` → `processing` → `replied`。
+- **Delivery receipt（投递回执）** — 一条空间消息对一个 bot 会话的提交结果。存储态为 `queued` → `processing` → `{replied|passed|timed_out|cancelled}`；`failed` 由传输层 `status='failed'` 在读取时派生，`limit_reached` 由 queued + wake 推迟键派生。
 - **Composer reference（Composer 引用）** — 用户在 Composer 中用 `@` 插入的结构化引用。`@` 打开带 Tab 的引用面板，当前 Tab 为文件、项目、会话、提交与指令；`/`、`$`、`&` 仍是独立触发符。`#` 不再单独触发，原指令进入 `@` 的指令 Tab。见 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
 - **Project reference（项目引用）** — `@` 面板项目 Tab 中点名一个仍存在于 VibeX 的 Project。Token 显示为 `@` 加项目名称，Hover 展示完整绝对路径；发给 Agent 的消息展开为该路径。
 - **Quote reference（引用片段）** — 用户从会话消息流选中一段内容后插入 Composer 的结构化引用。序列化为 `[:quote](context)`；Token 显示为 `@` 加所选内容前四个字及省略号，Hover 展示完整内容。

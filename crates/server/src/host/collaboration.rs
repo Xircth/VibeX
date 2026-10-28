@@ -67,10 +67,7 @@ impl HostCollaborationHost {
         *self.companion.lock().expect("companion") = Some(memory);
     }
 
-    pub fn with_session_warmup(
-        self,
-        warmup: Arc<dyn collaboration::SessionProcessWarmup>,
-    ) -> Self {
+    pub fn with_session_warmup(self, warmup: Arc<dyn collaboration::SessionProcessWarmup>) -> Self {
         self.install_session_warmup(warmup);
         self
     }
@@ -249,10 +246,12 @@ impl CollaborationHost for HostCollaborationHost {
                             .map(str::to_string)
                             .collect::<Vec<_>>()
                     })
-                    .ok_or_else(|| host_error(collaboration::CollaborationError::new(
-                        "invalid_input",
-                        "groupIds is required",
-                    )))?;
+                    .ok_or_else(|| {
+                        host_error(collaboration::CollaborationError::new(
+                            "invalid_input",
+                            "groupIds is required",
+                        ))
+                    })?;
                 let groups = sidebar::reorder_contact_groups(&self.pool, workspace_id, &group_ids)
                     .await
                     .map_err(host_error)?;
@@ -303,19 +302,7 @@ impl CollaborationHost for HostCollaborationHost {
                 sidebar::set_space_tag_color(&self.pool, &space_id, tag_color.as_deref())
                     .await
                     .map_err(host_error)?;
-                if let Ok(workspace_id) =
-                    collaboration::space_workspace_id(&self.pool, &space_id).await
-                {
-                    self.events.emit(
-                        COLLABORATION_SPACE_CHANGED_EVENT,
-                        CollaborationSpaceChangedEvent {
-                            workspace_id,
-                            space_id: space_id.clone(),
-                            seq: None,
-                            member_id: None,
-                        },
-                    );
-                }
+                self.emit_space_changed(&space_id, None).await;
                 Ok(json!({ "threadId": space_id, "tagColor": tag_color }))
             }
             ("collaboration", "member.list") => {
@@ -362,8 +349,14 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
             }
+            ("collaboration", "space.listEvents" | "space.list_events") => {
+                self.list_events(&input).await
+            }
             ("collaboration", "space.receipts" | "space.listReceipts" | "space.list_receipts") => {
                 self.receipts(&input).await
+            }
+            ("collaboration", "space.cancelTurn" | "space.cancel_turn") => {
+                self.cancel_turn(&input).await
             }
             ("collaboration", "space.wakePreview" | "space.wake_preview") => {
                 self.wake_preview(&input).await
@@ -530,15 +523,14 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id: space.space_id.clone(),
-                seq: None,
-                member_id: None,
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &space.space_id,
+            None,
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(space).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -572,15 +564,14 @@ impl HostCollaborationHost {
                 .await
                 .map_err(host_error)?;
         }
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id: space.workspace_id,
-                space_id: space.space_id.clone(),
-                seq: None,
-                member_id: None,
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            space.workspace_id,
+            &space.space_id,
+            None,
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(space).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -614,15 +605,14 @@ impl HostCollaborationHost {
         let workspace_id = collaboration::space_workspace_id(&self.pool, &space_id)
             .await
             .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id,
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &space_id,
+            Some(member.member_id.clone()),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -671,15 +661,14 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id: target_space_id.clone(),
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &target_space_id,
+            Some(member.member_id.clone()),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         let mut value = serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })?;
@@ -717,7 +706,10 @@ impl HostCollaborationHost {
             }
             if let Some(object) = value.as_object_mut() {
                 object.insert("identity_member_id".into(), json!(identity_id));
-                object.insert("direct_thread_id".into(), json!(format!("direct:{identity_id}")));
+                object.insert(
+                    "direct_thread_id".into(),
+                    json!(format!("direct:{identity_id}")),
+                );
             }
         }
         Ok(value)
@@ -742,24 +734,22 @@ impl HostCollaborationHost {
         let workspace_id = collaboration::space_workspace_id(&self.pool, &to_space_id)
             .await
             .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id: from_space_id,
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
-        );
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id: to_space_id,
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
-        );
+        let from_evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &from_space_id,
+            Some(member.member_id.clone()),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, from_evt);
+        let to_evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &to_space_id,
+            Some(member.member_id.clone()),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, to_evt);
         serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -824,18 +814,19 @@ impl HostCollaborationHost {
                 space_id: format!("unassigned:{workspace_id}"),
                 seq: None,
                 member_id: Some("batch_delete".to_string()),
+                kind: None,
+                generation: None,
             },
         );
         for deleted_space_id in &result.deleted_space_ids {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id: deleted_space_id.clone(),
-                    seq: None,
-                    member_id: Some("batch_delete".to_string()),
-                },
-            );
+            let evt = collaboration::latest_space_changed_event(
+                &self.pool,
+                workspace_id,
+                deleted_space_id,
+                Some("batch_delete".to_string()),
+            )
+            .await;
+            self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         }
         serde_json::to_value(result).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
@@ -861,15 +852,14 @@ impl HostCollaborationHost {
         let workspace_id = collaboration::space_workspace_id(&self.pool, &space_id)
             .await
             .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id,
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &space_id,
+            Some(member.member_id.clone()),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -935,17 +925,7 @@ impl HostCollaborationHost {
         let cancelled = collaboration::cancel_space_scheduled_message(&self.pool, &space_id, &id)
             .await
             .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: Some(0),
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         Ok(json!({ "cancelled": cancelled }))
     }
 
@@ -969,22 +949,13 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: Some(0),
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         Ok(json!({ "scheduled": updated }))
     }
 
     /// `space.listMessages` for `direct:<id>`: the member's DM conversation,
-    /// in the group message shape. `seq` = conversation event ordinal.
+    /// in the group message shape. `seq` = conversation event ordinal (pre-cutover)
+    /// or `collaboration_space_messages.seq` (post-cutover).
     async fn list_direct_messages(
         &self,
         thread_id: &str,
@@ -1006,26 +977,35 @@ impl HostCollaborationHost {
         let messages = sidebar::list_dm_messages(&self.pool, conversation, since, limit)
             .await
             .map_err(host_error)?;
+        let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+        let receipts_by_msg = collaboration::list_message_receipts_batch(&self.pool, &message_ids)
+            .await
+            .unwrap_or_default();
         let user_actor = format!("vibex://space/{thread_id}/user");
         let member_actor = format!("vibex://space/{thread_id}/member/{}", member.name);
         let mut messages = messages
             .into_iter()
             .map(|message| {
                 let from_user = message.origin == "user";
-                json!({
+                let receipts_val = if let Some(real) = receipts_by_msg.get(&message.id)
+                    && !real.is_empty()
+                {
+                    serde_json::to_value(real).unwrap_or_else(|_| json!([]))
+                } else if from_user {
+                    json!([{
+                        "delivered": message.delivered.as_deref().unwrap_or("dispatched"),
+                    }])
+                } else {
+                    json!([])
+                };
+                let mut item = json!({
                     "id": message.id,
                     "seq": message.seq,
                     "origin": message.origin,
                     "in_reply_to": Value::Null,
                     "operationId": message.operation_id,
                     "operation_id": message.operation_id,
-                    "receipts": if from_user {
-                        json!([{
-                            "delivered": message.delivered.as_deref().unwrap_or("dispatched"),
-                        }])
-                    } else {
-                        json!([])
-                    },
+                    "receipts": receipts_val,
                     "envelope": {
                         "type": "Note",
                         "id": format!("vibex://space-message/{}", message.id),
@@ -1038,7 +1018,19 @@ impl HostCollaborationHost {
                         "crossChatSentTo": message.cross_chat_sent_to.clone().unwrap_or(Value::Null),
                         "crossChatReceivedFrom": message.cross_chat_received_from.clone().unwrap_or(Value::Null),
                     },
-                })
+                });
+                if let Some(turn_id) = &message.turn_id
+                    && let Some(obj) = item.as_object_mut()
+                {
+                    obj.insert("turnId".to_string(), json!(turn_id));
+                    obj.insert("turn_id".to_string(), json!(turn_id));
+                }
+                if let Some(streaming) = message.streaming
+                    && let Some(obj) = item.as_object_mut()
+                {
+                    obj.insert("streaming".to_string(), json!(streaming));
+                }
+                item
             })
             .collect::<Vec<_>>();
         collaboration::attach_reactions_to_json_messages(&self.pool, thread_id, &mut messages)
@@ -1051,19 +1043,31 @@ impl HostCollaborationHost {
         }))
     }
 
-    /// `space.post` / `space.submit` for `direct:<id>`: user text into the
-    /// member's DM conversation.
+    /// `space.post` / `space.submit` for `direct:<id>`: persists into
+    /// `collaboration_space_messages` + `collaboration_space_deliveries`
+    /// and dispatches via `deliver_pending` (same path as group chats).
     async fn post_direct(
         &self,
         thread_id: &str,
         input: &Value,
     ) -> Result<Value, CollaborationHostError> {
-        let (conversation, member) = sidebar::dm_conversation(&self.pool, thread_id)
-            .await
-            .map_err(host_error)?
-            .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
         let operation_id = required_uuid(input, &["operationId", "operation_id"])?;
         let delivery = self.delivery.lock().expect("delivery").clone();
+        let (posted, _workspace_id, member) = collaboration::post_direct_message_with(
+            &self.pool,
+            collaboration::PostDirectMessage {
+                thread_id: thread_id.to_string(),
+                content: text(input, &["content"]),
+                summary: optional_text(input, &["summary"]),
+                in_reply_to: optional_text(input, &["inReplyTo", "in_reply_to"]),
+                operation_id,
+            },
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+
+        // TODO(dm-mention): replace with cross-thread forwarding once DM space messages are the sole source of truth.
         let mention_targets: Vec<String> = string_list(input, &["to"])
             .into_iter()
             .map(|name| name.trim().trim_start_matches('@').trim().to_string())
@@ -1092,34 +1096,31 @@ impl HostCollaborationHost {
             .await
             .map_err(host_error)?;
         }
-        let (receipt, workspace_id) = collaboration::send_user_text_to_conversation(
-            &self.pool,
-            conversation,
-            operation_id,
-            &text(input, &["content"]),
-            &delivery,
-        )
-        .await
-        .map_err(host_error)?;
+
+        let real_receipts = collaboration::list_message_receipts(&self.pool, &posted.message_id)
+            .await
+            .map_err(host_error)?;
         self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id: thread_id.to_string(),
-                seq: None,
-                member_id: Some(member.member_id.clone()),
-            },
+            COLLABORATION_RECEIPTS_CHANGED_EVENT,
+            json!({ "spaceId": thread_id, "messageId": posted.message_id, "receipts": real_receipts }),
         );
+        self.emit_space_changed(thread_id, Some(&member.member_id))
+            .await;
+
+        let first_delivery = posted.receipts.first();
+        let turn_id = real_receipts.first().and_then(|r| r.turn_id.clone());
         Ok(json!({
             "threadId": thread_id,
             "conversationId": member.conversation_id,
             "memberId": member.member_id,
-            "delivered": receipt.delivered,
-            "inputId": receipt.input_id,
-            "turnId": receipt.turn_id,
-            "messageId": Value::Null,
-            "seq": Value::Null,
-            "receipts": [],
+            "delivered": first_delivery.map(|r| r.delivered.as_str()).unwrap_or("queued"),
+            "inputId": first_delivery.and_then(|r| r.input_id),
+            "turnId": turn_id,
+            "messageId": posted.message_id,
+            "message_id": posted.message_id,
+            "seq": posted.seq,
+            "receipts": real_receipts,
+            "deliveries": posted.receipts,
         }))
     }
 
@@ -1152,15 +1153,14 @@ impl HostCollaborationHost {
         let workspace_id = collaboration::space_workspace_id(&self.pool, &space_id)
             .await
             .map_err(host_error)?;
-        self.events.emit(
-            COLLABORATION_SPACE_CHANGED_EVENT,
-            CollaborationSpaceChangedEvent {
-                workspace_id,
-                space_id,
-                seq: Some(posted.seq),
-                member_id: None,
-            },
-        );
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &space_id,
+            None,
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(posted).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -1187,22 +1187,13 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         Ok(json!({ "reactions": reactions }))
     }
 
     /// User submit: post into a group thread and return the per-member
-    /// three-state receipts (`queued` / `processing` / `replied`).
+    /// receipts (`queued` / `processing` / `replied` / `passed` /
+    /// `timed_out` / `cancelled`, plus projected `failed`).
     async fn submit(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = optional_text(input, &["threadId", "thread_id"])
             .map(Ok)
@@ -1210,7 +1201,8 @@ impl HostCollaborationHost {
         let mut forwarded = input.clone();
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("spaceId".to_string(), json!(space_id));
-        }        if space_id.starts_with("direct:") {
+        }
+        if space_id.starts_with("direct:") {
             return self.post_direct(&space_id, &forwarded).await;
         }
         let posted = self.post(&forwarded).await?;
@@ -1300,19 +1292,8 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) =
-            collaboration::space_workspace_id(&self.pool, &card.space_id).await
-        {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id: card.space_id.clone(),
-                    seq: None,
-                    member_id: card.member_id.clone(),
-                },
-            );
-        }
+        self.emit_space_changed(&card.space_id, card.member_id.as_deref())
+            .await;
         if card
             .payload
             .get("question_id")
@@ -1393,12 +1374,54 @@ impl HostCollaborationHost {
         Ok(json!({ "memberId": member_id, "activity": activity }))
     }
 
+    async fn list_events(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        let caller_id = optional_text(input, &["callerId", "caller_id", "conversationId"])
+            .and_then(|raw| Uuid::parse_str(&raw).ok());
+        let after_seq = input
+            .get("afterSeq")
+            .or_else(|| input.get("after_seq"))
+            .and_then(Value::as_i64);
+        let limit = input.get("limit").and_then(Value::as_i64);
+        let res =
+            collaboration::list_space_events(&self.pool, &space_id, caller_id, after_seq, limit)
+                .await
+                .map_err(host_error)?;
+        serde_json::to_value(res).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
     async fn receipts(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let message_id = required_text(input, &["messageId", "message_id"])?;
         let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
             .await
             .map_err(host_error)?;
         Ok(json!({ "messageId": message_id, "receipts": receipts }))
+    }
+
+    async fn cancel_turn(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let message_id = optional_text(input, &["messageId", "message_id"]);
+        let turn_id = optional_text(input, &["turnId", "turn_id"]);
+        let caller_id = optional_text(input, &["callerId", "caller_id", "conversationId"])
+            .and_then(|raw| Uuid::parse_str(&raw).ok());
+        let cancelled = collaboration::cancel_space_turn(
+            &self.pool,
+            &space_id,
+            message_id.as_deref(),
+            turn_id.as_deref(),
+            caller_id,
+        )
+        .await
+        .map_err(host_error)?;
+        self.emit_space_changed(&space_id, None).await;
+        Ok(json!({
+            "spaceId": space_id,
+            "cancelled": cancelled,
+        }))
     }
 
     async fn wake_preview(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -1487,17 +1510,7 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         serde_json::to_value(item).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -1517,17 +1530,7 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         serde_json::to_value(item).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -1548,17 +1551,7 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         serde_json::to_value(item).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
@@ -1569,24 +1562,11 @@ impl HostCollaborationHost {
         let item_id = required_text(input, &["itemId", "item_id", "id"])?;
         let delivery = self.delivery.lock().expect("delivery").clone();
         collaboration::remove_space_collection_item_with(
-            &self.pool,
-            &space_id,
-            &item_id,
-            &delivery,
+            &self.pool, &space_id, &item_id, &delivery,
         )
         .await
         .map_err(host_error)?;
-        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id,
-                    seq: None,
-                    member_id: None,
-                },
-            );
-        }
+        self.emit_space_changed(&space_id, None).await;
         Ok(json!({ "removed": true, "id": item_id }))
     }
 
@@ -1642,15 +1622,14 @@ impl HostCollaborationHost {
 impl HostCollaborationHost {
     async fn emit_space_changed(&self, space_id: &str, member_id: Option<&str>) {
         if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, space_id).await {
-            self.events.emit(
-                COLLABORATION_SPACE_CHANGED_EVENT,
-                CollaborationSpaceChangedEvent {
-                    workspace_id,
-                    space_id: space_id.to_string(),
-                    seq: None,
-                    member_id: member_id.map(str::to_string),
-                },
-            );
+            let evt = collaboration::latest_space_changed_event(
+                &self.pool,
+                workspace_id,
+                space_id,
+                member_id.map(str::to_string),
+            )
+            .await;
+            self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         }
     }
 
@@ -1843,12 +1822,12 @@ mod tests {
     use std::str::FromStr;
 
     use db::models::session::{CreateSession, Session};
+    use delegation::DelegationScope;
     use plugins::CollaborationHost;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
     use crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT;
-    use delegation::DelegationScope;
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -2356,7 +2335,9 @@ mod tests {
         assert_eq!(join_event.payload["workspaceId"], json!(workspace));
         assert_eq!(join_event.payload["spaceId"], json!(space_id));
         assert_eq!(join_event.payload["memberId"], added_a["member_id"]);
-        assert!(join_event.payload.get("seq").is_none() || join_event.payload["seq"].is_null());
+        assert_eq!(join_event.payload["seq"], json!(2));
+        assert_eq!(join_event.payload["kind"], json!("roster"));
+        assert_eq!(join_event.payload["generation"], json!(1));
 
         host.call(
             "host",
@@ -2482,7 +2463,9 @@ mod tests {
         assert_eq!(post_event.channel, COLLABORATION_SPACE_CHANGED_EVENT);
         assert_eq!(post_event.payload["workspaceId"], json!(workspace));
         assert_eq!(post_event.payload["spaceId"], json!(space_id));
-        assert_eq!(post_event.payload["seq"], json!(1));
+        assert_eq!(post_event.payload["seq"], json!(6));
+        assert_eq!(post_event.payload["kind"], json!("turn"));
+        assert_eq!(post_event.payload["generation"], json!(1));
         assert!(post_event.payload.get("content").is_none());
 
         let post_replay = host
@@ -2966,6 +2949,9 @@ mod tests {
         let space = collaboration::create_collaboration_space(&pool, a, "room", Uuid::new_v4())
             .await
             .unwrap();
+        collaboration::add_space_member(&pool, a, &space.space_id, a, "Asker", Uuid::new_v4())
+            .await
+            .unwrap();
         collaboration::add_space_member(&pool, a, &space.space_id, b, "MemberB", Uuid::new_v4())
             .await
             .unwrap();
@@ -3031,10 +3017,7 @@ mod tests {
 
     #[tokio::test]
     async fn host_card_resolve_completes_blocking_ask_user_question() {
-        let (pool, host, space, a) = card_fixture().await;
-        collaboration::add_space_member(&pool, a, &space, a, "Asker", Uuid::new_v4())
-            .await
-            .unwrap();
+        let (pool, host, _space, a) = card_fixture().await;
         let memory = Arc::new(InMemoryCompanionFeatures::new());
         host.install_companion_memory(memory.clone());
         let questions = json!([{
@@ -3165,12 +3148,13 @@ mod tests {
         });
         host.install_session_warmup(warmer.clone());
         host.install_hot_groups(Arc::new(collaboration::HotGroupTracker::default()));
-        let before: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?")
-                .bind(&space)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let before: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(&space)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let turns_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
             .fetch_one(&pool)
             .await
@@ -3182,12 +3166,13 @@ mod tests {
         )
         .await;
         assert!(result["nicknames"].as_array().is_some());
-        let after: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?")
-                .bind(&space)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let after: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(&space)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let turns_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
             .fetch_one(&pool)
             .await
@@ -3225,7 +3210,10 @@ mod tests {
         )
         .await;
         assert_eq!(created["nickname"], json!("Alice"));
-        assert_eq!(created["space_id"], json!(format!("unassigned:{workspace}")));
+        assert_eq!(
+            created["space_id"],
+            json!(format!("unassigned:{workspace}"))
+        );
         let conversation = created["conversation_id"].as_str().unwrap().to_string();
         let identity = created["identity_member_id"].as_str().unwrap().to_string();
 
@@ -3237,30 +3225,61 @@ mod tests {
 
         let direct_thread = created["direct_thread_id"].as_str().unwrap().to_string();
         assert_eq!(direct_thread, format!("direct:{identity}"));
-        let dm = call(&host, "member.session.resolve",
-            json!({ "memberId": identity, "threadId": direct_thread })).await;
+        let dm = call(
+            &host,
+            "member.session.resolve",
+            json!({ "memberId": identity, "threadId": direct_thread }),
+        )
+        .await;
         assert_eq!(dm["conversationId"], json!(conversation));
 
         // Later group join: per-group session for the same member.
-        call(&host, "space.addMember", json!({
-            "spaceId": space, "conversationId": conversation, "nickname": "Alice",
-            "operationId": Uuid::new_v4(),
-        })).await;
-        let in_group = call(&host, "member.session.resolve",
-            json!({ "memberId": identity, "threadId": space })).await;
+        call(
+            &host,
+            "space.addMember",
+            json!({
+                "spaceId": space, "conversationId": conversation, "nickname": "Alice",
+                "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
+        let in_group = call(
+            &host,
+            "member.session.resolve",
+            json!({ "memberId": identity, "threadId": space }),
+        )
+        .await;
         let group_session = in_group["conversationId"].as_str().unwrap().to_string();
         assert_ne!(group_session, conversation);
 
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
-        let group = sidebar["items"].as_array().unwrap().iter()
-            .find(|item| item["thread_id"] == json!(space)).unwrap().clone();
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
+        let group = sidebar["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["thread_id"] == json!(space))
+            .unwrap()
+            .clone();
         assert_eq!(group["kind"], json!("group"));
         assert_eq!(group["name"], json!("g1"));
         assert_eq!(group["members_preview"][0]["member_id"], json!(identity));
         assert_eq!(group["members_preview"][0]["name"], json!("Alice"));
-        assert_eq!(group["members_preview"][0]["conversation_id"], json!(group_session));
-        let dm_item = sidebar["items"].as_array().unwrap().iter()
-            .find(|item| item["thread_id"] == json!(direct_thread)).unwrap().clone();
+        assert_eq!(
+            group["members_preview"][0]["conversation_id"],
+            json!(group_session)
+        );
+        let dm_item = sidebar["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["thread_id"] == json!(direct_thread))
+            .unwrap()
+            .clone();
         assert_eq!(dm_item["kind"], json!("dm"));
         let members = call(&host, "member.list", json!({ "workspaceId": workspace })).await;
         assert!(
@@ -3424,34 +3443,69 @@ mod tests {
         let space = new_space(&host, workspace, "g").await;
         let count = |sql: &'static str| {
             let pool = pool.clone();
-            async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.unwrap() }
+            async move {
+                sqlx::query_scalar::<_, i64>(sql)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
         };
         let sessions_before = count("SELECT COUNT(*) FROM sessions").await;
         let spaces_before = count("SELECT COUNT(*) FROM collaboration_spaces").await;
         // Current form payload, created from inside a group.
-        let created = call(&host, "space.createMember", json!({
-            "workspaceId": workspace, "spaceId": space, "nickname": "Solo",
-            "source": "agent", "agentId": "codex", "modeId": "", "configValues": {},
-            "personaPrompt": "", "operationId": Uuid::new_v4(),
-        })).await;
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace, "spaceId": space, "nickname": "Solo",
+                "source": "agent", "agentId": "codex", "modeId": "", "configValues": {},
+                "personaPrompt": "", "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
         let identity = created["identity_member_id"].as_str().unwrap().to_string();
-        assert_eq!(count("SELECT COUNT(*) FROM sessions").await, sessions_before + 1);
-        assert_eq!(count("SELECT COUNT(*) FROM collaboration_spaces").await, spaces_before);
+        assert_eq!(
+            count("SELECT COUNT(*) FROM sessions").await,
+            sessions_before + 1
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM collaboration_spaces").await,
+            spaces_before
+        );
         let bindings = sqlx::query_as::<_, (String, String)>(
             "SELECT thread_id, conversation_id FROM collaboration_thread_members WHERE member_id = ?")
             .bind(&identity).fetch_all(&pool).await.unwrap();
-        assert_eq!(bindings, vec![(format!("direct:{identity}"), created["conversation_id"].as_str().unwrap().to_string())]);
-        let kind: String = sqlx::query_scalar("SELECT kind FROM collaboration_threads WHERE id = ?")
-            .bind(format!("direct:{identity}")).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            bindings,
+            vec![(
+                format!("direct:{identity}"),
+                created["conversation_id"].as_str().unwrap().to_string()
+            )]
+        );
+        let kind: String =
+            sqlx::query_scalar("SELECT kind FROM collaboration_threads WHERE id = ?")
+                .bind(format!("direct:{identity}"))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(kind, "direct");
         let in_group: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM collaboration_space_members WHERE space_id = ? AND kind = 'agent'")
             .bind(&space).fetch_one(&pool).await.unwrap();
         assert_eq!(in_group, 0);
-        assert_eq!(created["direct_thread_id"], json!(format!("direct:{identity}")));
+        assert_eq!(
+            created["direct_thread_id"],
+            json!(format!("direct:{identity}"))
+        );
     }
 
-    async fn dm_event(pool: &SqlitePool, conversation: Uuid, sequence: i64, kind: &str, body: Value) {
+    async fn dm_event(
+        pool: &SqlitePool,
+        conversation: Uuid,
+        sequence: i64,
+        kind: &str,
+        body: Value,
+    ) {
         sqlx::query(
             r#"INSERT INTO conversation_events
                (id, conversation_id, sequence, source, event_kind, normalized_json)
@@ -3470,56 +3524,182 @@ mod tests {
     #[tokio::test]
     async fn dm_sidebar_preview_unread_and_direct_space_routes() {
         let (pool, host, workspace) = sidebar_host().await;
-        let created = call(&host, "space.createMember", json!({
-            "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
-            "nickname": "Alice", "source": "agent", "agentId": "codex", "modeId": "",
-            "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
-        })).await;
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
+                "nickname": "Alice", "source": "agent", "agentId": "codex", "modeId": "",
+                "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
         let thread = created["direct_thread_id"].as_str().unwrap().to_string();
-        let conversation =
-            Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
+        let conversation = Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
         let dm_item = |sidebar: Value| {
-            sidebar["items"].as_array().unwrap().iter()
-                .find(|item| item["thread_id"] == json!(thread)).unwrap().clone()
+            sidebar["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["thread_id"] == json!(thread))
+                .unwrap()
+                .clone()
         };
 
-        let empty = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        let empty = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(empty["kind"], json!("dm"));
         assert!(empty["last_message"].is_null());
 
         let user = |text: &str| json!({ "kind": "user_turn_created", "blocks": [{ "kind": "text", "text": text }] });
         let delta = |text: &str, id: &str| json!({ "kind": "assistant_text_delta", "text": text, "message_id": id });
-        dm_event(&pool, conversation, 1, "user_turn_created", user("hello   there")).await;
-        dm_event(&pool, conversation, 2, "tool_call_upsert", json!({ "kind": "tool_call_upsert" })).await;
-        dm_event(&pool, conversation, 3, "assistant_text_delta", delta("Hi", "m1")).await;
-        dm_event(&pool, conversation, 4, "assistant_text_delta", delta(" Alice here", "m1")).await;
-        dm_event(&pool, conversation, 5, "usage_updated", json!({ "kind": "usage_updated" })).await;
+        dm_event(
+            &pool,
+            conversation,
+            1,
+            "user_turn_created",
+            user("hello   there"),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            2,
+            "tool_call_upsert",
+            json!({ "kind": "tool_call_upsert" }),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            3,
+            "assistant_text_delta",
+            delta("Hi", "m1"),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            4,
+            "assistant_text_delta",
+            delta(" Alice here", "m1"),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            5,
+            "usage_updated",
+            json!({ "kind": "usage_updated" }),
+        )
+        .await;
 
-        let first = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        let first = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(first["last_message"]["preview"], json!("Hi Alice here"));
         assert_eq!(first["last_message"]["origin"], json!("agent"));
         assert_eq!(first["last_message"]["seq"], json!(3));
-        assert_eq!(first["last_activity_at"], first["last_message"]["created_at"]);
-        assert_eq!(first["unread_count"], json!(1), "reply arrived after the empty-thread baseline");
+        assert_eq!(
+            first["last_activity_at"],
+            first["last_message"]["created_at"]
+        );
+        assert_eq!(
+            first["unread_count"],
+            json!(1),
+            "reply arrived after the empty-thread baseline"
+        );
 
         let long = "x".repeat(300);
-        dm_event(&pool, conversation, 6, "user_turn_created", user("question two")).await;
-        dm_event(&pool, conversation, 7, "assistant_text_delta", delta("answer two", "m2")).await;
-        dm_event(&pool, conversation, 8, "assistant_text_delta", delta(&long, "m3")).await;
-        let second = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        dm_event(
+            &pool,
+            conversation,
+            6,
+            "user_turn_created",
+            user("question two"),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            7,
+            "assistant_text_delta",
+            delta("answer two", "m2"),
+        )
+        .await;
+        dm_event(
+            &pool,
+            conversation,
+            8,
+            "assistant_text_delta",
+            delta(&long, "m3"),
+        )
+        .await;
+        let second = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(second["unread_count"], json!(3));
         assert_eq!(second["last_message"]["seq"], json!(8));
-        assert_eq!(second["last_message"]["preview"].as_str().unwrap().chars().count(), 120);
+        assert_eq!(
+            second["last_message"]["preview"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            120
+        );
 
-        let marked = call(&host, "thread.markRead", json!({ "threadId": thread, "seq": 7 })).await;
+        let marked = call(
+            &host,
+            "thread.markRead",
+            json!({ "threadId": thread, "seq": 7 }),
+        )
+        .await;
         assert_eq!(marked["lastReadSeq"], json!(7));
-        let after = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        let after = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(after["unread_count"], json!(1));
         call(&host, "thread.markRead", json!({ "threadId": thread })).await;
-        let all_read = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        let all_read = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(all_read["unread_count"], json!(0));
         call(&host, "thread.markUnread", json!({ "threadId": thread })).await;
-        let unread_again = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        let unread_again = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert!(
             unread_again["unread_count"].as_i64().unwrap() > 0,
             "markUnread must restore an unread badge"
@@ -3528,17 +3708,34 @@ mod tests {
         // space.listMessages with spaceId = direct:<id> reads the DM conversation.
         let listed = call(&host, "space.listMessages", json!({ "spaceId": thread })).await;
         let messages = listed["messages"].as_array().unwrap();
-        let summary = messages.iter()
-            .map(|m| (m["seq"].as_i64().unwrap(), m["origin"].as_str().unwrap().to_string()))
+        let summary = messages
+            .iter()
+            .map(|m| {
+                (
+                    m["seq"].as_i64().unwrap(),
+                    m["origin"].as_str().unwrap().to_string(),
+                )
+            })
             .collect::<Vec<_>>();
-        assert_eq!(summary, vec![
-            (1, "user".to_string()), (3, "agent".to_string()), (6, "user".to_string()),
-            (7, "agent".to_string()), (8, "agent".to_string()),
-        ]);
+        assert_eq!(
+            summary,
+            vec![
+                (1, "user".to_string()),
+                (3, "agent".to_string()),
+                (6, "user".to_string()),
+                (7, "agent".to_string()),
+                (8, "agent".to_string()),
+            ]
+        );
         assert_eq!(messages[0]["envelope"]["content"], json!("hello   there"));
         assert_eq!(messages[1]["envelope"]["content"], json!("Hi Alice here"));
         assert_eq!(listed["conversationId"], json!(conversation.to_string()));
-        let since = call(&host, "space.listMessages", json!({ "spaceId": thread, "sinceSeq": 3 })).await;
+        let since = call(
+            &host,
+            "space.listMessages",
+            json!({ "spaceId": thread, "sinceSeq": 3 }),
+        )
+        .await;
         assert_eq!(since["messages"].as_array().unwrap().len(), 3);
 
         dm_event(
@@ -3556,25 +3753,61 @@ mod tests {
             .iter()
             .filter_map(|m| m["envelope"]["content"].as_str())
             .collect();
-        assert!(!after_texts.iter().any(|text| text.contains("vibex-private-bootstrap")));
-        let last = dm_item(call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await);
+        assert!(
+            !after_texts
+                .iter()
+                .any(|text| text.contains("vibex-private-bootstrap"))
+        );
+        let last = dm_item(
+            call(
+                &host,
+                "thread.listSidebar",
+                json!({ "workspaceId": workspace }),
+            )
+            .await,
+        );
         assert_eq!(last["last_message"]["seq"], json!(8));
 
         // space.post / space.submit with a direct thread queue user input on the DM session.
         let operation = Uuid::new_v4();
-        let posted = call(&host, "space.post", json!({
-            "spaceId": thread, "content": "ping", "operationId": operation,
-        })).await;
+        let posted = call(
+            &host,
+            "space.post",
+            json!({
+                "spaceId": thread, "content": "ping", "operationId": operation,
+            }),
+        )
+        .await;
         assert_eq!(posted["conversationId"], json!(conversation.to_string()));
         assert!(posted["inputId"].is_string());
-        call(&host, "space.post", json!({ "spaceId": thread, "content": "ping", "operationId": operation })).await;
-        call(&host, "space.submit", json!({ "threadId": thread, "content": "pong", "operationId": Uuid::new_v4() })).await;
-        let inputs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs WHERE conversation_id = ?")
-            .bind(conversation).fetch_one(&pool).await.unwrap();
+        call(
+            &host,
+            "space.post",
+            json!({ "spaceId": thread, "content": "ping", "operationId": operation }),
+        )
+        .await;
+        call(
+            &host,
+            "space.submit",
+            json!({ "threadId": thread, "content": "pong", "operationId": Uuid::new_v4() }),
+        )
+        .await;
+        let inputs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM conversation_inputs WHERE conversation_id = ?",
+        )
+        .bind(conversation)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(inputs, 2, "replayed operation is idempotent");
-        let group_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_space_messages")
-            .fetch_one(&pool).await.unwrap();
-        assert_eq!(group_rows, 0);
+        let dm_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_messages WHERE space_id = ?",
+        )
+        .bind(&thread)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(dm_rows, 2);
     }
 
     #[tokio::test]
@@ -3596,8 +3829,7 @@ mod tests {
         )
         .await;
         let thread = created["direct_thread_id"].as_str().unwrap().to_string();
-        let conversation =
-            Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
+        let conversation = Uuid::parse_str(created["conversation_id"].as_str().unwrap()).unwrap();
 
         let sessions = Session::find_by_workspace_id(&pool, workspace)
             .await
@@ -3631,7 +3863,12 @@ mod tests {
         let receipts = ping["receipts"].as_array().expect("receipts");
         assert_eq!(receipts[0]["delivered"], json!("queued"));
 
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         let item = sidebar["items"]
             .as_array()
             .unwrap()
@@ -3646,62 +3883,332 @@ mod tests {
     async fn contact_groups_crud_reorder_and_thread_filing() {
         let (_pool, host, workspace) = sidebar_host().await;
         let space = new_space(&host, workspace, "g").await;
-        let created = call(&host, "space.createMember", json!({
-            "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
-            "nickname": "Bob", "source": "agent", "agentId": "codex", "modeId": "",
-            "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
-        })).await;
+        let created = call(
+            &host,
+            "space.createMember",
+            json!({
+                "workspaceId": workspace, "spaceId": format!("unassigned:{workspace}"),
+                "nickname": "Bob", "source": "agent", "agentId": "codex", "modeId": "",
+                "configValues": {}, "personaPrompt": "", "operationId": Uuid::new_v4(),
+            }),
+        )
+        .await;
         let dm = created["direct_thread_id"].as_str().unwrap().to_string();
         let group_of = |sidebar: Value, id: &str| {
-            sidebar["items"].as_array().unwrap().iter()
-                .find(|item| item["thread_id"] == json!(id)).unwrap()["group_id"].clone()
+            sidebar["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["thread_id"] == json!(id))
+                .unwrap()["group_id"]
+                .clone()
         };
 
-        let work = call(&host, "contactGroup.create", json!({ "workspaceId": workspace, "name": " Work " })).await["group"].clone();
-        let home = call(&host, "contactGroup.create", json!({ "workspaceId": workspace, "name": "Home" })).await["group"].clone();
+        let work = call(
+            &host,
+            "contactGroup.create",
+            json!({ "workspaceId": workspace, "name": " Work " }),
+        )
+        .await["group"]
+            .clone();
+        let home = call(
+            &host,
+            "contactGroup.create",
+            json!({ "workspaceId": workspace, "name": "Home" }),
+        )
+        .await["group"]
+            .clone();
         assert_eq!(work["name"], json!("Work"));
-        assert_eq!((work["sort_order"].clone(), home["sort_order"].clone()), (json!(0), json!(1)));
+        assert_eq!(
+            (work["sort_order"].clone(), home["sort_order"].clone()),
+            (json!(0), json!(1))
+        );
         let work_id = work["group_id"].as_str().unwrap().to_string();
         let home_id = home["group_id"].as_str().unwrap().to_string();
-        assert!(host.call("host", "collaboration", "contactGroup.create", json!({ "workspaceId": workspace, "name": "  " })).await.is_err());
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "contactGroup.create",
+                json!({ "workspaceId": workspace, "name": "  " })
+            )
+            .await
+            .is_err()
+        );
 
-        let renamed = call(&host, "contactGroup.rename", json!({ "groupId": work_id, "name": "Job" })).await;
+        let renamed = call(
+            &host,
+            "contactGroup.rename",
+            json!({ "groupId": work_id, "name": "Job" }),
+        )
+        .await;
         assert_eq!(renamed["group"]["name"], json!("Job"));
 
-        let order = call(&host, "contactGroup.reorder", json!({ "workspaceId": workspace, "groupIds": [home_id, work_id] })).await;
-        let names: Vec<_> = order["groups"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap().to_string()).collect();
+        let order = call(
+            &host,
+            "contactGroup.reorder",
+            json!({ "workspaceId": workspace, "groupIds": [home_id, work_id] }),
+        )
+        .await;
+        let names: Vec<_> = order["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["name"].as_str().unwrap().to_string())
+            .collect();
         assert_eq!(names, vec!["Home", "Job"]);
-        assert!(host.call("host", "collaboration", "contactGroup.reorder", json!({ "workspaceId": workspace, "groupIds": [home_id] })).await.is_err());
-        let listed = call(&host, "contactGroup.list", json!({ "workspaceId": workspace })).await;
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "contactGroup.reorder",
+                json!({ "workspaceId": workspace, "groupIds": [home_id] })
+            )
+            .await
+            .is_err()
+        );
+        let listed = call(
+            &host,
+            "contactGroup.list",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert_eq!(listed["groups"][0]["group_id"], json!(home_id));
 
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert!(group_of(sidebar.clone(), &dm).is_null());
         assert!(group_of(sidebar, &space).is_null());
 
-        call(&host, "thread.setGroup", json!({ "threadId": dm, "groupId": work_id })).await;
-        call(&host, "thread.setGroup", json!({ "threadId": space, "groupId": work_id })).await;
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        call(
+            &host,
+            "thread.setGroup",
+            json!({ "threadId": dm, "groupId": work_id }),
+        )
+        .await;
+        call(
+            &host,
+            "thread.setGroup",
+            json!({ "threadId": space, "groupId": work_id }),
+        )
+        .await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert_eq!(group_of(sidebar.clone(), &dm), json!(work_id));
         assert_eq!(group_of(sidebar, &space), json!(work_id));
 
-        call(&host, "thread.setGroup", json!({ "threadId": space, "groupId": home_id })).await;
-        call(&host, "thread.setGroup", json!({ "threadId": dm, "groupId": null })).await;
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        call(
+            &host,
+            "thread.setGroup",
+            json!({ "threadId": space, "groupId": home_id }),
+        )
+        .await;
+        call(
+            &host,
+            "thread.setGroup",
+            json!({ "threadId": dm, "groupId": null }),
+        )
+        .await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert!(group_of(sidebar.clone(), &dm).is_null());
         assert_eq!(group_of(sidebar, &space), json!(home_id));
 
-        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": "direct:nope", "groupId": home_id })).await.is_err());
-        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": dm, "groupId": "nope" })).await.is_err());
-        let other = call(&host, "contactGroup.create", json!({ "workspaceId": Uuid::new_v4(), "name": "Else" })).await["group"]["group_id"].clone();
-        assert!(host.call("host", "collaboration", "thread.setGroup", json!({ "threadId": dm, "groupId": other })).await.is_err());
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "thread.setGroup",
+                json!({ "threadId": "direct:nope", "groupId": home_id })
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "thread.setGroup",
+                json!({ "threadId": dm, "groupId": "nope" })
+            )
+            .await
+            .is_err()
+        );
+        let other = call(
+            &host,
+            "contactGroup.create",
+            json!({ "workspaceId": Uuid::new_v4(), "name": "Else" }),
+        )
+        .await["group"]["group_id"]
+            .clone();
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "thread.setGroup",
+                json!({ "threadId": dm, "groupId": other })
+            )
+            .await
+            .is_err()
+        );
 
         let deleted = call(&host, "contactGroup.delete", json!({ "groupId": home_id })).await;
         assert_eq!(deleted["ungroupedThreadIds"], json!([space]));
-        let sidebar = call(&host, "thread.listSidebar", json!({ "workspaceId": workspace })).await;
+        let sidebar = call(
+            &host,
+            "thread.listSidebar",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert!(group_of(sidebar, &space).is_null());
-        let listed = call(&host, "contactGroup.list", json!({ "workspaceId": workspace })).await;
+        let listed = call(
+            &host,
+            "contactGroup.list",
+            json!({ "workspaceId": workspace }),
+        )
+        .await;
         assert_eq!(listed["groups"].as_array().unwrap().len(), 1);
-        assert!(host.call("host", "collaboration", "contactGroup.delete", json!({ "groupId": home_id })).await.is_err());
+        assert!(
+            host.call(
+                "host",
+                "collaboration",
+                "contactGroup.delete",
+                json!({ "groupId": home_id })
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_turn_allows_the_owner_and_rejects_other_members() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        create_session(&pool, b, workspace, "小B").await;
+        let space = host
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "评审", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap()["space_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let seat_a = host
+            .call(
+                "host",
+                "collaboration",
+                "space.addMember",
+                json!({ "spaceId": space, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let seat_b = host
+            .call(
+                "host",
+                "collaboration",
+                "space.addMember",
+                json!({ "spaceId": space, "conversationId": b, "nickname": "小B", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let conv_a = seat_a
+            .get("conversation_id")
+            .or_else(|| seat_a.get("conversationId"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| a.to_string());
+        let conv_b = seat_b
+            .get("conversation_id")
+            .or_else(|| seat_b.get("conversationId"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| b.to_string());
+        let posted = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({
+                    "spaceId": space,
+                    "content": "@小A 请处理",
+                    "to": ["小A"],
+                    "operationId": Uuid::new_v4(),
+                }),
+            )
+            .await
+            .unwrap();
+        let message_id = posted["message_id"].as_str().unwrap().to_string();
+        sqlx::query(
+            r#"UPDATE collaboration_space_deliveries
+               SET receipt_state = 'processing'
+               WHERE space_message_id = ?"#,
+        )
+        .bind(&message_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let denied = host
+            .call(
+                "host",
+                "collaboration",
+                "space.cancelTurn",
+                json!({
+                    "spaceId": space,
+                    "messageId": message_id,
+                    "callerId": conv_b,
+                }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(denied.code(), "out_of_scope");
+        let cancelled = host
+            .call(
+                "host",
+                "collaboration",
+                "space.cancel_turn",
+                json!({
+                    "spaceId": space,
+                    "messageId": message_id,
+                    "callerId": conv_a,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled["cancelled"].as_array().unwrap().len(), 1);
+        let receipts = host
+            .call(
+                "host",
+                "collaboration",
+                "space.receipts",
+                json!({ "messageId": message_id }),
+            )
+            .await
+            .unwrap();
+        let state = receipts["receipts"][0]["state"].as_str().unwrap();
+        assert_eq!(state, "cancelled");
+        assert_eq!(
+            receipts["receipts"][0]["outcome"].as_str(),
+            Some("cancelled")
+        );
     }
 }

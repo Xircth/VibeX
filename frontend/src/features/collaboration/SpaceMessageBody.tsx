@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 
 import { AgentQuestionCard } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
-import type { AgentElicitationResponse } from 'shared/types';
+import type { AgentElicitationResponse, JsonValue } from 'shared/types';
 import {
   CollaborationMemberMentionContext,
   useCollaborationMemberMention,
@@ -194,7 +194,10 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
             question_id: card.id,
             prompt: card.body,
             options: card.options,
-            schema: { type: 'object', 'x-vibex-questions': card.questions },
+            schema: {
+              type: 'object',
+              'x-vibex-questions': card.questions as unknown as JsonValue,
+            },
           }}
           responding={busy}
           onRespond={(_questionId, response) => {

@@ -10,7 +10,13 @@ import {
 const labels = (
   items: ReturnType<typeof buildMemberAvatarMenuItems>
 ) =>
-  items.map((item) => (item.type === 'separator' ? '---' : item.label));
+  items.map((item) =>
+    item.type === 'separator'
+      ? '---'
+      : item.type === 'emoji-row'
+        ? 'emojis'
+        : item.label
+  );
 
 describe('member avatar menu', () => {
   it('lists a colored @mention, private chat and open session', () => {
@@ -25,15 +31,20 @@ describe('member avatar menu', () => {
     });
     expect(labels(items)).toEqual(['@小A', '---', '进入私聊', '打开会话']);
     const mention = items[0];
-    expect(mention.type !== 'separator' && mention.label).toBe(
-      memberMentionMenuLabel('小A')
-    );
     expect(
       mention.type !== 'separator' &&
+        mention.type !== 'emoji-row' &&
+        mention.label
+    ).toBe(memberMentionMenuLabel('小A'));
+    expect(
+      mention.type !== 'separator' &&
+        mention.type !== 'emoji-row' &&
         'labelStyle' in mention &&
         mention.labelStyle
     ).toEqual(memberMentionLabelStyle(color));
-    if (mention.type !== 'separator') mention.onSelect();
+    if (mention.type !== 'separator' && mention.type !== 'emoji-row') {
+      mention.onSelect?.();
+    }
     expect(onMention).toHaveBeenCalledOnce();
   });
 });

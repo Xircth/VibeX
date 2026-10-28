@@ -4,18 +4,24 @@ import { MermaidDiagram } from './MermaidDiagram';
 
 const initialize = vi.hoisted(() => vi.fn());
 const renderDiagram = vi.hoisted(() =>
-  vi.fn(async (id: string, _text?: string, container?: Element) => {
-    if (!container || !document.body.contains(container)) {
-      throw new TypeError(
-        "Cannot read properties of null (reading 'firstChild')"
-      );
+  vi.fn(
+    async (
+      id: string,
+      _text?: string,
+      container?: Element
+    ): Promise<{ svg: string }> => {
+      if (!container || !document.body.contains(container)) {
+        throw new TypeError(
+          "Cannot read properties of null (reading 'firstChild')"
+        );
+      }
+      const bomb = document.createElement('div');
+      bomb.id = `d${id}`;
+      bomb.setAttribute('data-mermaid-bomb', 'true');
+      document.body.appendChild(bomb);
+      throw new Error('Syntax error in text');
     }
-    const bomb = document.createElement('div');
-    bomb.id = `d${id}`;
-    bomb.setAttribute('data-mermaid-bomb', 'true');
-    document.body.appendChild(bomb);
-    throw new Error('Syntax error in text');
-  })
+  )
 );
 
 vi.mock('mermaid', () => ({

@@ -15,13 +15,7 @@
 //! longer idle timeout (default 20 minutes). Direct chats and cold groups keep
 //! the ordinary 180s rule.
 
-use std::{
-    collections::HashSet,
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use tokio::sync::RwLock;
 
@@ -65,9 +59,8 @@ fn duration_from_env(key: &str, default_secs: u64) -> Option<Duration> {
     Some(Duration::from_secs(secs))
 }
 
-pub type ExtendedIdleSessionsLookup = Arc<
-    dyn Fn() -> Pin<Box<dyn Future<Output = HashSet<AgentSessionId>> + Send>> + Send + Sync,
->;
+pub type ExtendedIdleSessionsLookup =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = HashSet<AgentSessionId>> + Send>> + Send + Sync>;
 
 /// Lookup installed after construction so collaboration can name hot sessions
 /// without the agents crate querying SQLite.

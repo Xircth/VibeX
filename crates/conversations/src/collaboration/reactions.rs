@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use super::{CollaborationError, db, load_space_or_unassigned, now_stamp};
+use super::{
+    CollaborationError, append_space_event_tx, db, finish_tx, load_space_or_unassigned, now_stamp,
+};
 
 pub const SPACE_REACTION_USER_ACTOR: &str = "user";
 const EMOJI_MAX_BYTES: usize = 32;
@@ -81,33 +83,65 @@ pub async fn toggle_space_reaction(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
-    if existing.as_deref() == Some(emoji.as_str()) {
-        sqlx::query(
-            r#"DELETE FROM collaboration_message_reactions
-               WHERE space_id = ? AND message_id = ? AND actor = ?"#,
-        )
-        .bind(space_id)
-        .bind(&message_id)
-        .bind(&actor)
-        .execute(pool)
-        .await
-        .map_err(db)?;
-    } else {
-        sqlx::query(
-            r#"INSERT INTO collaboration_message_reactions
-               (space_id, message_id, actor, emoji, created_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(space_id, message_id, actor)
-               DO UPDATE SET emoji = excluded.emoji, created_at = excluded.created_at"#,
-        )
-        .bind(space_id)
-        .bind(&message_id)
-        .bind(&actor)
-        .bind(&emoji)
-        .bind(now_stamp())
-        .execute(pool)
-        .await
-        .map_err(db)?;
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let rx_outcome = async {
+            if existing.as_deref() == Some(emoji.as_str()) {
+                sqlx::query(
+                    r#"DELETE FROM collaboration_message_reactions
+                       WHERE space_id = ? AND message_id = ? AND actor = ?"#,
+                )
+                .bind(space_id)
+                .bind(&message_id)
+                .bind(&actor)
+                .execute(&mut *conn)
+                .await?;
+            } else {
+                sqlx::query(
+                    r#"INSERT INTO collaboration_message_reactions
+                       (space_id, message_id, actor, emoji, created_at)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(space_id, message_id, actor)
+                       DO UPDATE SET emoji = excluded.emoji, created_at = excluded.created_at"#,
+                )
+                .bind(space_id)
+                .bind(&message_id)
+                .bind(&actor)
+                .bind(&emoji)
+                .bind(&stamp)
+                .execute(&mut *conn)
+                .await?;
+            }
+            let message_seq: Option<i64> = sqlx::query_scalar(
+                "SELECT seq FROM collaboration_space_messages WHERE space_id = ? AND id = ?",
+            )
+            .bind(space_id)
+            .bind(&message_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+            append_space_event_tx(
+                &mut conn,
+                space_id,
+                "message",
+                Some(&message_id),
+                &json!({
+                    "action": "reaction",
+                    "message_seq": message_seq,
+                    "actor": actor,
+                    "emoji": emoji,
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, rx_outcome).await?;
     }
     list_space_reactions(pool, space_id, &message_id).await
 }

@@ -2569,6 +2569,10 @@ struct SessionControlState {
     available_commands: Option<Vec<AgentAvailableCommand>>,
     /// Reasoning metadata reported by Kiro via `_kiro.dev/metadata`.
     kiro_reasoning: Option<KiroReasoning>,
+    /// Concrete model ids from the establishing reply's top-level `models`
+    /// (`availableModels[].modelId`). Antigravity 1.4+ keeps variant ids here
+    /// after grouping the selector into family + `thinking_level`.
+    session_model_ids: Vec<String>,
     /// `availableModels[]._meta.totalContextTokens` from session establishment.
     grok_model_windows: HashMap<String, u64>,
     /// Last occupancy pair emitted as `AgentEvent::Usage` for this session.
@@ -4446,6 +4450,7 @@ impl AgentConnectionRunner {
                         config_options,
                         vendor_config,
                         response.meta.as_ref(),
+                        session_model_ids(raw_models.as_ref()),
                     )
                     .await;
                     *self.pending_session_id.lock().await = None;
@@ -4540,6 +4545,7 @@ impl AgentConnectionRunner {
                     config_options,
                     vendor_config,
                     response.meta.as_ref(),
+                    session_model_ids(raw_models.as_ref()),
                 )
                 .await;
                 Ok((
@@ -4757,6 +4763,7 @@ impl AgentConnectionRunner {
             config_options,
             vendor_config,
             response.meta.as_ref(),
+            session_model_ids(raw_models.as_ref()),
         )
         .await;
         if self.snapshot.agent_id.as_str() == "zcode"
@@ -5201,6 +5208,7 @@ impl AgentConnectionRunner {
         config_options: Option<Vec<AcpSessionConfigOption>>,
         vendor_config: Option<VendorConfigWire>,
         session_meta: Option<&serde_json::Map<String, serde_json::Value>>,
+        session_model_ids: Vec<String>,
     ) {
         let raw_modes = modes.clone();
         let (config_options, mode_uses_set_mode) = unify_session_config_options(
@@ -5230,6 +5238,9 @@ impl AgentConnectionRunner {
             }
             if let Some(vendor_config) = vendor_config {
                 entry.vendor_config = Some(vendor_config);
+            }
+            if !session_model_ids.is_empty() {
+                entry.session_model_ids = session_model_ids.clone();
             }
             if let Some(meta) = session_meta {
                 let windows = grok_usage::windows_from_session_meta(Some(meta));
@@ -5271,6 +5282,7 @@ impl AgentConnectionRunner {
                     &config_options,
                     preferences.mode.as_deref(),
                     &preferences.config,
+                    &session_model_ids,
                 );
             if let Err(error) = self
                 .apply_session_overrides(
@@ -5780,7 +5792,7 @@ impl AgentConnectionRunner {
         key: &str,
         value: &serde_json::Value,
     ) -> Result<(), acp::Error> {
-        let (config_options, vendor_config) = {
+        let (config_options, vendor_config, session_model_ids) = {
             let controls = self.session_controls.read().await;
             let state = controls.get(&session_id);
             (
@@ -5788,6 +5800,9 @@ impl AgentConnectionRunner {
                     .map(|controls| controls.config_options.clone())
                     .unwrap_or_default(),
                 state.and_then(|controls| controls.vendor_config),
+                state
+                    .map(|controls| controls.session_model_ids.clone())
+                    .unwrap_or_default(),
             )
         };
         if config_options.is_empty() {
@@ -5796,9 +5811,13 @@ impl AgentConnectionRunner {
         }
 
         let agent_kind = AgentKind::from_lenient(self.snapshot.agent_id.as_str());
-        let Some(selection) =
-            find_config_override_selection_for_agent(&config_options, agent_kind, key, value)
-        else {
+        let Some(selection) = find_config_override_selection_for_agent(
+            &config_options,
+            agent_kind,
+            key,
+            value,
+            &session_model_ids,
+        ) else {
             if vendor_config == Some(VendorConfigWire::KiroSessionConfig) {
                 if key == KIRO_THINKING_OPTION_ID
                     && let Some(enabled) = value.as_str().and_then(kiro_thinking_value)
@@ -5858,8 +5877,11 @@ impl AgentConnectionRunner {
 
         // Grok and Kiro apply their vendor-advertised model option via the
         // non-standard `session/set_model` method; the standard
-        // `session/set_config_option` rejects it. The model value rides
-        // `selection.event_value` so the exact advertised choice id is sent.
+        // `session/set_config_option` rejects it. Antigravity 1.4+ still lists
+        // variant ids in `models.availableModels` but applies family ids through
+        // `session/set_config_option`, so it must not share this branch.
+        // The model value rides `selection.event_value` so the exact advertised
+        // choice id is sent.
         if matches!(
             vendor_config,
             Some(VendorConfigWire::XaiSessionConfig | VendorConfigWire::KiroSessionConfig)
@@ -9061,13 +9083,15 @@ fn session_modes_reject_id(modes: &SessionModeState, mode_id: &str) -> bool {
 ///    config option) rejects it.
 /// 2. Heal retired Claude model picks (`heal_retired_model_picks`) in memory.
 /// 3. Order model selections first, and drop any config preference that the
-///    advertised option still rejects via `config_option_rejects_value`.
+///    advertised option still rejects via `config_option_rejects_value`,
+///    unless Antigravity's flat model list still offers that value.
 fn prepare_preferred_controls_for_replay(
     agent_kind: Option<AgentKind>,
     modes: Option<&SessionModeState>,
     options: &[AcpSessionConfigOption],
     preferred_mode: Option<&str>,
     preferred_config: &[AgentSessionConfigOverride],
+    session_model_ids: &[String],
 ) -> (
     Option<String>,
     Vec<AgentSessionConfigOverride>,
@@ -9127,14 +9151,30 @@ fn prepare_preferred_controls_for_replay(
         let advertised = options
             .iter()
             .find(|o| o.id.0.as_ref() == item.key.as_str() || config_option_matches(o, &item.key));
-        if advertised.is_some_and(|o| config_option_rejects_value(o, item.value.as_str())) {
+        if let Some(option) =
+            advertised.filter(|o| config_option_rejects_value(o, item.value.as_str()))
+        {
+            if !session_model_list_offers(
+                agent_kind,
+                option,
+                item.value.as_str(),
+                session_model_ids,
+            ) {
+                tracing::info!(
+                    "[ACP] skipping preferred config '{}'='{}' on connect: \
+                     the agent no longer offers that value",
+                    item.key,
+                    item.value
+                );
+                continue;
+            }
             tracing::info!(
-                "[ACP] skipping preferred config '{}'='{}' on connect: \
-                 the agent no longer offers that value",
+                "[ACP] preferred config '{}'='{}' is no longer a row of \
+                 its selector; replaying it as saved, since the agent's session model \
+                 list still offers it",
                 item.key,
                 item.value
             );
-            continue;
         }
         filtered_overrides.push(item);
     }
@@ -9181,7 +9221,7 @@ fn find_config_override_selection(
     key: &str,
     value: &serde_json::Value,
 ) -> Option<ConfigOverrideSelection> {
-    find_config_override_selection_for_agent(options, None, key, value)
+    find_config_override_selection_for_agent(options, None, key, value, &[])
 }
 
 fn find_config_override_selection_for_agent(
@@ -9189,6 +9229,7 @@ fn find_config_override_selection_for_agent(
     agent_kind: Option<AgentKind>,
     key: &str,
     value: &serde_json::Value,
+    session_model_ids: &[String],
 ) -> Option<ConfigOverrideSelection> {
     for option in options {
         if !config_option_matches(option, key) {
@@ -9205,6 +9246,19 @@ fn find_config_override_selection_for_agent(
                     None
                 };
                 let effective = healed.as_deref().unwrap_or(requested);
+                // A variant id the selector no longer lists must be sent as
+                // saved when the same answer's flat model list still names it.
+                // Checking this before `find_select_choice` stops
+                // `gemini-4-argon-high` being substring-matched onto the
+                // family row `gemini-4-argon`.
+                if session_model_list_offers(agent_kind, option, effective, session_model_ids) {
+                    return Some(ConfigOverrideSelection {
+                        config_id: option.id.0.to_string(),
+                        wire_value: SessionConfigOptionValue::value_id(effective.to_string()),
+                        event_value: serde_json::Value::String(effective.to_string()),
+                        already_selected: select.current_value.0.as_ref() == effective,
+                    });
+                }
                 // For Claude Code's model selector, once healing has run, a value
                 // that the non-empty select still rejects must be dropped rather
                 // than fuzzy-matched onto a different model row.
@@ -9902,22 +9956,64 @@ fn session_controls_with_models_and_vendor_fallback(
 ) {
     let (modes, mut config_options, mut vendor_config) =
         session_controls_with_vendor_fallback(modes, config_options, meta);
-    if let Some(kiro_model) = synthesize_kiro_model_option(raw_models) {
-        let mut options = config_options.unwrap_or_default();
-        if !options.iter().any(|opt| {
-            opt.id.0.as_ref() == KIRO_MODEL_OPTION_ID
-                || opt.category.as_ref() == Some(&SessionConfigOptionCategory::Model)
-        }) {
-            options.push(kiro_model);
+    // Kiro publishes its catalog only in top-level `models`. Other agents may
+    // still send that field (Antigravity 1.4+ keeps variant ids next to a
+    // standard family `model` selector). Synthesizing a Kiro wire surface for
+    // them would send `session/set_model` with a family id the variant list
+    // does not contain.
+    if AgentKind::Kiro.matches_id(agent_id) {
+        if let Some(kiro_model) = synthesize_kiro_model_option(raw_models) {
+            let mut options = config_options.unwrap_or_default();
+            if !options.iter().any(|opt| {
+                opt.id.0.as_ref() == KIRO_MODEL_OPTION_ID
+                    || opt.category.as_ref() == Some(&SessionConfigOptionCategory::Model)
+            }) {
+                options.push(kiro_model);
+            }
+            config_options = Some(options);
         }
-        config_options = Some(options);
         if vendor_config.is_none() {
             vendor_config = Some(VendorConfigWire::KiroSessionConfig);
         }
-    } else if agent_id == "kiro" && vendor_config.is_none() {
-        vendor_config = Some(VendorConfigWire::KiroSessionConfig);
     }
     (modes, config_options, vendor_config)
+}
+
+/// The model ids a session-establishing answer lists in its raw top-level
+/// `models` (`availableModels[].modelId`). Empty when the answer carries no
+/// such list; an entry without a non-empty string id is skipped.
+fn session_model_ids(models: Option<&serde_json::Value>) -> Vec<String> {
+    models
+        .and_then(|models| models.get("availableModels"))
+        .and_then(serde_json::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("modelId")?.as_str())
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether a saved model pick the selector no longer lists is one the agent
+/// still takes: Google Antigravity's, when the same answer's flat model list
+/// ([`session_model_ids`]) names it.
+///
+/// Antigravity 1.4.0 groups the picker into a family `model` row plus a
+/// `thinking_level` select, while the flat `models` list keeps every variant
+/// id 1.3.0 listed. Its `set_config_option` still accepts those variant ids
+/// and maps them onto family + level.
+fn session_model_list_offers(
+    agent_kind: Option<AgentKind>,
+    option: &AcpSessionConfigOption,
+    value: &str,
+    session_model_ids: &[String],
+) -> bool {
+    agent_kind == Some(AgentKind::Antigravity)
+        && is_model_config_option(option)
+        && session_model_ids.iter().any(|id| id == value)
 }
 
 /// Kiro CLI publishes its models in the session reply's top-level `models`
@@ -12899,6 +12995,170 @@ mod tests {
         );
     }
 
+    /// Antigravity 1.4+ advertises family ids on the standard `model` selector
+    /// (`gemini-4-argon`) plus a `thinking_level` option, while the same reply
+    /// still lists concrete variants in top-level `models.availableModels`.
+    /// That list is Kiro's catalog only for Kiro; treating it as
+    /// `KiroSessionConfig` sends `session/set_model` with the family id, which
+    /// oauth-personal rejects as "not available for the current authentication
+    /// method".
+    fn antigravity_family_options() -> Vec<AcpSessionConfigOption> {
+        vec![
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                "gemini-3.8-flash",
+                vec![
+                    SessionConfigSelectOption::new("gemini-3.8-flash", "Gemini 3.8 Flash"),
+                    SessionConfigSelectOption::new("gemini-4-argon", "Gemini 4 Argon"),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+            AcpSessionConfigOption::select(
+                "thinking_level",
+                "Thinking",
+                "high",
+                vec![
+                    SessionConfigSelectOption::new("low", "Low"),
+                    SessionConfigSelectOption::new("medium", "Medium"),
+                    SessionConfigSelectOption::new("high", "High"),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::ThoughtLevel)),
+        ]
+    }
+
+    fn antigravity_variant_models() -> serde_json::Value {
+        serde_json::json!({
+            "currentModelId": "gemini-3.8-flash-high",
+            "availableModels": [
+                {"modelId": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash"},
+                {"modelId": "gemini-3.8-flash-low"},
+                {"modelId": "gemini-3.8-flash-medium"},
+                {"modelId": "gemini-4-argon-high"},
+                {"modelId": "gemini-4-argon-low"},
+                {"modelId": "gemini-4-argon-medium"}
+            ]
+        })
+    }
+
+    #[test]
+    fn antigravity_available_models_do_not_switch_vendor_wire_to_kiro() {
+        let (_, options, vendor_config) = session_controls_with_models_and_vendor_fallback(
+            None,
+            Some(antigravity_family_options()),
+            None,
+            Some(&antigravity_variant_models()),
+            "antigravity",
+        );
+        assert_eq!(
+            vendor_config, None,
+            "Antigravity keeps session/set_config_option; availableModels is not a Kiro catalog"
+        );
+        let options = options.expect("standard config options");
+        let selection = find_config_override_selection_for_agent(
+            &options,
+            Some(AgentKind::Antigravity),
+            "model",
+            &serde_json::json!("gemini-4-argon"),
+            &[],
+        )
+        .expect("family id is a selector row");
+        assert_eq!(selection.config_id, "model");
+        assert_eq!(selection.event_value, serde_json::json!("gemini-4-argon"));
+    }
+
+    #[test]
+    fn only_antigravity_replays_a_model_its_flat_list_still_offers() {
+        let options = antigravity_family_options();
+        let (model, level) = (&options[0], &options[1]);
+        let models = session_model_ids(Some(&antigravity_variant_models()));
+        let saved = "gemini-4-argon-high";
+
+        assert!(config_option_rejects_value(model, saved));
+        assert!(session_model_list_offers(
+            Some(AgentKind::Antigravity),
+            model,
+            saved,
+            &models
+        ));
+        assert!(!session_model_list_offers(
+            Some(AgentKind::Antigravity),
+            model,
+            "gemini-2.5-pro",
+            &models
+        ));
+        assert!(!session_model_list_offers(
+            Some(AgentKind::Antigravity),
+            model,
+            saved,
+            &[]
+        ));
+        assert!(!session_model_list_offers(
+            Some(AgentKind::Antigravity),
+            level,
+            saved,
+            &models
+        ));
+        for agent in [
+            Some(AgentKind::ClaudeCode),
+            Some(AgentKind::Codex),
+            Some(AgentKind::Opencode),
+            Some(AgentKind::Grok),
+            Some(AgentKind::Kiro),
+            None,
+        ] {
+            assert!(
+                !session_model_list_offers(agent, model, saved, &models),
+                "{agent:?}"
+            );
+        }
+
+        let selection = find_config_override_selection_for_agent(
+            &options,
+            Some(AgentKind::Antigravity),
+            "model",
+            &serde_json::json!(saved),
+            &models,
+        )
+        .expect("variant id still offered in the flat list is sent as saved");
+        assert_eq!(selection.event_value, serde_json::json!(saved));
+    }
+
+    #[test]
+    fn antigravity_saved_variant_id_is_replayed_from_the_flat_model_list() {
+        let options = antigravity_family_options();
+        let models = session_model_ids(Some(&antigravity_variant_models()));
+        let overrides = vec![
+            AgentSessionConfigOverride {
+                key: "thinking_level".to_string(),
+                value: "medium".to_string(),
+            },
+            AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "gemini-4-argon-high".to_string(),
+            },
+        ];
+        let (_, config_to_apply, _) = prepare_preferred_controls_for_replay(
+            Some(AgentKind::Antigravity),
+            None,
+            &options,
+            None,
+            &overrides,
+            &models,
+        );
+        assert_eq!(
+            config_to_apply
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("model", "gemini-4-argon-high"),
+                ("thinking_level", "medium"),
+            ]
+        );
+    }
+
     #[test]
     fn kiro_available_commands_filters_tui_only_and_includes_prompts() {
         let params = serde_json::json!({
@@ -13532,6 +13792,7 @@ mod tests {
                 Some(AgentKind::ClaudeCode),
                 "model",
                 &serde_json::json!("claude-fable-5-0"),
+                &[],
             )
             .is_none(),
             "retired Fable version must be dropped rather than fuzzy-matched onto Fable 5.1"
@@ -13587,6 +13848,7 @@ mod tests {
             &options,
             Some("bypassPermissions"),
             &overrides,
+            &[],
         );
         assert_eq!(
             mode_to_apply, None,

@@ -648,6 +648,8 @@ pub const DEFAULT_IDLE_SLEEP_MINUTES: i64 = 30;
 pub const DEFAULT_WAKE_CAP_PER_TURN: i64 = 3;
 /// Default max consecutive agent-to-agent messages in a space without an intervening user message.
 pub const DEFAULT_AGENT_REPLY_CHAIN_MAX: usize = 4;
+/// Default collaboration-turn deadline after a delivery binds an input.
+pub const DEFAULT_COLLAB_TURN_TIMEOUT_MINUTES: i64 = 15;
 
 pub fn agent_reply_chain_max() -> usize {
     env_i64(
@@ -673,6 +675,15 @@ pub fn idle_sleep_minutes() -> i64 {
 /// `VIBEX_MEMBER_WAKE_CAP` (default 3) sleeping sessions woken per turn.
 pub fn wake_cap_per_turn() -> i64 {
     env_i64("VIBEX_MEMBER_WAKE_CAP", DEFAULT_WAKE_CAP_PER_TURN)
+}
+
+/// `VIBEX_COLLAB_TURN_TIMEOUT_MINUTES` (default 15) before an open turn times out.
+pub fn collab_turn_timeout_minutes() -> i64 {
+    env_i64(
+        "VIBEX_COLLAB_TURN_TIMEOUT_MINUTES",
+        DEFAULT_COLLAB_TURN_TIMEOUT_MINUTES,
+    )
+    .max(1)
 }
 
 /// Mark the thread session behind `conversation_id` active (and awake).
@@ -729,9 +740,89 @@ pub async fn sleep_idle_sessions(
     Ok(result.rows_affected())
 }
 
-/// Background sweeper, once a minute: puts idle sessions to sleep
-/// ([`sleep_idle_sessions`]) and retries deferred deliveries
-/// ([`redeliver_deferred`]).
+/// Finish collaboration turns whose deadline has passed and mark still-
+/// processing receipts `timed_out`, which also frees in-flight slots.
+pub async fn sweep_expired_turns(pool: &SqlitePool) -> Result<u64, CollaborationError> {
+    let now = now_stamp();
+    let overdue_turns: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
+        r#"SELECT id, space_id, space_message_id, conversation_id, round_id
+           FROM collaboration_turns
+           WHERE state <> 'finished' AND deadline_at <= ?"#,
+    )
+    .bind(&now)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let finished = sqlx::query(
+        r#"UPDATE collaboration_turns
+           SET outcome = 'timed_out', state = 'finished', updated_at = ?
+           WHERE state <> 'finished' AND deadline_at <= ?"#,
+    )
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    sqlx::query(
+        r#"UPDATE collaboration_space_deliveries
+           SET receipt_state = 'timed_out', receipt_updated_at = ?
+           WHERE receipt_state IN ('queued', 'processing')
+             AND turn_id IN (
+               SELECT id FROM collaboration_turns
+               WHERE outcome = 'timed_out' AND state = 'finished'
+             )"#,
+    )
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+
+    let mut rounds_to_advance = std::collections::BTreeSet::new();
+    for (turn_id, space_id, message_id, conversation_id, round_id) in &overdue_turns {
+        let _ = append_space_event_pool(
+            pool,
+            space_id,
+            "turn",
+            Some(message_id),
+            &json!({
+                "action": "timed_out",
+                "turn_id": turn_id,
+                "conversation_id": conversation_id,
+                "outcome": "timed_out",
+                "receipt_state": "timed_out",
+            }),
+        )
+        .await;
+        if let Some(rid) = round_id {
+            rounds_to_advance.insert(rid.clone());
+        }
+    }
+
+    let overdue_rounds: Vec<String> = sqlx::query_scalar(
+        r#"SELECT id FROM collaboration_rounds
+           WHERE state IN ('open', 'closing') AND deadline_at <= ?"#,
+    )
+    .bind(&now)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for rid in overdue_rounds {
+        rounds_to_advance.insert(rid);
+    }
+
+    let default_ctx = DeliveryContext::default();
+    for rid in rounds_to_advance {
+        let _ = advance_round(pool, &rid, &default_ctx).await;
+    }
+
+    Ok(finished.rows_affected())
+}
+
+/// Background sweeper, once every 10s: puts idle sessions to sleep
+/// ([`sleep_idle_sessions`]), expires overdue collaboration turns
+/// ([`sweep_expired_turns`]), retries deferred deliveries
+/// ([`redeliver_deferred`]), and prunes expired space events
+/// ([`sweep_expired_space_events`]).
 pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
     tokio::spawn(async move {
         loop {
@@ -739,8 +830,14 @@ pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
             if let Err(error) = sleep_idle_sessions(&pool, minutes).await {
                 tracing::warn!(%error, "idle member session sweep failed");
             }
+            if let Err(error) = sweep_expired_turns(&pool).await {
+                tracing::warn!(%error, "expired collaboration turn sweep failed");
+            }
             if let Err(error) = redeliver_deferred(&pool, &delivery).await {
                 tracing::warn!(%error, "deferred delivery sweep failed");
+            }
+            if let Err(error) = sweep_expired_space_events(&pool).await {
+                tracing::warn!(%error, "expired space events sweep failed");
             }
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
@@ -959,7 +1056,7 @@ mod tests {
         create_session(&pool, a, workspace, Some("小A")).await;
         let space = space_of(&pool, a).await;
         let mut others = Vec::new();
-        for name in ["小B", "小C", "小D", "小E"] {
+        for name in ["小B", "小C", "小D", "小E", "小F"] {
             let id = Uuid::new_v4();
             create_session(&pool, id, workspace, Some(name)).await;
             add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
@@ -981,7 +1078,7 @@ mod tests {
             "0 disables"
         );
         let slept = sleep_idle_sessions(&pool, 30).await.unwrap();
-        assert_eq!(slept, 4, "a + three idle members");
+        assert_eq!(slept, 5, "a + four idle members");
         assert!(session_is_asleep(&pool, others[0]).await.unwrap());
         assert!(!session_is_asleep(&pool, others[3]).await.unwrap());
         let preview = preview_space_wake(&pool, &space, None, "大家", &[])
@@ -990,9 +1087,9 @@ mod tests {
         assert_eq!(preview.will_wake, 1);
         assert_eq!(preview.asleep, 1);
 
-        // One user broadcast is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
+        // One agent broadcast is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
         // sleeping sessions wake; the rest are deferred.
-        let posted = post_as(&pool, None, &space, "@所有人 大家醒醒", &[]).await;
+        let posted = post_as(&pool, Some(a), &space, "@所有人 大家醒醒", &[]).await;
         let woken = posted
             .receipts
             .iter()
@@ -1013,16 +1110,16 @@ mod tests {
         );
         // The awake (busy) member was delivered without using the cap.
         assert_eq!(inputs_of(&pool, others[3]).await.len(), 1);
-        // Woken sessions are awake again.
+        // Woken sessions are awake again (a stayed asleep as sender + 1 deferred sleeper = 2).
         let still_asleep: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM collaboration_thread_members WHERE asleep_since IS NOT NULL",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(still_asleep, 1);
+        assert_eq!(still_asleep, 2);
         // A new message is a new turn and may wake the deferred member.
-        let next = post_as(&pool, None, &space, "@所有人 再叫一次", &[]).await;
+        let next = post_as(&pool, Some(a), &space, "@所有人 再叫一次", &[]).await;
         assert!(next.receipts.iter().all(|r| r.error_code.is_none()));
     }
 
@@ -1060,6 +1157,16 @@ mod tests {
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].state, WAKE_LIMIT_REACHED);
         let held = held[0].conversation_id;
+        let held_turns: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM collaboration_turns
+               WHERE space_message_id = ? AND conversation_id = ?"#,
+        )
+        .bind(&posted.message_id)
+        .bind(held.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(held_turns, 0, "held deliveries must not open a turn");
         let receipt_of = |receipts: Vec<MessageReceipt>| {
             receipts
                 .into_iter()
@@ -1139,7 +1246,7 @@ mod tests {
         create_session(&pool, a, workspace, Some("小A")).await;
         let space = space_of(&pool, a).await;
         let mut all_members = vec![a];
-        for name in ["小B", "小C", "小D"] {
+        for name in ["小B", "小C", "小D", "小E"] {
             let id = Uuid::new_v4();
             create_session(&pool, id, workspace, Some(name)).await;
             add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
@@ -1155,8 +1262,8 @@ mod tests {
         .unwrap();
         sleep_idle_sessions(&pool, 30).await.unwrap();
 
-        // User posts a broadcast message -> wake_turn_key is "message:<message_id>"
-        let posted = post_as(&pool, None, &space, "@所有人 请大家汇报进展", &[]).await;
+        // Agent without active_turn_id posts a broadcast message -> wake_turn_key is "message:<message_id>"
+        let posted = post_as(&pool, Some(a), &space, "@所有人 请大家汇报进展", &[]).await;
         let delivered_convs: Vec<Uuid> = posted
             .receipts
             .iter()
@@ -1381,5 +1488,62 @@ mod tests {
             }),
             "hop cap must insert the system notice"
         );
+    }
+
+    #[tokio::test]
+    async fn sweep_expired_turns_marks_receipts_timed_out_and_frees_in_flight() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, None, &space, "@小A 请处理", &[]).await;
+        sqlx::query(
+            r#"UPDATE collaboration_space_deliveries
+               SET receipt_state = 'processing'
+               WHERE space_message_id = ? AND conversation_id = ?"#,
+        )
+        .bind(&posted.message_id)
+        .bind(a.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"UPDATE collaboration_turns
+               SET deadline_at = '2000-01-01T00:00:00Z'
+               WHERE space_message_id = ? AND conversation_id = ?"#,
+        )
+        .bind(&posted.message_id)
+        .bind(a.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let expired = sweep_expired_turns(&pool).await.unwrap();
+        assert_eq!(expired, 1);
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
+        let a_receipt = receipts
+            .iter()
+            .find(|r| r.conversation_id == a.to_string())
+            .unwrap();
+        assert_eq!(a_receipt.state, "timed_out");
+        assert_eq!(a_receipt.outcome.as_deref(), Some("timed_out"));
+        let in_flight: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM collaboration_space_deliveries d
+               JOIN collaboration_space_messages m ON m.id = d.space_message_id
+               WHERE m.space_id = ? AND d.receipt_state = 'processing'"#,
+        )
+        .bind(&space)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(in_flight, 0);
+        let next = post_as(&pool, None, &space, "@小B 下一条", &[]).await;
+        assert!(next.receipts[0].input_id.is_some());
     }
 }

@@ -43,9 +43,10 @@ pub use collection::{
 pub use delivery::{
     DEFAULT_HANDOFF_MAX_DEPTH, DEFAULT_HANDOFF_MAX_PER_TURN, DeliveryReceipt, Handoff,
     HandoffEnvelope, HandoffResult, MISSED_CONTEXT_VERBATIM, MessageAudience, MessageReceipt,
-    PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult,
-    finalize_space_turn_deliveries, handoff, handoff_max_depth, handoff_max_per_turn, handoff_with,
-    list_message_receipts, list_message_receipts_batch, list_space_messages, post_to_space,
+    PostDirectMessage, PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult,
+    advance_round, cancel_space_turn, finalize_space_turn_deliveries, handoff, handoff_max_depth,
+    handoff_max_per_turn, handoff_with, list_message_receipts, list_message_receipts_batch,
+    list_space_messages, post_direct_message, post_direct_message_with, post_to_space,
     post_to_space_with, prepare_steer, redeliver_deferred, send_session_input,
     send_session_input_with, send_user_text_to_conversation,
 };
@@ -69,32 +70,38 @@ pub use roles::{
     ConversationListItem, ConversationPersonaView, CreateSpawnedConversation, CreatedConversation,
     HostCreateSpaceMember, IsolatedWorkspaceProvisioner, ListConversations, MemberRecord,
     MemberSessionConfig, MemberWriteAccess, MemberWritePlan, RoleRecord, SaveRole, SaveTeam,
-    SpaceRecord, TeamRecord, WorkspaceConversationOption, active_collaboration_children,
-    add_space_member, collaboration_parent_depth, conversation_persona, create_collaboration_space,
-    create_role, create_spawned_conversation, create_team, create_workspace_space, delete_role,
-    delete_team, ensure_user_member, execution_workspace_id, host_add_space_member,
+    SpaceEventList, SpaceEventRecord, SpaceRecord, TeamRecord, WorkspaceConversationOption,
+    active_collaboration_children, add_space_member, bump_space_generation,
+    collaboration_parent_depth, conversation_persona, create_collaboration_space, create_role,
+    create_spawned_conversation, create_team, create_workspace_space, delete_role, delete_team,
+    ensure_user_member, execution_workspace_id, host_add_space_member,
     host_batch_delete_space_items, host_create_space_member, host_move_space_member,
-    list_collaboration_spaces_for_caller, list_conversations, list_roles, list_space_members,
-    list_space_members_detailed, list_teams, list_workspace_conversations, list_workspace_spaces,
-    load_member_session_config, member_activity_limit, member_space_context_text,
+    latest_space_changed_event, list_collaboration_spaces_for_caller, list_conversations,
+    list_roles, list_space_events, list_space_members, list_space_members_detailed, list_teams,
+    list_workspace_conversations, list_workspace_spaces, load_member_session_config,
+    load_space_generation, member_activity_limit, member_space_context_text,
     member_space_context_text_for, member_worktree_workspace_id, parse_unassigned_space_id,
     persona_prompt_text, persona_prompt_text_for_turn, plan_member_write,
     read_session_info_for_delegation, read_session_info_for_session_product,
     record_member_session_workspace, release_member_write, rename_workspace_space,
-    resolve_member_target, resolve_session, resolve_thread_session, set_conversation_persona_team,
-    set_member_session_config, set_member_write_access, set_space_identity, set_space_lead,
-    space_member_tool_value, space_workspace_id, thread_id_for_conversation,
-    try_acquire_member_write, unassigned_space_id, update_role, update_team,
+    resolve_member_target, resolve_session, resolve_thread_session, restore_space_from_archive,
+    set_conversation_persona_team, set_member_session_config, set_member_write_access,
+    set_space_identity, set_space_lead, space_event_retention_days, space_member_tool_value,
+    space_tracks_events, space_workspace_id, sweep_expired_space_events,
+    sweep_expired_space_events_before, thread_id_for_conversation, try_acquire_member_write,
+    unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
-    caller_seat, load_space, load_space_or_unassigned, member_nickname, require_caller_thread,
-    resolve_seat_target, seat_conversation,
+    append_space_event, append_space_event_pool, append_space_event_tx, caller_seat, load_space,
+    load_space_or_unassigned, member_nickname, require_caller_thread, resolve_seat_target,
+    seat_conversation,
 };
 pub use routing::{
-    DEFAULT_AGENT_REPLY_CHAIN_MAX, DEFAULT_IDLE_SLEEP_MINUTES, DEFAULT_WAKE_CAP_PER_TURN,
-    WAKE_LIMIT_REACHED, WakePreview, agent_reply_chain_max, clean_space_display_text,
-    idle_sleep_minutes, is_broadcast_target_name, preview_space_wake, sleep_idle_sessions,
-    spawn_idle_session_sweeper, wake_cap_per_turn,
+    DEFAULT_AGENT_REPLY_CHAIN_MAX, DEFAULT_COLLAB_TURN_TIMEOUT_MINUTES, DEFAULT_IDLE_SLEEP_MINUTES,
+    DEFAULT_WAKE_CAP_PER_TURN, WAKE_LIMIT_REACHED, WakePreview, agent_reply_chain_max,
+    clean_space_display_text, collab_turn_timeout_minutes, idle_sleep_minutes,
+    is_broadcast_target_name, preview_space_wake, sleep_idle_sessions, spawn_idle_session_sweeper,
+    sweep_expired_turns, wake_cap_per_turn,
 };
 pub(crate) use routing::{
     env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, resolve_workspace_peer,
@@ -115,7 +122,6 @@ const LIST_HARD_CAP: i64 = 100;
 const SPACE_LIST_DEFAULT: i64 = 50;
 const SPACE_LIST_HARD_CAP: i64 = 200;
 const SUBMIT_HOURLY_CAP: i64 = 60;
-const DIGEST_REPLAY_MINUTES: i64 = 10;
 const HARD_DELAY_HOURS: i64 = 168;
 
 /// Assistant-to-assistant wakes allowed on one user-rooted message.

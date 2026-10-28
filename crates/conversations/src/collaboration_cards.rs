@@ -10,8 +10,8 @@ use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
 use crate::collaboration::{
-    self, CollaborationError, DeliveryContext, PostToSpace, caller_seat, db, now_stamp,
-    require_caller_thread, resolve_workspace_peer, seat_conversation,
+    self, CollaborationError, DeliveryContext, PostToSpace, append_space_event_tx, caller_seat, db,
+    finish_tx, now_stamp, require_caller_thread, resolve_workspace_peer, seat_conversation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -306,22 +306,47 @@ pub async fn post_card(
         delivery,
     )
     .await?;
-    sqlx::query(
-        r#"INSERT INTO collaboration_cards
-           (id, space_id, from_conversation_id, member_id, kind, payload_json, message_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
-    )
-    .bind(&id)
-    .bind(&input.space_id)
-    .bind(from.to_string())
-    .bind(&seat.member_id)
-    .bind(input.kind.as_str())
-    .bind(input.payload.to_string())
-    .bind(&posted.message_id)
-    .bind(now_stamp())
-    .execute(pool)
-    .await
-    .map_err(db)?;
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let card_outcome = async {
+            sqlx::query(
+                r#"INSERT INTO collaboration_cards
+                   (id, space_id, from_conversation_id, member_id, kind, payload_json, message_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+            )
+            .bind(&id)
+            .bind(&input.space_id)
+            .bind(from.to_string())
+            .bind(&seat.member_id)
+            .bind(input.kind.as_str())
+            .bind(input.payload.to_string())
+            .bind(&posted.message_id)
+            .bind(&stamp)
+            .execute(&mut *conn)
+            .await?;
+            append_space_event_tx(
+                &mut conn,
+                &input.space_id,
+                "space",
+                Some(&posted.message_id),
+                &json!({
+                    "action": "card_created",
+                    "card_id": id,
+                    "kind": input.kind.as_str(),
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, card_outcome).await?;
+    }
     load_card(pool, &id)
         .await?
         .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))
@@ -458,19 +483,44 @@ pub async fn resolve_card(
             (json!({ "decision": decision, "note": answer }), text)
         }
     };
-    let claimed = sqlx::query(
-        r#"UPDATE collaboration_cards
-           SET status = 'resolved', resolution_json = ?, resolved_at = ?
-           WHERE id = ? AND status = 'pending'"#,
-    )
-    .bind(resolution.to_string())
-    .bind(now_stamp())
-    .bind(card_id)
-    .execute(pool)
-    .await
-    .map_err(db)?;
-    if claimed.rows_affected() == 0 {
-        return Err(bad("card was already resolved"));
+    {
+        let stamp = now_stamp();
+        let mut conn = pool.acquire().await.map_err(db)?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(db)?;
+        let res_outcome = async {
+            let claimed = sqlx::query(
+                r#"UPDATE collaboration_cards
+                   SET status = 'resolved', resolution_json = ?, resolved_at = ?
+                   WHERE id = ? AND status = 'pending'"#,
+            )
+            .bind(resolution.to_string())
+            .bind(&stamp)
+            .bind(card_id)
+            .execute(&mut *conn)
+            .await?;
+            if claimed.rows_affected() == 0 {
+                return Err(bad("card was already resolved"));
+            }
+            append_space_event_tx(
+                &mut conn,
+                &card.space_id,
+                "space",
+                card.message_id.as_deref(),
+                &json!({
+                    "action": "card_resolved",
+                    "card_id": card_id,
+                    "kind": card.kind.as_str(),
+                }),
+                &stamp,
+            )
+            .await?;
+            Ok::<(), CollaborationError>(())
+        }
+        .await;
+        finish_tx(&mut conn, res_outcome).await?;
     }
     let members = collaboration::list_space_members(
         pool,

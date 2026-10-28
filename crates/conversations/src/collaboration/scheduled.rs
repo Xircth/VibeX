@@ -246,12 +246,8 @@ pub(crate) async fn promote_one(
                 .await
                 .map_err(db)?;
                 if let Ok(workspace_id) = space_workspace_id(pool, &space_id).await {
-                    delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-                        workspace_id,
-                        space_id,
-                        seq: Some(posted.seq),
-                        member_id: None,
-                    });
+                    let ev = latest_space_changed_event(pool, workspace_id, &space_id, None).await;
+                    delivery.notify_space_changed(ev);
                 }
                 return Ok(true);
             }
@@ -259,12 +255,8 @@ pub(crate) async fn promote_one(
             Err(error) => {
                 mark_delay_failed(pool, &row.id, &error.message).await?;
                 if let Ok(workspace_id) = space_workspace_id(pool, &space_id).await {
-                    delivery.notify_space_changed(CollaborationSpaceChangedEvent {
-                        workspace_id,
-                        space_id,
-                        seq: None,
-                        member_id: None,
-                    });
+                    let ev = latest_space_changed_event(pool, workspace_id, &space_id, None).await;
+                    delivery.notify_space_changed(ev);
                 }
                 return Ok(false);
             }
@@ -342,6 +334,8 @@ pub(crate) async fn promote_one(
         space_id: format!("session:{conversation_id}"),
         seq: None,
         member_id: parent_conv,
+        kind: None,
+        generation: None,
     });
     Ok(true)
 }

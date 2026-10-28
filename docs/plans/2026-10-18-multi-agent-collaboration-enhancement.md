@@ -199,7 +199,7 @@ Team { id, name, summary? }
 
 MCP：`create_role` / `update_role` / `delete_role` / `list_roles`，团队同样一套。用户在设置页 CRUD，与 Agent 写同一份 Host 数据。
 
-**存储：不要放 `config.json`。** 角色含人设提示词，会增长、要按 id 查询、要被 Conversation 引用。`config.json` 适合深度/缓存/默认天数。角色/团队进 Host 表（例如 `collaboration_roles` / `collaboration_teams`），经通用 `host.call collaboration.role.*` 暴露。设置页 Worker 调这些 API。卸载插件时按产品选择保留或清理（与 config 保留策略分开写进 README）。
+**存储：不要放 `config.json`。** 角色含人设，会增长、要按 id 查询、要被 Conversation 引用。`config.json` 适合深度/缓存/默认天数。角色/团队进 Host 表（例如 `collaboration_roles` / `collaboration_teams`），经通用 `host.call collaboration.role.*` 暴露。设置页 Worker 调这些 API。卸载插件时按产品选择保留或清理（与 config 保留策略分开写进 README）。
 
 这不是给 `vibex.multi-agent` 的私有表。表和 API 是通用「会话人格/模板」缝，本插件是首个官方消费者。
 
@@ -212,7 +212,7 @@ MCP：`create_role` / `update_role` / `delete_role` / `list_roles`，团队同�
 **风险**
 
 - Agent 批量建角色造成垃圾模板。设置页要能看见/删；可加每 Host 上限（例如 100 角色 / 30 团队）。
-- 人设提示词注入：创建会话时应作为 **系统/首条 Host 说明** 写入，并在 UI 对用户可见，避免「隐藏灵魂」。
+- 人设注入：创建会话时应作为 **系统/首条 Host 说明** 写入，并在 UI 对用户可见，避免「隐藏灵魂」。
 - `agentDefaults` 与角色配置重叠。建议：委派仍只用 `agentDefaults`；角色会话只用角色上的 Agent+配置。不要让两者隐式合并。
 
 ### 3.4 创建会话（基于角色 / 直接创建）
@@ -258,7 +258,7 @@ ConversationPersonaOverlay {
 }
 ```
 
-折叠态：显示角色名，不显示 mode/model 短句。展开：一级为角色属性（名称、团队、简介、Agent）；「会话配置」为二级，复用现有 mode/config 菜单。需求写明一级不展示 ID 与人设提示词。人设可在设置页或会话信息里看，避免把长提示词塞进 Composer 菜单。
+折叠态：显示角色名，不显示 mode/model 短句。展开：一级为角色属性（名称、团队、简介、Agent）；「会话配置」为二级，复用现有 mode/config 菜单。需求写明一级不展示 ID 与人设。人设可在设置页或会话信息里看，避免把长提示词塞进 Composer 菜单。
 
 这是 Host 前端改动，由 overlay 驱动，不 `if pluginId == multi-agent`。
 

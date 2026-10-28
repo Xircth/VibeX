@@ -272,7 +272,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     const emptyCreateBtn = screen.getByTestId('custom-roles-empty-create-btn');
     expect(emptyCreateBtn).toBeInTheDocument();
 
-    // Clicking 新建角色 opens the creation modal with 角色名称 (placeholder 前端工程师), Agent, 会话配置, 人设提示词（可选）
+    // Clicking 新建角色 opens the creation modal with 角色名称 (placeholder 前端工程师), Agent, 会话配置, 人设（可选）
     await userEvent.setup().click(emptyCreateBtn);
     const overlay = await screen.findByTestId('custom-role-modal-overlay');
     expect(overlay).toHaveClass('collaboration-settings-modal-overlay');
@@ -292,7 +292,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(sessionConfigSection).toBeInTheDocument();
     expect(sessionConfigSection).not.toHaveClass('border');
     const personaInput = screen.getByRole('textbox', {
-      name: '人设提示词（可选）',
+      name: '人设（可选）',
     });
     expect(personaInput).toBeInTheDocument();
     expect(personaInput).toHaveAttribute('rows', '3');

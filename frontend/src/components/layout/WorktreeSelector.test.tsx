@@ -203,6 +203,11 @@ describe('WorktreeSelector', () => {
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
 
     expect(screen.queryByText('Kanban overview')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-switcher')).toHaveClass(
+      'w-32',
+      'sm:w-40'
+    );
+    expect(screen.getByRole('menu')).toHaveClass('w-64');
     const workspaceMode = screen.getByRole('radio', { name: 'Worktree' });
     const branchMode = screen.getByRole('radio', { name: 'Branch' });
     expect(workspaceMode.querySelector('svg')).not.toBeNull();

@@ -545,7 +545,7 @@ export function WorktreeSelector() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-7 w-36 justify-between gap-1 px-2 text-xs sm:w-48"
+          className="h-7 w-32 justify-between gap-1 px-2 text-xs sm:w-40"
           aria-label={t('worktreeSelector.triggerLabel')}
           data-testid="workspace-switcher"
           disabled={switchingBranch}
@@ -556,7 +556,7 @@ export function WorktreeSelector() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-80 overflow-hidden p-0">
+      <DropdownMenuContent align="start" className="w-64 overflow-hidden p-0">
         <div
           className="border-b border-border/60 p-2"
           onPointerDown={(event) => event.stopPropagation()}

@@ -208,6 +208,9 @@ describe('WorktreeSelector', () => {
       'sm:w-40'
     );
     expect(screen.getByRole('menu')).toHaveClass('w-64');
+    expect(screen.getByTestId('workspace-switcher-mode').className).toMatch(
+      /text-\[0\.625rem\]/
+    );
     const workspaceMode = screen.getByRole('radio', { name: 'Worktree' });
     const branchMode = screen.getByRole('radio', { name: 'Branch' });
     expect(workspaceMode.querySelector('svg')).not.toBeNull();

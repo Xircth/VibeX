@@ -465,37 +465,18 @@ function usageWindow(usage: MessageTurn['usage']): number | null {
 
 export function buildLiveTurnStats(input: {
   timeline: ConversationTimelineTurn[];
-  composerTokenUsage: TokenUsageInfo | null;
   sessionConfigOptions?: AgentSessionConfigOption[];
 }): TurnStatsData {
-  let activeModel: string | null = null;
-  let activeTotalTokens: number | null = null;
-  let activeContextWindow: number | null = null;
-
+  let latestAssistant: ConversationTimelineTurn | undefined;
   for (let index = input.timeline.length - 1; index >= 0; index -= 1) {
     const row = input.timeline[index];
-    if (!row || row.turn.role !== 'assistant') continue;
-    if (!activeModel && row.turn.model?.trim()) {
-      activeModel = row.turn.model.trim();
-    }
-    if (row.turn.usage) {
-      const total = turnTokenTotal(row.turn.usage);
-      if (activeTotalTokens === null && total !== null) {
-        activeTotalTokens = total;
-      }
-      const window = usageWindow(row.turn.usage);
-      if (activeContextWindow === null && window !== null) {
-        activeContextWindow = window;
-      }
-    }
-    if (
-      activeModel &&
-      activeTotalTokens !== null &&
-      activeContextWindow !== null
-    ) {
+    if (row?.turn.role === 'assistant') {
+      latestAssistant = row;
       break;
     }
   }
+  const usage = latestAssistant?.turn.usage;
+  let activeModel = latestAssistant?.turn.model?.trim() || null;
 
   if (!activeModel && input.sessionConfigOptions) {
     const modelOption = input.sessionConfigOptions.find(
@@ -508,12 +489,8 @@ export function buildLiveTurnStats(input: {
 
   return {
     model: activeModel,
-    totalTokens:
-      activeTotalTokens ?? input.composerTokenUsage?.total_tokens ?? null,
-    contextWindow:
-      activeContextWindow ??
-      input.composerTokenUsage?.model_context_window ??
-      null,
+    totalTokens: usage ? turnTokenTotal(usage) : null,
+    contextWindow: usageWindow(usage),
   };
 }
 
@@ -1030,10 +1007,9 @@ const AgentTimelineConversation = forwardRef<
     () =>
       buildLiveTurnStats({
         timeline,
-        composerTokenUsage,
         sessionConfigOptions: conversationSessionConfigOptions,
       }),
-    [composerTokenUsage, conversationSessionConfigOptions, timeline]
+    [conversationSessionConfigOptions, timeline]
   );
   const lastAssistantKey = useMemo(() => {
     for (let index = timeline.length - 1; index >= 0; index -= 1) {

@@ -248,15 +248,11 @@ describe('AgentTimelineConversation context compaction projection', () => {
 });
 
 describe('buildLiveTurnStats', () => {
-  it('populates model and token usage from active turn and session config options without inventing zeroes', () => {
+  it('populates model from session config and only uses this turn\'s usage', () => {
     const streaming = row('turn-1', 'assistant', 'streaming');
     expect(
       buildLiveTurnStats({
         timeline: [streaming],
-        composerTokenUsage: {
-          total_tokens: 18500,
-          model_context_window: 200000,
-        },
         sessionConfigOptions: [
           {
             key: 'model',
@@ -269,14 +265,63 @@ describe('buildLiveTurnStats', () => {
       })
     ).toEqual({
       model: 'claude-sonnet-4-5',
-      totalTokens: 18500,
+      totalTokens: null,
+      contextWindow: null,
+    });
+
+    streaming.turn.usage = {
+      input_tokens: 400n,
+      output_tokens: 80n,
+      cache_creation_input_tokens: 0n,
+      cache_read_input_tokens: 0n,
+      context_used: 18500n,
+      context_window_max: 200000n,
+    };
+    expect(
+      buildLiveTurnStats({
+        timeline: [streaming],
+        sessionConfigOptions: [
+          {
+            key: 'model',
+            label: 'Model',
+            category: 'model',
+            value: 'claude-sonnet-4-5',
+            choices: [],
+          },
+        ],
+      })
+    ).toEqual({
+      model: 'claude-sonnet-4-5',
+      totalTokens: 480,
       contextWindow: 200000,
     });
 
     expect(
       buildLiveTurnStats({
         timeline: [],
-        composerTokenUsage: null,
+        sessionConfigOptions: [],
+      })
+    ).toEqual({
+      model: null,
+      totalTokens: null,
+      contextWindow: null,
+    });
+  });
+
+  it('does not reuse the previous turn occupancy while a new turn is generating', () => {
+    const previous = row('turn-1', 'assistant', 'settled');
+    previous.turn.usage = {
+      input_tokens: 0n,
+      output_tokens: 0n,
+      cache_creation_input_tokens: 0n,
+      cache_read_input_tokens: 0n,
+      context_used: 183329n,
+      context_window_max: 200000n,
+    };
+    const streaming = row('turn-2', 'assistant', 'streaming');
+    expect(
+      buildLiveTurnStats({
+        timeline: [previous, row('user-2', 'user', 'settled'), streaming],
         sessionConfigOptions: [],
       })
     ).toEqual({
@@ -299,7 +344,6 @@ describe('buildLiveTurnStats', () => {
     expect(
       buildLiveTurnStats({
         timeline: [settled],
-        composerTokenUsage: null,
         sessionConfigOptions: [],
       })
     ).toEqual({

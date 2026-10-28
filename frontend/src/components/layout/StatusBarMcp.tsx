@@ -162,7 +162,7 @@ export function StatusBarMcp() {
         align="end"
         side="top"
         sideOffset={6}
-        className="flex w-[22.5rem] flex-col gap-2.5 border border-border bg-background p-3 shadow-md backdrop-blur-none"
+        className="flex w-[22.5rem] max-h-[min(32rem,calc(100vh-3.5rem))] flex-col gap-2.5 overflow-hidden border border-border bg-background p-3 shadow-md backdrop-blur-none"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 text-[0.8125rem] font-semibold tracking-[-0.01em] text-foreground">
@@ -193,7 +193,7 @@ export function StatusBarMcp() {
             {t('mcp.hint.empty')}
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-background">
+          <div className="min-h-0 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background">
             {report.plugins.map((plugin, index) => {
               const isOpen = expanded === plugin.pluginId;
               const toolCount = plugin.servers.reduce(
@@ -300,23 +300,28 @@ export function StatusBarMcp() {
                           {t('mcp.noTools')}
                         </p>
                       ) : (
-                        plugin.servers.flatMap((server) =>
-                          server.tools.map((tool) => (
-                            <div
-                              key={`${server.id}:${tool.name}`}
-                              className="flex items-center gap-2 px-1 py-1"
-                            >
-                              <div className="min-w-0 flex-1 truncate text-[0.75rem] text-foreground">
-                                {t(`mcp.tools.${tool.name}`, {
-                                  defaultValue: tool.name,
-                                })}
+                        <div
+                          data-testid="mcp-plugin-tools"
+                          className="max-h-64 space-y-1.5 overflow-y-auto overscroll-contain"
+                        >
+                          {plugin.servers.flatMap((server) =>
+                            server.tools.map((tool) => (
+                              <div
+                                key={`${server.id}:${tool.name}`}
+                                className="flex items-center gap-2 px-1 py-1"
+                              >
+                                <div className="min-w-0 flex-1 truncate text-[0.75rem] text-foreground">
+                                  {t(`mcp.tools.${tool.name}`, {
+                                    defaultValue: tool.name,
+                                  })}
+                                </div>
+                                <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                  {tool.name}
+                                </span>
                               </div>
-                              <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                {tool.name}
-                              </span>
-                            </div>
-                          ))
-                        )
+                            ))
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : null}

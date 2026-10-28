@@ -159,6 +159,60 @@ describe('AgentMention', () => {
     expect(calls).toContain('agent_management_bar');
   });
 
+  it('lists agents by display name with a bare icon', async () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command) => {
+        if (command === 'agent_management_bar') {
+          return [
+            {
+              agent_id: 'opencode',
+              display_name: 'OpenCode',
+              enabled: true,
+              lifecycle: 'ready',
+              active_operation: null,
+            },
+          ];
+        }
+        if (command === 'conversation_detail') {
+          return {
+            active_binding: {
+              delegation_mcp_delivered: true,
+            },
+          };
+        }
+        if (command === 'official_product_mcp_state') {
+          return {
+            delegation: true,
+            feedback: false,
+            ask: false,
+            sessions: false,
+            sessionControl: false,
+          };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    const user = userEvent.setup();
+
+    render(<ComposerHarness transport={transport} />);
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '&');
+
+    const option = await screen.findByRole('option', { name: /^OpenCode$/ });
+    expect(option).not.toHaveTextContent('&');
+    expect(option).not.toHaveTextContent('opencode');
+    expect(
+      option.querySelector('[data-composer-trigger-description]')
+    ).toBeNull();
+    const iconSlot = option.querySelector(
+      '[data-composer-trigger-kind="agent_mention"] > span'
+    );
+    expect(iconSlot).not.toHaveClass('bg-violet-500/10');
+    expect(iconSlot).not.toHaveClass('rounded-md');
+  });
+
   it('selects a mention with the keyboard', async () => {
     const transport = codexTransport();
     const user = userEvent.setup();

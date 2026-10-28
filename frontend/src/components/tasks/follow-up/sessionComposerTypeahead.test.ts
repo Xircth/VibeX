@@ -5,7 +5,9 @@ import { DOLLAR_COMMANDS } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
+import { serializeAgentMention } from './AgentMention';
 import {
+  agentMentionsToTypeaheadOptions,
   dollarCommandsToTypeaheadOptions,
   referenceResultsToTypeaheadOptions,
   rootEntriesToFileReferenceOptions,
@@ -15,6 +17,46 @@ import {
 } from './sessionComposerTypeaheadOptions';
 
 describe('session composer typeahead option derivation', () => {
+  it('maps agent mentions to display names without a slug or ampersand', () => {
+    const opencode = {
+      agent_kind: 'opencode' as const,
+      display_name: 'OpenCode',
+    };
+    const grok = {
+      agent_kind: 'grok' as const,
+      display_name: 'Grok',
+      description: 'Grok',
+    };
+
+    expect(agentMentionsToTypeaheadOptions([opencode, grok], '')).toEqual([
+      {
+        key: 'agent-opencode',
+        label: 'OpenCode',
+        description: undefined,
+        insertText: serializeAgentMention(opencode),
+      },
+      {
+        key: 'agent-grok',
+        label: 'Grok',
+        description: undefined,
+        insertText: serializeAgentMention(grok),
+      },
+    ]);
+
+    expect(
+      agentMentionsToTypeaheadOptions(
+        [
+          {
+            agent_kind: 'codex' as const,
+            display_name: 'Codex',
+            description: 'OpenAI coding agent',
+          },
+        ],
+        ''
+      )[0].description
+    ).toBe('OpenAI coding agent');
+  });
+
   it('maps only ready plugin actions into prompt-backed command tokens', () => {
     const catalog = {
       plugin: {

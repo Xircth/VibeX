@@ -124,12 +124,20 @@ export function agentMentionsToTypeaheadOptions(
       );
     })
     .slice(0, MAX_REFERENCE_OPTIONS)
-    .map((candidate) => ({
-      key: `agent-${candidate.agent_kind}`,
-      label: `&${candidate.display_name}`,
-      description: candidate.description ?? candidate.agent_kind,
-      insertText: serializeAgentMention(candidate),
-    }));
+    .map((candidate) => {
+      const description =
+        candidate.description &&
+        candidate.description !== candidate.display_name &&
+        candidate.description !== candidate.agent_kind
+          ? candidate.description
+          : undefined;
+      return {
+        key: `agent-${candidate.agent_kind}`,
+        label: candidate.display_name,
+        description,
+        insertText: serializeAgentMention(candidate),
+      };
+    });
 }
 
 function slashInvocation(

@@ -926,7 +926,7 @@ function WorkspaceTabSwitcher() {
                   : undefined
             }
             className={cn(
-              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors',
+              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition-colors',
               isActive && 'is-active'
             )}
           >

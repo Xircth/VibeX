@@ -4409,6 +4409,7 @@ html.dark {
   .workspace-tab-button {
     color: var(--text-muted);
     border: 1px solid transparent;
+    font-weight: 700;
   }
 
   .workspace-tab-button:hover {

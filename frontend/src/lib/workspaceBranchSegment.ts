@@ -22,9 +22,9 @@ function sameBranch(
   return normalizedLeft.length > 0 && normalizedLeft === normalizedRight;
 }
 
-export function orderWorkspacesForSelector<T extends { use_worktree: boolean }>(
-  workspaces: readonly T[]
-): T[] {
+export function orderWorkspacesForSelector<
+  T extends { id: string; use_worktree: boolean },
+>(workspaces: readonly T[], preferredId?: string | null): T[] {
   const roots: T[] = [];
   const worktrees: T[] = [];
   for (const workspace of workspaces) {
@@ -34,7 +34,11 @@ export function orderWorkspacesForSelector<T extends { use_worktree: boolean }>(
       roots.push(workspace);
     }
   }
-  return [...roots, ...worktrees];
+  const preferredRoot = preferredId
+    ? roots.find((workspace) => workspace.id === preferredId)
+    : undefined;
+  const root = preferredRoot ?? roots[0];
+  return root ? [root, ...worktrees] : [...worktrees];
 }
 
 /**

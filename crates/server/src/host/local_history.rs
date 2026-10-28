@@ -129,7 +129,9 @@ async fn fetch_live_workspaces(
 }
 
 fn pick_project_root_workspace(workspaces: &[Workspace]) -> Option<&Workspace> {
-    workspaces.iter().find(|workspace| !workspace.use_worktree)
+    workspaces
+        .iter()
+        .find(|workspace| !workspace.use_worktree && !workspace.archived)
 }
 
 async fn ensure_project_root_workspace_for_import(

@@ -624,26 +624,17 @@ pub(crate) fn advertised_tools_from_spec(spec: &Value) -> Vec<PluginMcpToolStatu
         .collect()
 }
 
-/// Build the status-bar snapshot from installed plugins.
-///
-/// `binary_runnable` answers whether a Host-family binary id is a real
-/// executable (non-empty). Missing binaries mark the plugin unavailable.
-pub fn plugin_mcp_status_report(
-    plugins: &[InstalledPlugin],
-    binary_runnable: impl Fn(&str) -> bool,
-) -> PluginMcpStatusReport {
-    let mut rows = plugins
-        .iter()
-        .filter_map(|plugin| plugin_mcp_row(plugin, &binary_runnable))
-        .collect::<Vec<_>>();
+fn sort_mcp_plugin_rows(rows: &mut [PluginMcpPluginStatus]) {
     rows.sort_by(|left, right| {
         left.name
             .to_lowercase()
             .cmp(&right.name.to_lowercase())
             .then_with(|| left.plugin_id.cmp(&right.plugin_id))
     });
+}
 
-    let state = if rows.is_empty() {
+fn mcp_headline(rows: &[PluginMcpPluginStatus]) -> PluginMcpHeadline {
+    if rows.is_empty() {
         PluginMcpHeadline::Empty
     } else if rows.iter().any(|row| row.connection == "unavailable") {
         PluginMcpHeadline::Unavailable
@@ -658,10 +649,72 @@ pub fn plugin_mcp_status_report(
         PluginMcpHeadline::Running
     } else {
         PluginMcpHeadline::Partial
+    }
+}
+
+/// Status-bar row for the host collaboration-space MCP.
+///
+/// This is not a plugin package; the enable flag is `multi_agent_enabled`.
+pub fn host_collaboration_mcp_row(
+    enabled: bool,
+    binary_runnable: impl Fn(&str) -> bool,
+) -> PluginMcpPluginStatus {
+    let connection = if !enabled {
+        "disabled"
+    } else if !binary_runnable("vibex-mcp") {
+        "unavailable"
+    } else {
+        "running"
     };
+    PluginMcpPluginStatus {
+        plugin_id: HOST_MULTI_AGENT_ID.to_owned(),
+        name: "协作空间".to_owned(),
+        description: Some("新会话可以使用委派、角色和协作空间。".to_owned()),
+        enabled,
+        enable_supported: true,
+        mcp_count: 1,
+        connection: connection.to_owned(),
+        servers: vec![PluginMcpServerStatus {
+            id: DELEGATION_MCP_NAME.to_owned(),
+            product: Some("delegation".to_owned()),
+            tools: advertised_mcp_tools("delegation", 0),
+        }],
+    }
+}
+
+/// Insert or replace the host collaboration-space row in a plugin MCP snapshot.
+pub fn with_host_collaboration_mcp(
+    mut report: PluginMcpStatusReport,
+    enabled: bool,
+    binary_runnable: impl Fn(&str) -> bool,
+) -> PluginMcpStatusReport {
+    report
+        .plugins
+        .retain(|row| row.plugin_id != HOST_MULTI_AGENT_ID);
+    report
+        .plugins
+        .push(host_collaboration_mcp_row(enabled, binary_runnable));
+    sort_mcp_plugin_rows(&mut report.plugins);
+    report.state = mcp_headline(&report.plugins);
+    report
+}
+
+/// Build the status-bar snapshot from installed plugins.
+///
+/// `binary_runnable` answers whether a Host-family binary id is a real
+/// executable (non-empty). Missing binaries mark the plugin unavailable.
+pub fn plugin_mcp_status_report(
+    plugins: &[InstalledPlugin],
+    binary_runnable: impl Fn(&str) -> bool,
+) -> PluginMcpStatusReport {
+    let mut rows = plugins
+        .iter()
+        .filter_map(|plugin| plugin_mcp_row(plugin, &binary_runnable))
+        .collect::<Vec<_>>();
+    sort_mcp_plugin_rows(&mut rows);
 
     PluginMcpStatusReport {
-        state,
+        state: mcp_headline(&rows),
         listening: false,
         plugins: rows,
     }
@@ -1050,6 +1103,39 @@ mod tests {
         );
         assert_eq!(running.state, PluginMcpHeadline::Running);
         assert_eq!(running.plugins[0].connection, "running");
+    }
+
+    #[test]
+    fn status_report_includes_host_collaboration_mcp() {
+        let empty = plugin_mcp_status_report(&[], |_| true);
+        assert_eq!(empty.plugins.len(), 0);
+        assert_eq!(empty.state, PluginMcpHeadline::Empty);
+
+        let on = with_host_collaboration_mcp(empty.clone(), true, |_| true);
+        assert_eq!(on.plugins.len(), 1);
+        assert_eq!(on.plugins[0].plugin_id, HOST_MULTI_AGENT_ID);
+        assert_eq!(on.plugins[0].name, "协作空间");
+        assert!(on.plugins[0].enabled);
+        assert_eq!(on.plugins[0].connection, "running");
+        assert_eq!(on.plugins[0].servers[0].id, DELEGATION_MCP_NAME);
+        assert!(
+            on.plugins[0].servers[0]
+                .tools
+                .iter()
+                .any(|tool| tool.name == "post_to_space"),
+            "collaboration tools must be listed"
+        );
+        assert_eq!(on.state, PluginMcpHeadline::Running);
+
+        let off = with_host_collaboration_mcp(empty, false, |_| true);
+        assert!(!off.plugins[0].enabled);
+        assert_eq!(off.plugins[0].connection, "disabled");
+        assert_eq!(off.state, PluginMcpHeadline::Stopped);
+
+        let missing =
+            with_host_collaboration_mcp(plugin_mcp_status_report(&[], |_| false), true, |_| false);
+        assert_eq!(missing.plugins[0].connection, "unavailable");
+        assert_eq!(missing.state, PluginMcpHeadline::Unavailable);
     }
 
     #[test]

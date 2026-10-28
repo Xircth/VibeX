@@ -4,9 +4,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PluginMcpStatusReport } from '@/lib/api/plugins';
+import { HOST_MULTI_AGENT_ID } from '@/lib/api/plugins';
 
 const mcpStatus = vi.fn<() => Promise<PluginMcpStatusReport>>();
 const setEnabled = vi.fn<(id: string, enabled: boolean) => Promise<unknown>>();
+const updateAndSaveConfig = vi.hoisted(() =>
+  vi.fn<(updates: { multi_agent_enabled: boolean }) => Promise<boolean>>()
+);
 
 vi.mock('@/lib/api/plugins', async () => {
   const actual =
@@ -25,6 +29,15 @@ vi.mock('@/lib/api/plugins', async () => {
 
 vi.mock('@/lib/transport', () => ({
   useBackendTransport: () => ({}),
+}));
+
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => ({
+    config: { multi_agent_enabled: true },
+    updateAndSaveConfig: (
+      updates: { multi_agent_enabled: boolean }
+    ) => updateAndSaveConfig(updates),
+  }),
 }));
 
 const openSettingsSurface = vi.hoisted(() => vi.fn());
@@ -82,9 +95,11 @@ describe('StatusBarMcp', () => {
   beforeEach(() => {
     mcpStatus.mockReset();
     setEnabled.mockReset();
+    updateAndSaveConfig.mockReset();
     openSettingsSurface.mockReset();
     mcpStatus.mockResolvedValue(report());
     setEnabled.mockResolvedValue({});
+    updateAndSaveConfig.mockResolvedValue(true);
   });
 
   it('keeps the trigger quiet and names the service in its accessible label', async () => {
@@ -219,6 +234,52 @@ describe('StatusBarMcp', () => {
     expect(
       screen.getByTestId('mcp-plugin-status-vibex.session-enhance')
     ).toHaveTextContent('已停止');
+  });
+
+  it('lists the host collaboration-space MCP and toggles the host setting', async () => {
+    mcpStatus.mockResolvedValue(
+      report({
+        plugins: [
+          {
+            pluginId: HOST_MULTI_AGENT_ID,
+            name: 'host.multi-agent',
+            description: 'internal',
+            enabled: true,
+            enableSupported: true,
+            mcpCount: 1,
+            connection: 'running',
+            servers: [
+              {
+                id: 'vibex-delegation-mcp',
+                product: 'delegation',
+                tools: [
+                  { name: 'post_to_space', group: 'collaboration' },
+                  { name: 'delegate_to_agent', group: 'delegation' },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+    expect(await screen.findByText('协作空间')).toBeInTheDocument();
+    expect(
+      screen.getByTestId(`mcp-plugin-status-${HOST_MULTI_AGENT_ID}`)
+    ).toHaveTextContent('运行中');
+
+    fireEvent.click(screen.getByRole('button', { name: '协作空间' }));
+    expect(await screen.findByText('发到协作空间')).toBeInTheDocument();
+    expect(screen.getByText('post_to_space')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('switch', { name: '协作空间' }));
+    await waitFor(() =>
+      expect(updateAndSaveConfig).toHaveBeenCalledWith({
+        multi_agent_enabled: false,
+      })
+    );
+    expect(setEnabled).not.toHaveBeenCalled();
   });
 
   it('opens plugins in the dedicated settings window', async () => {

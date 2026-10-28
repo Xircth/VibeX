@@ -217,7 +217,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     );
 
     await user.click(
-      await screen.findByRole('switch', { name: 'MultiAgent协同' })
+      await screen.findByRole('switch', { name: '协作空间' })
     );
 
     await waitFor(() => {

@@ -496,9 +496,15 @@ impl ServerApplicationDomains {
     async fn plugin_mcp_status(&self) -> Result<Value, ApplicationError> {
         let control_plane = self.plugin_control_plane().await?;
         let plugins = control_plane.catalog().await.map_err(internal_error)?;
-        let mut report = plugins::plugin_mcp_status_report(&plugins, |binary_id| {
+        let host_collaboration_enabled = self.deployment.config().read().await.multi_agent_enabled;
+        let binary_runnable = |binary_id: &str| {
             utils::host_bin::locate_runnable_host_family_binary(binary_id).is_some()
-        });
+        };
+        let mut report = plugins::with_host_collaboration_mcp(
+            plugins::plugin_mcp_status_report(&plugins, &binary_runnable),
+            host_collaboration_enabled,
+            &binary_runnable,
+        );
         if let Some(service) = delegation::DelegationService::current() {
             report.listening = service.is_listening().await;
             if !report.listening
@@ -662,8 +668,34 @@ impl ServerApplicationDomains {
         )
     }
 
+    async fn set_host_collaboration_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<Value, ApplicationError> {
+        let mut new_config = self.deployment.config().read().await.clone();
+        new_config.multi_agent_enabled = enabled;
+        new_config.clamp_multi_agent();
+        let path = utils::assets::settings_path();
+        services::services::config::save_config_to_file(&new_config, &path)
+            .await
+            .map_err(internal_error)?;
+        services::services::config::publish_config_runtime(&new_config).await;
+        {
+            let mut config = self.deployment.config().write().await;
+            *config = new_config.clone();
+        }
+        self.refresh_official_product_runtime().await?;
+        serialize(json!({
+            "id": plugins::HOST_MULTI_AGENT_ID,
+            "enabled": enabled,
+        }))
+    }
+
     async fn plugin_control_set_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PluginEnabledArgs = parse(args)?;
+        if args.plugin_id == plugins::HOST_MULTI_AGENT_ID {
+            return self.set_host_collaboration_enabled(args.enabled).await;
+        }
         let control_plane = self.plugin_control_plane().await?;
         if control_plane
             .plugin(&args.plugin_id)

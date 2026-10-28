@@ -54,6 +54,10 @@ fn default_auto_update_enabled() -> bool {
     true
 }
 
+fn default_multi_agent_enabled() -> bool {
+    true
+}
+
 fn default_multi_agent_depth_limit() -> u32 {
     1
 }
@@ -176,9 +180,9 @@ pub struct Config {
     /// built-in Web Preview panel.
     #[serde(default)]
     pub link_open_behavior: LinkOpenBehavior,
-    /// Host MultiAgent collaboration. Default off. Only new sessions pick up
+    /// Host collaboration space. Default on. Only new sessions pick up
     /// the MCP tools and skill.
-    #[serde(default)]
+    #[serde(default = "default_multi_agent_enabled")]
     pub multi_agent_enabled: bool,
     #[serde(default = "default_multi_agent_depth_limit")]
     pub multi_agent_depth_limit: u32,
@@ -233,7 +237,7 @@ impl Config {
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
-            multi_agent_enabled: false,
+            multi_agent_enabled: default_multi_agent_enabled(),
             multi_agent_depth_limit: default_multi_agent_depth_limit(),
             multi_agent_completed_cache_max_mb: default_multi_agent_completed_cache_max_mb(),
             multi_agent_conversation_list_default_days:
@@ -327,7 +331,7 @@ impl Default for Config {
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
-            multi_agent_enabled: false,
+            multi_agent_enabled: default_multi_agent_enabled(),
             multi_agent_depth_limit: default_multi_agent_depth_limit(),
             multi_agent_completed_cache_max_mb: default_multi_agent_completed_cache_max_mb(),
             multi_agent_conversation_list_default_days:
@@ -459,9 +463,9 @@ mod tests {
     }
 
     #[test]
-    fn multi_agent_stays_off_and_clamps_scalars() {
+    fn multi_agent_defaults_on_and_clamps_scalars() {
         let config = Config::default();
-        assert!(!config.multi_agent_enabled);
+        assert!(config.multi_agent_enabled);
         assert_eq!(config.multi_agent_depth_limit, 1);
         assert_eq!(config.multi_agent_completed_cache_max_mb, 512);
         assert_eq!(config.multi_agent_conversation_list_default_days, 7);
@@ -473,7 +477,7 @@ mod tests {
             .expect("object")
             .remove("multi_agent_enabled");
         let loaded: Config = serde_json::from_value(saved).expect("load");
-        assert!(!loaded.multi_agent_enabled);
+        assert!(loaded.multi_agent_enabled);
         assert_eq!(loaded.multi_agent_depth_limit, 1);
 
         let mut wide = Config {

@@ -504,7 +504,6 @@ function toSearchableItem(option: ComposerTypeaheadOption): SearchableItem {
         kind === 'agent_mention'
           ? option.key.slice('agent-'.length)
           : undefined,
-      commandSourceKind: option.sourceKind,
       execute: option.execute,
     },
   };
@@ -515,7 +514,6 @@ type ComposerSearchItemData = {
   description?: string;
   kind?: SessionComposerStructuredTokenKind;
   agentKind?: string;
-  commandSourceKind?: 'native' | 'skill' | 'plugin';
   execute?: (args: string) => void | string | Promise<void | string>;
 };
 
@@ -772,9 +770,9 @@ function PreviewElementTokenTooltip({
 }
 
 function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
-  const { t } = useTranslation('tasks');
   const data = item.auxiliaryData as ComposerSearchItemData | undefined;
   const kind = data?.kind ?? 'file';
+  const isCommandRow = kind === 'slash' || kind === 'dollar';
   const iconToken = {
     kind,
     value: data?.agentKind ?? '',
@@ -785,50 +783,53 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
       className="flex min-w-0 items-center gap-2.5"
       data-composer-trigger-kind={kind}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'flex shrink-0 items-center justify-center',
-          kind === 'agent_mention' ? 'h-5 w-5' : 'h-7 w-7 rounded-md',
-          (kind === 'slash' ||
-            kind === 'file' ||
-            kind === 'tag' ||
-            kind === 'conversation' ||
-            kind === 'commit' ||
-            kind === 'project' ||
-            kind === 'element' ||
-            kind === 'quote') &&
-            'bg-blue-500/10 text-blue-600 dark:text-blue-300',
-          kind === 'dollar' &&
-            'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-          kind === 'plugin_action' &&
-            'bg-pink-500/10 text-pink-700 dark:text-pink-300'
-        )}
-      >
-        <SessionComposerTokenIcon
-          token={iconToken}
-          className={kind === 'agent_mention' ? 'h-5 w-5' : 'h-3.5 w-3.5'}
-        />
-      </span>
-      <span className="min-w-0 flex-1">
+      {isCommandRow ? null : (
         <span
-          className="composer-trigger-label block truncate font-medium text-foreground"
+          aria-hidden="true"
+          className={cn(
+            'flex shrink-0 items-center justify-center',
+            kind === 'agent_mention' ? 'h-5 w-5' : 'h-7 w-7 rounded-md',
+            (kind === 'file' ||
+              kind === 'tag' ||
+              kind === 'conversation' ||
+              kind === 'commit' ||
+              kind === 'project' ||
+              kind === 'element' ||
+              kind === 'quote') &&
+              'bg-blue-500/10 text-blue-600 dark:text-blue-300',
+            kind === 'plugin_action' &&
+              'bg-pink-500/10 text-pink-700 dark:text-pink-300'
+          )}
+        >
+          <SessionComposerTokenIcon
+            token={iconToken}
+            className={kind === 'agent_mention' ? 'h-5 w-5' : 'h-3.5 w-3.5'}
+          />
+        </span>
+      )}
+      <span className={cn('min-w-0 flex-1', isCommandRow && 'truncate')}>
+        <span
+          className={cn(
+            'composer-trigger-label font-medium text-foreground',
+            !isCommandRow && 'block truncate'
+          )}
           data-composer-trigger-label
         >
           {item.label}
         </span>
         {data?.description ? (
-          <span
-            className="composer-trigger-description block truncate text-muted-foreground"
-            data-composer-trigger-description
-          >
-            {data.description}
-          </span>
-        ) : null}
-        {data?.commandSourceKind ? (
-          <span className="mt-1 inline-flex rounded border border-border/70 bg-muted/45 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
-            {t(`composer.commandSource.${data.commandSourceKind}`)}
-          </span>
+          <>
+            {isCommandRow ? ' ' : null}
+            <span
+              className={cn(
+                'composer-trigger-description text-muted-foreground',
+                !isCommandRow && 'block truncate'
+              )}
+              data-composer-trigger-description
+            >
+              {data.description}
+            </span>
+          </>
         ) : null}
       </span>
     </div>

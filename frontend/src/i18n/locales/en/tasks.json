@@ -16,11 +16,6 @@
       "loading": "Loading commands...",
       "noMatches": "No matching commands found."
     },
-    "commandSource": {
-      "plugin": "Plugin",
-      "skill": "Skill",
-      "native": "Native"
-    },
     "elementToken": {
       "type": "Page element",
       "source": "Source",

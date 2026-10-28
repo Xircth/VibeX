@@ -788,7 +788,8 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
       <span
         aria-hidden="true"
         className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+          'flex shrink-0 items-center justify-center',
+          kind === 'agent_mention' ? 'h-5 w-5' : 'h-7 w-7 rounded-md',
           (kind === 'slash' ||
             kind === 'file' ||
             kind === 'tag' ||
@@ -801,12 +802,13 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
           kind === 'dollar' &&
             'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
           kind === 'plugin_action' &&
-            'bg-pink-500/10 text-pink-700 dark:text-pink-300',
-          kind === 'agent_mention' &&
-            'bg-violet-500/10 text-violet-700 dark:text-violet-300'
+            'bg-pink-500/10 text-pink-700 dark:text-pink-300'
         )}
       >
-        <SessionComposerTokenIcon token={iconToken} className="h-3.5 w-3.5" />
+        <SessionComposerTokenIcon
+          token={iconToken}
+          className={kind === 'agent_mention' ? 'h-5 w-5' : 'h-3.5 w-3.5'}
+        />
       </span>
       <span className="min-w-0 flex-1">
         <span

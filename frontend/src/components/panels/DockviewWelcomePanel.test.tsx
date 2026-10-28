@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -284,6 +284,24 @@ describe('DockviewWelcomePanel', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     }) as unknown as typeof window.matchMedia;
+  });
+
+  it('shows product usage tips with emphasized terms and cycles to the next tip', () => {
+    renderPanel();
+
+    const tips = screen.getByRole('contentinfo', { name: '使用小技巧' });
+    expect(tips).toBeInTheDocument();
+    expect(
+      within(tips).getAllByRole('button', { name: /^技巧 / })
+    ).toHaveLength(12);
+    expect(screen.getByText('提示词优化').tagName).toBe('STRONG');
+    expect(tips).toHaveTextContent('提示词优化');
+    expect(tips).not.toHaveTextContent('电脑控制');
+    expect(tips).not.toHaveTextContent('永不共享');
+
+    fireEvent.click(screen.getByRole('button', { name: '下一条技巧' }));
+    expect(screen.getByText('页面布局').tagName).toBe('STRONG');
+    expect(tips).toHaveTextContent('页面布局');
   });
 
   it('renders continue sessions, start actions, projects, and recommended cards', () => {

@@ -1278,6 +1278,11 @@ html.dark {
   gap: 4px !important;
 }
 
+.legacy-design .workspace-activity-search.astryx-text-input {
+  height: 28px !important;
+  min-height: 28px !important;
+}
+
 .legacy-design .git-log-search-input.astryx-text-input input {
   font-size: 11px !important;
   line-height: 1 !important;
@@ -4666,6 +4671,11 @@ html.dark {
     white-space: nowrap;
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  .workspace-welcome__tips-text strong {
+    font-weight: 600;
+    color: var(--text-primary);
   }
 
   .workspace-welcome__tips-dots {

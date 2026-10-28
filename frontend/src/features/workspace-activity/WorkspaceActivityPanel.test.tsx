@@ -171,5 +171,10 @@ describe('WorkspaceActivityPanel', () => {
     expect(screen.getByText('开发服务器')).toBeInTheDocument();
     expect(await screen.findByText('模型连接中断，请重试')).toBeInTheDocument();
     expect(screen.getByText(/初始化脚本/)).toBeInTheDocument();
+
+    const noticesHeading = screen.getByRole('heading', { name: '错误与警告' });
+    const noticesList = noticesHeading.closest('section')?.querySelector('ul');
+    expect(noticesList?.className).toContain('max-h-64');
+    expect(noticesList?.className).toContain('overflow-y-auto');
   });
 });

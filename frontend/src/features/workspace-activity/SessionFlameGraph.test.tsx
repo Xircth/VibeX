@@ -172,7 +172,10 @@ describe('SessionFlameGraph (Trajectory View)', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开所有调用' }));
     expect(screen.getByText('排查 WebView 内存')).toBeInTheDocument();
 
-    const searchInput = screen.getByRole('searchbox', { name: '搜索轨迹' });
+    const searchInput = screen.getByPlaceholderText('搜索');
+    expect(
+      searchInput.closest('.workspace-activity-search.astryx-text-input')
+    ).toBeTruthy();
     fireEvent.change(searchInput, { target: { value: 'App.tsx' } });
     expect(screen.getByText('读取 App.tsx')).toBeInTheDocument();
     expect(screen.queryByText('排查 WebView 内存')).not.toBeInTheDocument();

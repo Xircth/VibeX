@@ -160,6 +160,18 @@ describe('TurnStats', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('hides Token on a live turn until this turn reports usage', () => {
+    render(
+      <LiveTurnStats
+        startedAt="2026-03-22T00:00:00.000Z"
+        stats={{ model: 'claude-sonnet-4-5' }}
+      />
+    );
+
+    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.queryByText('Token')).not.toBeInTheDocument();
+  });
+
   it('updates live elapsed time from the turn start timestamp', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-22T00:00:05.000Z'));

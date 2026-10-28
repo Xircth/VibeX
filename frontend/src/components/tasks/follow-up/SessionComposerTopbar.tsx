@@ -15,7 +15,6 @@ import {
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import type { CodexGoalState } from '@/lib/codexGoalState';
 
-import { CodexGoalIndicator } from './CodexGoalIndicator';
 import { DiffStatsBar } from './DiffStatsBar';
 import { SessionSelector } from './SessionSelector';
 import { TodoListButton } from './TodoListButton';
@@ -28,7 +27,7 @@ interface SessionComposerTopbarProps {
   changedFileCount: number;
   added: number;
   deleted: number;
-  codexGoalState: CodexGoalState | null;
+  codexGoalState?: CodexGoalState | null;
   onSelectCodexGoal?: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
   todos: TodoItem[];
@@ -54,8 +53,6 @@ export function SessionComposerTopbar({
   changedFileCount,
   added,
   deleted,
-  codexGoalState,
-  onSelectCodexGoal,
   tokenUsageInfo,
   todos,
   showSessionSelector,
@@ -83,7 +80,7 @@ export function SessionComposerTopbar({
         <button
           type="button"
           onClick={() => setShowDiffStats((prev) => !prev)}
-          className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-[11px] transition-colors"
+          className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-xs transition-colors"
         >
           {showDiffStats ? (
             <span className="inline-flex items-center gap-1.5 font-mono">
@@ -97,11 +94,6 @@ export function SessionComposerTopbar({
       ) : null}
 
       <div className="flex-1" />
-
-      <CodexGoalIndicator
-        goalState={codexGoalState}
-        onClick={onSelectCodexGoal}
-      />
 
       <TokenUsageIndicator tokenUsageInfo={tokenUsageInfo} />
 

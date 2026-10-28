@@ -113,4 +113,23 @@ describe('SessionGoalBar', () => {
     expect(screen.queryByTestId('session-goal-pause')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-goal-clear')).not.toBeInTheDocument();
   });
+
+  it('renders fallbackGoal above the composer when ACP sessionGoal is null', () => {
+    render(
+      <SessionGoalBar
+        sessionGoal={null}
+        fallbackGoal={{
+          objective: '分析当前项目并给出优化建议',
+          status: 'running',
+        }}
+        sessionBindReady={true}
+      />
+    );
+
+    expect(screen.getByTestId('session-goal-bar')).toHaveAttribute(
+      'data-goal-status',
+      'active'
+    );
+    expect(screen.getByText('分析当前项目并给出优化建议')).toBeInTheDocument();
+  });
 });

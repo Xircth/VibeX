@@ -2010,21 +2010,6 @@ const AgentTimelineConversation = forwardRef<
         workingDir={workspaceRoot}
         turnInFlight={isTurnInFlight}
       />
-      <SessionGoalBar
-        sessionGoal={conversation.sessionGoal}
-        sessionBindReady={conversation.sessionBindReady}
-        onGoalControl={conversation.goalControl}
-        onSelectGoal={
-          sessionId
-            ? () => requestConversationScrollToGoal(sessionId)
-            : undefined
-        }
-      />
-      <SessionAsyncTaskBar
-        tasks={conversation.asyncTasks}
-        sessionBindReady={conversation.sessionBindReady}
-        onStopTask={conversation.stopAsyncTask}
-      />
       <div
         ref={containerRef}
         className={cn(
@@ -2342,19 +2327,38 @@ const AgentTimelineConversation = forwardRef<
         </div>
       </div>
       {!usesComposerStatusDock ? (
-        <ConversationStatusDock
-          notices={statusNotices}
-          dismissalScope={sessionId}
-          placement="panel"
-          extra={
-            sessionId && attempt.session?.executor !== 'workflow' ? (
-              <ConversationChildrenSummary
-                conversationId={sessionId}
-                onOpenChild={handleOpenChild}
-              />
-            ) : null
-          }
-        />
+        <>
+          <div className="space-y-2 px-3 pb-1">
+            <SessionGoalBar
+              sessionGoal={conversation.sessionGoal}
+              sessionBindReady={conversation.sessionBindReady}
+              onGoalControl={conversation.goalControl}
+              onSelectGoal={
+                sessionId
+                  ? () => requestConversationScrollToGoal(sessionId)
+                  : undefined
+              }
+            />
+            <SessionAsyncTaskBar
+              tasks={conversation.asyncTasks}
+              sessionBindReady={conversation.sessionBindReady}
+              onStopTask={conversation.stopAsyncTask}
+            />
+          </div>
+          <ConversationStatusDock
+            notices={statusNotices}
+            dismissalScope={sessionId}
+            placement="panel"
+            extra={
+              sessionId && attempt.session?.executor !== 'workflow' ? (
+                <ConversationChildrenSummary
+                  conversationId={sessionId}
+                  onOpenChild={handleOpenChild}
+                />
+              ) : null
+            }
+          />
+        </>
       ) : null}
       {childStack.map((childConversationId) => {
         const child = delegations.find(

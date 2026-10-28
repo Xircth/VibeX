@@ -29,6 +29,7 @@ import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import {
   clearConversationPromptSuggestion,
+  getConversationAsyncTasks,
   getConversationPersona,
   getConversationPromptSuggestion,
   getConversationSessionGoal,
@@ -60,6 +61,8 @@ import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
+import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import {
   areConfigValuesEqual,
   dropPendingConfigValueAfterRejection,
@@ -210,6 +213,11 @@ export function TaskFollowUpSection({
     subscribeConversationTimeline,
     () => getConversationSessionGoal(sessionId ?? null),
     () => getConversationSessionGoal(sessionId ?? null)
+  );
+  const storedAsyncTasks = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationAsyncTasks(sessionId ?? null),
+    () => getConversationAsyncTasks(sessionId ?? null)
   );
   const storedPromptSuggestion = useSyncExternalStore(
     subscribeConversationTimeline,
@@ -788,6 +796,27 @@ export function TaskFollowUpSection({
 
     return deriveCodexGoalState(codexGoalEntriesFromConversation(entries));
   }, [effectiveExecutorProfile?.executor, entries, storedSessionGoal]);
+  const handleGoalControl = useCallback(
+    (action: 'pause' | 'clear') => {
+      if (!sessionId) {
+        return Promise.resolve({
+          action,
+          method: '_session/goal',
+          should_interrupt_turn: false,
+        });
+      }
+      return conversationApi.goalControl(sessionId, action);
+    },
+    [sessionId]
+  );
+  const handleStopAsyncTask = useCallback(
+    async (taskId: string) => {
+      if (!sessionId) return false;
+      const res = await conversationApi.stopAsyncTask(sessionId, taskId);
+      return Boolean(res?.stopped);
+    },
+    [sessionId]
+  );
   const promptEnhancementContext = useMemo(
     () => buildPromptEnhancementContext(entries),
     [entries]
@@ -965,7 +994,7 @@ export function TaskFollowUpSection({
   const { composerIdentity } = useSessionSurfaceChrome();
   const showTopbar = getComposerTopbarVisibility({
     hasTokenUsageInfo: Boolean(tokenUsageInfo),
-    hasCodexGoalState: Boolean(codexGoalState),
+    hasCodexGoalState: false,
     showSessionSelector,
     sessionCount: sessions.length,
     hasExecutorProfile: Boolean(effectiveExecutorProfile?.executor),
@@ -1103,6 +1132,24 @@ export function TaskFollowUpSection({
                 />
               )}
 
+              <SessionGoalBar
+                sessionGoal={storedSessionGoal}
+                fallbackGoal={codexGoalState}
+                sessionBindReady={sessionBindReady}
+                onGoalControl={sessionId ? handleGoalControl : undefined}
+                onSelectGoal={
+                  sessionId
+                    ? () => requestConversationScrollToGoal(sessionId)
+                    : undefined
+                }
+              />
+
+              <SessionAsyncTaskBar
+                tasks={storedAsyncTasks}
+                sessionBindReady={sessionBindReady}
+                onStopTask={sessionId ? handleStopAsyncTask : undefined}
+              />
+
               <MessageQueueIndicator
                 isQueued={queueIndicatorState.isQueued}
                 queuedMessages={queueIndicatorState.queuedMessages}
@@ -1201,12 +1248,6 @@ export function TaskFollowUpSection({
               changedFileCount={fileCount}
               added={added}
               deleted={deleted}
-              codexGoalState={codexGoalState}
-              onSelectCodexGoal={
-                sessionId
-                  ? () => requestConversationScrollToGoal(sessionId)
-                  : undefined
-              }
               tokenUsageInfo={tokenUsageInfo}
               todos={todos}
               showSessionSelector={showSessionSelector}

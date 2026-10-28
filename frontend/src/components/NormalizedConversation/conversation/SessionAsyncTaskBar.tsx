@@ -20,7 +20,7 @@ function AsyncTaskKindIcon({ task }: { task: AsyncTaskRecord }) {
   if (task.state === 'paused') {
     return (
       <PauseCircle
-        className="h-3.5 w-3.5 shrink-0 text-amber-500"
+        className="h-3 w-3 shrink-0 text-[hsl(var(--warning))]"
         aria-hidden="true"
       />
     );
@@ -29,7 +29,7 @@ function AsyncTaskKindIcon({ task }: { task: AsyncTaskRecord }) {
   if (kind === 'shell' || kind === 'bash' || kind === 'terminal') {
     return (
       <Terminal
-        className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted,hsl(var(--muted-foreground)))]"
+        className="h-3 w-3 shrink-0 text-muted-foreground"
         aria-hidden="true"
       />
     );
@@ -37,14 +37,14 @@ function AsyncTaskKindIcon({ task }: { task: AsyncTaskRecord }) {
   if (kind === 'workflow') {
     return (
       <Workflow
-        className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted,hsl(var(--muted-foreground)))]"
+        className="h-3 w-3 shrink-0 text-muted-foreground"
         aria-hidden="true"
       />
     );
   }
   return (
     <Activity
-      className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted,hsl(var(--muted-foreground)))]"
+      className="h-3 w-3 shrink-0 text-muted-foreground"
       aria-hidden="true"
     />
   );
@@ -122,7 +122,7 @@ export function SessionAsyncTaskBar({
       aria-label={t('asyncTasks.regionAria')}
       data-testid="session-async-task-bar"
       className={cn(
-        'flex shrink-0 flex-col divide-y divide-border/60 border-b border-border bg-[var(--surface-card,hsl(var(--card)))] text-xs',
+        'flex shrink-0 flex-col gap-1 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] p-1.5 text-xs',
         className
       )}
     >
@@ -151,23 +151,35 @@ export function SessionAsyncTaskBar({
           );
         }
 
+        const dotClass =
+          task.state === 'paused'
+            ? 'bg-[hsl(var(--warning))]'
+            : 'bg-[hsl(var(--success))]';
+
         return (
           <div
             key={task.id}
             data-testid={`async-task-row-${task.id}`}
             data-task-state={task.state}
-            className="flex min-h-[30px] items-center justify-between gap-2 px-3 py-0.5"
+            className="flex min-h-7 items-center justify-between gap-2.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/35"
           >
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <AsyncTaskKindIcon task={task} />
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/70 px-2 py-0.5 text-xs font-medium text-foreground/90">
+                <AsyncTaskKindIcon task={task} />
+                <span>{t('asyncTasks.backgroundBadge')}</span>
+                <span
+                  className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dotClass)}
+                  aria-hidden="true"
+                />
+              </span>
               <span
                 title={taskName}
-                className="min-w-0 max-w-[260px] truncate font-medium text-foreground"
+                className="min-w-0 max-w-64 truncate font-medium text-foreground"
               >
                 {taskName}
               </span>
               {metaParts.length > 0 ? (
-                <span className="min-w-0 flex-1 truncate tabular-nums text-[var(--text-muted,hsl(var(--muted-foreground)))]">
+                <span className="min-w-0 flex-1 truncate tabular-nums text-muted-foreground">
                   {metaParts.join(' · ')}
                 </span>
               ) : null}
@@ -182,7 +194,7 @@ export function SessionAsyncTaskBar({
                   aria-label={t('asyncTasks.openOutputAria', {
                     name: taskName,
                   })}
-                  className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="inline-flex h-6 items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <FileText className="h-3 w-3" aria-hidden="true" />
                   <span>{t('asyncTasks.outputButton')}</span>
@@ -198,7 +210,7 @@ export function SessionAsyncTaskBar({
                   onClick={() => {
                     void handleStop(task.id);
                   }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 >
                   {isStopping ? (
                     <Loader2
@@ -208,6 +220,7 @@ export function SessionAsyncTaskBar({
                   ) : (
                     <Square className="h-3 w-3" aria-hidden="true" />
                   )}
+                  <span>{t('asyncTasks.stop')}</span>
                 </button>
               ) : null}
             </div>

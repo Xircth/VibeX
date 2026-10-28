@@ -1,15 +1,23 @@
 import { useCallback, useState } from 'react';
-import { Loader2, Pause, X } from 'lucide-react';
+import { Flag, Loader2, Pause, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationSessionGoal, GoalControlReceipt } from 'shared/types';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/modals';
+import type { CodexGoalState } from '@/lib/codexGoalState';
 import {
   formatGoalDuration,
   formatGoalTokens,
   isLimitedGoalStatus,
   parseConversationSessionGoal,
+  parseSessionGoalValue,
   type SessionGoalStatus,
 } from '@/lib/sessionGoal';
 
@@ -18,7 +26,7 @@ export function sessionGoalStatusDotClass(status: SessionGoalStatus): string {
     case 'active':
       return 'bg-[hsl(var(--success))]';
     case 'paused':
-      return 'bg-amber-500';
+      return 'bg-[hsl(var(--warning))]';
     case 'failed':
       return 'bg-destructive';
     case 'completed':
@@ -32,6 +40,7 @@ export function sessionGoalStatusDotClass(status: SessionGoalStatus): string {
 
 export interface SessionGoalBarProps {
   sessionGoal: ConversationSessionGoal | null;
+  fallbackGoal?: CodexGoalState | null;
   sessionBindReady?: boolean;
   onGoalControl?: (action: 'pause' | 'clear') => Promise<GoalControlReceipt>;
   onSelectGoal?: () => void;
@@ -40,6 +49,7 @@ export interface SessionGoalBarProps {
 
 export function SessionGoalBar({
   sessionGoal,
+  fallbackGoal = null,
   sessionBindReady = true,
   onGoalControl,
   onSelectGoal,
@@ -50,9 +60,24 @@ export function SessionGoalBar({
     null
   );
 
-  const parsed = parseConversationSessionGoal(sessionGoal, {
-    sessionBindReady: sessionBindReady && Boolean(onGoalControl),
-  });
+  const canControl = sessionBindReady && Boolean(onGoalControl);
+  const parsed =
+    parseConversationSessionGoal(sessionGoal, {
+      sessionBindReady: canControl,
+    }) ??
+    (fallbackGoal &&
+    (fallbackGoal.status === 'running' || fallbackGoal.status === 'paused')
+      ? parseSessionGoalValue(
+          {
+            objective: fallbackGoal.objective,
+            status: fallbackGoal.status === 'paused' ? 'paused' : 'active',
+          },
+          {
+            actions: sessionGoal?.actions ?? null,
+            sessionBindReady: canControl,
+          }
+        )
+      : null);
 
   const handleAction = useCallback(
     async (action: 'pause' | 'clear') => {
@@ -98,102 +123,134 @@ export function SessionGoalBar({
     }
   }
 
-  return (
-    <div
-      role="status"
-      data-testid="session-goal-bar"
-      data-goal-status={parsed.status}
-      className={cn(
-        'flex min-h-[34px] shrink-0 items-center justify-between gap-2 border-b border-border bg-[var(--surface-card,hsl(var(--card)))] px-3 py-1 text-xs',
-        className
-      )}
+  const objectiveTrigger = onSelectGoal ? (
+    <button
+      type="button"
+      onClick={onSelectGoal}
+      title={parsed.objective}
+      className="min-w-0 flex-1 truncate text-left text-xs font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0 text-xs text-[var(--text-muted,hsl(var(--muted-foreground)))]">
-          {t('sessionGoal.label')}
-        </span>
-        <span
-          className={cn(
-            'h-1.5 w-1.5 shrink-0 rounded-full',
-            sessionGoalStatusDotClass(parsed.status)
-          )}
-          aria-hidden="true"
-        />
-        <span className="shrink-0 font-medium text-foreground/90">
-          {statusText}
-        </span>
-        {onSelectGoal ? (
-          <button
-            type="button"
-            onClick={onSelectGoal}
-            title={parsed.objective}
-            className="min-w-0 flex-1 truncate text-left text-xs text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {parsed.objective}
-          </button>
-        ) : (
-          <span
-            title={parsed.objective}
-            className="min-w-0 flex-1 truncate text-xs text-foreground"
-          >
-            {parsed.objective}
-          </span>
+      {parsed.objective}
+    </button>
+  ) : (
+    <span
+      title={parsed.objective}
+      className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+    >
+      {parsed.objective}
+    </span>
+  );
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div
+        role="status"
+        data-testid="session-goal-bar"
+        data-goal-status={parsed.status}
+        className={cn(
+          'flex min-h-9 shrink-0 items-center justify-between gap-2.5 overflow-hidden rounded-lg border border-border bg-[var(--surface-card,hsl(var(--card)))] px-2.5 py-1.5 text-xs',
+          className
         )}
-        {metaParts.length > 0 ? (
-          <span className="shrink-0 tabular-nums text-xs text-[var(--text-muted,hsl(var(--muted-foreground)))]">
-            {metaParts.join(' · ')}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/70 px-2 py-0.5 text-xs font-medium text-foreground/90">
+            <Flag
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span>{t('sessionGoal.label')}</span>
+            <span
+              className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full',
+                sessionGoalStatusDotClass(parsed.status)
+              )}
+              aria-hidden="true"
+            />
+            <span className="text-muted-foreground">{statusText}</span>
           </span>
+
+          <Tooltip>
+            <TooltipTrigger asChild>{objectiveTrigger}</TooltipTrigger>
+            <TooltipContent side="top" className="max-w-96">
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      sessionGoalStatusDotClass(parsed.status)
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {t('sessionGoal.label')} · {statusText}
+                  </span>
+                </div>
+                <div className="break-words text-muted-foreground">
+                  {parsed.objective}
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {metaParts.length > 0 || parsed.canPause || parsed.canClear ? (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {metaParts.length > 0 ? (
+              <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                {metaParts.join(' · ')}
+              </span>
+            ) : null}
+
+            {parsed.canPause ? (
+              <button
+                type="button"
+                data-testid="session-goal-pause"
+                aria-label={t('sessionGoal.pauseAria')}
+                title={t('sessionGoal.pause')}
+                disabled={pendingAction !== null}
+                onClick={() => {
+                  void handleAction('pause');
+                }}
+                className="inline-flex h-6 items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+              >
+                {pendingAction === 'pause' ? (
+                  <Loader2
+                    className="h-3 w-3 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Pause className="h-3 w-3" aria-hidden="true" />
+                )}
+                <span>{t('sessionGoal.pause')}</span>
+              </button>
+            ) : null}
+
+            {parsed.canClear ? (
+              <button
+                type="button"
+                data-testid="session-goal-clear"
+                aria-label={t('sessionGoal.clearAria')}
+                title={t('sessionGoal.clear')}
+                disabled={pendingAction !== null}
+                onClick={() => {
+                  void handleAction('clear');
+                }}
+                className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+              >
+                {pendingAction === 'clear' ? (
+                  <Loader2
+                    className="h-3 w-3 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <X className="h-3 w-3" aria-hidden="true" />
+                )}
+                <span>{t('sessionGoal.clear')}</span>
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
-
-      {parsed.canPause || parsed.canClear ? (
-        <div className="flex shrink-0 items-center gap-1">
-          {parsed.canPause ? (
-            <button
-              type="button"
-              data-testid="session-goal-pause"
-              aria-label={t('sessionGoal.pauseAria')}
-              title={t('sessionGoal.pause')}
-              disabled={pendingAction !== null}
-              onClick={() => {
-                void handleAction('pause');
-              }}
-              className="composer-icon-control inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-            >
-              {pendingAction === 'pause' ? (
-                <Loader2
-                  className="h-3.5 w-3.5 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-              )}
-            </button>
-          ) : null}
-          {parsed.canClear ? (
-            <button
-              type="button"
-              data-testid="session-goal-clear"
-              aria-label={t('sessionGoal.clearAria')}
-              title={t('sessionGoal.clear')}
-              disabled={pendingAction !== null}
-              onClick={() => {
-                void handleAction('clear');
-              }}
-              className="composer-icon-control inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-            >
-              {pendingAction === 'clear' ? (
-                <Loader2
-                  className="h-3.5 w-3.5 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-              )}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    </TooltipProvider>
   );
 }

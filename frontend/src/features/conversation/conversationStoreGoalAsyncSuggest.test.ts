@@ -43,7 +43,7 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
     turns_total: 0,
     user_turns_before_offset: 0,
     projection_version: 2,
-    session_modes: { current: null, available: [] },
+    session_modes: { current: null, modes: [] },
     session_config_options: [],
     available_commands: null,
     session_goal: {
@@ -142,8 +142,12 @@ describe('conversationStore goal, asyncTasks, and promptSuggestion', () => {
     state = conversationStoreReducer(state, {
       type: 'optimistic_turn',
       conversationId: CONVERSATION_ID,
-      turnId: 'turn-1',
-      text: 'Hello',
+      turn: {
+        id: 'turn-1',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Hello' }],
+        timestamp: '2026-10-27T00:00:00.000Z',
+      },
     });
     expect(
       state.byConversationId[CONVERSATION_ID]?.promptSuggestion

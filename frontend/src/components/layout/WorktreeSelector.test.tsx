@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -197,8 +203,10 @@ describe('WorktreeSelector', () => {
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
 
     expect(screen.queryByText('Kanban overview')).not.toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: '工作区' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: '分支' })).toBeInTheDocument();
+    const workspaceMode = screen.getByRole('radio', { name: 'Worktree' });
+    const branchMode = screen.getByRole('radio', { name: 'Branch' });
+    expect(workspaceMode.querySelector('svg')).not.toBeNull();
+    expect(branchMode.querySelector('svg')).not.toBeNull();
     expect(screen.getByTestId('workspace-switcher-list')).toHaveClass(
       'max-h-72'
     );
@@ -209,6 +217,19 @@ describe('WorktreeSelector', () => {
       expect.stringContaining('dev'),
       expect.stringContaining('feat/next'),
     ]);
+    expect(within(list).queryByText('Worktree')).not.toBeInTheDocument();
+    expect(items[0]).toHaveTextContent('主目录');
+    expect(within(items[0]).getByText('主目录').className).toMatch(/success/);
+    expect(items[1]).not.toHaveTextContent('主目录');
+
+    const copyButton = items[0].parentElement?.querySelector(
+      '[data-testid="workspace-copy-path"]'
+    );
+    expect(copyButton).toHaveClass('absolute');
+    expect(copyButton?.className).toMatch(/opacity-0/);
+    expect(copyButton?.className).toMatch(/group-hover:opacity-100/);
+    expect(copyButton).toHaveAttribute('aria-label', '复制工作区路径');
+    expect(copyButton?.closest('[role="menuitem"]')).toBeNull();
 
     await user.click(
       within(list).getByRole('menuitem', { name: /feat\/next/ })
@@ -224,6 +245,42 @@ describe('WorktreeSelector', () => {
     expect(useFileTreeStore.getState().selectedFilePath).toBeNull();
     expect(useFileTreeStore.getState().diffFilePath).toBeNull();
     expect(useLayoutStore.getState().activeTab).toBe('workspace');
+  });
+
+  it('copies the workspace path from hover overlay without switching', async () => {
+    const user = userEvent.setup();
+    const root = workspace({ id: 'root-1', branch: 'dev' });
+    const worktree = workspace({
+      id: 'wt-1',
+      task_id: 'task-wt',
+      branch: 'feat/next',
+      use_worktree: true,
+      container_ref: 'C:/wt/feat',
+    });
+    harness.worktrees = [worktree, root];
+
+    renderSelector();
+    await user.click(screen.getByRole('button', { name: '选择工作区' }));
+
+    const list = screen.getByTestId('workspace-switcher-list');
+    const worktreeItem = within(list).getByRole('menuitem', {
+      name: /feat\/next/,
+    });
+    const copyButton = worktreeItem.parentElement?.querySelector(
+      '[data-testid="workspace-copy-path"]'
+    );
+    expect(copyButton).toBeInstanceOf(HTMLButtonElement);
+    const writeText = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockResolvedValue(undefined);
+    fireEvent.click(copyButton as HTMLButtonElement);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('C:/wt/feat'));
+    writeText.mockRestore();
+    expect(harness.setActiveWorktree).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/local-projects/project-1/workspaces/root-1'
+    );
   });
 
   it('opens the cached session in the same click', async () => {
@@ -341,7 +398,7 @@ describe('WorktreeSelector', () => {
     queryClient.setQueryData(['repoBranches', 'repo-1'], harness.branches);
 
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
-    await user.click(screen.getByRole('radio', { name: '分支' }));
+    await user.click(screen.getByRole('radio', { name: 'Branch' }));
     await user.click(screen.getByRole('menuitem', { name: /feat\/local/ }));
 
     await waitFor(() =>
@@ -394,12 +451,13 @@ describe('WorktreeSelector', () => {
 
     renderSelector();
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
-    await user.click(screen.getByRole('radio', { name: '分支' }));
+    await user.click(screen.getByRole('radio', { name: 'Branch' }));
 
     const list = screen.getByTestId('workspace-switcher-list');
     const items = within(list).getAllByRole('menuitem');
     expect(items[0]).toHaveTextContent('dev');
     expect(items[0]).toHaveTextContent('主目录');
+    expect(within(items[0]).getByText('主目录').className).toMatch(/success/);
     expect(items[1]).toHaveTextContent('feat/next');
     expect(within(list).queryByRole('menuitem', { name: /origin\/dev/ })).toBe(
       null
@@ -419,14 +477,14 @@ describe('WorktreeSelector', () => {
 
     vi.mocked(ConfirmDialog.show).mockResolvedValueOnce('canceled');
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
-    await user.click(screen.getByRole('radio', { name: '分支' }));
+    await user.click(screen.getByRole('radio', { name: 'Branch' }));
     await user.click(screen.getByRole('menuitem', { name: /free\/local/ }));
     await waitFor(() => expect(ConfirmDialog.show).toHaveBeenCalled());
     expect(attemptsApi.checkoutBranch).not.toHaveBeenCalled();
 
     vi.mocked(ConfirmDialog.show).mockResolvedValueOnce('confirmed');
     await user.click(screen.getByRole('button', { name: '选择工作区' }));
-    await user.click(screen.getByRole('radio', { name: '分支' }));
+    await user.click(screen.getByRole('radio', { name: 'Branch' }));
     await user.click(screen.getByRole('menuitem', { name: /free\/local/ }));
     await waitFor(() =>
       expect(attemptsApi.checkoutBranch).toHaveBeenCalledWith(

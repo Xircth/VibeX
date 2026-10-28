@@ -92,7 +92,7 @@ See [One Host](https://vibex.com/docs/reference/one-host) and [Connect a Host](h
 
 Collaboration splits into delegation and Graph Workflow. Automation decides when to start.
 
-- **Delegation:** A parent agent hands work to another enabled agent during a conversation. `&` in the input box is a structured mention. Child conversations have their own timeline and turns. Turn this on under Settings → General → MultiAgent collaboration. It stays off until you do, and only later new sessions receive it.
+- **Delegation:** A parent agent hands work to another enabled agent during a conversation. `&` in the input box is a structured mention. Child conversations have their own timeline and turns. It is on by default under Settings → General → Collaboration space, and only later new sessions receive it.
 - **Graph Workflow:** Steps and dependencies are described as a JSON DAG, then executed. Source files can live in Git. A published definition version is immutable. This capability comes from the official Workflow creator plugin.
 - **Automation:** A manual action or a schedule starts an ordinary turn, or a published Workflow version.
 

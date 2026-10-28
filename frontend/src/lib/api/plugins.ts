@@ -169,6 +169,9 @@ export type PluginMcpHeadline =
   | 'stopped'
   | 'unavailable';
 
+/** Sentinel id for the host collaboration-space MCP. Not a plugin package. */
+export const HOST_MULTI_AGENT_ID = 'host.multi-agent';
+
 export interface PluginMcpToolStatus {
   name: string;
   group: string;

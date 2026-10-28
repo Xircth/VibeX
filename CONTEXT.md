@@ -109,7 +109,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Conversation reference（会话引用）** — `@` 面板中点名另一段 Conversation 的引用，序列化为 `[title](vibex://conversation/<uuid>)`。Agent 通过会话增强或多智能体协同的 `get_session_info` 只读查看被点名的会话；两者是同一读法。
 - **Commit reference（提交引用）** — `@` 面板中点名当前仓库一次 git commit 的引用，序列化为 `[shortSha](vibex://commit/<repoId>@<sha>)`。
 - **Instruction reference（指令引用）** — `@` 面板指令 Tab 中插入的标签/内置指令，沿用原 `#` token 的展开语义。
-- **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当 MultiAgent协同已启用，且当前 Conversation 要么尚无 Agent binding、要么该 binding 已在启用后完成投递时出现。见 ADR-0031、ADR-0057 与 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
+- **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当协作空间已启用，且当前 Conversation 要么尚无 Agent binding、要么该 binding 已在启用后完成投递时出现。见 ADR-0031、ADR-0057 与 [ADR-0065](docs/adr/0065-composer-at-reference-panel.md)。
 
 会话输入、纠偏、同工作区发送与延时输入见
 [ADR-0044](docs/adr/0044-conversation-control-plane-and-durable-inputs.md)。
@@ -211,10 +211,10 @@ Workflow 领域与 Automation 的关系见
 - **Single-layer extension（单层扩展）** — 插件只能面向宿主贡献点开发：不存在插件依赖插件、跨插件服务调用或插件自声明扩展点。同一贡献点上多个插件的并存与替换由宿主冲突解析处理，不由插件互相协商。见 [ADR-0069](docs/adr/0069-everything-is-a-plugin-platform.md)。
 - **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
 - **Plugin conversation capability（插件会话能力）** — 插件通过 `host.call conversation.*` 使用与工作区会话面板同一套 Application Core 控制面：创建、入队、纠偏、取消、权限/提问应答、会话配置、时间线与归档。插件只能操作它创建的 Conversation，或 Host 授予的 Conversation。省略 `workspaceId` 时，Host 为该插件准备独立 scratch 工作区（专用 git 目录，不出现在项目列表），插件 Tab 可以自建一套会话环境而不借用当前编码工作区。
-- **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与 MultiAgent协同的产品拆分见 ADR-0057。
+- **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与协作空间的产品拆分见 ADR-0057。
 - **Session enhancement plugin（会话增强插件）** — 官网市场官方分类中的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；安装后默认禁用，可以卸载。启停与单工具开关属于该插件。见 ADR-0057 与 ADR-0066。
-- **MultiAgent协同** — 宿主里的委派与协作空间能力。默认关闭。打开后，新的会话可以委派、使用角色和协作空间。关闭后，新的写操作停止；已经排队的输入仍会被送达。见 ADR-0057。
-_Avoid_: 多智能体协同插件
+- **协作空间（设置开关）** — 宿主里的委派与协作空间能力。默认开启。打开后，新的会话可以委派、使用角色和协作空间。关闭后，新的写操作停止；已经排队的输入仍会被送达。见 ADR-0057。
+_Avoid_: MultiAgent协同, 多智能体协同插件
 - **插件目录 Tab** — 设置 → 插件上的「已安装」与「插件市场」。详情页仍只有内容与配置。见 ADR-0066。
 - **官方分类** — 官网已发布且 category=official 的条目，市场 Tab 默认置顶并全量拉取。
 - **安装物身份** — `owner/plugin-name/tag/version`。产品身份仍是 Publisher + Plugin ID。
@@ -254,7 +254,7 @@ _Avoid_: 多智能体协同插件
 - **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX capability grant 与原生信任不能互相替代或伪造。
 - **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
 - **Plugin operation audit（插件操作审计）** — 对安装、授权、激活代切换、Runtime、原生投影与破坏性操作的持久证据；记录身份、版本/digest、操作结果与影响范围，不保存秘密或凭据。
-- **Official product MCP（官方产品 MCP）** — 随 Host 家族分发的产品 MCP。磁盘上有 Runtime 不等于已注入。会话增强与 Workflow Creator 由各自官方插件激活。MultiAgent协同由宿主设置激活，默认关闭，只进入之后新开或重新绑定的会话。见 ADR-0055 与 ADR-0057。
+- **Official product MCP（官方产品 MCP）** — 随 Host 家族分发的产品 MCP。磁盘上有 Runtime 不等于已注入。会话增强与 Workflow Creator 由各自官方插件激活。协作空间由宿主设置激活，默认开启，只进入之后新开或重新绑定的会话。见 ADR-0055 与 ADR-0057。
 - **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
 - **Legacy plugin evidence（旧插件证据）** — 对旧 manifest、信任、Runtime 与激活记录的完整只读保存；它只用于迁移解释，不会自动执行旧脚本、获得新授权或重新成为可运行插件。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。

@@ -17,8 +17,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { openSettingsSurface } from '@/lib/api/settingsWindow';
-import { createPluginControlApi } from '@/lib/api/plugins';
+import {
+  HOST_MULTI_AGENT_ID,
+  createPluginControlApi,
+} from '@/lib/api/plugins';
 import type {
   PluginMcpPluginStatus,
   PluginMcpStatusReport,
@@ -63,10 +67,21 @@ function connectionLabelKey(connection: PluginMcpPluginStatus['connection']) {
   }
 }
 
+function pluginDisplayName(
+  plugin: PluginMcpPluginStatus,
+  t: (key: string) => string
+) {
+  if (plugin.pluginId === HOST_MULTI_AGENT_ID) {
+    return t('mcp.hostCollaboration');
+  }
+  return plugin.name;
+}
+
 export function StatusBarMcp() {
   const { t } = useTranslation('statusbar');
   const navigate = useNavigate();
   const transport = useBackendTransport();
+  const { updateAndSaveConfig } = useUserSystem();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -96,7 +111,16 @@ export function StatusBarMcp() {
     setActionError(null);
     setPending((current) => ({ ...current, [plugin.pluginId]: enabled }));
     try {
-      await api.setEnabled(plugin.pluginId, enabled);
+      if (plugin.pluginId === HOST_MULTI_AGENT_ID) {
+        const saved = await updateAndSaveConfig({
+          multi_agent_enabled: enabled,
+        });
+        if (!saved) {
+          throw new Error(t('mcp.saveFailed'));
+        }
+      } else {
+        await api.setEnabled(plugin.pluginId, enabled);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: pluginMcpStatusQueryKey }),
         queryClient.invalidateQueries({ queryKey: pluginCatalogQueryKey }),
@@ -177,6 +201,11 @@ export function StatusBarMcp() {
                 0
               );
               const checked = pending[plugin.pluginId] ?? plugin.enabled;
+              const name = pluginDisplayName(plugin, t);
+              const description =
+                plugin.pluginId === HOST_MULTI_AGENT_ID
+                  ? t('mcp.hostCollaborationDescription')
+                  : plugin.description;
               return (
                 <div
                   key={plugin.pluginId}
@@ -186,7 +215,7 @@ export function StatusBarMcp() {
                     <button
                       type="button"
                       aria-expanded={isOpen}
-                      aria-label={plugin.name}
+                      aria-label={name}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       onClick={() => {
                         setExpanded((current) =>
@@ -202,7 +231,7 @@ export function StatusBarMcp() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[0.75rem] font-medium text-foreground">
-                          {plugin.name}
+                          {name}
                         </span>
                         <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span>
@@ -235,7 +264,7 @@ export function StatusBarMcp() {
                       disabled={
                         !plugin.enableSupported || plugin.pluginId in pending
                       }
-                      aria-label={plugin.name}
+                      aria-label={name}
                       onCheckedChange={(next) => {
                         void handleToggle(plugin, next);
                       }}
@@ -243,7 +272,7 @@ export function StatusBarMcp() {
                   </div>
                   {isOpen ? (
                     <div className="space-y-1.5 border-t border-border bg-background px-2 py-1.5">
-                      {plugin.description ? (
+                      {description ? (
                         <div>
                           <button
                             type="button"
@@ -261,7 +290,7 @@ export function StatusBarMcp() {
                           </button>
                           {descriptionOpen === plugin.pluginId ? (
                             <div className="mt-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs leading-4 text-muted-foreground">
-                              {plugin.description}
+                              {description}
                             </div>
                           ) : null}
                         </div>

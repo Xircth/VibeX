@@ -665,4 +665,4 @@ Batch 4 的 `provider.usage` 验收完成开工。git `host.call` API 族在 Bat
 
 ## Amendment（2026-10-20）
 
-原则 7 增加一条 L0 例外：协作投递与会话、工作区表面是 L0，只保留一个适配器。插件缝是假想的，因为宿主与插件必须锁版本。MultiAgent协同的页面、MCP 激活、Skill 和设置是宿主能力，默认关闭。2026-10-19 登记的 `host.call collaboration.*` 与 `workspace.focusConversation` 仍然是稳定缝。会话增强与工作流仍是官方插件。宿主不按插件 ID 决定协同是否可用。
+原则 7 增加一条 L0 例外：协作投递与会话、工作区表面是 L0，只保留一个适配器。插件缝是假想的，因为宿主与插件必须锁版本。协作空间的页面、MCP 激活、Skill 和设置是宿主能力，默认开启。2026-10-19 登记的 `host.call collaboration.*` 与 `workspace.focusConversation` 仍然是稳定缝。会话增强与工作流仍是官方插件。宿主不按插件 ID 决定协同是否可用。

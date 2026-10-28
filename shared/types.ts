@@ -800,7 +800,7 @@ crash_reports_enabled: boolean,
  */
 link_open_behavior: LinkOpenBehavior,
 /**
- * Host MultiAgent collaboration. Default off. Only new sessions pick up
+ * Host collaboration space. Default on. Only new sessions pick up
  * the MCP tools and skill.
  */
 multi_agent_enabled: boolean, multi_agent_depth_limit: number, multi_agent_completed_cache_max_mb: number, multi_agent_conversation_list_default_days: number, multi_agent_delay_max_hours: number, multi_agent_agent_defaults: { [key in string]?: MultiAgentAgentDefault }, };

@@ -341,10 +341,9 @@
   },
   "worktreeSelector": {
     "modeLabel": "Workspace list",
-    "modeWorkspace": "Workspace",
+    "modeWorkspace": "Worktree",
     "modeBranch": "Branch",
     "mainDirectory": "Main directory",
-    "worktree": "Worktree",
     "branchSwitchTitle": "Switch branch",
     "branchSwitchMessage": "Switching the current directory's branch may disrupt Agent work. Switch anyway?",
     "branchSwitchConfirm": "Switch",

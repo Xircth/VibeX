@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  FolderGit2,
   GitBranch as GitBranchIcon,
 } from 'lucide-react';
 import {
@@ -35,6 +36,7 @@ import { attemptsApi, sessionsApi, type SessionSummary } from '@/lib/api';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { toast } from '@/components/ui/toast';
+import { cn } from '@/lib/utils';
 import {
   createWorkspaceWithSession,
   type WorkspaceWithSession,
@@ -46,6 +48,12 @@ import {
 } from '@/lib/workspaceBranchSegment';
 
 type SwitcherMode = 'workspace' | 'branch';
+
+const MAIN_DIRECTORY_CHIP_CLASS =
+  'shrink-0 rounded-full bg-[hsl(var(--success)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--success))]';
+
+const WORKSPACE_COPY_BUTTON_CLASS =
+  'pointer-events-none absolute inset-y-0 z-[1] inline-flex items-center bg-accent pl-3 text-muted-foreground opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 hover:text-foreground';
 
 const SESSION_STALE_MS = 30_000;
 
@@ -570,10 +578,12 @@ export function WorktreeSelector() {
             <SegmentedControlItem
               value="workspace"
               label={t('worktreeSelector.modeWorkspace')}
+              icon={<FolderGit2 aria-hidden="true" className="size-full" />}
             />
             <SegmentedControlItem
               value="branch"
               label={t('worktreeSelector.modeBranch')}
+              icon={<GitBranchIcon aria-hidden="true" className="size-full" />}
             />
           </SegmentedControl>
         </div>
@@ -597,9 +607,9 @@ export function WorktreeSelector() {
                 const selected = workspace.id === effectiveWorktreeId;
 
                 return (
-                  <div key={workspace.id} className="flex items-center gap-1">
+                  <div key={workspace.id} className="group relative">
                     <DropdownMenuItem
-                      className="min-w-0 flex-1 gap-2"
+                      className="min-w-0 gap-2 group-hover:bg-accent"
                       onSelect={(event) => {
                         event.preventDefault();
                         activateWorkspace(workspace);
@@ -612,40 +622,39 @@ export function WorktreeSelector() {
                           ? workspace.branch
                           : mainDirectoryBranch || workspace.branch}
                       </span>
-                      <span
-                        className={
-                          workspace.use_worktree
-                            ? 'shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary'
-                            : 'shrink-0 rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]'
-                        }
-                      >
-                        {workspace.use_worktree
-                          ? t('worktreeSelector.worktree')
-                          : t('worktreeSelector.mainDirectory')}
-                      </span>
+                      {!workspace.use_worktree ? (
+                        <span className={MAIN_DIRECTORY_CHIP_CLASS}>
+                          {t('worktreeSelector.mainDirectory')}
+                        </span>
+                      ) : null}
                       <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                         {selected ? (
                           <Check aria-hidden="true" className="h-3.5 w-3.5" />
                         ) : null}
                       </span>
                     </DropdownMenuItem>
-                    <button
-                      type="button"
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label={copyLabel}
-                      title={copyLabel}
-                      disabled={!copyPath}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={(event) =>
-                        void handleCopyWorkspacePath(event, workspace)
-                      }
-                    >
-                      {copiedWorkspaceId === workspace.id ? (
-                        <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
+                    {copyPath ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          WORKSPACE_COPY_BUTTON_CLASS,
+                          workspace.use_worktree ? 'right-8' : 'right-[5.25rem]'
+                        )}
+                        aria-label={copyLabel}
+                        title={copyLabel}
+                        data-testid="workspace-copy-path"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) =>
+                          void handleCopyWorkspacePath(event, workspace)
+                        }
+                      >
+                        {copiedWorkspaceId === workspace.id ? (
+                          <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })
@@ -668,7 +677,7 @@ export function WorktreeSelector() {
                   {entry.name}
                 </span>
                 {entry.role === 'main-directory' ? (
-                  <span className="shrink-0 rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]">
+                  <span className={MAIN_DIRECTORY_CHIP_CLASS}>
                     {t('worktreeSelector.mainDirectory')}
                   </span>
                 ) : null}

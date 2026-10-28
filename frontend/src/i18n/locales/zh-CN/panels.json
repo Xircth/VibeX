@@ -341,10 +341,9 @@
   },
   "worktreeSelector": {
     "modeLabel": "工作区列表",
-    "modeWorkspace": "工作区",
-    "modeBranch": "分支",
+    "modeWorkspace": "Worktree",
+    "modeBranch": "Branch",
     "mainDirectory": "主目录",
-    "worktree": "Worktree",
     "branchSwitchTitle": "切换分支",
     "branchSwitchMessage": "切换当前目录所在分支可能导致 Agent 工作异常，是否切换？",
     "branchSwitchConfirm": "切换",

@@ -807,29 +807,33 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
           />
         </span>
       )}
-      <span className={cn('min-w-0 flex-1', isCommandRow && 'truncate')}>
+      <span
+        className={cn(
+          'min-w-0 flex-1',
+          isCommandRow && 'flex items-baseline gap-3'
+        )}
+      >
         <span
           className={cn(
             'composer-trigger-label font-medium text-foreground',
-            !isCommandRow && 'block truncate'
+            isCommandRow ? 'min-w-0 shrink truncate' : 'block truncate'
           )}
           data-composer-trigger-label
         >
           {item.label}
         </span>
         {data?.description ? (
-          <>
-            {isCommandRow ? ' ' : null}
-            <span
-              className={cn(
-                'composer-trigger-description text-muted-foreground',
-                !isCommandRow && 'block truncate'
-              )}
-              data-composer-trigger-description
-            >
-              {data.description}
-            </span>
-          </>
+          <span
+            className={cn(
+              'composer-trigger-description text-muted-foreground',
+              isCommandRow
+                ? 'ml-auto min-w-0 flex-1 truncate text-right'
+                : 'block truncate'
+            )}
+            data-composer-trigger-description
+          >
+            {data.description}
+          </span>
         ) : null}
       </span>
     </div>

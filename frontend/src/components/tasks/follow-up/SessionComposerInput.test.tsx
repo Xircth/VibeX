@@ -875,6 +875,7 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(label).toHaveClass('composer-trigger-label');
     expect(label).not.toHaveClass('block');
     expect(description).toHaveClass('composer-trigger-description');
+    expect(description).toHaveClass('text-right');
     expect(description).not.toHaveClass('block');
     expect(row?.querySelector('[aria-hidden="true"]')).toBeNull();
     expect(row?.querySelector('svg')).toBeNull();
@@ -921,6 +922,7 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(description).toHaveTextContent(
       'Compact conversation with an optional focus'
     );
+    expect(description).toHaveClass('text-right');
     expect(description).not.toHaveClass('block');
     expect(row?.querySelector('[aria-hidden="true"]')).toBeNull();
     expect(row?.querySelector('svg')).toBeNull();

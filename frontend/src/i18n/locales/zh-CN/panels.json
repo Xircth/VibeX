@@ -1050,7 +1050,12 @@
       "approved": "已批准",
       "rejected": "已拒绝",
       "approve": "批准",
-      "reject": "拒绝"
+      "reject": "拒绝",
+      "handoff": "交接",
+      "handoffDone": "已完成",
+      "handoffConstraints": "约束",
+      "handoffAsk": "请继续：{{ask}}",
+      "handoffAskLabel": "请继续"
     },
     "globalSearch": {
       "searchSpacesOrBots": "搜索协作空间或助手",
@@ -1109,7 +1114,11 @@
       "noBotReadsYet": "暂无助手读取记录",
       "createdAt": "创建时间：{{time}}",
       "readsCount": "读取记录 ({{count}})",
-      "readTimes": "读取 {{count}} 次"
+      "readTimes": "读取 {{count}} 次",
+      "folderPath": "共享文件夹",
+      "copyFolderPath": "复制路径",
+      "folderHint": "你和助手可直接读写此文件夹",
+      "pathCopied": "已复制"
     },
     "diffsReview": {
       "copyFullSha": "复制完整 SHA"

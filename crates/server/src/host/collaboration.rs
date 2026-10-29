@@ -741,7 +741,8 @@ impl HostCollaborationHost {
             Some(member.member_id.clone()),
         )
         .await;
-        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, from_evt);
+        self.events
+            .emit(COLLABORATION_SPACE_CHANGED_EVENT, from_evt);
         let to_evt = collaboration::latest_space_changed_event(
             &self.pool,
             workspace_id,
@@ -1153,13 +1154,9 @@ impl HostCollaborationHost {
         let workspace_id = collaboration::space_workspace_id(&self.pool, &space_id)
             .await
             .map_err(host_error)?;
-        let evt = collaboration::latest_space_changed_event(
-            &self.pool,
-            workspace_id,
-            &space_id,
-            None,
-        )
-        .await;
+        let evt =
+            collaboration::latest_space_changed_event(&self.pool, workspace_id, &space_id, None)
+                .await;
         self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
         serde_json::to_value(posted).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
@@ -1485,7 +1482,14 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        Ok(json!({ "items": items }))
+        let collection_dir = collaboration::ensure_space_collection_dir(&space_id)
+            .ok()
+            .map(|dir| collaboration::collection_dir_display(&dir));
+        Ok(json!({
+            "items": items,
+            "collectionDir": collection_dir,
+            "collection_dir": collection_dir,
+        }))
     }
 
     async fn add_collection_item(&self, input: &Value) -> Result<Value, CollaborationHostError> {

@@ -68,6 +68,17 @@ describe('collaboration group and assistant details width', () => {
     ).toBe('auto');
   });
 
+  it('shows the shared folder path as a compact copyable row', () => {
+    const bar = declarationsFor('.collaboration-collection-pathbar');
+    expect(bar.display?.value).toBe('flex');
+    expect(bar['flex-direction']?.value).toBe('column');
+    const row = declarationsFor('.collaboration-collection-path-row');
+    expect(row.display?.value).toBe('flex');
+    expect(row['min-width']?.value).toBe('0');
+    const value = declarationsFor('.collaboration-collection-path-value');
+    expect(value['text-overflow']?.value).toBe('ellipsis');
+  });
+
   it('stacks collection notes under the label so long notes wrap', () => {
     const note = declarationsFor('.collaboration-collection-note');
     expect(note.display?.value).toBe('flex');

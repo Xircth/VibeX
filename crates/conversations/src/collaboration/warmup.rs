@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{
-    hot_group::HotGroupTracker, load_space_or_unassigned, resolve_targets, CollaborationError,
+    CollaborationError, hot_group::HotGroupTracker, load_space_or_unassigned, resolve_targets,
 };
 
 /// Start/resume the ACP process for a member conversation. Must not send a
@@ -70,12 +70,12 @@ pub async fn warmup_space_members(
 mod tests {
     use std::sync::Mutex;
 
-    use super::*;
-    use crate::collaboration::test_support::*;
-    use crate::collaboration::{
-        add_space_member, preview_space_wake, set_space_lead, HotGroupTracker,
-    };
     use agents::AgentSessionId;
+
+    use super::*;
+    use crate::collaboration::{
+        HotGroupTracker, add_space_member, preview_space_wake, set_space_lead, test_support::*,
+    };
 
     struct RecordingWarmer {
         calls: Mutex<Vec<Uuid>>,
@@ -136,32 +136,24 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let turns_before: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        let inputs_before: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let turns_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let inputs_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
         let warmer = RecordingWarmer::new();
         let tracker = HotGroupTracker::default();
         let default_preview = preview_space_wake(&pool, &space, None, "开工", &[])
             .await
             .unwrap();
-        let warmed = warmup_space_members(
-            &pool,
-            &space,
-            "开工",
-            &[],
-            Some(&warmer),
-            Some(&tracker),
-        )
-        .await
-        .unwrap();
+        let warmed =
+            warmup_space_members(&pool, &space, "开工", &[], Some(&warmer), Some(&tracker))
+                .await
+                .unwrap();
         assert_eq!(warmed.nicknames, default_preview.nicknames);
         assert_eq!(warmed.started, 1);
         assert_eq!(warmed.already_running, 0);
@@ -188,16 +180,14 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let turns_after: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        let inputs_after: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let turns_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_turns")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let inputs_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM conversation_inputs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(messages_after, messages_before);
         assert_eq!(turns_after, turns_before);
         assert_eq!(inputs_after, inputs_before);
@@ -239,16 +229,9 @@ mod tests {
     async fn warmup_skips_direct_threads() {
         let pool = setup_pool().await;
         let warmer = RecordingWarmer::new();
-        let result = warmup_space_members(
-            &pool,
-            "direct:mem-a",
-            "hi",
-            &[],
-            Some(&warmer),
-            None,
-        )
-        .await
-        .unwrap();
+        let result = warmup_space_members(&pool, "direct:mem-a", "hi", &[], Some(&warmer), None)
+            .await
+            .unwrap();
         assert!(result.nicknames.is_empty());
         assert!(warmer.calls.lock().expect("calls").is_empty());
     }

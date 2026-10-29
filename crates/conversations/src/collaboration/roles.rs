@@ -859,6 +859,17 @@ pub struct SpaceRecord {
     pub workspace_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead_member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_dir: Option<String>,
+}
+
+impl SpaceRecord {
+    fn with_collection_dir(mut self) -> Self {
+        if let Ok(dir) = ensure_space_collection_dir(&self.space_id) {
+            self.collection_dir = Some(collection_dir_display(&dir));
+        }
+        self
+    }
 }
 
 pub async fn create_collaboration_space(
@@ -947,7 +958,9 @@ pub async fn create_collaboration_space(
         name,
         workspace_id: caller.workspace_id,
         lead_member_id: None,
-    };
+        collection_dir: None,
+    }
+    .with_collection_dir();
     store_operation(
         pool,
         &operation_id.to_string(),
@@ -1026,7 +1039,9 @@ pub async fn create_workspace_space(
         name,
         workspace_id,
         lead_member_id: None,
-    };
+        collection_dir: None,
+    }
+    .with_collection_dir();
     store_operation(
         pool,
         &operation_id.to_string(),
@@ -1163,7 +1178,9 @@ pub(crate) async fn load_space_record(
         name,
         workspace_id,
         lead_member_id: lead_member_id.filter(|id| !id.trim().is_empty()),
-    })
+        collection_dir: None,
+    }
+    .with_collection_dir())
 }
 
 pub async fn list_workspace_spaces(
@@ -1182,11 +1199,15 @@ pub async fn list_workspace_spaces(
     .map_err(db)?;
     Ok(rows
         .into_iter()
-        .map(|(space_id, name, lead_member_id)| SpaceRecord {
-            space_id,
-            name,
-            workspace_id,
-            lead_member_id: lead_member_id.filter(|id| !id.trim().is_empty()),
+        .map(|(space_id, name, lead_member_id)| {
+            SpaceRecord {
+                space_id,
+                name,
+                workspace_id,
+                lead_member_id: lead_member_id.filter(|id| !id.trim().is_empty()),
+                collection_dir: None,
+            }
+            .with_collection_dir()
         })
         .collect())
 }
@@ -1706,8 +1727,8 @@ pub async fn list_space_events(
     .map_err(db)?;
 
     if let Some(after) = after_seq {
-        let pruned = min_seq.is_some_and(|min| min > 1 && after < min)
-            || (max_seq.is_none() && after > 0);
+        let pruned =
+            min_seq.is_some_and(|min| min > 1 && after < min) || (max_seq.is_none() && after > 0);
         if pruned {
             let generation = bump_space_generation(pool, space_id).await?;
             return Ok(SpaceEventList {
@@ -1734,14 +1755,16 @@ pub async fn list_space_events(
         .map_err(db)?;
         let events: Vec<SpaceEventRecord> = rows
             .into_iter()
-            .map(|(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
-                space_id: space_id.to_string(),
-                seq,
-                kind,
-                message_id,
-                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
-                created_at,
-            })
+            .map(
+                |(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
+                    space_id: space_id.to_string(),
+                    seq,
+                    kind,
+                    message_id,
+                    payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+                    created_at,
+                },
+            )
             .collect();
         let next_seq = events.last().map(|e| e.seq).unwrap_or(after);
         return Ok(SpaceEventList {
@@ -1769,14 +1792,16 @@ pub async fn list_space_events(
     rows.reverse();
     let events: Vec<SpaceEventRecord> = rows
         .into_iter()
-        .map(|(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
-            space_id: space_id.to_string(),
-            seq,
-            kind,
-            message_id,
-            payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
-            created_at,
-        })
+        .map(
+            |(seq, kind, message_id, payload_json, created_at)| SpaceEventRecord {
+                space_id: space_id.to_string(),
+                seq,
+                kind,
+                message_id,
+                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+                created_at,
+            },
+        )
         .collect();
     let next_seq = events
         .last()
@@ -4695,7 +4720,7 @@ pub(crate) async fn load_space_or_unassigned(
     pool: &SqlitePool,
     space_id: &str,
 ) -> Result<SpaceRow, CollaborationError> {
-    if let Some(workspace_id) = parse_unassigned_space_id(space_id) {
+    let row = if let Some(workspace_id) = parse_unassigned_space_id(space_id) {
         let owns: Option<i64> = sqlx::query_scalar("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1")
             .bind(workspace_id)
             .fetch_optional(pool)
@@ -4707,11 +4732,10 @@ pub(crate) async fn load_space_or_unassigned(
                 "workspace was not found",
             ));
         }
-        return Ok(SpaceRow {
+        SpaceRow {
             workspace_id: workspace_id.to_string(),
-        });
-    }
-    if space_id.starts_with("direct:") {
+        }
+    } else if space_id.starts_with("direct:") {
         let from_thread: Option<Option<String>> = sqlx::query_scalar(
             "SELECT workspace_id FROM collaboration_threads WHERE id = ? AND kind = 'direct'",
         )
@@ -4720,31 +4744,36 @@ pub(crate) async fn load_space_or_unassigned(
         .await
         .map_err(db)?;
         if let Some(workspace_id) = from_thread.flatten().filter(|id| !id.trim().is_empty()) {
-            return Ok(SpaceRow { workspace_id });
-        }
-        let conv_str: Option<String> = sqlx::query_scalar(
-            "SELECT conversation_id FROM collaboration_thread_members WHERE thread_id = ? LIMIT 1",
-        )
-        .bind(space_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(db)?;
-        if let Some(conv_uuid) = conv_str.and_then(|raw| Uuid::parse_str(raw.trim()).ok()) {
+            SpaceRow { workspace_id }
+        } else {
+            let conv_str: Option<String> = sqlx::query_scalar(
+                "SELECT conversation_id FROM collaboration_thread_members WHERE thread_id = ? LIMIT 1",
+            )
+            .bind(space_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+            let Some(conv_uuid) = conv_str.and_then(|raw| Uuid::parse_str(raw.trim()).ok()) else {
+                return Err(CollaborationError::new("not_found", "space was not found"));
+            };
             let from_session: Option<Uuid> =
                 sqlx::query_scalar("SELECT workspace_id FROM sessions WHERE id = ? LIMIT 1")
                     .bind(conv_uuid)
                     .fetch_optional(pool)
                     .await
                     .map_err(db)?;
-            if let Some(workspace_id) = from_session {
-                return Ok(SpaceRow {
-                    workspace_id: workspace_id.to_string(),
-                });
+            let Some(workspace_id) = from_session else {
+                return Err(CollaborationError::new("not_found", "space was not found"));
+            };
+            SpaceRow {
+                workspace_id: workspace_id.to_string(),
             }
         }
-        return Err(CollaborationError::new("not_found", "space was not found"));
-    }
-    load_space(pool, space_id).await
+    } else {
+        load_space(pool, space_id).await?
+    };
+    let _ = ensure_space_collection_dir(space_id);
+    Ok(row)
 }
 
 pub(crate) fn require_name(name: &str) -> Result<String, CollaborationError> {

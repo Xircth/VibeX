@@ -44,8 +44,15 @@ pub(crate) async fn purge_space_collection(
     if !resolved_pid.trim().is_empty() {
         project_ids.insert(resolved_pid);
     }
+    let canonical = space_collection_dir(space_id);
+    if canonical.exists() {
+        let _ = std::fs::remove_dir_all(&canonical);
+        if let Some(parent) = canonical.parent() {
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
     for pid in project_ids {
-        let dir = space_collection_dir(&pid, space_id);
+        let dir = legacy_space_collection_dir(&pid, space_id);
         if dir.exists() {
             let _ = std::fs::remove_dir_all(&dir);
             if let Some(parent) = dir.parent() {
@@ -138,7 +145,16 @@ pub(crate) fn sanitize_collection_segment(raw: &str, fallback: &str) -> String {
     }
 }
 
-pub fn space_collection_dir(project_id: &str, space_id: &str) -> std::path::PathBuf {
+/// Canonical shared folder: `~/.vibex/spaces/<space_id>/collection/`.
+pub fn space_collection_dir(space_id: &str) -> std::path::PathBuf {
+    let safe_space = sanitize_collection_segment(space_id, "default-space");
+    vibex_team_spaces_root_dir()
+        .join("spaces")
+        .join(safe_space)
+        .join("collection")
+}
+
+pub fn legacy_space_collection_dir(project_id: &str, space_id: &str) -> std::path::PathBuf {
     let safe_project = sanitize_collection_segment(project_id, "default-project");
     let safe_space = sanitize_collection_segment(space_id, "default-space");
     vibex_team_spaces_root_dir()
@@ -148,21 +164,70 @@ pub fn space_collection_dir(project_id: &str, space_id: &str) -> std::path::Path
         .join("Collection")
 }
 
-pub fn is_team_space_collection_file(path: &std::path::Path) -> bool {
+pub fn ensure_space_collection_dir(
+    space_id: &str,
+) -> Result<std::path::PathBuf, CollaborationError> {
+    let dir = space_collection_dir(space_id);
+    std::fs::create_dir_all(&dir).map_err(|error| {
+        CollaborationError::new(
+            "conversation_control_failed",
+            format!("failed to create space collection directory: {error}"),
+        )
+    })?;
+    Ok(dir)
+}
+
+pub async fn ensure_space_collection_dir_async(
+    space_id: &str,
+) -> Result<std::path::PathBuf, CollaborationError> {
+    let dir = space_collection_dir(space_id);
+    tokio::fs::create_dir_all(&dir).await.map_err(|error| {
+        CollaborationError::new(
+            "conversation_control_failed",
+            format!("failed to create space collection directory: {error}"),
+        )
+    })?;
+    Ok(dir)
+}
+
+pub fn collection_dir_display(dir: &std::path::Path) -> String {
+    dir.to_string_lossy().into_owned()
+}
+
+fn collection_item_id_for_file(space_id: &str, file_name: &str) -> String {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("vibex://space-collection/{space_id}/{file_name}").as_bytes(),
+    )
+    .to_string()
+}
+
+fn collection_path_components(path: &std::path::Path) -> Vec<String> {
     let root = vibex_team_spaces_root_dir();
     let canonical_root = std::fs::canonicalize(&root).unwrap_or(root);
     let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let Ok(rel) = canonical_path.strip_prefix(&canonical_root) else {
-        return false;
+        return Vec::new();
     };
-    let components: Vec<String> = rel
-        .components()
+    rel.components()
         .filter_map(|comp| match comp {
             std::path::Component::Normal(seg) => Some(seg.to_string_lossy().into_owned()),
             _ => None,
         })
-        .collect();
-    components.len() == 5 && components[1] == "TeamSpaces" && components[3] == "Collection"
+        .collect()
+}
+
+pub fn is_team_space_collection_file(path: &std::path::Path) -> bool {
+    let components = collection_path_components(path);
+    if components.len() >= 4
+        && components[0].eq_ignore_ascii_case("spaces")
+        && components[2].eq_ignore_ascii_case("collection")
+    {
+        return true;
+    }
+    components.len() == 5
+        && components[1] == "TeamSpaces"
+        && components[3].eq_ignore_ascii_case("Collection")
 }
 
 pub(crate) async fn resolve_space_project_id(pool: &SqlitePool, workspace_id_str: &str) -> String {
@@ -255,8 +320,8 @@ pub(crate) fn collection_mime_and_kind(
         Some("heic") => ("image/heic", "image"),
         Some("heif") => ("image/heif", "image"),
         Some("pdf") => ("application/pdf", "file"),
-        Some("txt") => ("text/plain", "file"),
-        Some("md") | Some("markdown") => ("text/markdown", "file"),
+        Some("txt") => ("text/plain", "text"),
+        Some("md") | Some("markdown") => ("text/markdown", "text"),
         Some("json") => ("application/json", "file"),
         Some("csv") => ("text/csv", "file"),
         Some("html") | Some("htm") => ("text/html", "file"),
@@ -280,6 +345,252 @@ pub(crate) fn collection_mime_and_kind(
         Some("webm") => ("video/webm", "file"),
         Some("mov") => ("video/quicktime", "file"),
         _ => ("application/octet-stream", "file"),
+    }
+}
+
+fn is_text_preview_kind(item_kind: &str, mime_type: &str) -> bool {
+    item_kind == "text"
+        || mime_type.starts_with("text/")
+        || mime_type == "application/json"
+        || mime_type == "application/xml"
+}
+
+fn stamp_from_system_time(time: std::time::SystemTime) -> String {
+    let datetime = chrono::DateTime::<chrono::Utc>::from(time);
+    datetime.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+fn file_path_key(path: &str) -> String {
+    path.replace('\\', "/").to_ascii_lowercase()
+}
+
+async fn migrate_legacy_collection_files(
+    pool: &SqlitePool,
+    space_id: &str,
+    workspace_id: &str,
+    dest: &std::path::Path,
+) {
+    let project_id = resolve_space_project_id(pool, workspace_id).await;
+    let src = legacy_space_collection_dir(&project_id, space_id);
+    if !src.exists() || src == dest {
+        return;
+    }
+    let Ok(mut entries) = tokio::fs::read_dir(&src).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        if name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let dest_path = dest.join(name);
+        if dest_path.exists() {
+            let _ = tokio::fs::remove_file(&path).await;
+            continue;
+        }
+        if tokio::fs::rename(&path, &dest_path).await.is_err()
+            && tokio::fs::copy(&path, &dest_path).await.is_ok()
+        {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+    }
+    let _ = tokio::fs::remove_dir(&src).await;
+}
+
+#[derive(Debug, Clone)]
+struct ScannedCollectionFile {
+    file_name: String,
+    path: std::path::PathBuf,
+    byte_size: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+async fn scan_collection_files(dir: &std::path::Path) -> Vec<ScannedCollectionFile> {
+    let mut out = Vec::new();
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return out;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        out.push(ScannedCollectionFile {
+            file_name: name,
+            path,
+            byte_size: metadata.len(),
+            modified: metadata.modified().ok(),
+        });
+    }
+    out
+}
+
+const COLLECTION_NOTES_FILE: &str = ".vibex-collection-notes.json";
+
+async fn read_sidecar_notes(dir: &std::path::Path) -> std::collections::HashMap<String, String> {
+    let raw = tokio::fs::read(dir.join(COLLECTION_NOTES_FILE))
+        .await
+        .unwrap_or_default();
+    serde_json::from_slice::<std::collections::HashMap<String, String>>(&raw).unwrap_or_default()
+}
+
+async fn write_sidecar_note(
+    dir: &std::path::Path,
+    file_name: &str,
+    note: &str,
+) -> Result<(), CollaborationError> {
+    let mut notes = read_sidecar_notes(dir).await;
+    if note.trim().is_empty() {
+        notes.remove(file_name);
+    } else {
+        notes.insert(file_name.to_string(), note.to_string());
+    }
+    let payload = serde_json::to_vec_pretty(&notes).map_err(|error| {
+        CollaborationError::new(
+            "conversation_control_failed",
+            format!("failed to encode collection notes: {error}"),
+        )
+    })?;
+    tokio::fs::write(dir.join(COLLECTION_NOTES_FILE), payload)
+        .await
+        .map_err(|error| {
+            CollaborationError::new(
+                "conversation_control_failed",
+                format!("failed to write collection notes: {error}"),
+            )
+        })
+}
+
+async fn load_db_collection_rows(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<Vec<SpaceCollectionItemRow>, CollaborationError> {
+    sqlx::query_as::<_, SpaceCollectionItemRow>(
+        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
+                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
+           FROM collaboration_space_collection_items
+           WHERE space_id = ?"#,
+    )
+    .bind(space_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)
+}
+
+async fn collect_space_collection_rows(
+    pool: &SqlitePool,
+    space_id: &str,
+    workspace_id: &str,
+) -> Result<(std::path::PathBuf, Vec<SpaceCollectionItemRow>), CollaborationError> {
+    let collection_dir = ensure_space_collection_dir_async(space_id).await?;
+    migrate_legacy_collection_files(pool, space_id, workspace_id, &collection_dir).await;
+    let project_id = resolve_space_project_id(pool, workspace_id).await;
+    let scanned = scan_collection_files(&collection_dir).await;
+    let db_rows = load_db_collection_rows(pool, space_id).await?;
+    let sidecar_notes = read_sidecar_notes(&collection_dir).await;
+    let mut by_name = std::collections::HashMap::<String, SpaceCollectionItemRow>::new();
+    let mut by_path = std::collections::HashMap::<String, SpaceCollectionItemRow>::new();
+    for row in db_rows {
+        by_name.insert(row.file_name.clone(), row.clone());
+        by_path.insert(file_path_key(&row.file_path), row);
+    }
+    let mut rows = Vec::with_capacity(scanned.len());
+    for file in scanned {
+        let path_key = file_path_key(&file.path.to_string_lossy());
+        let sidecar_note = sidecar_notes
+            .get(&file.file_name)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(mut row) = by_path
+            .remove(&path_key)
+            .or_else(|| by_name.remove(&file.file_name))
+        {
+            row.file_path = file.path.to_string_lossy().replace('\\', "/");
+            row.byte_size = file.byte_size as i64;
+            if row.file_name.trim().is_empty() {
+                row.file_name = file.file_name.clone();
+            }
+            if row.note.trim().is_empty() && !sidecar_note.is_empty() {
+                row.note = sidecar_note;
+            }
+            rows.push(row);
+        } else {
+            rows.push(row_from_scanned_file(
+                space_id,
+                workspace_id,
+                &project_id,
+                &file,
+                &sidecar_note,
+            ));
+        }
+    }
+    rows.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+    Ok((collection_dir, rows))
+}
+
+async fn resolve_collection_item_row(
+    pool: &SqlitePool,
+    space_id: &str,
+    item_id: &str,
+) -> Result<(String, std::path::PathBuf, SpaceCollectionItemRow), CollaborationError> {
+    let space = load_space_or_unassigned(pool, space_id).await?;
+    let (dir, rows) = collect_space_collection_rows(pool, space_id, &space.workspace_id).await?;
+    let trimmed = item_id.trim();
+    let row = rows
+        .into_iter()
+        .find(|row| row.id == trimmed || row.file_name == trimmed)
+        .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
+    Ok((space.workspace_id, dir, row))
+}
+
+fn row_from_scanned_file(
+    space_id: &str,
+    workspace_id: &str,
+    project_id: &str,
+    file: &ScannedCollectionFile,
+    note: &str,
+) -> SpaceCollectionItemRow {
+    let (mime, kind) = collection_mime_and_kind(&file.path, false);
+    let created_at = file
+        .modified
+        .map(stamp_from_system_time)
+        .unwrap_or_else(now_stamp);
+    SpaceCollectionItemRow {
+        id: collection_item_id_for_file(space_id, &file.file_name),
+        space_id: space_id.to_string(),
+        workspace_id: workspace_id.to_string(),
+        project_id: project_id.to_string(),
+        creator_kind: "file".to_string(),
+        creator_conversation_id: None,
+        creator_nickname: String::new(),
+        item_kind: kind.to_string(),
+        file_name: file.file_name.clone(),
+        file_path: file.path.to_string_lossy().replace('\\', "/"),
+        mime_type: mime.to_string(),
+        byte_size: file.byte_size as i64,
+        note: note.to_string(),
+        created_at,
     }
 }
 
@@ -487,7 +798,10 @@ pub(crate) async fn hydrate_collection_items(
             .creator_conversation_id
             .as_deref()
             .and_then(|cid| agent_by_cid.get(cid.trim()).cloned());
-        let text_content = if audience == MessageAudience::User && row.item_kind == "text" {
+        let text_content = if audience == MessageAudience::User
+            && is_text_preview_kind(&row.item_kind, &row.mime_type)
+            && row.byte_size <= SPACE_COLLECTION_TEXT_PREVIEW_CAP as i64
+        {
             read_bounded_text_preview(&row.file_path, SPACE_COLLECTION_TEXT_PREVIEW_CAP).await
         } else {
             None
@@ -654,15 +968,8 @@ pub async fn add_to_space_collection_with(
     }
 
     let project_id = resolve_space_project_id(pool, &space.workspace_id).await;
-    let collection_dir = space_collection_dir(&project_id, space_id);
-    tokio::fs::create_dir_all(&collection_dir)
-        .await
-        .map_err(|error| {
-            CollaborationError::new(
-                "conversation_control_failed",
-                format!("failed to create space collection directory: {error}"),
-            )
-        })?;
+    let collection_dir = ensure_space_collection_dir_async(space_id).await?;
+    migrate_legacy_collection_files(pool, space_id, &space.workspace_id, &collection_dir).await;
 
     let item_id = input.operation_id.to_string();
     let (file_name, dest_path, mime_type, item_kind, byte_size) = if has_source {
@@ -916,20 +1223,12 @@ pub async fn list_space_collection_with(
     };
     let limit = limit
         .unwrap_or(SPACE_LIST_DEFAULT)
-        .clamp(1, SPACE_LIST_HARD_CAP);
-    let rows = sqlx::query_as::<_, SpaceCollectionItemRow>(
-        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
-                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
-           FROM collaboration_space_collection_items
-           WHERE space_id = ?
-           ORDER BY created_at DESC, id DESC
-           LIMIT ?"#,
-    )
-    .bind(space_id)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(db)?;
+        .clamp(1, SPACE_LIST_HARD_CAP) as usize;
+    let (_dir, mut rows) =
+        collect_space_collection_rows(pool, space_id, &space.workspace_id).await?;
+    if rows.len() > limit {
+        rows.truncate(limit);
+    }
 
     if let (Some(cid), Some(member)) = (caller_id, caller_member.as_ref())
         && audience == MessageAudience::Agent
@@ -991,7 +1290,7 @@ pub async fn read_space_collection_item_with(
     audience: MessageAudience,
     delivery: &DeliveryContext,
 ) -> Result<SpaceCollectionItemRecord, CollaborationError> {
-    let space = load_space_or_unassigned(pool, space_id).await?;
+    let (workspace_id, _dir, row) = resolve_collection_item_row(pool, space_id, item_id).await?;
     let (reader_key, reader_kind, reader_cid, reader_nickname) = match caller_id {
         Some(cid) => {
             let member = caller_seat(pool, space_id, cid).await?;
@@ -1009,20 +1308,6 @@ pub async fn read_space_collection_item_with(
             "你".to_string(),
         ),
     };
-
-    let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
-        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
-                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
-           FROM collaboration_space_collection_items
-           WHERE id = ? AND space_id = ?
-           LIMIT 1"#,
-    )
-    .bind(item_id.trim())
-    .bind(space_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db)?
-    .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
 
     record_collection_item_read(
         pool,
@@ -1042,7 +1327,7 @@ pub async fn read_space_collection_item_with(
     )
     .await;
 
-    if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
+    if let Ok(workspace_uuid) = Uuid::parse_str(&workspace_id) {
         let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
         delivery.notify_space_changed(ev);
     }
@@ -1076,71 +1361,41 @@ pub async fn update_space_collection_item_note_with(
     audience: MessageAudience,
     delivery: &DeliveryContext,
 ) -> Result<SpaceCollectionItemRecord, CollaborationError> {
-    let space = load_space_or_unassigned(pool, space_id).await?;
-    let trimmed_id = item_id.trim();
+    let (workspace_id, dir, row) = resolve_collection_item_row(pool, space_id, item_id).await?;
     let trimmed_note = note.trim();
-    {
-        let stamp = now_stamp();
-        let mut conn = pool.acquire().await.map_err(db)?;
-        sqlx::query("BEGIN IMMEDIATE")
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
-        let upd_outcome = async {
-            let changed = sqlx::query(
-                r#"UPDATE collaboration_space_collection_items
-                   SET note = ?
-                   WHERE id = ? AND space_id = ?"#,
-            )
-            .bind(trimmed_note)
-            .bind(trimmed_id)
-            .bind(space_id)
-            .execute(&mut *conn)
-            .await?;
-            if changed.rows_affected() == 0 {
-                return Err(CollaborationError::new(
-                    "not_found",
-                    "collection item was not found",
-                ));
-            }
-            append_space_event_tx(
-                &mut conn,
-                space_id,
-                "space",
-                None,
-                &json!({
-                    "action": "collection_updated",
-                    "item_id": trimmed_id,
-                }),
-                &stamp,
-            )
-            .await?;
-            Ok(())
-        }
-        .await;
-        finish_tx(&mut conn, upd_outcome).await?;
-    }
-
-    let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
-        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
-                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
-           FROM collaboration_space_collection_items
-           WHERE id = ? AND space_id = ?
-           LIMIT 1"#,
+    write_sidecar_note(&dir, &row.file_name, trimmed_note).await?;
+    sqlx::query(
+        r#"UPDATE collaboration_space_collection_items
+           SET note = ?
+           WHERE space_id = ? AND (id = ? OR file_name = ?)"#,
     )
-    .bind(trimmed_id)
+    .bind(trimmed_note)
     .bind(space_id)
-    .fetch_optional(pool)
+    .bind(&row.id)
+    .bind(&row.file_name)
+    .execute(pool)
     .await
-    .map_err(db)?
-    .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
+    .map_err(db)?;
+    let _ = append_space_event(
+        pool,
+        space_id,
+        "space",
+        None,
+        &json!({
+            "action": "collection_updated",
+            "item_id": row.id,
+        }),
+    )
+    .await;
 
-    if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
+    if let Ok(workspace_uuid) = Uuid::parse_str(&workspace_id) {
         let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
         delivery.notify_space_changed(ev);
     }
 
-    hydrate_collection_item(pool, row, audience).await
+    let mut updated = row;
+    updated.note = trimmed_note.to_string();
+    hydrate_collection_item(pool, updated, audience).await
 }
 
 pub async fn remove_space_collection_item(
@@ -1157,7 +1412,6 @@ pub async fn remove_space_collection_item_with(
     item_id: &str,
     delivery: &DeliveryContext,
 ) -> Result<(), CollaborationError> {
-    let space = load_space_or_unassigned(pool, space_id).await?;
     let trimmed_id = item_id.trim();
     if trimmed_id.is_empty() {
         return Err(CollaborationError::new(
@@ -1165,70 +1419,47 @@ pub async fn remove_space_collection_item_with(
             "item_id is required",
         ));
     }
-
-    let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
-        r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
-                  creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
-           FROM collaboration_space_collection_items
-           WHERE id = ? AND space_id = ?
-           LIMIT 1"#,
-    )
-    .bind(trimmed_id)
-    .bind(space_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db)?
-    .ok_or_else(|| CollaborationError::new("not_found", "collection item was not found"))?;
-
-    {
-        let stamp = now_stamp();
-        let mut conn = pool.acquire().await.map_err(db)?;
-        sqlx::query("BEGIN IMMEDIATE")
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
-        let del_outcome = async {
-            sqlx::query("DELETE FROM collaboration_space_collection_reads WHERE item_id = ?")
-                .bind(trimmed_id)
-                .execute(&mut *conn)
-                .await?;
-            let deleted = sqlx::query(
-                "DELETE FROM collaboration_space_collection_items WHERE id = ? AND space_id = ?",
-            )
-            .bind(trimmed_id)
-            .bind(space_id)
-            .execute(&mut *conn)
-            .await?;
-            if deleted.rows_affected() == 0 {
-                return Err(CollaborationError::new(
-                    "not_found",
-                    "collection item was not found",
-                ));
-            }
-            append_space_event_tx(
-                &mut conn,
-                space_id,
-                "space",
-                None,
-                &json!({
-                    "action": "collection_removed",
-                    "item_id": trimmed_id,
-                }),
-                &stamp,
-            )
-            .await?;
-            Ok(())
-        }
-        .await;
-        finish_tx(&mut conn, del_outcome).await?;
-    }
+    let (workspace_id, dir, row) = resolve_collection_item_row(pool, space_id, trimmed_id).await?;
 
     let path = std::path::Path::new(&row.file_path);
     if is_team_space_collection_file(path) {
-        let _ = std::fs::remove_file(path);
+        let _ = tokio::fs::remove_file(path).await;
     }
+    let named = dir.join(&row.file_name);
+    if named.exists() {
+        let _ = tokio::fs::remove_file(&named).await;
+    }
+    let _ = write_sidecar_note(&dir, &row.file_name, "").await;
 
-    if let Ok(workspace_uuid) = Uuid::parse_str(&space.workspace_id) {
+    sqlx::query("DELETE FROM collaboration_space_collection_reads WHERE item_id = ?")
+        .bind(&row.id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    sqlx::query(
+        "DELETE FROM collaboration_space_collection_items
+         WHERE space_id = ? AND (id = ? OR file_name = ? OR file_path = ?)",
+    )
+    .bind(space_id)
+    .bind(&row.id)
+    .bind(&row.file_name)
+    .bind(&row.file_path)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    let _ = append_space_event(
+        pool,
+        space_id,
+        "space",
+        None,
+        &json!({
+            "action": "collection_removed",
+            "item_id": row.id,
+        }),
+    )
+    .await;
+
+    if let Ok(workspace_uuid) = Uuid::parse_str(&workspace_id) {
         let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
         delivery.notify_space_changed(ev);
     }
@@ -1295,6 +1526,9 @@ mod tests {
         let saved_path = std::path::PathBuf::from(&added.file_path);
         assert!(saved_path.exists());
         assert!(is_team_space_collection_file(&saved_path));
+        let path_posix = saved_path.to_string_lossy().replace('\\', "/");
+        assert!(path_posix.contains("/spaces/"));
+        assert!(path_posix.contains("/collection/"));
 
         // Member B reads the collection item -> records read receipt, returns address only
         let read_by_b =
@@ -1368,5 +1602,40 @@ mod tests {
             .unwrap();
         assert!(remaining.is_empty());
         assert!(!saved_path.exists());
+    }
+
+    #[tokio::test]
+    async fn list_space_collection_scans_files_written_directly_to_disk() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let dir = ensure_space_collection_dir(&space).unwrap();
+        let file_path = dir.join("bot-drop.md");
+        tokio::fs::write(&file_path, "# dropped by bot")
+            .await
+            .unwrap();
+
+        let listed = list_space_collection(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].file_name, "bot-drop.md");
+        assert_eq!(listed[0].item_kind, "text");
+        assert_eq!(listed[0].text_content.as_deref(), Some("# dropped by bot"));
+        let path_posix = listed[0].file_path.replace('\\', "/");
+        assert!(path_posix.contains("/spaces/"));
+        assert!(path_posix.contains("/collection/"));
+
+        remove_space_collection_item(&pool, &space, &listed[0].id)
+            .await
+            .unwrap();
+        assert!(!file_path.exists());
+        let remaining = list_space_collection(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert!(remaining.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

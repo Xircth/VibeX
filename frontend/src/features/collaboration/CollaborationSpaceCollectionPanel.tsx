@@ -59,7 +59,9 @@ import {
   COPY,
   SPACE_TAG_PRESETS,
   agentRoster,
+  collectionDirFromHostPayload,
   displayName,
+  isHumanPersonLabel,
   parseSpaceChangedEvent,
   readSpaceTags,
   surfaceErrorCopy,
@@ -142,6 +144,7 @@ export function CollaborationSpaceIcon({
 }
 
 export const SPACE_COLLECTION_MAX_BYTES = 200 * 1024 * 1024;
+const COLLECTION_POLL_MS = 2500;
 
 export type SpaceCollectionReadRecord = {
   reader_key?: string;
@@ -290,6 +293,8 @@ export function CollaborationSpaceCollectionDockviewPanel(
   }, [memberAvatar]);
   const panelActions = useOptionalPanelActionsContext();
   const [items, setItems] = useState<SpaceCollectionItemRecord[]>([]);
+  const [collectionDir, setCollectionDir] = useState('');
+  const [pathCopied, setPathCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [addFormOpen, setAddFormOpen] = useState(false);
@@ -311,6 +316,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const [editingNoteDraft, setEditingNoteDraft] = useState('');
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pathCopiedTimerRef = useRef<number | null>(null);
   const [liveSpaceAvatars, setLiveSpaceAvatars] = useState<
     MemberBotAvatarConfig[] | null
   >(null);
@@ -388,8 +394,12 @@ export function CollaborationSpaceCollectionDockviewPanel(
     try {
       const response = await collaborationCall<{
         items?: SpaceCollectionItemRecord[];
+        collectionDir?: string | null;
+        collection_dir?: string | null;
       }>('collaboration', 'space.listCollection', { spaceId });
       setItems(response.items ?? []);
+      const nextDir = collectionDirFromHostPayload(response);
+      if (nextDir) setCollectionDir(nextDir);
     } catch (cause) {
       setError(surfaceErrorCopy(cause));
     } finally {
@@ -401,6 +411,39 @@ export function CollaborationSpaceCollectionDockviewPanel(
     setLoading(true);
     void loadCollection();
   }, [loadCollection]);
+
+  useEffect(() => {
+    if (detailsTab !== 'collection' || !spaceId) return;
+    const timer = window.setInterval(() => {
+      void loadCollection();
+    }, COLLECTION_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [detailsTab, loadCollection, spaceId]);
+
+  useEffect(() => {
+    return () => {
+      if (pathCopiedTimerRef.current != null) {
+        window.clearTimeout(pathCopiedTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyCollectionDir = useCallback(async () => {
+    if (!collectionDir) return;
+    try {
+      await navigator.clipboard.writeText(collectionDir);
+      setPathCopied(true);
+      if (pathCopiedTimerRef.current != null) {
+        window.clearTimeout(pathCopiedTimerRef.current);
+      }
+      pathCopiedTimerRef.current = window.setTimeout(() => {
+        setPathCopied(false);
+        pathCopiedTimerRef.current = null;
+      }, 1500);
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    }
+  }, [collectionDir]);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -771,6 +814,46 @@ export function CollaborationSpaceCollectionDockviewPanel(
             isAssistant && 'collaboration-assistant-details-body'
           )}
         >
+          {collectionDir ? (
+            <div
+              className="collaboration-collection-pathbar"
+              data-testid="collaboration-collection-pathbar"
+              aria-label={i18n.t('panels:ui.collection.folderPath')}
+            >
+              <div className="collaboration-collection-path-row">
+                <code
+                  className="collaboration-collection-path-value"
+                  title={collectionDir}
+                  data-testid="collaboration-collection-path"
+                >
+                  {collectionDir}
+                </code>
+                <button
+                  type="button"
+                  className="collaboration-collection-path-copy"
+                  data-testid="collaboration-collection-copy-path"
+                  aria-label={
+                    pathCopied
+                      ? i18n.t('panels:ui.collection.pathCopied')
+                      : i18n.t('panels:ui.collection.copyFolderPath')
+                  }
+                  onClick={() => {
+                    void handleCopyCollectionDir();
+                  }}
+                >
+                  {pathCopied ? (
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+              <p className="collaboration-collection-path-hint">
+                {i18n.t('panels:ui.collection.folderHint')}
+              </p>
+            </div>
+          ) : null}
+
           <div className="collaboration-collection-header">
             <div className="collaboration-collection-title-group">
               <span className="workspace-session-group-count">
@@ -921,17 +1004,15 @@ export function CollaborationSpaceCollectionDockviewPanel(
                     : itemKind === 'file'
                       ? i18n.t('panels:ui.collection.file')
                       : i18n.t('panels:ui.collection.text');
-                const creatorIsUser =
-                  !item.creator_conversation_id &&
-                  (item.creator_nickname === 'user' ||
-                    item.creator_nickname === 'User' ||
-                    item.creator_nickname === COPY.you);
-                const creatorDisplay =
-                  creatorIsUser ||
-                  item.creator_nickname === 'user' ||
-                  item.creator_nickname === COPY.you
-                    ? 'User'
-                    : item.creator_nickname;
+                const creatorIsPerson = isHumanPersonLabel(
+                  item.creator_nickname
+                );
+                const creatorDisplay = creatorIsPerson
+                  ? COPY.you
+                  : item.creator_nickname;
+                const creatorAvatarSeed = creatorIsPerson
+                  ? 'Person'
+                  : item.creator_nickname;
                 return (
                   <article
                     key={item.id}
@@ -959,7 +1040,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         <MemberBotAvatar
                           config={getAvatar(
                             item.creator_conversation_id,
-                            creatorDisplay
+                            creatorAvatarSeed
                           )}
                           className="h-4 w-4 shrink-0"
                         />

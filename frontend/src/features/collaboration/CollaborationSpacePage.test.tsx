@@ -3511,7 +3511,7 @@ describe('CollaborationSpacePage', () => {
       memberBButton.querySelector('.workspace-session-status--todo')
     ).not.toBeNull();
 
-    // Turn starts for 小B -> workspace-sessions-changed fires -> status dot becomes green (inprogress)
+    // Turn starts for 小B -> workspace-sessions-changed fires -> status dot becomes yellow (inprogress)
     conv2State = {
       ...conv2State,
       turn_in_flight: true,
@@ -3547,7 +3547,7 @@ describe('CollaborationSpacePage', () => {
         return {} as never;
       });
 
-    // Turn finishes unviewed -> status dot becomes yellow (inreview) and stays yellow even with preview open
+    // Turn finishes unviewed -> status dot becomes red (inreview) and stays red even with preview open
     conv2State = {
       ...conv2State,
       turn_in_flight: false,
@@ -3569,7 +3569,7 @@ describe('CollaborationSpacePage', () => {
     });
     expect(markViewedSpy).not.toHaveBeenCalled();
 
-    // User clicks member to view preview (or interacts with space/preview) -> marks viewed and status dot becomes gray (done)
+    // User clicks member to view preview (or interacts with space/preview) -> marks viewed and status dot becomes blue (done)
     await userEvent.click(memberBButton);
 
     await waitFor(() => {

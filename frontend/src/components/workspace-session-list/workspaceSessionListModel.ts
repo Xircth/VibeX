@@ -121,6 +121,10 @@ export function workspaceSessionStatusTone(session: {
   status: string;
   isRunning?: boolean;
 }): WorkspaceSessionStatusTone {
+  if (session.status === 'inreview') {
+    return 'inreview';
+  }
+
   if (session.isRunning) {
     return 'inprogress';
   }
@@ -128,8 +132,6 @@ export function workspaceSessionStatusTone(session: {
   switch (session.status) {
     case 'inprogress':
       return 'inprogress';
-    case 'inreview':
-      return 'inreview';
     case 'done':
     case 'archived':
       return 'done';

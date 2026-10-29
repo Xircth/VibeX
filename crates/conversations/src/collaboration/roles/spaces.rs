@@ -565,7 +565,9 @@ pub async fn list_workspace_conversations(
                 let effective_status = if let (Some(turn_id), Some(turn_status)) =
                     (latest_turn_id, latest_turn_status.as_deref())
                 {
-                    let phase = if turn_in_flight_flag != 0 {
+                    let phase = if turn_status == "blocked" {
+                        crate::workbench_status::turn_phase(turn_status)
+                    } else if turn_in_flight_flag != 0 {
                         crate::workbench_status::TurnPhase::InFlight
                     } else {
                         crate::workbench_status::turn_phase(turn_status)

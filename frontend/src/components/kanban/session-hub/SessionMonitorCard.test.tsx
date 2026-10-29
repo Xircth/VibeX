@@ -122,6 +122,24 @@ describe('SessionMonitorCard', () => {
     expect(container.firstElementChild).toHaveClass('is-running');
   });
 
+  it('marks a blocked permission window for review instead of running', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <SessionMonitorCard
+          session={{
+            ...createSession(),
+            isRunning: true,
+            status: 'inreview',
+          }}
+          variant="canvas"
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+    expect(container.firstElementChild).toHaveClass('is-reviewing');
+    expect(container.firstElementChild).not.toHaveClass('is-running');
+  });
+
   it('marks an unviewed finished canvas window for review breathing', () => {
     const { container } = render(
       <TooltipProvider>

@@ -48,8 +48,8 @@ export function sessionAttentionKind(session: {
   isRunning?: boolean;
   status?: SessionStatus | string | null;
 }): SessionAttentionKind | null {
-  if (session.isRunning) return 'running';
   if (session.status === 'inreview') return 'review';
+  if (session.isRunning) return 'running';
   return null;
 }
 
@@ -57,7 +57,7 @@ export function sessionCompletesWhenViewed(session: {
   isRunning?: boolean;
   status?: SessionStatus | string | null;
 }): boolean {
-  return sessionAttentionKind(session) === 'review';
+  return session.status === 'inreview' && !session.isRunning;
 }
 
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
@@ -78,10 +78,10 @@ export const SESSION_STATUS_LABELS: Record<ActiveSessionStatus, string> = {
 };
 export const SESSION_STATUS_LIGHT_COLORS: Record<ActiveSessionStatus, string> =
   {
-    todo: 'hsl(var(--destructive))',
-    inprogress: 'hsl(var(--success))',
-    inreview: 'hsl(var(--warning))',
-    done: 'var(--text-muted)',
+    todo: 'var(--session-status-todo)',
+    inprogress: 'var(--session-status-inprogress)',
+    inreview: 'var(--session-status-inreview)',
+    done: 'var(--session-status-done)',
   };
 export const SESSION_STATUS_SECTION_STYLES: Record<
   ActiveSessionStatus,

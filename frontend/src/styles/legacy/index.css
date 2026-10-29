@@ -295,6 +295,10 @@
     --status-failed-foreground: var(--destructive-foreground);
     --status-paused: var(--warning);
     --status-paused-foreground: var(--warning-foreground);
+    --session-status-todo: var(--text-muted);
+    --session-status-inprogress: hsl(var(--warning));
+    --session-status-inreview: hsl(var(--destructive));
+    --session-status-done: var(--usage-blue-fg);
     /* Kanban 会话色条：必须是 HSL 分量，供 hsl(var(--session-slot-N)) 使用。 */
     --session-slot-purple: 265 60% 60%;
     --session-slot-1: var(--_primary);
@@ -5610,19 +5614,19 @@ html.dark {
   }
 
   .workspace-session-status--todo {
-    background: hsl(var(--destructive));
+    background: var(--session-status-todo);
   }
 
   .workspace-session-status--inprogress {
-    background: hsl(var(--success));
+    background: var(--session-status-inprogress);
   }
 
   .workspace-session-status--inreview {
-    background: hsl(var(--warning));
+    background: var(--session-status-inreview);
   }
 
   .workspace-session-status--done {
-    background: hsl(var(--muted-foreground) / 0.7);
+    background: var(--session-status-done);
   }
 
   .workspace-session-age {
@@ -5933,31 +5937,31 @@ html.dark {
 
   .session-status-running-pill,
   .session-status-inprogress-pill {
-    border: 1px solid hsl(var(--success) / 0.32);
-    background: hsl(var(--success) / 0.1);
-    color: hsl(var(--success));
+    border: 1px solid color-mix(in srgb, var(--session-status-inprogress) 32%, transparent);
+    background: color-mix(in srgb, var(--session-status-inprogress) 10%, transparent);
+    color: var(--session-status-inprogress);
   }
 
   .session-status-inreview-pill {
-    border: 1px solid hsl(var(--warning) / 0.38);
-    background: hsl(var(--warning) / 0.12);
-    color: hsl(var(--warning));
+    border: 1px solid color-mix(in srgb, var(--session-status-inreview) 38%, transparent);
+    background: color-mix(in srgb, var(--session-status-inreview) 12%, transparent);
+    color: var(--session-status-inreview);
   }
 
   .session-status-todo-text {
-    color: hsl(var(--destructive));
+    color: var(--session-status-todo);
   }
 
   .session-status-inprogress-text {
-    color: hsl(var(--success));
+    color: var(--session-status-inprogress);
   }
 
   .session-status-inreview-text {
-    color: hsl(var(--warning));
+    color: var(--session-status-inreview);
   }
 
   .session-status-done-text {
-    color: var(--text-muted);
+    color: var(--session-status-done);
   }
 
   .session-status-todo-pill,
@@ -5975,30 +5979,30 @@ html.dark {
 
   .session-status-todo-pill,
   .session-status-todo-count {
-    border-color: hsl(var(--destructive) / 0.3);
-    background: hsl(var(--destructive) / 0.08);
-    color: hsl(var(--destructive));
+    border-color: color-mix(in srgb, var(--session-status-todo) 30%, transparent);
+    background: color-mix(in srgb, var(--session-status-todo) 12%, transparent);
+    color: var(--session-status-todo);
   }
 
   .session-status-inprogress-pill,
   .session-status-inprogress-count {
-    border-color: hsl(var(--success) / 0.3);
-    background: hsl(var(--success) / 0.08);
-    color: hsl(var(--success));
+    border-color: color-mix(in srgb, var(--session-status-inprogress) 30%, transparent);
+    background: color-mix(in srgb, var(--session-status-inprogress) 10%, transparent);
+    color: var(--session-status-inprogress);
   }
 
   .session-status-inreview-pill,
   .session-status-inreview-count {
-    border-color: hsl(var(--warning) / 0.34);
-    background: hsl(var(--warning) / 0.1);
-    color: hsl(var(--warning));
+    border-color: color-mix(in srgb, var(--session-status-inreview) 34%, transparent);
+    background: color-mix(in srgb, var(--session-status-inreview) 10%, transparent);
+    color: var(--session-status-inreview);
   }
 
   .session-status-done-pill,
   .session-status-done-count {
-    border-color: var(--border-content);
-    background: var(--surface-control);
-    color: var(--text-muted);
+    border-color: color-mix(in srgb, var(--session-status-done) 30%, transparent);
+    background: color-mix(in srgb, var(--session-status-done) 10%, transparent);
+    color: var(--session-status-done);
   }
 
   /* 会话列表左侧色条：执行区浅红，监控区沿用 Slot 1~4（蓝/紫/绿/橙）配色。 */
@@ -15868,8 +15872,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .canvas-surface .canvas-session-window.is-running {
   box-sizing: border-box;
   border-width: 1.5px;
-  border-color: hsl(var(--success) / 0.7);
-  box-shadow: 0 0 0 0 hsl(var(--success) / 0.45);
+  border-color: color-mix(
+    in srgb,
+    var(--session-status-inprogress) 70%,
+    transparent
+  );
+  box-shadow: 0 0 0 0
+    color-mix(in srgb, var(--session-status-inprogress) 45%, transparent);
 }
 
 .canvas-surface .canvas-session-card.is-reviewing .session-hub-card,
@@ -15877,8 +15886,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .canvas-surface .canvas-session-window.is-reviewing {
   box-sizing: border-box;
   border-width: 1.5px;
-  border-color: hsl(var(--warning) / 0.78);
-  box-shadow: 0 0 0 0 hsl(var(--warning) / 0.5);
+  border-color: color-mix(
+    in srgb,
+    var(--session-status-inreview) 78%,
+    transparent
+  );
+  box-shadow: 0 0 0 0
+    color-mix(in srgb, var(--session-status-inreview) 50%, transparent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -16084,56 +16098,80 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 @keyframes canvas-running-breathe {
   0%,
   100% {
-    border-color: hsl(var(--success) / 0.55);
-    box-shadow: 0 0 0 0 hsl(var(--success) / 0.35);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 55%,
+      transparent
+    );
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--session-status-inprogress) 35%, transparent);
   }
   50% {
-    border-color: hsl(var(--success));
-    box-shadow: 0 0 0 2px hsl(var(--success) / 0.55);
+    border-color: var(--session-status-inprogress);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--session-status-inprogress) 55%, transparent);
   }
 }
 
 @keyframes canvas-reviewing-breathe {
   0%,
   100% {
-    border-color: hsl(var(--warning) / 0.6);
-    box-shadow: 0 0 0 0 hsl(var(--warning) / 0.35);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inreview) 60%,
+      transparent
+    );
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--session-status-inreview) 35%, transparent);
   }
   50% {
-    border-color: hsl(var(--warning));
-    box-shadow: 0 0 0 2px hsl(var(--warning) / 0.6);
+    border-color: var(--session-status-inreview);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--session-status-inreview) 60%, transparent);
   }
 }
 
 @keyframes canvas-card-running-breathe {
   0%,
   100% {
-    border-color: hsl(var(--success) / 0.7);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 70%,
+      transparent
+    );
     box-shadow:
-      0 0 0 0 hsl(var(--success) / 0.55),
-      0 0 0 0 hsl(var(--success) / 0.28);
+      0 0 0 0 color-mix(in srgb, var(--session-status-inprogress) 55%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--session-status-inprogress) 28%, transparent);
   }
   50% {
-    border-color: hsl(var(--success));
+    border-color: var(--session-status-inprogress);
     box-shadow:
-      0 0 0 3px hsl(var(--success) / 0.7),
-      0 0 16px 2px hsl(var(--success) / 0.45);
+      0 0 0 3px
+        color-mix(in srgb, var(--session-status-inprogress) 70%, transparent),
+      0 0 16px 2px
+        color-mix(in srgb, var(--session-status-inprogress) 45%, transparent);
   }
 }
 
 @keyframes canvas-card-reviewing-breathe {
   0%,
   100% {
-    border-color: hsl(var(--warning) / 0.75);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inreview) 75%,
+      transparent
+    );
     box-shadow:
-      0 0 0 0 hsl(var(--warning) / 0.55),
-      0 0 0 0 hsl(var(--warning) / 0.28);
+      0 0 0 0 color-mix(in srgb, var(--session-status-inreview) 55%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--session-status-inreview) 28%, transparent);
   }
   50% {
-    border-color: hsl(var(--warning));
+    border-color: var(--session-status-inreview);
     box-shadow:
-      0 0 0 3px hsl(var(--warning) / 0.75),
-      0 0 16px 2px hsl(var(--warning) / 0.5);
+      0 0 0 3px
+        color-mix(in srgb, var(--session-status-inreview) 75%, transparent),
+      0 0 16px 2px
+        color-mix(in srgb, var(--session-status-inreview) 50%, transparent);
   }
 }
 

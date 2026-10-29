@@ -331,10 +331,7 @@ pub async fn refresh_open_capability_catalog(
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
             .map(|record| record.generation);
     let session_id = AgentSessionId(Uuid::new_v4());
-    let working_dir = std::env::temp_dir()
-        .join("vibex-agent-capability-probe")
-        .join(agent_id.as_str())
-        .join(session_id.to_string());
+    let working_dir = capability_probe_working_dir(agent_id, session_id);
     std::fs::create_dir_all(&working_dir).map_err(|error| {
         ConversationServiceError::Internal(format!(
             "failed to create capability probe directory: {error}"
@@ -471,6 +468,16 @@ async fn settle_session_authentication<T>(
     output.map_err(Into::into)
 }
 
+fn capability_probe_working_dir(agent_id: &AgentId, session_id: AgentSessionId) -> PathBuf {
+    // Process TEMP is often ACCESS_DENIED (os error 5) or C:\Windows on this
+    // host. `get_vibex_temp_dir` already probes writability and falls back to
+    // LocalAppData / home / the exe directory.
+    utils::path::get_vibex_temp_dir()
+        .join("agent-capability-probe")
+        .join(agent_id.as_str())
+        .join(session_id.to_string())
+}
+
 fn capability_probe_result(
     persist: Result<(), ConversationServiceError>,
     discard: Result<(), ConversationServiceError>,
@@ -534,6 +541,24 @@ mod tests {
             runtime_version: "1.0.0".to_string(),
             acp_version: "0.8".to_string(),
         }
+    }
+
+    #[test]
+    fn capability_probe_directory_is_writable_under_host_temp() {
+        let agent_id = AgentId::parse("grok").unwrap();
+        let session_id = AgentSessionId::new();
+        let dir = capability_probe_working_dir(&agent_id, session_id);
+        let host = utils::path::get_vibex_temp_dir();
+        assert_eq!(
+            dir,
+            host.join("agent-capability-probe")
+                .join("grok")
+                .join(session_id.to_string())
+        );
+        std::fs::create_dir_all(&dir).expect("capability probe directory must be writable");
+        std::fs::write(dir.join(".write-probe"), b"ok")
+            .expect("capability probe directory must accept a write");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -627,8 +652,11 @@ mod tests {
     #[tokio::test]
     async fn fingerprint_includes_native_model_catalog_files() {
         let pool = fingerprint_pool().await;
-        let temp = tempfile::tempdir().unwrap();
-        let codex_home = temp.path().join(".codex");
+        let scratch = utils::path::get_vibex_temp_dir()
+            .join("capability-catalog-tests")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        std::fs::create_dir_all(&scratch).unwrap();
+        let codex_home = scratch.join(".codex");
         std::fs::create_dir_all(&codex_home).unwrap();
         let mut lock = launch_lock();
         lock.agent_id = AgentId::parse("codex").unwrap();
@@ -648,6 +676,7 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(before, after);
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[test]

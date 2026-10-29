@@ -28,8 +28,8 @@ pub(crate) async fn deliver_pending(
     turn_delivery: &DeliveryContext,
 ) -> Result<SpacePostResult, CollaborationError> {
     let envelope = load_envelope(pool, message_id).await?;
-    let (seq, root_id): (i64, Option<String>) =
-        sqlx::query_as("SELECT seq, root_id FROM collaboration_space_messages WHERE id = ?")
+    let seq: i64 =
+        sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
             .bind(message_id)
             .fetch_one(pool)
             .await
@@ -246,7 +246,6 @@ pub(crate) async fn deliver_pending(
             &dest_thread,
             seq,
             &envelope,
-            root_id.as_deref(),
             &content,
             &display_text,
         )
@@ -435,8 +434,7 @@ pub(crate) async fn last_completed_delivery_seq(
 }
 
 /// One-line speaking-order trail for a multi-bot round this delivery belongs
-/// to, without the `- 本轮发言顺序：` prefix. `None` when the delivery is not
-/// part of a round with at least two members.
+/// to. `None` when the delivery is not part of a round with at least two members.
 pub(crate) async fn round_speaking_order_line(
     pool: &SqlitePool,
     space_id: &str,
@@ -491,17 +489,17 @@ pub(crate) async fn round_speaking_order_line(
             None => cid.clone(),
         };
         let status = if cid_uuid == Some(conversation_id) {
-            "你，当前"
+            "you, now"
         } else if state == "passed" {
-            "已弃权"
+            "passed"
         } else if matches!(
             state.as_str(),
             "replied" | "timed_out" | "cancelled" | "failed"
         ) || (ordinal > 0 && ordinal < current_ordinal)
         {
-            "已发言"
+            "posted"
         } else {
-            "等待中"
+            "waiting"
         };
         parts.push(format!("@{nick} ({status})"));
     }
@@ -577,7 +575,7 @@ pub(crate) async fn working_peers_line(
     }
     let list = names
         .iter()
-        .map(|name| format!("@{name} (工作中，请勿重复催促)"))
+        .map(|name| format!("@{name} (working)"))
         .collect::<Vec<_>>()
         .join("、");
     Ok(Some(list))

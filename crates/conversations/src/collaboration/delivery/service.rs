@@ -101,7 +101,6 @@ pub async fn send_user_text_to_conversation(
                 &thread_id,
                 0,
                 &envelope,
-                None,
                 text,
                 &display,
             )

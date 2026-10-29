@@ -75,7 +75,7 @@ export type AgentSessionDefaultsView = {
 };
 
 export const agentsApi = {
-  /** Matching persisted capability catalog; this is a side-effect-free read. */
+  /** Last matching persisted catalog, including TTL-expired rows. Freshness is a separate read. */
   capabilityCatalog: (
     agentId: string
   ): Promise<AgentSessionControlsSnapshot | null> =>

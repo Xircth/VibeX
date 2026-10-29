@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 
 import {
   advertisedSessionConfigValues,
@@ -9,6 +10,7 @@ import {
   visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
+import { agentsApi } from '@/features/agents/api';
 import {
   loadAgentSessionControlsCatalog,
   mergeCreateSessionControls,
@@ -45,6 +47,35 @@ export function MemberSessionConfigControls({
     gcTime: Infinity,
     retry: false,
   });
+  const catalogFreshnessQuery = useQuery({
+    queryKey: ['agentCapabilityCatalogFreshness', agentId],
+    queryFn: () => agentsApi.capabilityCatalogFresh(agentId),
+    enabled: Boolean(agentId && catalogQuery.data),
+    staleTime: 0,
+    retry: false,
+  });
+  const backgroundRefreshAgent = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !agentId ||
+      catalogFreshnessQuery.data !== false ||
+      backgroundRefreshAgent.current === agentId
+    ) {
+      return;
+    }
+    backgroundRefreshAgent.current = agentId;
+    void agentsApi
+      .refreshCapabilityCatalog(agentId)
+      .then(async (refreshed) => {
+        if (!refreshed) return;
+        await catalogQuery.refetch();
+        await catalogFreshnessQuery.refetch();
+      })
+      .catch(() => undefined);
+  }, [agentId, catalogFreshnessQuery, catalogQuery]);
+  useEffect(() => {
+    backgroundRefreshAgent.current = null;
+  }, [agentId]);
   const catalog = mergeCreateSessionControls([
     catalogQuery.data,
     schemaQuery.data,

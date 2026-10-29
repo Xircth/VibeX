@@ -55,6 +55,11 @@ jobs:
           pnpm run test:plugin-no-privilege
           pnpm run plugin:no-privilege
 
+      - name: Architecture invariant checks (ADR-0033 / 0069 / 0078)
+        run: |
+          pnpm run test:arch-invariants
+          pnpm run arch:check
+
       - name: Check Rust advisories
         uses: rustsec/audit-check@v2
         env:

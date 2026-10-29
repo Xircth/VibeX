@@ -143,6 +143,12 @@ impl AgentConnectionRunner {
         for (key, value) in &zcode_launch_env {
             launch_env.insert(key.clone(), value.clone());
         }
+        crate::prepare_and_bind_agent_runtime_temp(&self.snapshot.agent_id, &mut launch_env)
+            .map_err(|error| {
+                AgentError::Runtime(format!(
+                    "could not create a writable temporary directory for the ACP agent: {error}"
+                ))
+            })?;
         for (key, value) in &launch_env {
             command.env(key, value);
         }

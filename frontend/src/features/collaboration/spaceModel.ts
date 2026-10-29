@@ -509,22 +509,85 @@ export function sortConversationsForSpaceMemberPicker<
   };
 }
 
+export type SpaceEnvelopeParties = {
+  actor?: string;
+  sender?: string;
+  attributedTo?: string;
+  to?: readonly string[] | null;
+  summary?: string;
+};
+
+const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
+const CONVERSATION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MEMBER_PATH_MARKER = '/member/';
+
+/** Prefer flattened `sender` over ActivityStreams `actor`. */
+export function envelopeSenderRaw(
+  envelope: SpaceEnvelopeParties | null | undefined
+): string {
+  return String(envelope?.sender || envelope?.actor || '').trim();
+}
+
+export function isSystemPartyName(value: string | null | undefined): boolean {
+  const raw = String(value ?? '').trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  return lower === 'system' || lower.endsWith('/system');
+}
+
+export function parseEnvelopePartyName(raw: unknown): string {
+  let value = String(raw ?? '').trim();
+  if (!value) return '';
+  if (value.startsWith('@')) value = value.slice(1).trim();
+  if (!value) return '';
+  const lower = value.toLowerCase();
+  if (isSystemPartyName(value)) return 'system';
+  if (lower.endsWith('/user') || lower.endsWith('/person')) return 'Person';
+  const memberIndex = lower.lastIndexOf(MEMBER_PATH_MARKER);
+  if (memberIndex >= 0) {
+    let nickname = value.slice(memberIndex + MEMBER_PATH_MARKER.length);
+    try {
+      nickname = decodeURIComponent(nickname);
+    } catch {
+      // Keep the raw path segment when percent-decoding fails.
+    }
+    return nickname.trim();
+  }
+  if (lower.startsWith(CONVERSATION_URI_PREFIX)) return '';
+  if (lower.startsWith('vibex://')) {
+    const slash = value.lastIndexOf('/');
+    return (slash >= 0 ? value.slice(slash + 1) : value).trim();
+  }
+  return value;
+}
+
+export function envelopeRecipientNames(
+  envelope: SpaceEnvelopeParties | null | undefined
+): string[] {
+  const to = envelope?.to;
+  if (!Array.isArray(to)) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const item of to) {
+    const name = parseEnvelopePartyName(item);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
 export function resolveMessageConversationId(
-  envelope:
-    | {
-        actor?: string;
-        attributedTo?: string;
-      }
-    | null
-    | undefined,
+  envelope: SpaceEnvelopeParties | null | undefined,
   members: ReadonlyArray<SpaceMember> | null | undefined
 ): string {
   const attributed = String(envelope?.attributedTo ?? '').trim();
-  const prefix = 'vibex://conversation/';
-  if (attributed.toLowerCase().startsWith(prefix)) {
-    const id = attributed.slice(prefix.length).trim();
+  if (attributed.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) {
+    const id = attributed.slice(CONVERSATION_URI_PREFIX.length).trim();
     if (id) return id;
   }
+  if (CONVERSATION_ID_RE.test(attributed)) return attributed;
   const author = messageAuthor(envelope);
   if (!author || author === COPY.you) return '';
   const matched = agentRoster(members ? [...members] : []).find(
@@ -815,37 +878,21 @@ export function receiptStatusCopy(
 }
 
 export function resolveMessageReceipts(
-  envelope:
-    | {
-        to?: readonly string[] | null;
-      }
-    | null
-    | undefined,
+  envelope: SpaceEnvelopeParties | null | undefined,
   explicitReceipts: ReadonlyArray<DeliveryReceipt> | null | undefined
 ): DeliveryReceipt[] {
   if (Array.isArray(explicitReceipts) && explicitReceipts.length > 0) {
     return [...explicitReceipts];
   }
-  const toList = Array.isArray(envelope?.to) ? envelope.to : [];
-  if (toList.length === 0) return [];
-  const marker = '/member/';
   const derived: DeliveryReceipt[] = [];
   const seen = new Set<string>();
-  for (const item of toList) {
-    const raw = String(item ?? '').trim();
-    const index = raw.lastIndexOf(marker);
-    if (index < 0) continue;
-    let nickname = raw.slice(index + marker.length);
-    try {
-      nickname = decodeURIComponent(nickname);
-    } catch {
-      // Keep raw segment if decode fails
+  for (const name of envelopeRecipientNames(envelope)) {
+    if (isHumanPersonLabel(name) || isSystemPartyName(name) || seen.has(name)) {
+      continue;
     }
-    nickname = nickname.trim();
-    if (!nickname || seen.has(nickname)) continue;
-    seen.add(nickname);
+    seen.add(name);
     derived.push({
-      nickname,
+      nickname: name,
       delivered: 'claimed',
     });
   }
@@ -994,19 +1041,7 @@ export type CrossChatInteractionRecord = {
 };
 
 function parseMemberNameFromUriOrName(raw: unknown): string {
-  const value = String(raw ?? '').trim();
-  if (!value) return '';
-  const marker = '/member/';
-  const idx = value.lastIndexOf(marker);
-  if (idx >= 0) {
-    const slice = value.slice(idx + marker.length);
-    try {
-      return decodeURIComponent(slice).trim();
-    } catch {
-      return slice.trim();
-    }
-  }
-  return value.replace(/^@+/, '').trim();
+  return parseEnvelopePartyName(raw);
 }
 
 export type CrossChatPeerKind = 'member' | 'group';
@@ -1135,13 +1170,11 @@ export function insertMention(
 
 export function isCollaborationLimitNotice(message: {
   origin?: string;
-  envelope?: { actor?: string; summary?: string } | null;
+  envelope?: SpaceEnvelopeParties | null;
 }): boolean {
   if (message.origin === 'system') return true;
-  const actor = String(message.envelope?.actor ?? '');
-  return (
-    actor.endsWith('/system') || message.envelope?.summary === 'collaboration_limit'
-  );
+  if (message.envelope?.summary === 'collaboration_limit') return true;
+  return isSystemPartyName(envelopeSenderRaw(message.envelope));
 }
 
 const HUMAN_PERSON_LABELS = new Set(['user', 'person', '你']);
@@ -1160,39 +1193,14 @@ export function displayPersonLabel(value: string | null | undefined): string {
   return isHumanPersonLabel(raw) ? COPY.you : raw;
 }
 
-function lastActorSegment(actor: string): string {
-  const slash = actor.lastIndexOf('/');
-  return (slash >= 0 ? actor.slice(slash + 1) : actor).trim();
-}
-
 export function messageAuthor(
-  envelope:
-    | {
-        actor?: string;
-      }
-    | null
-    | undefined
+  envelope: SpaceEnvelopeParties | null | undefined
 ): string {
-  const actor = String(envelope?.actor ?? '').trim();
-  if (!actor) return '';
-  const lower = actor.toLowerCase();
-  if (lower.endsWith('/system')) return '';
-  if (lower.endsWith('/user') || lower.endsWith('/person')) return COPY.you;
-  if (isHumanPersonLabel(actor) || isHumanPersonLabel(lastActorSegment(actor))) {
-    return COPY.you;
-  }
-  const marker = '/member/';
-  const index = actor.lastIndexOf(marker);
-  if (index >= 0) {
-    let nickname = actor.slice(index + marker.length);
-    try {
-      nickname = decodeURIComponent(nickname);
-    } catch {
-      // Keep the raw path segment when percent-decoding fails.
-    }
-    return displayPersonLabel(nickname);
-  }
-  return '';
+  const raw = envelopeSenderRaw(envelope);
+  if (!raw || isSystemPartyName(raw)) return '';
+  const name = parseEnvelopePartyName(raw);
+  if (!name || isSystemPartyName(name)) return '';
+  return displayPersonLabel(name);
 }
 
 export function collectionDirFromHostPayload(
@@ -1861,11 +1869,14 @@ type ListedDirectMessage = {
   seq: number;
   operationId?: string | null;
   operation_id?: string | null;
-  envelope?: { actor?: string; content?: string } | null;
+  envelope?: (SpaceEnvelopeParties & { content?: string }) | null;
 };
 
-function isUserActor(actor: string | undefined): boolean {
-  return !actor || /\/user$/.test(actor);
+function isListedUserEnvelope(
+  envelope: ListedDirectMessage['envelope']
+): boolean {
+  if (!envelopeSenderRaw(envelope)) return true;
+  return messageAuthor(envelope) === COPY.you;
 }
 
 /**
@@ -1883,7 +1894,7 @@ export function reconcilePendingDirectMessages(
   for (const message of listed) {
     const op = message.operationId ?? message.operation_id;
     if (op) ops.add(op);
-    else if (isUserActor(message.envelope?.actor)) {
+    else if (isListedUserEnvelope(message.envelope)) {
       contents.push((message.envelope?.content ?? '').trim());
     }
   }

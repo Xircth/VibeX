@@ -352,6 +352,7 @@ type SpaceMessage = {
   receipts?: DeliveryReceipt[];
   envelope: {
     id?: string;
+    sender?: string;
     actor?: string;
     attributedTo?: string;
     content?: string;
@@ -4248,16 +4249,10 @@ export function CollaborationSpacePage({
       const optimisticMessage: SpaceMessage = {
         seq: nextSeq,
         envelope: {
-          actor: `vibex://space/${spaceId}/user`,
+          sender: 'Person',
+          actor: 'User',
           content,
-          ...(recipients.length > 0
-            ? {
-                to: recipients.map(
-                  (nick) =>
-                    `vibex://space/${spaceId}/member/${encodeURIComponent(nick)}`
-                ),
-              }
-            : {}),
+          ...(recipients.length > 0 ? { to: recipients } : {}),
         },
       };
       setMessages((current) =>

@@ -1,4 +1,19 @@
+import {
+  COPY,
+  isCollaborationLimitNotice,
+  messageAuthor,
+  type SpaceEnvelopeParties,
+} from './spaceModel';
+
 export const COLLAB_THREAD_BOTTOM_THRESHOLD_PX = 48;
+
+export function isCollabThreadUserBubble(message: {
+  origin?: string;
+  envelope?: SpaceEnvelopeParties | null;
+}): boolean {
+  if (isCollaborationLimitNotice(message)) return false;
+  return messageAuthor(message.envelope) === COPY.you;
+}
 
 export type CollabThreadLogMetrics = {
   scrollHeight: number;
@@ -6,9 +21,7 @@ export type CollabThreadLogMetrics = {
   clientHeight: number;
 };
 
-export function isCollabThreadLogAtBottom(
-  el: CollabThreadLogMetrics
-): boolean {
+export function isCollabThreadLogAtBottom(el: CollabThreadLogMetrics): boolean {
   return (
     el.scrollHeight - el.scrollTop - el.clientHeight <=
     COLLAB_THREAD_BOTTOM_THRESHOLD_PX

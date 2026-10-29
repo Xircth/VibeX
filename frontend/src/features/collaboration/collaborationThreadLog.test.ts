@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COLLAB_THREAD_BOTTOM_THRESHOLD_PX,
   isCollabThreadLogAtBottom,
+  isCollabThreadUserBubble,
   scrollCollabThreadLogToBottom,
 } from './collaborationThreadLog';
 
@@ -35,5 +36,34 @@ describe('collaboration thread log scroll', () => {
     };
     scrollCollabThreadLogToBottom(el);
     expect(el.scrollTop).toBe(1600);
+  });
+});
+
+describe('isCollabThreadUserBubble', () => {
+  it('parses flattened sender and legacy actor URIs', () => {
+    expect(isCollabThreadUserBubble({ envelope: { sender: 'Person' } })).toBe(
+      true
+    );
+    expect(isCollabThreadUserBubble({ envelope: { sender: 'User' } })).toBe(
+      true
+    );
+    expect(
+      isCollabThreadUserBubble({
+        envelope: { actor: 'vibex://space/s/user' },
+      })
+    ).toBe(true);
+    expect(isCollabThreadUserBubble({ envelope: { sender: '小A' } })).toBe(
+      false
+    );
+    expect(
+      isCollabThreadUserBubble({
+        envelope: { actor: 'vibex://space/s/member/小A' },
+      })
+    ).toBe(false);
+    expect(
+      isCollabThreadUserBubble({
+        envelope: { sender: 'system' },
+      })
+    ).toBe(false);
   });
 });

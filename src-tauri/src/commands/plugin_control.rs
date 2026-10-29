@@ -1059,7 +1059,7 @@ fn extract_plugin_tar_gz(path: &Path) -> Result<ExtractedPluginArchive, AppError
         .map_err(|error| AppError::BadRequest(format!("cannot open plugin archive: {error}")))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    let staging = tempfile::tempdir()
+    let staging = tempfile::tempdir_in(utils::path::get_vibex_temp_dir())
         .map_err(|error| AppError::Internal(format!("cannot stage plugin archive: {error}")))?;
     let mut extracted_bytes = 0_u64;
     let mut entries = 0_usize;
@@ -1124,7 +1124,7 @@ fn extract_plugin_zip(path: &Path) -> Result<ExtractedPluginArchive, AppError> {
         ));
     }
 
-    let staging = tempfile::tempdir()
+    let staging = tempfile::tempdir_in(utils::path::get_vibex_temp_dir())
         .map_err(|error| AppError::Internal(format!("cannot stage plugin ZIP: {error}")))?;
     let mut extracted_bytes = 0_u64;
     let mut normalized_paths = BTreeSet::new();

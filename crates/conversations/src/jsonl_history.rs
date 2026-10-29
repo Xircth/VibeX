@@ -271,8 +271,8 @@ fn isolate_test_transcripts() {
         if !in_deps {
             return;
         }
-        let dir =
-            std::env::temp_dir().join(format!("vibex-acp-transcripts-{}", std::process::id()));
+        let dir = utils::path::get_vibex_temp_dir()
+            .join(format!("acp-transcripts-{}", std::process::id()));
         unsafe {
             std::env::set_var("VIBEX_TRANSCRIPTS_ROOT", dir);
         }

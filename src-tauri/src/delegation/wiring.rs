@@ -96,7 +96,7 @@ pub(crate) fn build_delegation(
     runtime_features.set_space_changed_listener(move |event| {
         events.emit(server::COLLABORATION_SPACE_CHANGED_EVENT, event);
     });
-    let socket_path = default_socket_path(&std::env::temp_dir());
+    let socket_path = default_socket_path(&utils::path::get_vibex_temp_dir());
 
     spawn_resolver(broker.clone(), runtime.clone(), map);
     spawn_parent_teardown(

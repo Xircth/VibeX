@@ -176,7 +176,7 @@ fn default_timeline_image_dir() -> PathBuf {
     #[cfg(not(test))]
     {
         dirs::data_local_dir()
-            .unwrap_or_else(std::env::temp_dir)
+            .unwrap_or_else(workspace_utils::path::get_vibex_temp_dir)
             .join("vibex")
             .join("timeline-images")
     }

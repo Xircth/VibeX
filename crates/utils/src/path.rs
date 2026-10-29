@@ -202,6 +202,20 @@ fn first_writable_directory(candidates: impl IntoIterator<Item = PathBuf>) -> Op
         .find(|path| directory_is_writable(path))
 }
 
+/// Named subdirectory of host scratch. Created if missing.
+pub fn vibex_scratch_subdir(name: &str) -> io::Result<PathBuf> {
+    let dir = get_vibex_temp_dir().join(name);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Unique subdirectory of host scratch. Caller owns cleanup.
+pub fn unique_vibex_scratch_dir(purpose: &str) -> io::Result<PathBuf> {
+    let dir = get_vibex_temp_dir().join(format!("{purpose}-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
 fn directory_is_writable(path: &Path) -> bool {
     if std::fs::create_dir_all(path).is_err() {
         return false;
@@ -431,6 +445,29 @@ mod tests {
         let blocked = scratch.0.join("also-a-file");
         std::fs::write(&blocked, b"nope").unwrap();
         assert!(first_writable_directory([blocked]).is_none());
+    }
+
+    #[test]
+    fn unique_scratch_is_writable_under_host_temp() {
+        let host = get_vibex_temp_dir();
+        let dir = unique_vibex_scratch_dir("probe").expect("unique scratch");
+        assert!(
+            dir.starts_with(&host),
+            "scratch {} must live under host temp {}",
+            dir.display(),
+            host.display()
+        );
+        std::fs::write(dir.join(".write-probe"), b"ok").expect("scratch must accept a write");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn named_scratch_is_stable_and_writable() {
+        let first = vibex_scratch_subdir("named-scratch").unwrap();
+        let second = vibex_scratch_subdir("named-scratch").unwrap();
+        assert_eq!(first, second);
+        std::fs::write(first.join(".write-probe"), b"ok").unwrap();
+        let _ = std::fs::remove_file(first.join(".write-probe"));
     }
 
     #[test]

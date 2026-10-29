@@ -842,7 +842,7 @@ fn parse_connection(id: &str) -> Option<AgentConnectionId> {
 
 #[cfg(unix)]
 fn process_socket_path() -> PathBuf {
-    std::env::temp_dir().join(format!(
+    utils::path::get_vibex_temp_dir().join(format!(
         "vibex-delegation-{}-{}.sock",
         std::process::id(),
         Uuid::new_v4()

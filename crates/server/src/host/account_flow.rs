@@ -20,11 +20,11 @@ fn pending_flows() -> &'static Mutex<HashMap<String, PendingAccountFlow>> {
 }
 
 pub fn account_flow_result_path(agent_id: &AgentId) -> PathBuf {
-    std::env::temp_dir().join(format!("vibex-account-flow-{}.exit", agent_id.as_str()))
+    utils::path::get_vibex_temp_dir().join(format!("vibex-account-flow-{}.exit", agent_id.as_str()))
 }
 
 pub fn launcher_script_path(agent_id: &AgentId, action_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
+    utils::path::get_vibex_temp_dir().join(format!(
         "vibex-management-{}-{action_id}.cmd",
         agent_id.as_str()
     ))

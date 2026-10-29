@@ -1776,7 +1776,7 @@ fn parse_agent_keys(
 }
 
 fn staging_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("vibex-skill-{}", uuid::Uuid::new_v4()))
+    workspace_utils::path::get_vibex_temp_dir().join(format!("skill-{}", uuid::Uuid::new_v4()))
 }
 
 /// BFS the staging tree for the installed skill directory (prefer an exact

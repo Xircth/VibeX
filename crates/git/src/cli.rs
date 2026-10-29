@@ -27,7 +27,7 @@ use std::{
 
 use thiserror::Error;
 use utils::{
-    path::ALWAYS_SKIP_DIRS,
+    path::{ALWAYS_SKIP_DIRS, get_vibex_temp_dir},
     process::{isolate_std_process_group, new_hidden_std_command, terminate_std_child_group},
     shell::resolve_executable_path_blocking,
 };
@@ -74,7 +74,7 @@ fn worktree_add_error_is_fatal_without_retry(error: &GitCliError) -> bool {
 
 fn empty_hooks_dir() -> &'static Path {
     EMPTY_HOOKS_DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("vibex-empty-git-hooks");
+        let dir = get_vibex_temp_dir().join("empty-git-hooks");
         let _ = std::fs::create_dir_all(&dir);
         dir
     })
@@ -445,7 +445,7 @@ impl GitCli {
         opts: StatusDiffOptions,
     ) -> Result<Vec<StatusDiffEntry>, GitCliError> {
         // Create a temp index file
-        let tmp_dir = tempfile::TempDir::new()
+        let tmp_dir = tempfile::TempDir::new_in(get_vibex_temp_dir())
             .map_err(|e| GitCliError::CommandFailed(format!("temp dir create failed: {e}")))?;
         let tmp_index = tmp_dir.path().join("index");
         let envs = vec![(

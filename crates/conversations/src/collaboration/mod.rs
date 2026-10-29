@@ -42,18 +42,18 @@ pub use collection::{
     update_space_collection_item_note_with,
 };
 pub use delivery::{
-    DEFAULT_HANDOFF_MAX_DEPTH, DEFAULT_HANDOFF_MAX_PER_TURN, DeliveryReceipt, Handoff,
-    HandoffEnvelope, HandoffResult, MISSED_CONTEXT_VERBATIM, MessageAudience, MessageReceipt,
-    PostDirectMessage, PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult,
-    advance_round, cancel_space_turn, finalize_space_turn_deliveries, handoff, handoff_max_depth,
-    handoff_max_per_turn, handoff_with, list_message_receipts, list_message_receipts_batch,
-    list_space_messages, post_direct_message, post_direct_message_with, post_to_space,
-    post_to_space_with, prepare_steer, redeliver_deferred, send_session_input,
-    send_session_input_with, send_user_text_to_conversation,
+    DeliveryReceipt, MISSED_CONTEXT_VERBATIM, MessageAudience, MessageReceipt, PostDirectMessage,
+    PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult, SpaceTurnInterrupt,
+    advance_round, cancel_space_turn, finalize_space_turn_deliveries, interrupt_space_member_turn,
+    list_message_receipts, list_message_receipts_batch, list_space_messages, post_direct_message,
+    post_direct_message_with, post_to_space, post_to_space_with, prepare_steer, redeliver_deferred,
+    send_session_input, send_session_input_with, send_user_text_to_conversation,
 };
 pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
-    load_stored_operation, seat_binding, store_operation, user_actor,
+    last_completed_delivery_seq, load_stored_operation, missed_group_context, parse_space_envelope,
+    round_speaking_order_line, seat_binding, store_operation,
+    sweep_round_grace_detach, working_peers_line,
 };
 pub use hot_group::HotGroupTracker;
 pub(crate) use prompt::{
@@ -68,29 +68,33 @@ pub use reactions::{
 };
 pub use roles::{
     BatchDeleteMemberTarget, BatchDeleteResult, CollaborationSpaceChangedEvent,
-    ConversationListItem, ConversationPersonaView, CreateSpawnedConversation, CreatedConversation,
-    HostCreateSpaceMember, IsolatedWorkspaceProvisioner, ListConversations, MemberRecord,
-    MemberSessionConfig, MemberWriteAccess, MemberWritePlan, RoleRecord, SaveRole, SaveTeam,
-    SpaceEventList, SpaceEventRecord, SpaceRecord, TeamRecord, WorkspaceConversationOption,
+    ConversationListItem, ConversationPersonaView, CreateSpaceMemberRequest,
+    CreateSpawnedConversation, CreatedConversation, HostCreateSpaceMember,
+    IsolatedWorkspaceProvisioner, ListConversations, MemberRecord, MemberSessionConfig,
+    MemberWriteAccess, MemberWritePlan, RoleRecord, SaveRole, SaveTeam, SpaceEventList,
+    SpaceEventRecord, SpaceRecord, TeamRecord, WorkspaceConversationOption,
     active_collaboration_children, add_space_member, bump_space_generation,
     collaboration_parent_depth, conversation_persona, create_collaboration_space, create_role,
-    create_spawned_conversation, create_team, create_workspace_space, delete_role, delete_team,
-    ensure_user_member, execution_workspace_id, host_add_space_member,
-    host_batch_delete_space_items, host_create_space_member, host_move_space_member,
-    latest_space_changed_event, list_collaboration_spaces_for_caller, list_conversations,
-    list_roles, list_space_events, list_space_members, list_space_members_detailed, list_teams,
-    list_workspace_conversations, list_workspace_spaces, load_member_session_config,
-    load_space_generation, member_activity_limit, member_space_context_text,
-    member_space_context_text_for, member_worktree_workspace_id, parse_unassigned_space_id,
-    persona_prompt_text, persona_prompt_text_for_turn, plan_member_write,
-    read_session_info_for_delegation, read_session_info_for_session_product,
-    record_member_session_workspace, release_member_write, rename_workspace_space,
-    resolve_member_target, resolve_session, resolve_thread_session, restore_space_from_archive,
+    create_space_member, create_spawned_conversation, create_team, create_workspace_space,
+    delete_collaboration_space, delete_role, delete_space_member, delete_team, ensure_user_member,
+    execution_workspace_id, host_add_space_member, host_batch_delete_space_items,
+    host_create_space_member, host_move_space_member, identity_member_id_for_conversation,
+    latest_space_changed_event, leave_space, list_collaboration_spaces_for_caller,
+    list_conversations, list_roles, list_space_events, list_space_members,
+    list_space_members_detailed, list_spaces_for_caller, list_teams, list_workspace_conversations,
+    list_workspace_spaces, load_member_session_config, load_space_generation,
+    member_activity_limit, member_space_context_text, member_space_context_text_for,
+    member_worktree_workspace_id, parse_unassigned_space_id, persona_prompt_text,
+    persona_prompt_text_for_turn, plan_member_write, read_session_info_for_delegation,
+    read_session_info_for_session_product, record_member_session_workspace, release_member_write,
+    remove_space_member, rename_workspace_space, resolve_bot_conversation, resolve_member_target,
+    resolve_session, resolve_thread_session, restore_space_from_archive,
     set_conversation_persona_team, set_member_session_config, set_member_write_access,
     set_space_identity, set_space_lead, space_event_retention_days, space_member_tool_value,
     space_tracks_events, space_workspace_id, sweep_expired_space_events,
-    sweep_expired_space_events_before, thread_id_for_conversation, try_acquire_member_write,
-    unassigned_space_id, update_role, update_team,
+    conversation_is_space_session, sweep_expired_space_events_before, thread_id_for_conversation,
+    transfer_space_lead,
+    try_acquire_member_write, unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
     append_space_event, append_space_event_pool, append_space_event_tx, caller_seat, load_space,
@@ -105,8 +109,10 @@ pub use routing::{
     sweep_expired_turns, wake_cap_per_turn,
 };
 pub(crate) use routing::{
-    env_i64, hold_over_wake_cap, reserve_wake, resolve_targets, resolve_workspace_peer,
-    session_is_asleep, touch_session_activity, wake_turn_in_flight, wake_turn_key,
+    actor_display_name, env_i64, hold_over_wake_cap, is_bot_space, is_group_space, is_pass_token,
+    is_person_ref, mentioned_local_bot_nicknames, recipient_display_name, reserve_wake,
+    resolve_targets, resolve_workspace_peer, session_is_asleep, strip_own_nickname_prefix,
+    touch_session_activity, wake_turn_in_flight, wake_turn_key, workspace_direct_peers,
 };
 pub use scheduled::{
     ScheduledSpaceMessage, cancel_space_scheduled_message, list_space_scheduled_messages,
@@ -145,14 +151,30 @@ pub trait IdleTurnDispatcher: Send + Sync {
     async fn start_if_idle(&self, conversation_id: Uuid) -> Result<Option<Uuid>, String>;
 }
 
-/// Publisher and idle-start hook for one host process. Tests omit both.
+/// Stops the Agent turn behind a collaboration turn. Interrupting is a control
+/// command, not a durable write: the real ACP turn is stopped first and the
+/// collaboration ledger is closed afterwards. A missing interruptor must fail
+/// loudly instead of reporting an interruption that never happened.
+#[async_trait]
+pub trait TurnInterruptor: Send + Sync {
+    async fn interrupt_turn(
+        &self,
+        conversation_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<(), String>;
+}
+
+/// Publisher, idle-start and turn-stop hooks for one host process. Tests omit
+/// them.
 #[derive(Clone, Default)]
 pub struct DeliveryContext {
     pub publisher: Option<Arc<dyn crate::ConversationEventPublisher>>,
     pub dispatcher: Option<Arc<dyn IdleTurnDispatcher>>,
+    pub interruptor: Option<Arc<dyn TurnInterruptor>>,
     pub space_changed: Option<Arc<dyn Fn(CollaborationSpaceChangedEvent) + Send + Sync>>,
 }
 
+#[allow(clippy::type_complexity)]
 fn global_space_changed_listener()
 -> &'static std::sync::RwLock<Option<Arc<dyn Fn(CollaborationSpaceChangedEvent) + Send + Sync>>> {
     static LISTENER: std::sync::OnceLock<

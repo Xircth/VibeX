@@ -10,18 +10,24 @@
 //! VibeX also kills ACP process groups (`kill_on_drop` / idle sweep) before
 //! the bootloader can delete `_MEI*`, so the user TEMP fills with leftovers
 //! and later creates start failing. Host-managed `%LOCALAPPDATA%\VibeX\acp-tmp\<agent>`
-//! is short, writable, and isolated from that pollution.
+//! is short, writable, and isolated from that pollution. Prepare uses a unique
+//! write probe so concurrent connections for the same agent do not contend, retries
+//! ACCESS_DENIED / sharing violations (Defender scanning leftover `_MEI*`), and
+//! falls back to host scratch when the primary tree is briefly unwritable.
 
 use std::{
     collections::HashMap,
     fs, io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::AgentId;
 
 const ACP_TMP_ROOT: &str = "VibeX";
 const ACP_TMP_LEAF: &str = "acp-tmp";
+const PREPARE_ATTEMPTS: u32 = 5;
+const PREPARE_RETRY_SLEEP: Duration = Duration::from_millis(30);
 
 pub fn agent_runtime_temp_dir_in(base: &Path, agent_id: &AgentId) -> PathBuf {
     base.join(ACP_TMP_ROOT)
@@ -45,16 +51,77 @@ pub fn agent_runtime_temp_dir(agent_id: &AgentId) -> PathBuf {
 }
 
 pub fn prepare_agent_runtime_temp_in(base: &Path, agent_id: &AgentId) -> io::Result<PathBuf> {
-    let dir = agent_runtime_temp_dir_in(base, agent_id);
-    fs::create_dir_all(&dir)?;
-    let probe = dir.join(".write-probe");
-    fs::write(&probe, b"ok")?;
-    let _ = fs::remove_file(&probe);
-    Ok(dir)
+    prepare_writable_dir(&agent_runtime_temp_dir_in(base, agent_id))
 }
 
 pub fn prepare_agent_runtime_temp(agent_id: &AgentId) -> io::Result<PathBuf> {
-    prepare_agent_runtime_temp_in(&runtime_temp_base(), agent_id)
+    prepare_agent_runtime_temp_from_bases(runtime_temp_candidate_bases(), agent_id)
+}
+
+fn prepare_agent_runtime_temp_from_bases(
+    bases: impl IntoIterator<Item = PathBuf>,
+    agent_id: &AgentId,
+) -> io::Result<PathBuf> {
+    let mut last_error = None;
+    for base in bases {
+        match prepare_agent_runtime_temp_in(&base, agent_id) {
+            Ok(dir) => return Ok(dir),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "no ACP temporary directory candidate",
+        )
+    }))
+}
+
+fn runtime_temp_candidate_bases() -> Vec<PathBuf> {
+    let primary = runtime_temp_base();
+    let scratch = workspace_utils::path::get_vibex_temp_dir();
+    if scratch == primary {
+        vec![primary]
+    } else {
+        vec![primary, scratch]
+    }
+}
+
+fn prepare_writable_dir(dir: &Path) -> io::Result<PathBuf> {
+    let mut last_error = None;
+    for attempt in 0..PREPARE_ATTEMPTS {
+        match try_prepare_writable_dir(dir) {
+            Ok(path) => return Ok(path),
+            Err(error) if is_transient_fs_error(&error) && attempt + 1 < PREPARE_ATTEMPTS => {
+                last_error = Some(error);
+                std::thread::sleep(PREPARE_RETRY_SLEEP);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "could not create a writable ACP temporary directory",
+        )
+    }))
+}
+
+fn try_prepare_writable_dir(dir: &Path) -> io::Result<PathBuf> {
+    fs::create_dir_all(dir)?;
+    // A shared `.write-probe` races when two connections spawn the same
+    // agent: Windows returns ACCESS_DENIED (5) or SHARING_VIOLATION (32).
+    let probe = dir.join(format!(".write-probe-{}", uuid::Uuid::new_v4().simple()));
+    fs::write(&probe, b"ok")?;
+    let _ = fs::remove_file(&probe);
+    Ok(dir.to_path_buf())
+}
+
+fn is_transient_fs_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::Interrupted | io::ErrorKind::TimedOut
+    ) || matches!(error.raw_os_error(), Some(5 | 32))
 }
 
 pub fn bind_agent_runtime_temp_env(env: &mut HashMap<String, String>, dir: &Path) {
@@ -179,5 +246,58 @@ mod tests {
             dir.display(),
             process_temp.display()
         );
+    }
+
+    #[test]
+    fn production_prepare_creates_a_writable_directory() {
+        let dir = prepare_agent_runtime_temp(&agent("grok")).expect("host ACP temp");
+        let marker = dir.join(format!("_MEIprobe-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir(&marker).expect("PyInstaller mkdir in bound TEMP");
+        fs::remove_dir(&marker).unwrap();
+        assert!(
+            !dir.starts_with(&std::env::temp_dir()),
+            "ACP temp {} must not live under process TEMP",
+            dir.display()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prepare_succeeds_while_legacy_write_probe_is_exclusively_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = Scratch::new();
+        let agent_id = agent("grok");
+        let dir = prepare_agent_runtime_temp_in(&tmp.0, &agent_id).unwrap();
+        let legacy = dir.join(".write-probe");
+        fs::write(&legacy, b"held").unwrap();
+        let _lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&legacy)
+            .expect("exclusive lock on the legacy probe name");
+
+        prepare_agent_runtime_temp_in(&tmp.0, &agent_id)
+            .expect("spawn must not reuse a locked .write-probe name");
+    }
+
+    #[test]
+    fn prepare_from_bases_skips_an_unwritable_preferred_base() {
+        let tmp = Scratch::new();
+        let blocked = tmp.0.join("blocked");
+        fs::write(&blocked, b"file").unwrap();
+        let fallback = tmp.0.join("fallback");
+        fs::create_dir_all(&fallback).unwrap();
+
+        let dir = prepare_agent_runtime_temp_from_bases(
+            [blocked.clone(), fallback.clone()],
+            &agent("grok"),
+        )
+        .expect("must fall back to a writable ACP temp base");
+
+        assert!(dir.starts_with(&fallback.join("VibeX").join("acp-tmp")));
+        assert!(!dir.starts_with(&blocked));
+        fs::create_dir(dir.join("_MEIprobe")).unwrap();
     }
 }

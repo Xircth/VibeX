@@ -125,4 +125,25 @@ describe('MemberSessionConfigControls', () => {
       screen.queryByTestId('session-settings-summary')
     ).not.toBeInTheDocument();
   });
+
+  it('shows last matching Codex controls while a stale catalog refreshes in the background', async () => {
+    capabilityCatalog.mockResolvedValue({
+      modes: [{ id: 'agent', label: 'Agent', description: null }],
+      current_mode: 'agent',
+      config_options: [CODEX_MODEL, CODEX_EFFORT],
+    });
+    capabilityCatalogFresh
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    refreshCapabilityCatalog.mockResolvedValue(true);
+    renderControls();
+
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('暂不可用')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(refreshCapabilityCatalog).toHaveBeenCalledWith('codex')
+    );
+  });
 });

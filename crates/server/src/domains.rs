@@ -1890,7 +1890,7 @@ impl ServerApplicationDomains {
         let args: AgentIdArgs = parse(args)?;
         let agent_id = AgentId::parse(args.agent_id).map_err(internal_error)?;
         serialize(
-            conversations::read_matching_open_capability_catalog(&self.pool, &agent_id)
+            conversations::read_matching_capability_catalog_for_defaults(&self.pool, &agent_id)
                 .await
                 .map_err(conversation_error)?,
         )

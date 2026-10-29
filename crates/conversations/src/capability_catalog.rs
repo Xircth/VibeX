@@ -264,8 +264,11 @@ pub async fn read_matching_open_capability_catalog(
 }
 
 /// Last matching catalog for this Agent fingerprint, including TTL-expired
-/// rows. Saving defaults must not fail only because the probe cache aged out
-/// while a live session is still advertising the same options.
+/// rows. Session-control surfaces (create session, create assistant, session
+/// defaults) show this immediately; `capability_catalog_is_fresh` says whether
+/// a background probe is due. Saving defaults must not fail only because the
+/// probe cache aged out while a live session is still advertising the same
+/// options.
 pub async fn read_matching_capability_catalog_for_defaults(
     pool: &SqlitePool,
     agent_id: &AgentId,
@@ -674,5 +677,31 @@ mod tests {
         };
         assert!(catalog_controls_if_fresh(record.clone(), now).is_none());
         assert!(catalog_controls_for_defaults(record).is_some());
+    }
+
+    #[test]
+    fn session_control_ui_reads_last_matching_catalog_after_ttl() {
+        let now = Utc::now();
+        let snapshot = AgentSessionControlsSnapshot {
+            modes: vec![agents::AgentSessionMode {
+                id: "agent".to_string(),
+                label: "Agent".to_string(),
+                description: None,
+            }],
+            current_mode: Some("agent".to_string()),
+            ..Default::default()
+        };
+        let record = AgentCapabilityCatalogRecord {
+            agent_type: "codex".to_string(),
+            fingerprint: "fingerprint".to_string(),
+            generation: 3,
+            controls_json: serde_json::to_string(&snapshot).unwrap(),
+            retrieved_at: (now - Duration::minutes(11)).to_rfc3339(),
+            refresh_error_code: None,
+        };
+        assert!(catalog_controls_if_fresh(record.clone(), now).is_none());
+        let kept = catalog_controls_for_defaults(record).expect("last matching catalog");
+        assert_eq!(kept.current_mode.as_deref(), Some("agent"));
+        assert_eq!(kept.modes[0].id, "agent");
     }
 }

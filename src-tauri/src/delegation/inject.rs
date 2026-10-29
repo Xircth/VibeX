@@ -116,10 +116,12 @@ mod tests {
             .args
             .windows(2)
             .find(|window| window[0] == "--token")
-            .map(|window| window[1])
+            .map(|window| window[1].as_str())
             .expect("token arg");
         assert_eq!(
-            tokens.permissions(token).map(|permissions| permissions.space_session),
+            tokens
+                .permissions(token)
+                .map(|permissions| permissions.space_session),
             Some(true)
         );
     }

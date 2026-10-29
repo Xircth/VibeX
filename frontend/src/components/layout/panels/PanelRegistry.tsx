@@ -19,6 +19,11 @@ import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { builtinPanelTitle } from '@/lib/builtinPanelTitles';
+import {
+  BUILTIN_PANEL_MANIFESTS,
+  PANEL_ZONE_BY_POSITION,
+  type BuiltinPanelManifestEntry,
+} from '@/features/plugins/builtin-contributions';
 
 export { WorkspaceDockviewTab } from './WorkspaceDockviewTab';
 
@@ -124,54 +129,13 @@ function lazyPanel(
 }
 
 /** Registry mapping panel component IDs to their React components. */
-const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
-  [PANEL_IDS.KANBAN]: lazyPanel(
-    () => import('@/components/panels/DockviewKanbanPanel')
-  ),
-  [PANEL_IDS.FILE_TREE]: lazyPanel(
-    () => import('@/components/panels/DockviewFileTreePanel')
-  ),
-  [PANEL_IDS.PREVIEW]: lazyPanel(
-    () => import('@/components/panels/DockviewPreviewPanel')
-  ),
-  [PANEL_IDS.DIFFS]: lazyPanel(
-    () => import('@/components/panels/DockviewDiffsReviewPanel')
-  ),
-  [PANEL_IDS.TERMINAL]: lazyPanel(
-    () => import('@/components/panels/DockviewTerminalPanel')
-  ),
-  [PANEL_IDS.AI_CHAT]: lazyPanel(
-    () => import('@/components/panels/DockviewAIChatPanel')
-  ),
-  [PANEL_IDS.GIT]: lazyPanel(
-    () => import('@/components/panels/DockviewGitPanel')
-  ),
-  [PANEL_IDS.MERGE]: lazyPanel(
-    () => import('@/components/panels/DockviewMergePanel')
-  ),
-  [PANEL_IDS.WELCOME]: lazyPanel(
-    () => import('@/components/panels/DockviewWelcomePanel')
-  ),
-  [PANEL_IDS.LOGS]: lazyPanel(
-    () => import('@/components/panels/DockviewLogsPanel')
-  ),
-  [PANEL_IDS.NOTES]: lazyPanel(
-    () => import('@/components/panels/DockviewNotesPanel')
-  ),
-  [PANEL_IDS.SESSION_DETAILS]: lazyPanel(
-    () => import('@/components/panels/DockviewSessionDetailsPanel')
-  ),
-  [PANEL_IDS.PROCESSES]: lazyPanel(
-    () => import('@/components/panels/DockviewProcessesPanel')
-  ),
-  [PANEL_IDS.SEARCH]: lazyPanel(
-    () => import('@/components/panels/DockviewSearchPanel')
-  ),
-  [PANEL_IDS.SESSION_LIST]: lazyPanel(
-    () =>
-      import('@/components/workspace-session-list/WorkspaceSessionListPanel')
-  ),
-};
+const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> =
+  Object.fromEntries(
+    BUILTIN_PANEL_MANIFESTS.map((manifest) => [
+      manifest.id,
+      lazyPanel(manifest.component),
+    ])
+  ) as Record<PanelId, React.FC<IDockviewPanelProps>>;
 
 /**
  * The dockview component resolver.
@@ -179,145 +143,24 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
  */
 export const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
 
-export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
-  {
-    id: PANEL_IDS.KANBAN,
+/** One contribution per builtin panel manifest, in manifest order. */
+function builtinPanelContribution(
+  manifest: BuiltinPanelManifestEntry
+): PanelContribution {
+  return {
+    id: manifest.id,
     get title() {
-      return builtinPanelTitle(PANEL_IDS.KANBAN);
+      return builtinPanelTitle(manifest.id);
     },
-    zone: 'editor',
+    zone: PANEL_ZONE_BY_POSITION[manifest.defaultPosition],
     builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.KANBAN],
-  },
-  {
-    id: PANEL_IDS.FILE_TREE,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.FILE_TREE);
-    },
-    zone: 'left',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.FILE_TREE],
-  },
-  {
-    id: PANEL_IDS.PREVIEW,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.PREVIEW);
-    },
-    zone: 'editor',
-    builtin: true,
-    multiInstance: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.PREVIEW],
-  },
-  {
-    id: PANEL_IDS.DIFFS,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.DIFFS);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.DIFFS],
-  },
-  {
-    id: PANEL_IDS.TERMINAL,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.TERMINAL);
-    },
-    zone: 'bottom',
-    builtin: true,
-    multiInstance: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.TERMINAL],
-  },
-  {
-    id: PANEL_IDS.AI_CHAT,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.AI_CHAT);
-    },
-    zone: 'session',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.AI_CHAT],
-  },
-  {
-    id: PANEL_IDS.GIT,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.GIT);
-    },
-    zone: 'left',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.GIT],
-  },
-  {
-    id: PANEL_IDS.MERGE,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.MERGE);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.MERGE],
-  },
-  {
-    id: PANEL_IDS.WELCOME,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.WELCOME);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.WELCOME],
-  },
-  {
-    id: PANEL_IDS.LOGS,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.LOGS);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.LOGS],
-  },
-  {
-    id: PANEL_IDS.NOTES,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.NOTES);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.NOTES],
-  },
-  {
-    id: PANEL_IDS.SESSION_DETAILS,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.SESSION_DETAILS);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_DETAILS],
-  },
-  {
-    id: PANEL_IDS.PROCESSES,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.PROCESSES);
-    },
-    zone: 'editor',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.PROCESSES],
-  },
-  {
-    id: PANEL_IDS.SEARCH,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.SEARCH);
-    },
-    zone: 'left',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.SEARCH],
-  },
-  {
-    id: PANEL_IDS.SESSION_LIST,
-    get title() {
-      return builtinPanelTitle(PANEL_IDS.SESSION_LIST);
-    },
-    zone: 'left',
-    builtin: true,
-    component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_LIST],
-  },
-];
+    ...(manifest.multiInstance ? { multiInstance: true } : {}),
+    component: PANEL_COMPONENT_MAP[manifest.id],
+  };
+}
+
+export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] =
+  BUILTIN_PANEL_MANIFESTS.map(builtinPanelContribution);
 
 export interface RegisterBuiltinPanelsOptions {
   readonly ctx?: VibeXPluginContext;

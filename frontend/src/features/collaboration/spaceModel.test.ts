@@ -11,6 +11,7 @@ import {
   mentionSuggestions,
   mergeSpaceMessages,
   messageAuthor,
+  resolveMessageReceipts,
   collectionDirFromHostPayload,
   displayPersonLabel,
   isBotSpaceKind,
@@ -177,8 +178,38 @@ describe('collaboration space model', () => {
     expect(messageAuthor({ actor: 'vibex://space/s/person' })).toBe('你');
     expect(messageAuthor({ actor: 'Person' })).toBe('你');
     expect(messageAuthor({ actor: 'User' })).toBe('你');
+    expect(messageAuthor({ sender: 'Person' })).toBe('你');
+    expect(messageAuthor({ sender: 'User' })).toBe('你');
     expect(messageAuthor({ actor: 'vibex://space/s/member/小B' })).toBe('小B');
+    expect(messageAuthor({ sender: '小B' })).toBe('小B');
+    expect(messageAuthor({ actor: '小B' })).toBe('小B');
+    expect(
+      messageAuthor({
+        sender: 'Person',
+        actor: 'vibex://space/s/member/小B',
+      })
+    ).toBe('你');
     expect(messageAuthor({ actor: 'vibex://space/s/system' })).toBe('');
+    expect(messageAuthor({ sender: 'system' })).toBe('');
+    expect(
+      messageAuthor({
+        actor: 'vibex://space/s/member/%E5%B0%8FB',
+      })
+    ).toBe('小B');
+    expect(isCollaborationLimitNotice({ envelope: { sender: 'system' } })).toBe(
+      true
+    );
+    expect(resolveMessageReceipts({ to: ['Person', '小A'] }, null)).toEqual([
+      { nickname: '小A', delivered: 'claimed' },
+    ]);
+    expect(
+      resolveMessageReceipts(
+        {
+          to: ['User', 'vibex://space/s/member/小B', '@小B'],
+        },
+        null
+      )
+    ).toEqual([{ nickname: '小B', delivered: 'claimed' }]);
     expect(isHumanPersonLabel('Person')).toBe(true);
     expect(isHumanPersonLabel('User')).toBe(true);
     expect(displayPersonLabel('Person')).toBe('你');
@@ -332,6 +363,13 @@ describe('collaboration space model', () => {
         members
       )
     ).toBe('b');
+    expect(resolveMessageConversationId({ sender: '小A' }, members)).toBe('a');
+    expect(
+      resolveMessageConversationId(
+        { attributedTo: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+        members
+      )
+    ).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
 
     const memoryStorage = new Map<string, string>();
     const storage = {
@@ -651,10 +689,10 @@ describe('private chat helpers', () => {
     ];
     const left = reconcilePendingDirectMessages(pending, [
       { seq: 1, operationId: 'a', envelope: { content: 'changed' } },
-      { seq: 2, envelope: { actor: 'vibex://space/s/user', content: 'two' } },
+      { seq: 2, envelope: { sender: 'Person', content: 'two' } },
       {
         seq: 3,
-        envelope: { actor: 'vibex://space/s/member/x', content: 'four' },
+        envelope: { sender: '小X', content: 'four' },
       },
     ]);
     expect(left.map((item) => item.operationId)).toEqual(['c', 'd']);

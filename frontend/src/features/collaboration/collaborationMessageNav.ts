@@ -1,23 +1,19 @@
 import type { ConversationMessageNavEntry } from '@/components/conversation-thread/messageNavEntries';
 
+import { isCollabThreadUserBubble } from './collaborationThreadLog';
 import { bubbleText } from './SpaceMessageBody';
-import { COPY, isCollaborationLimitNotice, messageAuthor } from './spaceModel';
+import type { SpaceEnvelopeParties } from './spaceModel';
 
 export function buildCollaborationUserMessageNavEntries(
   messages: ReadonlyArray<{
     seq: number;
     origin?: string;
-    envelope?: {
-      actor?: string;
-      content?: string;
-      summary?: string;
-    } | null;
+    envelope?: (SpaceEnvelopeParties & { content?: string }) | null;
   }>
 ): ConversationMessageNavEntry[] {
   const entries: ConversationMessageNavEntry[] = [];
   messages.forEach((message, index) => {
-    if (isCollaborationLimitNotice(message)) return;
-    if (messageAuthor(message.envelope) !== COPY.you) return;
+    if (!isCollabThreadUserBubble(message)) return;
     const text = bubbleText(message.envelope ?? {});
     const singleLine = text.replace(/\s+/g, ' ').trim();
     const ordinal = entries.length + 1;

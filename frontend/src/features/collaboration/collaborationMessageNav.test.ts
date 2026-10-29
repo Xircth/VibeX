@@ -23,6 +23,14 @@ describe('buildCollaborationUserMessageNavEntries', () => {
           seq: 4,
           envelope: { actor: 'space/user', content: '用户第二条' },
         },
+        {
+          seq: 5,
+          envelope: { sender: 'Person', content: '扁平用户' },
+        },
+        {
+          seq: 6,
+          envelope: { sender: '小A', content: '扁平助手' },
+        },
       ])
     ).toEqual([
       {
@@ -38,6 +46,14 @@ describe('buildCollaborationUserMessageNavEntries', () => {
         index: 3,
         ordinal: 2,
         preview: '用户第二条',
+        additions: 0,
+        deletions: 0,
+      },
+      {
+        key: 'space-msg-5',
+        index: 4,
+        ordinal: 3,
+        preview: '扁平用户',
         additions: 0,
         deletions: 0,
       },

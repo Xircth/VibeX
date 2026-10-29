@@ -3037,6 +3037,98 @@ describe('conversationStore (row-op dumb container)', () => {
       'Answer for turn 2',
     ]);
   });
+
+  it('does not render an earlier live turn after a later file-window turn', () => {
+    let state = loaded([
+      streamingUser('tB', 'turn-B', 1n),
+      assistantRow('tB', [{ type: 'text', text: 'answer-B' }], 2n, 'streaming'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 'tB:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: ' more',
+          },
+        ],
+        10n
+      ),
+    });
+
+    const laterWindow = emptyDetail([
+      fileTurn('acp-1', 'user', 'turn-B', 1n, 'settled'),
+      fileTurn('acp-2', 'assistant', 'answer-B', 2n, 'settled'),
+      fileTurn('acp-3', 'user', 'turn-C', 3n, 'settled'),
+      fileTurn('acp-4', 'assistant', 'answer-C', 4n, 'settled'),
+    ]);
+    laterWindow.timeline.last_sequence = 4n;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: laterWindow,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(
+      turns.map((row) => `${row.turn.role}:${textOf(row.turn.blocks)}`)
+    ).toEqual([
+      'user:turn-B',
+      'assistant:answer-B more',
+      'user:turn-C',
+      'assistant:answer-C',
+    ]);
+  });
+
+  it('keeps Swimming after a file refresh settles the just-sent user without an assistant', () => {
+    let state = loaded([
+      fileTurn('acp-1', 'user', 'old', 1n, 'settled'),
+      fileTurn('acp-2', 'assistant', 'old-answer', 2n, 'settled'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-c', 'user', [
+        { type: 'text', text: 'turn-C' },
+      ]),
+    });
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => [
+        row.turn.role,
+        row.phase,
+      ])
+    ).toEqual([
+      ['user', 'settled'],
+      ['assistant', 'settled'],
+      ['user', 'optimistic'],
+      ['assistant', 'streaming'],
+    ]);
+
+    const promptOnlyWindow = emptyDetail([
+      fileTurn('acp-1', 'user', 'old', 1n, 'settled'),
+      fileTurn('acp-2', 'assistant', 'old-answer', 2n, 'settled'),
+      fileTurn('acp-3', 'user', 'turn-C', 3n, 'settled'),
+    ]);
+    promptOnlyWindow.timeline.last_sequence = 3n;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: promptOnlyWindow,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(
+      turns.map((row) => [row.turn.role, textOf(row.turn.blocks), row.phase])
+    ).toEqual([
+      ['user', 'old', 'settled'],
+      ['assistant', 'old-answer', 'settled'],
+      ['user', 'turn-C', 'streaming'],
+      ['assistant', '', 'streaming'],
+    ]);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

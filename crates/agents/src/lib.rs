@@ -64,6 +64,7 @@ pub mod plan_usage;
 pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
+mod runtime_temp;
 pub mod session;
 mod session_bind_metrics;
 mod session_config_guard;
@@ -305,6 +306,10 @@ pub use runtime::{
     ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
     SteerAgentPromptInput, is_placeholder_acp_session_id, is_restorable_acp_session_id,
     runtime_event_channel,
+};
+pub use runtime_temp::{
+    agent_runtime_temp_dir, bind_agent_runtime_temp_env, prepare_agent_runtime_temp,
+    prepare_and_bind_agent_runtime_temp,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{

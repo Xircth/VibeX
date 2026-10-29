@@ -14,6 +14,8 @@ use tokio::{
 };
 use workspace_utils::process::new_hidden_tokio_command;
 
+use crate::{AgentId, prepare_and_bind_agent_runtime_temp};
+
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 pub async fn run_antigravity_login(
@@ -23,9 +25,14 @@ pub async fn run_antigravity_login(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<(), String> {
+    let mut env = env.clone();
+    let agent_id = AgentId::parse("antigravity").expect("bundled AgentId");
+    prepare_and_bind_agent_runtime_temp(&agent_id, &mut env).map_err(|err| {
+        format!("could not create a writable temporary directory for Antigravity ({err})")
+    })?;
     let mut command: Command = new_hidden_tokio_command(program, args);
     command
-        .envs(env)
+        .envs(&env)
         .current_dir(cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

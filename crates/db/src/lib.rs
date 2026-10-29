@@ -9,10 +9,16 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+pub mod conversation_repository;
 mod local_data_reset;
 pub mod models;
+pub mod workflow_queries;
 
+pub use conversation_repository::SqliteConversationRepository;
 pub use local_data_reset::{clear_local_database_rows, reset_local_database};
+
+/// The SQLite pool every composition root hands to storage adapters.
+pub type DbPool = sqlx::SqlitePool;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     // Keep this call in the DB crate so every composition embeds the same migration set.

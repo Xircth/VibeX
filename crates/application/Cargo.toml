@@ -15,9 +15,13 @@ executors = { path = "../executors" }
 remote-protocol = { path = "../remote-protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 ts-rs = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+# Integration tests build in-memory SQLite fixtures; the library itself no
+# longer links SQLite (Application Core depends on ports only).
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }

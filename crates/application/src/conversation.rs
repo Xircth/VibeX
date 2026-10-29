@@ -7,17 +7,20 @@ use conversations::{
     ConversationTurnSnapshot, CreateForkConversation, ReorderConversationInput,
     SubmitConversationInput, UpdateConversationInput, create_fork_conversation,
 };
-use db::models::{
-    conversation::{ConversationRecord, CreateConversationRecord, DbConversationSummary},
-    conversation_event::ConversationEventRecord,
-    conversation_turn::ConversationTurnRecord,
+pub use db::SqliteConversationRepository;
+use db::{
+    conversation_repository::AgentCatalogRow,
+    models::{
+        conversation::{ConversationRecord, CreateConversationRecord, DbConversationSummary},
+        conversation_event::ConversationEventRecord,
+        conversation_turn::ConversationTurnRecord,
+    },
 };
 use remote_protocol::{
     ConversationId, EventDurability, NotificationOutcome, NotificationSource,
     OfflineConversationCache, OperationId, RemoteEvent, SubscriptionBootstrap, SubscriptionId,
     SubscriptionSnapshot, TerminalNotificationSummary,
 };
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
@@ -43,38 +46,6 @@ const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
 const MAX_OFFLINE_EVENTS: i64 = 10_000;
 const MAX_LIVE_EVENTS: i64 = 500;
-
-#[derive(sqlx::FromRow)]
-struct ProjectCatalogRow {
-    id: Uuid,
-    name: String,
-    path: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct WorkspaceCatalogRow {
-    id: Uuid,
-    project_id: Uuid,
-    name: Option<String>,
-    branch: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct AgentCatalogRow {
-    agent_id: String,
-    enabled: bool,
-    retained_icon_svg: Option<String>,
-    display_name: Option<String>,
-    lifecycle: Option<String>,
-    authentication: Option<String>,
-}
-
-#[derive(sqlx::FromRow)]
-struct AgentBindingConfigRow {
-    config_options_json: Option<String>,
-    modes_json: Option<String>,
-    current_mode: Option<String>,
-}
 
 pub(crate) fn catalog_agent_usable(
     enabled: bool,
@@ -973,64 +944,13 @@ impl ConversationSubscriptionRegistrar for NoopConversationSubscriptions {
     }
 }
 
-#[derive(Clone)]
-pub struct SqliteConversationRepository {
-    pool: SqlitePool,
-}
-
-impl SqliteConversationRepository {
-    pub const fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    async fn workspace_root(&self, workspace_id: Uuid) -> Result<Option<String>, ApplicationError> {
-        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
-            r#"SELECT w.agent_working_dir,
-                      w.container_ref,
-                      COALESCE(
-                        NULLIF(TRIM(p.default_agent_working_dir), ''),
-                        (
-                          SELECT r.path
-                          FROM project_repos pr
-                          JOIN repos r ON r.id = pr.repo_id
-                          WHERE pr.project_id = p.id
-                          LIMIT 1
-                        ),
-                        ''
-                      ) AS project_path
-               FROM workspaces w
-               JOIN projects p ON p.id = w.project_id
-               WHERE w.id = ?"#,
-        )
-        .bind(workspace_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let Some((working_dir, container_ref, project_path)) = row else {
-            return Ok(None);
-        };
-        let root = [
-            working_dir.as_deref(),
-            container_ref.as_deref(),
-            Some(project_path.as_str()),
-        ]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .find(|value| !value.is_empty() && std::path::Path::new(value).is_dir())
-        .unwrap_or(project_path.as_str())
-        .to_string();
-        Ok(Some(root))
-    }
-}
-
 #[async_trait]
 impl ConversationRepository for SqliteConversationRepository {
     async fn list_for_workspace(
         &self,
         workspace_id: Uuid,
     ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
-        DbConversationSummary::list_for_workspace(&self.pool, workspace_id)
+        DbConversationSummary::list_for_workspace(self.pool(), workspace_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1040,7 +960,7 @@ impl ConversationRepository for SqliteConversationRepository {
         request: ListRecentConversations,
     ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
         DbConversationSummary::list_recent(
-            &self.pool,
+            self.pool(),
             request.since_days,
             request.project_id,
             request.limit,
@@ -1050,108 +970,41 @@ impl ConversationRepository for SqliteConversationRepository {
     }
 
     async fn catalog(&self) -> Result<ConversationCatalog, ApplicationError> {
-        let projects = sqlx::query_as::<_, ProjectCatalogRow>(
-            r#"SELECT p.id AS id,
-                      p.name AS name,
-                      COALESCE(
-                        NULLIF(TRIM(p.default_agent_working_dir), ''),
-                        (
-                          SELECT r.path
-                          FROM project_repos pr
-                          JOIN repos r ON r.id = pr.repo_id
-                          WHERE pr.project_id = p.id
-                          LIMIT 1
-                        ),
-                        ''
-                      ) AS path
-               FROM projects p
-               ORDER BY p.updated_at DESC, p.created_at DESC"#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .into_iter()
-        .map(|project| ConversationCatalogProject {
-            id: project.id,
-            name: project.name,
-            path: project.path,
-        })
-        .collect();
-        let workspaces = sqlx::query_as::<_, WorkspaceCatalogRow>(
-            r#"SELECT id, project_id, name, branch
-               FROM workspaces
-               WHERE archived = 0
-               ORDER BY updated_at DESC"#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .into_iter()
-        .map(|row| ConversationCatalogWorkspace {
-            id: row.id,
-            project_id: row.project_id,
-            name: row
-                .name
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| row.branch.clone()),
-            branch: row.branch,
-        })
-        .collect();
-        let mut agents = sqlx::query_as::<_, AgentCatalogRow>(
-            r#"SELECT m.agent_id AS agent_id,
-                      m.enabled AS enabled,
-                      m.retained_icon_svg AS retained_icon_svg,
-                      json_extract(m.retained_metadata_json, '$.name') AS display_name,
-                      i.lifecycle AS lifecycle,
-                      p.authentication AS authentication
-               FROM agent_membership m
-               LEFT JOIN agent_installation i ON i.agent_id = m.agent_id
-               LEFT JOIN agent_probe p ON p.agent_id = m.agent_id
-               WHERE m.retired = 0
-               ORDER BY m.position ASC, m.agent_id ASC"#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .into_iter()
-        .map(catalog_agent_from_row)
-        .collect::<Vec<_>>();
-        if agents.is_empty() {
-            agents = sqlx::query_as::<_, AgentCatalogRow>(
-                r#"SELECT s.agent_id AS agent_id,
-                          1 AS enabled,
-                          NULL AS retained_icon_svg,
-                          NULL AS display_name,
-                          i.lifecycle AS lifecycle,
-                          p.authentication AS authentication
-                   FROM (
-                     SELECT DISTINCT agent_id
-                     FROM sessions
-                     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != '' AND deleted_at IS NULL
-                   ) s
-                   LEFT JOIN agent_installation i ON i.agent_id = s.agent_id
-                   LEFT JOIN agent_probe p ON p.agent_id = s.agent_id
-                   ORDER BY s.agent_id"#,
-            )
-            .fetch_all(&self.pool)
+        let projects = self
+            .catalog_projects()
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .into_iter()
+            .map(|project| ConversationCatalogProject {
+                id: project.id,
+                name: project.name,
+                path: project.path,
+            })
+            .collect();
+        let workspaces = self
+            .catalog_workspaces()
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .into_iter()
+            .map(|row| ConversationCatalogWorkspace {
+                id: row.id,
+                project_id: row.project_id,
+                name: row
+                    .name
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| row.branch.clone()),
+                branch: row.branch,
+            })
+            .collect();
+        let mut agents = self
+            .catalog_agents()
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?
             .into_iter()
             .map(catalog_agent_from_row)
-            .collect();
-        }
+            .collect::<Vec<_>>();
         for agent in &mut agents {
-            if let Ok(Some(row)) = sqlx::query_as::<_, AgentBindingConfigRow>(
-                r#"SELECT config_options_json, modes_json, current_mode
-                   FROM conversation_agent_bindings
-                   WHERE agent_id = ?
-                   ORDER BY updated_at DESC
-                   LIMIT 1"#,
-            )
-            .bind(&agent.id)
-            .fetch_optional(&self.pool)
-            .await
-            {
+            if let Ok(Some(row)) = self.catalog_agent_binding(&agent.id).await {
                 agent.current_mode = row.current_mode.filter(|value| !value.is_empty());
                 agent.session_config = parse_json_value(
                     row.config_options_json
@@ -1171,16 +1024,7 @@ impl ConversationRepository for SqliteConversationRepository {
                     .filter(|value| !value.is_empty() && value != "[]");
             }
             if agent.session_config.is_none()
-                && let Ok(Some(controls)) = sqlx::query_scalar::<_, String>(
-                    r#"SELECT controls_json
-                       FROM agent_capability_catalog
-                       WHERE agent_type = ?
-                       ORDER BY retrieved_at DESC
-                       LIMIT 1"#,
-                )
-                .bind(&agent.id)
-                .fetch_optional(&self.pool)
-                .await
+                && let Ok(Some(controls)) = self.catalog_agent_capability(&agent.id).await
                 && let Ok(value) = serde_json::from_str::<serde_json::Value>(&controls)
             {
                 let modes = value
@@ -1198,7 +1042,7 @@ impl ConversationRepository for SqliteConversationRepository {
             }
         }
         let mut tags = builtin_catalog_tags();
-        if let Ok(rows) = db::models::tag::Tag::find_all(&self.pool).await {
+        if let Ok(rows) = db::models::tag::Tag::find_all(self.pool()).await {
             for row in rows {
                 if tags
                     .iter()
@@ -1225,7 +1069,11 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         workspace_id: Uuid,
     ) -> Result<Vec<ConversationWorkspaceEntry>, ApplicationError> {
-        let Some(root) = self.workspace_root(workspace_id).await? else {
+        let Some(root) = self
+            .workspace_root(workspace_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+        else {
             return Err(ApplicationError::not_found("workspace not found"));
         };
         let path = std::path::Path::new(&root);
@@ -1270,7 +1118,7 @@ impl ConversationRepository for SqliteConversationRepository {
             return Ok(Vec::new());
         };
         let record = db::models::conversation_event::ConversationEventRecord::latest_of_kind(
-            &self.pool,
+            self.pool(),
             conversation_id,
             "available_commands_updated",
         )
@@ -1291,7 +1139,7 @@ impl ConversationRepository for SqliteConversationRepository {
 
     async fn archive(&self, conversation_id: Uuid) -> Result<(), ApplicationError> {
         db::models::session::Session::update_status(
-            &self.pool,
+            self.pool(),
             conversation_id,
             db::models::session::SessionStatus::Archived,
         )
@@ -1304,13 +1152,13 @@ impl ConversationRepository for SqliteConversationRepository {
         conversation_id: Uuid,
         pinned: bool,
     ) -> Result<(), ApplicationError> {
-        DbConversationSummary::set_pinned(&self.pool, conversation_id, pinned)
+        DbConversationSummary::set_pinned(self.pool(), conversation_id, pinned)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn delete(&self, conversation_id: Uuid) -> Result<(), ApplicationError> {
-        DbConversationSummary::soft_delete(&self.pool, conversation_id)
+        DbConversationSummary::soft_delete(self.pool(), conversation_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1320,7 +1168,7 @@ impl ConversationRepository for SqliteConversationRepository {
         if trimmed.is_empty() {
             return Err(ApplicationError::bad_request("title is required"));
         }
-        DbConversationSummary::set_title(&self.pool, conversation_id, trimmed)
+        DbConversationSummary::set_title(self.pool(), conversation_id, trimmed)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1333,7 +1181,7 @@ impl ConversationRepository for SqliteConversationRepository {
         let parsed = status
             .parse::<db::models::session::SessionStatus>()
             .map_err(|_| ApplicationError::bad_request(format!("unknown status {status}")))?;
-        db::models::session::Session::update_status(&self.pool, conversation_id, parsed)
+        db::models::session::Session::update_status(self.pool(), conversation_id, parsed)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1342,41 +1190,20 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         request: CreateConversationWorkspace,
     ) -> Result<ConversationCatalogWorkspace, ApplicationError> {
-        let source = sqlx::query_as::<_, WorkspaceCatalogRow>(
-            r#"SELECT id, project_id, name, branch
-               FROM workspaces
-               WHERE archived = 0 AND project_id = ?
-               ORDER BY updated_at DESC
-               LIMIT 1"#,
-        )
-        .bind(request.project_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .ok_or_else(|| ApplicationError::bad_request("这个项目还没有可复制的工作区"))?;
+        let source = self
+            .workspace_source_for_project(request.project_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .ok_or_else(|| ApplicationError::bad_request("这个项目还没有可复制的工作区"))?;
         let id = Uuid::new_v4();
         let branch = request
             .branch
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(source.branch);
         let name = request.name.trim().to_string();
-        sqlx::query(
-            r#"INSERT INTO workspaces (
-                   id, project_id, task_id, parent_workspace_id, container_ref, branch,
-                   use_worktree, agent_working_dir, setup_completed_at, name
-               )
-               SELECT ?, project_id, task_id, id, container_ref, ?, use_worktree,
-                      agent_working_dir, setup_completed_at, ?
-               FROM workspaces
-               WHERE id = ?"#,
-        )
-        .bind(id)
-        .bind(&branch)
-        .bind(&name)
-        .bind(source.id)
-        .execute(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        self.insert_workspace_from_source(id, source.id, &branch, &name)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         Ok(ConversationCatalogWorkspace {
             id,
             project_id: request.project_id,
@@ -1395,7 +1222,7 @@ impl ConversationRepository for SqliteConversationRepository {
             return Err(ApplicationError::bad_request("agentId is required"));
         }
         ConversationRecord::create(
-            &self.pool,
+            self.pool(),
             conversation_id,
             CreateConversationRecord {
                 workspace_id: request.workspace_id,
@@ -1408,19 +1235,10 @@ impl ConversationRepository for SqliteConversationRepository {
         )
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        sqlx::query(
-            "UPDATE sessions
-             SET agent_id = ?, agent_type = ?, executor = ?, updated_at = datetime('now', 'subsec')
-             WHERE id = ?",
-        )
-        .bind(agent_id)
-        .bind(agent_id)
-        .bind(agent_id)
-        .bind(conversation_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        DbConversationSummary::find_by_id(&self.pool, conversation_id)
+        self.set_session_agent(conversation_id, agent_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        DbConversationSummary::find_by_id(self.pool(), conversation_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?
             .ok_or_else(|| {
@@ -1438,7 +1256,7 @@ impl ConversationRepository for SqliteConversationRepository {
         let agent_id = agents::AgentId::parse(&request.agent_id)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         let conversation_id = create_fork_conversation(
-            &self.pool,
+            self.pool(),
             CreateForkConversation {
                 id: operation_id,
                 parent_conversation_id: request.parent_conversation_id,
@@ -1469,7 +1287,7 @@ impl ConversationRepository for SqliteConversationRepository {
                 ApplicationError::bad_request(message)
             }
         })?;
-        DbConversationSummary::find_by_id(&self.pool, conversation_id)
+        DbConversationSummary::find_by_id(self.pool(), conversation_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?
             .ok_or_else(|| {
@@ -1483,20 +1301,16 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         conversation_id: Uuid,
     ) -> Result<ConversationOutputView, ApplicationError> {
-        let turn = ConversationTurnRecord::latest_for_conversation(&self.pool, conversation_id)
+        let turn = ConversationTurnRecord::latest_for_conversation(self.pool(), conversation_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let last_sequence: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(sequence), 0)
-             FROM conversation_events WHERE conversation_id = ?",
-        )
-        .bind(conversation_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let last_sequence = self
+            .max_event_sequence(conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let assistant_text = match turn.as_ref() {
             Some(turn) => {
-                crate::workflow::extract_last_assistant_text(&self.pool, conversation_id, turn.id)
+                crate::workflow::extract_last_assistant_text(self.pool(), conversation_id, turn.id)
                     .await
                     .ok()
             }
@@ -1524,15 +1338,10 @@ impl ConversationRepository for SqliteConversationRepository {
         after_sequence: i64,
     ) -> Result<SubscriptionBootstrap, ApplicationError> {
         let conversation_uuid = conversation_id.as_uuid();
-        let high_water_mark = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(MAX(sequence), 0)
-             FROM conversation_events
-             WHERE conversation_id = ?",
-        )
-        .bind(conversation_uuid)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let high_water_mark = self
+            .max_event_sequence(conversation_uuid)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         if after_sequence >= high_water_mark {
             return Ok(SubscriptionBootstrap {
                 subscription_id,
@@ -1553,7 +1362,7 @@ impl ConversationRepository for SqliteConversationRepository {
             MAX_LIVE_EVENTS
         };
         let records = ConversationEventRecord::events_since(
-            &self.pool,
+            self.pool(),
             conversation_uuid,
             after_sequence,
             page_limit,
@@ -1596,30 +1405,8 @@ impl ConversationRepository for SqliteConversationRepository {
         after_sequence: i64,
     ) -> Result<OfflineConversationCache, ApplicationError> {
         let conversation_uuid = conversation_id.as_uuid();
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let high_water_mark = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(MAX(sequence), 0)
-             FROM conversation_events
-             WHERE conversation_id = ?",
-        )
-        .bind(conversation_uuid)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let records = ConversationEventRecord::events_since(
-            &mut *transaction,
-            conversation_uuid,
-            after_sequence,
-            MAX_OFFLINE_EVENTS,
-        )
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        transaction
-            .commit()
+        let (high_water_mark, records) = self
+            .offline_events(conversation_uuid, after_sequence, MAX_OFFLINE_EVENTS)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let confirmed_through = records
@@ -1645,45 +1432,28 @@ impl ConversationRepository for SqliteConversationRepository {
         conversation_id: ConversationId,
     ) -> Result<TerminalNotificationSummary, ApplicationError> {
         let conversation_uuid = conversation_id.as_uuid();
-        let record = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>)>(
-            "SELECT id, event_kind, normalized_json, created_at
-             FROM conversation_events
-             WHERE conversation_id = ?
-               AND event_kind IN (
-                   'turn_completed', 'turn_failed', 'turn_cancelled', 'turn_interrupted'
-               )
-             ORDER BY sequence DESC
-             LIMIT 1",
-        )
-        .bind(conversation_uuid)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .ok_or_else(|| {
-            ApplicationError::not_found(format!(
-                "conversation {conversation_id} has no terminal event"
-            ))
-        })?;
-        let source = sqlx::query_as::<_, (Uuid, Uuid)>(
-            "SELECT id, automation_id
-             FROM automation_runs
-             WHERE conversation_id = ?
-             ORDER BY started_at DESC
-             LIMIT 1",
-        )
-        .bind(conversation_uuid)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .map_or(
-            NotificationSource::Conversation { conversation_id },
-            |row| NotificationSource::Automation {
-                run_id: row.0.to_string(),
-                automation_id: row.1.to_string(),
-                conversation_id: Some(conversation_id),
-            },
-        );
-        let outcome = match record.1.as_str() {
+        let record = self
+            .latest_terminal_event(conversation_uuid)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!(
+                    "conversation {conversation_id} has no terminal event"
+                ))
+            })?;
+        let source = self
+            .automation_source(conversation_uuid)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .map_or(
+                NotificationSource::Conversation { conversation_id },
+                |row| NotificationSource::Automation {
+                    run_id: row.0.to_string(),
+                    automation_id: row.1.to_string(),
+                    conversation_id: Some(conversation_id),
+                },
+            );
+        let outcome = match record.event_kind.as_str() {
             "turn_completed" => NotificationOutcome::Completed,
             "turn_failed" => NotificationOutcome::Failed,
             "turn_cancelled" => NotificationOutcome::Cancelled,
@@ -1698,9 +1468,9 @@ impl ConversationRepository for SqliteConversationRepository {
             TerminalNotificationEvidence {
                 source,
                 outcome,
-                occurred_at: record.3.to_rfc3339(),
-                operation_id: OperationId::from_uuid(record.0),
-                private_detail: Some(record.2),
+                occurred_at: record.created_at.to_rfc3339(),
+                operation_id: OperationId::from_uuid(record.id),
+                private_detail: Some(record.normalized_json),
             },
         ))
     }

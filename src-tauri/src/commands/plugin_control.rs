@@ -811,7 +811,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation,sessions,collaboration".to_string(),
+        "delegation" => plugins::DELEGATION_MCP_FEATURES.to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),

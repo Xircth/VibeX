@@ -560,7 +560,38 @@ async fn collaboration_tool(
                 Uuid::parse_str(value.trim().trim_start_matches("vibex://conversation/")).ok()
             })
     };
+    let operation_id = uuid_arg("operation_id").unwrap_or_else(Uuid::new_v4);
     match name {
+        "list_spaces" => {
+            let space_id = arguments
+                .get("space_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            collaboration::list_spaces_for_caller(pool, caller_id, space_id).await
+        }
+        "manage_bot" => {
+            manage_bot_tool(
+                pool,
+                caller_id,
+                &arguments,
+                operation_id,
+                delivery,
+                &on_space_changed,
+            )
+            .await
+        }
+        "manage_group" => {
+            manage_group_tool(
+                pool,
+                caller_id,
+                &arguments,
+                operation_id,
+                delivery,
+                &on_space_changed,
+            )
+            .await
+        }
         "list_conversations" => {
             let since_days = arguments
                 .get("since_days")
@@ -629,9 +660,6 @@ async fn collaboration_tool(
             Ok(json!({ "deleted": true }))
         }
         "create_conversation" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
             let created = collaboration::create_spawned_conversation(
                 pool,
                 collaboration::CreateSpawnedConversation {
@@ -666,9 +694,6 @@ async fn collaboration_tool(
             Ok(serde_json::to_value(created).unwrap_or(json!({})))
         }
         "create_collaboration_space" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
             let space = collaboration::create_collaboration_space(
                 pool,
                 caller_id,
@@ -692,9 +717,6 @@ async fn collaboration_tool(
             collaboration::list_collaboration_spaces_for_caller(pool, caller_id).await
         }
         "add_space_member" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
             let conversation_id = uuid_arg("conversation_id").ok_or_else(|| {
                 collaboration::CollaborationError::new("not_found", "conversation was not found")
             })?;
@@ -722,10 +744,183 @@ async fn collaboration_tool(
             }
             collaboration::space_member_tool_value(pool, &member).await
         }
+        "create_space_member" => {
+            collaboration::create_space_member(
+                pool,
+                caller_id,
+                collaboration::CreateSpaceMemberRequest {
+                    nickname: text("nickname"),
+                    role_id: arguments
+                        .get("role_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    agent_id: arguments
+                        .get("agent_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    team_id: arguments
+                        .get("team_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    mode_id: arguments
+                        .get("mode_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    config_values: arguments.get("config_values").cloned(),
+                    persona_prompt: arguments
+                        .get("persona_prompt")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    operation_id,
+                },
+            )
+            .await
+        }
+        "set_space_lead" => {
+            let space_id = text("space_id");
+            let member_ref = arguments
+                .get("member_id")
+                .or_else(|| arguments.get("identity_member_id"))
+                .or_else(|| arguments.get("conversation_id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let result = collaboration::transfer_space_lead(
+                pool,
+                caller_id,
+                &space_id,
+                &member_ref,
+                operation_id,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                let lead = result
+                    .get("lead_member_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, lead)
+                        .await;
+                listener(evt);
+            }
+            Ok(result)
+        }
+        "leave_space" => {
+            let space_id = text("space_id");
+            let result =
+                collaboration::leave_space(pool, caller_id, &space_id, operation_id).await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
+            }
+            Ok(result)
+        }
+        "remove_space_member" | "delete_space_member" => {
+            let space_id = text("space_id");
+            let member_ref = arguments
+                .get("member_id")
+                .or_else(|| arguments.get("identity_member_id"))
+                .or_else(|| arguments.get("conversation_id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let result = if name == "remove_space_member" {
+                collaboration::remove_space_member(
+                    pool,
+                    caller_id,
+                    &space_id,
+                    &member_ref,
+                    operation_id,
+                )
+                .await?
+            } else {
+                collaboration::delete_space_member(
+                    pool,
+                    caller_id,
+                    &space_id,
+                    &member_ref,
+                    operation_id,
+                )
+                .await?
+            };
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                let member = result
+                    .get("member_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
+                    workspace_id,
+                    &space_id,
+                    member,
+                )
+                .await;
+                listener(evt);
+            }
+            Ok(result)
+        }
+        "interrupt_space_turn" => {
+            let space_id = text("space_id");
+            let member_ref = arguments
+                .get("member_id")
+                .or_else(|| arguments.get("identity_member_id"))
+                .or_else(|| arguments.get("conversation_id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let reason = arguments
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let result = collaboration::interrupt_space_member_turn(
+                pool,
+                &space_id,
+                caller_id,
+                &member_ref,
+                reason.as_deref(),
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
+                    workspace_id,
+                    &space_id,
+                    Some(result.member_id.clone()),
+                )
+                .await;
+                listener(evt);
+            }
+            Ok(serde_json::to_value(result).unwrap_or(json!({})))
+        }
+        "delete_collaboration_space" => {
+            let space_id = text("space_id");
+            let workspace_id = collaboration::space_workspace_id(pool, &space_id)
+                .await
+                .ok();
+            let result =
+                collaboration::delete_collaboration_space(pool, caller_id, &space_id, operation_id)
+                    .await?;
+            if let (Some(listener), Some(workspace_id)) = (on_space_changed.as_ref(), workspace_id)
+            {
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
+            }
+            Ok(result)
+        }
         "set_space_identity" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
             let space_id = text("space_id");
             let member = collaboration::set_space_identity(
                 pool,
@@ -749,37 +944,19 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
         }
-        "ask_person" | "request_approval" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
+        "request_approval" => {
             let space_id = text("space_id");
-            let (kind, payload) = if name == "ask_person" {
-                (
-                    conversations::collaboration_cards::CardKind::Ask,
-                    json!({
-                        "question": text("question"),
-                        "options": arguments.get("options").cloned().unwrap_or(json!([])),
-                        "to": text("to"),
-                    }),
-                )
-            } else {
-                (
-                    conversations::collaboration_cards::CardKind::Approval,
-                    json!({
-                        "action": text("action"),
-                        "command": text("command"),
-                        "reason": text("reason"),
-                    }),
-                )
-            };
             let card = conversations::collaboration_cards::post_card(
                 pool,
                 conversations::collaboration_cards::PostCard {
                     caller_id,
                     space_id: space_id.clone(),
-                    kind,
-                    payload,
+                    kind: conversations::collaboration_cards::CardKind::Approval,
+                    payload: json!({
+                        "action": text("action"),
+                        "command": text("command"),
+                        "reason": text("reason"),
+                    }),
                     operation_id,
                 },
                 delivery,
@@ -840,41 +1017,7 @@ async fn collaboration_tool(
                     .await?;
             Ok(serde_json::to_value(fact).unwrap_or(json!({})))
         }
-        "handoff" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
-            let space_id = text("space_id");
-            let result = collaboration::handoff_with(
-                pool,
-                collaboration::Handoff {
-                    caller_id,
-                    space_id: space_id.clone(),
-                    to: text("to"),
-                    envelope: collaboration::HandoffEnvelope {
-                        done: text("done"),
-                        inputs_constraints: text("inputs_constraints"),
-                        ask: text("ask"),
-                    },
-                    operation_id,
-                },
-                delivery,
-            )
-            .await?;
-            if let Some(listener) = on_space_changed.as_ref()
-                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
-            {
-                let evt =
-                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
-                        .await;
-                listener(evt);
-            }
-            Ok(serde_json::to_value(result).unwrap_or(json!({})))
-        }
-        "post_to_space" => {
-            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
-                collaboration::CollaborationError::new("not_found", "operation_id is required")
-            })?;
+        "post_space_message" | "post_to_space" => {
             let to = arguments
                 .get("to")
                 .and_then(Value::as_array)
@@ -903,7 +1046,8 @@ async fn collaboration_tool(
                         .map(str::to_string),
                     to,
                     in_reply_to: arguments
-                        .get("in_reply_to")
+                        .get("reply_to")
+                        .or_else(|| arguments.get("in_reply_to"))
                         .and_then(Value::as_str)
                         .map(str::to_string),
                     operation_id,
@@ -922,7 +1066,7 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(posted).unwrap_or(json!({})))
         }
-        "list_space_messages" => {
+        "read_space_messages" | "list_space_messages" => {
             let messages = collaboration::list_space_messages(
                 pool,
                 &text("space_id"),
@@ -959,7 +1103,6 @@ async fn collaboration_tool(
             Ok(json!({ "items": items }))
         }
         "add_to_space_collection" => {
-            let operation_id = uuid_arg("operation_id").unwrap_or_else(Uuid::new_v4);
             let space_id = text("space_id");
             let item = collaboration::add_to_space_collection_with(
                 pool,
@@ -1032,9 +1175,457 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(item).unwrap_or(json!({})))
         }
+        "remove_space_collection_item" => {
+            let space_id = text("space_id");
+            let item_id = arguments
+                .get("item_id")
+                .or_else(|| arguments.get("itemId"))
+                .or_else(|| arguments.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            collaboration::remove_space_collection_item_with(pool, &space_id, &item_id, delivery)
+                .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
+                listener(evt);
+            }
+            Ok(json!({ "removed": true, "item_id": item_id, "space_id": space_id }))
+        }
         _ => Err(collaboration::CollaborationError::new(
             "not_found",
             "unknown collaboration tool",
+        )),
+    }
+}
+
+fn first_nonempty_arg(arguments: &Value, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(value) = arguments
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return value.to_string();
+        }
+    }
+    String::new()
+}
+
+fn optional_arg(arguments: &Value, key: &str) -> Option<String> {
+    arguments
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn is_manageable_group(space_id: &str) -> bool {
+    let space_id = space_id.trim();
+    !space_id.is_empty()
+        && !space_id.starts_with("direct:")
+        && collaboration::parse_unassigned_space_id(space_id).is_none()
+}
+
+async fn emit_space_changed(
+    pool: &SqlitePool,
+    on_space_changed: &Option<SpaceChangedCallback>,
+    space_id: &str,
+    member_id: Option<String>,
+) {
+    let Some(listener) = on_space_changed else {
+        return;
+    };
+    let Ok(workspace_id) = collaboration::space_workspace_id(pool, space_id).await else {
+        return;
+    };
+    let evt =
+        collaboration::latest_space_changed_event(pool, workspace_id, space_id, member_id).await;
+    listener(evt);
+}
+
+fn missing_arg(name: &str) -> collaboration::CollaborationError {
+    collaboration::CollaborationError::new("invalid_argument", format!("{name} is required"))
+}
+
+async fn manage_bot_tool(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    arguments: &Value,
+    operation_id: Uuid,
+    delivery: &collaboration::DeliveryContext,
+    on_space_changed: &Option<SpaceChangedCallback>,
+) -> Result<Value, collaboration::CollaborationError> {
+    let action = arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let space_id = first_nonempty_arg(arguments, &["space_id"]);
+    let nickname = first_nonempty_arg(arguments, &["nickname"]);
+    let mut bot_ref = first_nonempty_arg(
+        arguments,
+        &[
+            "bot_id",
+            "conversation_id",
+            "member_id",
+            "identity_member_id",
+        ],
+    );
+    if bot_ref.is_empty() && action != "create" && action != "update" {
+        bot_ref = nickname.clone();
+    }
+    match action {
+        "create" => {
+            if nickname.is_empty() {
+                return Err(missing_arg("nickname"));
+            }
+            let created = collaboration::create_space_member(
+                pool,
+                caller_id,
+                collaboration::CreateSpaceMemberRequest {
+                    nickname: nickname.clone(),
+                    role_id: optional_arg(arguments, "role_id"),
+                    agent_id: optional_arg(arguments, "agent_id"),
+                    team_id: optional_arg(arguments, "team_id"),
+                    mode_id: optional_arg(arguments, "mode_id"),
+                    config_values: arguments.get("config_values").cloned(),
+                    persona_prompt: optional_arg(arguments, "persona_prompt"),
+                    operation_id,
+                },
+            )
+            .await?;
+            if is_manageable_group(&space_id) {
+                let conversation_id = created
+                    .get("conversation_id")
+                    .and_then(Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or_else(|| {
+                        collaboration::CollaborationError::new(
+                            "not_found",
+                            "conversation was not found",
+                        )
+                    })?;
+                let add_operation_id = Uuid::new_v5(&operation_id, b"add_space_member");
+                let member = collaboration::add_space_member(
+                    pool,
+                    caller_id,
+                    &space_id,
+                    conversation_id,
+                    &nickname,
+                    add_operation_id,
+                )
+                .await?;
+                emit_space_changed(
+                    pool,
+                    on_space_changed,
+                    &space_id,
+                    Some(member.member_id.clone()),
+                )
+                .await;
+                let mut joined = created;
+                if let Some(object) = joined.as_object_mut() {
+                    object.insert("space_id".into(), json!(space_id));
+                    object.insert("member_id".into(), json!(member.member_id));
+                }
+                return Ok(joined);
+            }
+            Ok(created)
+        }
+        "update" => {
+            let persona = optional_arg(arguments, "persona_prompt");
+            let mode_id = optional_arg(arguments, "mode_id");
+            let agent_id = optional_arg(arguments, "agent_id");
+            if nickname.is_empty() && persona.is_none() && mode_id.is_none() && agent_id.is_none() {
+                return Err(missing_arg("nickname"));
+            }
+            let target_id = if bot_ref.is_empty() {
+                caller_id
+            } else {
+                collaboration::resolve_bot_conversation(pool, caller_id, &space_id, &bot_ref)
+                    .await?
+                    .0
+            };
+            let mut result = json!({ "updated": true, "conversation_id": target_id });
+            if !nickname.is_empty() {
+                if space_id.is_empty() {
+                    return Err(missing_arg("space_id"));
+                }
+                let member = collaboration::set_space_identity(
+                    pool,
+                    target_id,
+                    &space_id,
+                    &nickname,
+                    operation_id,
+                )
+                .await?;
+                emit_space_changed(
+                    pool,
+                    on_space_changed,
+                    &space_id,
+                    Some(member.member_id.clone()),
+                )
+                .await;
+                result = serde_json::to_value(&member).unwrap_or(result);
+            }
+            if persona.is_some() || mode_id.is_some() || agent_id.is_some() {
+                let identity = collaboration::identity_member_id_for_conversation(
+                    pool,
+                    Some(&target_id.to_string()),
+                )
+                .await?
+                .ok_or_else(|| {
+                    collaboration::CollaborationError::new("not_found", "member was not found")
+                })?;
+                let mut config = collaboration::load_member_session_config(pool, &identity)
+                    .await?
+                    .unwrap_or(collaboration::MemberSessionConfig {
+                        agent_id: None,
+                        mode_id: None,
+                        config_values: json!({}),
+                        persona_prompt: None,
+                    });
+                if let Some(persona) = persona {
+                    config.persona_prompt = Some(persona);
+                }
+                if let Some(mode_id) = mode_id {
+                    config.mode_id = Some(mode_id);
+                }
+                if let Some(agent_id) = agent_id {
+                    config.agent_id = Some(agent_id);
+                }
+                let saved =
+                    collaboration::set_member_session_config(pool, &identity, config).await?;
+                if let Some(object) = result.as_object_mut() {
+                    object.insert("identity_member_id".into(), json!(identity));
+                    object.insert(
+                        "session_config".into(),
+                        serde_json::to_value(saved).unwrap_or(json!({})),
+                    );
+                }
+            }
+            Ok(result)
+        }
+        "delete" => {
+            if bot_ref.is_empty() {
+                return Err(missing_arg("bot_id"));
+            }
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            let result = collaboration::delete_space_member(
+                pool,
+                caller_id,
+                &space_id,
+                &bot_ref,
+                operation_id,
+            )
+            .await?;
+            let member = result
+                .get("member_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            emit_space_changed(pool, on_space_changed, &space_id, member).await;
+            Ok(result)
+        }
+        "interrupt" => {
+            if bot_ref.is_empty() {
+                return Err(missing_arg("bot_id"));
+            }
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            let reason = optional_arg(arguments, "reason");
+            let result = collaboration::interrupt_space_member_turn(
+                pool,
+                &space_id,
+                caller_id,
+                &bot_ref,
+                reason.as_deref(),
+                delivery,
+            )
+            .await?;
+            emit_space_changed(
+                pool,
+                on_space_changed,
+                &space_id,
+                Some(result.member_id.clone()),
+            )
+            .await;
+            Ok(serde_json::to_value(result).unwrap_or(json!({})))
+        }
+        _ => Err(collaboration::CollaborationError::new(
+            "invalid_argument",
+            "unknown manage_bot action",
+        )),
+    }
+}
+
+async fn manage_group_tool(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    arguments: &Value,
+    operation_id: Uuid,
+    _delivery: &collaboration::DeliveryContext,
+    on_space_changed: &Option<SpaceChangedCallback>,
+) -> Result<Value, collaboration::CollaborationError> {
+    let action = arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let space_id = first_nonempty_arg(arguments, &["space_id"]);
+    let name = first_nonempty_arg(arguments, &["name"]);
+    let nickname = first_nonempty_arg(arguments, &["nickname"]);
+    let mut bot_ref = first_nonempty_arg(
+        arguments,
+        &[
+            "bot_id",
+            "conversation_id",
+            "member_id",
+            "identity_member_id",
+        ],
+    );
+    if bot_ref.is_empty() {
+        bot_ref = nickname.clone();
+    }
+    match action {
+        "create" => {
+            if name.is_empty() {
+                return Err(missing_arg("name"));
+            }
+            let space =
+                collaboration::create_collaboration_space(pool, caller_id, &name, operation_id)
+                    .await?;
+            emit_space_changed(pool, on_space_changed, &space.space_id, None).await;
+            Ok(serde_json::to_value(space).unwrap_or(json!({})))
+        }
+        "rename" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            if name.is_empty() {
+                return Err(missing_arg("name"));
+            }
+            let space = collaboration::rename_workspace_space(pool, &space_id, &name).await?;
+            emit_space_changed(pool, on_space_changed, &space_id, None).await;
+            Ok(serde_json::to_value(space).unwrap_or(json!({})))
+        }
+        "delete" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            let workspace_id = collaboration::space_workspace_id(pool, &space_id).await.ok();
+            let result =
+                collaboration::delete_collaboration_space(pool, caller_id, &space_id, operation_id)
+                    .await?;
+            if let (Some(listener), Some(workspace_id)) = (on_space_changed.as_ref(), workspace_id) {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
+                    workspace_id,
+                    &space_id,
+                    None,
+                )
+                .await;
+                listener(evt);
+            }
+            Ok(result)
+        }
+        "add_bot" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            if bot_ref.is_empty() {
+                return Err(missing_arg("bot_id"));
+            }
+            let (conversation_id, current_nick) =
+                collaboration::resolve_bot_conversation(pool, caller_id, &space_id, &bot_ref)
+                    .await?;
+            let seat_name = if nickname.is_empty() {
+                current_nick
+            } else {
+                nickname
+            };
+            let member = collaboration::add_space_member(
+                pool,
+                caller_id,
+                &space_id,
+                conversation_id,
+                &seat_name,
+                operation_id,
+            )
+            .await?;
+            emit_space_changed(
+                pool,
+                on_space_changed,
+                &space_id,
+                Some(member.member_id.clone()),
+            )
+            .await;
+            collaboration::space_member_tool_value(pool, &member).await
+        }
+        "remove_bot" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            if bot_ref.is_empty() {
+                return Err(missing_arg("bot_id"));
+            }
+            let result = collaboration::remove_space_member(
+                pool,
+                caller_id,
+                &space_id,
+                &bot_ref,
+                operation_id,
+            )
+            .await?;
+            let member = result
+                .get("member_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            emit_space_changed(pool, on_space_changed, &space_id, member).await;
+            Ok(result)
+        }
+        "leave" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            let result =
+                collaboration::leave_space(pool, caller_id, &space_id, operation_id).await?;
+            emit_space_changed(pool, on_space_changed, &space_id, None).await;
+            Ok(result)
+        }
+        "set_lead" => {
+            if space_id.is_empty() {
+                return Err(missing_arg("space_id"));
+            }
+            if bot_ref.is_empty() {
+                return Err(missing_arg("bot_id"));
+            }
+            let result = collaboration::transfer_space_lead(
+                pool,
+                caller_id,
+                &space_id,
+                &bot_ref,
+                operation_id,
+            )
+            .await?;
+            let lead = result
+                .get("lead_member_id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            emit_space_changed(pool, on_space_changed, &space_id, lead).await;
+            Ok(result)
+        }
+        _ => Err(collaboration::CollaborationError::new(
+            "invalid_argument",
+            "unknown manage_group action",
         )),
     }
 }

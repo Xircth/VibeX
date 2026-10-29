@@ -4,11 +4,29 @@
     "description": "Hand off a self-contained sub-task to a separate local AI agent that runs in its own session. A structured mention such as `[&Codex](vibex://agent/codex)` is an explicit user request to consider delegation: for every AgentMention in the prompt, call this tool once with the matching stable agent id unless delegation would be unsafe or impossible, and explain any refusal. The mention does not itself start a child session; only this tool call does. ASYNCHRONOUS: returns a task_id right away and the sub-agent keeps working in the background — this call never blocks. So you can fan out several delegations at once and keep working, then collect the results with get_delegation_status by passing the task_ids array (one id to poll a single task, or many at once to poll the whole fan-out in one call) — or stop one early with cancel_delegation(task_id). The sub-agent CANNOT see this conversation, your open files, or earlier turns — it starts cold, so `task` must carry everything it needs. Best for independent, parallelizable work you can describe up front; not for steps that need your ongoing back-and-forth. RECOGNIZING AN EXPLICIT DELEGATION REQUEST: `&AgentName` / `[&AgentName](vibex://agent/<agent_type>)` means delegate. This tool is already in the session MCP list — do not call search_tool or grep the repository for its schema. Grok: use_tool with tool_name delegate_to_agent (or vibex-delegation-mcp__delegate_to_agent) IS this call. After it returns a task_id you MUST call get_delegation_status with that id (prefer wait_ms) before talking to the user.",
     "inputSchema": {
       "type": "object",
-      "required": ["agent_type", "task"],
+      "required": [
+        "agent_type",
+        "task"
+      ],
       "properties": {
         "agent_type": {
           "type": "string",
-          "enum": ["claude_code", "codex", "open_code", "gemini", "cline", "open_claw", "hermes", "code_buddy", "kimi_code", "pi", "grok", "cursor", "deepseek", "antigravity"],
+          "enum": [
+            "claude_code",
+            "codex",
+            "open_code",
+            "gemini",
+            "cline",
+            "open_claw",
+            "hermes",
+            "code_buddy",
+            "kimi_code",
+            "pi",
+            "grok",
+            "cursor",
+            "deepseek",
+            "antigravity"
+          ],
           "description": "Which local agent runs the sub-task. Pick the one best suited to the work — or, when the user's message names an agent via `&AgentName` / `vibex://agent/<agent_type>`, use that exact `<agent_type>` slug (e.g. `vibex://agent/codex` means `codex`)."
         },
         "task": {
@@ -27,11 +45,15 @@
     "description": "Collect delegated task results — or check on them — by the task_ids from delegate_to_agent. Pass a single id in the array to poll one task, or many at once to poll a whole fan-out in a single call. The response is ALWAYS a JSON object {\"tasks\":[...]} with one entry per id, in the order you asked; every entry carries that task's task_id and status, so you can always tell which task it is and where it stands. The wait_ms argument picks the mode: omit it for a non-blocking snapshot (poll), or pass wait_ms to wait — wait_ms>0 blocks up to that many ms (capped at 60000; re-call to keep waiting), wait_ms=0 blocks with no timeout for as long as the sub-agent runs. When polling several, the wait returns as soon as ANY requested task reaches a terminal state, so re-call to keep collecting the rest. When you just need the results, prefer blocking over repeated polling. Each task reports running, or a terminal completed / failed / canceled (or unknown if the id isn't recognized); a finished task includes its full result text. While simply waiting, do NOT emit any user-facing message between calls — just call again silently.",
     "inputSchema": {
       "type": "object",
-      "required": ["task_ids"],
+      "required": [
+        "task_ids"
+      ],
       "properties": {
         "task_ids": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 1,
           "description": "One or more task_ids returned by delegate_to_agent. The response is always {\"tasks\":[...]} with one entry per id, in this order. With wait_ms set, the call returns as soon as ANY of these tasks reaches a terminal state."
         },
@@ -48,7 +70,9 @@
     "description": "Stop a running delegated task by its task_id and tear down its sub-agent — use this only when you no longer want the result. Don't cancel just because a task is taking a while: substantial work can legitimately run for a long time, so prefer waiting on it (get_delegation_status with wait_ms) over canceling. If the task has already finished, nothing is canceled and its final result is returned instead.",
     "inputSchema": {
       "type": "object",
-      "required": ["task_id"],
+      "required": [
+        "task_id"
+      ],
       "properties": {
         "task_id": {
           "type": "string",
@@ -60,14 +84,19 @@
   {
     "name": "check_user_feedback",
     "description": "IMPORTANT: This tool gives you the ability to receive the user's real-time guidance while you work, preventing you from going down the wrong path and wasting effort. The user can type corrections, new requirements, or hints at any time during your turn — but you will NEVER see them unless you call this tool. Without it, you could spend minutes on work the user has already tried to redirect.\n\nWhen to call:\n- After thinking through your approach but BEFORE starting implementation — the user may have clarified requirements.\n- Before making a significant decision (choosing an architecture, picking which files to modify, deciding on an approach) — the user may prefer a different direction.\n- After completing a sub-task and before moving to the next step — the user may want to adjust priorities.\n- When you pause to plan or organize your next steps — a natural checkpoint to read any pending guidance.\n\nThis is a quick, non-blocking snapshot that returns instantly. It either returns the user's messages (treat as HIGH-PRIORITY steering and adjust immediately) or an empty result (continue your current plan). Call it proactively — do not wait to be asked.",
-    "inputSchema": { "type": "object", "properties": {} }
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
   },
   {
     "name": "ask_user_question",
-    "description": "Ask the user one or more multiple-choice questions and BLOCK until they answer. In a collaboration private or group chat the questions appear in that chat; otherwise they appear as cards above the session input box. This call returns only once the user submits their choices (or dismisses the card). Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults (e.g. which approach, which format, which library, which of several files). Do NOT use it to ask 'should I proceed?' or to confirm an obvious default, and do NOT use it for open-ended questions that aren't a small set of discrete choices. The user can always pick 'Other' and type a custom answer, so don't add your own 'Other' option. If you want to recommend a choice, put it first and append ' (Recommended)' to its label. Prefer ONE call with a few related questions over many sequential calls. To ask another collaboration member, use ask_person instead.",
+    "description": "Ask the human user (Person / User) one or more multiple-choice questions and BLOCK until they answer. In a collaboration private or group chat the questions appear in that chat; otherwise they appear as cards above the session input box. This call returns only once the user submits their choices (or dismisses the card). Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults (e.g. which approach, which format, which library, which of several files). Do NOT use it to ask 'should I proceed?' or to confirm an obvious default, and do NOT use it for open-ended questions that aren't a small set of discrete choices. The user can always pick 'Other' and type a custom answer, so don't add your own 'Other' option. If you want to recommend a choice, put it first and append ' (Recommended)' to its label. Prefer ONE call with a few related questions over many sequential calls.",
     "inputSchema": {
       "type": "object",
-      "required": ["questions"],
+      "required": [
+        "questions"
+      ],
       "properties": {
         "questions": {
           "type": "array",
@@ -76,21 +105,45 @@
           "description": "1-4 questions to ask in this single call.",
           "items": {
             "type": "object",
-            "required": ["question", "header", "multiSelect", "options"],
+            "required": [
+              "question",
+              "header",
+              "multiSelect",
+              "options"
+            ],
             "properties": {
-              "question": { "type": "string", "description": "The full question shown to the user." },
-              "header": { "type": "string", "maxLength": 12, "description": "Short category label (≤ 12 chars)." },
-              "multiSelect": { "type": "boolean", "description": "If true, the user may select multiple options." },
+              "question": {
+                "type": "string",
+                "description": "The full question shown to the user."
+              },
+              "header": {
+                "type": "string",
+                "maxLength": 12,
+                "description": "Short category label (≤ 12 chars)."
+              },
+              "multiSelect": {
+                "type": "boolean",
+                "description": "If true, the user may select multiple options."
+              },
               "options": {
                 "type": "array",
                 "minItems": 2,
                 "maxItems": 4,
                 "items": {
                   "type": "object",
-                  "required": ["label", "description"],
+                  "required": [
+                    "label",
+                    "description"
+                  ],
                   "properties": {
-                    "label": { "type": "string", "description": "Concise choice text." },
-                    "description": { "type": "string", "description": "What this choice means or its trade-off." }
+                    "label": {
+                      "type": "string",
+                      "description": "Concise choice text."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "What this choice means or its trade-off."
+                    }
                   }
                 }
               }
@@ -105,7 +158,9 @@
     "description": "Look up a conversation the user referenced in their message and return what it is: its title, which agent ran it, its status, workspace folder, git branch, model, message count, and token-usage stats — and, on request, a compact view of its most recent messages. RECOGNIZING A MENTIONED CONVERSATION: the user can @-mention a past conversation directly in their message — it appears as a Markdown link `[Conversation title](vibex://conversation/<uuid>)`, whose text is that conversation's title and whose `<uuid>` is VibeX's conversation id (e.g. `[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)`). Such a mention IS the user explicitly pointing you at that conversation, even when they never name this tool — call it whenever what that conversation is about or what happened in it matters to the request (e.g. to continue its work, build on its results, answer questions about it, or summarize it). If the message mentions several conversations, make one call per conversation. Pass the UUID from the reference as `conversation_id`. The result is read-only and never modifies the conversation. A conversation that no longer exists returns a `found: false` result you can act on — it is not an error.",
     "inputSchema": {
       "type": "object",
-      "required": ["conversation_id"],
+      "required": [
+        "conversation_id"
+      ],
       "properties": {
         "conversation_id": {
           "type": "string",
@@ -126,7 +181,10 @@
     "description": "Deliver one instruction to a Conversation and return immediately. With collaboration enabled, the target may be this Conversation, a descendant, or a sibling in the same workspace. Without it, only this Conversation and its descendants are in scope. Another workspace is not_found. Reuse operation_id only for the exact same target and text. Omit delay_seconds and deliver_at, or pass delay_seconds 0, to deliver now: idle targets are dispatched and a busy target stays queued. A positive delay_seconds or deliver_at schedules the input; it does not take a queue position until it is due. Pass steer true only with expected_turn_id to steer that exact in-flight turn. If steering is unsupported, there is no active turn, or the turn changed, the call fails and nothing is queued. Do not wait for the target to finish; continue your own work.",
     "inputSchema": {
       "type": "object",
-      "required": ["operation_id", "text"],
+      "required": [
+        "operation_id",
+        "text"
+      ],
       "properties": {
         "conversation_id": {
           "type": "string",
@@ -135,7 +193,7 @@
         },
         "member_id": {
           "type": "string",
-          "description": "Bot identity id (identity_member_id) or the per-space seat id returned as member_id by list_space_members / add_space_member. Those are different namespaces: one identity per bot, one seat per group. Prefer identity_member_id when the listing tool returned it. With thread_id, targets that bot's conversation for the thread (created when missing) instead of conversation_id."
+          "description": "Bot identity id (identity_member_id) or the per-space seat id returned as member_id by list_spaces / manage_group. Those are different namespaces: one identity per bot, one seat per group. Prefer identity_member_id when the listing tool returned it. With thread_id, targets that bot's conversation for the thread (created when missing) instead of conversation_id."
         },
         "thread_id": {
           "type": "string",
@@ -178,7 +236,9 @@
     "description": "Cancel the active Turn in this parent Conversation or one of its descendants. This never grants access outside the companion scope and does not delete the Conversation or its durable queue.",
     "inputSchema": {
       "type": "object",
-      "required": ["conversation_id"],
+      "required": [
+        "conversation_id"
+      ],
       "properties": {
         "conversation_id": {
           "type": "string",
@@ -197,7 +257,9 @@
     "description": "Wait for this parent Conversation or one of its descendants to reach a terminal Turn, or for its durable event sequence to advance past after_sequence. Omit wait_ms for an immediate snapshot; use a positive value up to 60000 ms for a bounded wait; 0 waits until the condition is met. Re-call with the returned lastSequence as after_sequence to follow later work.",
     "inputSchema": {
       "type": "object",
-      "required": ["conversation_id"],
+      "required": [
+        "conversation_id"
+      ],
       "properties": {
         "conversation_id": {
           "type": "string",
@@ -224,248 +286,242 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "since_days": { "type": "integer", "minimum": 1, "maximum": 90 },
-        "project_id": { "type": "string", "format": "uuid" },
-        "workspace_id": { "type": "string", "format": "uuid" },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        "since_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
       }
     }
   },
   {
     "name": "create_conversation",
-    "description": "Create a durable first-class Conversation in this workspace. Pass role_id to snapshot that role, or agent_id to create one directly. This is not delegate_to_agent: the parent exiting does not cancel it, and the first turn does not end the Conversation. Reuse operation_id to retry the same create. After it returns, keep working; use send_session_input when you have a later instruction.",
+    "description": "Create a durable first-class Conversation in this workspace. Pass role_id to snapshot that role, or agent_id to create one directly. This is not delegate_to_agent: the parent exiting does not cancel it, and the first turn does not end the Conversation. After it returns, keep working; use send_session_input when you have a later instruction.",
     "inputSchema": {
       "type": "object",
-      "required": ["operation_id"],
       "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "role_id": { "type": "string" },
-        "agent_id": { "type": "string" },
-        "title": { "type": "string" },
-        "prompt": { "type": "string" },
-        "mode_id": { "type": "string" },
-        "config_values": { "type": "object" }
+        "role_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "mode_id": {
+          "type": "string"
+        },
+        "config_values": {
+          "type": "object"
+        }
       }
     }
   },
   {
-    "name": "list_roles",
-    "description": "List reusable role templates. A role is not a Conversation.",
-    "inputSchema": { "type": "object", "properties": {} }
-  },
-  {
-    "name": "create_role",
-    "description": "Create a role template. agent_id is the stable agent id. persona_prompt is shown to the user when a Conversation is created from the role. Editing a role later does not rewrite existing Conversations.",
+    "name": "list_spaces",
+    "description": "List collaboration spaces in this workspace. Omit space_id to list every BotSpace (private chat, space_id direct:<identity_member_id>) and GroupSpace (group UUID) as an overview: name, kind, member_count, lead_nickname / lead_member_id when set. Pass space_id to return that space's details and the full member list, including identity_member_id, nickname, conversation_id, is_self, and lead_bot (true for the group lead).",
     "inputSchema": {
       "type": "object",
-      "required": ["name", "agent_id"],
       "properties": {
-        "name": { "type": "string" },
-        "team_id": { "type": "string" },
-        "summary": { "type": "string" },
-        "persona_prompt": { "type": "string" },
-        "agent_id": { "type": "string" },
-        "mode_id": { "type": "string" },
-        "config_values": { "type": "object" }
+        "space_id": {
+          "type": "string",
+          "description": "Optional. A group UUID or direct:<identity_member_id>. When set, return that space's details and full member list instead of the workspace overview."
+        }
       }
     }
   },
   {
-    "name": "update_role",
-    "description": "Replace a role template. Existing Conversations keep the snapshot they were created with.",
+    "name": "read_space_messages",
+    "description": "Read the group space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user. Private-chat history is already in the current session; do not call this on a direct:<id> thread.",
     "inputSchema": {
       "type": "object",
-      "required": ["role_id", "name", "agent_id"],
+      "required": [
+        "space_id"
+      ],
       "properties": {
-        "role_id": { "type": "string" },
-        "name": { "type": "string" },
-        "team_id": { "type": "string" },
-        "summary": { "type": "string" },
-        "persona_prompt": { "type": "string" },
-        "agent_id": { "type": "string" },
-        "mode_id": { "type": "string" },
-        "config_values": { "type": "object" }
+        "space_id": {
+          "type": "string"
+        },
+        "since_seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
       }
     }
   },
   {
-    "name": "delete_role",
-    "description": "Delete a role template. Conversations already created from it remain, including their persona snapshot.",
+    "name": "post_space_message",
+    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. For a regular reply in the current space, output ordinary assistant text; call this tool only to deliver across spaces, to report progress during a long task, or to schedule a delayed post. to is a list of member nicknames; \"User\" and \"Person\" both address the human user. delay_seconds (optional integer, default 0) schedules the message. Rules (see vibex-bot SKILL.md): (1) When a User task takes time, post_space_message (to: [\"User\"]) with what you are doing now so the user can see progress; post again on a real update; at completion post the result or a decision question. If the work finishes quickly, post only the result. Ordinary chat posts content only. (2) Audience filtering: when messaging User/Person (to: [\"User\"] or [\"Person\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call this tool to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. (4) Do not restate facts, reasons, or relay chains another member already posted; only send incremental new information. (5) For disputes, layout/format decisions, or aggregated results, address the space lead first (list_spaces lead_nickname / lead_bot).",
     "inputSchema": {
       "type": "object",
-      "required": ["role_id"],
-      "properties": { "role_id": { "type": "string" } }
-    }
-  },
-  {
-    "name": "list_teams",
-    "description": "List optional role groupings.",
-    "inputSchema": { "type": "object", "properties": {} }
-  },
-  {
-    "name": "create_team",
-    "description": "Create a team. Roles may leave team_id empty.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["name"],
+      "required": [
+        "space_id",
+        "content"
+      ],
       "properties": {
-        "name": { "type": "string" },
-        "summary": { "type": "string" }
+        "space_id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Recipient nicknames. \"User\" and \"Person\" both address the human user. Broadcast requires \"所有人\" / @所有人."
+        },
+        "reply_to": {
+          "type": "string",
+          "description": "Optional space message id this post replies to."
+        },
+        "delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Delay in seconds before posting (default 0 for immediate delivery)."
+        }
       }
     }
   },
   {
-    "name": "update_team",
-    "description": "Rename a team or replace its summary.",
+    "name": "manage_bot",
+    "description": "Create, update, delete, or interrupt a collaboration bot. action=create makes a bot identity plus its private chat (not auto-joined to a group). action=update sets your nickname in a space (and optional persona/mode). action=delete permanently removes another bot (call request_approval first). action=interrupt stops another group member's in-flight turn. bot_id accepts the identity id, per-space seat id, conversation id, or nickname.",
     "inputSchema": {
       "type": "object",
-      "required": ["team_id", "name"],
+      "required": [
+        "action"
+      ],
       "properties": {
-        "team_id": { "type": "string" },
-        "name": { "type": "string" },
-        "summary": { "type": "string" }
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "interrupt"
+          ],
+          "description": "create | update | delete | interrupt"
+        },
+        "bot_id": {
+          "type": "string",
+          "description": "Identity id, per-space seat id, conversation id, or nickname. Required for delete and interrupt; optional for update."
+        },
+        "nickname": {
+          "type": "string",
+          "description": "Display name. Required for create; used as the new name for update."
+        },
+        "space_id": {
+          "type": "string",
+          "description": "Group id, unassigned space id, or direct:<id>. Required for update, delete, and interrupt."
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Agent runtime for create/update. Defaults to the calling session's agent on create."
+        },
+        "persona_prompt": {
+          "type": "string"
+        },
+        "mode_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional audit reason for interrupt."
+        }
       }
     }
   },
   {
-    "name": "delete_team",
-    "description": "Delete a team. Roles in it become ungrouped. Conversations are kept.",
+    "name": "manage_group",
+    "description": "Create, rename, or delete a group, add or remove a bot, leave, or transfer the lead. action=create joins you to a new group. action=delete is destructive (call request_approval first). bot_id accepts identity id, seat id, conversation id, or nickname.",
     "inputSchema": {
       "type": "object",
-      "required": ["team_id"],
-      "properties": { "team_id": { "type": "string" } }
-    }
-  },
-  {
-    "name": "list_collaboration_spaces",
-    "description": "List collaboration spaces in this workspace, including which spaces you belong to, your member nickname in each space, the space lead (lead_nickname / lead_member_id) when set, and the members in each space (is_lead).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {}
-    }
-  },
-  {
-    "name": "list_space_members",
-    "description": "List members of a space. member_id is the per-space seat id; identity_member_id is the bot identity. send_session_input.member_id accepts either. Also includes nickname, conversation_id, agent_id, status, team_name, summary, is_self, space lead (lead_nickname / lead_member_id), is_lead, and how to address the user (to: [\"User\"]).",
-    "inputSchema": {
-      "type": "object",
-      "required": ["space_id"],
+      "required": [
+        "action"
+      ],
       "properties": {
-        "space_id": { "type": "string" }
-      }
-    }
-  },
-  {
-    "name": "create_collaboration_space",
-    "description": "Create an IM space in this workspace and join it. Reuse operation_id to retry the same create. Members must share the workspace.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "name"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "name": { "type": "string" }
-      }
-    }
-  },
-  {
-    "name": "add_space_member",
-    "description": "Add a Conversation from this workspace to a space you belong to. Returns member_id (per-space seat) and identity_member_id (bot identity). send_session_input.member_id accepts either. nickname is a proposal; the member can rename itself later. Nicknames are unique in the space.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "space_id", "conversation_id", "nickname"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "conversation_id": { "type": "string", "format": "uuid" },
-        "nickname": { "type": "string" }
-      }
-    }
-  },
-  {
-    "name": "set_space_identity",
-    "description": "Set your own nickname in a space. Later @ resolution uses the new nickname. Messages already posted keep the actor snapshot.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "space_id", "nickname"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "nickname": { "type": "string" }
-      }
-    }
-  },
-  {
-    "name": "post_to_space",
-    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. to is a list of member nicknames (or \"User\" to reply/report to the user). delay_seconds (optional integer, default 0) schedules the message to be posted into the space after the specified number of seconds. Rules (see vibex-multi-agent COLLABORATION-SPACE.md): (1) When a User task takes time, post_to_space (to: [\"User\"]) with what you are doing now so the user can see progress; post again on a real update; at completion post the result or a decision question. If the work finishes quickly, post only the result. Ordinary chat posts content only. (2) Audience filtering: when messaging User (to: [\"User\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, operation_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call post_to_space to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. (4) Do not restate facts, reasons, or relay chains another member already posted; only send incremental new information. (5) For disputes, layout/format decisions, or aggregated results, address the space lead first (list_space_members lead_nickname / is_lead). Use a new operation_id for each distinct message; reuse operation_id only when retrying the exact same post.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "space_id", "content"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "content": { "type": "string", "minLength": 1 },
-        "summary": { "type": "string", "description": "Optional. Ordinary chat posts content only; the bubble shows content and falls back to summary when content is empty." },
-        "to": { "type": "array", "items": { "type": "string" } },
-        "in_reply_to": { "type": "string" },
-        "delay_seconds": { "type": "integer", "minimum": 0, "default": 0, "description": "Delay in seconds before posting the message to the collaboration space (default 0 for immediate delivery)." }
-      }
-    }
-  },
-  {
-    "name": "handoff",
-    "description": "Hand work to another member of a collaboration space with a structured envelope {done, inputs_constraints, ask}. The receiver gets it in its own session for this space. Chains are limited in depth and each turn may start only a few handoffs; over-limit calls fail with limit_exceeded and are recorded. If delivery fails you post a failure report back into the space automatically. Reuse operation_id only to retry the exact same handoff.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "space_id", "to", "ask"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "to": { "type": "string", "description": "Receiver nickname." },
-        "done": { "type": "string", "description": "What you already finished." },
-        "inputs_constraints": { "type": "string", "description": "Inputs, constraints and acceptance criteria." },
-        "ask": { "type": "string", "minLength": 1, "description": "The concrete request." }
-      }
-    }
-  },
-  {
-    "name": "ask_person",
-    "description": "Ask another collaboration member a question inline in a thread. Pass to as that member's nickname. The asked member (or the user) answers later with resolve_card, and you receive a normal message starting with [回复问题 <id>]. Do not block waiting; end your turn after asking. To ask the human user a blocking multiple-choice question that appears in the current private or group chat, use ask_user_question instead. Reuse operation_id only to retry the same question.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["operation_id", "space_id", "question"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "question": { "type": "string", "minLength": 1 },
-        "options": { "type": "array", "items": { "type": "string" }, "maxItems": 6, "description": "Optional quick replies." },
-        "to": { "type": "string", "description": "Optional nickname of another member to ask instead of the user. That member (or the user) answers with resolve_card." }
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "rename",
+            "delete",
+            "add_bot",
+            "remove_bot",
+            "leave",
+            "set_lead"
+          ],
+          "description": "create | rename | delete | add_bot | remove_bot | leave | set_lead"
+        },
+        "space_id": {
+          "type": "string",
+          "description": "Group id. Required except for create."
+        },
+        "name": {
+          "type": "string",
+          "description": "Group name. Required for create and rename."
+        },
+        "bot_id": {
+          "type": "string",
+          "description": "Identity id, seat id, conversation id, or nickname. Required for add_bot, remove_bot, and set_lead."
+        },
+        "nickname": {
+          "type": "string",
+          "description": "Proposed nickname when adding a bot. Defaults to the bot's current name."
+        }
       }
     }
   },
   {
     "name": "request_approval",
-    "description": "Request the user's approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this thread: this group or direct chat) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
+    "description": "Request the human user's (Person / User) approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this thread: this group or direct chat) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
     "inputSchema": {
       "type": "object",
-      "required": ["operation_id", "space_id", "action"],
+      "required": [
+        "space_id",
+        "action"
+      ],
       "properties": {
-        "operation_id": { "type": "string", "format": "uuid" },
-        "space_id": { "type": "string" },
-        "action": { "type": "string", "minLength": 1, "description": "What you want to do." },
-        "command": { "type": "string", "description": "Exact command or change, shown in monospace." },
-        "reason": { "type": "string" }
-      }
-    }
-  },
-  {
-    "name": "resolve_card",
-    "description": "Answer an ask_person card that another member addressed to you (to=<your nickname>). Only the asked member or the user can answer an ask card; approval cards can only be resolved by the user, so calling this on one is rejected.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["card_id", "answer"],
-      "properties": {
-        "card_id": { "type": "string" },
-        "answer": { "type": "string", "minLength": 1 }
+        "space_id": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What you want to do."
+        },
+        "command": {
+          "type": "string",
+          "description": "Exact command or change, shown in monospace."
+        },
+        "reason": {
+          "type": "string"
+        }
       }
     }
   },
@@ -474,10 +530,20 @@
     "description": "Search your own long-term memory (facts) and recent activity across your collaboration threads, ranked by BM25. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
     "inputSchema": {
       "type": "object",
-      "required": ["query"],
+      "required": [
+        "query"
+      ],
       "properties": {
-        "query": { "type": "string", "minLength": 1 },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 8 }
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 8
+        }
       }
     }
   },
@@ -486,63 +552,22 @@
     "description": "Remember a durable fact for yourself. scope: thread (default, only this thread), global (all your threads) or private (only your private chat with the user). Writes made in a private chat are always stored as private.",
     "inputSchema": {
       "type": "object",
-      "required": ["content"],
+      "required": [
+        "content"
+      ],
       "properties": {
-        "content": { "type": "string", "minLength": 1 },
-        "scope": { "type": "string", "enum": ["thread", "global", "private"] }
-      }
-    }
-  },
-  {
-    "name": "list_space_messages",
-    "description": "Read the space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["space_id"],
-      "properties": {
-        "space_id": { "type": "string" },
-        "since_seq": { "type": "integer", "minimum": 0 },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
-      }
-    }
-  },
-  {
-    "name": "list_space_collection",
-    "description": "List items in the collaboration space's shared Collection (critical section / 群收藏). Returns each item's metadata (item_id, creator_nickname, item_kind, file_name, mime_type, byte_size, note, created_at, read_receipts) and its disk address (file_path) outside the project workspace (~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name}). Never returns raw binary payloads. Calling this tool also records a read receipt for your member identity.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["space_id"],
-      "properties": {
-        "space_id": { "type": "string", "description": "Target collaboration space ID." },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
-      }
-    }
-  },
-  {
-    "name": "add_to_space_collection",
-    "description": "Add a new independent record (text, image, or file) to the collaboration space's shared Collection (群收藏). The space collection stores only address indices and metadata in the database while writing or copying the actual content to ~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name} outside any project worktree so all space members across different workspaces can access it. Agents MUST NOT pass raw binary blobs: pass either `content` (text/markdown string) OR `source_path` (path to an existing image or file up to 200MB on disk), plus an optional `note` (remark) and `file_name`.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["space_id"],
-      "properties": {
-        "operation_id": { "type": "string", "format": "uuid", "description": "Optional UUID for idempotent retry." },
-        "space_id": { "type": "string", "description": "Target collaboration space ID." },
-        "content": { "type": "string", "description": "Text or Markdown content to save as a text record in the collection. Mutually exclusive with source_path." },
-        "source_path": { "type": "string", "description": "Local file or image path (absolute or workspace-relative, max 200MB) to copy into the shared collection directory. Mutually exclusive with content." },
-        "file_name": { "type": "string", "description": "Optional display/storage file name in the collection directory." },
-        "note": { "type": "string", "description": "Optional remark/note describing the purpose or context of this collection item." }
-      }
-    }
-  },
-  {
-    "name": "read_space_collection_item",
-    "description": "Register a read receipt on a specific item in the collaboration space Collection (群收藏) and return its metadata and `file_path` address on disk. After calling this tool, read the file at the returned `file_path` using your file-reading tools.",
-    "inputSchema": {
-      "type": "object",
-      "required": ["space_id", "item_id"],
-      "properties": {
-        "space_id": { "type": "string", "description": "Target collaboration space ID." },
-        "item_id": { "type": "string", "description": "ID of the collection item to read." }
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "thread",
+            "global",
+            "private"
+          ]
+        }
       }
     }
   }

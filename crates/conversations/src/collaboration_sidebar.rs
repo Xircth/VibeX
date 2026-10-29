@@ -769,6 +769,10 @@ async fn dm_space_messages_since(
         } else {
             (None, None)
         };
+        // User space bubbles are independent of the member session turn.
+        // Attaching `collaboration_turns.id` here lets the IM merge collapse
+        // the user message into the streaming draft / agent reply.
+        let turn_id = if origin == "user" { None } else { turn_id };
         let message = DmMessage {
             id,
             seq,

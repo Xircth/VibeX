@@ -1,0 +1,317 @@
+use super::*;
+
+impl AcpClientBridge {
+    pub(in crate::manager) async fn handle_agent_request(
+        &self,
+        request: AgentRequest,
+    ) -> Result<ClientResponse, acp::Error> {
+        self.note_activity().await;
+        match request {
+            AgentRequest::RequestPermissionRequest(args) => Ok(
+                ClientResponse::RequestPermissionResponse(self.request_permission(args).await?),
+            ),
+            AgentRequest::CreateElicitationRequest(args) => Ok(
+                ClientResponse::CreateElicitationResponse(self.create_elicitation(args).await?),
+            ),
+            AgentRequest::CreateTerminalRequest(args) => Ok(
+                ClientResponse::CreateTerminalResponse(self.create_terminal(args).await?),
+            ),
+            AgentRequest::TerminalOutputRequest(args) => {
+                let terminal_id = parse_terminal_id(&args.terminal_id)?;
+                let snapshot = agent_terminal_registry()
+                    .snapshot_output(terminal_id.into())
+                    .await
+                    .ok_or_else(acp::Error::invalid_params)?;
+                let mut response = TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
+                if let Some(AgentTerminalExit::Code { code }) = snapshot.exit {
+                    let exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new()
+                        .exit_code(code as u32);
+                    response = response.exit_status(exit_status);
+                }
+                Ok(ClientResponse::TerminalOutputResponse(response))
+            }
+            AgentRequest::ReleaseTerminalRequest(args) => {
+                let terminal_id = parse_terminal_id(&args.terminal_id)?;
+                if !agent_terminal_registry()
+                    .release_terminal(terminal_id.into())
+                    .await
+                {
+                    return Err(acp::Error::invalid_params());
+                }
+                Ok(ClientResponse::ReleaseTerminalResponse(
+                    ReleaseTerminalResponse::new(),
+                ))
+            }
+            AgentRequest::WaitForTerminalExitRequest(args) => {
+                // Invoked from `cx.spawn` in `on_receive_request`. Running
+                // this inline on the dispatch loop freezes session/update
+                // on a never-exiting command (dev server / `npm run dev`).
+                let terminal_id = parse_terminal_id(&args.terminal_id)?;
+                let response = wait_for_terminal_exit_response(terminal_id).await?;
+                Ok(ClientResponse::WaitForTerminalExitResponse(response))
+            }
+            AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
+                self.kill_terminal(args).await?,
+            )),
+            AgentRequest::ExtMethodRequest(ext) => self.handle_ext_method(ext).await,
+            AgentRequest::ReadTextFileRequest(_) | AgentRequest::WriteTextFileRequest(_) => {
+                Err(acp::Error::method_not_found())
+            }
+            _ => Err(acp::Error::method_not_found()),
+        }
+    }
+
+
+    pub(in crate::manager) async fn request_permission(
+        &self,
+        args: RequestPermissionRequest,
+    ) -> Result<RequestPermissionResponse, acp::Error> {
+        let permission_id = AgentPermissionId::new();
+        let acp_session = args.session_id.0.to_string();
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
+            tracing::warn!(
+                acp_session = %acp_session,
+                "request_permission for unknown ACP session — rejecting instead of \
+                 routing to a phantom session the UI can never answer"
+            );
+            return Err(acp::Error::invalid_params());
+        };
+        let mut details = serde_json::to_value(&args.tool_call).ok();
+        if let Some(details) = details.as_mut() {
+            let ledger_meta = self
+                .apply
+                .air_tool_call_meta
+                .lock()
+                .await
+                .peek(args.tool_call.tool_call_id.0.as_ref());
+            crate::air_contract::hoist_request_permission_meta_with_ledger(
+                details,
+                args.meta.as_ref(),
+                ledger_meta.as_ref(),
+            );
+        }
+        let title = crate::air_contract::resolve_permission_request_title(
+            details.as_ref(),
+            args.tool_call.fields.title.as_deref(),
+        );
+        let request = AgentPermissionRequest {
+            id: permission_id,
+            session_id,
+            title,
+            details,
+            options: args
+                .options
+                .iter()
+                .map(|option| AgentPermissionOption {
+                    id: option.option_id.to_string(),
+                    label: option.name.clone(),
+                    kind: agent_permission_option_kind(option.kind),
+                    description: None,
+                })
+                .collect(),
+        };
+
+        let configured = *self.auto_approve_mode.lock().await;
+        let auto_approve_mode =
+            effective_auto_approve_mode(configured, &self.session_controls, session_id).await;
+        if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event: AgentEvent::PermissionResponded {
+                        permission_id,
+                        response: response.clone(),
+                        auto: true,
+                    },
+                },
+            );
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_permissions.lock().await.insert(
+            permission_id.to_string(),
+            PendingPermission {
+                permission_id,
+                session_id,
+                options: request.options.clone(),
+                tx,
+            },
+        );
+
+        let configured = *self.auto_approve_mode.lock().await;
+        if let Some(response) = decide_auto_permission_response(configured, &request)
+            && let Some(pending) = self
+                .pending_permissions
+                .lock()
+                .await
+                .remove(&permission_id.to_string())
+        {
+            let _ = pending.tx.send(response.clone());
+            let event = AgentEvent::PermissionResponded {
+                permission_id,
+                response: response.clone(),
+                auto: true,
+            };
+            self.apply.record_turn_probe_event(Some(session_id), &event);
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event,
+                },
+            );
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
+
+        let event = AgentEvent::PermissionRequested {
+            request: request.clone(),
+        };
+        self.apply.record_turn_probe_event(Some(session_id), &event);
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event,
+            },
+        );
+
+        let response = rx.await.unwrap_or(AgentPermissionResponse::Cancelled);
+        Ok(RequestPermissionResponse::new(permission_response_outcome(
+            response,
+        )))
+    }
+
+    /// Handle ACP `elicitation/create` (unstable): the agent asks the user for
+    /// structured input — Claude Code's `AskUserQuestion` and MCP elicitations
+    /// arrive here. Blocks the ACP request until the user answers; the pending
+    /// entry is cancelled by the same paths that cancel pending permissions.
+    pub(in crate::manager) async fn create_elicitation(
+        &self,
+        args: CreateElicitationRequest,
+    ) -> Result<CreateElicitationResponse, acp::Error> {
+        let ElicitationMode::Form(form) = args.mode else {
+            // Only form mode is advertised; decline anything else instead of
+            // erroring so a nonconforming agent degrades gracefully.
+            return Ok(CreateElicitationResponse::new(ElicitationAction::Decline));
+        };
+        let ElicitationScope::Session(session_scope) = &form.scope else {
+            // Request-scoped elicitations (pre-session auth/config) have no
+            // conversation to surface in yet.
+            tracing::warn!("declining request-scoped elicitation — no session to route it to");
+            return Ok(CreateElicitationResponse::new(ElicitationAction::Decline));
+        };
+        let acp_session = session_scope.session_id.0.to_string();
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
+            tracing::warn!(
+                acp_session = %acp_session,
+                "elicitation/create for unknown ACP session — rejecting instead of \
+                 routing to a phantom session the UI can never answer"
+            );
+            return Err(acp::Error::invalid_params());
+        };
+
+        let requested_schema = serde_json::to_value(&form.requested_schema)
+            .map_err(acp::Error::into_internal_error)?;
+        let response = self
+            .wait_for_question(session_id, args.message, requested_schema)
+            .await;
+        Ok(CreateElicitationResponse::new(elicitation_response_action(
+            response,
+        )))
+    }
+
+
+    pub(in crate::manager) async fn wait_for_question(
+        &self,
+        session_id: AgentSessionId,
+        message: String,
+        requested_schema: serde_json::Value,
+    ) -> AgentElicitationResponse {
+        let elicitation_id = AgentElicitationId::new();
+        let request = AgentElicitationRequest {
+            id: elicitation_id,
+            session_id,
+            message,
+            requested_schema,
+        };
+        let (tx, rx) = oneshot::channel();
+        self.pending_elicitations.lock().await.insert(
+            elicitation_id.to_string(),
+            PendingElicitation {
+                elicitation_id,
+                session_id,
+                tx,
+            },
+        );
+
+        let event = AgentEvent::ElicitationRequested { request };
+        self.apply.record_turn_probe_event(Some(session_id), &event);
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event,
+            },
+        );
+
+        rx.await.unwrap_or(AgentElicitationResponse::Cancel)
+    }
+}
+
+pub(in crate::manager) fn resolve_agent_session_id(
+    mapped: Option<AgentSessionId>,
+    pending: Option<AgentSessionId>,
+) -> Option<AgentSessionId> {
+    mapped.or(pending)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::manager) enum MappedResume {
+    Reuse(String),
+    LoadRequested { unbind_stale: bool },
+}
+
+/// A live ACP session may be reused on resume only when it is the session the
+/// caller asked for. Returning a sibling conversation's mapped id is how
+/// "继续" after stop picked up another session's context.
+pub(in crate::manager) fn mapped_resume_action(mapped: Option<&str>, requested: &str) -> MappedResume {
+    match mapped {
+        Some(existing) if existing == requested => MappedResume::Reuse(existing.to_string()),
+        Some(_) => MappedResume::LoadRequested { unbind_stale: true },
+        None => MappedResume::LoadRequested {
+            unbind_stale: false,
+        },
+    }
+}
+
+/// Requests that must not be answered inside the ACP dispatch loop.
+///
+/// agent-client-protocol waits for each `on_receive_request` handler to
+/// finish before reading the next message. `terminal/wait_for_exit` can
+/// wait forever; `elicitation/create` and vendor question ext-methods
+/// wait for the user. Answering any of them inline freezes
+/// `session/update` and `session/cancel`, so the agent times out and
+/// treats a question as cancelled before the composer card can appear.
+/// Codeg answers wait_for_exit from `cx.spawn`.
+pub(in crate::manager) fn acp_request_must_run_off_dispatch_loop(request: &AgentRequest) -> bool {
+    matches!(
+        request,
+        AgentRequest::WaitForTerminalExitRequest(_)
+            | AgentRequest::CreateElicitationRequest(_)
+            | AgentRequest::ExtMethodRequest(_)
+    )
+}

@@ -494,7 +494,7 @@ async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, ena
     let spec = plugins::host_family_stdio_spec(
         &command.to_string_lossy(),
         "delegation",
-        "delegation,sessions,collaboration",
+        plugins::DELEGATION_MCP_FEATURES,
         Some(&http_base),
         Some(&token),
     );
@@ -920,7 +920,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation,sessions,collaboration".to_string(),
+        "delegation" => plugins::DELEGATION_MCP_FEATURES.to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),

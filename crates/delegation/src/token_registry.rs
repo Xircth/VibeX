@@ -33,6 +33,9 @@ pub struct TokenPermissions {
     pub workspace_write: bool,
     /// Roles, teams, durable create, and collaboration spaces.
     pub collaboration: bool,
+    /// Space-internal tools (`read_space_messages`, `manage_group`, …).
+    /// Ordinary independent sessions stay false.
+    pub space_session: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +47,7 @@ pub enum TokenFeature {
     SessionControl,
     WorkspaceWrite,
     Collaboration,
+    SpaceSession,
 }
 
 impl TokenPermissions {
@@ -56,6 +60,7 @@ impl TokenPermissions {
             TokenFeature::SessionControl => self.session_control,
             TokenFeature::WorkspaceWrite => self.workspace_write,
             TokenFeature::Collaboration => self.collaboration,
+            TokenFeature::SpaceSession => self.space_session,
         }
     }
 
@@ -69,6 +74,7 @@ impl TokenPermissions {
             session_control: true,
             workspace_write: true,
             collaboration: true,
+            space_session: true,
         }
     }
 }

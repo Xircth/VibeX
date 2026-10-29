@@ -367,7 +367,7 @@ pub async fn post_to_space_delayed_with(
     if parse_unassigned_space_id(input.space_id.trim()).is_some() {
         return Err(CollaborationError::new(
             "invalid_space_for_direct_chat",
-            "当前会话属于一对一私聊会话，无需调用 post_to_space 等群空间消息工具；请直接输出回复文本与用户交流。",
+            "当前会话属于一对一私聊会话，无需调用 post_space_message 等群空间消息工具；请直接输出回复文本与用户交流。",
         ));
     }
     let seconds = delay_seconds.unwrap_or(0);

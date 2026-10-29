@@ -24,6 +24,35 @@ use crate::{
     types::{DelegationRequest, DelegationScope, DelegationTaskReport, DelegationWorkspaceAccess},
 };
 
+fn collaboration_tool_requires_space_session(name: &str) -> bool {
+    matches!(
+        name,
+        "read_space_messages"
+            | "list_space_messages"
+            | "post_space_message"
+            | "post_to_space"
+            | "manage_group"
+            | "request_approval"
+            | "memory_search"
+            | "memory_write"
+            | "list_space_members"
+            | "create_collaboration_space"
+            | "add_space_member"
+            | "set_space_lead"
+            | "leave_space"
+            | "remove_space_member"
+            | "delete_collaboration_space"
+            | "interrupt_space_turn"
+            | "handoff"
+            | "ask_person"
+            | "resolve_card"
+            | "list_space_collection"
+            | "add_to_space_collection"
+            | "read_space_collection_item"
+            | "remove_space_collection_item"
+    )
+}
+
 /// Bridges companion connections to the broker.
 #[derive(Clone)]
 pub struct DelegationListener {
@@ -228,9 +257,21 @@ impl DelegationListener {
                     .await
                 {
                     Some(entry) => {
-                        self.features
-                            .collaborate(&scope_for(&entry), &req.name, req.arguments)
-                            .await
+                        if collaboration_tool_requires_space_session(&req.name)
+                            && self
+                                .authorized_entry(&req.token, TokenFeature::SpaceSession)
+                                .await
+                                .is_none()
+                        {
+                            json!({
+                                "error_code": "invalid_token",
+                                "message": "space tools are only available in a Space session",
+                            })
+                        } else {
+                            self.features
+                                .collaborate(&scope_for(&entry), &req.name, req.arguments)
+                                .await
+                        }
                     }
                     None => json!({
                         "error_code": "invalid_token",
@@ -1021,6 +1062,7 @@ mod tests {
                 session_control: false,
                 workspace_write: false,
                 collaboration: false,
+                space_session: false,
             },
         );
         let scope = DelegationScope {
@@ -1051,6 +1093,69 @@ mod tests {
 
         assert_eq!(feedback["feedback"], json!([]));
         assert_eq!(session["found"], false);
+    }
+
+    #[tokio::test]
+    async fn space_tools_require_space_session_token() {
+        use delegation_proto::BrokerCollaborateRequest;
+
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let (listener, tokens) = listener_with_features(Some(Uuid::nil()), features);
+        let entry = TokenEntry {
+            parent_connection_id: "conn-1".to_string(),
+            parent_conversation_id: Uuid::nil(),
+            working_root: std::env::temp_dir(),
+        };
+        tokens.register_with_permissions(
+            "collab".to_string(),
+            entry.clone(),
+            crate::TokenPermissions {
+                collaboration: true,
+                ..crate::TokenPermissions::default()
+            },
+        );
+        tokens.register_with_permissions(
+            "space".to_string(),
+            entry,
+            crate::TokenPermissions {
+                collaboration: true,
+                space_session: true,
+                ..crate::TokenPermissions::default()
+            },
+        );
+
+        let denied = round_trip(
+            &listener,
+            BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                token: "collab".to_string(),
+                name: "read_space_messages".to_string(),
+                arguments: json!({}),
+            }),
+        )
+        .await;
+        assert_eq!(denied["error_code"], "invalid_token");
+
+        let workspace = round_trip(
+            &listener,
+            BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                token: "collab".to_string(),
+                name: "list_spaces".to_string(),
+                arguments: json!({}),
+            }),
+        )
+        .await;
+        assert_eq!(workspace["error_code"], "collaboration_unavailable");
+
+        let allowed = round_trip(
+            &listener,
+            BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                token: "space".to_string(),
+                name: "read_space_messages".to_string(),
+                arguments: json!({}),
+            }),
+        )
+        .await;
+        assert_eq!(allowed["error_code"], "collaboration_unavailable");
     }
 
     #[tokio::test]

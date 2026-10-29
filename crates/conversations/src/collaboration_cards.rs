@@ -1,8 +1,8 @@
-//! Inline "needs you" cards (Phase 5): `ask_person` questions and approval
-//! requests that a member posts into its thread. The card is a normal space
-//! message addressed to the user (so it shows up in the stream and in
-//! receipts), plus a `collaboration_cards` row tracking pending/resolved.
-//! Resolving posts the answer back to the asking member as a user message.
+//! Inline "needs you" cards: user questions and approval requests that a
+//! member posts into its thread. The card is a normal space message addressed
+//! to the user (so it shows up in the stream and in receipts), plus a
+//! `collaboration_cards` row tracking pending/resolved. Resolving posts the
+//! answer back to the asking member as a user message.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::collaboration::{
     self, CollaborationError, DeliveryContext, PostToSpace, append_space_event_tx, caller_seat, db,
-    finish_tx, now_stamp, require_caller_thread, resolve_workspace_peer, seat_conversation,
+    finish_tx, now_stamp, require_caller_thread, seat_conversation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,58 +229,7 @@ pub async fn post_card(
     require_caller_thread(pool, input.caller_id, &input.space_id).await?;
     let seat = caller_seat(pool, &input.space_id, input.caller_id).await?;
     let from = seat_conversation(&seat).unwrap_or(input.caller_id);
-    let mut payload = input.payload.clone();
-    let mut to = vec!["User".to_string()];
-    let target = payload
-        .get("to")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|nick| !nick.is_empty() && !nick.eq_ignore_ascii_case("user"))
-        .map(str::to_string);
-    if input.kind == CardKind::Ask
-        && let Some(nick) = target
-    {
-        let members = collaboration::list_space_members(
-            pool,
-            &input.space_id,
-            collaboration::MessageAudience::User,
-        )
-        .await?;
-        if let Some(member) = members
-            .iter()
-            .find(|m| m.nickname == nick && m.member_id != seat.member_id)
-        {
-            payload["to"] = json!(member.nickname);
-            payload["target_member_id"] = json!(member.member_id);
-            to = vec![member.nickname.clone()];
-        } else {
-            let peers = resolve_workspace_peer(pool, &input.space_id, &nick).await?;
-            let peer = peers
-                .into_iter()
-                .find(|peer| peer.peer_kind == "member" && peer.nickname == nick)
-                .ok_or_else(|| {
-                    CollaborationError::new(
-                        "not_a_member",
-                        format!("{nick} is not another member of this thread"),
-                    )
-                })?;
-            let member_id = peer
-                .dest_thread_id
-                .as_deref()
-                .and_then(|id| id.strip_prefix("direct:"))
-                .filter(|id| !id.is_empty() && *id != seat.member_id)
-                .ok_or_else(|| {
-                    CollaborationError::new(
-                        "not_a_member",
-                        format!("{nick} is not another member of this thread"),
-                    )
-                })?;
-            payload["to"] = json!(peer.nickname);
-            payload["target_member_id"] = json!(member_id);
-            to = vec![peer.nickname];
-        }
-    }
-    let input = PostCard { payload, ..input };
+    let to = vec!["User".to_string()];
     let content = render_card(&id, input.kind, &input.payload);
     let summary = match input.kind {
         CardKind::Ask => format!(
@@ -405,6 +354,73 @@ pub async fn post_blocking_user_question(
         delivery,
     )
     .await
+}
+
+/// Questions array for an IM Ask card, taken from an elicitation schema
+/// (`x-vibex-questions`) or synthesized from the prompt.
+pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -> Value {
+    if let Some(questions) = schema
+        .and_then(|schema| schema.get("x-vibex-questions"))
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+    {
+        return Value::Array(questions.clone());
+    }
+    json!([{
+        "question": prompt,
+        "header": prompt,
+        "options": [],
+    }])
+}
+
+/// Native Grok/Claude elicitation for a seated collab conversation: post the
+/// same blocking Ask card MCP `ask_user_question` uses. Ordinary sessions
+/// have no seat and return `Ok(None)` so the composer card stays the surface.
+pub async fn post_elicitation_question_if_seated(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    question_id: &str,
+    prompt: &str,
+    schema: Option<&Value>,
+    delivery: &DeliveryContext,
+) -> Result<Option<Card>, CollaborationError> {
+    if collaboration::thread_id_for_conversation(pool, caller_id)
+        .await?
+        .is_none()
+    {
+        return Ok(None);
+    }
+    let questions = questions_from_elicitation_schema(schema, prompt);
+    match post_blocking_user_question(pool, caller_id, &questions, question_id, delivery).await {
+        Ok(card) => Ok(Some(card)),
+        Err(error) if error.code == "not_found" => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Settle a matching IM Ask card after the session composer (or Host) already
+/// answered the elicitation. Missing or already-resolved cards are ignored.
+pub async fn resolve_elicitation_question_card(
+    pool: &SqlitePool,
+    question_id: &str,
+    answer: &str,
+    delivery: &DeliveryContext,
+) -> Result<(), CollaborationError> {
+    match resolve_card(
+        pool,
+        question_id,
+        CardActor::User,
+        None,
+        Some(answer),
+        delivery,
+    )
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.code == "not_found" => Ok(()),
+        Err(error) if error.message.contains("already resolved") => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 pub async fn load_card(pool: &SqlitePool, id: &str) -> Result<Option<Card>, CollaborationError> {
@@ -574,10 +590,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::AgentId;
-    use db::models::{
-        collaboration_identity as identity,
-        session::{CreateSession, Session},
-    };
+    use db::models::session::{CreateSession, Session};
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
@@ -699,7 +712,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_person_from_dm_cannot_use_shared_group_space_id() {
+    async fn card_from_dm_cannot_use_shared_group_space_id() {
         let pool = setup_pool().await;
         let workspace = Uuid::new_v4();
         sqlx::query("PRAGMA foreign_keys = OFF")
@@ -729,127 +742,17 @@ mod tests {
         )
         .await
         .unwrap();
-        let created_b = collaboration::host_create_space_member(
-            &pool,
-            collaboration::HostCreateSpaceMember {
-                workspace_id: workspace,
-                space_id: None,
-                nickname: "Peter".to_string(),
-                role_id: None,
-                agent_id: Some("codex".to_string()),
-                team_id: None,
-                persona_prompt: None,
-                mode_id: None,
-                config_values: None,
-                operation_id: Uuid::new_v4(),
-            },
-        )
-        .await
-        .unwrap();
         let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
-        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
         let group =
             collaboration::create_collaboration_space(&pool, a_conv, "海鸥计划", Uuid::new_v4())
                 .await
                 .unwrap();
-        collaboration::add_space_member(
-            &pool,
-            a_conv,
-            &group.space_id,
-            b_conv,
-            "Peter",
-            Uuid::new_v4(),
-        )
-        .await
-        .unwrap();
         let mut card = ask(a_conv, &group.space_id, Uuid::new_v4());
-        card.payload = json!({
-            "question": "请转达 User 要找 Liber 干活了",
-            "to": "Peter",
-        });
+        card.payload = json!({ "question": "用哪个分支？" });
         let error = post_card(&pool, card, &DeliveryContext::default())
             .await
-            .expect_err("DM session must not ask_person with a group space_id");
+            .expect_err("DM session must not post a card with a group space_id");
         assert_eq!(error.code, "invalid_origin_space");
-    }
-
-    #[tokio::test]
-    async fn ask_person_from_dm_addresses_workspace_peer_on_current_thread() {
-        let pool = setup_pool().await;
-        let workspace = Uuid::new_v4();
-        sqlx::query("PRAGMA foreign_keys = OFF")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
-            .bind(workspace)
-            .bind(Uuid::new_v4())
-            .execute(&pool)
-            .await
-            .unwrap();
-        let created_a = collaboration::host_create_space_member(
-            &pool,
-            collaboration::HostCreateSpaceMember {
-                workspace_id: workspace,
-                space_id: None,
-                nickname: "Faker".to_string(),
-                role_id: None,
-                agent_id: Some("codex".to_string()),
-                team_id: None,
-                persona_prompt: None,
-                mode_id: None,
-                config_values: None,
-                operation_id: Uuid::new_v4(),
-            },
-        )
-        .await
-        .unwrap();
-        let created_b = collaboration::host_create_space_member(
-            &pool,
-            collaboration::HostCreateSpaceMember {
-                workspace_id: workspace,
-                space_id: None,
-                nickname: "Peter".to_string(),
-                role_id: None,
-                agent_id: Some("codex".to_string()),
-                team_id: None,
-                persona_prompt: None,
-                mode_id: None,
-                config_values: None,
-                operation_id: Uuid::new_v4(),
-            },
-        )
-        .await
-        .unwrap();
-        let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
-        let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
-        let a_member = identity::binding_of_conversation(&pool, a_conv)
-            .await
-            .unwrap()
-            .expect("identity")
-            .member_id;
-        let b_member = identity::binding_of_conversation(&pool, b_conv)
-            .await
-            .unwrap()
-            .expect("identity")
-            .member_id;
-        let a_thread = identity::direct_thread_id(&a_member);
-        let mut card = ask(a_conv, &a_thread, Uuid::new_v4());
-        card.payload = json!({
-            "question": "请转达 User 要找 Liber 干活了",
-            "to": "Peter",
-        });
-        let posted = post_card(&pool, card, &DeliveryContext::default())
-            .await
-            .expect("ask_person from a DM resolves the workspace peer");
-        assert_eq!(posted.space_id, a_thread);
-        assert_eq!(
-            posted
-                .payload
-                .get("target_member_id")
-                .and_then(Value::as_str),
-            Some(b_member.as_str())
-        );
     }
 
     #[test]
@@ -924,6 +827,81 @@ mod tests {
             .unwrap();
         assert_eq!(resolved.status, "resolved");
         assert!(resolved.reply_message_id.is_none());
+    }
+
+    #[test]
+    fn elicitation_schema_keeps_vibex_questions_for_the_im_card() {
+        let schema = json!({
+            "type": "object",
+            "x-vibex-questions": [{
+                "id": "q1",
+                "header": "方案",
+                "question": "用哪个方案？",
+                "options": [
+                    { "label": "Patch", "description": "小改" },
+                    { "label": "Rewrite", "description": "重写" }
+                ]
+            }]
+        });
+        let questions = questions_from_elicitation_schema(Some(&schema), "fallback");
+        assert_eq!(questions[0]["question"], json!("用哪个方案？"));
+        assert_eq!(questions[0]["options"][0]["label"], json!("Patch"));
+        let synthesized = questions_from_elicitation_schema(None, "Pick one");
+        assert_eq!(synthesized[0]["question"], json!("Pick one"));
+    }
+
+    #[tokio::test]
+    async fn native_elicitation_posts_an_im_card_only_for_seated_members() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let question_id = Uuid::new_v4().to_string();
+        let schema = json!({
+            "type": "object",
+            "x-vibex-questions": [{
+                "question": "用哪个方案？",
+                "header": "方案",
+                "options": [
+                    { "label": "A", "description": "one" },
+                    { "label": "B", "description": "two" }
+                ]
+            }]
+        });
+        let card = post_elicitation_question_if_seated(
+            &pool,
+            a,
+            &question_id,
+            "用哪个方案？",
+            Some(&schema),
+            &d,
+        )
+        .await
+        .unwrap()
+        .expect("seated member gets an IM card");
+        assert_eq!(card.id, question_id);
+        assert_eq!(card.space_id, space);
+        assert_eq!(card.payload["options"], json!(["A", "B"]));
+
+        resolve_elicitation_question_card(&pool, &question_id, "A", &d)
+            .await
+            .unwrap();
+        resolve_elicitation_question_card(&pool, &question_id, "A", &d)
+            .await
+            .expect("already-resolved IM card is ignored");
+
+        let outsider = Uuid::new_v4();
+        assert!(
+            post_elicitation_question_if_seated(
+                &pool,
+                outsider,
+                &Uuid::new_v4().to_string(),
+                "hello",
+                None,
+                &d,
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1068,84 +1046,23 @@ mod tests {
         assert_eq!(err.code, "not_found");
     }
 
-    fn ask_to(caller: Uuid, space: &str, target: &str) -> PostCard {
-        let mut input = ask(caller, space, Uuid::new_v4());
-        input.payload["to"] = json!(target);
-        input
-    }
-
     #[tokio::test]
-    async fn target_member_resolving_ask_succeeds_and_replies_as_that_member() {
-        let (pool, space, a, b, _) = fixture().await;
-        let d = DeliveryContext::default();
-        let card = post_card(&pool, ask_to(a, &space, "小B"), &d)
-            .await
-            .unwrap();
-        assert!(card.payload["target_member_id"].is_string());
-        assert_eq!(card.payload["to"], json!("小B"));
-        let resolved = resolve_card(&pool, &card.id, CardActor::Member(b), None, Some("dev"), &d)
-            .await
-            .unwrap();
-        assert_eq!(resolved.status, "resolved");
-        assert_eq!(resolved.resolution, Some(json!({ "answer": "dev" })));
-        let reply = resolved.reply_message_id.expect("reply posted");
-        let messages = collaboration::list_space_messages(
-            &pool,
-            &space,
-            None,
-            None,
-            collaboration::MessageAudience::User,
-        )
-        .await
-        .unwrap();
-        let reply_msg = messages
-            .iter()
-            .find(|m| m.envelope.to_string().contains(&reply))
-            .expect("reply in stream");
-        assert_eq!(reply_msg.origin, "agent", "reply is posted by the member");
-    }
-
-    #[tokio::test]
-    async fn user_can_resolve_ask_to_member_and_ask_to_user() {
+    async fn user_can_resolve_ask_to_user() {
         let (pool, space, a, _, _) = fixture().await;
         let d = DeliveryContext::default();
-        let to_member = post_card(&pool, ask_to(a, &space, "小B"), &d)
-            .await
-            .unwrap();
         let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
             .await
             .unwrap();
-        for id in [&to_member.id, &to_user.id] {
-            let resolved = resolve_card(&pool, id, CardActor::User, None, Some("ok"), &d)
-                .await
-                .unwrap();
-            assert_eq!(resolved.status, "resolved");
-        }
+        let resolved = resolve_card(&pool, &to_user.id, CardActor::User, None, Some("ok"), &d)
+            .await
+            .unwrap();
+        assert_eq!(resolved.status, "resolved");
     }
 
     #[tokio::test]
-    async fn non_target_member_cannot_resolve_ask() {
-        let (pool, space, a, b, c) = fixture().await;
+    async fn member_cannot_resolve_ask_addressed_to_user() {
+        let (pool, space, a, b, _) = fixture().await;
         let d = DeliveryContext::default();
-        let card = post_card(&pool, ask_to(a, &space, "小B"), &d)
-            .await
-            .unwrap();
-        // the asker itself is not the target
-        let err = resolve_card(&pool, &card.id, CardActor::Member(a), None, Some("x"), &d)
-            .await
-            .unwrap_err();
-        assert_eq!(err.code, "permission_denied");
-        assert!(
-            err.message.contains("asked member or the user"),
-            "{}",
-            err.message
-        );
-        // a non-member is rejected too
-        let err = resolve_card(&pool, &card.id, CardActor::Member(c), None, Some("x"), &d)
-            .await
-            .unwrap_err();
-        assert_eq!(err.code, "permission_denied");
-        // a question asked to the user cannot be answered by a member
         let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
             .await
             .unwrap();
@@ -1161,12 +1078,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.code, "permission_denied");
         assert!(err.message.contains("only the user"), "{}", err.message);
-        for id in [&card.id, &to_user.id] {
-            assert_eq!(
-                load_card(&pool, id).await.unwrap().unwrap().status,
-                "pending"
-            );
-        }
+        assert_eq!(
+            load_card(&pool, &to_user.id).await.unwrap().unwrap().status,
+            "pending"
+        );
     }
 
     #[tokio::test]
@@ -1199,15 +1114,4 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn ask_target_must_be_another_member() {
-        let (pool, space, a, _, _) = fixture().await;
-        let d = DeliveryContext::default();
-        for target in ["nobody", "小A"] {
-            let err = post_card(&pool, ask_to(a, &space, target), &d)
-                .await
-                .unwrap_err();
-            assert_eq!(err.code, "not_a_member");
-        }
-    }
 }

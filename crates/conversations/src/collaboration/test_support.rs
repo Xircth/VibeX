@@ -199,52 +199,6 @@ pub(crate) async fn inputs_of(pool: &SqlitePool, conversation: Uuid) -> Vec<Stri
     .unwrap()
 }
 
-pub(crate) fn envelope(ask: &str) -> HandoffEnvelope {
-    HandoffEnvelope {
-        done: "接口草案已完成".to_string(),
-        inputs_constraints: "只改 auth 模块".to_string(),
-        ask: ask.to_string(),
-    }
-}
-
-pub(crate) async fn hand(
-    pool: &SqlitePool,
-    from: Uuid,
-    space: &str,
-    to: &str,
-    ask: &str,
-) -> Result<HandoffResult, CollaborationError> {
-    handoff(
-        pool,
-        Handoff {
-            caller_id: from,
-            space_id: space.to_string(),
-            to: to.to_string(),
-            envelope: envelope(ask),
-            operation_id: Uuid::new_v4(),
-        },
-    )
-    .await
-}
-
-pub(crate) async fn handoff_team(pool: &SqlitePool) -> (String, Vec<Uuid>) {
-    let workspace = Uuid::new_v4();
-    let names = ["小A", "小B", "小C", "小D"];
-    let mut ids = Vec::new();
-    for name in names {
-        let id = Uuid::new_v4();
-        create_session(pool, id, workspace, Some(name)).await;
-        ids.push(id);
-    }
-    let space = space_of(pool, ids[0]).await;
-    for (id, name) in ids.iter().zip(names).skip(1) {
-        add_space_member(pool, ids[0], &space, *id, name, Uuid::new_v4())
-            .await
-            .unwrap();
-    }
-    (space, ids)
-}
-
 /// Test provisioner: real `git worktree add` per isolated session.
 pub(crate) struct GitWorktreeProvisioner {
     pub(crate) repo: std::path::PathBuf,

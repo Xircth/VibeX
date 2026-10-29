@@ -25,6 +25,19 @@ pub const SESSION_FEAT_ALL: u8 =
 /// Host-injected / native-projected MCP identity for multi-agent delegation.
 pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
 
+/// `--features` for the host delegation companion. Ordinary sessions omit `space`.
+pub const DELEGATION_MCP_FEATURES: &str = "delegation,sessions,collaboration";
+/// Same as [`DELEGATION_MCP_FEATURES`] plus Space-internal tools.
+pub const DELEGATION_MCP_SPACE_FEATURES: &str = "delegation,sessions,collaboration,space";
+
+pub fn delegation_mcp_features(space_session: bool) -> &'static str {
+    if space_session {
+        DELEGATION_MCP_SPACE_FEATURES
+    } else {
+        DELEGATION_MCP_FEATURES
+    }
+}
+
 /// Sentinel binding id for the host MultiAgent setting. Not an official plugin.
 pub const HOST_MULTI_AGENT_ID: &str = "host.multi-agent";
 
@@ -520,31 +533,15 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("list_conversations", "collaboration"),
             tool("send_session_input", "collaboration"),
             tool("create_conversation", "collaboration"),
-            tool("create_role", "collaboration"),
-            tool("update_role", "collaboration"),
-            tool("delete_role", "collaboration"),
-            tool("list_roles", "collaboration"),
-            tool("create_team", "collaboration"),
-            tool("update_team", "collaboration"),
-            tool("delete_team", "collaboration"),
-            tool("list_teams", "collaboration"),
-            tool("list_collaboration_spaces", "collaboration"),
-            tool("list_space_members", "collaboration"),
-            tool("create_collaboration_space", "collaboration"),
-            tool("add_space_member", "collaboration"),
-            tool("set_space_identity", "collaboration"),
-            tool("post_to_space", "collaboration"),
-            tool("handoff", "collaboration"),
+            tool("list_spaces", "collaboration"),
+            tool("read_space_messages", "collaboration"),
+            tool("post_space_message", "collaboration"),
+            tool("manage_bot", "collaboration"),
+            tool("manage_group", "collaboration"),
+            tool("ask_user_question", "collaboration"),
+            tool("request_approval", "collaboration"),
             tool("memory_search", "collaboration"),
             tool("memory_write", "collaboration"),
-            tool("ask_user_question", "collaboration"),
-            tool("ask_person", "collaboration"),
-            tool("request_approval", "collaboration"),
-            tool("resolve_card", "collaboration"),
-            tool("list_space_messages", "collaboration"),
-            tool("list_space_collection", "collaboration"),
-            tool("add_to_space_collection", "collaboration"),
-            tool("read_space_collection_item", "collaboration"),
         ],
         "session" => {
             let mut tools = Vec::new();
@@ -1057,14 +1054,15 @@ mod tests {
         let tools = &report.plugins[0].servers[0].tools;
         assert_eq!(tools, &advertised_mcp_tools("delegation", 0));
         for name in [
-            "list_space_collection",
-            "add_to_space_collection",
-            "read_space_collection_item",
-            "handoff",
-            "ask_person",
+            "list_spaces",
+            "read_space_messages",
+            "post_space_message",
+            "manage_bot",
+            "manage_group",
             "ask_user_question",
             "request_approval",
-            "resolve_card",
+            "memory_search",
+            "memory_write",
         ] {
             assert!(tools.iter().any(|tool| tool.name == name), "{name}");
         }
@@ -1073,6 +1071,13 @@ mod tests {
             "wait_for_session",
             "check_inbox",
             "fetch_inbox",
+            "handoff",
+            "ask_person",
+            "resolve_card",
+            "list_space_collection",
+            "create_role",
+            "post_to_space",
+            "list_collaboration_spaces",
         ] {
             assert!(tools.iter().all(|tool| tool.name != name), "{name}");
         }
@@ -1122,7 +1127,7 @@ mod tests {
             on.plugins[0].servers[0]
                 .tools
                 .iter()
-                .any(|tool| tool.name == "post_to_space"),
+                .any(|tool| tool.name == "post_space_message"),
             "collaboration tools must be listed"
         );
         assert_eq!(on.state, PluginMcpHeadline::Running);

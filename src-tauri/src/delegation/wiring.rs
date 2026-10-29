@@ -77,7 +77,7 @@ pub(crate) fn build_delegation(
     let features = Arc::new(InMemoryCompanionFeatures::new());
     let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
         features.clone(),
-        feature_pool,
+        feature_pool.clone(),
         runtime.clone(),
         conversations::ScopedConversationControl::new(conversation_context),
     ));
@@ -115,6 +115,9 @@ pub(crate) fn build_delegation(
             socket_path: socket_path.clone(),
             official_mcp,
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
+            space_session: server::VibexDelegationInjector::space_session_lookup(
+                feature_pool.clone(),
+            ),
         },
     ));
 
@@ -145,6 +148,7 @@ pub(crate) fn build_delegation(
 
 pub(crate) struct RuntimeConversationLookup {
     pub runtime: Arc<AgentRuntime>,
+    pub pool: SqlitePool,
 }
 
 #[async_trait::async_trait]
@@ -163,6 +167,12 @@ impl server::ProductMcpSessionLookup for RuntimeConversationLookup {
             connection.id.0.to_string(),
             PathBuf::from(&connection.working_dir),
         ))
+    }
+
+    async fn is_space_session(&self, conversation_id: uuid::Uuid) -> bool {
+        conversations::collaboration::conversation_is_space_session(&self.pool, conversation_id)
+            .await
+            .unwrap_or(false)
     }
 }
 

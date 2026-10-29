@@ -253,7 +253,7 @@ describe('StatusBarMcp', () => {
                 id: 'vibex-delegation-mcp',
                 product: 'delegation',
                 tools: [
-                  { name: 'post_to_space', group: 'collaboration' },
+                  { name: 'post_space_message', group: 'collaboration' },
                   { name: 'delegate_to_agent', group: 'delegation' },
                 ],
               },
@@ -270,8 +270,8 @@ describe('StatusBarMcp', () => {
     ).toHaveTextContent('运行中');
 
     fireEvent.click(screen.getByRole('button', { name: '协作空间' }));
-    expect(await screen.findByText('发到协作空间')).toBeInTheDocument();
-    expect(screen.getByText('post_to_space')).toBeInTheDocument();
+    expect(await screen.findByText('投递空间消息')).toBeInTheDocument();
+    expect(screen.getByText('post_space_message')).toBeInTheDocument();
     expect(screen.getByTestId('mcp-plugin-tools')).toHaveClass(
       'max-h-64',
       'overflow-y-auto'

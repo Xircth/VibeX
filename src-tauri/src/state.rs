@@ -173,6 +173,7 @@ impl AppState {
         collaboration_host.install_session_warmup(std::sync::Arc::new(
             conversations::ConversationSessionWarmup::new(conversation_context.clone()),
         ));
+        let gateway_pool = pool.clone();
         let delegation = crate::delegation::build_delegation(
             agent_runtime.clone(),
             pool,
@@ -187,6 +188,7 @@ impl AppState {
             plugin_control_plane.official_product_mcp_gate(),
             Arc::new(crate::delegation::RuntimeConversationLookup {
                 runtime: agent_runtime.clone(),
+                pool: gateway_pool,
             }),
         )
         .await

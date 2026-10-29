@@ -17,6 +17,7 @@ use uuid::Uuid;
 #[async_trait::async_trait]
 pub trait ProductMcpSessionLookup: Send + Sync {
     async fn resolve(&self, conversation_id: Uuid) -> Option<(String, PathBuf)>;
+    async fn is_space_session(&self, conversation_id: Uuid) -> bool;
 }
 
 #[derive(Clone)]
@@ -90,11 +91,13 @@ async fn companion(
                 ..TokenPermissions::default()
             }
         } else {
+            let space_session = state.sessions.is_space_session(conversation_id).await;
             TokenPermissions {
                 delegation: true,
                 session_info: true,
                 workspace_write: true,
                 collaboration: true,
+                space_session,
                 ..TokenPermissions::default()
             }
         };

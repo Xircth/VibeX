@@ -39,7 +39,126 @@ impl ResolvedTarget {
 
 pub(crate) fn is_user_target_name(raw: &str) -> bool {
     let trimmed = raw.trim().trim_start_matches('@').trim();
-    trimmed.eq_ignore_ascii_case("user") || trimmed == "你" || trimmed == "用户"
+    trimmed.eq_ignore_ascii_case("user")
+        || trimmed.eq_ignore_ascii_case("person")
+        || trimmed == "你"
+        || trimmed == "用户"
+}
+
+pub(crate) fn is_pass_token(text: &str) -> bool {
+    text.trim().eq_ignore_ascii_case("[PASS]")
+}
+
+pub(crate) fn is_bot_space(space_id: &str) -> bool {
+    space_id.starts_with(identity::DIRECT_PREFIX)
+}
+
+pub(crate) fn is_group_space(space_id: &str) -> bool {
+    !is_bot_space(space_id) && parse_unassigned_space_id(space_id).is_none()
+}
+
+/// True when `raw` names the human Person, including legacy `User` / URI forms.
+pub(crate) fn is_person_ref(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    is_user_target_name(trimmed) || trimmed.ends_with("/user")
+}
+
+pub(crate) fn actor_display_name(raw: &str) -> String {
+    if is_person_ref(raw) {
+        return "Person".to_string();
+    }
+    if let Some(nick) = raw.rsplit("/member/").next().filter(|value| *value != raw) {
+        return nick.to_string();
+    }
+    raw.trim().trim_start_matches('@').to_string()
+}
+
+pub(crate) fn recipient_display_name(raw: &str) -> String {
+    format!("@{}", actor_display_name(raw))
+}
+
+/// Strip a leading `BotName:` / `BotName：` / `@BotName` prefix when the bot
+/// restates its own nickname at the start of a space reply.
+pub(crate) fn strip_own_nickname_prefix(text: &str, nickname: &str) -> String {
+    let nick = nickname.trim();
+    if nick.is_empty() {
+        return text.trim().to_string();
+    }
+    let trimmed = text.trim_start();
+    let at_prefix = format!("@{nick}");
+    if let Some(rest) = trimmed.strip_prefix(at_prefix.as_str()) {
+        let after = rest.chars().next();
+        if is_valid_mention_boundary(nick, after) {
+            let rest = rest.trim_start_matches([' ', '\t']);
+            let rest = rest
+                .strip_prefix(':')
+                .or_else(|| rest.strip_prefix('：'))
+                .unwrap_or(rest);
+            return rest.trim().to_string();
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix(nick) {
+        let rest = rest.trim_start_matches([' ', '\t']);
+        if let Some(rest) = rest.strip_prefix(':').or_else(|| rest.strip_prefix('：')) {
+            return rest.trim().to_string();
+        }
+    }
+    text.trim().to_string()
+}
+
+fn first_mention_index(content: &str, name: &str) -> Option<usize> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let needle = format!("@{name}");
+    for (idx, _) in content.match_indices(&needle) {
+        if idx > 0 {
+            let prev = content[..idx].chars().last();
+            if prev.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '@') {
+                continue;
+            }
+        }
+        let after = content[idx + needle.len()..].chars().next();
+        if is_valid_mention_boundary(name, after) {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+/// Other active Bots in this GroupSpace mentioned with `@Nickname`, excluding
+/// the sender. Order follows first appearance in `content`.
+pub(crate) fn mentioned_local_bot_nicknames(
+    content: &str,
+    members: &[MemberRecord],
+    sender: Option<Uuid>,
+) -> Vec<String> {
+    let mut hits: Vec<(usize, String)> = Vec::new();
+    for member in members {
+        if member.kind == "user" {
+            continue;
+        }
+        let conversation_id = member
+            .conversation_id
+            .as_deref()
+            .and_then(|id| Uuid::parse_str(id).ok());
+        if conversation_id == sender {
+            continue;
+        }
+        let Some(idx) = first_mention_index(content, &member.nickname) else {
+            continue;
+        };
+        if hits.iter().any(|(_, nick)| nick == &member.nickname) {
+            continue;
+        }
+        hits.push((idx, member.nickname.clone()));
+    }
+    hits.sort_by_key(|(idx, _)| *idx);
+    hits.into_iter().map(|(_, nick)| nick).collect()
 }
 
 pub fn is_broadcast_target_name(raw: &str) -> bool {
@@ -100,6 +219,8 @@ pub fn clean_space_display_text(content: &str, member_nicknames: &[String]) -> S
     for builtin in [
         "User",
         "user",
+        "Person",
+        "person",
         "你",
         "用户",
         "所有人",
@@ -224,7 +345,7 @@ pub(crate) async fn resolve_seat_targets(
             }
         }
         if sender.is_some()
-            && ["User", "user", "你", "用户"]
+            && ["User", "user", "Person", "person", "你", "用户"]
                 .iter()
                 .any(|alias| contains_mention_token(content, alias))
         {
@@ -248,13 +369,11 @@ pub(crate) async fn resolve_seat_targets(
             }
             if let Some(group) =
                 workspace_group_mentioned(pool, workspace_id, space_id, content).await?
-            {
-                if !mentioned
+                && !mentioned
                     .iter()
                     .any(|existing| existing.dest_thread_id.as_deref() == Some(group.as_str()))
-                {
-                    mentioned.extend(workspace_group_targets(pool, &group).await?);
-                }
+            {
+                mentioned.extend(workspace_group_targets(pool, &group).await?);
             }
         }
         if !mentioned.is_empty() {
@@ -347,7 +466,7 @@ fn member_as_target(member: &MemberRecord) -> Option<ResolvedTarget> {
     ))
 }
 
-async fn workspace_direct_peers(
+pub(crate) async fn workspace_direct_peers(
     pool: &SqlitePool,
     workspace_id: Uuid,
 ) -> Result<Vec<ResolvedTarget>, CollaborationError> {
@@ -824,6 +943,8 @@ pub async fn sweep_expired_turns(pool: &SqlitePool) -> Result<u64, Collaboration
 /// ([`redeliver_deferred`]), and prunes expired space events
 /// ([`sweep_expired_space_events`]).
 pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
+    let grace_pool = pool.clone();
+    let grace_delivery = delivery.clone();
     tokio::spawn(async move {
         loop {
             let minutes = idle_sleep_minutes();
@@ -842,6 +963,14 @@ pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     });
+    tokio::spawn(async move {
+        loop {
+            if let Err(error) = sweep_round_grace_detach(&grace_pool, &grace_delivery).await {
+                tracing::warn!(%error, "round grace detach sweep failed");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
 }
 
 /// Ledger key of the turn that produced `message_id`: the sender's active
@@ -851,11 +980,7 @@ pub(crate) async fn wake_turn_key(
     message_id: &str,
     envelope: &Value,
 ) -> Result<String, CollaborationError> {
-    let sender = envelope
-        .get("attributedTo")
-        .and_then(Value::as_str)
-        .and_then(|uri| uri.rsplit('/').next())
-        .and_then(|raw| Uuid::parse_str(raw).ok());
+    let sender = parse_space_envelope(envelope).conversation_id;
     if let Some(sender) = sender {
         let turn: Option<Option<Uuid>> =
             sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
@@ -1545,5 +1670,75 @@ mod tests {
         assert_eq!(in_flight, 0);
         let next = post_as(&pool, None, &space, "@小B 下一条", &[]).await;
         assert!(next.receipts[0].input_id.is_some());
+    }
+
+    fn bot(nickname: &str, conversation_id: Uuid) -> MemberRecord {
+        MemberRecord {
+            member_id: conversation_id.to_string(),
+            conversation_id: Some(conversation_id.to_string()),
+            nickname: nickname.to_string(),
+            kind: "agent".to_string(),
+            visible_to_agents: 1,
+        }
+    }
+
+    #[test]
+    fn pass_token_ignores_case_and_surrounding_whitespace() {
+        assert!(is_pass_token("[PASS]"));
+        assert!(is_pass_token("  [pass]  "));
+        assert!(is_pass_token("[Pass]"));
+        assert!(!is_pass_token("[PASS] 还有一句"));
+        assert!(!is_pass_token("好的"));
+    }
+
+    #[test]
+    fn strips_own_nickname_colon_and_at_prefixes() {
+        assert_eq!(
+            strip_own_nickname_prefix("小A: 鉴权已完成", "小A"),
+            "鉴权已完成"
+        );
+        assert_eq!(
+            strip_own_nickname_prefix("小A：鉴权已完成", "小A"),
+            "鉴权已完成"
+        );
+        assert_eq!(
+            strip_own_nickname_prefix("@小A 请看登录", "小A"),
+            "请看登录"
+        );
+        assert_eq!(
+            strip_own_nickname_prefix("@小A: @小B 请接", "小A"),
+            "@小B 请接"
+        );
+        assert_eq!(
+            strip_own_nickname_prefix("@小B 请看登录", "小A"),
+            "@小B 请看登录"
+        );
+        assert_eq!(strip_own_nickname_prefix("小A做完了", "小A"), "小A做完了");
+    }
+
+    #[test]
+    fn mentioned_local_bots_follow_appearance_and_skip_self() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let c = Uuid::from_u128(3);
+        let members = vec![bot("小A", a), bot("小B", b), bot("小C", c)];
+        assert_eq!(
+            mentioned_local_bot_nicknames("@小C 先看，@小B 再核", &members, Some(a)),
+            vec!["小C".to_string(), "小B".to_string()]
+        );
+        assert!(mentioned_local_bot_nicknames("鉴权已完成", &members, Some(a)).is_empty());
+        assert!(mentioned_local_bot_nicknames("@小A 自言自语", &members, Some(a)).is_empty());
+    }
+
+    #[test]
+    fn person_refs_include_user_person_and_legacy_uris() {
+        assert!(is_person_ref("User"));
+        assert!(is_person_ref("Person"));
+        assert!(is_person_ref("@你"));
+        assert!(is_person_ref("vibex://space/demo/user"));
+        assert!(!is_person_ref("小A"));
+        assert_eq!(actor_display_name("User"), "Person");
+        assert_eq!(actor_display_name("vibex://space/demo/member/小A"), "小A");
+        assert_eq!(recipient_display_name("User"), "@Person");
     }
 }

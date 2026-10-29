@@ -1496,64 +1496,94 @@ pub fn project_plugin_skills(
 }
 
 pub const HOST_MULTI_AGENT_PLUGIN_ID: &str = "host.multi-agent";
-pub const HOST_MULTI_AGENT_SKILL_ID: &str = "vibex-multi-agent";
+pub const HOST_MULTI_AGENT_SKILL_ID: &str = "vibex-bot";
+const LEGACY_MULTI_AGENT_SKILL_ID: &str = "vibex-multi-agent";
 
-/// Project or remove the host MultiAgent skill. Only new sessions pick it up.
+const HOST_BOT_SKILL_FILES: &[(&str, &str)] = &[
+    ("SKILL.md", include_str!("skills/vibex-bot/SKILL.md")),
+    (
+        "SPACE-RULES.md",
+        include_str!("skills/vibex-bot/SPACE-RULES.md"),
+    ),
+    ("MEMORY.md", include_str!("skills/vibex-bot/MEMORY.md")),
+];
+
+/// `$VIBEX_HOME` when set, otherwise `~/.vibex`.
+fn vibex_home_dir() -> PathBuf {
+    if let Ok(value) = std::env::var("VIBEX_HOME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".vibex")
+}
+
+/// Absolute path of the host Bot skill: `~/.vibex/skills/vibex-bot`
+/// (`$VIBEX_HOME/skills/vibex-bot` when `VIBEX_HOME` is set).
+///
+/// Session layer should point Space hidden sessions at this directory on
+/// demand. Ordinary non-Space sessions must not load it from Agent CLI
+/// global skill directories.
+pub fn vibex_bot_skill_dir() -> PathBuf {
+    let dir = vibex_home_dir()
+        .join("skills")
+        .join(HOST_MULTI_AGENT_SKILL_ID);
+    if dir.is_absolute() {
+        return dir;
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(&dir))
+        .unwrap_or(dir)
+}
+
+fn host_multi_agent_projection_skill_ids() -> [String; 2] {
+    [
+        LEGACY_MULTI_AGENT_SKILL_ID.to_owned(),
+        HOST_MULTI_AGENT_SKILL_ID.to_owned(),
+    ]
+}
+
+/// Install or remove the host Bot skill.
+///
+/// The skill is written only to [`vibex_bot_skill_dir`]. Leftover projections
+/// of `vibex-multi-agent` and `vibex-bot` in Agent CLI global skill dirs are
+/// always cleaned first so ordinary sessions do not keep loading them.
 pub fn sync_host_multi_agent_skill(enabled: bool) -> Result<(), SkillError> {
-    sync_host_multi_agent_skill_with_layout(enabled, &system_skill_hosting_layout())
+    sync_host_multi_agent_skill_with_layout(
+        enabled,
+        &system_skill_hosting_layout(),
+        &vibex_bot_skill_dir(),
+    )
 }
 
 fn sync_host_multi_agent_skill_with_layout(
     enabled: bool,
     layout: &SkillHostingLayout,
+    dest: &Path,
 ) -> Result<(), SkillError> {
+    remove_plugin_skill_projections_with_layout(
+        HOST_MULTI_AGENT_PLUGIN_ID,
+        &host_multi_agent_projection_skill_ids(),
+        layout,
+    )?;
     if !enabled {
-        return remove_plugin_skill_projections_with_layout(
-            HOST_MULTI_AGENT_PLUGIN_ID,
-            &[HOST_MULTI_AGENT_SKILL_ID.to_owned()],
-            layout,
-        );
+        return remove_if_exists(dest);
     }
-    const HOST_MULTI_AGENT_SKILL_FILES: &[(&str, &str)] = &[
-        (
-            "SKILL.md",
-            include_str!("skills/vibex-multi-agent/SKILL.md"),
-        ),
-        (
-            "COLLABORATION-SPACE.md",
-            include_str!("skills/vibex-multi-agent/COLLABORATION-SPACE.md"),
-        ),
-        (
-            "SESSION-AND-DELEGATION.md",
-            include_str!("skills/vibex-multi-agent/SESSION-AND-DELEGATION.md"),
-        ),
-        (
-            "MEMORY.md",
-            include_str!("skills/vibex-multi-agent/MEMORY.md"),
-        ),
-    ];
-    // Projection accepts the SKILL.md file and copies its parent directory.
-    let skill_dir = std::env::temp_dir().join("vibex-host-multi-agent-skill");
-    remove_if_exists(&skill_dir)?;
-    std::fs::create_dir_all(&skill_dir)?;
-    for (relative_path, contents) in HOST_MULTI_AGENT_SKILL_FILES {
-        let file_path = skill_dir.join(relative_path);
+    remove_if_exists(dest)?;
+    std::fs::create_dir_all(dest)
+        .map_err(|error| SkillError::Other(format!("创建 {} 失败: {error}", display_path(dest))))?;
+    for (relative_path, contents) in HOST_BOT_SKILL_FILES {
+        let file_path = dest.join(relative_path);
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&file_path, contents)?;
+        std::fs::write(&file_path, contents).map_err(|error| {
+            SkillError::Other(format!("写入 {} 失败: {error}", display_path(&file_path)))
+        })?;
     }
-    let skill_file = skill_dir.join("SKILL.md");
-    let agents = AgentKind::built_in_bar_order()
-        .map(|kind| kind.as_str().to_owned())
-        .collect::<BTreeSet<_>>();
-    project_plugin_skills_with_layout(
-        HOST_MULTI_AGENT_PLUGIN_ID,
-        &[(HOST_MULTI_AGENT_SKILL_ID.to_owned(), skill_file)],
-        &agents,
-        false,
-        layout,
-    )?;
     Ok(())
 }
 
@@ -2320,32 +2350,81 @@ mod tests {
         );
     }
 
+    fn plant_owned_host_skill(agent_dir: &Path, skill_id: &str) {
+        let skill = agent_dir.join(skill_id);
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "stale projection").unwrap();
+        std::fs::write(
+            skill.join(".vibex-plugin-owner"),
+            HOST_MULTI_AGENT_PLUGIN_ID,
+        )
+        .unwrap();
+    }
+
     #[test]
-    fn host_multi_agent_skill_projects_from_the_skill_file() {
+    fn host_bot_skill_is_written_only_under_vibex_home() {
         let temp = tempfile::tempdir().unwrap();
+        let codex = temp.path().join("codex");
         let layout = SkillHostingLayout {
             store: temp.path().join("store"),
-            agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
+            agent_dirs: BTreeMap::from([("codex".to_string(), codex.clone())]),
         };
+        plant_owned_host_skill(&codex, LEGACY_MULTI_AGENT_SKILL_ID);
+        plant_owned_host_skill(&codex, HOST_MULTI_AGENT_SKILL_ID);
+        let plugin_store = temp
+            .path()
+            .join("store/.plugins")
+            .join(HOST_MULTI_AGENT_PLUGIN_ID)
+            .join(LEGACY_MULTI_AGENT_SKILL_ID);
+        std::fs::create_dir_all(&plugin_store).unwrap();
+        std::fs::write(plugin_store.join("SKILL.md"), "stale store").unwrap();
 
-        sync_host_multi_agent_skill_with_layout(true, &layout).unwrap();
+        let dest = temp.path().join("vibex-home/skills/vibex-bot");
+        sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
 
-        let projected = temp.path().join("codex/vibex-multi-agent/SKILL.md");
-        assert!(projected.is_file());
+        assert!(dest.join("SKILL.md").is_file());
+        assert!(dest.join("SPACE-RULES.md").is_file());
+        assert!(dest.join("MEMORY.md").is_file());
         assert!(
-            std::fs::read_to_string(projected)
+            std::fs::read_to_string(dest.join("SKILL.md"))
                 .unwrap()
-                .contains("name:")
+                .contains("name: vibex-bot")
+        );
+        assert!(!dest.join("COLLABORATION-SPACE.md").exists());
+        assert!(!dest.join("SESSION-AND-DELEGATION.md").exists());
+        assert!(
+            !codex.join(LEGACY_MULTI_AGENT_SKILL_ID).exists(),
+            "legacy Agent CLI projections must be removed"
         );
         assert!(
-            temp.path()
-                .join("codex/vibex-multi-agent/COLLABORATION-SPACE.md")
-                .is_file()
+            !codex.join(HOST_MULTI_AGENT_SKILL_ID).exists(),
+            "vibex-bot must not be projected into Agent CLI skill dirs"
         );
         assert!(
-            temp.path()
-                .join("codex/vibex-multi-agent/SESSION-AND-DELEGATION.md")
-                .is_file()
+            !temp
+                .path()
+                .join("store/.plugins")
+                .join(HOST_MULTI_AGENT_PLUGIN_ID)
+                .exists()
+        );
+
+        sync_host_multi_agent_skill_with_layout(false, &layout, &dest).unwrap();
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn vibex_bot_skill_dir_is_under_vibex_home_skills() {
+        let dir = vibex_bot_skill_dir();
+        assert!(dir.is_absolute());
+        assert_eq!(
+            dir.file_name().and_then(|name| name.to_str()),
+            Some(HOST_MULTI_AGENT_SKILL_ID)
+        );
+        assert_eq!(
+            dir.parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|name| name.to_str()),
+            Some("skills")
         );
     }
 
@@ -2687,10 +2766,11 @@ mod tests {
     }
 
     #[test]
-    fn multi_agent_skill_states_progress_lead_and_no_repeat_as_principles() {
-        let skill = include_str!("skills/vibex-multi-agent/SKILL.md");
-        let playbook = include_str!("skills/vibex-multi-agent/COLLABORATION-SPACE.md");
-        for body in [skill, playbook] {
+    fn vibex_bot_skill_states_space_protocol_and_core_tools() {
+        let skill = include_str!("skills/vibex-bot/SKILL.md");
+        let playbook = include_str!("skills/vibex-bot/SPACE-RULES.md");
+        let memory = include_str!("skills/vibex-bot/MEMORY.md");
+        for body in [skill, playbook, memory] {
             assert!(
                 !body.contains("我正在查看项目中"),
                 "progress examples must stay out of skill text"
@@ -2699,20 +2779,47 @@ mod tests {
                 !body.contains("我已经查看了项目的完整架构"),
                 "progress examples must stay out of skill text"
             );
-            assert!(
-                body.contains("正在做的事") || body.contains("正在做什么"),
-                "{body}"
-            );
-            assert!(
-                body.contains("不重复") || body.contains("已说过"),
-                "missing no-repeat principle"
-            );
-            assert!(body.contains("负责人"), "missing space-lead principle");
+            assert!(body.contains("Person"), "missing Person term");
+            assert!(body.contains("BotSpace"), "missing BotSpace term");
+            assert!(body.contains("GroupSpace"), "missing GroupSpace term");
         }
+        for body in [skill, playbook] {
+            assert!(body.contains("[PASS]"), "missing silent-pass token");
+            assert!(body.contains("@BotName"), "missing GroupSpace @ addressing");
+            assert!(
+                body.contains("post_space_message"),
+                "missing cross-space post tool"
+            );
+            assert!(
+                body.contains("【已完成】")
+                    && body.contains("【上下文与约束】")
+                    && body.contains("【待办与闭环要求】"),
+                "missing three-part handoff structure"
+            );
+        }
+        assert!(playbook.contains("~/.vibex/spaces/<space_id>/collection/"));
+        assert!(playbook.contains("space_id") && playbook.contains("session_id"));
+        assert!(playbook.contains("负责人"), "missing group lead role");
+        assert!(playbook.contains("叫你的人"), "missing asker-replies rule");
         assert!(
-            skill.contains("lead_nickname") || playbook.contains("lead_nickname"),
-            "bots must be told how to discover the lead"
+            playbook.contains("像同事发消息"),
+            "missing everyday speech register"
         );
+        assert!(memory.contains("private"));
+        for tool in [
+            "list_spaces",
+            "read_space_messages",
+            "post_space_message",
+            "manage_bot",
+            "manage_group",
+            "ask_user_question",
+            "request_approval",
+            "memory_search",
+            "memory_write",
+            "delegate_to_agent",
+        ] {
+            assert!(skill.contains(tool), "missing tool {tool}");
+        }
     }
 
     #[test]

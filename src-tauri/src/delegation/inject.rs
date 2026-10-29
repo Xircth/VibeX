@@ -64,6 +64,7 @@ mod tests {
                 ("session", SESSION_FEAT_ALL),
             ]),
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -82,6 +83,48 @@ mod tests {
     }
 
     #[test]
+    fn space_hidden_session_gets_space_feature_bit() {
+        let conversation_id = Uuid::new_v4();
+        let tokens = Arc::new(TokenRegistry::new());
+        let injector = VibexDelegationInjector {
+            tokens: tokens.clone(),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+            locate_binary: test_locate,
+            space_session: Arc::new(move |id| id == conversation_id),
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        let context = CompanionInjectionContext {
+            parent_connection_id: "parent-1",
+            parent_conversation_id: conversation_id,
+            agent_id: &agent,
+            working_root: Path::new("/workspace"),
+            capabilities: CompanionCapabilities {
+                accepts_session_mcp_servers: true,
+            },
+        };
+        let CompanionInjectionList::Injected(servers) = injector.injected_stdio_servers(context)
+        else {
+            panic!("expected injection");
+        };
+        assert!(
+            servers[0].args.windows(2).any(|window| {
+                window == ["--features", "delegation,sessions,collaboration,space"]
+            })
+        );
+        let token = servers[0]
+            .args
+            .windows(2)
+            .find(|window| window[0] == "--token")
+            .map(|window| window[1])
+            .expect("token arg");
+        assert_eq!(
+            tokens.permissions(token).map(|permissions| permissions.space_session),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn session_plugin_can_inject_without_delegation() {
         let tokens = Arc::new(TokenRegistry::new());
         let official_mcp = gate(&[("session", SESSION_FEAT_ASK)]);
@@ -90,6 +133,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp,
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -114,6 +158,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: Arc::new(OfficialMcpRuntime::default()),
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
@@ -131,6 +176,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("grok").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -148,6 +194,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("claude_code").unwrap();
         assert_eq!(
@@ -165,6 +212,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: |_| None,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
@@ -182,6 +230,7 @@ mod tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
+            space_session: Arc::new(|_| false),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =

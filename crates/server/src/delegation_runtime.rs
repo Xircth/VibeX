@@ -81,6 +81,7 @@ impl HeadlessDelegationRuntime {
             socket_path: socket_path.clone(),
             official_mcp: official_mcp.clone(),
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
+            space_session: VibexDelegationInjector::space_session_lookup(pool.clone()),
         }));
         let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
             features.clone(),
@@ -129,6 +130,7 @@ impl HeadlessDelegationRuntime {
                 gateway_gate,
                 Arc::new(RuntimeConversationLookup {
                     runtime: gateway_runtime,
+                    pool: pool.clone(),
                 }),
             )
             .await;
@@ -168,6 +170,7 @@ impl Drop for HeadlessDelegationRuntime {
 
 struct RuntimeConversationLookup {
     runtime: Arc<AgentRuntime>,
+    pool: SqlitePool,
 }
 
 #[async_trait]
@@ -186,6 +189,12 @@ impl crate::ProductMcpSessionLookup for RuntimeConversationLookup {
             connection.id.0.to_string(),
             PathBuf::from(&connection.working_dir),
         ))
+    }
+
+    async fn is_space_session(&self, conversation_id: Uuid) -> bool {
+        conversations::collaboration::conversation_is_space_session(&self.pool, conversation_id)
+            .await
+            .unwrap_or(false)
     }
 }
 
@@ -463,12 +472,21 @@ impl DelegationMetaWriter for NoopMetaWriter {
     }
 }
 
-#[derive(Debug)]
 pub struct VibexDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub official_mcp: Arc<OfficialMcpRuntime>,
     pub locate_binary: fn(&str) -> Option<PathBuf>,
+    pub space_session: Arc<dyn Fn(Uuid) -> bool + Send + Sync>,
+}
+
+impl std::fmt::Debug for VibexDelegationInjector {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VibexDelegationInjector")
+            .field("socket_path", &self.socket_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl DelegationInjector for VibexDelegationInjector {
@@ -499,23 +517,27 @@ impl DelegationInjector for VibexDelegationInjector {
         let mut missing_binary = false;
         for binding in self.official_mcp.bindings() {
             match binding.product.as_str() {
-                "delegation" => match self.product_server(
-                    context,
-                    "vibex-delegation-mcp",
-                    "vibex-mcp",
-                    "delegation,sessions,collaboration",
-                    TokenPermissions {
-                        delegation: true,
-                        session_info: true,
-                        workspace_write: true,
-                        collaboration: true,
-                        ..TokenPermissions::default()
-                    },
-                    "delegation",
-                ) {
-                    Some(server) => servers.push(server),
-                    None => missing_binary = true,
-                },
+                "delegation" => {
+                    let space = (self.space_session)(context.parent_conversation_id);
+                    match self.product_server(
+                        context,
+                        "vibex-delegation-mcp",
+                        "vibex-mcp",
+                        plugins::delegation_mcp_features(space),
+                        TokenPermissions {
+                            delegation: true,
+                            session_info: true,
+                            workspace_write: true,
+                            collaboration: true,
+                            space_session: space,
+                            ..TokenPermissions::default()
+                        },
+                        "delegation",
+                    ) {
+                        Some(server) => servers.push(server),
+                        None => missing_binary = true,
+                    }
+                }
                 "session" => {
                     let bits = binding.features;
                     let features = plugins::session_feature_arg(bits);
@@ -658,6 +680,19 @@ impl DelegationInjector for VibexDelegationInjector {
 }
 
 impl VibexDelegationInjector {
+    pub fn space_session_lookup(pool: SqlitePool) -> Arc<dyn Fn(Uuid) -> bool + Send + Sync> {
+        let handle = tokio::runtime::Handle::current();
+        Arc::new(move |conversation_id| {
+            tokio::task::block_in_place(|| {
+                handle.block_on(conversations::collaboration::conversation_is_space_session(
+                    &pool,
+                    conversation_id,
+                ))
+            })
+            .unwrap_or(false)
+        })
+    }
+
     fn product_server(
         &self,
         context: CompanionInjectionContext<'_>,
@@ -850,6 +885,7 @@ mod official_mcp_tests {
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate.clone(),
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
+            space_session: Arc::new(|_| false),
         };
         let agent_id = AgentId::parse("vendor.capable-agent").unwrap();
         let context = CompanionInjectionContext {

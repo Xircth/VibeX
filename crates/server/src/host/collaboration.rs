@@ -6,7 +6,10 @@
 
 use std::sync::Arc;
 
-use agents::{AgentId, runtime::AgentRuntime};
+use agents::{
+    AgentElicitationId, AgentElicitationResponse, AgentId, AgentSessionId,
+    runtime::{AgentRuntime, RespondAgentElicitationInput},
+};
 use async_trait::async_trait;
 use conversations::{
     collaboration::{
@@ -867,14 +870,30 @@ impl HostCollaborationHost {
     }
 
     async fn list_members(&self, input: &Value) -> Result<Value, CollaborationHostError> {
-        let members = collaboration::list_space_members(
-            &self.pool,
-            &required_text(input, &["spaceId", "space_id"])?,
-            MessageAudience::User,
-        )
-        .await
-        .map_err(host_error)?;
-        Ok(json!({ "members": members }))
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let members =
+            collaboration::list_space_members(&self.pool, &space_id, MessageAudience::User)
+                .await
+                .map_err(host_error)?;
+        // Seats are per-space projections; the bot identity is what owns the
+        // name/avatar and is stable across DM and group seats.
+        let mut listed = Vec::with_capacity(members.len());
+        for member in members {
+            let identity_member_id = collaboration::identity_member_id_for_conversation(
+                &self.pool,
+                member.conversation_id.as_deref(),
+            )
+            .await
+            .map_err(host_error)?;
+            let mut value = serde_json::to_value(&member).map_err(|error| {
+                CollaborationHostError::new("conversation_control_failed", error.to_string())
+            })?;
+            if let Some(object) = value.as_object_mut() {
+                object.insert("identity_member_id".into(), json!(identity_member_id));
+            }
+            listed.push(value);
+        }
+        Ok(json!({ "members": listed }))
     }
 
     async fn list_messages(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -1291,11 +1310,10 @@ impl HostCollaborationHost {
         .map_err(host_error)?;
         self.emit_space_changed(&card.space_id, card.member_id.as_deref())
             .await;
-        if card
+        if let Some(question_id) = card
             .payload
             .get("question_id")
             .and_then(Value::as_str)
-            .is_some()
             && let Ok(from) = Uuid::parse_str(&card.from_conversation_id)
         {
             let companion_answer = if declined {
@@ -1311,7 +1329,24 @@ impl HostCollaborationHost {
             let memory = self.companion.lock().expect("companion").clone();
             if let Some(memory) = memory {
                 let _ = memory
-                    .answer_question(&card.id, from, companion_answer)
+                    .answer_question(&card.id, from, companion_answer.clone())
+                    .await;
+            }
+            if let Some(runtime) = &self.runtime
+                && let Ok(elicitation_id) = Uuid::parse_str(question_id)
+                && let Some(connection_id) = runtime
+                    .live_connection_id(AgentSessionId::from(from))
+                    .await
+            {
+                let _ = runtime
+                    .respond_elicitation(RespondAgentElicitationInput {
+                        connection_id,
+                        elicitation_id: AgentElicitationId::from(elicitation_id),
+                        response: elicitation_response_from_card_answer(
+                            declined,
+                            &companion_answer,
+                        ),
+                    })
                     .await;
             }
         }
@@ -1714,6 +1749,21 @@ impl HostCollaborationHost {
             "config_options": config_options,
         }))
     }
+}
+
+fn elicitation_response_from_card_answer(
+    declined: bool,
+    companion_answer: &Value,
+) -> AgentElicitationResponse {
+    if declined {
+        return AgentElicitationResponse::Decline;
+    }
+    let content = if companion_answer.is_array() {
+        json!({ "answers": companion_answer })
+    } else {
+        companion_answer.clone()
+    };
+    AgentElicitationResponse::Accept { content }
 }
 
 fn host_error(error: collaboration::CollaborationError) -> CollaborationHostError {
@@ -3069,6 +3119,21 @@ mod tests {
         assert_eq!(answered[0]["labels"][0], json!("A"));
     }
 
+    #[test]
+    fn card_answers_become_elicitation_content() {
+        let answers = json!([{ "questionId": "q1", "labels": ["A"] }]);
+        assert_eq!(
+            elicitation_response_from_card_answer(false, &answers),
+            AgentElicitationResponse::Accept {
+                content: json!({ "answers": answers }),
+            }
+        );
+        assert_eq!(
+            elicitation_response_from_card_answer(true, &answers),
+            AgentElicitationResponse::Decline
+        );
+    }
+
     #[tokio::test]
     async fn compat_ask_person_without_to_is_addressed_to_user() {
         let (pool, host, space, a) = card_fixture().await;
@@ -3255,6 +3320,19 @@ mod tests {
         .await;
         let group_session = in_group["conversationId"].as_str().unwrap().to_string();
         assert_ne!(group_session, conversation);
+
+        // The joined seat still resolves to the bot identity, so the UI can
+        // keep showing the identity's name/avatar instead of the hidden
+        // per-thread conversation.
+        let listed = call(&host, "space.listMembers", json!({ "spaceId": space })).await;
+        let seat = listed["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["conversation_id"] == json!(group_session))
+            .expect("joined seat");
+        assert_eq!(seat["nickname"], json!("Alice"));
+        assert_eq!(seat["identity_member_id"], json!(identity));
 
         let sidebar = call(
             &host,

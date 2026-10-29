@@ -628,7 +628,7 @@ pub async fn memory_context_text(
         }
     }
     lines.push(
-        "- 记忆工具：`memory_search` 查找更多记忆，`memory_write` 记录值得长期保留的事实（见 `vibex-multi-agent` Skill 的 `MEMORY.md`）。".to_string(),
+        "- 记忆工具：`memory_search` 查找更多记忆，`memory_write` 记录值得长期保留的事实（见 `vibex-bot` Skill 的 `MEMORY.md`）。".to_string(),
     );
     Ok(Some(lines.join("\n")))
 }

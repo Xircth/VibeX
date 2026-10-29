@@ -2336,7 +2336,7 @@ export type ConversationPersonaView = { name: string, team_name?: string | null,
 
 export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: { [key in string]?: string }, };
 
-export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, };
+export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, kind?: string, generation?: number, };
 
 export type SessionCollaborationRef = { member_id: string, member_name: string, thread_id: string, thread_kind: string, thread_name: string, };
 

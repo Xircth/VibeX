@@ -287,6 +287,56 @@ impl ConversationAgentEventRecorder {
                 publisher.publish(&record).await;
             }
 
+            match &mapped.event {
+                ConversationEvent::QuestionRequested { request } => {
+                    if let Err(error) =
+                        crate::collaboration_cards::post_elicitation_question_if_seated(
+                            &self.pool,
+                            mapped.conversation_id,
+                            &request.question_id,
+                            &request.prompt,
+                            request.schema.as_ref(),
+                            &crate::collaboration::DeliveryContext::default(),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            conversation_id = %mapped.conversation_id,
+                            question_id = %request.question_id,
+                            error = %error.message,
+                            "failed to post collab IM card for elicitation"
+                        );
+                    }
+                }
+                ConversationEvent::QuestionResponded {
+                    question_id,
+                    response,
+                } => {
+                    let answer = if response.answer.trim().is_empty() {
+                        "已跳过"
+                    } else {
+                        response.answer.as_str()
+                    };
+                    if let Err(error) =
+                        crate::collaboration_cards::resolve_elicitation_question_card(
+                            &self.pool,
+                            question_id,
+                            answer,
+                            &crate::collaboration::DeliveryContext::default(),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            conversation_id = %mapped.conversation_id,
+                            question_id = %question_id,
+                            error = %error.message,
+                            "failed to settle collab IM card for elicitation"
+                        );
+                    }
+                }
+                _ => {}
+            }
+
             if terminal && let Some(turn_id) = mapped.turn_id {
                 let (status, stop_reason, error_message) = match &mapped.event {
                     ConversationEvent::TurnCompleted { stop_reason, .. } => {

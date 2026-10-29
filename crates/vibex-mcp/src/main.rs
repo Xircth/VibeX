@@ -34,6 +34,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::{Mutex, oneshot},
 };
+use uuid::Uuid;
 
 const TOOL_SCHEMA: &str = include_str!("../tool_schema.json");
 const CALL_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(8);
@@ -59,6 +60,7 @@ struct CompanionFeatures {
     session_info: bool,
     session_control: bool,
     collaboration: bool,
+    space: bool,
 }
 
 impl CompanionFeatures {
@@ -73,6 +75,7 @@ impl CompanionFeatures {
                 session_info: false,
                 session_control: false,
                 collaboration: false,
+                space: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -83,6 +86,7 @@ impl CompanionFeatures {
                     session_info: has("sessions"),
                     session_control: has("session-control"),
                     collaboration: has("collaboration"),
+                    space: has("space"),
                 }
             }
         }
@@ -96,32 +100,15 @@ impl CompanionFeatures {
             "get_session_info" => self.session_info || self.collaboration,
             "send_session_input" => self.session_control || self.collaboration,
             "cancel_session_turn" | "wait_for_session" => self.session_control,
-            "list_conversations"
-            | "create_conversation"
-            | "create_role"
-            | "update_role"
-            | "delete_role"
-            | "list_roles"
-            | "create_team"
-            | "update_team"
-            | "delete_team"
-            | "list_teams"
-            | "list_collaboration_spaces"
-            | "list_space_members"
-            | "create_collaboration_space"
-            | "add_space_member"
-            | "set_space_identity"
-            | "post_to_space"
-            | "handoff"
-            | "memory_search"
-            | "memory_write"
-            | "ask_person"
+            "list_conversations" | "create_conversation" | "list_spaces" | "manage_bot" => {
+                self.collaboration
+            }
+            "read_space_messages"
+            | "post_space_message"
+            | "manage_group"
             | "request_approval"
-            | "resolve_card"
-            | "list_space_messages"
-            | "list_space_collection"
-            | "add_to_space_collection"
-            | "read_space_collection_item" => self.collaboration,
+            | "memory_search"
+            | "memory_write" => self.collaboration && self.space,
             _ => false,
         }
     }
@@ -155,6 +142,85 @@ fn parent_tool_use_id(meta: Option<&Value>) -> String {
         }
     }
     String::new()
+}
+
+fn request_id_seed(request_id: Option<&Value>) -> String {
+    let Some(value) = request_id else {
+        return String::new();
+    };
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return text.to_string();
+    }
+    if let Some(number) = value.as_i64() {
+        return number.to_string();
+    }
+    if let Some(number) = value.as_u64() {
+        return number.to_string();
+    }
+    String::new()
+}
+
+fn collaboration_needs_operation_id(name: &str) -> bool {
+    matches!(
+        name,
+        "create_conversation"
+            | "post_space_message"
+            | "post_to_space"
+            | "manage_bot"
+            | "manage_group"
+            | "request_approval"
+            | "create_role"
+            | "update_role"
+            | "delete_role"
+            | "create_team"
+            | "update_team"
+            | "delete_team"
+            | "create_collaboration_space"
+            | "add_space_member"
+            | "create_space_member"
+            | "set_space_identity"
+            | "set_space_lead"
+            | "leave_space"
+            | "remove_space_member"
+            | "delete_space_member"
+            | "delete_collaboration_space"
+            | "interrupt_space_turn"
+            | "handoff"
+            | "ask_person"
+            | "resolve_card"
+            | "add_to_space_collection"
+            | "remove_space_collection_item"
+            | "memory_write"
+    )
+}
+
+fn ensure_operation_id(arguments: &mut Value, meta: Option<&Value>, request_id: Option<&Value>) {
+    if arguments
+        .get("operation_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return;
+    }
+    let seed = parent_tool_use_id(meta);
+    let derived = if !seed.is_empty() {
+        Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes())
+    } else {
+        let request_seed = request_id_seed(request_id);
+        if !request_seed.is_empty() {
+            Uuid::new_v5(&Uuid::NAMESPACE_URL, request_seed.as_bytes())
+        } else {
+            Uuid::new_v4()
+        }
+    };
+    if let Some(object) = arguments.as_object_mut() {
+        object.insert("operation_id".into(), json!(derived.to_string()));
+    }
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -377,6 +443,10 @@ impl Companion {
             .await;
             return;
         }
+        let mut arguments = arguments;
+        if collaboration_needs_operation_id(&name) {
+            ensure_operation_id(&mut arguments, meta.as_ref(), id.as_ref());
+        }
         let message = match self.build_message(&name, &arguments, meta.as_ref()) {
             Ok(message) => message,
             Err(err) => {
@@ -586,30 +656,43 @@ impl Companion {
             }
             "list_conversations"
             | "create_conversation"
+            | "list_spaces"
+            | "read_space_messages"
+            | "post_space_message"
+            | "manage_bot"
+            | "manage_group"
+            | "request_approval"
+            | "memory_search"
+            | "memory_write"
+            | "list_roles"
             | "create_role"
             | "update_role"
             | "delete_role"
-            | "list_roles"
+            | "list_teams"
             | "create_team"
             | "update_team"
             | "delete_team"
-            | "list_teams"
             | "list_collaboration_spaces"
             | "list_space_members"
             | "create_collaboration_space"
             | "add_space_member"
+            | "create_space_member"
             | "set_space_identity"
+            | "set_space_lead"
+            | "leave_space"
+            | "remove_space_member"
+            | "delete_space_member"
+            | "delete_collaboration_space"
+            | "interrupt_space_turn"
             | "post_to_space"
             | "handoff"
-            | "memory_search"
-            | "memory_write"
             | "ask_person"
-            | "request_approval"
             | "resolve_card"
             | "list_space_messages"
             | "list_space_collection"
             | "add_to_space_collection"
-            | "read_space_collection_item" => {
+            | "read_space_collection_item"
+            | "remove_space_collection_item" => {
                 Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
                     token,
                     name: name.to_string(),
@@ -1240,38 +1323,30 @@ mod tests {
             .as_str()
             .expect("member_id description");
         assert!(member_id.contains("identity_member_id"));
-        assert!(member_id.contains("list_space_members"));
-        assert!(member_id.contains("add_space_member"));
+        assert!(member_id.contains("list_spaces"));
+        assert!(member_id.contains("manage_group"));
         assert!(member_id.contains("different namespaces"));
 
         let list = tools
             .iter()
-            .find(|tool| tool["name"] == "list_space_members")
-            .expect("list_space_members");
+            .find(|tool| tool["name"] == "list_spaces")
+            .expect("list_spaces");
         let list_desc = list["description"].as_str().expect("list description");
         assert!(list_desc.contains("identity_member_id"));
-        assert!(list_desc.contains("per-space seat"));
-
-        let add = tools
-            .iter()
-            .find(|tool| tool["name"] == "add_space_member")
-            .expect("add_space_member");
-        let add_desc = add["description"].as_str().expect("add description");
-        assert!(add_desc.contains("identity_member_id"));
-        assert!(add_desc.contains("per-space seat"));
+        assert!(list_desc.contains("lead_bot"));
     }
 
     #[test]
     fn post_to_space_schema_asks_for_progress_reports() {
         let value = respond_text(classify(
-            "collaboration",
+            "collaboration,space",
             r#"{"jsonrpc":"2.0","id":25,"method":"tools/list"}"#,
         ));
         let tools = value["result"]["tools"].as_array().unwrap();
         let post = tools
             .iter()
-            .find(|tool| tool["name"] == "post_to_space")
-            .expect("post_to_space");
+            .find(|tool| tool["name"] == "post_space_message")
+            .expect("post_space_message");
         let desc = post["description"].as_str().expect("description");
         assert!(
             desc.contains("what you are doing") || desc.contains("progress"),
@@ -1285,8 +1360,19 @@ mod tests {
             "{desc}"
         );
         assert!(
-            desc.contains("lead") || desc.contains("space lead"),
+            desc.contains("lead") || desc.contains("space lead") || desc.contains("lead_bot"),
             "{desc}"
+        );
+        assert!(
+            desc.contains("ordinary assistant text") || desc.contains("ordinary"),
+            "{desc}"
+        );
+        assert!(desc.contains("Person"), "{desc}");
+        assert!(
+            post["inputSchema"]["properties"]
+                .get("operation_id")
+                .is_none(),
+            "operation_id must not be an LLM argument"
         );
     }
 
@@ -1299,22 +1385,16 @@ mod tests {
         let tools = value["result"]["tools"].as_array().unwrap();
         let list = tools
             .iter()
-            .find(|tool| tool["name"] == "list_space_members")
-            .expect("list_space_members");
+            .find(|tool| tool["name"] == "list_spaces")
+            .expect("list_spaces");
         let list_desc = list["description"].as_str().expect("list description");
         assert!(
-            list_desc.contains("lead_nickname") && list_desc.contains("is_lead"),
+            list_desc.contains("lead_nickname") && list_desc.contains("lead_bot"),
             "{list_desc}"
         );
-
-        let spaces = tools
-            .iter()
-            .find(|tool| tool["name"] == "list_collaboration_spaces")
-            .expect("list_collaboration_spaces");
-        let spaces_desc = spaces["description"].as_str().expect("spaces description");
         assert!(
-            spaces_desc.contains("lead_nickname") || spaces_desc.contains("space lead"),
-            "{spaces_desc}"
+            list_desc.contains("BotSpace") && list_desc.contains("GroupSpace"),
+            "{list_desc}"
         );
     }
 
@@ -1409,37 +1489,93 @@ mod tests {
                 "send_session_input",
                 "list_conversations",
                 "create_conversation",
-                "list_roles",
-                "create_role",
-                "update_role",
-                "delete_role",
-                "list_teams",
-                "create_team",
-                "update_team",
-                "delete_team",
-                "list_collaboration_spaces",
-                "list_space_members",
-                "create_collaboration_space",
-                "add_space_member",
-                "set_space_identity",
-                "post_to_space",
-                "handoff",
-                "ask_person",
-                "request_approval",
-                "resolve_card",
-                "memory_search",
-                "memory_write",
-                "list_space_messages",
-                "list_space_collection",
-                "add_to_space_collection",
-                "read_space_collection_item",
+                "list_spaces",
+                "manage_bot",
             ]
         );
+        assert!(!names.contains(&"read_space_messages"));
+        assert!(!names.contains(&"post_space_message"));
+        assert!(!names.contains(&"manage_group"));
+        assert!(!names.contains(&"request_approval"));
+        assert!(!names.contains(&"memory_search"));
+        assert!(!names.contains(&"memory_write"));
         assert!(!names.contains(&"cancel_session_turn"));
         assert!(!names.contains(&"wait_for_session"));
         assert!(!names.contains(&"delegate_to_agent"));
-        assert!(names.contains(&"list_collaboration_spaces"));
-        assert!(names.contains(&"list_space_members"));
+        assert!(!names.contains(&"handoff"));
+        assert!(!names.contains(&"ask_person"));
+        assert!(!names.contains(&"resolve_card"));
+        assert!(!names.contains(&"list_space_collection"));
+        assert!(!names.contains(&"create_role"));
+        assert!(!names.contains(&"list_collaboration_spaces"));
+        assert!(!names.contains(&"post_to_space"));
+    }
+
+    #[test]
+    fn space_session_opens_the_full_collaboration_toolset() {
+        let value = respond_text(classify(
+            "collaboration,space",
+            r#"{"jsonrpc":"2.0","id":34,"method":"tools/list"}"#,
+        ));
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec![
+                "ask_user_question",
+                "get_session_info",
+                "send_session_input",
+                "list_conversations",
+                "create_conversation",
+                "list_spaces",
+                "read_space_messages",
+                "post_space_message",
+                "manage_bot",
+                "manage_group",
+                "request_approval",
+                "memory_search",
+                "memory_write",
+            ]
+        );
+    }
+
+    #[test]
+    fn collaboration_write_injects_operation_id_from_tool_use_id() {
+        let mut args = json!({"space_id": "space-1", "content": "hi"});
+        ensure_operation_id(
+            &mut args,
+            Some(&json!({"tool_use_id": "call-abc"})),
+            Some(&json!(7)),
+        );
+        let expected = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"call-abc");
+        assert_eq!(args["operation_id"], expected.to_string());
+    }
+
+    #[test]
+    fn collaboration_write_injects_operation_id_from_request_id() {
+        let mut args = json!({"space_id": "space-1", "content": "hi"});
+        ensure_operation_id(&mut args, None, Some(&json!(42)));
+        let expected = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"42");
+        assert_eq!(args["operation_id"], expected.to_string());
+    }
+
+    #[test]
+    fn collaboration_write_keeps_explicit_operation_id() {
+        let mut args = json!({"operation_id": "550e8400-e29b-41d4-a716-446655440000"});
+        ensure_operation_id(
+            &mut args,
+            Some(&json!({"tool_use_id": "other"})),
+            Some(&json!(1)),
+        );
+        assert_eq!(
+            args["operation_id"],
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 
     #[test]

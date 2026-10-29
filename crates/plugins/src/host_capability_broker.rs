@@ -1176,7 +1176,10 @@ impl HostCapabilityBroker {
                     crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
                         .map(|pkg| pkg.config)
                         .unwrap_or_else(|_| input.clone());
-                let _ = self.plugins.notify_config_updated(plugin_id, refreshed).await;
+                let _ = self
+                    .plugins
+                    .notify_config_updated(plugin_id, refreshed)
+                    .await;
                 let hook = self
                     .settings_saved
                     .lock()

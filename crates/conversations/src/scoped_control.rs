@@ -58,6 +58,9 @@ impl ScopedConversationControl {
             dispatcher: Some(Arc::new(ServiceIdleDispatcher {
                 context: self.context.clone(),
             })),
+            interruptor: Some(Arc::new(ServiceTurnInterruptor {
+                context: self.context.clone(),
+            })),
             space_changed: None,
         }
     }
@@ -256,5 +259,26 @@ impl crate::collaboration::IdleTurnDispatcher for ServiceIdleDispatcher {
             Ok(None) => Ok(None),
             Err(error) => Err(error.to_string()),
         }
+    }
+}
+
+/// Stops a turn the collaboration layer has already authorized. Authority comes
+/// from same-group membership there, not from the companion relation, so this
+/// deliberately bypasses `authorize`.
+struct ServiceTurnInterruptor {
+    context: ConversationContext,
+}
+
+#[async_trait::async_trait]
+impl crate::collaboration::TurnInterruptor for ServiceTurnInterruptor {
+    async fn interrupt_turn(
+        &self,
+        conversation_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<(), String> {
+        ConversationSessionService::new(self.context.clone())
+            .cancel_turn(conversation_id, reason)
+            .await
+            .map_err(|error| error.to_string())
     }
 }

@@ -1,4 +1,4 @@
-//! Batch 2 structure surfaces parse from the authored integrations array.
+﻿//! Batch 2 structure surfaces parse from the authored integrations array.
 
 use std::fs;
 
@@ -130,7 +130,7 @@ fn the_contract_lists_every_structure_kind() {
         .iter()
         .find(|kind| kind["id"] == "app.settings.page")
         .expect("settings.page");
-    assert_eq!(settings_page["status"], "preview");
+    assert_eq!(settings_page["status"], "ready");
 }
 
 #[test]

@@ -68,7 +68,7 @@
       "id": "app.composer.slash",
       "status": "ready",
       "handler": false,
-      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx"
+      "consumer": "frontend/src/components/tasks/follow-up/session-composer-input/useSessionComposerCommands.ts"
     },
     {
       "id": "app.timeline.card",
@@ -94,7 +94,7 @@
       "id": "provider.model.importSource",
       "status": "preview",
       "handler": true,
-      "consumer": "frontend/src/pages/settings/AgentModelProviderManager.tsx",
+      "consumer": "frontend/src/pages/settings/agent-model-provider-manager/useProviderFormState.ts",
       "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
@@ -131,7 +131,7 @@
       "id": "app.composer.action",
       "status": "ready",
       "handler": true,
-      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx"
+      "consumer": "frontend/src/components/tasks/follow-up/session-composer-input/SessionComposerInput.tsx"
     },
     {
       "id": "app.rail.section",

@@ -76,7 +76,7 @@ const CONSUMERS = {
     symbol: 'PluginStatusItems',
   },
   'app.composer.slash': {
-    file: 'frontend/src/components/tasks/follow-up/SessionComposerInput.tsx',
+    file: 'frontend/src/components/tasks/follow-up/session-composer-input/useSessionComposerCommands.ts',
     symbol: 'useSlashCommands',
   },
   'app.timeline.card': {
@@ -92,7 +92,7 @@ const CONSUMERS = {
     symbol: 'HostServiceContribution',
   },
   'provider.model.importSource': {
-    file: 'frontend/src/pages/settings/AgentModelProviderManager.tsx',
+    file: 'frontend/src/pages/settings/agent-model-provider-manager/useProviderFormState.ts',
     symbol: 'provider_import_source',
   },
   'provider.model.catalog': {
@@ -116,7 +116,7 @@ const CONSUMERS = {
     symbol: 'settingsPageRegistry',
   },
   'app.composer.action': {
-    file: 'frontend/src/components/tasks/follow-up/SessionComposerInput.tsx',
+    file: 'frontend/src/components/tasks/follow-up/session-composer-input/SessionComposerInput.tsx',
     symbol: 'composer_action',
   },
   'app.rail.section': {

@@ -3145,6 +3145,20 @@ mod tests {
             classify_session_load_failure_fragments("Authentication required", "sid").is_none()
         );
         assert!(classify_session_load_failure_fragments("Method not found", "sid").is_none());
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                r#"Invalid params: "session load was superseded""#,
+                "sid"
+            ),
+            Some(SessionLoadFailureReason::SessionBusy)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                r#"Permission denied.: { "detail": "拒绝访问。 (os error 5)", "code": "FS_PERMISSION_DENIED" }"#,
+                "sid"
+            ),
+            Some(SessionLoadFailureReason::SessionBusy)
+        ));
     }
 
     #[test]
@@ -3249,8 +3263,55 @@ mod tests {
             ),
             SessionLoadFailureAction::SilentNew
         );
+        let grok = AgentId::parse("grok").unwrap();
+        let superseded = r#"Invalid params: "session load was superseded""#;
+        let classified_busy = classify_session_load_failure_fragments(superseded, "sid");
+        assert_eq!(
+            decide_session_load_failure(
+                &grok,
+                &SessionLoadFailureReason::Other {
+                    message: superseded.into()
+                },
+                classified_busy.as_ref(),
+                true,
+                false
+            ),
+            SessionLoadFailureAction::Banner(SessionLoadFailureReason::SessionBusy)
+        );
+        let permission_denied = r#"Permission denied.: { "detail": "拒绝访问。 (os error 5)", "code": "FS_PERMISSION_DENIED" }"#;
+        let classified_permission =
+            classify_session_load_failure_fragments(permission_denied, "sid");
+        assert_eq!(
+            decide_session_load_failure(
+                &grok,
+                &SessionLoadFailureReason::Other {
+                    message: permission_denied.into()
+                },
+                classified_permission.as_ref(),
+                true,
+                false
+            ),
+            SessionLoadFailureAction::Banner(SessionLoadFailureReason::SessionBusy)
+        );
         // Restoring a known sid maps SilentNew/ToastThenNew to a load-failed
         // banner. session/new is only for conversations that never had a thread.
+    }
+
+    #[test]
+    fn session_new_after_load_maps_fs_permission_denied_to_busy() {
+        let error = acp::Error::new(-32603, "Permission denied.").data(serde_json::json!({
+            "detail": "拒绝访问。 (os error 5)",
+            "code": "FS_PERMISSION_DENIED"
+        }));
+        assert!(matches!(
+            map_acp_session_error("ACP session/new after load failed", error),
+            AgentError::SessionLoadFailed(SessionLoadFailureReason::SessionBusy)
+        ));
+        let superseded = acp::Error::new(-32602, r#"session load was superseded"#);
+        assert!(matches!(
+            map_acp_session_error("ACP session/new after load failed", superseded),
+            AgentError::SessionLoadFailed(SessionLoadFailureReason::SessionBusy)
+        ));
     }
 
     #[test]

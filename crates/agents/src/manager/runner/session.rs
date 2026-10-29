@@ -1,4 +1,9 @@
+use std::time::Duration;
+
 use super::*;
+
+const SESSION_CONTENTION_RETRIES: u32 = 4;
+const SESSION_CONTENTION_BACKOFF: Duration = Duration::from_millis(400);
 
 impl AgentConnectionRunner {
     pub(in crate::manager) async fn ensure_acp_session(
@@ -71,36 +76,18 @@ impl AgentConnectionRunner {
         {
             // Always attempt resume for a known sid, even when the agent did
             // not advertise it. Mid-conversation session/new is forbidden.
-            let mut request = ResumeSessionRequest::new(
-                SessionId::new(external_session_id.clone()),
-                working_dir.to_path_buf(),
-            );
-            if self.capabilities.read().await.additional_directories {
-                request =
-                    request.additional_directories(self.snapshot.additional_directories.clone());
-            }
-            request = request.mcp_servers(
-                self.session_mcp_servers_with_companion(
-                    working_dir,
-                    session_id,
-                    companion_capabilities,
-                )
-                .await,
-            );
-            if let Some(meta) = crate::session_meta::session_request_meta(
-                &self.snapshot.agent_id,
-                None,
-                wants_prompt_suggestions,
-            ) {
-                request = request.meta(meta);
-            }
             *self.pending_session_id.lock().await = Some(session_id);
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let resume_result = conn
-                .send_request(RawResumeSessionRequest(request))
-                .block_task()
-                .await
-                .and_then(deserialize_raw_session_response::<ResumeSessionResponse>);
+            let resume_result = self
+                .send_resume_session_rpc(
+                    conn,
+                    working_dir,
+                    session_id,
+                    &external_session_id,
+                    companion_capabilities,
+                    wants_prompt_suggestions,
+                )
+                .await;
             match resume_result {
                 Ok((response, raw_models)) => {
                     self.record_session_header(session_id, &external_session_id);
@@ -156,37 +143,19 @@ impl AgentConnectionRunner {
         // cold thread into this conversation.
         let attempted_load = true;
         let load_result = if attempted_load {
-            let mut request = LoadSessionRequest::new(
-                SessionId::new(external_session_id.clone()),
-                working_dir.to_path_buf(),
-            );
-            if self.capabilities.read().await.additional_directories {
-                request =
-                    request.additional_directories(self.snapshot.additional_directories.clone());
-            }
-            request = request.mcp_servers(
-                self.session_mcp_servers_with_companion(
-                    working_dir,
-                    session_id,
-                    companion_capabilities,
-                )
-                .await,
-            );
-            if let Some(meta) = crate::session_meta::session_request_meta(
-                &self.snapshot.agent_id,
-                None,
-                wants_prompt_suggestions,
-            ) {
-                request = request.meta(meta);
-            }
             *self.pending_session_id.lock().await = Some(session_id);
             self.begin_load_replay(&external_session_id).await;
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let result = conn
-                .send_request(RawLoadSessionRequest(request))
-                .block_task()
-                .await
-                .and_then(deserialize_raw_session_response::<LoadSessionResponse>);
+            let result = self
+                .send_load_session_rpc(
+                    conn,
+                    working_dir,
+                    session_id,
+                    &external_session_id,
+                    companion_capabilities,
+                    wants_prompt_suggestions,
+                )
+                .await;
             self.end_load_replay().await;
             *self.pending_session_id.lock().await = None;
             result
@@ -463,5 +432,121 @@ impl AgentConnectionRunner {
         }
         *self.pending_session_id.lock().await = None;
         Ok(acp_session_id)
+    }
+
+    async fn send_resume_session_rpc(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        external_session_id: &str,
+        companion_capabilities: CompanionCapabilities,
+        wants_prompt_suggestions: bool,
+    ) -> Result<(ResumeSessionResponse, Option<serde_json::Value>), acp::Error> {
+        let mut last_contention = None;
+        for attempt in 0..=SESSION_CONTENTION_RETRIES {
+            if attempt > 0 {
+                tracing::info!(
+                    attempt,
+                    session_id = %session_id.0,
+                    "ACP session/resume retry after contention"
+                );
+                tokio::time::sleep(SESSION_CONTENTION_BACKOFF).await;
+            }
+            let mut request = ResumeSessionRequest::new(
+                SessionId::new(external_session_id.to_string()),
+                working_dir.to_path_buf(),
+            );
+            if self.capabilities.read().await.additional_directories {
+                request =
+                    request.additional_directories(self.snapshot.additional_directories.clone());
+            }
+            request = request.mcp_servers(
+                self.session_mcp_servers_with_companion(
+                    working_dir,
+                    session_id,
+                    companion_capabilities,
+                )
+                .await,
+            );
+            if let Some(meta) = crate::session_meta::session_request_meta(
+                &self.snapshot.agent_id,
+                None,
+                wants_prompt_suggestions,
+            ) {
+                request = request.meta(meta);
+            }
+            match conn
+                .send_request(RawResumeSessionRequest(request))
+                .block_task()
+                .await
+                .and_then(deserialize_raw_session_response::<ResumeSessionResponse>)
+            {
+                Ok(response) => return Ok(response),
+                Err(error) if is_session_contention_error(&error.to_string()) => {
+                    last_contention = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last_contention.expect("resume contention retry records an error"))
+    }
+
+    async fn send_load_session_rpc(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        external_session_id: &str,
+        companion_capabilities: CompanionCapabilities,
+        wants_prompt_suggestions: bool,
+    ) -> Result<(LoadSessionResponse, Option<serde_json::Value>), acp::Error> {
+        let mut last_contention = None;
+        for attempt in 0..=SESSION_CONTENTION_RETRIES {
+            if attempt > 0 {
+                tracing::info!(
+                    attempt,
+                    session_id = %session_id.0,
+                    "ACP session/load retry after contention"
+                );
+                tokio::time::sleep(SESSION_CONTENTION_BACKOFF).await;
+            }
+            let mut request = LoadSessionRequest::new(
+                SessionId::new(external_session_id.to_string()),
+                working_dir.to_path_buf(),
+            );
+            if self.capabilities.read().await.additional_directories {
+                request =
+                    request.additional_directories(self.snapshot.additional_directories.clone());
+            }
+            request = request.mcp_servers(
+                self.session_mcp_servers_with_companion(
+                    working_dir,
+                    session_id,
+                    companion_capabilities,
+                )
+                .await,
+            );
+            if let Some(meta) = crate::session_meta::session_request_meta(
+                &self.snapshot.agent_id,
+                None,
+                wants_prompt_suggestions,
+            ) {
+                request = request.meta(meta);
+            }
+            match conn
+                .send_request(RawLoadSessionRequest(request))
+                .block_task()
+                .await
+                .and_then(deserialize_raw_session_response::<LoadSessionResponse>)
+            {
+                Ok(response) => return Ok(response),
+                Err(error) if is_session_contention_error(&error.to_string()) => {
+                    last_contention = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last_contention.expect("load contention retry records an error"))
     }
 }

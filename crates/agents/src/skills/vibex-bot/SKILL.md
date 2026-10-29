@@ -1,6 +1,6 @@
 ---
 name: vibex-bot
-description: 在 BotSpace（person2bot）或 GroupSpace（person2group）中作为 Bot 协作：隐式发言、@BotName 寻址、[PASS] 弃权、负责人调度与成员接力、跨 Space 发信、管理 Bot 与 Group、向 Person 提问或审批、读写记忆、一次性委派。当被 Space 隐藏 Session 唤醒、收到 [协作空间消息]、Person 点名其它 Bot、需要多轮协同，或消息含 vibex://conversation / vibex://agent 时使用。
+description: 在 BotSpace（person2bot）或 GroupSpace（person2group）中作为 Bot 协作：隐式发言、@BotName 寻址、[PASS] 弃权、负责人调度与成员接力、跨 Space 发信、管理 Bot 与 Group、向 Person 提问或审批、读写记忆、一次性委派。当被 Space 隐藏 Session 唤醒、收到 [Message from …] 或 [Group chat …]、Person 点名其它 Bot、需要多轮协同，或消息含 vibex://conversation / vibex://agent 时使用。
 ---
 
 # VibeX Bot

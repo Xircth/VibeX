@@ -248,11 +248,10 @@ async fn space_mention_submits_same_text_to_each() {
         .map(|text| serde_json::from_str(text).unwrap())
         .collect();
     let slim_of = |payload: &Value| -> String {
-        payload["text"]
-            .as_str()
-            .unwrap()
-            .split_once("[协作空间消息]")
-            .map(|(_, rest)| rest.to_string())
+        let text = payload["text"].as_str().unwrap();
+        text.find("[Group chat")
+            .or_else(|| text.find("[Message from"))
+            .map(|index| text[index..].to_string())
             .unwrap_or_default()
     };
     for payload in &payloads {
@@ -263,8 +262,7 @@ async fn space_mention_submits_same_text_to_each() {
         let text = payload["text"].as_str().unwrap();
         assert!(text.contains("请评审当前 diff"));
         assert!(text.contains("auth.ts"));
-        assert!(text.contains("[协作空间消息]"));
-        assert!(text.contains("来源：小A"));
+        assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
         assert!(text.contains("[Space") && text.contains("[PASS]"), "{text}");
     }
     assert_eq!(slim_of(&payloads[0]), slim_of(&payloads[1]));
@@ -1173,7 +1171,7 @@ async fn direct_user_message_wraps_space_context_for_agent() {
     let payload: Value = serde_json::from_str(&raw_payload).unwrap();
     assert_eq!(payload["displayText"].as_str(), Some("今晚帮我看看登录"));
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("[协作空间消息]"), "{text}");
+    assert!(text.contains("[Message from Person"), "{text}");
     assert!(text.contains(&thread), "{text}");
     assert!(text.contains("今晚帮我看看登录"), "{text}");
     assert!(
@@ -1739,10 +1737,10 @@ async fn space_delivery_strips_mention_for_display_and_embeds_protocol_context()
         Some("请你分析我当前项目的性能")
     );
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("[协作空间消息]"));
+    assert!(text.contains("[Group chat \"评审工作\" · from Person"), "{text}");
     assert!(text.contains("GroupSpace") || text.contains(&space));
     assert!(text.contains(&space));
-    assert!(text.contains("来源：Person") || text.contains("来源：User"));
+    assert!(text.contains("from Person"), "{text}");
     assert!(
         text.contains("[Space 身份与协作规则]")
             || text.contains("协同交互规则")
@@ -1827,7 +1825,7 @@ async fn member_space_post_labels_origin_sender_on_peer_input() {
     let payload: Value = serde_json::from_str(&raw_payload).unwrap();
     assert_eq!(payload["displayText"].as_str(), Some("请核对接口"));
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("[协作空间消息]"), "{text}");
+    assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
     assert!(text.contains("小A"), "{text}");
     assert_eq!(payload["collaborationOrigin"]["threadKind"], "group");
     assert_eq!(payload["collaborationOrigin"]["senderKind"], "member");
@@ -3357,10 +3355,10 @@ async fn round_delivery_prompt_includes_speaking_order() {
     let texts = inputs_of(&pool, a).await;
     let payload: Value = serde_json::from_str(texts.last().unwrap()).unwrap();
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("- 本轮发言顺序："), "{text}");
-    assert!(text.contains("@小A (你，当前)"), "{text}");
-    assert!(text.contains("@小C (等待中)"), "{text}");
-    assert!(text.contains("@小B (等待中)"), "{text}");
+    assert!(text.contains("speaking order:"), "{text}");
+    assert!(text.contains("@小A (you, now)"), "{text}");
+    assert!(text.contains("@小C (waiting)"), "{text}");
+    assert!(text.contains("@小B (waiting)"), "{text}");
 
     mark_processing(&pool, &multi.message_id, a).await;
     finalize_space_turn_deliveries(
@@ -3374,9 +3372,9 @@ async fn round_delivery_prompt_includes_speaking_order() {
     let texts_c = inputs_of(&pool, c).await;
     let payload_c: Value = serde_json::from_str(texts_c.last().unwrap()).unwrap();
     let text_c = payload_c["text"].as_str().unwrap();
-    assert!(text_c.contains("@小A (已发言)"), "{text_c}");
-    assert!(text_c.contains("@小C (你，当前)"), "{text_c}");
-    assert!(text_c.contains("@小B (等待中)"), "{text_c}");
+    assert!(text_c.contains("@小A (posted)"), "{text_c}");
+    assert!(text_c.contains("@小C (you, now)"), "{text_c}");
+    assert!(text_c.contains("@小B (waiting)"), "{text_c}");
 }
 
 #[tokio::test]
@@ -3421,7 +3419,7 @@ async fn group_delivery_prompt_lists_working_peers() {
     let payload: Value = serde_json::from_str(texts.last().unwrap()).unwrap();
     let text = payload["text"].as_str().unwrap();
     assert!(
-        text.contains("- 当前正在执行任务的成员：@小A (工作中，请勿重复催促)"),
+        text.contains("still at work: @小A (working)"),
         "{text}"
     );
 }

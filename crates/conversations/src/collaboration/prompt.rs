@@ -34,13 +34,13 @@ pub(crate) struct QuotedSpaceMessage {
     pub body: String,
 }
 
-/// Fields that remain on every space delivery after the first-round opening.
+/// One incoming space delivery: a single English header line plus the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SlimSpaceEnvelope {
     pub sender: String,
     pub recipients: String,
-    pub seq: i64,
-    pub root_id: Option<String>,
+    pub is_group: bool,
+    pub space_name: Option<String>,
     pub quoted: Option<QuotedSpaceMessage>,
     pub speaking_order: Option<String>,
     pub working_peers: Option<String>,
@@ -48,19 +48,43 @@ pub(crate) struct SlimSpaceEnvelope {
 }
 
 pub(crate) fn format_slim_space_envelope(envelope: &SlimSpaceEnvelope) -> String {
-    let mut lines = vec![
-        "[协作空间消息]".to_string(),
-        format!("- 来源：{}", envelope.sender),
-        format!("- 收件人：{}", envelope.recipients),
-        format!("- 序号：#{}", envelope.seq),
-    ];
+    format!("{}\n{}", format_delivery_header(envelope), envelope.body)
+}
+
+fn format_delivery_header(envelope: &SlimSpaceEnvelope) -> String {
+    let sender = envelope.sender.trim();
+    let mut clauses = Vec::new();
+    if envelope.is_group {
+        match envelope
+            .space_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            Some(name) => clauses.push(format!("Group chat \"{name}\" · from {sender}")),
+            None => clauses.push(format!("Group chat · from {sender}")),
+        }
+    } else {
+        clauses.push(format!("Message from {sender}"));
+    }
+    let recipients = envelope.recipients.trim();
+    if !recipients.is_empty() && !is_broadcast_recipients(recipients) {
+        clauses.push(format!("to {recipients}"));
+    }
+    if let Some(quoted) = &envelope.quoted {
+        let excerpt = truncate_chars(quoted.body.trim(), 200);
+        clauses.push(format!(
+            "quoting #{} {}: {excerpt}",
+            quoted.seq, quoted.sender
+        ));
+    }
     if let Some(order) = envelope
         .speaking_order
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty())
     {
-        lines.push(format!("- 本轮发言顺序：{order}"));
+        clauses.push(format!("speaking order: {order}"));
     }
     if let Some(peers) = envelope
         .working_peers
@@ -68,28 +92,22 @@ pub(crate) fn format_slim_space_envelope(envelope: &SlimSpaceEnvelope) -> String
         .map(str::trim)
         .filter(|text| !text.is_empty())
     {
-        lines.push(format!("- 当前正在执行任务的成员：{peers}"));
+        clauses.push(format!("still at work: {peers}"));
     }
-    if let Some(root_id) = envelope
-        .root_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        lines.push(format!("- root_id：{root_id}"));
-    }
-    if let Some(quoted) = &envelope.quoted {
-        let body = truncate_chars(quoted.body.trim(), 200);
-        lines.push(format!("- 引用：#{} {}：{body}", quoted.seq, quoted.sender));
-    }
-    format!("{}\n{}", lines.join("\n"), envelope.body)
+    format!("[{}]", clauses.join(" · "))
+}
+
+fn is_broadcast_recipients(recipients: &str) -> bool {
+    matches!(
+        recipients,
+        "全体成员" | "everyone" | "@所有人" | "@全体成员" | "@everyone" | "@all"
+    )
 }
 
 pub(crate) fn slim_space_envelope_from_parts(
-    _space_id: &str,
-    seq: i64,
+    space_id: &str,
+    space_name: Option<&str>,
     envelope: &Value,
-    root_id: Option<&str>,
     quoted: Option<QuotedSpaceMessage>,
     content: &str,
     display_text: &str,
@@ -99,18 +117,32 @@ pub(crate) fn slim_space_envelope_from_parts(
     } else {
         content.trim().to_string()
     };
+    let is_group = is_group_space(space_id);
     SlimSpaceEnvelope {
         sender: sender_nickname(envelope),
         recipients: recipients_label(envelope),
-        seq,
-        root_id: root_id
+        is_group,
+        space_name: space_name
             .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .map(ToOwned::to_owned),
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .or_else(|| fallback_group_title(space_id, is_group)),
         quoted,
         speaking_order: None,
         working_peers: None,
         body,
+    }
+}
+
+fn fallback_group_title(space_id: &str, is_group: bool) -> Option<String> {
+    if !is_group {
+        return None;
+    }
+    let id = space_id.trim();
+    if id.is_empty() || Uuid::parse_str(id).is_ok() {
+        None
+    } else {
+        Some(id.to_string())
     }
 }
 
@@ -165,7 +197,6 @@ pub(crate) async fn compose_space_delivery_prompt(
     space_id: &str,
     seq: i64,
     envelope: &Value,
-    root_id: Option<&str>,
     content: &str,
     display_text: &str,
 ) -> Result<String, CollaborationError> {
@@ -176,11 +207,11 @@ pub(crate) async fn compose_space_delivery_prompt(
     } else {
         None
     };
+    let space_name = load_space_display_name(pool, space_id).await?;
     let mut slim_envelope = slim_space_envelope_from_parts(
         space_id,
-        seq,
+        space_name.as_deref(),
         envelope,
-        root_id,
         quoted,
         content,
         display_text,
@@ -407,16 +438,31 @@ fn sender_nickname(envelope: &Value) -> String {
 
 fn recipients_label(envelope: &Value) -> String {
     let parsed = parse_space_envelope(envelope);
-    let to_labels: Vec<String> = parsed
+    parsed
         .to
         .iter()
         .map(|name| recipient_display_name(name))
-        .collect();
-    if to_labels.is_empty() {
-        "全体成员".to_string()
-    } else {
-        to_labels.join("、")
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+async fn load_space_display_name(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<Option<String>, CollaborationError> {
+    if !is_group_space(space_id) {
+        return Ok(None);
     }
+    let name = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(name
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty()))
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
@@ -509,20 +555,32 @@ mod tests {
     fn slim_envelope_snapshot() {
         let envelope = format_slim_space_envelope(&slim_space_envelope_from_parts(
             SAMPLE_SPACE,
-            1,
+            Some("评审工作"),
             &sample_envelope(),
-            Some(SAMPLE_ROOT),
             None,
             SAMPLE_BODY,
             SAMPLE_BODY,
         ));
         assert_eq!(
             envelope,
-            "[协作空间消息]\n\
-             - 来源：Person\n\
-             - 收件人：@小A\n\
-             - 序号：#1\n\
-             - root_id：root-msg-1\n\
+            "[Group chat \"评审工作\" · from Person · to @小A]\n\
+             请分析登录性能"
+        );
+    }
+
+    #[test]
+    fn slim_envelope_bot_space_uses_message_from_header() {
+        let envelope = format_slim_space_envelope(&slim_space_envelope_from_parts(
+            "direct:member-a",
+            None,
+            &sample_envelope(),
+            None,
+            SAMPLE_BODY,
+            SAMPLE_BODY,
+        ));
+        assert_eq!(
+            envelope,
+            "[Message from Person · to @小A]\n\
              请分析登录性能"
         );
     }
@@ -532,8 +590,8 @@ mod tests {
         let envelope = format_slim_space_envelope(&SlimSpaceEnvelope {
             sender: "小A".to_string(),
             recipients: "@小B".to_string(),
-            seq: 4,
-            root_id: Some(SAMPLE_ROOT.to_string()),
+            is_group: true,
+            space_name: Some("评审工作".to_string()),
             quoted: Some(QuotedSpaceMessage {
                 seq: 3,
                 sender: "Person".to_string(),
@@ -545,12 +603,7 @@ mod tests {
         });
         assert_eq!(
             envelope,
-            "[协作空间消息]\n\
-             - 来源：小A\n\
-             - 收件人：@小B\n\
-             - 序号：#4\n\
-             - root_id：root-msg-1\n\
-             - 引用：#3 Person：请核对接口\n\
+            "[Group chat \"评审工作\" · from 小A · to @小B · quoting #3 Person: 请核对接口]\n\
              接口字段已对齐"
         );
     }
@@ -666,33 +719,34 @@ mod tests {
         });
         let slim = format_slim_space_envelope(&slim_space_envelope_from_parts(
             SAMPLE_SPACE,
-            1,
+            Some("评审工作"),
             &envelope,
-            Some(SAMPLE_ROOT),
             None,
             SAMPLE_BODY,
             SAMPLE_BODY,
         ));
-        assert!(slim.contains("来源：Person"), "{slim}");
-        assert!(slim.contains("收件人：@小A"), "{slim}");
+        assert!(slim.contains("[Group chat \"评审工作\" · from Person · to @小A]"), "{slim}");
+        assert!(slim.starts_with('['), "{slim}");
+        assert_eq!(slim.lines().count(), 2, "{slim}");
     }
 
     #[test]
     fn slim_envelope_includes_speaking_order() {
         let envelope = format_slim_space_envelope(&SlimSpaceEnvelope {
             sender: "Person".to_string(),
-            recipients: "@小A、@小B".to_string(),
-            seq: 3,
-            root_id: Some(SAMPLE_ROOT.to_string()),
+            recipients: "@小A, @小B".to_string(),
+            is_group: true,
+            space_name: Some("评审工作".to_string()),
             quoted: None,
-            speaking_order: Some("@小A (已发言) → @小B (你，当前) → @小C (等待中)".to_string()),
+            speaking_order: Some("@小A (posted) → @小B (you, now) → @小C (waiting)".to_string()),
             working_peers: None,
             body: SAMPLE_BODY.to_string(),
         });
         assert!(
-            envelope.contains("- 本轮发言顺序：@小A (已发言) → @小B (你，当前) → @小C (等待中)"),
+            envelope.contains("speaking order: @小A (posted) → @小B (you, now) → @小C (waiting)"),
             "{envelope}"
         );
+        assert_eq!(envelope.lines().next().unwrap().matches('[').count(), 1);
     }
 
     #[test]
@@ -700,15 +754,15 @@ mod tests {
         let envelope = format_slim_space_envelope(&SlimSpaceEnvelope {
             sender: "Person".to_string(),
             recipients: "@小B".to_string(),
-            seq: 4,
-            root_id: None,
+            is_group: true,
+            space_name: Some("评审工作".to_string()),
             quoted: None,
             speaking_order: None,
-            working_peers: Some("@Coder (工作中，请勿重复催促)".to_string()),
+            working_peers: Some("@Coder (working)".to_string()),
             body: SAMPLE_BODY.to_string(),
         });
         assert!(
-            envelope.contains("- 当前正在执行任务的成员：@Coder (工作中，请勿重复催促)"),
+            envelope.contains("still at work: @Coder (working)"),
             "{envelope}"
         );
     }
@@ -717,9 +771,8 @@ mod tests {
     fn subsequent_envelope_omits_rules_roster_and_persona() {
         let slim = format_slim_space_envelope(&slim_space_envelope_from_parts(
             SAMPLE_SPACE,
-            2,
+            Some("评审工作"),
             &sample_envelope(),
-            Some(SAMPLE_ROOT),
             None,
             SAMPLE_BODY,
             SAMPLE_BODY,
@@ -731,11 +784,11 @@ mod tests {
         assert!(!slim.contains("空间内成员"));
         assert!(!slim.contains("同空间成员"));
         assert!(!slim.contains(SAMPLE_PERSONA));
-        assert!(slim.contains("来源：Person"));
-        assert!(slim.contains("收件人：@小A"));
-        assert!(slim.contains("序号：#2"));
-        assert!(slim.contains("root_id：root-msg-1"));
+        assert!(!slim.contains("root_id"));
+        assert!(!slim.contains("序号"));
+        assert!(slim.contains("[Group chat \"评审工作\" · from Person · to @小A]"));
         assert!(slim.contains(SAMPLE_BODY));
+        assert_eq!(slim.lines().count(), 2, "{slim}");
     }
 
     #[test]
@@ -756,9 +809,8 @@ mod tests {
             ),
             format_slim_space_envelope(&slim_space_envelope_from_parts(
                 SAMPLE_SPACE,
-                1,
+                Some("评审工作"),
                 &sample_envelope(),
-                Some(SAMPLE_ROOT),
                 None,
                 SAMPLE_BODY,
                 SAMPLE_BODY,
@@ -766,9 +818,8 @@ mod tests {
         );
         let second = format_slim_space_envelope(&slim_space_envelope_from_parts(
             SAMPLE_SPACE,
-            1,
+            Some("评审工作"),
             &sample_envelope(),
-            Some(SAMPLE_ROOT),
             None,
             SAMPLE_BODY,
             SAMPLE_BODY,
@@ -818,12 +869,12 @@ mod tests {
             first.contains("~/.vibex/skills/vibex-bot/SKILL.md"),
             "{first}"
         );
-        assert!(first.contains("[协作空间消息]"), "{first}");
+        assert!(first.contains("[Group chat \"评审工作\" · from Person"), "{first}");
         assert!(first.contains("请分析登录"), "{first}");
         assert!(!first.contains("空间内成员"), "{first}");
         assert!(!second.contains("[Space 身份与协作规则]"), "{second}");
         assert!(!second.contains("list_space_members"), "{second}");
-        assert!(second.contains("[协作空间消息]"), "{second}");
+        assert!(second.contains("[Group chat \"评审工作\" · from Person"), "{second}");
         assert!(
             second.contains("请再看缓存") || second.contains("再看缓存"),
             "{second}"
@@ -902,9 +953,10 @@ mod tests {
         let texts = inputs_of(&pool, b).await;
         let payload: Value = serde_json::from_str(texts.last().unwrap()).unwrap();
         let text = payload["text"].as_str().unwrap();
-        assert!(text.contains("引用："), "{text}");
+        assert!(text.contains("quoting #"), "{text}");
         assert!(text.contains("请核对接口"), "{text}");
         assert!(text.contains("接口字段已对齐"), "{text}");
-        assert!(text.contains("root_id："), "{text}");
+        assert!(!text.contains("root_id"), "{text}");
+        assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
     }
 }

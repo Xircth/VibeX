@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "description": "Ratchet baselines for the architecture invariant gates (ADR-0033 / 0069 / 0078). These are data, not code: tightening is a one-line diff reviewed with the gate. A whitelisted value may only go down; new entries require a reason and a follow-up step that removes the entry. i3KnownUnregisteredKinds is intentionally empty after J5 registered app.rail.section.",
+  "i2HostSql": {
+    "crates/server/src/host/catalog.rs": {
+      "sqlx": 3,
+      "pool": 0,
+      "reason": "目录查询仍用 sqlx::query_as! 直读表，待 J3 目录端口化后清零"
+    },
+    "crates/server/src/host/catalog/config.rs": {
+      "sqlx": 3,
+      "pool": 0,
+      "reason": "配置目录查询直读表，待 J3 目录端口化后清零"
+    },
+    "crates/server/src/host/collaboration.rs": {
+      "sqlx": 26,
+      "pool": 92,
+      "reason": "协作域 role/team/space 直接读写库；J4 协作收核时随 CollaborationHost 一起迁出"
+    },
+    "crates/server/src/host/conversation.rs": {
+      "sqlx": 2,
+      "pool": 17,
+      "reason": "会话标题/归档/行操作等辅助查询直连池，待 J4 收核"
+    },
+    "crates/server/src/host/local_history.rs": {
+      "sqlx": 14,
+      "pool": 0,
+      "reason": "本地历史导入的批量写入 SQL，属于 J6 历史迁移范围"
+    },
+    "crates/server/src/host/management.rs": {
+      "sqlx": 23,
+      "pool": 0,
+      "reason": "Agent/进程管理等目录 SQL，待 J3 目录端口化"
+    },
+    "crates/server/src/host/native/model_provider_import.rs": {
+      "sqlx": 3,
+      "pool": 0,
+      "reason": "原生供应商导入读取现有配置表，待 J3 端口化"
+    },
+    "crates/server/src/host/native/pi_configuration.rs": {
+      "sqlx": 11,
+      "pool": 0,
+      "reason": "Pi 配置读写直连表，待 J3 端口化"
+    },
+    "crates/server/src/host/native/pi_plugins.rs": {
+      "sqlx": 4,
+      "pool": 0,
+      "reason": "Pi 插件清单读写直连表，待 J3 端口化"
+    },
+    "crates/server/src/host/native/pi_trust.rs": {
+      "sqlx": 4,
+      "pool": 0,
+      "reason": "Pi 信任记录读写直连表，待 J3 端口化"
+    },
+    "crates/server/src/host/native_commands.rs": {
+      "sqlx": 4,
+      "pool": 0,
+      "reason": "原生命令面查询直连表，待 J3 端口化"
+    },
+    "crates/server/src/host/plugin_conversation.rs": {
+      "sqlx": 6,
+      "pool": 17,
+      "reason": "插件会话投影读写；reaches_core=true 且已带 application:: 引用，待投影下沉 db"
+    },
+    "crates/server/src/host/plugin_projections.rs": {
+      "sqlx": 10,
+      "pool": 7,
+      "reason": "插件投影查询直连池，待投影仓储下沉 db"
+    },
+    "crates/server/src/host/product.rs": {
+      "sqlx": 1,
+      "pool": 42,
+      "reason": "产品目录/安装状态查询直连池，待 J3 端口化"
+    },
+    "crates/server/src/host/provider_bind.rs": {
+      "sqlx": 1,
+      "pool": 3,
+      "reason": "供应商预设绑定写库；reaches_core=true 且已带 application:: 引用"
+    },
+    "crates/server/src/host/row_ops.rs": {
+      "sqlx": 6,
+      "pool": 6,
+      "reason": "会话行操作（事件溯源写入）直连池，待 J4 收核"
+    },
+    "crates/server/src/host/streams.rs": {
+      "sqlx": 0,
+      "pool": 1,
+      "reason": "订阅流的 workspace 预检直连 &self.pool，待 J4 收核后改端口"
+    },
+    "crates/server/src/host/surface.rs": {
+      "sqlx": 26,
+      "pool": 85,
+      "reason": "artifact / app.surface 界面表面读写直连池，待 J4 后收紧"
+    },
+    "crates/server/src/host/workspace_parity.rs": {
+      "sqlx": 1,
+      "pool": 40,
+      "reason": "工作区对等命令查询直连池，待 J4 后收紧"
+    }
+  },
+  "i3KnownUnregisteredKinds": [],
+  "i4DbDependencies": [
+    {
+      "name": "executors",
+      "reason": "db 模型 execution_process / scratch 持久化 ExecutorProfileId、ExecutorConfig、ExecutorAction 等配置值类型；需先把这些 DTO 下沉 api-types 再删除依赖"
+    },
+    {
+      "name": "automation",
+      "reason": "db 模型 automation_v2 持久化自动化领域记录；需先把自动化 DTO 下沉 api-types 再删除依赖"
+    }
+  ]
+}

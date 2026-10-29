@@ -5,7 +5,12 @@
 // plugins), otherwise the "application core owns ports, db implements them"
 // direction collapses back into a tangle.
 
-import { DB_CARGO, RULE_I4, readText } from "./check-arch-shared.mjs";
+import {
+  DB_CARGO,
+  RULE_I4,
+  loadRatchet,
+  readText,
+} from "./check-arch-shared.mjs";
 
 export const RULE = RULE_I4;
 
@@ -19,20 +24,19 @@ export const FORBIDDEN_DB_DEPS = [
   "plugins",
 ];
 
-// Baseline ratchet for reversed dependencies that already exist in the tree.
-// Each entry needs a reason and the step that removes it; a dependency that
-// disappears is reported as a warning so the entry gets deleted. The ratchet
-// only tightens: new forbidden dependencies are violations, not entries.
-export const DB_DEP_RATCHET = new Map([
-  [
-    "executors",
-    "db 模型 execution_process / scratch 持久化 ExecutorProfileId、ExecutorConfig、ExecutorAction 等配置值类型；需先把这些 DTO 下沉 api-types 再删除依赖",
-  ],
-  [
-    "automation",
-    "db 模型 automation_v2 持久化自动化领域记录；需先把自动化 DTO 下沉 api-types 再删除依赖",
-  ],
-]);
+// Baseline ratchet for reversed dependencies that already exist in the tree,
+// loaded from check-arch-ratchet.json. Each entry needs a reason and the step
+// that removes it; a dependency that disappears is reported as a warning so
+// the entry gets deleted. The ratchet only tightens: new forbidden dependencies
+// are violations, not entries.
+const RATCHET = loadRatchet();
+
+export const DB_DEP_RATCHET = new Map(
+  (RATCHET.i4DbDependencies ?? []).map((entry) => [
+    entry.name,
+    entry.reason,
+  ])
+);
 
 const DEPENDENCY_SECTION = /(?:^|\.)(?:dev-|build-)?dependencies$/;
 

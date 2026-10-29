@@ -49,6 +49,7 @@
     "plugin:no-privilege": "node scripts/check-plugin-no-privilege.mjs",
     "test:plugin-no-privilege": "node --test scripts/check-plugin-no-privilege.test.mjs",
     "arch:check": "node scripts/check-arch-invariants.mjs",
+    "arch:check:json": "node scripts/check-arch-invariants.mjs --json",
     "test:arch-invariants": "node scripts/check-arch-invariants.test.mjs"
   },
   "devDependencies": {

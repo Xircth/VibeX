@@ -6,10 +6,10 @@
 // can list future kinds without failing the build.
 //
 // KNOWN_UNREGISTERED_KINDS is the ratchet for "consumed but not registered yet"
-// gaps. Each entry needs a reason. J5 has already registered app.rail.section,
-// so the map is empty; when a temporary gap is added and the directory later
-// gains that kind, the stale-entry check turns red and forces removal. The
-// ratchet only tightens.
+// gaps, loaded from check-arch-ratchet.json. Each entry needs a reason. J5 has
+// already registered app.rail.section, so the list is empty; when a temporary
+// gap is added and the directory later gains that kind, the stale-entry check
+// turns red and forces removal. The ratchet only tightens.
 
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -18,15 +18,21 @@ import {
   OFFICIAL_PLUGIN_ROOTS,
   RULE_I3,
   lineOfNeedle,
+  loadRatchet,
   readJson,
   readText,
 } from "./check-arch-shared.mjs";
 
 export const RULE = RULE_I3;
 
-export const KNOWN_UNREGISTERED_KINDS = new Map([
-  // "kind": "理由（哪个官方插件已消费、哪一步会补齐）"
-]);
+const RATCHET = loadRatchet();
+
+export const KNOWN_UNREGISTERED_KINDS = new Map(
+  (RATCHET.i3KnownUnregisteredKinds ?? []).map((entry) => [
+    entry.kind,
+    entry.reason,
+  ])
+);
 
 const VALID_STATUS = new Set(["ready", "preview", "unimplemented"]);
 

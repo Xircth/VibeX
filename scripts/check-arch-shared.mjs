@@ -44,6 +44,63 @@ export function fileExists(rootDir, relativePath) {
   return existsSync(join(rootDir, relativePath));
 }
 
+// Ratchet baselines live in a data file next to the scripts, so tightening an
+// entry is a one-line diff: <scripts>/check-arch-ratchet.json. It is resolved
+// relative to this module, not to the scanned --root, so fixtures keep working.
+export const RATCHET_FILE = new URL(
+  "./check-arch-ratchet.json",
+  import.meta.url
+);
+
+function requireCount(value, label) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`ratchet ${label} 必须是非负整数，实际是 ${value}`);
+  }
+}
+
+function requireReason(value, label) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`ratchet ${label} 必须写明理由`);
+  }
+}
+
+export function loadRatchet() {
+  let data;
+  try {
+    data = JSON.parse(
+      readFileSync(RATCHET_FILE, "utf8").replace(/^\uFEFF/, "")
+    );
+  } catch (error) {
+    throw new Error(`ratchet 文件不可读或不是合法 JSON：${error.message}`);
+  }
+  if (data.schemaVersion !== 1) {
+    throw new Error("ratchet 文件 schemaVersion 必须是 1");
+  }
+  for (const [file, entry] of Object.entries(data.i2HostSql ?? {})) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`ratchet i2HostSql['${file}'] 必须是对象`);
+    }
+    requireCount(entry.sqlx, `i2HostSql['${file}'].sqlx`);
+    requireCount(entry.pool, `i2HostSql['${file}'].pool`);
+    requireReason(entry.reason, `i2HostSql['${file}'].reason`);
+  }
+  for (const [index, entry] of (data.i3KnownUnregisteredKinds ?? []).entries()) {
+    if (!entry || typeof entry.kind !== "string" || entry.kind === "") {
+      throw new Error(
+        `ratchet i3KnownUnregisteredKinds[${index}] 缺少 kind`
+      );
+    }
+    requireReason(entry.reason, `i3KnownUnregisteredKinds[${index}].reason`);
+  }
+  for (const [index, entry] of (data.i4DbDependencies ?? []).entries()) {
+    if (!entry || typeof entry.name !== "string" || entry.name === "") {
+      throw new Error(`ratchet i4DbDependencies[${index}] 缺少 name`);
+    }
+    requireReason(entry.reason, `i4DbDependencies[${index}].reason`);
+  }
+  return data;
+}
+
 // Every *.rs (or other extension) file under relativeDir, as sorted POSIX paths
 // relative to rootDir, so messages are stable across platforms.
 export function walkFiles(rootDir, relativeDir, extension) {

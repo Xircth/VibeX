@@ -9,10 +9,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { runAllRules } from "./check-arch-invariants.mjs";
 import { checkCatalog } from "./check-arch-catalog.mjs";
 import { checkContract } from "./check-arch-contract.mjs";
 import { checkDbDependencies } from "./check-arch-db-deps.mjs";
 import { checkPortPurity } from "./check-arch-port-purity.mjs";
+import { loadRatchet } from "./check-arch-shared.mjs";
 
 function fixture(files) {
   const root = mkdtempSync(join(tmpdir(), "vibex-arch-"));
@@ -301,4 +303,56 @@ core-alias = { path = "../application" }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("ratchet data file is valid and every entry carries a reason", () => {
+  const ratchet = loadRatchet();
+  assert.equal(ratchet.schemaVersion, 1);
+  const entries = Object.entries(ratchet.i2HostSql ?? {});
+  assert.ok(entries.length > 0, "i2HostSql 不能为空");
+  for (const [file, entry] of entries) {
+    assert.ok(Number.isInteger(entry.sqlx) && entry.sqlx >= 0, file);
+    assert.ok(Number.isInteger(entry.pool) && entry.pool >= 0, file);
+    assert.ok(entry.reason.trim().length > 0, `${file} 缺少理由`);
+  }
+  for (const entry of ratchet.i4DbDependencies ?? []) {
+    assert.ok(entry.name.length > 0);
+    assert.ok(entry.reason.trim().length > 0);
+  }
+});
+
+test("runAllRules aggregates results and --json shape stays path-free", () => {
+  const fakeRules = [
+    {
+      id: "I9",
+      title: "fixture",
+      run: () => ({
+        metrics: { x: 1 },
+        violations: [
+          { rule: "I9", file: "a.rs", line: 2, message: "m" },
+        ],
+        warnings: [{ rule: "I9", file: "b.rs", line: 0, message: "w" }],
+      }),
+    },
+    {
+      id: "I8",
+      title: "boom",
+      run: () => {
+        throw new Error("missing");
+      },
+    },
+  ];
+  const result = runAllRules(process.cwd(), fakeRules);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.summary.violations, 1);
+  assert.equal(result.summary.warnings, 1);
+  assert.equal(result.summary.errors, 1);
+  assert.deepEqual(
+    result.rules.map((report) => report.id),
+    ["I9", "I8"]
+  );
+  assert.equal(result.rules[1].error, "missing");
+  const text = JSON.stringify(result);
+  assert.equal(text.includes(process.cwd()), false);
+  assert.equal(text.includes("\"generatedAt\""), false);
 });

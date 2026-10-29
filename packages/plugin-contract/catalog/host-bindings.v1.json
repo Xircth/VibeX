@@ -1,0 +1,756 @@
+{
+  "schemaVersion": 1,
+  "description": "Capability -> port -> implementation registry for the plugin host surface. One entry per host-api op plus one per host.call capability. status: ready = registered and implemented; preview = registered with a fallback/no-op/partial implementation; undeclared = implemented or reachable but missing from catalog/host-api.v1.json.",
+  "entries": [
+    {
+      "name": "conversation.create",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "create",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:create",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "list",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:list",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.read.get",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "get",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:get",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.append.enqueueInput",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "enqueue",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:enqueue",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.steer",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "steer",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:steer",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.cancel",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "cancel",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:cancel",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.cancelInput",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "cancel_input",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:cancel_input",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.listInputs",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "list_inputs",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:list_inputs",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.respondPermission",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "respond_permission",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:respond_permission",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.respondQuestion",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "respond_question",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:respond_question",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.setMode",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "set_mode",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:set_mode",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.setConfigOption",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "set_config_option",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:set_config_option",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.catalog",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "catalog",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:catalog",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.archive",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "archive",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:archive",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.events.since",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "events_since",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:events_since",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Dispatch crates/plugins/src/host_capability_broker.rs:call_conversation; impl imports application::{ApplicationCore,...}."
+    },
+    {
+      "name": "conversation.draft.insert",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "insert_draft",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:insert_draft",
+      "reaches_core": true,
+      "status": "undeclared",
+      "notes": "Implemented by the broker and the host port, but absent from catalog/host-api.v1.json (53 ops)."
+    },
+    {
+      "name": "provider.presets.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/provider_presets.rs:ProviderPresetHost",
+      "port_method": "list",
+      "implementation": "crates/server/src/host/provider_bind.rs:list",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Host impl maps application::ApplicationError; desktop/server composition injects HostProviderPresetHost."
+    },
+    {
+      "name": "provider.presets.save",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/provider_presets.rs:ProviderPresetHost",
+      "port_method": "save",
+      "implementation": "crates/server/src/host/provider_bind.rs:save",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Host impl maps application::ApplicationError; desktop/server composition injects HostProviderPresetHost."
+    },
+    {
+      "name": "provider.presets.bind",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/provider_presets.rs:ProviderPresetHost",
+      "port_method": "bind",
+      "implementation": "crates/server/src/host/provider_bind.rs:bind",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "Host impl maps application::ApplicationError; desktop/server composition injects HostProviderPresetHost."
+    },
+    {
+      "name": "remote.profile.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "list",
+      "implementation": "crates/server/src/host/remote_profiles.rs:list",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "File-backed host impl; desktop injects src-tauri/src/plugin_remote_profiles.rs:TauriRemoteProfileHost. No Application Core reference."
+    },
+    {
+      "name": "remote.profile.upsert",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "upsert",
+      "implementation": "crates/server/src/host/remote_profiles.rs:upsert",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "File-backed host impl; desktop injects src-tauri/src/plugin_remote_profiles.rs:TauriRemoteProfileHost. No Application Core reference."
+    },
+    {
+      "name": "remote.profile.forget",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "forget",
+      "implementation": "crates/server/src/host/remote_profiles.rs:forget",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "File-backed host impl; desktop injects src-tauri/src/plugin_remote_profiles.rs:TauriRemoteProfileHost. No Application Core reference."
+    },
+    {
+      "name": "remote.connect",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "connect",
+      "implementation": "crates/server/src/host/remote_profiles.rs:connect",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "File-backed host impl; desktop injects src-tauri/src/plugin_remote_profiles.rs:TauriRemoteProfileHost. No Application Core reference."
+    },
+    {
+      "name": "remote.disconnect",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "disconnect",
+      "implementation": "crates/server/src/host/remote_profiles.rs:disconnect",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "File-backed host impl; desktop injects src-tauri/src/plugin_remote_profiles.rs:TauriRemoteProfileHost. No Application Core reference."
+    },
+    {
+      "name": "artifact.preview.open",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/preview_host.rs:PluginPreviewHost",
+      "port_method": "open_preview",
+      "implementation": "crates/plugins/src/process_preview_host.rs:open_preview",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Broker issues one-shot artifact handles; preview served by ExternalProcessPreviewHost."
+    },
+    {
+      "name": "artifact.preview.close",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/preview_host.rs:PluginPreviewHost",
+      "port_method": "close_preview",
+      "implementation": "crates/plugins/src/process_preview_host.rs:close_preview",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Lease expiry also drops the preview (schedule_preview_lease_drop)."
+    },
+    {
+      "name": "artifact.readText",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/app_surface.rs:read_artifact_text",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Only inside an artifact.editor app.surface session; the broker-level artifact.readText arm returns artifact_not_found."
+    },
+    {
+      "name": "artifact.writeText",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/app_surface.rs:write_artifact_text",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Revision-checked write inside an app.surface editor session."
+    },
+    {
+      "name": "storage.settings.get",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/package.rs:PluginPackage::inspect",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Reads the package config.json; config schema validated by package.rs."
+    },
+    {
+      "name": "storage.settings.put",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/package.rs:write_config",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Writes config.json then notifies the control plane (notify_config_updated)."
+    },
+    {
+      "name": "storage.kv.get",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "kv_get",
+      "implementation": "crates/plugins/src/control_plane.rs:kv_get",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped KV; forwarding methods on PluginControlPlane (storage lives in the control plane kv/secret store)."
+    },
+    {
+      "name": "storage.kv.put",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "kv_put",
+      "implementation": "crates/plugins/src/control_plane.rs:kv_put",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped KV; forwarding methods on PluginControlPlane (storage lives in the control plane kv/secret store)."
+    },
+    {
+      "name": "storage.kv.delete",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "kv_delete",
+      "implementation": "crates/plugins/src/control_plane.rs:kv_delete",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped KV; forwarding methods on PluginControlPlane (storage lives in the control plane kv/secret store)."
+    },
+    {
+      "name": "storage.kv.list",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "kv_list_keys",
+      "implementation": "crates/plugins/src/control_plane.rs:kv_list_keys",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped KV; forwarding methods on PluginControlPlane (storage lives in the control plane kv/secret store)."
+    },
+    {
+      "name": "storage.database.execute",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "execute",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "Declared in host-api.v1.json, but call_plugin_data has no database arm: the call falls through to capability_unimplemented."
+    },
+    {
+      "name": "storage.database.query",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "query",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "Declared in host-api.v1.json, but call_plugin_data has no database arm: the call falls through to capability_unimplemented."
+    },
+    {
+      "name": "secrets.get",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "get",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped secret store under the plugin data root."
+    },
+    {
+      "name": "secrets.put",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "put",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped secret store under the plugin data root."
+    },
+    {
+      "name": "secrets.delete",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "delete",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Plugin-scoped secret store under the plugin data root."
+    },
+    {
+      "name": "files.read",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "read",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Root-scoped file access; denies files_root_denied / files_escape."
+    },
+    {
+      "name": "files.write",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "write",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Root-scoped file access; denies files_root_denied / files_escape."
+    },
+    {
+      "name": "files.stat",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "stat",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Root-scoped file access; denies files_root_denied / files_escape."
+    },
+    {
+      "name": "files.list",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "list",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Root-scoped file access; denies files_root_denied / files_escape."
+    },
+    {
+      "name": "network.fetch",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "fetch",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_network_fetch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "reqwest client owned by the broker; 32 MiB response cap."
+    },
+    {
+      "name": "log.debug",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "debug",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "The log capability arm returns Ok({}): accepted and discarded, nothing is persisted."
+    },
+    {
+      "name": "log.info",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "info",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "The log capability arm returns Ok({}): accepted and discarded, nothing is persisted."
+    },
+    {
+      "name": "log.warn",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "warn",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "The log capability arm returns Ok({}): accepted and discarded, nothing is persisted."
+    },
+    {
+      "name": "log.error",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "error",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "The log capability arm returns Ok({}): accepted and discarded, nothing is persisted."
+    },
+    {
+      "name": "events.subscribe",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "subscribe",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_events",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Backed by PluginControlPlane::publish_event / subscription cursors."
+    },
+    {
+      "name": "events.ack",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "ack",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_events",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Backed by PluginControlPlane::publish_event / subscription cursors."
+    },
+    {
+      "name": "agent.invoke",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/host_capability_broker.rs:AgentInvocationHandler",
+      "port_method": "invoke",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_agent_invoke",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handlers registered by the host; visibility scoped with allowed_plugins."
+    },
+    {
+      "name": "runtime.execute.run",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_runtime",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Resolves the locked runtime via PluginControlPlane::runtime_for_generation, then spawns it with a 120 s timeout."
+    },
+    {
+      "name": "app.notify.toast",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Emits PluginToastNotification on a broadcast channel consumed by the desktop toast window."
+    },
+    {
+      "name": "plugin.self.doctor",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "doctor",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_self",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Also implements plugin.self.status and plugin.self.quarantine, neither of which is in host-api.v1.json."
+    },
+    {
+      "name": "runtime.execute",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "—",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_runtime",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "op run = runtime.execute.run."
+    },
+    {
+      "name": "runtime.lock",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "get",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:get_runtime_lock",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "Operation get exists and is used by plugins/open-connector, but runtime.lock.get is not in host-api.v1.json."
+    },
+    {
+      "name": "exec",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "run",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_exec",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "Spawns a host process on the plugin behalf; no official plugin calls it and it is not in host-api.v1.json."
+    },
+    {
+      "name": "artifact.preview",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/preview_host.rs:PluginPreviewHost",
+      "port_method": "open_preview|close_preview",
+      "implementation": "crates/plugins/src/process_preview_host.rs:open_preview",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Ops artifact.preview.open / artifact.preview.close."
+    },
+    {
+      "name": "artifact",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "readText|writeText",
+      "implementation": "crates/plugins/src/app_surface.rs:read_artifact_text",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Ops artifact.readText / artifact.writeText; broker-level calls are rejected, only editor sessions serve them."
+    },
+    {
+      "name": "storage",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "kv|settings|database",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "kv.* and settings.* are live; database.execute / database.query are declared but unimplemented."
+    },
+    {
+      "name": "secrets",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "get|put|delete",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "files",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "read|write|stat|list",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "network",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "fetch",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_network_fetch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "log",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "debug|info|warn|error",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "All four levels are accepted and discarded."
+    },
+    {
+      "name": "events",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "subscribe|ack",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_events",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Also accepts events.publish, which is not in host-api.v1.json."
+    },
+    {
+      "name": "agent",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/host_capability_broker.rs:AgentInvocationHandler",
+      "port_method": "invoke",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_agent_invoke",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "conversation",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/conversation_host.rs:PluginConversationHost",
+      "port_method": "create|list|get|enqueue|steer|cancel|cancelInput|listInputs|respondPermission|respondQuestion|setMode|setConfigOption|catalog|archive|events.since|draft.insert",
+      "implementation": "crates/server/src/host/plugin_conversation.rs:create",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": "draft.insert is implemented but not registered in host-api.v1.json."
+    },
+    {
+      "name": "collaboration",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "Operations role.*, team.*, space.* are dispatched here; the whole family is absent from host-api.v1.json. Impl has no application:: reference."
+    },
+    {
+      "name": "workspace",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "workspace.focusConversation is routed through the same collaboration host; absent from host-api.v1.json."
+    },
+    {
+      "name": "browser",
+      "kind": "capability",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "Used by vibex.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json."
+    },
+    {
+      "name": "blob",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "dispatch_plugin_blob",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch_plugin_blob",
+      "reaches_core": false,
+      "status": "undeclared",
+      "notes": "Editor-surface blob reads; absent from host-api.v1.json."
+    },
+    {
+      "name": "app",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "notify.toast",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "plugin.self",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "doctor|status|quarantine",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_self",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Only doctor is registered in host-api.v1.json; status and quarantine are not."
+    },
+    {
+      "name": "provider.presets",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/provider_presets.rs:ProviderPresetHost",
+      "port_method": "list|save|bind",
+      "implementation": "crates/server/src/host/provider_bind.rs:bind",
+      "reaches_core": true,
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "name": "remote",
+      "kind": "capability",
+      "port_trait": "crates/plugins/src/remote_profiles.rs:RemoteProfileHost",
+      "port_method": "profile.list|profile.upsert|profile.forget|connect|disconnect",
+      "implementation": "crates/server/src/host/remote_profiles.rs:list",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": ""
+    }
+  ]
+}

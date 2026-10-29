@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "kind": "content.skill",
+      "consumer": "src-tauri/src/commands/plugin_control.rs:project_plugin_skills",
+      "example_plugin": "vibex.science",
+      "status": "ready",
+      "notes": "Projects enabled Skills onto bound Agents."
+    },
+    {
+      "kind": "content.mcp",
+      "consumer": "src-tauri/src/commands/plugin_control.rs:configure_plugin_default_mcp",
+      "example_plugin": "vibex.browser",
+      "status": "ready",
+      "notes": "Projects plugin MCP servers onto bound Agents."
+    },
+    {
+      "kind": "content.hook",
+      "consumer": "none",
+      "example_plugin": "none",
+      "status": "unimplemented",
+      "notes": "Accepted by the manifest validator with a warning; no hook runtime exists."
+    },
+    {
+      "kind": "workflow.binding",
+      "consumer": "unknown",
+      "example_plugin": "vibex.office",
+      "status": "ready",
+      "notes": "Consumer not traced in this pass; contribution is parsed in package.rs."
+    },
+    {
+      "kind": "file.opener",
+      "consumer": "unknown",
+      "example_plugin": "vibex.office",
+      "status": "ready",
+      "notes": "Consumer not traced in this pass; contribution is parsed in package.rs."
+    },
+    {
+      "kind": "artifact.preview",
+      "consumer": "crates/plugins/src/host_capability_broker.rs:open_preview",
+      "example_plugin": "vibex.office",
+      "status": "ready",
+      "notes": "Served through PluginPreviewHost leases."
+    },
+    {
+      "kind": "app.surface",
+      "consumer": "frontend/src/components/plugins/AppSurfaceHost.tsx",
+      "example_plugin": "vibex.browser",
+      "status": "ready",
+      "notes": "Closed slot whitelist in crates/plugins/src/app_surface.rs."
+    },
+    {
+      "kind": "app.command",
+      "consumer": "frontend/src/components/search/SearchPalette.tsx",
+      "example_plugin": "vibex.notes",
+      "status": "ready",
+      "notes": "Also loaded by frontend/src/features/plugins/PluginRuntimeLoader.ts."
+    },
+    {
+      "kind": "app.toolbar",
+      "consumer": "frontend/src/components/layout/Toolbar.tsx",
+      "example_plugin": "none",
+      "status": "ready",
+      "notes": "Registered ready, but no official plugin declares it."
+    },
+    {
+      "kind": "app.status",
+      "consumer": "frontend/src/components/layout/ProjectWindowStatusSummary.tsx",
+      "example_plugin": "vibex.open-connector",
+      "status": "ready",
+      "notes": "Also loaded by frontend/src/features/plugins/PluginRuntimeLoader.ts."
+    },
+    {
+      "kind": "app.composer.slash",
+      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx",
+      "example_plugin": "vibex.prompt-enhancer",
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "kind": "app.timeline.card",
+      "consumer": "none",
+      "example_plugin": "none",
+      "status": "ready",
+      "notes": "Registered ready; no consumer traced in frontend/src and no official plugin declares it."
+    },
+    {
+      "kind": "app.settings.section",
+      "consumer": "frontend/src/features/plugins/PluginRuntimeLoader.ts",
+      "example_plugin": "none",
+      "status": "ready",
+      "notes": "Registered ready, but no official plugin declares it."
+    },
+    {
+      "kind": "host.service",
+      "consumer": "crates/plugins/src/host_service.rs",
+      "example_plugin": "vibex.open-connector",
+      "status": "ready",
+      "notes": "One Worker process serves every host.service handler of a plugin."
+    },
+    {
+      "kind": "provider.model.importSource",
+      "consumer": "crates/plugins/src/worker_host.rs:3300",
+      "example_plugin": "none",
+      "status": "ready",
+      "notes": "Host registers the source; no frontend consumer traced and no official plugin declares it."
+    },
+    {
+      "kind": "provider.model.catalog",
+      "consumer": "frontend/src/features/plugins/providers/hostProviderServices.ts",
+      "example_plugin": "vibex.provider-switch",
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "kind": "app.panel",
+      "consumer": "frontend/src/components/layout/panels/PluginDockviewPanel.tsx",
+      "example_plugin": "vibex.browser",
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "kind": "app.tab",
+      "consumer": "frontend/src/components/layout/IDELayout.tsx",
+      "example_plugin": "vibex.open-connector",
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "kind": "app.kanban.view",
+      "consumer": "frontend/src/lib/kanbanViewCatalog.ts",
+      "example_plugin": "vibex.kanban-views",
+      "status": "ready",
+      "notes": "Consumed by the kanban tab container."
+    },
+    {
+      "kind": "app.settings.page",
+      "consumer": "frontend/src/pages/settings/PluginSettingsPage.tsx",
+      "example_plugin": "vibex.browser",
+      "status": "preview",
+      "notes": "Catalog still marks it preview although two official plugins declare it."
+    },
+    {
+      "kind": "app.composer.action",
+      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx",
+      "example_plugin": "vibex.prompt-enhancer",
+      "status": "ready",
+      "notes": ""
+    },
+    {
+      "kind": "provider.remote.provisioner",
+      "consumer": "crates/plugins/src/worker_host.rs:3265",
+      "example_plugin": "vibex.remote-ssh",
+      "status": "ready",
+      "notes": ""
+    }
+  ]
+}

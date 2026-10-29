@@ -3,7 +3,7 @@ import {
   MAX_TURN_ELAPSED_MS,
   liveElapsedMs,
   plausibleTurnStartMs,
-} from '@/components/conversation-thread/turnClock';
+} from './thread/turnClock';
 
 export function formatCollapsedDurationParts(durationMs: number): {
   hours: number;

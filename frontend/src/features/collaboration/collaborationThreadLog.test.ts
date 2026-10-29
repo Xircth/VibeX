@@ -40,26 +40,16 @@ describe('collaboration thread log scroll', () => {
 });
 
 describe('isCollabThreadUserBubble', () => {
-  it('parses flattened sender and legacy actor URIs', () => {
+  it('parses flattened Person and bot senders', () => {
     expect(isCollabThreadUserBubble({ envelope: { sender: 'Person' } })).toBe(
       true
     );
     expect(isCollabThreadUserBubble({ envelope: { sender: 'User' } })).toBe(
       true
     );
-    expect(
-      isCollabThreadUserBubble({
-        envelope: { actor: 'vibex://space/s/user' },
-      })
-    ).toBe(true);
     expect(isCollabThreadUserBubble({ envelope: { sender: '小A' } })).toBe(
       false
     );
-    expect(
-      isCollabThreadUserBubble({
-        envelope: { actor: 'vibex://space/s/member/小A' },
-      })
-    ).toBe(false);
     expect(
       isCollabThreadUserBubble({
         envelope: { sender: 'system' },

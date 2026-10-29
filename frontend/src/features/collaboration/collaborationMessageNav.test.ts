@@ -8,20 +8,20 @@ describe('buildCollaborationUserMessageNavEntries', () => {
       buildCollaborationUserMessageNavEntries([
         {
           seq: 1,
-          envelope: { actor: 'space/user', content: '用户第一条' },
+          envelope: { sender: 'Person', content: '用户第一条' },
         },
         {
           seq: 2,
-          envelope: { actor: 'space/member/小A', content: '助手回复' },
+          envelope: { sender: '小A', content: '助手回复' },
         },
         {
           seq: 3,
           origin: 'system',
-          envelope: { actor: 'space/system', summary: 'collaboration_limit' },
+          envelope: { sender: 'system', summary: 'collaboration_limit' },
         },
         {
           seq: 4,
-          envelope: { actor: 'space/user', content: '用户第二条' },
+          envelope: { sender: 'Person', content: '用户第二条' },
         },
         {
           seq: 5,

@@ -175,28 +175,11 @@ describe('collaboration space model', () => {
 
   it('inserts mentions and maps delivery copy', () => {
     expect(insertMention('请 @小', '小B')).toBe('请 @小B ');
-    expect(messageAuthor({ actor: 'vibex://space/s/user' })).toBe('你');
-    expect(messageAuthor({ actor: 'vibex://space/s/person' })).toBe('你');
-    expect(messageAuthor({ actor: 'Person' })).toBe('你');
-    expect(messageAuthor({ actor: 'User' })).toBe('你');
     expect(messageAuthor({ sender: 'Person' })).toBe('你');
     expect(messageAuthor({ sender: 'User' })).toBe('你');
-    expect(messageAuthor({ actor: 'vibex://space/s/member/小B' })).toBe('小B');
+    expect(messageAuthor({ sender: '你' })).toBe('你');
     expect(messageAuthor({ sender: '小B' })).toBe('小B');
-    expect(messageAuthor({ actor: '小B' })).toBe('小B');
-    expect(
-      messageAuthor({
-        sender: 'Person',
-        actor: 'vibex://space/s/member/小B',
-      })
-    ).toBe('你');
-    expect(messageAuthor({ actor: 'vibex://space/s/system' })).toBe('');
     expect(messageAuthor({ sender: 'system' })).toBe('');
-    expect(
-      messageAuthor({
-        actor: 'vibex://space/s/member/%E5%B0%8FB',
-      })
-    ).toBe('小B');
     expect(isCollaborationLimitNotice({ envelope: { sender: 'system' } })).toBe(
       true
     );
@@ -206,7 +189,7 @@ describe('collaboration space model', () => {
     expect(
       resolveMessageReceipts(
         {
-          to: ['User', 'vibex://space/s/member/小B', '@小B'],
+          to: ['User', '小B', '@小B'],
         },
         null
       )
@@ -229,7 +212,7 @@ describe('collaboration space model', () => {
     expect(
       isCollaborationLimitNotice({
         origin: 'agent',
-        envelope: { actor: 'vibex://space/s/member/小B' },
+        envelope: { sender: '小B' },
       })
     ).toBe(false);
     expect(sendErrorCopy('not_a_member')).toBe('不在这个空间');
@@ -350,27 +333,21 @@ describe('collaboration space model', () => {
     expect(
       resolveMessageConversationId(
         {
-          actor: 'vibex://space/s1/member/小A',
-          attributedTo: 'vibex://conversation/conv-direct',
+          sender: '小A',
+          conversation_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         },
         members
       )
-    ).toBe('conv-direct');
+    ).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     expect(
       resolveMessageConversationId(
         {
-          actor: 'vibex://space/s1/member/小B',
+          sender: '小B',
         },
         members
       )
     ).toBe('b');
     expect(resolveMessageConversationId({ sender: '小A' }, members)).toBe('a');
-    expect(
-      resolveMessageConversationId(
-        { attributedTo: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
-        members
-      )
-    ).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
 
     const memoryStorage = new Map<string, string>();
     const storage = {
@@ -887,7 +864,7 @@ describe('collab DM bootstrap prompt', () => {
   it('parses cross-chat peers from nicknames or structured envelopes', () => {
     expect(
       extractEnvelopeCrossChatMeta({
-        crossChatSentTo: ['小B', 'vibex://space/direct/member/小C'],
+        crossChatSentTo: ['小B', '小C'],
         crossChatReceivedFrom: { kind: 'member', name: '小A' },
       })
     ).toEqual({

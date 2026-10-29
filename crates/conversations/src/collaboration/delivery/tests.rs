@@ -1,4 +1,3 @@
-
 use db::models::collaboration_identity as identity;
 
 use super::*;
@@ -266,10 +265,7 @@ async fn space_mention_submits_same_text_to_each() {
         assert!(text.contains("auth.ts"));
         assert!(text.contains("[协作空间消息]"));
         assert!(text.contains("来源：小A"));
-        assert!(
-            text.contains("[Space") && text.contains("[PASS]"),
-            "{text}"
-        );
+        assert!(text.contains("[Space") && text.contains("[PASS]"), "{text}");
     }
     assert_eq!(slim_of(&payloads[0]), slim_of(&payloads[1]));
     let joined = texts.join("\n");
@@ -1514,18 +1510,13 @@ async fn agent_projection_hides_the_user_actor() {
         .unwrap();
     let agent_json = serde_json::to_string(&agent_messages).unwrap();
     assert!(!agent_json.contains("/user"));
-    assert!(agent_json.contains("\"actor\":\"user\""));
+    assert_eq!(agent_messages[0].envelope["sender"], json!("user"));
+    assert!(agent_messages[0].envelope.get("actor").is_none());
     let user_messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
         .await
         .unwrap();
-    let user_json = serde_json::to_string(&user_messages).unwrap();
-    assert!(
-        user_json.contains("\"actor\":\"Person\"")
-            || user_json.contains("\"sender\":\"Person\"")
-            || user_json.contains("\"actor\":\"User\"")
-            || user_json.contains("/user"),
-        "{user_json}"
-    );
+    assert_eq!(user_messages[0].envelope["sender"], json!("Person"));
+    assert!(user_messages[0].envelope.get("actor").is_none());
 }
 
 #[tokio::test]
@@ -2623,10 +2614,7 @@ async fn dm_post_and_reply_write_space_messages_and_receipts() {
     assert_eq!(space_messages[1].1, "agent");
     let reply_env: Value = serde_json::from_str(&space_messages[1].2).unwrap();
     assert_eq!(
-        reply_env
-            .get("reply_to")
-            .or_else(|| reply_env.get("inReplyTo"))
-            .and_then(Value::as_str),
+        reply_env.get("reply_to").and_then(Value::as_str),
         Some(posted.message_id.as_str())
     );
 
@@ -3208,13 +3196,7 @@ async fn finalize_strips_own_nickname_prefix_and_posts_to_user_without_peer_wake
     );
     let to = fallback.envelope["to"].as_array().unwrap();
     assert_eq!(to, &vec![json!("Person")]);
-    assert_eq!(
-        fallback.envelope["sender"]
-            .as_str()
-            .or_else(|| fallback.envelope["actor"].as_str())
-            .unwrap(),
-        "小A"
-    );
+    assert_eq!(fallback.envelope["sender"].as_str().unwrap(), "小A");
     assert_eq!(input_count(&pool, b).await, before_b);
 }
 
@@ -3334,13 +3316,7 @@ async fn finalize_bot_space_always_addresses_user() {
     let envelope: Value = serde_json::from_str(&fallback.2).unwrap();
     assert_eq!(envelope["content"].as_str().unwrap(), "登录流程正常。");
     assert_eq!(envelope["to"].as_array().unwrap(), &vec![json!("Person")]);
-    assert_eq!(
-        envelope["sender"]
-            .as_str()
-            .or_else(|| envelope["actor"].as_str())
-            .unwrap(),
-        "小A"
-    );
+    assert_eq!(envelope["sender"].as_str().unwrap(), "小A");
 }
 
 #[tokio::test]

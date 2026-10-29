@@ -336,10 +336,8 @@ pub struct SpaceMessage {
     pub envelope: Value,
     /// `user` or `agent`.
     pub origin: String,
-    /// Id of the message this one replies to (cross-chat member-to-member
-    /// correlation), lifted from the envelope's `inReplyTo`; a
-    /// `vibex://space-message/<id>` URI is reduced to the bare `<id>` so it
-    /// matches `id`.
+    /// Id of the message this one replies to, lifted from the envelope's
+    /// `reply_to`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
     /// Per-recipient receipts (empty for agent audiences).
@@ -481,7 +479,7 @@ pub async fn list_space_messages(
         .filter_map(|(seq, raw, origin, id)| {
             let stored: Value = serde_json::from_str(&raw).ok()?;
             let parsed = parse_space_envelope(&stored);
-            let envelope = project_listed_envelope(stored, &parsed, audience, space_id);
+            let envelope = project_listed_envelope(stored, &parsed, audience);
             let receipts = receipts_by_message.remove(&id).unwrap_or_default();
             Some(SpaceMessage {
                 id,
@@ -570,7 +568,7 @@ pub(crate) fn envelope_matches(raw: &str, request: &Value) -> bool {
     let requested_reply = request
         .get("in_reply_to")
         .and_then(Value::as_str)
-        .map(bare_envelope_id)
+        .map(str::trim)
         .filter(|value| !value.is_empty());
     if stored_reply != requested_reply {
         return false;
@@ -684,11 +682,6 @@ pub(crate) async fn store_operation(
     )
     .await
     .map_err(db)
-}
-
-#[allow(dead_code)]
-pub(crate) fn member_actor(space_id: &str, nickname: &str) -> String {
-    format!("vibex://space/{space_id}/member/{nickname}")
 }
 
 pub(crate) fn space_thread_kind(space_id: &str) -> &'static str {

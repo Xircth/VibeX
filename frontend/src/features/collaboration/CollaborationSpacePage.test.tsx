@@ -249,7 +249,7 @@ describe('CollaborationSpacePage', () => {
               messages: [
                 {
                   seq: 3,
-                  envelope: { actor: 'space/member/小A', content: '增量消息' },
+                  envelope: { sender: '小A', content: '增量消息' },
                 },
               ],
             };
@@ -258,12 +258,12 @@ describe('CollaborationSpacePage', () => {
             messages: [
               {
                 seq: 1,
-                envelope: { actor: 'space/member/小A', content: '你好' },
+                envelope: { sender: '小A', content: '你好' },
               },
               {
                 seq: 2,
                 envelope: {
-                  actor: 'space/member/小B',
+                  sender: '小B',
                   content: '请查看 [架构文档](src/arch.md)',
                 },
               },
@@ -1177,7 +1177,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'space/member/小A',
+                  sender: '小A',
                   content:
                     String(input?.spaceId) === 's2' ? '研发消息' : '设计消息',
                 },
@@ -1275,7 +1275,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'space/member/小A',
+                  sender: '小A',
                   content:
                     String(input?.spaceId) === 's2' ? '研发消息' : '设计消息',
                 },
@@ -1917,7 +1917,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'space/member/小A',
+                  sender: '小A',
                   content: '我先处理一下',
                 },
               },
@@ -2005,7 +2005,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'space/s1/user',
+                  sender: 'Person',
                   content: '请查看附件\n\n![spec.pdf](.vibe-images/spec.pdf)',
                 },
               },
@@ -2573,7 +2573,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'vibex://space/s1/user',
+                  sender: 'Person',
                   content: '全员看一下',
                 },
                 receipts: [
@@ -3316,7 +3316,7 @@ describe('CollaborationSpacePage', () => {
         seq: 5,
         conversationId: 'conv-1',
         envelope: {
-          actor: 'vibex://space/direct/member/小A',
+          sender: '小A',
           content: '私聊历史',
         },
       },
@@ -3439,7 +3439,7 @@ describe('CollaborationSpacePage', () => {
         seq: 6,
         operationId: op,
         envelope: {
-          actor: 'vibex://space/direct/user',
+          sender: 'Person',
           content: '忙的时候也要收到',
         },
       },
@@ -3595,23 +3595,23 @@ describe('CollaborationSpacePage', () => {
             messages: [
               {
                 seq: 1,
-                envelope: { actor: 'space/member/小A', content: '第一条' },
+                envelope: { sender: '小A', content: '第一条' },
               },
               {
                 seq: 2,
-                envelope: { actor: 'space/member/小A', content: '第二条' },
+                envelope: { sender: '小A', content: '第二条' },
               },
               {
                 seq: 3,
-                envelope: { actor: 'space/member/小A', content: '第三条' },
+                envelope: { sender: '小A', content: '第三条' },
               },
               {
                 seq: 4,
-                envelope: { actor: 'space/user', content: '我的回复' },
+                envelope: { sender: 'Person', content: '我的回复' },
               },
               {
                 seq: 5,
-                envelope: { actor: 'space/member/小B', content: '单独一条' },
+                envelope: { sender: '小B', content: '单独一条' },
               },
             ],
           };
@@ -3930,7 +3930,7 @@ describe('CollaborationSpacePage', () => {
               {
                 seq: 1,
                 envelope: {
-                  actor: 'vibex://space/direct/member/小A',
+                  sender: '小A',
                   content: '私聊一条',
                 },
               },
@@ -4074,7 +4074,7 @@ describe('CollaborationSpacePage', () => {
               seq: directAMessages.length + 1,
               operationId: input?.operationId,
               envelope: {
-                actor: 'vibex://space/direct/user',
+                sender: 'Person',
                 content: input?.content,
                 crossChatSentTo: ['小B'],
               },
@@ -4083,7 +4083,7 @@ describe('CollaborationSpacePage', () => {
               seq: directBMessages.length + 1,
               operationId: input?.operationId,
               envelope: {
-                actor: 'vibex://space/direct/member/小A',
+                sender: '小A',
                 content: '',
                 crossChatReceivedFrom: ['小A'],
               },
@@ -4099,7 +4099,7 @@ describe('CollaborationSpacePage', () => {
               seq: directBMessages.length + 1,
               operationId: input?.operationId,
               envelope: {
-                actor: 'vibex://space/direct/member/小A',
+                sender: '小A',
                 content: input?.content,
               },
             });
@@ -4282,13 +4282,13 @@ describe('CollaborationSpacePage', () => {
               {
                 id: 'msg-hello',
                 seq: 1,
-                envelope: { actor: 'space/member/小A', content: '你好' },
+                envelope: { sender: '小A', content: '你好' },
               },
               {
                 id: 'msg-doc',
                 seq: 2,
                 envelope: {
-                  actor: 'space/member/小B',
+                  sender: '小B',
                   content: '请查看 [架构文档](src/arch.md)',
                 },
               },
@@ -4388,15 +4388,15 @@ describe('CollaborationSpacePage', () => {
             messages: [
               {
                 seq: 1,
-                envelope: { actor: 'space/user', content: '用户第一条' },
+                envelope: { sender: 'Person', content: '用户第一条' },
               },
               {
                 seq: 2,
-                envelope: { actor: 'space/member/小A', content: '助手回复' },
+                envelope: { sender: '小A', content: '助手回复' },
               },
               {
                 seq: 3,
-                envelope: { actor: 'space/user', content: '用户第二条' },
+                envelope: { sender: 'Person', content: '用户第二条' },
               },
             ],
           };

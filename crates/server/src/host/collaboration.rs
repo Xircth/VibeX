@@ -1001,8 +1001,6 @@ impl HostCollaborationHost {
         let receipts_by_msg = collaboration::list_message_receipts_batch(&self.pool, &message_ids)
             .await
             .unwrap_or_default();
-        let user_actor = format!("vibex://space/{thread_id}/user");
-        let member_actor = format!("vibex://space/{thread_id}/member/{}", member.name);
         let mut messages = messages
             .into_iter()
             .map(|message| {
@@ -1018,6 +1016,25 @@ impl HostCollaborationHost {
                 } else {
                     json!([])
                 };
+                let mut envelope = json!({
+                    "id": message.id,
+                    "sender": if from_user { "Person" } else { member.name.as_str() },
+                    "to": [if from_user { member.name.as_str() } else { "Person" }],
+                    "content": message.text,
+                    "published": message.created_at,
+                });
+                if !from_user {
+                    envelope["conversation_id"] = json!(member.conversation_id);
+                }
+                if let Some(sent) = message.cross_chat_sent_to.filter(|value| !value.is_null()) {
+                    envelope["crossChatSentTo"] = sent;
+                }
+                if let Some(received) = message
+                    .cross_chat_received_from
+                    .filter(|value| !value.is_null())
+                {
+                    envelope["crossChatReceivedFrom"] = received;
+                }
                 let mut item = json!({
                     "id": message.id,
                     "seq": message.seq,
@@ -1026,18 +1043,7 @@ impl HostCollaborationHost {
                     "operationId": message.operation_id,
                     "operation_id": message.operation_id,
                     "receipts": receipts_val,
-                    "envelope": {
-                        "type": "Note",
-                        "id": format!("vibex://space-message/{}", message.id),
-                        "actor": if from_user { &user_actor } else { &member_actor },
-                        "attributedTo": if from_user { Value::Null } else { json!(member.conversation_id) },
-                        "to": [if from_user { &member_actor } else { &user_actor }],
-                        "summary": Value::Null,
-                        "content": message.text,
-                        "published": message.created_at,
-                        "crossChatSentTo": message.cross_chat_sent_to.clone().unwrap_or(Value::Null),
-                        "crossChatReceivedFrom": message.cross_chat_received_from.clone().unwrap_or(Value::Null),
-                    },
+                    "envelope": envelope,
                 });
                 if let Some(turn_id) = &message.turn_id
                     && let Some(obj) = item.as_object_mut()
@@ -2584,7 +2590,7 @@ mod tests {
                     "spaceId": space_id,
                     "content": "@小A 补充",
                     "to": ["小A"],
-                    "inReplyTo": format!("vibex://space-message/{first_id}"),
+                    "inReplyTo": first_id,
                     "operationId": Uuid::new_v4(),
                 }),
             )
@@ -2607,8 +2613,7 @@ mod tests {
         assert_eq!(messages[1]["id"], second["message_id"]);
         assert_eq!(
             messages[1]["in_reply_to"],
-            json!(first_id),
-            "URI reduced to bare id"
+            json!(first_id)
         );
     }
 

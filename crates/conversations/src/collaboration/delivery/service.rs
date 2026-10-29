@@ -603,7 +603,7 @@ pub(crate) async fn project_cross_chat_receipts(
     pool: &SqlitePool,
     message_id: &str,
     actor: &str,
-    attributed_to: Option<&str>,
+    conversation_id: Option<Uuid>,
     published: &str,
     origin_kind: &str,
     received_from: &Value,
@@ -616,12 +616,8 @@ pub(crate) async fn project_cross_chat_receipts(
             format!("cross-chat-recv:{message_id}:{dest}").as_bytes(),
         )
         .to_string();
-        let conversation_id = attributed_to.and_then(conversation_id_from_uri);
         let mut extra = Map::new();
-        extra.insert(
-            "crossChatReceivedFrom".to_string(),
-            json!([received_from]),
-        );
+        extra.insert("crossChatReceivedFrom".to_string(), json!([received_from]));
         let envelope = build_space_envelope(NewSpaceEnvelope {
             id: &recv_id,
             sender: actor,

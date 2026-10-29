@@ -23,11 +23,11 @@ export type SpaceMessage = {
   envelope: {
     id?: string;
     sender?: string;
-    actor?: string;
-    attributedTo?: string;
     content?: string;
     summary?: string;
     to?: string[];
+    conversation_id?: string;
+    conversationId?: string;
     reactions?: unknown;
     crossChatSentTo?: unknown;
     cross_chat_sent_to?: unknown;

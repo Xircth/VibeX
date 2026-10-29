@@ -716,9 +716,8 @@ async fn dm_space_messages_since(
                     d.turn_id,
                     (SELECT ct.id FROM collaboration_turns ct
                      WHERE ct.space_id = m.space_id
-                       AND ct.space_message_id = replace(
-                         COALESCE(json_extract(m.envelope_json, '$.inReplyTo'), ''),
-                         'vibex://space-message/',
+                       AND ct.space_message_id = COALESCE(
+                         json_extract(m.envelope_json, '$.reply_to'),
                          ''
                        )
                      ORDER BY ct.created_at DESC LIMIT 1)

@@ -172,7 +172,7 @@ pub(crate) async fn compose_space_delivery_prompt(
     let quoted = load_quoted_space_message(pool, space_id, envelope).await?;
     let speaking_order = round_speaking_order_line(pool, space_id, conversation_id, seq).await?;
     let working_peers = if is_group_space(space_id) {
-        working_peers_line(pool, space_id, conversation_id).await?
+        working_peers_line(pool, space_id, conversation_id, seq).await?
     } else {
         None
     };
@@ -478,8 +478,8 @@ mod tests {
 
     fn sample_envelope() -> Value {
         json!({
-            "actor": format!("vibex://space/{SAMPLE_SPACE}/user"),
-            "to": [format!("vibex://space/{SAMPLE_SPACE}/member/小A")],
+            "sender": "Person",
+            "to": ["小A"],
             "content": SAMPLE_BODY,
         })
     }
@@ -658,9 +658,9 @@ mod tests {
     }
 
     #[test]
-    fn slim_envelope_reads_simple_person_and_bot_actors() {
+    fn slim_envelope_reads_simple_person_and_bot_senders() {
         let envelope = json!({
-            "actor": "User",
+            "sender": "User",
             "to": ["小A"],
             "content": SAMPLE_BODY,
         });

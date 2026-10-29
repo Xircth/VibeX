@@ -57,21 +57,14 @@ pub(crate) fn is_group_space(space_id: &str) -> bool {
     !is_bot_space(space_id) && parse_unassigned_space_id(space_id).is_none()
 }
 
-/// True when `raw` names the human Person, including legacy `User` / URI forms.
+/// True when `raw` names the human Person (`Person` / `User` / `你` / `用户`).
 pub(crate) fn is_person_ref(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    is_user_target_name(trimmed) || trimmed.ends_with("/user")
+    is_user_target_name(raw)
 }
 
 pub(crate) fn actor_display_name(raw: &str) -> String {
     if is_person_ref(raw) {
         return "Person".to_string();
-    }
-    if let Some(nick) = raw.rsplit("/member/").next().filter(|value| *value != raw) {
-        return nick.to_string();
     }
     raw.trim().trim_start_matches('@').to_string()
 }
@@ -1731,14 +1724,16 @@ mod tests {
     }
 
     #[test]
-    fn person_refs_include_user_person_and_legacy_uris() {
+    fn person_refs_include_user_and_person_aliases() {
         assert!(is_person_ref("User"));
         assert!(is_person_ref("Person"));
         assert!(is_person_ref("@你"));
-        assert!(is_person_ref("vibex://space/demo/user"));
+        assert!(is_person_ref("用户"));
         assert!(!is_person_ref("小A"));
+        assert!(!is_person_ref("vibex://space/demo/user"));
         assert_eq!(actor_display_name("User"), "Person");
-        assert_eq!(actor_display_name("vibex://space/demo/member/小A"), "小A");
+        assert_eq!(actor_display_name("小A"), "小A");
+        assert_eq!(actor_display_name("@小A"), "小A");
         assert_eq!(recipient_display_name("User"), "@Person");
     }
 }

@@ -163,7 +163,12 @@ pub(crate) async fn deliver_pending(
             });
             continue;
         }
-        if in_flight >= MAX_IN_FLIGHT_DELIVERIES_PER_SPACE && delivery.round_ready == 0 {
+        let current_round_slot = delivery
+            .round_id
+            .as_deref()
+            .is_some_and(|id| !id.trim().is_empty())
+            && delivery.round_ready == 1;
+        if in_flight >= MAX_IN_FLIGHT_DELIVERIES_PER_SPACE && !current_round_slot {
             receipts.push(DeliveryReceipt {
                 conversation_id,
                 nickname,
@@ -456,6 +461,13 @@ pub(crate) async fn round_speaking_order_line(
     let Some(round_id) = round_id else {
         return Ok(None);
     };
+    let current_ordinal: i64 =
+        sqlx::query_scalar("SELECT current_ordinal FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .unwrap_or(1);
     let members: Vec<(String, i64, String)> = sqlx::query_as(
         r#"SELECT conversation_id, COALESCE(round_ordinal, 0), receipt_state
            FROM collaboration_space_deliveries
@@ -470,7 +482,7 @@ pub(crate) async fn round_speaking_order_line(
         return Ok(None);
     }
     let mut parts = Vec::new();
-    for (cid, _ordinal, state) in members {
+    for (cid, ordinal, state) in members {
         let cid_uuid = Uuid::parse_str(&cid).ok();
         let nick = match cid_uuid {
             Some(id) => member_nickname(pool, space_id, id)
@@ -485,7 +497,8 @@ pub(crate) async fn round_speaking_order_line(
         } else if matches!(
             state.as_str(),
             "replied" | "timed_out" | "cancelled" | "failed"
-        ) {
+        ) || (ordinal > 0 && ordinal < current_ordinal)
+        {
             "已发言"
         } else {
             "等待中"
@@ -500,6 +513,7 @@ pub(crate) async fn working_peers_line(
     pool: &SqlitePool,
     space_id: &str,
     exclude_conversation_id: Uuid,
+    before_seq: i64,
 ) -> Result<Option<String>, CollaborationError> {
     if !is_group_space(space_id) {
         return Ok(None);
@@ -512,6 +526,7 @@ pub(crate) async fn working_peers_line(
              ON sm.space_id = m.space_id AND sm.conversation_id = d.conversation_id
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
            WHERE m.space_id = ?
+             AND m.seq < ?
              AND d.conversation_id != ?
              AND (
                d.receipt_state = 'processing'
@@ -526,6 +541,7 @@ pub(crate) async fn working_peers_line(
            ORDER BY COALESCE(NULLIF(TRIM(sm.nickname), ''), d.conversation_id)"#,
     )
     .bind(space_id)
+    .bind(before_seq)
     .bind(exclude_conversation_id.to_string())
     .fetch_all(pool)
     .await
@@ -533,15 +549,18 @@ pub(crate) async fn working_peers_line(
     let extra: Vec<String> = sqlx::query_scalar(
         r#"SELECT DISTINCT COALESCE(NULLIF(TRIM(sm.nickname), ''), t.conversation_id)
            FROM collaboration_turns t
+           JOIN collaboration_space_messages m ON m.id = t.space_message_id
            LEFT JOIN collaboration_space_members sm
              ON sm.space_id = t.space_id AND sm.conversation_id = t.conversation_id
            WHERE t.space_id = ?
              AND t.state = 'running'
              AND t.conversation_id != ?
+             AND m.seq < ?
            ORDER BY COALESCE(NULLIF(TRIM(sm.nickname), ''), t.conversation_id)"#,
     )
     .bind(space_id)
     .bind(exclude_conversation_id.to_string())
+    .bind(before_seq)
     .fetch_all(pool)
     .await
     .map_err(db)?;

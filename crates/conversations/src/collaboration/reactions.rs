@@ -18,12 +18,7 @@ pub struct SpaceReaction {
 }
 
 pub fn canonical_space_message_id(raw: &str) -> String {
-    let trimmed = raw.trim();
-    trimmed
-        .strip_prefix("vibex://space-message/")
-        .unwrap_or(trimmed)
-        .trim()
-        .to_string()
+    raw.trim().to_string()
 }
 
 fn require_emoji(raw: &str) -> Result<String, CollaborationError> {
@@ -279,7 +274,7 @@ mod tests {
         let replaced = toggle_space_reaction(
             &pool,
             &space,
-            &format!("vibex://space-message/{}", posted.message_id),
+            &posted.message_id,
             "user",
             "🎉",
         )

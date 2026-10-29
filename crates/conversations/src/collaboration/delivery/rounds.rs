@@ -17,8 +17,11 @@ pub fn collab_round_timeout_minutes() -> i64 {
 }
 
 pub fn collab_round_grace_secs() -> i64 {
-    super::routing::env_i64("VIBEX_COLLAB_ROUND_GRACE_SECONDS", DEFAULT_COLLAB_ROUND_GRACE_SECS)
-        .max(1)
+    super::routing::env_i64(
+        "VIBEX_COLLAB_ROUND_GRACE_SECONDS",
+        DEFAULT_COLLAB_ROUND_GRACE_SECS,
+    )
+    .max(1)
 }
 
 pub(crate) fn first_mention_offset(content: &str, name: &str) -> Option<usize> {
@@ -619,14 +622,13 @@ async fn round_slot_is_detachable(
     let Ok(cid) = Uuid::parse_str(&conversation_id) else {
         return Ok(false);
     };
-    let trigger_seq: i64 = sqlx::query_scalar(
-        "SELECT seq FROM collaboration_space_messages WHERE id = ?",
-    )
-    .bind(&space_message_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db)?
-    .unwrap_or(0);
+    let trigger_seq: i64 =
+        sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
+            .bind(&space_message_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .unwrap_or(0);
     if member_posted_after(pool, space_id, cid, trigger_seq).await? {
         return Ok(true);
     }
@@ -756,6 +758,31 @@ pub(crate) async fn member_posted_after(
     }))
 }
 
+async fn member_posted_content_equals(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    after_seq: i64,
+    body: &str,
+    nickname: &str,
+) -> Result<bool, CollaborationError> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        r#"SELECT envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND seq > ? AND origin = 'agent'
+           ORDER BY seq ASC"#,
+    )
+    .bind(space_id)
+    .bind(after_seq)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows.iter().any(|raw| {
+        let parsed = parse_space_envelope_str(raw);
+        envelope_sender_is_conversation(&parsed, conversation_id, Some(nickname))
+            && strip_own_nickname_prefix(&parsed.content, nickname) == body
+    }))
+}
+
 pub(crate) async fn message_actor_conversation(
     pool: &SqlitePool,
     message_id: &str,
@@ -845,6 +872,16 @@ pub async fn finalize_space_turn_deliveries(
 
         let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
         let body = strip_own_nickname_prefix(trimmed, &nickname);
+        let posted_same_body = already_posted
+            && member_posted_content_equals(
+                pool,
+                &space_id,
+                conversation_id,
+                earliest_seq,
+                &body,
+                &nickname,
+            )
+            .await?;
         let passed = body.is_empty() || is_pass_token(&body) || is_polite_ack_only(&body);
         if body.is_empty() {
             tracing::info!(
@@ -867,7 +904,7 @@ pub async fn finalize_space_turn_deliveries(
         }
 
         let mut fallback_posted = false;
-        if !passed && !already_posted {
+        if !passed && !posted_same_body {
             let prefix = if is_bot_space(&space_id) {
                 "finalize-dm-turn"
             } else {

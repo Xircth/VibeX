@@ -63,21 +63,17 @@ pub(crate) async fn post_to_space_inner(
     }
     let mut sender_nickname = None;
     let mut sender_member_id = None;
-    let (actor, attributed_to, sender) = match input.caller_id {
+    let (actor, sender) = match input.caller_id {
         Some(caller_id) => {
             let member = caller_seat(pool, &input.space_id, caller_id).await?;
             let seat = seat_conversation(&member).unwrap_or(caller_id);
             sender_nickname = Some(member.nickname.clone());
             sender_member_id = Some(member.member_id.clone());
-            (
-                envelope_member_name(&member.nickname),
-                Some(format!("vibex://conversation/{seat}")),
-                Some(seat),
-            )
+            (envelope_member_name(&member.nickname), Some(seat))
         }
         None => {
             ensure_user_member(pool, &input.space_id).await?;
-            (ENVELOPE_USER_ACTOR.to_string(), None, None)
+            (ENVELOPE_USER_ACTOR.to_string(), None)
         }
     };
     let mut message_id = input.operation_id.to_string();
@@ -446,7 +442,7 @@ pub(crate) async fn post_to_space_inner(
             pool,
             &message_id,
             &actor,
-            attributed_to.as_deref(),
+            sender,
             &published,
             origin,
             &received_from,
@@ -460,8 +456,6 @@ pub(crate) async fn post_to_space_inner(
 
 pub(crate) fn bare_message_id(raw: &str) -> &str {
     raw.trim()
-        .strip_prefix("vibex://space-message/")
-        .unwrap_or(raw.trim())
 }
 
 pub(crate) async fn load_hop_parent(

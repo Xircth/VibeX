@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use super::*;
 
-/// Person sender written on new envelopes. `User` and legacy URIs still parse.
+/// Person sender written on new envelopes.
 pub(crate) const ENVELOPE_PERSON_SENDER: &str = "Person";
-/// Compact Person actor alias kept so existing call sites keep compiling.
+/// Compact Person alias kept so existing call sites keep compiling.
 pub(crate) const ENVELOPE_USER_ACTOR: &str = ENVELOPE_PERSON_SENDER;
 pub(crate) const ENVELOPE_SYSTEM_SENDER: &str = "system";
 
@@ -22,14 +22,8 @@ pub(crate) struct ParsedSpaceEnvelope {
     pub conversation_id: Option<Uuid>,
 }
 
-pub(crate) fn bare_envelope_id(raw: &str) -> &str {
-    raw.trim()
-        .strip_prefix("vibex://space-message/")
-        .unwrap_or(raw.trim())
-}
-
 pub(crate) fn envelope_member_name(nickname: &str) -> String {
-    let trimmed = nickname.trim();
+    let trimmed = nickname.trim().trim_start_matches('@').trim();
     if is_person_ref(trimmed) {
         ENVELOPE_PERSON_SENDER.to_string()
     } else {
@@ -37,27 +31,19 @@ pub(crate) fn envelope_member_name(nickname: &str) -> String {
     }
 }
 
-pub(crate) fn user_actor(space_id: &str) -> String {
-    format!("vibex://space/{space_id}/user")
-}
-
-pub(crate) fn is_stored_user_actor(space_id: &str, actor: &str) -> bool {
-    actor == user_actor(space_id) || is_person_ref(actor)
-}
-
 pub(crate) fn parse_space_envelope(value: &Value) -> ParsedSpaceEnvelope {
     let id = value
         .get("id")
         .and_then(Value::as_str)
-        .map(bare_envelope_id)
+        .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
-    let sender_raw = value
-        .get("sender")
-        .and_then(Value::as_str)
-        .or_else(|| value.get("actor").and_then(Value::as_str))
-        .unwrap_or_default();
-    let sender = normalize_stored_sender(sender_raw);
+    let sender = normalize_stored_sender(
+        value
+            .get("sender")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    );
     let to = value
         .get("to")
         .and_then(Value::as_array)
@@ -78,9 +64,7 @@ pub(crate) fn parse_space_envelope(value: &Value) -> ParsedSpaceEnvelope {
     let reply_to = value
         .get("reply_to")
         .and_then(Value::as_str)
-        .or_else(|| value.get("inReplyTo").and_then(Value::as_str))
-        .or_else(|| value.get("in_reply_to").and_then(Value::as_str))
-        .map(bare_envelope_id)
+        .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
     let published = value
@@ -98,13 +82,7 @@ pub(crate) fn parse_space_envelope(value: &Value) -> ParsedSpaceEnvelope {
     let conversation_id = value
         .get("conversation_id")
         .and_then(Value::as_str)
-        .and_then(|raw| Uuid::parse_str(raw.trim()).ok())
-        .or_else(|| {
-            value
-                .get("attributedTo")
-                .and_then(Value::as_str)
-                .and_then(conversation_id_from_uri)
-        });
+        .and_then(|raw| Uuid::parse_str(raw.trim()).ok());
     ParsedSpaceEnvelope {
         id,
         sender,
@@ -123,27 +101,8 @@ pub(crate) fn parse_space_envelope_str(raw: &str) -> ParsedSpaceEnvelope {
         .unwrap_or_default()
 }
 
-pub(crate) fn conversation_id_from_uri(raw: &str) -> Option<Uuid> {
-    let trimmed = raw.trim();
-    let id = trimmed
-        .strip_prefix("vibex://conversation/")
-        .unwrap_or_else(|| trimmed.rsplit('/').next().unwrap_or(trimmed));
-    Uuid::parse_str(id).ok()
-}
-
 fn normalize_stored_sender(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if is_person_ref(trimmed) {
-        return ENVELOPE_PERSON_SENDER.to_string();
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.ends_with("/system") || lower == ENVELOPE_SYSTEM_SENDER {
-        return ENVELOPE_SYSTEM_SENDER.to_string();
-    }
-    actor_display_name(trimmed)
+    envelope_member_name(raw)
 }
 
 /// Fields written for a new space message. Extra keys (cross-chat, i18n) merge in.
@@ -161,7 +120,7 @@ pub(crate) struct NewSpaceEnvelope<'a> {
 
 pub(crate) fn build_space_envelope(input: NewSpaceEnvelope<'_>) -> Value {
     let mut envelope = json!({
-        "id": bare_envelope_id(input.id),
+        "id": input.id.trim(),
         "sender": envelope_member_name(input.sender),
         "to": input
             .to
@@ -173,7 +132,7 @@ pub(crate) fn build_space_envelope(input: NewSpaceEnvelope<'_>) -> Value {
     });
     if let Some(reply_to) = input
         .reply_to
-        .map(bare_envelope_id)
+        .map(str::trim)
         .filter(|id| !id.is_empty())
     {
         envelope["reply_to"] = json!(reply_to);
@@ -196,36 +155,35 @@ pub(crate) fn build_space_envelope(input: NewSpaceEnvelope<'_>) -> Value {
     envelope
 }
 
-/// Overlay parsed fields onto stored JSON so Host/UI keep `actor` / `inReplyTo`.
+/// Overlay parsed fields onto stored JSON for Host/UI list payloads.
 pub(crate) fn project_listed_envelope(
     mut envelope: Value,
     parsed: &ParsedSpaceEnvelope,
     audience: MessageAudience,
-    space_id: &str,
 ) -> Value {
     envelope["id"] = json!(parsed.id.clone().unwrap_or_default());
     envelope["sender"] = json!(parsed.sender.clone());
-    envelope["actor"] = json!(parsed.sender.clone());
     envelope["to"] = json!(parsed.to.clone());
     envelope["content"] = json!(parsed.content.clone());
     if let Some(reply_to) = &parsed.reply_to {
         envelope["reply_to"] = json!(reply_to);
-        envelope["inReplyTo"] = json!(reply_to);
     }
     if let Some(published) = &parsed.published {
         envelope["published"] = json!(published);
     }
+    envelope.as_object_mut().map(|obj| {
+        obj.remove("actor");
+        obj.remove("attributedTo");
+        obj.remove("inReplyTo");
+        obj.remove("@context");
+        obj.remove("type");
+    });
     if audience == MessageAudience::Agent {
-        let user_uri = user_actor(space_id);
         if let Some(to) = envelope.get_mut("to").and_then(Value::as_array_mut) {
-            to.retain(|item| {
-                item.as_str()
-                    .is_none_or(|value| value != user_uri.as_str() && !is_person_ref(value))
-            });
+            to.retain(|item| item.as_str().is_none_or(|value| !is_person_ref(value)));
         }
         if is_person_ref(&parsed.sender) {
             envelope["sender"] = json!("user");
-            envelope["actor"] = json!("user");
         }
     }
     envelope
@@ -250,7 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_reads_flat_and_activitystreams_envelopes() {
+    fn parse_reads_flat_envelopes() {
         let flat = json!({
             "id": "msg-1",
             "sender": "Person",
@@ -258,24 +216,9 @@ mod tests {
             "content": "hello",
             "reply_to": "parent",
             "published": "2026-01-01T00:00:00Z",
+            "conversation_id": "11111111-1111-1111-1111-111111111111",
         });
         let parsed = parse_space_envelope(&flat);
-        assert_eq!(parsed.sender, "Person");
-        assert_eq!(parsed.to, vec!["小A".to_string()]);
-        assert_eq!(parsed.reply_to.as_deref(), Some("parent"));
-
-        let legacy = json!({
-            "@context": "https://www.w3.org/ns/activitystreams",
-            "type": "Note",
-            "id": "vibex://space-message/msg-1",
-            "actor": "vibex://space/s/user",
-            "attributedTo": "vibex://conversation/11111111-1111-1111-1111-111111111111",
-            "to": ["vibex://space/s/member/小A"],
-            "inReplyTo": "vibex://space-message/parent",
-            "content": "hello",
-            "published": "2026-01-01T00:00:00Z",
-        });
-        let parsed = parse_space_envelope(&legacy);
         assert_eq!(parsed.sender, "Person");
         assert_eq!(parsed.to, vec!["小A".to_string()]);
         assert_eq!(parsed.reply_to.as_deref(), Some("parent"));
@@ -287,9 +230,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_ignores_activitystreams_fields() {
+        let legacy = json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Note",
+            "id": "msg-1",
+            "actor": "Person",
+            "attributedTo": "11111111-1111-1111-1111-111111111111",
+            "to": ["小A"],
+            "inReplyTo": "parent",
+            "content": "hello",
+        });
+        let parsed = parse_space_envelope(&legacy);
+        assert!(parsed.sender.is_empty());
+        assert_eq!(parsed.to, vec!["小A".to_string()]);
+        assert_eq!(parsed.reply_to, None);
+        assert_eq!(parsed.conversation_id, None);
+    }
+
+    #[test]
     fn build_writes_flat_json_without_activitystreams_wrapper() {
         let envelope = build_space_envelope(NewSpaceEnvelope {
-            id: "vibex://space-message/msg-1",
+            id: "msg-1",
             sender: "User",
             to: vec!["User".to_string(), "小A".to_string()],
             content: "hi",

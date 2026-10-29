@@ -4252,7 +4252,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         seq: nextSeq,
         envelope: {
           sender: 'Person',
-          actor: 'User',
           content,
           ...(recipients.length > 0 ? { to: recipients } : {}),
         },

@@ -546,32 +546,24 @@ export function sortConversationsForSpaceMemberPicker<
 }
 
 export type SpaceEnvelopeParties = {
-  actor?: string;
   sender?: string;
-  attributedTo?: string;
   to?: readonly string[] | null;
   summary?: string;
   conversation_id?: string;
   conversationId?: string;
 };
 
-const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const CONVERSATION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MEMBER_PATH_MARKER = '/member/';
 
-/** Prefer flattened `sender` over ActivityStreams `actor`. */
 export function envelopeSenderRaw(
   envelope: SpaceEnvelopeParties | null | undefined
 ): string {
-  return String(envelope?.sender || envelope?.actor || '').trim();
+  return String(envelope?.sender ?? '').trim();
 }
 
 export function isSystemPartyName(value: string | null | undefined): boolean {
-  const raw = String(value ?? '').trim();
-  if (!raw) return false;
-  const lower = raw.toLowerCase();
-  return lower === 'system' || lower.endsWith('/system');
+  return String(value ?? '').trim().toLowerCase() === 'system';
 }
 
 export function parseEnvelopePartyName(raw: unknown): string {
@@ -580,22 +572,14 @@ export function parseEnvelopePartyName(raw: unknown): string {
   if (value.startsWith('@')) value = value.slice(1).trim();
   if (!value) return '';
   const lower = value.toLowerCase();
-  if (isSystemPartyName(value)) return 'system';
-  if (lower.endsWith('/user') || lower.endsWith('/person')) return 'Person';
-  const memberIndex = lower.lastIndexOf(MEMBER_PATH_MARKER);
-  if (memberIndex >= 0) {
-    let nickname = value.slice(memberIndex + MEMBER_PATH_MARKER.length);
-    try {
-      nickname = decodeURIComponent(nickname);
-    } catch {
-      // Keep the raw path segment when percent-decoding fails.
-    }
-    return nickname.trim();
-  }
-  if (lower.startsWith(CONVERSATION_URI_PREFIX)) return '';
-  if (lower.startsWith('vibex://')) {
-    const slash = value.lastIndexOf('/');
-    return (slash >= 0 ? value.slice(slash + 1) : value).trim();
+  if (lower === 'system') return 'system';
+  if (
+    lower === 'user' ||
+    lower === 'person' ||
+    value === '你' ||
+    value === '用户'
+  ) {
+    return 'Person';
   }
   return value;
 }
@@ -623,13 +607,7 @@ export function resolveMessageConversationId(
   const direct = String(
     envelope?.conversation_id ?? envelope?.conversationId ?? ''
   ).trim();
-  if (direct) return direct;
-  const attributed = String(envelope?.attributedTo ?? '').trim();
-  if (attributed.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) {
-    const id = attributed.slice(CONVERSATION_URI_PREFIX.length).trim();
-    if (id) return id;
-  }
-  if (CONVERSATION_ID_RE.test(attributed)) return attributed;
+  if (CONVERSATION_ID_RE.test(direct)) return direct;
   const author = messageAuthor(envelope);
   if (!author || author === COPY.you) return '';
   const matched = agentRoster(members ? [...members] : []).find(
@@ -1084,10 +1062,6 @@ export type CrossChatInteractionRecord = {
   createdAt: number;
 };
 
-function parseMemberNameFromUriOrName(raw: unknown): string {
-  return parseEnvelopePartyName(raw);
-}
-
 export type CrossChatPeerKind = 'member' | 'group';
 
 export type CrossChatPeer = {
@@ -1105,14 +1079,14 @@ function parseCrossChatPeer(raw: unknown): CrossChatPeer | null {
       nickname?: unknown;
     };
     const kind = record.kind === 'group' ? 'group' : 'member';
-    const name = parseMemberNameFromUriOrName(
+    const name = parseEnvelopePartyName(
       record.name ?? record.nickname ?? record.id
     );
     if (!name) return null;
     const id = String(record.id ?? '').trim();
     return id ? { kind, name, id } : { kind, name };
   }
-  const name = parseMemberNameFromUriOrName(raw);
+  const name = parseEnvelopePartyName(raw);
   return name ? { kind: 'member', name } : null;
 }
 

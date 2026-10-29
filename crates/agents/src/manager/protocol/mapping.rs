@@ -291,8 +291,8 @@ pub(in crate::manager) fn vendor_select_choice(
     choice
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn agent_session_modes_from_acp(
+#[cfg(test)]
+pub(in crate::manager) fn agent_session_modes_from_acp(
     state: SessionModeState,
 ) -> (Vec<AgentSessionMode>, Option<String>) {
     let current = Some(state.current_mode_id.0.to_string());
@@ -308,7 +308,7 @@ pub(crate) fn agent_session_modes_from_acp(
     (modes, current)
 }
 
-pub(crate) fn agent_session_config_options_from_acp(
+pub(in crate::manager) fn agent_session_config_options_from_acp(
     options: Vec<AcpSessionConfigOption>,
 ) -> Vec<AgentSessionConfigOption> {
     options

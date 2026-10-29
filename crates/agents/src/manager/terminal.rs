@@ -14,6 +14,10 @@ impl AgentConnectionRunner {
         if marks {
             tracked.entry(id.to_string()).or_default();
         }
+        let terminal = matches!(
+            status,
+            Some("completed" | "failed" | "cancelled" | "canceled" | "error")
+        );
         let out = chunk.map(|chunk| {
             let acc = tracked.entry(id.to_string()).or_default();
             if acc.is_empty() {
@@ -21,12 +25,13 @@ impl AgentConnectionRunner {
             } else {
                 acc.push_str(&chunk);
             }
-            acc.clone()
+            if terminal {
+                std::mem::take(acc)
+            } else {
+                acc.clone()
+            }
         });
-        if matches!(
-            status,
-            Some("completed" | "failed" | "cancelled" | "canceled" | "error")
-        ) {
+        if terminal {
             tracked.remove(id);
         }
         out

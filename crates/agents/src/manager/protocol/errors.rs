@@ -2,7 +2,7 @@ use super::*;
 use crate::stderr_tail::{StderrTail, sanitize_diagnostic};
 
 impl EmptyTurnCause {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(in crate::manager) fn as_str(self) -> &'static str {
         match self {
             Self::UnreadableUpdates => "unreadable_updates",
             Self::AgentStderr => "agent_stderr",
@@ -11,7 +11,7 @@ impl EmptyTurnCause {
     }
 }
 
-pub(crate) fn diagnose_empty_turn(dropped_count: u64, stderr: &str) -> EmptyTurnCause {
+pub(in crate::manager) fn diagnose_empty_turn(dropped_count: u64, stderr: &str) -> EmptyTurnCause {
     if dropped_count > 0 {
         EmptyTurnCause::UnreadableUpdates
     } else if !stderr.trim().is_empty() {
@@ -21,7 +21,7 @@ pub(crate) fn diagnose_empty_turn(dropped_count: u64, stderr: &str) -> EmptyTurn
     }
 }
 
-pub(crate) fn build_empty_turn_details(
+pub(in crate::manager) fn build_empty_turn_details(
     probe: &TurnOutputProbe,
     stderr_tail: &StderrTail,
     stderr_mark: u64,
@@ -57,7 +57,7 @@ pub(crate) fn build_empty_turn_details(
     (cause, stderr_trimmed, serde_json::Value::Object(obj))
 }
 
-pub(crate) fn finish_turn_reason(
+pub(in crate::manager) fn finish_turn_reason(
     stop_reason: &acp::schema::v1::StopReason,
     has_output: bool,
     cancelled: bool,
@@ -82,7 +82,7 @@ pub(crate) fn finish_turn_reason(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct AirSessionFailure {
+pub(in crate::manager) struct AirSessionFailure {
     pub kind: Option<String>,
     pub title: Option<String>,
     pub message: Option<String>,
@@ -90,7 +90,7 @@ pub(crate) struct AirSessionFailure {
 }
 
 impl AirSessionFailure {
-    pub(crate) fn error_code(&self) -> String {
+    pub(in crate::manager) fn error_code(&self) -> String {
         let Some(kind) = self
             .kind
             .as_deref()
@@ -121,7 +121,7 @@ impl AirSessionFailure {
         }
     }
 
-    pub(crate) fn format_message(&self) -> String {
+    pub(in crate::manager) fn format_message(&self) -> String {
         let title = self
             .title
             .as_deref()
@@ -160,7 +160,7 @@ impl AirSessionFailure {
     }
 }
 
-pub(crate) fn extract_session_failure(value: &serde_json::Value) -> Option<AirSessionFailure> {
+pub(in crate::manager) fn extract_session_failure(value: &serde_json::Value) -> Option<AirSessionFailure> {
     let candidate = value
         .pointer("/_meta/jetbrains.air/sessionFailure")
         .or_else(|| value.pointer("/_meta/jetbrains/air/sessionFailure"))
@@ -175,7 +175,7 @@ pub(crate) fn extract_session_failure(value: &serde_json::Value) -> Option<AirSe
     parse_session_failure_value(candidate)
 }
 
-pub(crate) fn extract_session_failure_from_meta(
+pub(in crate::manager) fn extract_session_failure_from_meta(
     meta: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Option<AirSessionFailure> {
     let meta = meta?;
@@ -236,7 +236,7 @@ pub(in crate::manager) fn parse_session_failure_value(value: &serde_json::Value)
     })
 }
 
-pub(crate) fn turn_failure_error_event(
+pub(in crate::manager) fn turn_failure_error_event(
     response: &acp::schema::v1::PromptResponse,
     probe: &TurnOutputProbe,
     stderr_tail: &StderrTail,
@@ -331,7 +331,7 @@ pub(crate) fn turn_failure_error_event(
     }
 }
 
-pub(crate) fn format_acp_prompt_error(
+pub(in crate::manager) fn format_acp_prompt_error(
     error: &acp::Error,
     stderr_tail: &StderrTail,
     stderr_mark: u64,

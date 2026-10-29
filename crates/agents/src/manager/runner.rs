@@ -20,6 +20,7 @@ pub(in crate::manager) mod acp_spawn;
 
 pub(in crate::manager) use process::*;
 pub(in crate::manager) use env::*;
+pub(in crate::manager) use crate::host_capabilities::build_client_capabilities;
 pub use throttle::LeadingEdgeThrottle;
 pub(in crate::manager) use throttle::{
     EMPTY_TURN_STDERR_MAX_BYTES, EMPTY_TURN_STDERR_MAX_LINES, SessionRestoreSupport,

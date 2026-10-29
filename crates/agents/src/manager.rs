@@ -17,7 +17,7 @@ use agent_client_protocol::{
         ProtocolVersion,
         v1::{
             AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
-            CancelNotification, ClientCapabilities, ClientResponse, CloseSessionRequest,
+            CancelNotification, ClientResponse, CloseSessionRequest,
             ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
             CreateTerminalResponse, DeleteSessionRequest, ElicitationAcceptAction,
             ElicitationAction, ElicitationContentValue, ElicitationMode, ElicitationScope,
@@ -99,26 +99,6 @@ use usage::*;
 use runner::*;
 
 pub use runner::LeadingEdgeThrottle;
-#[allow(unused_imports)]
-pub(crate) use protocol::codec::{
-    AIR_SESSION_UPDATE_METHOD, GROK_WORKFLOW_UPDATED_METHOD, dropped_update_log_line,
-    fix_usage_update_nulls, omit_null_error_data, rewrite_air_or_vendor_notification,
-    sanitize_incoming_jsonrpc_line,
-};
-#[allow(unused_imports)]
-pub(crate) use protocol::errors::{
-    AirSessionFailure, build_empty_turn_details, diagnose_empty_turn, extract_session_failure,
-    extract_session_failure_from_meta, finish_turn_reason, format_acp_prompt_error,
-    turn_failure_error_event,
-};
-#[allow(unused_imports)]
-pub(crate) use protocol::mapping::{
-    agent_session_config_options_from_acp, agent_session_modes_from_acp,
-};
-#[allow(unused_imports)]
-pub(crate) use runner::probe::{EmptyTurnCause, TurnOutputProbe};
-#[allow(unused_imports)]
-pub(crate) use runner::process::build_client_capabilities;
 
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {

@@ -136,10 +136,6 @@ pub(in crate::manager) fn turn_error_event_from_connection_failure(error: &Agent
     }
 }
 
-pub(crate) fn build_client_capabilities(agent_id: &AgentId) -> ClientCapabilities {
-    crate::host_capabilities::build_client_capabilities(agent_id)
-}
-
 pub(in crate::manager) fn handshake_timeout() -> Duration {
     handshake_timeout_from_env_value(std::env::var(HANDSHAKE_TIMEOUT_ENV).ok().as_deref())
 }

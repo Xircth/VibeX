@@ -4,7 +4,7 @@ use crate::stderr_tail::sanitize_diagnostic;
 /// Tracks whether a single `session/prompt` turn produced any user-visible output
 /// and whether any incoming updates were dropped as unreadable.
 #[derive(Debug, Default)]
-pub(crate) struct TurnOutputProbe {
+pub(in crate::manager) struct TurnOutputProbe {
     produced: AtomicBool,
     dropped_updates: std::sync::atomic::AtomicU64,
     first_dropped_tag: std::sync::Mutex<Option<String>>,
@@ -12,11 +12,11 @@ pub(crate) struct TurnOutputProbe {
 }
 
 impl TurnOutputProbe {
-    pub(crate) fn note_rendered(&self) {
+    pub(in crate::manager) fn note_rendered(&self) {
         self.produced.store(true, Ordering::Release);
     }
 
-    pub(crate) fn record_agent_event(&self, event: &AgentEvent) {
+    pub(in crate::manager) fn record_agent_event(&self, event: &AgentEvent) {
         let visible = match event {
             AgentEvent::MessageChunk { content } | AgentEvent::ThoughtChunk { content } => {
                 agent_content_has_output(content)
@@ -36,7 +36,7 @@ impl TurnOutputProbe {
         }
     }
 
-    pub(crate) fn note_dropped(&self, tag: Option<&str>, error: &str) {
+    pub(in crate::manager) fn note_dropped(&self, tag: Option<&str>, error: &str) {
         let prev = self.dropped_updates.fetch_add(1, Ordering::AcqRel);
         if prev == 0 {
             if let Ok(mut guard) = self.first_dropped_tag.lock() {
@@ -48,11 +48,11 @@ impl TurnOutputProbe {
         }
     }
 
-    pub(crate) fn has_output(&self) -> bool {
+    pub(in crate::manager) fn has_output(&self) -> bool {
         self.produced.load(Ordering::Acquire)
     }
 
-    pub(crate) fn dropped_summary(&self) -> (u64, Option<String>, Option<String>) {
+    pub(in crate::manager) fn dropped_summary(&self) -> (u64, Option<String>, Option<String>) {
         let count = self.dropped_updates.load(Ordering::Acquire);
         let tag = self
             .first_dropped_tag
@@ -78,7 +78,7 @@ pub(in crate::manager) fn agent_content_has_output(content: &AgentContentBlock) 
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EmptyTurnCause {
+pub(in crate::manager) enum EmptyTurnCause {
     UnreadableUpdates,
     AgentStderr,
     SilentEndTurn,

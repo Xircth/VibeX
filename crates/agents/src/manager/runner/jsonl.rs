@@ -1,7 +1,6 @@
 use super::*;
 
-pub(in crate::manager) fn records_acp_jsonl(agent_id: &str) -> bool {
-    let _ = agent_id;
+pub(in crate::manager) fn records_acp_jsonl(_agent_id: &str) -> bool {
     true
 }
 

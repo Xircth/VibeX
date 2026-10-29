@@ -27,20 +27,20 @@ impl AcpClientBridge {
         let Some(session_id) = session_id else {
             return;
         };
-        let (window, last) = {
+        let (model, wire, last) = {
             let controls = self.session_controls.read().await;
             let state = controls.get(&session_id);
             let model = state.and_then(|state| current_grok_model_id(&state.config_options));
-            let wire = model.as_deref().and_then(|model| {
-                state.and_then(|state| state.grok_model_windows.get(model).copied())
+            let wire = model.as_deref().and_then(|model_id| {
+                state.and_then(|state| state.grok_model_windows.get(model_id).copied())
             });
-            let window = grok_usage::context_window_for_model(
-                model.as_deref(),
-                grok_usage::grok_home_dir().as_deref(),
-                wire,
-            );
-            (window, state.and_then(|state| state.last_grok_usage))
+            (model, wire, state.and_then(|state| state.last_grok_usage))
         };
+        let window = grok_usage::context_window_for_model(
+            model.as_deref(),
+            grok_usage::grok_home_dir().as_deref(),
+            wire,
+        );
         let Some((used, size)) = grok_usage::live_usage_step(used, window, last) else {
             return;
         };

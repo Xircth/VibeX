@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn dropped_update_log_line(
+pub(in crate::manager) fn dropped_update_log_line(
     connection_id: &AgentConnectionId,
     session_id: Option<AgentSessionId>,
     tag: Option<&str>,
@@ -27,7 +27,7 @@ pub(crate) fn dropped_update_log_line(
 /// `agent-client-protocol` preserves an explicit `"data": null` as `Some(Value::Null)`
 /// and formats it as `"{message}: null"`. Messages with a `"method"` field keep
 /// their payload untouched.
-pub(crate) fn omit_null_error_data(line: String) -> String {
+pub(in crate::manager) fn omit_null_error_data(line: String) -> String {
     if !line.contains("null") || has_null_error_data(&line) == Some(false) {
         return line;
     }
@@ -172,7 +172,7 @@ pub(in crate::manager) fn has_null_error_data(line: &str) -> Option<bool> {
 
 /// Sanitize `usage_update` JSON payloads where an agent emitted `null` for
 /// non-optional numeric fields (`used`, `size`, or `cost.amount` / `cost.currency`).
-pub(crate) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
+pub(in crate::manager) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
     let Some(obj) = val.as_object_mut() else {
         return false;
     };
@@ -197,10 +197,10 @@ pub(crate) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
     changed
 }
 
-pub(crate) const AIR_SESSION_UPDATE_METHOD: &str = "_air/session_update";
-pub(crate) const GROK_WORKFLOW_UPDATED_METHOD: &str = "_x.ai/workflow_updated";
+pub(in crate::manager) const AIR_SESSION_UPDATE_METHOD: &str = "_air/session_update";
+pub(in crate::manager) const GROK_WORKFLOW_UPDATED_METHOD: &str = "_x.ai/workflow_updated";
 
-pub(crate) fn rewrite_air_or_vendor_notification(val: &mut serde_json::Value) -> bool {
+pub(in crate::manager) fn rewrite_air_or_vendor_notification(val: &mut serde_json::Value) -> bool {
     let Some(obj) = val.as_object_mut() else {
         return false;
     };
@@ -250,7 +250,7 @@ pub(crate) fn rewrite_air_or_vendor_notification(val: &mut serde_json::Value) ->
     }
 }
 
-pub(crate) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
+pub(in crate::manager) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
     let line = omit_null_error_data(line);
     if notification_has_null_session_id(&line) {
         return String::new();

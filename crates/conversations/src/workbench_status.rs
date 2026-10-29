@@ -5,8 +5,9 @@
 //! - **inprogress**: an in-flight turn, or a viewed terminal turn with queued input
 //! - **inreview**: a finished turn that has not been opened after it finished
 //!   (including failed / interrupted turns, and unviewed turns that still have
-//!   queued follow-ups). A view taken while that turn was still in flight does
-//!   not count.
+//!   queued follow-ups), or a blocked turn waiting on permission, a question,
+//!   or authentication. A view taken while that turn was still in flight does
+//!   not count, and viewing a blocked turn does not complete it.
 //! - **done**: a finished turn that has been viewed after it finished, a session
 //!   dragged to done, or a user-cancelled turn. This is not a conversation
 //!   terminal; a new turn can start later.
@@ -22,6 +23,7 @@ use uuid::Uuid;
 pub enum TurnPhase {
     None,
     InFlight,
+    Blocked,
     Completed,
     Failed,
     Interrupted,
@@ -30,7 +32,8 @@ pub enum TurnPhase {
 
 pub fn turn_phase(status: &str) -> TurnPhase {
     match status {
-        "pending" | "queued" | "running" | "blocked" => TurnPhase::InFlight,
+        "pending" | "queued" | "running" => TurnPhase::InFlight,
+        "blocked" => TurnPhase::Blocked,
         "completed" => TurnPhase::Completed,
         "failed" => TurnPhase::Failed,
         "interrupted" => TurnPhase::Interrupted,
@@ -47,6 +50,7 @@ pub fn derive_workbench_status(
     match phase {
         TurnPhase::None => SessionStatus::Todo,
         TurnPhase::InFlight => SessionStatus::InProgress,
+        TurnPhase::Blocked => SessionStatus::InReview,
         TurnPhase::Cancelled => SessionStatus::Done,
         TurnPhase::Completed | TurnPhase::Failed | TurnPhase::Interrupted => {
             if has_queued_input {
@@ -283,6 +287,23 @@ mod tests {
         assert_eq!(
             derive_workbench_status(TurnPhase::InFlight, true, true),
             SessionStatus::InProgress
+        );
+    }
+
+    #[test]
+    fn blocked_turns_wait_in_review() {
+        assert_eq!(turn_phase("blocked"), TurnPhase::Blocked);
+        assert_eq!(
+            derive_workbench_status(TurnPhase::Blocked, false, false),
+            SessionStatus::InReview
+        );
+        assert_eq!(
+            derive_workbench_status(TurnPhase::Blocked, true, false),
+            SessionStatus::InReview
+        );
+        assert_eq!(
+            derive_workbench_status(TurnPhase::Blocked, true, true),
+            SessionStatus::InReview
         );
     }
 

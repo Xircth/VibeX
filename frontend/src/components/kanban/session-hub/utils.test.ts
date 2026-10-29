@@ -15,6 +15,7 @@ import {
   getSessionMarker,
   groupKanbanSessionsByStatus,
   isSessionForkSupported,
+  SESSION_STATUS_LIGHT_COLORS,
   sessionAttentionKind,
   sessionCompletesWhenViewed,
   sortSessions,
@@ -565,13 +566,30 @@ describe('session hub data helpers', () => {
   });
 });
 
+describe('session status colors', () => {
+  it('maps workbench columns to gray, yellow, red, and blue', () => {
+    expect(SESSION_STATUS_LIGHT_COLORS).toEqual({
+      todo: 'var(--session-status-todo)',
+      inprogress: 'var(--session-status-inprogress)',
+      inreview: 'var(--session-status-inreview)',
+      done: 'var(--session-status-done)',
+    });
+  });
+});
+
 describe('sessionAttentionKind', () => {
   it('treats a live turn as running even if status has not caught up', () => {
     expect(
       sessionAttentionKind({ isRunning: true, status: 'inprogress' })
     ).toBe('running');
-    expect(sessionAttentionKind({ isRunning: true, status: 'inreview' })).toBe(
+    expect(sessionAttentionKind({ isRunning: true, status: 'todo' })).toBe(
       'running'
+    );
+  });
+
+  it('keeps a blocked permission or error turn in review while it is still open', () => {
+    expect(sessionAttentionKind({ isRunning: true, status: 'inreview' })).toBe(
+      'review'
     );
   });
 

@@ -280,6 +280,31 @@ describe('WorkspaceSessionList', () => {
     expect(document.querySelector('.session-marker-slot-1')).not.toBeNull();
   });
 
+  it('colors a blocked permission session as review, not in progress', () => {
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: 'Approve the write',
+            isRunning: true,
+            status: 'inreview',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      document.querySelector('.workspace-session-status--inreview')
+    ).not.toBeNull();
+    expect(
+      document.querySelector('.workspace-session-status--inprogress')
+    ).toBeNull();
+  });
+
   it('colors each session by its workbench status', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
     renderList(

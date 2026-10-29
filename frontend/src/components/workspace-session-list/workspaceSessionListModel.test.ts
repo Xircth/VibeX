@@ -471,9 +471,12 @@ describe('workspaceSessionStatusTone', () => {
     expect(
       workspaceSessionStatusTone({ status: 'todo', isRunning: true })
     ).toBe('inprogress');
+  });
+
+  it('keeps a blocked permission or error turn in the review tone', () => {
     expect(
       workspaceSessionStatusTone({ status: 'inreview', isRunning: true })
-    ).toBe('inprogress');
+    ).toBe('inreview');
   });
 });
 

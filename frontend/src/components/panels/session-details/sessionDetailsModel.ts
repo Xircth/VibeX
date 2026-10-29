@@ -169,6 +169,7 @@ export function resolveSessionStatus(input: {
   status: SessionStatus | null;
   turnInFlight: boolean;
 }): SessionStatus | null {
+  if (input.status === 'inreview') return 'inreview';
   if (input.turnInFlight) return 'inprogress';
   return input.status;
 }

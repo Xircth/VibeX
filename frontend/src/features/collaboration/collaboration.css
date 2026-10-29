@@ -1650,7 +1650,7 @@
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--todo {
-  background: hsl(var(--destructive));
+  background: var(--session-status-todo);
 }
 
 .collaboration-shell
@@ -1659,7 +1659,7 @@
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--inprogress {
-  background: hsl(var(--success));
+  background: var(--session-status-inprogress);
 }
 
 .collaboration-shell
@@ -1668,14 +1668,14 @@
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--inreview {
-  background: hsl(var(--warning));
+  background: var(--session-status-inreview);
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status--done,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--done {
-  background: hsl(var(--muted-foreground));
+  background: var(--session-status-done);
 }
 
 .collaboration-shell .collaboration-member-row * {
@@ -4221,18 +4221,18 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 .collaboration-shell .workspace-session-status--todo {
   background: var(--workspace-session-row-bg, var(--surface-content));
   box-shadow:
-    inset 0 0 0 1.5px var(--text-muted),
+    inset 0 0 0 1.5px var(--session-status-todo),
     0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
 }
 
 .collaboration-shell .workspace-session-status--inreview {
   background: linear-gradient(
     90deg,
-    hsl(var(--warning)) 50%,
+    var(--session-status-inreview) 50%,
     var(--workspace-session-row-bg, var(--surface-content)) 50%
   );
   box-shadow:
-    inset 0 0 0 1.5px hsl(var(--warning)),
+    inset 0 0 0 1.5px var(--session-status-inreview),
     0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
 }
 

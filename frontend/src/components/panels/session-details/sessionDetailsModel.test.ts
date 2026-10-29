@@ -11,6 +11,7 @@ import {
   buildSessionDetails,
   protocolSpend,
   resolveReportedTotal,
+  resolveSessionStatus,
   type SessionDetailsFacts,
   usageByMessage,
   usageByModel,
@@ -69,6 +70,20 @@ function facts(
     ...partial,
   };
 }
+
+describe('resolveSessionStatus', () => {
+  it('keeps a blocked permission turn in review while it is still open', () => {
+    expect(
+      resolveSessionStatus({ status: 'inreview', turnInFlight: true })
+    ).toBe('inreview');
+  });
+
+  it('treats other in-flight turns as in progress', () => {
+    expect(
+      resolveSessionStatus({ status: 'todo', turnInFlight: true })
+    ).toBe('inprogress');
+  });
+});
 
 describe('session details usage', () => {
   it('does not treat an all-zero breakdown or context occupancy as spend', () => {

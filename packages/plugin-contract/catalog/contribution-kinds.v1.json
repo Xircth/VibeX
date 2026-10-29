@@ -1,115 +1,149 @@
 {
+  "$generatedBy": "scripts/generate-contribution-kinds.mjs",
+  "$comment": "Do not edit by hand. Regenerate with node scripts/generate-contribution-kinds.mjs.",
   "schemaVersion": 1,
   "kinds": [
     {
       "id": "content.skill",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "crates/plugins/src/package.rs"
     },
     {
       "id": "content.mcp",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "crates/plugins/src/package.rs"
     },
     {
       "id": "content.hook",
       "status": "unimplemented",
-      "handler": false
+      "handler": false,
+      "notes": "Host has no Hook runtime (ADR-0066 §7): the manifest validates and inspect warns, nothing executes it."
     },
     {
       "id": "workflow.binding",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "crates/plugins/src/package.rs"
     },
     {
       "id": "file.opener",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "crates/plugins/src/package.rs"
     },
     {
       "id": "artifact.preview",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/previews/PluginFilePreview.tsx"
     },
     {
       "id": "app.surface",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/plugins/AppSurfaceHost.tsx"
     },
     {
       "id": "app.command",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/search/SearchPalette.tsx"
     },
     {
       "id": "app.toolbar",
-      "status": "ready",
-      "handler": true
+      "status": "preview",
+      "handler": true,
+      "consumer": "frontend/src/components/layout/Toolbar.tsx",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "app.status",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/plugins/PluginStatusItems.tsx"
     },
     {
       "id": "app.composer.slash",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx"
     },
     {
       "id": "app.timeline.card",
-      "status": "ready",
-      "handler": true
+      "status": "preview",
+      "handler": true,
+      "consumer": "frontend/src/components/plugins/PluginTimelineCards.tsx",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "app.settings.section",
-      "status": "ready",
-      "handler": true
+      "status": "preview",
+      "handler": true,
+      "consumer": "frontend/src/components/plugins/PluginSettingsSections.tsx",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "host.service",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "crates/plugins/src/package.rs"
     },
     {
       "id": "provider.model.importSource",
-      "status": "ready",
-      "handler": true
+      "status": "preview",
+      "handler": true,
+      "consumer": "frontend/src/pages/settings/AgentModelProviderManager.tsx",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "provider.model.catalog",
       "status": "ready",
-      "handler": false
+      "handler": false,
+      "consumer": "frontend/src/features/plugins/providers/hostProviderServices.ts"
     },
     {
       "id": "app.panel",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/layout/panels/PanelRegistry.tsx"
     },
     {
       "id": "app.tab",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/components/layout/Toolbar.tsx"
     },
     {
       "id": "app.kanban.view",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/lib/kanbanViewCatalog.ts"
     },
     {
       "id": "app.settings.page",
-      "status": "preview",
-      "handler": true
+      "status": "ready",
+      "handler": true,
+      "consumer": "frontend/src/pages/settings/SettingsLayout.tsx"
     },
     {
       "id": "app.composer.action",
       "status": "ready",
-      "handler": false
+      "handler": true,
+      "consumer": "frontend/src/components/tasks/follow-up/SessionComposerInput.tsx"
+    },
+    {
+      "id": "app.rail.section",
+      "status": "ready",
+      "handler": false,
+      "consumer": "frontend/src/components/layout/RightPanelSidebar.tsx"
     },
     {
       "id": "provider.remote.provisioner",
       "status": "ready",
-      "handler": true
+      "handler": true,
+      "consumer": "frontend/src/pages/settings/RemoteClientSettings.tsx"
     }
   ]
 }

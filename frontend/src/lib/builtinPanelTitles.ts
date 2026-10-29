@@ -1,30 +1,20 @@
 import i18n from '@/i18n';
 import enPanels from '@/i18n/locales/en/panels.json';
 import zhPanels from '@/i18n/locales/zh-CN/panels.json';
+import { BUILTIN_PANEL_MANIFESTS } from '@/features/plugins/builtin-contributions';
 
 /**
- * Builtin Dockview panel id -> panels:panelRegistry key. Dockview persists the
- * tab title string in the saved layout, so tabs restored from an earlier
- * session would otherwise keep whatever language they were created in. Tabs
- * resolve their title through here at render time instead.
+ * Builtin Dockview panel id -> title key in the `panels` namespace, taken from
+ * the panel manifests. Dockview persists the tab title string in the saved
+ * layout, so tabs restored from an earlier session would otherwise keep
+ * whatever language they were created in. Tabs resolve their title through here
+ * at render time instead.
  */
-const BUILTIN_PANEL_TITLE_KEYS: Record<string, string> = {
-  kanban: 'kanban',
-  'file-tree': 'fileExplorer',
-  preview: 'preview',
-  diffs: 'diffs',
-  terminal: 'terminal',
-  'ai-chat': 'aiChat',
-  git: 'git',
-  merge: 'merge',
-  welcome: 'welcome',
-  logs: 'logs',
-  notes: 'notes',
-  'session-details': 'sessionDetails',
-  processes: 'processes',
-  search: 'search',
-  'session-list': 'sessionList',
-};
+const BUILTIN_PANEL_TITLE_KEYS: Record<string, string> = Object.fromEntries(
+  BUILTIN_PANEL_MANIFESTS.map((manifest) => [manifest.id, manifest.titleKey])
+);
+
+const PANEL_REGISTRY_PREFIX = 'panelRegistry.';
 
 /** Hardcoded English titles the panels were created with before i18n. */
 const LEGACY_TITLES: Record<string, string[]> = {
@@ -41,6 +31,12 @@ const LOCALE_TABLES: PanelRegistryStrings[] = [
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
+function panelRegistryKey(panelId: string): string | undefined {
+  const titleKey = BUILTIN_PANEL_TITLE_KEYS[panelId];
+  if (!titleKey?.startsWith(PANEL_REGISTRY_PREFIX)) return undefined;
+  return titleKey.slice(PANEL_REGISTRY_PREFIX.length);
+}
+
 function isDefaultTitle(panelId: string, key: string, title: string): boolean {
   if (!title) return true;
   if (LEGACY_TITLES[panelId]?.includes(title)) return true;
@@ -56,13 +52,13 @@ export function resolveBuiltinPanelTitle(
   storedTitle: string,
   t: Translate = i18n.t.bind(i18n) as Translate
 ): string {
-  const key = BUILTIN_PANEL_TITLE_KEYS[panelId];
+  const key = panelRegistryKey(panelId);
   if (!key || !isDefaultTitle(panelId, key, storedTitle)) return storedTitle;
-  return t(`panels:panelRegistry.${key}`);
+  return t(`panels:${PANEL_REGISTRY_PREFIX}${key}`);
 }
 
 /** Current-language title for a builtin panel id (for addPanel calls). */
 export function builtinPanelTitle(panelId: string): string {
-  const key = BUILTIN_PANEL_TITLE_KEYS[panelId];
-  return key ? i18n.t(`panels:panelRegistry.${key}`) : panelId;
+  const titleKey = BUILTIN_PANEL_TITLE_KEYS[panelId];
+  return titleKey ? i18n.t(`panels:${titleKey}`) : panelId;
 }

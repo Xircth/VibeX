@@ -1622,7 +1622,7 @@ mod tests {
 
         use crate::{ApplicationCore, CommandRegistry, SqliteConversationRepository};
 
-        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("pool");
+        let pool = db::DbPool::connect_lazy("sqlite::memory:").expect("pool");
         let core = Arc::new(ApplicationCore::new(SqliteConversationRepository::new(
             pool,
         )));
@@ -1703,7 +1703,7 @@ mod tests {
             "cancel_enhance_prompt"
         );
 
-        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("pool");
+        let pool = db::DbPool::connect_lazy("sqlite::memory:").expect("pool");
         let core = ApplicationCore::with_domains(
             SqliteConversationRepository::new(pool),
             Arc::new(FakeDomainPort),

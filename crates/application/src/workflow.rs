@@ -275,7 +275,7 @@ pub trait WorkflowExecutionPort: Send + Sync {
 pub struct WorkflowStoreExecutionPort {
     core: WorkflowCore,
     store: WorkflowStore,
-    pool: sqlx::SqlitePool,
+    pool: db::DbPool,
     conversation_context: Option<ConversationContext>,
 }
 
@@ -509,12 +509,9 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn has_active_runs(&self) -> Result<bool, ApplicationError> {
-        let active: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE status IN ('running', 'waiting'))",
-        )
-        .fetch_one(&self.context.deployment.db().pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let active = db::workflow_queries::workflow_has_active_runs(&self.context.deployment.db().pool)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         Ok(active)
     }
 
@@ -578,13 +575,10 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn cancel_expired_runs(&self) -> Result<bool, ApplicationError> {
-        let run_ids = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM workflow_runs
-             WHERE status IN ('running', 'waiting') AND deadline_at <= ?
-             ORDER BY deadline_at, id LIMIT 32",
+        let run_ids = db::workflow_queries::expired_workflow_run_ids(
+            &self.context.deployment.db().pool,
+            chrono::Utc::now(),
         )
-        .bind(chrono::Utc::now())
-        .fetch_all(&self.context.deployment.db().pool)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
         if run_ids.is_empty() {
@@ -613,28 +607,16 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn reconcile_terminal_steps(&self) -> Result<bool, ApplicationError> {
-        let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, Uuid, Option<Uuid>, bool)>(
-            "SELECT id, run_id, step_id, conversation_id, turn_id, workspace_id,
-                    user_intervened
-             FROM workflow_step_runs
-             WHERE status = 'running' AND awaiting_input = 0
-               AND conversation_id IS NOT NULL AND turn_id IS NOT NULL
-             ORDER BY updated_at LIMIT 32",
-        )
-        .fetch_all(&self.context.deployment.db().pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let rows = db::workflow_queries::running_agent_step_runs(&self.context.deployment.db().pool)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let mut changed = false;
-        for (
-            _step_run_id,
-            run_id,
-            step_id,
-            conversation_id,
-            turn_id,
-            _step_workspace_id,
-            user_intervened,
-        ) in rows
-        {
+        for row in rows {
+            let run_id = row.run_id;
+            let step_id = row.step_id.clone();
+            let conversation_id = row.conversation_id;
+            let turn_id = row.turn_id;
+            let user_intervened = row.user_intervened;
             let Some(turn) =
                 ConversationTurnRecord::find_by_id(&self.context.deployment.db().pool, turn_id)
                     .await
@@ -748,24 +730,16 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn reconcile_waiting_interactions(&self) -> Result<bool, ApplicationError> {
-        let rows = sqlx::query_as::<_, (Uuid, String, bool, bool)>(
-            "SELECT step.run_id, step.step_id,
-                    turn.status = 'blocked' AS child_waiting,
-                    step.waiting_interaction
-             FROM workflow_step_runs step
-             JOIN conversation_turns turn ON turn.id = step.turn_id
-             WHERE step.status = 'running'
-             ORDER BY step.updated_at LIMIT 64",
-        )
-        .fetch_all(&self.context.deployment.db().pool)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let rows =
+            db::workflow_queries::running_workflow_interactions(&self.context.deployment.db().pool)
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let mut changed = false;
-        for (run_id, step_id, child_waiting, projected_waiting) in rows {
-            if child_waiting != projected_waiting {
+        for row in rows {
+            if row.child_waiting != row.projected_waiting {
                 changed |= self
                     .store
-                    .set_interaction_waiting(run_id, &step_id, child_waiting)
+                    .set_interaction_waiting(row.run_id, &row.step_id, row.child_waiting)
                     .await
                     .map_err(map_error)?;
             }
@@ -886,21 +860,13 @@ fn render_agent_prompt(
 }
 
 pub(crate) async fn extract_last_assistant_text(
-    pool: &sqlx::SqlitePool,
+    pool: &db::DbPool,
     conversation_id: Uuid,
     turn_id: Uuid,
 ) -> Result<String, ApplicationError> {
-    let events = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT sequence, event_kind, normalized_json
-         FROM conversation_events
-         WHERE conversation_id = ? AND turn_id = ?
-         ORDER BY sequence",
-    )
-    .bind(conversation_id)
-    .bind(turn_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    let events = db::workflow_queries::conversation_turn_events(pool, conversation_id, turn_id)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
     final_assistant_text(&events)
         .ok_or_else(|| ApplicationError::bad_request("Agent produced no final text output"))
 }
@@ -935,7 +901,7 @@ fn final_assistant_text(events: &[(i64, String, String)]) -> Option<String> {
 }
 
 async fn wait_for_dispatched_input_turn(
-    pool: &sqlx::SqlitePool,
+    pool: &db::DbPool,
     input_id: Uuid,
 ) -> Result<Uuid, ApplicationError> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -957,7 +923,7 @@ async fn wait_for_dispatched_input_turn(
 }
 
 impl WorkflowStoreExecutionPort {
-    pub fn new(pool: sqlx::SqlitePool) -> Self {
+    pub fn new(pool: db::DbPool) -> Self {
         let store = WorkflowStore::new(pool.clone());
         Self {
             core: WorkflowCore::new(store.clone()),
@@ -967,7 +933,7 @@ impl WorkflowStoreExecutionPort {
         }
     }
 
-    pub fn with_conversations(pool: sqlx::SqlitePool, context: ConversationContext) -> Self {
+    pub fn with_conversations(pool: db::DbPool, context: ConversationContext) -> Self {
         let mut port = Self::new(pool);
         port.conversation_context = Some(context);
         port

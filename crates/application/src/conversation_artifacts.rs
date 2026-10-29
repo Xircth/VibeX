@@ -5,17 +5,16 @@ use artifacts::{ArtifactEvent, ArtifactEventSink, PortError};
 use async_trait::async_trait;
 use conversations::ConversationEventAppender;
 use db::models::conversation_event::AppendConversationEvent;
-use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// Projects generic Artifact lifecycle events into the conversation event log.
 /// It deliberately has no knowledge of a file format, provider, or plugin.
 pub struct SqliteConversationArtifactEventSink {
-    pool: SqlitePool,
+    pool: db::DbPool,
 }
 
 impl SqliteConversationArtifactEventSink {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: db::DbPool) -> Self {
         Self { pool }
     }
 }

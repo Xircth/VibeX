@@ -390,6 +390,9 @@ pub(in crate::manager) fn classify_session_load_failure_fragments(
     if message.contains("already has an active writer") {
         return Some(SessionLoadFailureReason::SessionBusy);
     }
+    if is_session_contention_error(message) {
+        return Some(SessionLoadFailureReason::SessionBusy);
+    }
     const UNRECOVERABLE: &[&str] = &["process exited", "session has ended", "Session not found"];
     if UNRECOVERABLE
         .iter()
@@ -510,6 +513,25 @@ pub(in crate::manager) fn map_acp_session_error(context: &str, error: acp::Error
     match i32::from(error.code) {
         -32000 => AgentError::AuthenticationRequired(error.to_string()),
         -32002 => AgentError::SessionLoadFailed(SessionLoadFailureReason::ResourceNotFound),
+        _ if is_session_contention_error(&error.to_string()) => {
+            AgentError::SessionLoadFailed(SessionLoadFailureReason::SessionBusy)
+        }
         _ => AgentError::Runtime(format!("{context}: {error}")),
     }
+}
+
+/// Grok cancels an in-flight `session/resume` or `session/load` with
+/// `"session load was superseded"`, then a follow-up `session/new` hits the
+/// still-held session files and returns Windows `ERROR_ACCESS_DENIED`
+/// (`FS_PERMISSION_DENIED` / os error 5). The original thread still exists;
+/// ADR-0081 D3 forbids `session/new` in that case (same as `session_busy`).
+pub(in crate::manager) fn is_session_contention_error(message: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "session load was superseded",
+        "FS_PERMISSION_DENIED",
+        "Permission denied",
+        "os error 5",
+        "拒绝访问",
+    ];
+    MARKERS.iter().any(|marker| message.contains(marker))
 }

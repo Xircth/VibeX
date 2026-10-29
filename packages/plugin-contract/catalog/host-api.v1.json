@@ -364,6 +364,933 @@
       "deny": [
         "remote_profiles_unavailable"
       ]
+    },
+    {
+      "id": "collaboration.role.list",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON object with keys: roles",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_roles."
+    },
+    {
+      "id": "collaboration.role.create",
+      "capability": "collaboration",
+      "input": "optional: teamId, team_id, modeId, mode_id, configValues, config_values",
+      "output": "JSON value (collaboration::save_role)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_role."
+    },
+    {
+      "id": "collaboration.role.update",
+      "capability": "collaboration",
+      "input": "optional: teamId, team_id, modeId, mode_id, configValues, config_values",
+      "output": "JSON value (collaboration::save_role)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_role."
+    },
+    {
+      "id": "collaboration.role.delete",
+      "capability": "collaboration",
+      "input": "required: roleId, role_id, id",
+      "output": "JSON object with keys: deleted",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:delete_role."
+    },
+    {
+      "id": "collaboration.role.agents",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON object with keys: agent_id, name, agents",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:enabled_agents."
+    },
+    {
+      "id": "collaboration.agent.controls",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON object with keys: available, id, label, key, choices, modes, config_options",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:agent_controls."
+    },
+    {
+      "id": "collaboration.team.list",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON object with keys: teams",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_teams."
+    },
+    {
+      "id": "collaboration.team.create",
+      "capability": "collaboration",
+      "input": "optional: summary",
+      "output": "JSON value (collaboration::save_team)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_team."
+    },
+    {
+      "id": "collaboration.team.update",
+      "capability": "collaboration",
+      "input": "optional: summary",
+      "output": "JSON value (collaboration::save_team)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_team."
+    },
+    {
+      "id": "collaboration.team.delete",
+      "capability": "collaboration",
+      "input": "required: teamId, team_id, id",
+      "output": "JSON object with keys: deleted",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:delete_team."
+    },
+    {
+      "id": "collaboration.space.list",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id",
+      "output": "JSON object with keys: spaces",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_spaces."
+    },
+    {
+      "id": "collaboration.space.create",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id, operationId, operation_id",
+      "output": "JSON value (collaboration::create_space)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:create_space."
+    },
+    {
+      "id": "collaboration.space.rename",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, id, name; optional: leadMemberId, lead_member_id",
+      "output": "JSON value (collaboration::rename_space)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:rename_space. snake_case aliases accepted: space.update."
+    },
+    {
+      "id": "collaboration.space.addMember",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, operationId, operation_id, conversationId, conversation_id; optional: teamId, team_id",
+      "output": "JSON value (collaboration::add_member)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:add_member. snake_case aliases accepted: space.add_member."
+    },
+    {
+      "id": "collaboration.space.createMember",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id, operationId, operation_id; optional: spaceId, space_id, roleId, role_id, agentId, agent_id, teamId, team_id, personaPrompt, persona_prompt, modeId, mode_id, avatar, color, configValues, config_values",
+      "output": "JSON value (collaboration::create_member)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:create_member. snake_case aliases accepted: space.create_member."
+    },
+    {
+      "id": "collaboration.space.moveMember",
+      "capability": "collaboration",
+      "input": "required: fromSpaceId, from_space_id, toSpaceId, to_space_id, conversationId, conversation_id, operationId, operation_id; optional: nickname",
+      "output": "JSON value (collaboration::move_member)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:move_member. snake_case aliases accepted: space.move_member."
+    },
+    {
+      "id": "collaboration.space.batchDelete",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id, operationId, operation_id; optional: spaceIds, space_ids, memberTargets, member_targets, members",
+      "output": "JSON value (collaboration::batch_delete)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:batch_delete. snake_case aliases accepted: space.batch_delete, space.delete."
+    },
+    {
+      "id": "collaboration.space.setIdentity",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, operationId, operation_id, conversationId, conversation_id, callerId, caller_id",
+      "output": "JSON value (collaboration::set_identity)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:set_identity. snake_case aliases accepted: space.set_identity."
+    },
+    {
+      "id": "collaboration.space.listMembers",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id",
+      "output": "JSON object with keys: members",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_members. snake_case aliases accepted: space.list_members."
+    },
+    {
+      "id": "collaboration.space.listMessages",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: limit, sinceSeq, since_seq",
+      "output": "JSON object with keys: messages, scheduled",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_messages. snake_case aliases accepted: space.list_messages."
+    },
+    {
+      "id": "collaboration.space.listScheduledMessages",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id",
+      "output": "JSON object with keys: scheduled",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_scheduled_messages. snake_case aliases accepted: space.list_scheduled_messages."
+    },
+    {
+      "id": "collaboration.space.post",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, operationId, operation_id; optional: summary, inReplyTo, in_reply_to, delaySeconds, delay_seconds",
+      "output": "JSON value (collaboration::post)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:post."
+    },
+    {
+      "id": "collaboration.space.react",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, messageId, message_id, id, emoji; optional: actor",
+      "output": "JSON object with keys: reactions",
+      "deny": [
+        "permission_denied"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:react."
+    },
+    {
+      "id": "collaboration.space.submit",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: threadId, thread_id",
+      "output": "JSON object with keys: spaceId, messageId, receipts, seq, deliveries",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:submit."
+    },
+    {
+      "id": "collaboration.card.list",
+      "capability": "collaboration",
+      "input": "optional: threadId, thread_id, spaceId, space_id, pendingOnly, pending_only",
+      "output": "JSON object with keys: cards",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_cards. snake_case aliases accepted: card.list_cards."
+    },
+    {
+      "id": "collaboration.card.resolve",
+      "capability": "collaboration",
+      "input": "required: cardId, card_id, id; optional: actor, answer, note, decision, declined, answers",
+      "output": "JSON object with keys: __declined, card",
+      "deny": [
+        "permission_denied"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:resolve_card."
+    },
+    {
+      "id": "collaboration.member.memory.list",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id; optional: scope",
+      "output": "JSON object with keys: memberId, facts",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_list. snake_case aliases accepted: member.memory_list."
+    },
+    {
+      "id": "collaboration.member.memory.update",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id; optional: content, scope",
+      "output": "JSON object with keys: memberId, fact",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_update. snake_case aliases accepted: member.memory_update."
+    },
+    {
+      "id": "collaboration.member.memory.delete",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id",
+      "output": "JSON object with keys: memberId, factId, deleted",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_delete. snake_case aliases accepted: member.memory_delete."
+    },
+    {
+      "id": "collaboration.member.activity.list",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id; optional: limit",
+      "output": "JSON object with keys: memberId, activity",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:activity_list. snake_case aliases accepted: member.activity_list."
+    },
+    {
+      "id": "collaboration.member.config.get",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id",
+      "output": "JSON object with keys: memberId, config",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.config_get."
+    },
+    {
+      "id": "collaboration.member.config.update",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id; optional: agentId, agent_id, modeId, mode_id, personaPrompt, persona_prompt, configValues, config_values",
+      "output": "JSON object with keys: memberId, config",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.config_update."
+    },
+    {
+      "id": "collaboration.member.session.resolve",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id, threadId, thread_id",
+      "output": "JSON object with keys: memberId, threadId, conversationId",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.resolve_session."
+    },
+    {
+      "id": "collaboration.contactGroup.list",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id",
+      "output": "JSON object with keys: groups",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.list."
+    },
+    {
+      "id": "collaboration.contactGroup.create",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id, name",
+      "output": "JSON object with keys: group",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.create."
+    },
+    {
+      "id": "collaboration.contactGroup.rename",
+      "capability": "collaboration",
+      "input": "required: groupId, group_id, name",
+      "output": "JSON object with keys: group",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.rename."
+    },
+    {
+      "id": "collaboration.contactGroup.delete",
+      "capability": "collaboration",
+      "input": "required: groupId, group_id",
+      "output": "JSON object with keys: groupId, deleted, ungroupedThreadIds",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.delete."
+    },
+    {
+      "id": "collaboration.contactGroup.reorder",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id; optional: groupIds, group_ids",
+      "output": "JSON object with keys: groups",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.reorder."
+    },
+    {
+      "id": "collaboration.thread.setGroup",
+      "capability": "collaboration",
+      "input": "required: threadId, thread_id; optional: groupId, group_id",
+      "output": "JSON object with keys: threadId, groupId",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.set_group."
+    },
+    {
+      "id": "collaboration.thread.listSidebar",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id",
+      "output": "JSON object with keys: items",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.list_sidebar, sidebar.list."
+    },
+    {
+      "id": "collaboration.thread.markRead",
+      "capability": "collaboration",
+      "input": "required: threadId, thread_id, spaceId, space_id; optional: seq",
+      "output": "JSON object with keys: threadId, lastReadSeq",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.mark_read."
+    },
+    {
+      "id": "collaboration.thread.markUnread",
+      "capability": "collaboration",
+      "input": "required: threadId, thread_id, spaceId, space_id",
+      "output": "JSON object with keys: threadId, lastReadSeq",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.mark_unread."
+    },
+    {
+      "id": "collaboration.thread.update",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON value (collaboration::emit_space_changed)",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:emit_space_changed. snake_case aliases accepted: space.setTagColor, space.set_tag_color."
+    },
+    {
+      "id": "collaboration.member.list",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id",
+      "output": "JSON object with keys: members",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null."
+    },
+    {
+      "id": "collaboration.member.update",
+      "capability": "collaboration",
+      "input": "no input fields",
+      "output": "JSON value (collaboration::emit_space_changed)",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:emit_space_changed."
+    },
+    {
+      "id": "collaboration.member.setWriteAccess",
+      "capability": "collaboration",
+      "input": "required: memberId, member_id, writeAccess, write_access",
+      "output": "JSON object with keys: memberId, writeAccess",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:set_write_access. snake_case aliases accepted: member.set_write_access."
+    },
+    {
+      "id": "collaboration.space.listEvents",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: threadId, thread_id, callerId, caller_id, conversationId, afterSeq, after_seq, limit",
+      "output": "JSON value (collaboration::list_events)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_events. snake_case aliases accepted: space.list_events."
+    },
+    {
+      "id": "collaboration.space.receipts",
+      "capability": "collaboration",
+      "input": "required: messageId, message_id",
+      "output": "JSON object with keys: messageId, receipts",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:receipts. snake_case aliases accepted: space.listReceipts, space.list_receipts."
+    },
+    {
+      "id": "collaboration.space.cancelTurn",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: messageId, message_id, turnId, turn_id, callerId, caller_id, conversationId",
+      "output": "JSON object with keys: spaceId, cancelled",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:cancel_turn. snake_case aliases accepted: space.cancel_turn."
+    },
+    {
+      "id": "collaboration.space.wakePreview",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: threadId, thread_id",
+      "output": "JSON value (collaboration::wake_preview)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:wake_preview. snake_case aliases accepted: space.wake_preview."
+    },
+    {
+      "id": "collaboration.space.warmup",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: threadId, thread_id",
+      "output": "JSON object with keys: skipped, ok",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:warmup."
+    },
+    {
+      "id": "collaboration.space.listCollection",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: limit",
+      "output": "JSON object with keys: items, collectionDir, collection_dir",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_collection. snake_case aliases accepted: space.list_collection."
+    },
+    {
+      "id": "collaboration.space.addCollectionItem",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id; optional: operationId, operation_id, content, sourcePath, source_path, base64Data, base64_data, fileName, file_name, name, note",
+      "output": "JSON value (collaboration::add_collection_item)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:add_collection_item. snake_case aliases accepted: space.add_collection_item."
+    },
+    {
+      "id": "collaboration.space.readCollectionItem",
+      "capability": "collaboration",
+      "input": "required: spaceId, space_id, itemId, item_id, id",
+      "output": "JSON value (collaboration::read_collection_item)",
+      "deny": [
+        "conversation_control_failed"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:read_collection_item. snake_case aliases accepted: space.read_collection_item."
+    },
+    {
+      "id": "collaboration.space.listConversations",
+      "capability": "collaboration",
+      "input": "required: workspaceId, workspace_id",
+      "output": "JSON object with keys: conversations",
+      "deny": [],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_conversations. snake_case aliases accepted: space.list_conversations."
+    },
+    {
+      "id": "workspace.focusConversation",
+      "capability": "workspace",
+      "input": "required: conversationId, conversation_id; optional: windowLabel, window_label",
+      "output": "JSON object with keys: project_id, workspace_id, conversation_id, panel_id, window_label, focused",
+      "deny": [
+        "conversation_control_failed",
+        "not_found"
+      ],
+      "notes": "Handler: crates/server/src/host/collaboration.rs:focus_conversation. snake_case aliases accepted: focus_conversation."
+    },
+    {
+      "id": "browser.capabilities",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.capabilities)",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.settings.get",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.settings.get)",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.settings.set",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.settings.set)",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.policy.setRules",
+      "capability": "browser",
+      "input": "optional: rules",
+      "output": "JSON value (browser.policy.setRules)",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.profile.list",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON object with keys: profiles, newTabProfile",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.profile.create",
+      "capability": "browser",
+      "input": "required: label; optional: id",
+      "output": "JSON value (browser.profile.create)",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.profile.clear",
+      "capability": "browser",
+      "input": "required: profileId",
+      "output": "JSON object with keys: cleared, profileId",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.profile.remove",
+      "capability": "browser",
+      "input": "required: profileId",
+      "output": "JSON object with keys: removed, profileId, profiles, newTabProfile",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.create",
+      "capability": "browser",
+      "input": "optional: url, profileId, bounds, grant, waitForLoad",
+      "output": "JSON object with keys: kind, url, tabId",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.close",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok, tabId",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.list",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON object with keys: tabs",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.navigate",
+      "capability": "browser",
+      "input": "required: url; optional: tabId, waitForLoad",
+      "output": "JSON value (browser.tab.navigate)",
+      "deny": [
+        "browser_bad_address",
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.back",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.forward",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.reload",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.stop",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.find",
+      "capability": "browser",
+      "input": "required: tabId; optional: query, forward",
+      "output": "JSON object with keys: found",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.zoom",
+      "capability": "browser",
+      "input": "required: tabId; optional: factor",
+      "output": "JSON object with keys: ok, factor",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.surface.freeze",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: mime, data",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.devtools",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [
+        "browser_devtools_disabled"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.chrome",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON value (browser.tab.chrome)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.title",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: title",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.tab.device",
+      "capability": "browser",
+      "input": "required: tabId, device",
+      "output": "JSON object with keys: ok, device",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.surface.set",
+      "capability": "browser",
+      "input": "required: tabId; optional: bounds",
+      "output": "JSON object with keys: ok",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.grant.set",
+      "capability": "browser",
+      "input": "required: tabId; optional: level",
+      "output": "JSON object with keys: kind, tabId, origin, level, grant",
+      "deny": [
+        "browser_invalid",
+        "browser_no_such_tab",
+        "browser_not_grantable"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.snapshot",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.snapshot)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.act",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.act)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.console.read",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.console.read)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.console.push",
+      "capability": "browser",
+      "input": "no input fields",
+      "output": "JSON value (browser.console.push)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.eval.request",
+      "capability": "browser",
+      "input": "required: code; optional: tabId",
+      "output": "JSON value (browser.eval.request)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.eval.run",
+      "capability": "browser",
+      "input": "required: code; optional: tabId",
+      "output": "JSON value (browser.eval.run)",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.eval.decide",
+      "capability": "browser",
+      "input": "required: requestId; optional: allow",
+      "output": "JSON object with keys: error, inserted, ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.pick.start",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: requestId, tabId",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.pick.element",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: cancelled, payload",
+      "deny": [
+        "browser_invalid"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.pick.take",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: messages",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.pick.cancel",
+      "capability": "browser",
+      "input": "required: tabId",
+      "output": "JSON object with keys: ok",
+      "deny": [],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "browser.pick.cloak",
+      "capability": "browser",
+      "input": "required: tabId; optional: hidden, maxChars, since, minLevel, level, limit, source, text, url, line, column, at, generation, ref, maxWidth, format",
+      "output": "JSON object with keys: ok, hidden, tabId, generation, url, title, viewport, snapshot, tree, refsCount, truncated, scrolled, fidelity, error, kind, pluginId, requestId, origin, code, expiresAt, pending, result, level, grant, bounds, ref, hostRules, evalEnabled, evalApproval, label, profileId, newTabProfile, defaultGrant, toolsEnabled, text, line, source, minLevel",
+      "deny": [
+        "capability_unimplemented",
+        "browser_no_such_tab",
+        "browser_invalid",
+        "browser_stale_ref",
+        "browser_read_failed",
+        "browser_eval_declined"
+      ],
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "id": "blob.create",
+      "capability": "blob",
+      "input": "optional: mediaType, name",
+      "output": "JSON object with keys: id",
+      "deny": [
+        "blob_invalid"
+      ],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "blob.append",
+      "capability": "blob",
+      "input": "optional: data",
+      "output": "JSON object with keys: id, byteLength",
+      "deny": [
+        "blob_closed",
+        "blob_invalid",
+        "blob_chunk_too_large",
+        "blob_too_large"
+      ],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "blob.finish",
+      "capability": "blob",
+      "input": "no input fields",
+      "output": "JSON value (blob.finish)",
+      "deny": [],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "blob.stat",
+      "capability": "blob",
+      "input": "no input fields",
+      "output": "JSON value (blob.stat)",
+      "deny": [],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "blob.read",
+      "capability": "blob",
+      "input": "optional: offset, length",
+      "output": "JSON object with keys: id, offset, data, byteLength, mediaType, finished",
+      "deny": [
+        "blob_invalid"
+      ],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "blob.delete",
+      "capability": "blob",
+      "input": "no input fields",
+      "output": "JSON value (blob.delete)",
+      "deny": [
+        "blob_not_found"
+      ],
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "id": "runtime.lock.get",
+      "capability": "runtime.lock",
+      "input": "required: runtimeId",
+      "output": "JSON object with keys: executablePath, version, target, contentDigest",
+      "deny": [
+        "runtime_identity_missing",
+        "runtime_lock_failed",
+        "runtime_not_locked"
+      ],
+      "notes": "Handler: crates/plugins/src/host_capability_broker.rs:get_runtime_lock. Used by plugins/open-connector; registered by J7."
+    },
+    {
+      "id": "conversation.draft.insert",
+      "capability": "conversation",
+      "input": "required: conversationId, token.label, token.markdown",
+      "output": "PluginConversationDraftReceipt",
+      "deny": [
+        "conversation_unavailable",
+        "conversation_scope_denied",
+        "conversation_not_found",
+        "conversation_invalid"
+      ],
+      "notes": "Handler: crates/server/src/host/plugin_conversation.rs:insert_draft. Registered by J7."
+    },
+    {
+      "id": "exec.run",
+      "capability": "exec",
+      "input": "required: program (or command); optional: args, timeoutMs, cwd",
+      "output": "JSON: parsed stdout, or { stdout, exitCode } when stdout is not JSON",
+      "deny": [
+        "exec_invalid_program"
+      ],
+      "notes": "Handler: crates/plugins/src/host_capability_broker.rs:call_exec. preview: spawns an arbitrary Host process; no official plugin calls it; removal candidate pending a user ruling. Registered by J7 as preview."
     }
   ]
 }

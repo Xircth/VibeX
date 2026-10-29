@@ -73,15 +73,22 @@ const catalogKinds = new Set(kinds.kinds.map((kind) => kind.id));
 const usedKinds = [...pluginKinds.keys()];
 const unregisteredKinds = usedKinds.filter((kind) => !catalogKinds.has(kind));
 const unusedKinds = kinds.kinds
-  .map((kind) => kind.id)
-  .filter((kind) => !pluginKinds.has(kind))
+  .filter((kind) => !pluginKinds.has(kind.id))
   .map((kind) => ({
-    kind,
-    binding: contributionBindings.entries.find((entry) => entry.kind === kind),
+    kind: kind.id,
+    status: kind.status,
+    binding: contributionBindings.entries.find((entry) => entry.kind === kind.id),
   }));
 const unknownContributions = contributionBindings.entries.filter(
   (entry) => entry.consumer === 'unknown' || entry.example_plugin === 'unknown',
 );
+const statusDrift = contributionBindings.entries
+  .map((entry) => ({
+    kind: entry.kind,
+    bindingStatus: entry.status,
+    catalogStatus: kinds.kinds.find((kind) => kind.id === entry.kind)?.status,
+  }))
+  .filter((item) => item.catalogStatus && item.bindingStatus !== item.catalogStatus);
 
 const lines = [];
 const push = (...items) => lines.push(...items);
@@ -94,7 +101,8 @@ push('`host.call` capability) and `catalog/contribution-bindings.v1.json` (one e
 push('contribution kind). `reaches_core` means the implementing file references');
 push('`application::` at least once, which is the same test `scripts/check-arch-*.mjs`');
 push('will apply. `status` is `ready` (registered and implemented), `preview` (registered,');
-push('but the implementation is a fallback, a no-op, or partial), or `undeclared`');
+push('but the implementation is a fallback, a no-op, or partial; for contribution kinds,');
+push('the Host consumer exists but no official plugin ships the kind yet), or `undeclared`');
 push('(implemented or reachable, but absent from `host-api.v1.json`).');
 push('');
 
@@ -132,7 +140,7 @@ push('## 2. Registered but unused', '');
 push('| Kind | Status | Binding consumer | Note |');
 push('| --- | --- | --- | --- |');
 for (const item of unusedKinds) {
-  push(`| \`${cell(item.kind)}\` | ${item.binding?.status ?? 'unknown'} | \`${cell(item.binding?.consumer ?? 'unknown')}\` | no official plugin declares it |`);
+  push(`| \`${cell(item.kind)}\` | ${item.status} | \`${cell(item.binding?.consumer ?? 'unknown')}\` | no official plugin declares it |`);
 }
 if (unusedKinds.length === 0) push('| — | — | — | none |');
 push('');
@@ -177,6 +185,12 @@ push(
   unknownContributions.length
     ? unknownContributions.map((entry) => `- \`${entry.kind}\`: consumer or example plugin not traced; see \`contribution-bindings.v1.json\``).join('\n')
     : '- no contribution binding has an unknown consumer or example plugin',
+);
+push('');
+push(
+  statusDrift.length
+    ? statusDrift.map((item) => `- \`${item.kind}\`: contribution-bindings says \`${item.bindingStatus}\`, contribution-kinds says \`${item.catalogStatus}\``).join('\n')
+    : '- contribution-bindings status matches contribution-kinds for every kind',
 );
 push('');
 

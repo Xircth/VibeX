@@ -3,14 +3,14 @@
   "entries": [
     {
       "kind": "content.skill",
-      "consumer": "src-tauri/src/commands/plugin_control.rs:project_plugin_skills",
+      "consumer": "crates/plugins/src/package.rs",
       "example_plugin": "vibex.science",
       "status": "ready",
       "notes": "Projects enabled Skills onto bound Agents."
     },
     {
       "kind": "content.mcp",
-      "consumer": "src-tauri/src/commands/plugin_control.rs:configure_plugin_default_mcp",
+      "consumer": "crates/plugins/src/package.rs",
       "example_plugin": "vibex.browser",
       "status": "ready",
       "notes": "Projects plugin MCP servers onto bound Agents."
@@ -24,21 +24,21 @@
     },
     {
       "kind": "workflow.binding",
-      "consumer": "unknown",
+      "consumer": "crates/plugins/src/package.rs",
       "example_plugin": "vibex.office",
       "status": "ready",
       "notes": "Consumer not traced in this pass; contribution is parsed in package.rs."
     },
     {
       "kind": "file.opener",
-      "consumer": "unknown",
+      "consumer": "crates/plugins/src/package.rs",
       "example_plugin": "vibex.office",
       "status": "ready",
       "notes": "Consumer not traced in this pass; contribution is parsed in package.rs."
     },
     {
       "kind": "artifact.preview",
-      "consumer": "crates/plugins/src/host_capability_broker.rs:open_preview",
+      "consumer": "frontend/src/components/previews/PluginFilePreview.tsx",
       "example_plugin": "vibex.office",
       "status": "ready",
       "notes": "Served through PluginPreviewHost leases."
@@ -61,12 +61,12 @@
       "kind": "app.toolbar",
       "consumer": "frontend/src/components/layout/Toolbar.tsx",
       "example_plugin": "none",
-      "status": "ready",
+      "status": "preview",
       "notes": "Registered ready, but no official plugin declares it."
     },
     {
       "kind": "app.status",
-      "consumer": "frontend/src/components/layout/ProjectWindowStatusSummary.tsx",
+      "consumer": "frontend/src/components/plugins/PluginStatusItems.tsx",
       "example_plugin": "vibex.open-connector",
       "status": "ready",
       "notes": "Also loaded by frontend/src/features/plugins/PluginRuntimeLoader.ts."
@@ -80,30 +80,30 @@
     },
     {
       "kind": "app.timeline.card",
-      "consumer": "none",
+      "consumer": "frontend/src/components/plugins/PluginTimelineCards.tsx",
       "example_plugin": "none",
-      "status": "ready",
+      "status": "preview",
       "notes": "Registered ready; no consumer traced in frontend/src and no official plugin declares it."
     },
     {
       "kind": "app.settings.section",
-      "consumer": "frontend/src/features/plugins/PluginRuntimeLoader.ts",
+      "consumer": "frontend/src/components/plugins/PluginSettingsSections.tsx",
       "example_plugin": "none",
-      "status": "ready",
+      "status": "preview",
       "notes": "Registered ready, but no official plugin declares it."
     },
     {
       "kind": "host.service",
-      "consumer": "crates/plugins/src/host_service.rs",
+      "consumer": "crates/plugins/src/package.rs",
       "example_plugin": "vibex.open-connector",
       "status": "ready",
       "notes": "One Worker process serves every host.service handler of a plugin."
     },
     {
       "kind": "provider.model.importSource",
-      "consumer": "crates/plugins/src/worker_host.rs:3300",
+      "consumer": "frontend/src/pages/settings/AgentModelProviderManager.tsx",
       "example_plugin": "none",
-      "status": "ready",
+      "status": "preview",
       "notes": "Host registers the source; no frontend consumer traced and no official plugin declares it."
     },
     {
@@ -115,14 +115,14 @@
     },
     {
       "kind": "app.panel",
-      "consumer": "frontend/src/components/layout/panels/PluginDockviewPanel.tsx",
+      "consumer": "frontend/src/components/layout/panels/PanelRegistry.tsx",
       "example_plugin": "vibex.browser",
       "status": "ready",
       "notes": ""
     },
     {
       "kind": "app.tab",
-      "consumer": "frontend/src/components/layout/IDELayout.tsx",
+      "consumer": "frontend/src/components/layout/Toolbar.tsx",
       "example_plugin": "vibex.open-connector",
       "status": "ready",
       "notes": ""
@@ -136,9 +136,9 @@
     },
     {
       "kind": "app.settings.page",
-      "consumer": "frontend/src/pages/settings/PluginSettingsPage.tsx",
+      "consumer": "frontend/src/pages/settings/SettingsLayout.tsx",
       "example_plugin": "vibex.browser",
-      "status": "preview",
+      "status": "ready",
       "notes": "Catalog still marks it preview although two official plugins declare it."
     },
     {
@@ -149,8 +149,15 @@
       "notes": ""
     },
     {
+      "kind": "app.rail.section",
+      "consumer": "frontend/src/components/layout/RightPanelSidebar.tsx",
+      "example_plugin": "vibex.browser",
+      "status": "ready",
+      "notes": "Right activity rail sections; declared by vibex.browser. Added to the catalog by J5."
+    },
+    {
       "kind": "provider.remote.provisioner",
-      "consumer": "crates/plugins/src/worker_host.rs:3265",
+      "consumer": "frontend/src/pages/settings/RemoteClientSettings.tsx",
       "example_plugin": "vibex.remote-ssh",
       "status": "ready",
       "notes": ""

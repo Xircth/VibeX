@@ -159,8 +159,8 @@
       "port_method": "insert_draft",
       "implementation": "crates/server/src/host/plugin_conversation.rs:insert_draft",
       "reaches_core": true,
-      "status": "undeclared",
-      "notes": "Implemented by the broker and the host port, but absent from catalog/host-api.v1.json (53 ops)."
+      "status": "ready",
+      "notes": "Registered in host-api.v1.json by J7."
     },
     {
       "name": "provider.presets.list",
@@ -559,8 +559,8 @@
       "port_method": "get",
       "implementation": "crates/plugins/src/host_capability_broker.rs:get_runtime_lock",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "Operation get exists and is used by plugins/open-connector, but runtime.lock.get is not in host-api.v1.json."
+      "status": "ready",
+      "notes": "Operation get exists and is used by plugins/open-connector, but runtime.lock.get is not in host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "exec",
@@ -569,8 +569,8 @@
       "port_method": "run",
       "implementation": "crates/plugins/src/host_capability_broker.rs:call_exec",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "Spawns a host process on the plugin behalf; no official plugin calls it and it is not in host-api.v1.json."
+      "status": "preview",
+      "notes": "Spawns a host process on the plugin behalf; no official plugin calls it and it is not in host-api.v1.json. J7: documented in host-api.v1.json as preview; risk (arbitrary Host process spawn) recorded; not deleted under the zero-behaviour-change rule."
     },
     {
       "name": "artifact.preview",
@@ -679,8 +679,8 @@
       "port_method": "call",
       "implementation": "crates/server/src/host/collaboration.rs:call",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "Operations role.*, team.*, space.* are dispatched here; the whole family is absent from host-api.v1.json. Impl has no application:: reference."
+      "status": "ready",
+      "notes": "Operations role.*, team.*, space.* are dispatched here; the whole family is absent from host-api.v1.json. Impl has no application:: reference. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "workspace",
@@ -689,8 +689,8 @@
       "port_method": "call",
       "implementation": "crates/server/src/host/collaboration.rs:call",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "workspace.focusConversation is routed through the same collaboration host; absent from host-api.v1.json."
+      "status": "ready",
+      "notes": "workspace.focusConversation is routed through the same collaboration host; absent from host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "browser",
@@ -699,8 +699,8 @@
       "port_method": "dispatch",
       "implementation": "crates/browser-host/src/service.rs:dispatch",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "Used by vibex.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json."
+      "status": "ready",
+      "notes": "Used by vibex.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "blob",
@@ -709,8 +709,8 @@
       "port_method": "dispatch_plugin_blob",
       "implementation": "crates/plugins/src/blob_store.rs:dispatch_plugin_blob",
       "reaches_core": false,
-      "status": "undeclared",
-      "notes": "Editor-surface blob reads; absent from host-api.v1.json."
+      "status": "ready",
+      "notes": "Editor-surface blob reads; absent from host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "app",
@@ -751,6 +751,1016 @@
       "reaches_core": false,
       "status": "ready",
       "notes": ""
+    },
+    {
+      "name": "collaboration.role.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_roles."
+    },
+    {
+      "name": "collaboration.role.create",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_role."
+    },
+    {
+      "name": "collaboration.role.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_role."
+    },
+    {
+      "name": "collaboration.role.delete",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:delete_role."
+    },
+    {
+      "name": "collaboration.role.agents",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:enabled_agents."
+    },
+    {
+      "name": "collaboration.agent.controls",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:agent_controls."
+    },
+    {
+      "name": "collaboration.team.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_teams."
+    },
+    {
+      "name": "collaboration.team.create",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_team."
+    },
+    {
+      "name": "collaboration.team.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:save_team."
+    },
+    {
+      "name": "collaboration.team.delete",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:delete_team."
+    },
+    {
+      "name": "collaboration.space.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_spaces."
+    },
+    {
+      "name": "collaboration.space.create",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:create_space."
+    },
+    {
+      "name": "collaboration.space.rename",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:rename_space. snake_case aliases accepted: space.update."
+    },
+    {
+      "name": "collaboration.space.addMember",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:add_member. snake_case aliases accepted: space.add_member."
+    },
+    {
+      "name": "collaboration.space.createMember",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:create_member. snake_case aliases accepted: space.create_member."
+    },
+    {
+      "name": "collaboration.space.moveMember",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:move_member. snake_case aliases accepted: space.move_member."
+    },
+    {
+      "name": "collaboration.space.batchDelete",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:batch_delete. snake_case aliases accepted: space.batch_delete, space.delete."
+    },
+    {
+      "name": "collaboration.space.setIdentity",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:set_identity. snake_case aliases accepted: space.set_identity."
+    },
+    {
+      "name": "collaboration.space.listMembers",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_members. snake_case aliases accepted: space.list_members."
+    },
+    {
+      "name": "collaboration.space.listMessages",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_messages. snake_case aliases accepted: space.list_messages."
+    },
+    {
+      "name": "collaboration.space.listScheduledMessages",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_scheduled_messages. snake_case aliases accepted: space.list_scheduled_messages."
+    },
+    {
+      "name": "collaboration.space.post",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:post."
+    },
+    {
+      "name": "collaboration.space.react",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:react."
+    },
+    {
+      "name": "collaboration.space.submit",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:submit."
+    },
+    {
+      "name": "collaboration.card.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_cards. snake_case aliases accepted: card.list_cards."
+    },
+    {
+      "name": "collaboration.card.resolve",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:resolve_card."
+    },
+    {
+      "name": "collaboration.member.memory.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_list. snake_case aliases accepted: member.memory_list."
+    },
+    {
+      "name": "collaboration.member.memory.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_update. snake_case aliases accepted: member.memory_update."
+    },
+    {
+      "name": "collaboration.member.memory.delete",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:memory_delete. snake_case aliases accepted: member.memory_delete."
+    },
+    {
+      "name": "collaboration.member.activity.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:activity_list. snake_case aliases accepted: member.activity_list."
+    },
+    {
+      "name": "collaboration.member.config.get",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.config_get."
+    },
+    {
+      "name": "collaboration.member.config.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.config_update."
+    },
+    {
+      "name": "collaboration.member.session.resolve",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: member.resolve_session."
+    },
+    {
+      "name": "collaboration.contactGroup.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.list."
+    },
+    {
+      "name": "collaboration.contactGroup.create",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.create."
+    },
+    {
+      "name": "collaboration.contactGroup.rename",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.rename."
+    },
+    {
+      "name": "collaboration.contactGroup.delete",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.delete."
+    },
+    {
+      "name": "collaboration.contactGroup.reorder",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: contact_group.reorder."
+    },
+    {
+      "name": "collaboration.thread.setGroup",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.set_group."
+    },
+    {
+      "name": "collaboration.thread.listSidebar",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.list_sidebar, sidebar.list."
+    },
+    {
+      "name": "collaboration.thread.markRead",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.mark_read."
+    },
+    {
+      "name": "collaboration.thread.markUnread",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null. snake_case aliases accepted: thread.mark_unread."
+    },
+    {
+      "name": "collaboration.thread.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:emit_space_changed. snake_case aliases accepted: space.setTagColor, space.set_tag_color."
+    },
+    {
+      "name": "collaboration.member.list",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:null."
+    },
+    {
+      "name": "collaboration.member.update",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:emit_space_changed."
+    },
+    {
+      "name": "collaboration.member.setWriteAccess",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:set_write_access. snake_case aliases accepted: member.set_write_access."
+    },
+    {
+      "name": "collaboration.space.listEvents",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_events. snake_case aliases accepted: space.list_events."
+    },
+    {
+      "name": "collaboration.space.receipts",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:receipts. snake_case aliases accepted: space.listReceipts, space.list_receipts."
+    },
+    {
+      "name": "collaboration.space.cancelTurn",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:cancel_turn. snake_case aliases accepted: space.cancel_turn."
+    },
+    {
+      "name": "collaboration.space.wakePreview",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:wake_preview. snake_case aliases accepted: space.wake_preview."
+    },
+    {
+      "name": "collaboration.space.warmup",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:warmup."
+    },
+    {
+      "name": "collaboration.space.listCollection",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_collection. snake_case aliases accepted: space.list_collection."
+    },
+    {
+      "name": "collaboration.space.addCollectionItem",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:add_collection_item. snake_case aliases accepted: space.add_collection_item."
+    },
+    {
+      "name": "collaboration.space.readCollectionItem",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:read_collection_item. snake_case aliases accepted: space.read_collection_item."
+    },
+    {
+      "name": "collaboration.space.listConversations",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:list_conversations. snake_case aliases accepted: space.list_conversations."
+    },
+    {
+      "name": "workspace.focusConversation",
+      "kind": "op",
+      "port_trait": "crates/plugins/src/collaboration_host.rs:CollaborationHost",
+      "port_method": "call",
+      "implementation": "crates/server/src/host/collaboration.rs:call",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/server/src/host/collaboration.rs:focus_conversation. snake_case aliases accepted: focus_conversation."
+    },
+    {
+      "name": "browser.capabilities",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.settings.get",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.settings.set",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.policy.setRules",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.profile.list",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.profile.create",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.profile.clear",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.profile.remove",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.create",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.close",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.list",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.navigate",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.back",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.forward",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.reload",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.stop",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.find",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.zoom",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.surface.freeze",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.devtools",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.chrome",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.title",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.tab.device",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.surface.set",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.grant.set",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.snapshot",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.act",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.console.read",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.console.push",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.eval.request",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.eval.run",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.eval.decide",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.pick.start",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.pick.element",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.pick.take",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.pick.cancel",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "browser.pick.cloak",
+      "kind": "op",
+      "port_trait": "crates/browser-host",
+      "port_method": "dispatch",
+      "implementation": "crates/browser-host/src/service.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/browser-host/src/service.rs:dispatch."
+    },
+    {
+      "name": "blob.create",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "blob.append",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "blob.finish",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "blob.stat",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "blob.read",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "blob.delete",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "dispatch",
+      "implementation": "crates/plugins/src/blob_store.rs:dispatch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/blob_store.rs:BlobStore::dispatch."
+    },
+    {
+      "name": "runtime.lock.get",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "get",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:get_runtime_lock",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "Handler: crates/plugins/src/host_capability_broker.rs:get_runtime_lock. Used by plugins/open-connector; registered by J7."
+    },
+    {
+      "name": "exec.run",
+      "kind": "op",
+      "port_trait": "—",
+      "port_method": "run",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_exec",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "Handler: crates/plugins/src/host_capability_broker.rs:call_exec. preview: spawns an arbitrary Host process; no official plugin calls it; removal candidate pending a user ruling. Registered by J7 as preview."
     }
   ]
 }

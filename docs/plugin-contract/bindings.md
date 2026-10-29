@@ -7,41 +7,35 @@ Registry: `catalog/host-bindings.v1.json` (one entry per host-api op plus one pe
 contribution kind). `reaches_core` means the implementing file references
 `application::` at least once, which is the same test `scripts/check-arch-*.mjs`
 will apply. `status` is `ready` (registered and implemented), `preview` (registered,
-but the implementation is a fallback, a no-op, or partial), or `undeclared`
+but the implementation is a fallback, a no-op, or partial; for contribution kinds,
+the Host consumer exists but no official plugin ships the kind yet), or `undeclared`
 (implemented or reachable, but absent from `host-api.v1.json`).
 
 ## Summary
 
-- host-api ops: **53**
-- host.call capabilities: **21** (15 registered in host-api.v1.json, 6 absent)
-- binding entries: 75 (54 op, 21 capability)
-- host-api ops with `reaches_core=true`: **18 / 53**
-- implementation files containing `sqlx::`: **5** (`crates/server/src/host/plugin_conversation.rs` 6, `crates/server/src/host/provider_bind.rs` 1, `crates/plugins/src/control_plane.rs` 67, `crates/plugins/src/host_capability_broker.rs` 1, `crates/server/src/host/collaboration.rs` 26)
-- contribution kinds: 22 catalogued, 18 used by official plugins
+- host-api ops: **155**
+- host.call capabilities: **21** (21 registered in host-api.v1.json, 0 absent)
+- binding entries: 176 (155 op, 21 capability)
+- host-api ops with `reaches_core=true`: **19 / 155**
+- implementation files containing `sqlx::`: **5** (`crates/server/src/host/plugin_conversation.rs` 6, `crates/server/src/host/provider_bind.rs` 1, `crates/plugins/src/control_plane.rs` 3, `crates/plugins/src/host_capability_broker.rs` 1, `crates/server/src/host/collaboration.rs` 26)
+- contribution kinds: 23 catalogued, 18 used by official plugins
 - official plugins scanned: 14
 
 ## 1. Unregistered but used
 
 | Type | Name | Evidence |
 | --- | --- | --- |
-| op | `conversation.draft.insert` | implemented at `crates/server/src/host/plugin_conversation.rs`; Implemented by the broker and the host port, but absent from catalog/host-api.v1.json (53 ops). |
-| capability | `runtime.lock` | implemented at `crates/plugins/src/host_capability_broker.rs`; plugin operations: get; Operation get exists and is used by plugins/open-connector, but runtime.lock.get is not in host-api.v1.json. |
-| capability | `exec` | implemented at `crates/plugins/src/host_capability_broker.rs`; Spawns a host process on the plugin behalf; no official plugin calls it and it is not in host-api.v1.json. |
-| capability | `collaboration` | implemented at `crates/server/src/host/collaboration.rs`; Operations role.*, team.*, space.* are dispatched here; the whole family is absent from host-api.v1.json. Impl has no application:: reference. |
-| capability | `workspace` | implemented at `crates/server/src/host/collaboration.rs`; workspace.focusConversation is routed through the same collaboration host; absent from host-api.v1.json. |
-| capability | `browser` | implemented at `crates/browser-host/src/service.rs`; plugin operations: settings.get, settings.set, tab.list, tab.device, capabilities, policy.setRules, profile.create, profile.clear, tab.close, profile.remove, tab.create, grant.set, tab.navigate, tab.devtools, surface.set; Used by vibex.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json. |
-| capability | `blob` | implemented at `crates/plugins/src/blob_store.rs`; Editor-surface blob reads; absent from host-api.v1.json. |
-| kind | `app.rail.section` | declared by `vibex.browser`; accepted by `crates/plugins/src/package.rs` but missing from `contribution-kinds.v1.json` |
+| — | — | none |
 
 ## 2. Registered but unused
 
 | Kind | Status | Binding consumer | Note |
 | --- | --- | --- | --- |
 | `content.hook` | unimplemented | `none` | no official plugin declares it |
-| `app.toolbar` | ready | `frontend/src/components/layout/Toolbar.tsx` | no official plugin declares it |
-| `app.timeline.card` | ready | `none` | no official plugin declares it |
-| `app.settings.section` | ready | `frontend/src/features/plugins/PluginRuntimeLoader.ts` | no official plugin declares it |
-| `provider.model.importSource` | ready | `crates/plugins/src/worker_host.rs:3300` | no official plugin declares it |
+| `app.toolbar` | preview | `frontend/src/components/layout/Toolbar.tsx` | no official plugin declares it |
+| `app.timeline.card` | preview | `frontend/src/components/plugins/PluginTimelineCards.tsx` | no official plugin declares it |
+| `app.settings.section` | preview | `frontend/src/components/plugins/PluginSettingsSections.tsx` | no official plugin declares it |
+| `provider.model.importSource` | preview | `frontend/src/pages/settings/AgentModelProviderManager.tsx` | no official plugin declares it |
 
 Capabilities declared but never called by an official plugin (informational, not a
 failure by itself — some are host-side only):
@@ -65,19 +59,20 @@ failure by itself — some are host-side only):
 | `runtime.execute` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
 | `app` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
 | `plugin.self` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
-| `runtime.lock` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
-| `exec` | `crates/plugins/src/host_capability_broker.rs` | `—` | 1 |
-| `collaboration` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 1 |
-| `workspace` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 1 |
-| `browser` | `crates/browser-host/src/service.rs` | `crates/browser-host` | 1 |
-| `blob` | `crates/plugins/src/blob_store.rs` | `—` | 1 |
+| `runtime.lock` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
+| `exec` | `crates/plugins/src/host_capability_broker.rs` | `—` | 2 |
+| `collaboration` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 56 |
+| `workspace` | `crates/server/src/host/collaboration.rs` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | 2 |
+| `browser` | `crates/browser-host/src/service.rs` | `crates/browser-host` | 38 |
+| `blob` | `crates/plugins/src/blob_store.rs` | `—` | 7 |
 
 ## Unresolved
 
 - every registered implementation file exists
 
-- `workflow.binding`: consumer or example plugin not traced; see `contribution-bindings.v1.json`
-- `file.opener`: consumer or example plugin not traced; see `contribution-bindings.v1.json`
+- no contribution binding has an unknown consumer or example plugin
+
+- contribution-bindings status matches contribution-kinds for every kind
 
 ## Appendix: host-api op bindings
 
@@ -98,6 +93,7 @@ failure by itself — some are host-side only):
 | `conversation.catalog` | `crates/plugins/src/conversation_host.rs:PluginConversationHost` | `catalog` | `crates/server/src/host/plugin_conversation.rs:catalog` | true | ready |
 | `conversation.archive` | `crates/plugins/src/conversation_host.rs:PluginConversationHost` | `archive` | `crates/server/src/host/plugin_conversation.rs:archive` | true | ready |
 | `conversation.events.since` | `crates/plugins/src/conversation_host.rs:PluginConversationHost` | `events_since` | `crates/server/src/host/plugin_conversation.rs:events_since` | true | ready |
+| `conversation.draft.insert` | `crates/plugins/src/conversation_host.rs:PluginConversationHost` | `insert_draft` | `crates/server/src/host/plugin_conversation.rs:insert_draft` | true | ready |
 | `provider.presets.list` | `crates/plugins/src/provider_presets.rs:ProviderPresetHost` | `list` | `crates/server/src/host/provider_bind.rs:list` | true | ready |
 | `provider.presets.save` | `crates/plugins/src/provider_presets.rs:ProviderPresetHost` | `save` | `crates/server/src/host/provider_bind.rs:save` | true | ready |
 | `provider.presets.bind` | `crates/plugins/src/provider_presets.rs:ProviderPresetHost` | `bind` | `crates/server/src/host/provider_bind.rs:bind` | true | ready |
@@ -136,3 +132,104 @@ failure by itself — some are host-side only):
 | `runtime.execute.run` | `—` | `—` | `crates/plugins/src/host_capability_broker.rs:execute_runtime` | false | ready |
 | `app.notify.toast` | `—` | `—` | `crates/plugins/src/host_capability_broker.rs:call_plugin_data` | false | ready |
 | `plugin.self.doctor` | `—` | `doctor` | `crates/plugins/src/host_capability_broker.rs:call_plugin_self` | false | ready |
+| `collaboration.role.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.role.create` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.role.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.role.delete` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.role.agents` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.agent.controls` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.team.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.team.create` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.team.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.team.delete` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.create` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.rename` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.addMember` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.createMember` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.moveMember` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.batchDelete` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.setIdentity` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listMembers` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listMessages` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listScheduledMessages` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.post` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.react` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.submit` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.card.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.card.resolve` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.memory.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.memory.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.memory.delete` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.activity.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.config.get` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.config.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.session.resolve` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.contactGroup.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.contactGroup.create` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.contactGroup.rename` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.contactGroup.delete` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.contactGroup.reorder` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.thread.setGroup` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.thread.listSidebar` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.thread.markRead` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.thread.markUnread` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.thread.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.list` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.update` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.member.setWriteAccess` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listEvents` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.receipts` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.cancelTurn` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.wakePreview` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.warmup` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listCollection` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.addCollectionItem` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.readCollectionItem` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `collaboration.space.listConversations` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `workspace.focusConversation` | `crates/plugins/src/collaboration_host.rs:CollaborationHost` | `call` | `crates/server/src/host/collaboration.rs:call` | false | ready |
+| `browser.capabilities` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.settings.get` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.settings.set` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.policy.setRules` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.profile.list` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.profile.create` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.profile.clear` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.profile.remove` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.create` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.close` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.list` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.navigate` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.back` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.forward` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.reload` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.stop` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.find` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.zoom` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.surface.freeze` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.devtools` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.chrome` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.title` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.tab.device` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.surface.set` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.grant.set` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.snapshot` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.act` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.console.read` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.console.push` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.eval.request` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.eval.run` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.eval.decide` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.pick.start` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.pick.element` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.pick.take` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.pick.cancel` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `browser.pick.cloak` | `crates/browser-host` | `dispatch` | `crates/browser-host/src/service.rs:dispatch` | false | ready |
+| `blob.create` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `blob.append` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `blob.finish` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `blob.stat` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `blob.read` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `blob.delete` | `—` | `dispatch` | `crates/plugins/src/blob_store.rs:dispatch` | false | ready |
+| `runtime.lock.get` | `—` | `get` | `crates/plugins/src/host_capability_broker.rs:get_runtime_lock` | false | ready |
+| `exec.run` | `—` | `run` | `crates/plugins/src/host_capability_broker.rs:call_exec` | false | preview |

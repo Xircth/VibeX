@@ -1043,16 +1043,39 @@
   content: '';
   flex: 1 1 0%;
   max-width: 9rem;
-  height: 3px;
+  height: 2px;
+  opacity: 0.45;
   background: var(--cross-chat-line-color, var(--border-subtle));
 }
 
 .collaboration-cross-chat-notice::before {
-  clip-path: polygon(0 42%, 100% 0, 100% 100%, 0 58%);
+  clip-path: polygon(0 38%, 100% 18%, 100% 82%, 0 62%);
 }
 
 .collaboration-cross-chat-notice::after {
-  clip-path: polygon(0 0, 100% 42%, 100% 58%, 0 100%);
+  clip-path: polygon(0 18%, 100% 38%, 100% 62%, 0 82%);
+}
+
+.collaboration-cross-chat-notice .collaboration-member-mention-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+  height: auto !important;
+  line-height: 1.2 !important;
+  vertical-align: middle !important;
+}
+
+.collaboration-cross-chat-notice .collaboration-cross-chat-group-chip .collaboration-group-avatar {
+  display: block;
+  flex: none;
+}
+
+.collaboration-cross-chat-notice
+  .collaboration-cross-chat-group-chip
+  .collaboration-member-mention-name {
+  display: inline-block !important;
+  line-height: 1.2 !important;
+  vertical-align: middle !important;
 }
 
 .collaboration-thread-permission-dock {
@@ -3926,8 +3949,8 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 }
 
 /* ── Shared contact row (DM + group chat) ──────────────────────────────────
-   [avatar] [name (count)        meta]
-            [preview…          unread]                                    */
+   [avatar] [name (count) unread  meta]
+            [preview…]                                                */
 .collaboration-contact-row-main {
   display: grid;
   grid-template-columns: var(--collaboration-contact-avatar, 2.5rem) minmax(
@@ -3951,13 +3974,11 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   align-self: center;
 }
 
-.collaboration-contact-row-main > .collaboration-member-title-group,
-.collaboration-contact-row-main > .collaboration-chat-meta {
+.collaboration-contact-row-main > .collaboration-member-title-group {
   display: contents;
 }
 
-.collaboration-contact-row-main .collaboration-member-name,
-.collaboration-contact-row-main > .collaboration-contact-name-line {
+.collaboration-contact-row-main .collaboration-contact-name-line {
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
@@ -3968,15 +3989,22 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 .collaboration-contact-name-line {
   display: flex;
   min-width: 0;
-  align-items: baseline;
+  align-items: center;
   gap: 0.25rem;
 }
 
-.collaboration-contact-name-line > .workspace-session-title {
+.collaboration-contact-name-line > .workspace-session-title,
+.collaboration-contact-name-line > .collaboration-member-name {
   min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.collaboration-contact-name-line .collaboration-chat-meta {
+  flex: none;
+  min-width: unset;
 }
 
 .collaboration-contact-count.workspace-session-group-count {
@@ -4020,24 +4048,10 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   );
 }
 
-.collaboration-contact-row-main .collaboration-chat-unread {
-  grid-column: 3;
-  grid-row: 2;
-  justify-self: end;
-}
-
 /* Same outer box for both kinds so rows space evenly. */
 .collaboration-chat-direct .workspace-session-row,
 .collaboration-shell .collaboration-space-row {
   padding-block: 0;
-}
-
-/* Hover actions overlay the right edge; hide unread without changing row height. */
-.collaboration-space-row:hover .collaboration-chat-unread,
-.collaboration-space-row:focus-within .collaboration-chat-unread,
-.collaboration-member-row:hover .collaboration-chat-unread,
-.collaboration-member-row:focus-within .collaboration-chat-unread {
-  visibility: hidden;
 }
 
 .collaboration-global-search-backdrop {

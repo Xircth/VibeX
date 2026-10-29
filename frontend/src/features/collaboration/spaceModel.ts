@@ -421,12 +421,48 @@ export type SpaceTagPreset = {
 };
 
 export const SPACE_TAG_PRESETS: readonly SpaceTagPreset[] = [
-  { id: 'blue', get label() { return i18n.t('panels:spaceTag.blue'); }, hue: '214 88% 56%' },
-  { id: 'emerald', get label() { return i18n.t('panels:spaceTag.emerald'); }, hue: '152 68% 42%' },
-  { id: 'amber', get label() { return i18n.t('panels:spaceTag.amber'); }, hue: '38 92% 50%' },
-  { id: 'violet', get label() { return i18n.t('panels:spaceTag.violet'); }, hue: '262 76% 58%' },
-  { id: 'rose', get label() { return i18n.t('panels:spaceTag.rose'); }, hue: '346 78% 56%' },
-  { id: 'cyan', get label() { return i18n.t('panels:spaceTag.cyan'); }, hue: '192 82% 44%' },
+  {
+    id: 'blue',
+    get label() {
+      return i18n.t('panels:spaceTag.blue');
+    },
+    hue: '214 88% 56%',
+  },
+  {
+    id: 'emerald',
+    get label() {
+      return i18n.t('panels:spaceTag.emerald');
+    },
+    hue: '152 68% 42%',
+  },
+  {
+    id: 'amber',
+    get label() {
+      return i18n.t('panels:spaceTag.amber');
+    },
+    hue: '38 92% 50%',
+  },
+  {
+    id: 'violet',
+    get label() {
+      return i18n.t('panels:spaceTag.violet');
+    },
+    hue: '262 76% 58%',
+  },
+  {
+    id: 'rose',
+    get label() {
+      return i18n.t('panels:spaceTag.rose');
+    },
+    hue: '346 78% 56%',
+  },
+  {
+    id: 'cyan',
+    get label() {
+      return i18n.t('panels:spaceTag.cyan');
+    },
+    hue: '192 82% 44%',
+  },
 ] as const;
 
 export type SpaceTagConfig = {
@@ -515,6 +551,8 @@ export type SpaceEnvelopeParties = {
   attributedTo?: string;
   to?: readonly string[] | null;
   summary?: string;
+  conversation_id?: string;
+  conversationId?: string;
 };
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
@@ -582,6 +620,10 @@ export function resolveMessageConversationId(
   envelope: SpaceEnvelopeParties | null | undefined,
   members: ReadonlyArray<SpaceMember> | null | undefined
 ): string {
+  const direct = String(
+    envelope?.conversation_id ?? envelope?.conversationId ?? ''
+  ).trim();
+  if (direct) return direct;
   const attributed = String(envelope?.attributedTo ?? '').trim();
   if (attributed.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) {
     const id = attributed.slice(CONVERSATION_URI_PREFIX.length).trim();
@@ -922,7 +964,9 @@ export function formatWorkingMembersCopy(
   return phrase ? `${joined} ${phrase}` : joined;
 }
 
-function receiptLooksFailed(receipt: DeliveryReceipt | null | undefined): boolean {
+function receiptLooksFailed(
+  receipt: DeliveryReceipt | null | undefined
+): boolean {
   if (!receipt) return false;
   const state = String(receipt.state ?? '');
   if (state === 'failed') return true;
@@ -1073,11 +1117,7 @@ function parseCrossChatPeer(raw: unknown): CrossChatPeer | null {
 }
 
 function parseCrossChatPeers(input: unknown): CrossChatPeer[] {
-  const items = Array.isArray(input)
-    ? input
-    : input == null
-      ? []
-      : [input];
+  const items = Array.isArray(input) ? input : input == null ? [] : [input];
   const seen = new Set<string>();
   const out: CrossChatPeer[] = [];
   for (const item of items) {
@@ -1340,6 +1380,24 @@ function directMessageTurnId(message: {
   return String(message?.turnId ?? message?.turn_id ?? '').trim();
 }
 
+function directMessageOrigin(message: { origin?: string | null }): string {
+  return String(message?.origin ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+/** Streaming drafts and persisted assistant posts share `turnId`. User space
+ * bubbles do not — an in-flight session turn must not collapse them. */
+function isTurnScopedDirectMessage(message: {
+  origin?: string | null;
+  streaming?: boolean | null;
+  turnId?: string | null;
+  turn_id?: string | null;
+}): boolean {
+  if (directMessageOrigin(message) === 'user') return false;
+  return Boolean(message.streaming) || Boolean(directMessageTurnId(message));
+}
+
 function directMessageId(message: {
   id?: string | null;
   envelope?: { id?: string | null } | null;
@@ -1351,13 +1409,16 @@ function directMessageId(message: {
  * Merge or deduplicate DM messages (`direct:<member_id>`).
  * - Preserves chronological order across pre-cutover (`conversation_events`) and
  *   post-cutover (`collaboration_space_messages`) segments without re-sorting by `seq`.
- * - Replaces streaming drafts (`streaming: true`) with persisted messages sharing
- *   the same `turnId` (`collaboration_turns.id`).
+ * - Replaces streaming drafts (`streaming: true`) with persisted *agent*
+ *   messages sharing the same `turnId` (`collaboration_turns.id`).
+ * - User space bubbles never participate in turn-scoped identity, so an
+ *   in-flight session turn cannot hide a message that is already in the log.
  */
 export function mergeDirectSpaceMessages<
   T extends {
     id?: string | null;
     seq: number;
+    origin?: string | null;
     turnId?: string | null;
     turn_id?: string | null;
     streaming?: boolean | null;
@@ -1368,9 +1429,11 @@ export function mergeDirectSpaceMessages<
   const upsert = (item: T) => {
     if (!item) return;
     const turnId = directMessageTurnId(item);
-    if (turnId) {
+    if (turnId && isTurnScopedDirectMessage(item)) {
       const turnIdx = out.findIndex(
-        (cand) => directMessageTurnId(cand) === turnId
+        (cand) =>
+          isTurnScopedDirectMessage(cand) &&
+          directMessageTurnId(cand) === turnId
       );
       if (turnIdx >= 0) {
         const current = out[turnIdx];
@@ -1653,6 +1716,37 @@ export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
     nickname: member.name,
     conversation_id: member.conversation_id ?? undefined,
   };
+}
+
+/**
+ * Map every hidden conversation (the per-thread session a seat points at) to
+ * the bot identity that owns it. Group joins create a new conversation per
+ * seat, so avatar/name lookup must follow the identity, not that conversation.
+ */
+export function indexIdentityMemberIdsByConversation(
+  members: readonly SpaceMember[],
+  sidebarItems: readonly SidebarItem[] | null | undefined = undefined
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const add = (member: SpaceMember | null | undefined) => {
+    const conversationId = String(member?.conversation_id ?? '').trim();
+    const identityMemberId = String(member?.identity_member_id ?? '').trim();
+    if (conversationId && identityMemberId && !map.has(conversationId)) {
+      map.set(conversationId, identityMemberId);
+    }
+  };
+  for (const member of members) {
+    add(member);
+  }
+  for (const item of sidebarItems ?? []) {
+    if (item.member) {
+      add(sidebarMemberToSpaceMember(item.member));
+    }
+    for (const preview of item.members_preview ?? []) {
+      add(sidebarMemberToSpaceMember(preview));
+    }
+  }
+  return map;
 }
 
 /** Map `thread.listSidebar` items (already sorted by activity) to list rows. */
@@ -1945,7 +2039,7 @@ export function contactLastMessagePreview(
 /**
  * First hidden user turn for a newly created bot's private chat. Visible in
  * the session tab; the collaboration message area skips it so the bot appears
- * to greet first via `post_to_space`.
+ * to greet first with ordinary assistant text.
  */
 export function buildCollabDmBootstrapPrompt(input: {
   userName: string;
@@ -1961,8 +2055,8 @@ export function buildCollabDmBootstrapPrompt(input: {
     : '- 设定：当前没有额外人设。请根据名字自行确定能力、工作习惯和语言风格。';
   const spaceId = input.spaceId?.trim();
   const spaceLine = spaceId
-    ? `- space_id：\`${spaceId}\`（当前私聊，必须用这个值）`
-    : '- space_id：先调用一次 `list_collaboration_spaces` 取得当前私聊的 space_id，然后立刻进入下一步';
+    ? `- 当前 BotSpace：\`${spaceId}\``
+    : '- 当前是与 Person 的一对一私聊';
   const body = [
     '# 身份',
     `你是用户刚创建的助手。`,
@@ -1972,18 +2066,15 @@ export function buildCollabDmBootstrapPrompt(input: {
     '请结合名字和设定确定自己的能力、工作习惯和语言风格。',
     '',
     '# 场景',
-    '这是你与用户的一对一私聊（协作空间私聊）。本条引导只出现在会话标签页；用户在协作空间私聊消息区看不到它，只会看到你用 `post_to_space` 发出的内容。',
-    '你必须把招呼和询问发到协作空间，用户才会看见，并感觉像是你主动来认识对方。',
+    '这是你与 Person（用户，兼容显示 User）的一对一私聊。本条引导只出现在会话标签页；用户在协作空间私聊消息区看不到它，只会看到你直接输出的最终文本。',
     '',
-    '# 本回合立刻执行（先发信，再读 skill）',
-    '1. 不要先读 skill，也不要先做其它工具调用。立刻调用 `post_to_space`：',
+    '# 本回合立刻执行',
+    '1. 不要先读 skill，也不要先做其它工具调用。直接输出招呼正文：',
     spaceLine,
-    '- to：`["User"]`',
-    '- operation_id：新的 UUID',
-    '- content：先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。问题和选项直接写在这条私信正文里。',
+    '- 先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。',
     '2. 发给用户的正文不要出现 space_id、conversation_id、operation_id、member_id、vibex:// 等内部标识。',
-    '3. 招呼只通过这一次 `post_to_space` 发出；不要再写一段重复的普通会话回复。',
-    '4. 发出招呼后，再阅读 `vibex-multi-agent` Skill 与 `COLLABORATION-SPACE.md`。',
+    '3. 招呼只通过这一次普通文本发出；不要调用 `post_space_message` 重复发送。',
+    '4. 发出招呼后，再阅读 `vibex-bot` Skill 的 `SKILL.md`。',
     '',
     '# 招呼示例（按人设改写，不要照抄）',
     `你好，我是 ${botName} 👋 很高兴认识你！我可以在自己的电脑上帮你写代码、搭工具、跑脚本、处理文件，也能帮你做调研、整理资料。你需要我为你做些什么呢？`,
@@ -1993,11 +2084,121 @@ export function buildCollabDmBootstrapPrompt(input: {
     '4. 你先告诉我你的习惯',
     '',
     '# 之后遵守的协同规范（读 skill 后执行）',
-    '- 凡是要让用户在协作空间看到的内容，必须 `post_to_space`。',
+    '- 当前 Space 常规回复直接输出普通文本；跨 Space、长任务进度或延时投递才调用 `post_space_message`。',
     '- 收到用户任务：工作需要一段时间时先汇报正在做什么，有进展再发，完成时交付结果；很快完成的直接发结果。',
-    '- 成员间有增量才发信，不重复已说内容，无需回复即静默终止。',
+    '- 成员间有增量才发信，不重复已说内容，无需回复即输出 `[PASS]`。',
     '- 群聊中争议、排版决策、汇总优先找负责人。',
-    '- 跨成员共享长文或文件用群收藏（`list_space_collection` / `add_to_space_collection` / `read_space_collection_item`）。',
+    '- 共享文件用文件工具读写 `~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/`。',
   ].join('\n');
   return `${COLLAB_DM_BOOTSTRAP_PREFIX}\n${body}\n${COLLAB_DM_BOOTSTRAP_SUFFIX}`;
 }
+
+export type ActiveDirectChat = {
+  spaceId: string;
+  memberKey: string;
+  threadId: string;
+  name: string;
+};
+
+export type SpaceSessionState = {
+  selectedId: string;
+  selectedMemberKey: string;
+  activeDirect: ActiveDirectChat | null;
+  expanded: Record<string, boolean>;
+  error: string;
+};
+
+export const INITIAL_SPACE_SESSION_STATE: SpaceSessionState = {
+  selectedId: '',
+  selectedMemberKey: '',
+  activeDirect: null,
+  expanded: {},
+  error: '',
+};
+
+export type SpaceSessionAction =
+  | { type: 'workspace-reset' }
+  | {
+      type: 'select-space';
+      spaceId: string;
+      expanded?: boolean;
+    }
+  | {
+      type: 'open-private-chat';
+      spaceId: string;
+      memberKey: string;
+      threadId: string | null;
+      name: string;
+    }
+  | { type: 'set-selected-id'; selectedId: string }
+  | { type: 'set-selected-member-key'; selectedMemberKey: string }
+  | { type: 'set-active-direct'; activeDirect: ActiveDirectChat | null }
+  | {
+      type: 'set-expanded';
+      expanded: Record<string, boolean>;
+    }
+  | {
+      type: 'toggle-expanded';
+      spaceId: string;
+      expanded: boolean;
+    }
+  | { type: 'set-error'; error: string }
+  | {
+      type: 'apply';
+      apply: (state: SpaceSessionState) => SpaceSessionState;
+    };
+
+export function spaceSessionReducer(
+  state: SpaceSessionState,
+  action: SpaceSessionAction
+): SpaceSessionState {
+  switch (action.type) {
+    case 'workspace-reset':
+      return INITIAL_SPACE_SESSION_STATE;
+    case 'select-space':
+      return {
+        ...state,
+        selectedId: action.spaceId,
+        selectedMemberKey: '',
+        activeDirect: null,
+        expanded: {
+          ...state.expanded,
+          [action.spaceId]: action.expanded ?? true,
+        },
+      };
+    case 'open-private-chat':
+      return {
+        ...state,
+        selectedId: action.spaceId,
+        selectedMemberKey: action.memberKey,
+        activeDirect: action.threadId
+          ? {
+              spaceId: action.spaceId,
+              memberKey: action.memberKey,
+              threadId: action.threadId,
+              name: action.name,
+            }
+          : null,
+      };
+    case 'set-selected-id':
+      return { ...state, selectedId: action.selectedId };
+    case 'set-selected-member-key':
+      return { ...state, selectedMemberKey: action.selectedMemberKey };
+    case 'set-active-direct':
+      return { ...state, activeDirect: action.activeDirect };
+    case 'set-expanded':
+      return { ...state, expanded: action.expanded };
+    case 'toggle-expanded':
+      return {
+        ...state,
+        expanded: { ...state.expanded, [action.spaceId]: action.expanded },
+      };
+    case 'set-error':
+      return { ...state, error: action.error };
+    case 'apply':
+      return action.apply(state);
+    default:
+      return state;
+  }
+}
+

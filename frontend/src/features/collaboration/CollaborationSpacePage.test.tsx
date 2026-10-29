@@ -1118,6 +1118,224 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('restores composer draft after switching space and coming back', async () => {
+    const user = userEvent.setup();
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return {
+            spaces: [
+              { space_id: 's1', name: '设计' },
+              { space_id: 's2', name: '研发' },
+            ],
+          };
+        }
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                last_message: null,
+                unread_count: 0,
+                member_count: 1,
+              },
+              {
+                kind: 'group',
+                thread_id: 's2',
+                space_id: 's2',
+                name: '研发',
+                last_message: null,
+                unread_count: 0,
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: {
+                  actor: 'space/member/小A',
+                  content:
+                    String(input?.spaceId) === 's2' ? '研发消息' : '设计消息',
+                },
+              },
+            ],
+          };
+        }
+        return {};
+      }
+    );
+
+    renderPage();
+    const spacesPane = await screen.findByLabelText('协作空间');
+    expect(
+      await within(spacesPane).findByRole('button', { name: '研发' })
+    ).toBeTruthy();
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, 'keep-this-draft');
+    expect(editor).toHaveTextContent('keep-this-draft');
+
+    await user.click(within(spacesPane).getByRole('button', { name: '研发' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '研发'
+      );
+    });
+    expect(getComposerEditor()).toHaveTextContent('');
+
+    await user.click(within(spacesPane).getByRole('button', { name: '设计' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '设计'
+      );
+    });
+    expect(getComposerEditor()).toHaveTextContent('keep-this-draft');
+  });
+
+  it('keeps composer images with the space that attached them', async () => {
+    const user = userEvent.setup();
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return {
+            spaces: [
+              { space_id: 's1', name: '设计' },
+              { space_id: 's2', name: '研发' },
+            ],
+          };
+        }
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                last_message: null,
+                unread_count: 0,
+                member_count: 1,
+              },
+              {
+                kind: 'group',
+                thread_id: 's2',
+                space_id: 's2',
+                name: '研发',
+                last_message: null,
+                unread_count: 0,
+                member_count: 1,
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: {
+                  actor: 'space/member/小A',
+                  content:
+                    String(input?.spaceId) === 's2' ? '研发消息' : '设计消息',
+                },
+              },
+            ],
+          };
+        }
+        return {};
+      }
+    );
+
+    renderPage();
+    const spacesPane = await screen.findByLabelText('协作空间');
+    expect(
+      await within(spacesPane).findByRole('button', { name: '研发' })
+    ).toBeTruthy();
+
+    Object.assign(URL, {
+      createObjectURL: () => 'blob:shot',
+      revokeObjectURL: () => undefined,
+    });
+    const imageFile = new File(['png'], 'shot.png', { type: 'image/png' });
+    fireEvent.paste(getComposerEditor(), {
+      clipboardData: {
+        files: [imageFile],
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => imageFile,
+          },
+        ],
+        getData: () => '',
+      },
+    });
+    expect(
+      await screen.findByTestId('session-composer-attachment-drawer')
+    ).toBeTruthy();
+
+    await user.click(within(spacesPane).getByRole('button', { name: '研发' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '研发'
+      );
+    });
+    expect(
+      screen.queryByTestId('session-composer-attachment-drawer')
+    ).toBeNull();
+
+    await user.click(within(spacesPane).getByRole('button', { name: '设计' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '设计'
+      );
+    });
+    expect(
+      await screen.findByTestId('session-composer-attachment-drawer')
+    ).toBeTruthy();
+  });
+
   it('renames a member via space.setIdentity, moves members via drag-and-drop, and updates log on space event', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -1484,7 +1702,7 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*Master[\s\S]*全能管家[\s\S]*post_to_space[\s\S]*direct:m-created[\s\S]*vibex-multi-agent/
+            /<vibex-private-bootstrap>[\s\S]*Master[\s\S]*全能管家[\s\S]*direct:m-created[\s\S]*vibex-bot/
           ),
         })
       );
@@ -1551,7 +1769,7 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*架构助手[\s\S]*擅长前端架构的搭档[\s\S]*post_to_space[\s\S]*direct:m-created[\s\S]*vibex-multi-agent/
+            /<vibex-private-bootstrap>[\s\S]*架构助手[\s\S]*擅长前端架构的搭档[\s\S]*direct:m-created[\s\S]*vibex-bot/
           ),
         })
       );
@@ -2306,6 +2524,12 @@ describe('CollaborationSpacePage', () => {
     );
     expect(groupMeta).toHaveTextContent('2');
     expect(groupMeta).not.toHaveTextContent('最新进展');
+    const groupNameLine = groupMeta.closest(
+      '.collaboration-contact-name-line'
+    );
+    expect(groupNameLine).toBeTruthy();
+    expect(groupNameLine).toHaveTextContent('设计');
+    expect(groupNameLine).toHaveTextContent('2');
     // DM rows with no last message / unread render no meta at all.
     expect(
       screen.queryByTestId('collaboration-chat-meta-direct:direct:mem-a')
@@ -2333,6 +2557,65 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({ spaceId: 's1' })
       );
     });
+  });
+
+  it('hides 已回复 receipts and still shows failed or skipped outcomes', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: {
+                  actor: 'vibex://space/s1/user',
+                  content: '全员看一下',
+                },
+                receipts: [
+                  {
+                    conversation_id: 'conv-1',
+                    nickname: '小A',
+                    state: 'replied',
+                  },
+                  {
+                    conversation_id: 'conv-2',
+                    nickname: '小B',
+                    state: 'replied',
+                  },
+                  {
+                    conversation_id: 'conv-3',
+                    nickname: '小C',
+                    state: 'failed',
+                    delivered: 'failed',
+                  },
+                  {
+                    conversation_id: 'conv-4',
+                    nickname: '小D',
+                    state: 'passed',
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect(
+      (await screen.findAllByText('全员看一下')).length
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('已回复')).toBeNull();
+    expect(screen.queryByText('小A 已回复')).toBeNull();
+    expect(screen.queryByText('小B 已回复')).toBeNull();
+    expect(screen.getByText('小C 失败')).toBeTruthy();
+    expect(screen.getByText('小D 已跳过')).toBeTruthy();
   });
 
   it('titles a member tab opened from a group chat with the group name', async () => {
@@ -3081,6 +3364,13 @@ describe('CollaborationSpacePage', () => {
     expect(
       await screen.findByTestId('collaboration-member-last-message-conv-1')
     ).toHaveTextContent('私聊历史');
+    const dmUnread = await screen.findByTestId(
+      'collaboration-chat-meta-direct:direct:mem-a'
+    );
+    expect(dmUnread).toHaveTextContent('1');
+    expect(dmUnread.closest('.collaboration-contact-name-line')).toHaveTextContent(
+      '小A'
+    );
     await user.click(await screen.findByRole('button', { name: '小A' }));
     expect(
       await screen.findByTestId('collaboration-top-member-bar')

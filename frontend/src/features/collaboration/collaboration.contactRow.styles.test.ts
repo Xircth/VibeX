@@ -147,10 +147,28 @@ describe('collaboration contact row chrome', () => {
     expect(rowMain['padding-bottom']?.value).toBe('0.3125rem');
 
     const nameCell = declarationsFor(
-      '.collaboration-contact-row-main .collaboration-member-name, .collaboration-contact-row-main > .collaboration-contact-name-line'
+      '.collaboration-contact-row-main .collaboration-contact-name-line'
     );
     expect(nameCell['padding-top']?.value).toBe('0.1875rem');
     expect(nameCell['align-self']?.value).toBe('start');
+    expect(nameCell['align-items']?.value).toBeUndefined();
+
+    const nameLine = declarationsFor('.collaboration-contact-name-line');
+    expect(nameLine.display?.value).toBe('flex');
+    expect(nameLine['align-items']?.value).toBe('center');
+  });
+
+  it('keeps the unread count on the name line instead of the preview row', () => {
+    const unread = declarationsFor(
+      '.collaboration-contact-row-main .collaboration-chat-unread'
+    );
+    expect(unread['grid-column']).toBeUndefined();
+    expect(unread['grid-row']).toBeUndefined();
+
+    const meta = declarationsFor(
+      '.collaboration-contact-name-line .collaboration-chat-meta'
+    );
+    expect(meta.flex?.value).toBe('none');
   });
 
   it('keeps member and group contact rows on the same outer box', () => {

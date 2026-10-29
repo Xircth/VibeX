@@ -3,6 +3,8 @@ import { type MemberBotAvatarConfig } from './MemberBotAvatar';
 import { MemberMentionChip } from './MemberMentionChip';
 import { COPY, type CrossChatPeer } from './spaceModel';
 
+export const CROSS_CHAT_GROUP_AVATAR_PX = 20;
+
 export function CrossChatPeerChip({
   peer,
   memberAvatar,
@@ -15,12 +17,12 @@ export function CrossChatPeerChip({
   if (peer.kind === 'group') {
     return (
       <span
-        className="collaboration-member-mention-chip"
+        className="collaboration-member-mention-chip collaboration-cross-chat-group-chip"
         data-testid={`collaboration-cross-chat-peer-${peer.name}`}
       >
         <GroupAvatar
           avatars={groupAvatars ?? []}
-          size={16}
+          size={CROSS_CHAT_GROUP_AVATAR_PX}
           data-testid={`collaboration-cross-chat-group-avatar-${peer.name}`}
         />
         <span className="collaboration-member-mention-name">{peer.name}</span>

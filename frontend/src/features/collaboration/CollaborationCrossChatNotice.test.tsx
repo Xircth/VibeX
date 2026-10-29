@@ -1,7 +1,10 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { CollaborationCrossChatNotice } from './CollaborationCrossChatNotice';
+import {
+  CollaborationCrossChatNotice,
+  CROSS_CHAT_GROUP_AVATAR_PX,
+} from './CollaborationCrossChatNotice';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 describe('CollaborationCrossChatNotice', () => {
@@ -63,9 +66,17 @@ describe('CollaborationCrossChatNotice', () => {
 
     expect(screen.getByText('已发送给')).toBeTruthy();
     expect(screen.getByTestId('collaboration-cross-chat-peer-设计')).toBeTruthy();
-    expect(
-      screen.getByTestId('collaboration-cross-chat-group-avatar-设计')
-    ).toBeTruthy();
+    const avatar = screen.getByTestId(
+      'collaboration-cross-chat-group-avatar-设计'
+    );
+    expect(avatar).toBeTruthy();
+    expect(avatar).toHaveStyle({
+      width: `${CROSS_CHAT_GROUP_AVATAR_PX}px`,
+      height: `${CROSS_CHAT_GROUP_AVATAR_PX}px`,
+    });
     expect(screen.getByText('设计')).toBeTruthy();
+    expect(
+      screen.getByTestId('collaboration-cross-chat-peer-设计')
+    ).toHaveClass('collaboration-cross-chat-group-chip');
   });
 });

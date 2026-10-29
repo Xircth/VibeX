@@ -253,20 +253,35 @@ describe('collaboration assistant list and message cluster chrome', () => {
     const lines = declarationsFor(
       '.collaboration-cross-chat-notice::before, .collaboration-cross-chat-notice::after'
     );
-    expect(lines.height?.value).toBe('3px');
+    expect(lines.height?.value).toBe('2px');
+    expect(lines.opacity?.value).toBe('0.45');
     expect(lines.background?.value).toBe(
       'var(--cross-chat-line-color, var(--border-subtle))'
     );
 
     const before = declarationsFor('.collaboration-cross-chat-notice::before');
     expect(before['clip-path']?.value).toBe(
-      'polygon(0 42%, 100% 0, 100% 100%, 0 58%)'
+      'polygon(0 38%, 100% 18%, 100% 82%, 0 62%)'
     );
 
     const after = declarationsFor('.collaboration-cross-chat-notice::after');
     expect(after['clip-path']?.value).toBe(
-      'polygon(0 0, 100% 42%, 100% 58%, 0 100%)'
+      'polygon(0 18%, 100% 38%, 100% 62%, 0 82%)'
     );
+  });
+
+  it('vertically centers the cross-chat group avatar with the group name', () => {
+    const chip = declarationsFor(
+      '.collaboration-cross-chat-notice .collaboration-member-mention-chip'
+    );
+    expect(chip.display?.value).toBe('inline-flex');
+    expect(chip['align-items']?.value).toBe('center');
+
+    const avatar = declarationsFor(
+      '.collaboration-cross-chat-notice .collaboration-cross-chat-group-chip .collaboration-group-avatar'
+    );
+    expect(avatar.display?.value).toBe('block');
+    expect(avatar.flex?.value).toBe('none');
   });
 
   it('paints mention names with fill-color so composer typing keeps default color', () => {

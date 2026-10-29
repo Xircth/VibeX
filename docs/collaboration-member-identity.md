@@ -20,6 +20,8 @@
 - **Session（会话）**：`(member_id, thread_id)` 唯一对应一个 `conversation_id`。协作空间 UI 展示 bot 与聊天；工作区会话列表用普通命名展示这些会话，并以助手头像+名称标识。
 - **新建 bot**（`space.createMember`）：只创建身份 + 一条私聊会话与 `direct:` thread，打开私聊。不加入任何群。表单参数与旧「新建 bot」一致（Agent、mode、config、人设等），写入bot级会话配置。
 - **加入群组**（`space.addMember`）：按bot 配置为该群新建一条会话；**私聊会话保留**。不再用 `space.moveMember` 作为主路径（仍兼容，但不移除其它座位）。
+- **创建群组**（`create_collaboration_space`）：bot 调用时自动入群，座位名取 bot 身份名（不取会话标题），并把创建者座位设为群负责人（`lead_member_id`）。
+- **名称与头像**：都归属于 bot 身份（`collaboration_members`），不归属某个 thread 的隐藏会话。座位只保存本群昵称投影；UI 按 `identity_member_id` 解析头像，因此私聊与各群座位显示同一张脸。
 - **联系人分组**（`contactGroup.*`）：联系人列表的归档文件夹。无分组时列表平铺；有分组时，未归入任何组的私聊/群聊由前端归入「未分组」（前端生成，无后端行）。
 - **标签标题**：群聊打开的会话标签显示群头像与群名；私聊显示该成员头像与成员名。用 thread 的 `kind`（`dm` / `group`）区分。
 - **联系人列表**：点击 bot 只打开私聊区，点击群组只打开群聊区。点击消息区中的 bot 头像才打开右侧会话标签。
@@ -36,6 +38,7 @@ bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_valu
 | --- | --- |
 | `space.createMember` | 入参：`workspaceId`、`nickname`/`name`，可选 `agentId`、`roleId`、`modeId`、`configValues`、`personaPrompt`、`avatar`、`color`、`operationId`。忽略入参里的 `spaceId`。返回含 `conversation_id`、`identity_member_id`、`direct_thread_id`（`direct:<id>`）。 |
 | `space.addMember` | 把bot拉进群组；为该 `(member, group thread)` 建会话，私聊保留。 |
+| `space.listMembers` | `{ spaceId }` → `{ members }`。每个座位含 `member_id`、`identity_member_id`、`conversation_id`、`nickname`、`kind`；`identity_member_id` 用于名称/头像展示。 |
 | `member.session.resolve` | `{ memberId, threadId }` → `{ conversationId }`。缺会话则按bot 配置创建。头像点开会话标签必走此接口，不回退「最近会话」。 |
 | `member.config.get` / `member.config.update` | 读写bot级会话配置。 |
 | `member.memory.*` / `member.activity.list` | 用户侧记忆与活动（含 private）。 |
@@ -85,6 +88,8 @@ bot 会话配置在 `collaboration_members`：`agent`、`mode_id`、`config_valu
 - **回执**：`receipt_state`：`queued` → `processing` → `replied`。未读游标 `last_seen` 仍随投递推进；更早历史由助手按需调用 `list_space_messages`，不再打进投递信封。
 - **Sleep / wake**：空闲会话可睡；唤醒有 cap（见环境变量 `VIBEX_MEMBER_*`）。
 - **Handoffs / write_access / bot记忆**：见历史 Phase 2 / Phase 4 实现；Agent 工具见 `crates/agents/src/skills/vibex-multi-agent/MEMORY.md`。
+- **成员与群生命周期**：MCP 暴露 `create_space_member`（创建身份 + 私聊，默认不入群）、`set_space_lead`（转让/认领负责人）、`leave_space`（保留身份与私聊）、`remove_space_member`（移出群席位，保留身份与私聊）、`delete_space_member`（删除身份、全部群席位与私聊）和 `delete_collaboration_space`（删除群组，保留成员身份与私聊）。群内移除/删除他人与删除群组仅限负责人（无负责人时为创建者），且不能删除自己。`delete_space_member` 的 `space_id` 也可传未分配空间 id（`create_space_member` 的返回值），用于删除从未入群的助手；该路径只要求调用方与目标同工作区。
+- **打断在途回合**：`interrupt_space_turn(space_id, member_id, reason?)` 由同群任意成员对同群另一位成员发起——先经 `ConversationSessionService::cancel_turn` 停掉目标会话真实的 Agent 回合，再把该群内目标成员的未完成 `collaboration_turns` 标记为 `cancelled`、投递回执标记为 `cancelled` 并推进轮次，最后落一条 `action: "interrupted"` 的空间事件。不能打断自己，不能跨群，私聊（`direct:<member_id>`）与未分配空间没有可打断的群回合。
 
 ## 回滚
 
@@ -98,7 +103,7 @@ Phase 1–4 的实现细节仍以上述迁移与代码为准。Phase 4 已知限
 
 ## Open questions for final review
 
-- `crates/plugins/src/official_mcp.rs`：官方协作工具列表未包含三个群收藏工具（`list_space_collection`、`add_to_space_collection`、`read_space_collection_item`），而 vibex-mcp 与 `tool_schema.json` 已声明。是否故意省略，待负责人决定。
+- `crates/plugins/src/official_mcp.rs`：官方协作工具列表已包含四个群收藏工具（`list_space_collection`、`add_to_space_collection`、`read_space_collection_item`、`remove_space_collection_item`），与 vibex-mcp 和 `tool_schema.json` 保持一致。
 - 成员加入群聊时目前会立即为其创建群内会话（非懒创建）。完全懒创建需要将 `collaboration_thread_members.conversation_id` 改为可空，并在首次收发时 `resolve_session`；大总管决定暂不做，待终审确认。
 
 ### 依赖环境待确认项

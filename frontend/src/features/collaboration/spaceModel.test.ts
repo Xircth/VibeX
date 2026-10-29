@@ -44,6 +44,7 @@ import {
   formatRoundProgress,
   formatWorkingMembersCopy,
   isMemberWorking,
+  indexIdentityMemberIdsByConversation,
   mergeDirectSpaceMessages,
   resolvePrivateChatTarget,
   uniqueBotsForGroupMemberPicker,
@@ -729,12 +730,8 @@ describe('resolveMessageDeliveryStatus', () => {
       'delivered'
     );
     expect(resolveMessageDeliveryStatus([{ state: 'passed' }])).toBe('sent');
-    expect(resolveMessageDeliveryStatus([{ state: 'timed_out' }])).toBe(
-      'sent'
-    );
-    expect(resolveMessageDeliveryStatus([{ state: 'cancelled' }])).toBe(
-      'sent'
-    );
+    expect(resolveMessageDeliveryStatus([{ state: 'timed_out' }])).toBe('sent');
+    expect(resolveMessageDeliveryStatus([{ state: 'cancelled' }])).toBe('sent');
     expect(resolveMessageDeliveryStatus([{ state: 'failed' }])).toBe(null);
     expect(
       resolveMessageDeliveryStatus([
@@ -787,12 +784,12 @@ describe('sortMembersLeadFirst', () => {
       { member_id: 'm2', nickname: '小B' },
       { member_id: 'm3', nickname: '小C' },
     ];
-    expect(sortMembersLeadFirst(roster, 'm2').map((item) => item.nickname)).toEqual(
-      ['小B', '小A', '小C']
-    );
-    expect(sortMembersLeadFirst(roster, '').map((item) => item.nickname)).toEqual(
-      ['小A', '小B', '小C']
-    );
+    expect(
+      sortMembersLeadFirst(roster, 'm2').map((item) => item.nickname)
+    ).toEqual(['小B', '小A', '小C']);
+    expect(
+      sortMembersLeadFirst(roster, '').map((item) => item.nickname)
+    ).toEqual(['小A', '小B', '小C']);
   });
 });
 
@@ -801,9 +798,9 @@ describe('create group chat defaults', () => {
     expect(defaultGroupChatNameFromMembers([])).toBe('');
     expect(defaultGroupChatNameFromMembers(['小A'])).toBe('小A');
     expect(defaultGroupChatNameFromMembers(['小A', '小B'])).toBe('小A、小B');
-    expect(
-      defaultGroupChatNameFromMembers(['小A', '小B'], ['小A、小B'])
-    ).toBe('小A、小B 2');
+    expect(defaultGroupChatNameFromMembers(['小A', '小B'], ['小A、小B'])).toBe(
+      '小A、小B 2'
+    );
   });
 
   it('flattens unique bots and skips ones already in the group', () => {
@@ -841,7 +838,7 @@ describe('create group chat defaults', () => {
 });
 
 describe('collab DM bootstrap prompt', () => {
-  it('wraps identity, persona, and a structured post_to_space greeting', () => {
+  it('wraps identity, persona, and an ordinary-text greeting', () => {
     const prompt = buildCollabDmBootstrapPrompt({
       userName: '你',
       botName: '小E',
@@ -850,7 +847,9 @@ describe('collab DM bootstrap prompt', () => {
     });
     expect(isCollabDmBootstrapPrompt(prompt)).toBe(true);
     expect(
-      isCollabDmBootstrapPrompt(`[协作空间消息]\n${COLLAB_DM_BOOTSTRAP_PREFIX}\n引导`)
+      isCollabDmBootstrapPrompt(
+        `[协作空间消息]\n${COLLAB_DM_BOOTSTRAP_PREFIX}\n引导`
+      )
     ).toBe(true);
     expect(prompt.startsWith(COLLAB_DM_BOOTSTRAP_PREFIX)).toBe(true);
     expect(prompt).toContain('称呼用户：你');
@@ -858,25 +857,25 @@ describe('collab DM bootstrap prompt', () => {
     expect(prompt).toContain('擅长写代码的搭档');
     expect(prompt).toContain('direct:member-e');
     expect(prompt).toContain('# 本回合立刻执行');
-    expect(prompt).toContain('post_to_space');
-    expect(prompt).toContain('to：`["User"]`');
+    expect(prompt).toContain('直接输出招呼正文');
+    expect(prompt).toContain('post_space_message');
     expect(prompt).not.toContain('以 `@User ` 开头');
     expect(prompt).not.toContain('先应答，再执行，再交付');
     expect(prompt).toContain('正在做什么');
     expect(prompt).toContain('不重复已说内容');
     expect(prompt).toContain('负责人');
-    expect(prompt).toContain('vibex-multi-agent');
-    expect(prompt).toContain('COLLABORATION-SPACE.md');
-    expect(prompt).toContain('list_space_collection');
+    expect(prompt).toContain('vibex-bot');
+    expect(prompt).toContain('TeamSpaces');
+    expect(prompt).not.toContain('list_space_collection');
     expect(prompt).not.toContain('ask_user_question');
-    expect(prompt).not.toContain('不要调用 post_to_space');
+    expect(prompt).not.toContain('post_to_space');
     expect(isCollabDmBootstrapPrompt('你好')).toBe(false);
   });
 
   it('hides bootstrap text from contact last-message previews', () => {
-    expect(
-      contactLastMessagePreview({ lastPreview: '你好，我是小E' })
-    ).toBe('你好，我是小E');
+    expect(contactLastMessagePreview({ lastPreview: '你好，我是小E' })).toBe(
+      '你好，我是小E'
+    );
     expect(
       contactLastMessagePreview({
         lastPreview: `${COLLAB_DM_BOOTSTRAP_PREFIX}\n引导`,
@@ -944,7 +943,72 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
       'msg-2',
     ]);
     expect(replaced[3]?.envelope?.content).toBe('新版助手最终回复');
-    expect((replaced[3] as { streaming?: boolean } | undefined)?.streaming).toBeUndefined();
+    expect(
+      (replaced[3] as { streaming?: boolean } | undefined)?.streaming
+    ).toBeUndefined();
+  });
+
+  it('keeps the user space bubble when a persisted agent reply shares that turnId', () => {
+    const merged = mergeDirectSpaceMessages(
+      [],
+      [
+        {
+          id: 'msg-user',
+          seq: 1,
+          origin: 'user',
+          turnId: 'turn-1',
+          envelope: { content: '请继续' },
+        },
+        {
+          id: 'msg-agent',
+          seq: 2,
+          origin: 'agent',
+          turnId: 'turn-1',
+          envelope: { content: '好的，我接着做' },
+        },
+      ],
+      false
+    );
+    expect(merged.map((message) => message.id)).toEqual([
+      'msg-user',
+      'msg-agent',
+    ]);
+  });
+
+  it('keeps a follow-up user bubble while the previous turn is still streaming', () => {
+    const merged = mergeDirectSpaceMessages(
+      [],
+      [
+        {
+          id: 'msg-first',
+          seq: 1,
+          origin: 'user',
+          turnId: 'turn-1',
+          envelope: { content: '先做这一件' },
+        },
+        {
+          id: 'msg-second',
+          seq: 2,
+          origin: 'user',
+          turnId: 'turn-1',
+          envelope: { content: '再补一句' },
+        },
+        {
+          id: 'draft:turn-1',
+          seq: 1,
+          origin: 'agent',
+          turnId: 'turn-1',
+          streaming: true,
+          envelope: { content: '正在处理上一件...' },
+        },
+      ],
+      false
+    );
+    expect(merged.map((message) => message.id)).toEqual([
+      'msg-first',
+      'msg-second',
+      'draft:turn-1',
+    ]);
   });
 
   it('parses kind and generation from collaboration space changed events', () => {
@@ -1027,5 +1091,28 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
       label: '3/3 已完成',
     });
     expect(resolveMessageDeliveryStatus(finishedRound)).toBe('delivered');
+  });
+
+  it('maps a joined group seat conversation to its bot identity', () => {
+    const index = indexIdentityMemberIdsByConversation([
+      {
+        kind: 'agent',
+        member_id: 'seat-muse',
+        identity_member_id: 'identity-muse',
+        nickname: 'Muse',
+        // Joining a group creates a hidden per-thread session.
+        conversation_id: 'group-session-muse',
+      },
+      {
+        kind: 'agent',
+        member_id: 'seat-builder',
+        identity_member_id: 'identity-builder',
+        nickname: 'Builder',
+        conversation_id: 'group-session-builder',
+      },
+    ]);
+
+    expect(index.get('group-session-muse')).toBe('identity-muse');
+    expect(index.get('group-session-builder')).toBe('identity-builder');
   });
 });

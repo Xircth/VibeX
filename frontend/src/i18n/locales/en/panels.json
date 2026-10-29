@@ -1050,7 +1050,12 @@
       "approved": "Approved",
       "rejected": "Rejected",
       "approve": "Approve",
-      "reject": "Reject"
+      "reject": "Reject",
+      "handoff": "Handoff",
+      "handoffDone": "Done",
+      "handoffConstraints": "Constraints",
+      "handoffAsk": "Continue: {{ask}}",
+      "handoffAskLabel": "Continue"
     },
     "globalSearch": {
       "searchSpacesOrBots": "Search spaces or Bots",
@@ -1109,7 +1114,11 @@
       "noBotReadsYet": "No Bot reads yet",
       "createdAt": "Created: {{time}}",
       "readsCount": "Reads ({{count}})",
-      "readTimes": "Read {{count}}×"
+      "readTimes": "Read {{count}}×",
+      "folderPath": "Shared folder",
+      "copyFolderPath": "Copy path",
+      "folderHint": "You and Bots can read and write this folder",
+      "pathCopied": "Copied"
     },
     "diffsReview": {
       "copyFullSha": "Copy full SHA"

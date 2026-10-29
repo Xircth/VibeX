@@ -35,6 +35,7 @@ pub(crate) use collection::purge_space_collection;
 pub use collection::{
     AddSpaceCollectionItem, SPACE_COLLECTION_MAX_BYTES, SpaceCollectionItemRecord,
     SpaceCollectionReadRecord, add_to_space_collection, add_to_space_collection_with,
+    collection_dir_display, ensure_space_collection_dir, ensure_space_collection_dir_async,
     is_team_space_collection_file, list_space_collection, list_space_collection_with,
     read_space_collection_item, read_space_collection_item_with, remove_space_collection_item,
     remove_space_collection_item_with, space_collection_dir, update_space_collection_item_note,

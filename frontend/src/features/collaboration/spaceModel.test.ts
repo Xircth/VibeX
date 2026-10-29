@@ -11,7 +11,14 @@ import {
   mentionSuggestions,
   mergeSpaceMessages,
   messageAuthor,
+  collectionDirFromHostPayload,
+  displayPersonLabel,
+  isBotSpaceKind,
+  isGroupSpaceKind,
+  isHumanPersonLabel,
+  isPrivateChatKind,
   parseSpaceChangedEvent,
+  spaceKindId,
   postRecipients,
   randomEnglishNickname,
   readSpaceTags,
@@ -167,8 +174,20 @@ describe('collaboration space model', () => {
   it('inserts mentions and maps delivery copy', () => {
     expect(insertMention('请 @小', '小B')).toBe('请 @小B ');
     expect(messageAuthor({ actor: 'vibex://space/s/user' })).toBe('你');
+    expect(messageAuthor({ actor: 'vibex://space/s/person' })).toBe('你');
+    expect(messageAuthor({ actor: 'Person' })).toBe('你');
+    expect(messageAuthor({ actor: 'User' })).toBe('你');
     expect(messageAuthor({ actor: 'vibex://space/s/member/小B' })).toBe('小B');
     expect(messageAuthor({ actor: 'vibex://space/s/system' })).toBe('');
+    expect(isHumanPersonLabel('Person')).toBe(true);
+    expect(isHumanPersonLabel('User')).toBe(true);
+    expect(displayPersonLabel('Person')).toBe('你');
+    expect(collectionDirFromHostPayload({ collectionDir: 'C:/spaces/a' })).toBe(
+      'C:/spaces/a'
+    );
+    expect(
+      collectionDirFromHostPayload({ collection_dir: 'C:/spaces/b' })
+    ).toBe('C:/spaces/b');
     expect(
       isCollaborationLimitNotice({
         origin: 'system',
@@ -432,6 +451,30 @@ describe('buildChatList', () => {
       ['group', '单人群'],
       ['direct', '小B'],
       ['direct', '小C'],
+    ]);
+  });
+
+  it('treats person2bot as BotSpace and person2group as GroupSpace', () => {
+    expect(isBotSpaceKind('person2bot')).toBe(true);
+    expect(isBotSpaceKind('BotSpace')).toBe(true);
+    expect(isPrivateChatKind('person2bot')).toBe(true);
+    expect(isGroupSpaceKind('person2group')).toBe(true);
+    expect(spaceKindId('person2bot')).toBe('person2bot');
+    expect(spaceKindId('group')).toBe('person2group');
+    expect(spaceKindId(undefined, 'direct:mem-a')).toBe('person2bot');
+    const list = buildChatList({
+      spaces: [
+        { space_id: 'direct:mem-b', name: '小B', kind: 'person2bot' },
+        { space_id: 'g-research', name: '调研', kind: 'person2group' },
+      ],
+      membersBySpace: {
+        'direct:mem-b': [agent('b', '小B'), user],
+        'g-research': [agent('a', '小A'), agent('c', '小C'), user],
+      },
+    });
+    expect(list.map((e) => [e.type, e.name])).toEqual([
+      ['direct', '小B'],
+      ['group', '调研'],
     ]);
   });
 });

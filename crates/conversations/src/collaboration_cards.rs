@@ -574,8 +574,10 @@ mod tests {
     use std::str::FromStr;
 
     use agents::AgentId;
-    use db::models::collaboration_identity as identity;
-    use db::models::session::{CreateSession, Session};
+    use db::models::{
+        collaboration_identity as identity,
+        session::{CreateSession, Session},
+    };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
@@ -746,14 +748,10 @@ mod tests {
         .unwrap();
         let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
         let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
-        let group = collaboration::create_collaboration_space(
-            &pool,
-            a_conv,
-            "海鸥计划",
-            Uuid::new_v4(),
-        )
-        .await
-        .unwrap();
+        let group =
+            collaboration::create_collaboration_space(&pool, a_conv, "海鸥计划", Uuid::new_v4())
+                .await
+                .unwrap();
         collaboration::add_space_member(
             &pool,
             a_conv,
@@ -846,7 +844,10 @@ mod tests {
             .expect("ask_person from a DM resolves the workspace peer");
         assert_eq!(posted.space_id, a_thread);
         assert_eq!(
-            posted.payload.get("target_member_id").and_then(Value::as_str),
+            posted
+                .payload
+                .get("target_member_id")
+                .and_then(Value::as_str),
             Some(b_member.as_str())
         );
     }

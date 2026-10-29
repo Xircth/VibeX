@@ -1144,6 +1144,27 @@ export function isCollaborationLimitNotice(message: {
   );
 }
 
+const HUMAN_PERSON_LABELS = new Set(['user', 'person', '你']);
+
+/** Person / User / 你 are the same human actor in space messages. */
+export function isHumanPersonLabel(value: string | null | undefined): boolean {
+  const raw = String(value ?? '').trim();
+  if (!raw) return false;
+  if (raw === COPY.you) return true;
+  return HUMAN_PERSON_LABELS.has(raw.toLowerCase());
+}
+
+export function displayPersonLabel(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return isHumanPersonLabel(raw) ? COPY.you : raw;
+}
+
+function lastActorSegment(actor: string): string {
+  const slash = actor.lastIndexOf('/');
+  return (slash >= 0 ? actor.slice(slash + 1) : actor).trim();
+}
+
 export function messageAuthor(
   envelope:
     | {
@@ -1152,19 +1173,38 @@ export function messageAuthor(
     | null
     | undefined
 ): string {
-  const actor = String(envelope?.actor ?? '');
-  if (actor.endsWith('/system')) return '';
-  if (actor.endsWith('/user')) return COPY.you;
+  const actor = String(envelope?.actor ?? '').trim();
+  if (!actor) return '';
+  const lower = actor.toLowerCase();
+  if (lower.endsWith('/system')) return '';
+  if (lower.endsWith('/user') || lower.endsWith('/person')) return COPY.you;
+  if (isHumanPersonLabel(actor) || isHumanPersonLabel(lastActorSegment(actor))) {
+    return COPY.you;
+  }
   const marker = '/member/';
   const index = actor.lastIndexOf(marker);
   if (index >= 0) {
+    let nickname = actor.slice(index + marker.length);
     try {
-      return decodeURIComponent(actor.slice(index + marker.length));
+      nickname = decodeURIComponent(nickname);
     } catch {
-      return actor.slice(index + marker.length);
+      // Keep the raw path segment when percent-decoding fails.
     }
+    return displayPersonLabel(nickname);
   }
   return '';
+}
+
+export function collectionDirFromHostPayload(
+  payload:
+    | {
+        collectionDir?: string | null;
+        collection_dir?: string | null;
+      }
+    | null
+    | undefined
+): string {
+  return String(payload?.collectionDir || payload?.collection_dir || '').trim();
 }
 
 export function sendErrorCopy(code: string): string {
@@ -1481,12 +1521,51 @@ export function toggleMemberDeleteSelection(
 export type ChatListSpace = {
   space_id: string;
   name: string;
-  /** Explicit list-item kind from the backend: 'dm' | 'direct' | 'group'. */
+  /**
+   * Thread kind from Host / sidebar:
+   * BotSpace `person2bot` (also `dm` / `direct`) or GroupSpace `person2group`
+   * (also `group`).
+   */
   kind?: string;
 };
 
+export type SpaceKindId = 'person2bot' | 'person2group';
+
+/** BotSpace: Person ↔ one Bot (`person2bot`, former `direct:` thread). */
+export function isBotSpaceKind(kind: string | null | undefined): boolean {
+  const value = String(kind ?? '')
+    .trim()
+    .toLowerCase();
+  return (
+    value === 'dm' ||
+    value === 'direct' ||
+    value === 'person2bot' ||
+    value === 'botspace'
+  );
+}
+
+/** GroupSpace: Person ↔ Group (`person2group`). */
+export function isGroupSpaceKind(kind: string | null | undefined): boolean {
+  const value = String(kind ?? '')
+    .trim()
+    .toLowerCase();
+  return (
+    value === 'group' || value === 'person2group' || value === 'groupspace'
+  );
+}
+
 export function isPrivateChatKind(kind: string | null | undefined): boolean {
-  return kind === 'dm' || kind === 'direct';
+  return isBotSpaceKind(kind);
+}
+
+export function spaceKindId(
+  kind: string | null | undefined,
+  spaceId?: string | null
+): SpaceKindId {
+  if (isBotSpaceKind(kind) || String(spaceId ?? '').startsWith('direct:')) {
+    return 'person2bot';
+  }
+  return 'person2group';
 }
 
 export type ChatListEntry =
@@ -1636,10 +1715,10 @@ export function buildChatList(input: {
     const roster = agentRoster([
       ...(input.membersBySpace[space.space_id] ?? []),
     ]);
-    // Prefer the backend's explicit kind; fall back to the member-count rule.
     const isPrivate = space.kind
       ? isPrivateChatKind(space.kind) && roster.length > 0
-      : roster.length === 1;
+      : spaceKindId(undefined, space.space_id) === 'person2bot' ||
+        roster.length === 1;
     if (isPrivate) {
       entries.push({
         type: 'direct',

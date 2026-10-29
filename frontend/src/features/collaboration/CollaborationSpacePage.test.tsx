@@ -1767,7 +1767,9 @@ describe('CollaborationSpacePage', () => {
         input?: Record<string, unknown>
       ) => {
         if (method === 'space.list') {
-          return { spaces: [{ space_id: 's1', name: '设计' }] };
+          return {
+            spaces: [{ space_id: 's1', name: '设计', kind: 'group' }],
+          };
         }
         if (method === 'space.listMembers') {
           if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
@@ -1795,6 +1797,8 @@ describe('CollaborationSpacePage', () => {
         }
         if (method === 'space.listCollection') {
           return {
+            collectionDir: 'C:/Users/test/.vibex/spaces/s1/collection',
+            collection_dir: 'C:/Users/test/.vibex/spaces/s1/collection',
             items: [
               {
                 id: 'col-1',
@@ -1995,7 +1999,10 @@ describe('CollaborationSpacePage', () => {
     ).toHaveTextContent('小A');
     expect(
       within(collectionPanel).getByTestId('collection-item-creator-col-2')
-    ).toHaveTextContent('User');
+    ).toHaveTextContent('你');
+    expect(
+      within(collectionPanel).getByTestId('collaboration-collection-path')
+    ).toHaveTextContent('C:/Users/test/.vibex/spaces/s1/collection');
     expect(
       within(collectionPanel).getByTestId('collection-item-content-col-1')
     ).toHaveTextContent('GET /api/v1/spaces');

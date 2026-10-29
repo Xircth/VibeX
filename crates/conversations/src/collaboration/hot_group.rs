@@ -16,7 +16,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{db, stamp, CollaborationError};
+use super::{CollaborationError, db, stamp};
 
 #[derive(Default)]
 pub struct HotGroupTracker {
@@ -131,8 +131,7 @@ async fn hot_member_conversation_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collaboration::test_support::*;
-    use crate::collaboration::{add_space_member, now_stamp};
+    use crate::collaboration::{add_space_member, now_stamp, test_support::*};
 
     #[tokio::test]
     async fn recent_user_message_keeps_group_member_sessions_hot() {
@@ -165,12 +164,10 @@ mod tests {
         create_session(&pool, a, workspace, Some("小A")).await;
         let space = space_of(&pool, a).await;
         post_as(&pool, None, &space, "开工", &[]).await;
-        sqlx::query(
-            "UPDATE collaboration_space_messages SET created_at = '2000-01-01T00:00:00Z'",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE collaboration_space_messages SET created_at = '2000-01-01T00:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("UPDATE collaboration_space_deliveries SET receipt_state = 'replied'")
             .execute(&pool)
             .await
@@ -188,12 +185,10 @@ mod tests {
         create_session(&pool, a, workspace, Some("小A")).await;
         let space = space_of(&pool, a).await;
         post_as(&pool, None, &space, "开工", &[]).await;
-        sqlx::query(
-            "UPDATE collaboration_space_messages SET created_at = '2000-01-01T00:00:00Z'",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE collaboration_space_messages SET created_at = '2000-01-01T00:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("UPDATE collaboration_space_deliveries SET receipt_state = 'processing'")
             .execute(&pool)
             .await

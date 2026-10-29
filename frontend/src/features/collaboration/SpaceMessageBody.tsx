@@ -33,6 +33,8 @@ export type ParsedCard = {
 };
 
 const CARD_RE = /<card kind="(ask|approval)" id="([^"]+)">([\s\S]*?)<\/card>/;
+const HANDOFF_RE =
+  /<handoff\b([^>]*)>([\s\S]*?)<\/handoff>/i;
 
 function unescapeCard(value: string): string {
   return value
@@ -91,6 +93,45 @@ export function parseCard(text: string): ParsedCard | null {
   return { kind, id: match[2], before, body, options: [] };
 }
 
+export type ParsedHandoff = {
+  id: string;
+  depth: string;
+  done: string;
+  inputsConstraints: string;
+  ask: string;
+  before: string;
+  after: string;
+};
+
+function handoffAttr(attrs: string, name: string): string {
+  const match = attrs.match(
+    new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, 'i')
+  );
+  return match ? unescapeCard(match[1].trim()) : '';
+}
+
+/** Parse a legacy `<handoff>` envelope so the bubble does not show raw XML. */
+export function parseHandoff(text: string): ParsedHandoff | null {
+  const match = text.match(HANDOFF_RE);
+  if (!match) return null;
+  const attrs = match[1] ?? '';
+  const inner = match[2] ?? '';
+  const start = match.index ?? 0;
+  return {
+    id: handoffAttr(attrs, 'id'),
+    depth: handoffAttr(attrs, 'depth'),
+    done: cardField(inner, 'done'),
+    inputsConstraints: cardField(inner, 'inputs_constraints'),
+    ask: cardField(inner, 'ask'),
+    before: text.slice(0, start).trim(),
+    after: text.slice(start + match[0].length).trim(),
+  };
+}
+
+function handoffSurroundingText(handoff: ParsedHandoff): string {
+  return [handoff.before, handoff.after].filter(Boolean).join('\n\n');
+}
+
 /** One-line sidebar preview: cards become a short label instead of raw markup. */
 export function messagePreviewText(text: string): string {
   const card = parseCard(text);
@@ -104,10 +145,23 @@ export function messagePreviewText(text: string): string {
           : i18n.t('panels:ui.spaceMessage.question');
     result = label;
   } else {
-    result = text.replace(
-      /<card[\s\S]*?(<\/card>|$)/g,
-      i18n.t('panels:ui.spaceMessage.approvalRequest')
-    );
+    const handoff = parseHandoff(text);
+    if (handoff) {
+      const ask = handoff.ask.replace(/\s+/g, ' ').trim();
+      result = ask
+        ? i18n.t('panels:ui.spaceMessage.handoffAsk', { ask })
+        : i18n.t('panels:ui.spaceMessage.handoff');
+    } else {
+      result = text
+        .replace(
+          /<card[\s\S]*?(<\/card>|$)/g,
+          i18n.t('panels:ui.spaceMessage.approvalRequest')
+        )
+        .replace(
+          /<handoff[\s\S]*?(<\/handoff>|$)/gi,
+          i18n.t('panels:ui.spaceMessage.handoff')
+        );
+    }
   }
   return result.replace(/\s+/g, ' ').trim();
 }
@@ -367,6 +421,49 @@ export function SpaceMessageReactionBadge({
   );
 }
 
+function SpaceHandoffCard({
+  handoff,
+  workspacePath,
+}: {
+  handoff: ParsedHandoff;
+  workspacePath?: string;
+}) {
+  return (
+    <div className="collaboration-handoff" data-testid="collaboration-handoff">
+      <p className="collaboration-handoff-label">
+        {i18n.t('panels:ui.spaceMessage.handoff')}
+      </p>
+      {handoff.done ? (
+        <section className="collaboration-handoff-section">
+          <h3 className="collaboration-handoff-section-label">
+            {i18n.t('panels:ui.spaceMessage.handoffDone')}
+          </h3>
+          <AstryxMarkdown value={handoff.done} workspacePath={workspacePath} />
+        </section>
+      ) : null}
+      {handoff.inputsConstraints ? (
+        <section className="collaboration-handoff-section">
+          <h3 className="collaboration-handoff-section-label">
+            {i18n.t('panels:ui.spaceMessage.handoffConstraints')}
+          </h3>
+          <AstryxMarkdown
+            value={handoff.inputsConstraints}
+            workspacePath={workspacePath}
+          />
+        </section>
+      ) : null}
+      {handoff.ask ? (
+        <section className="collaboration-handoff-section collaboration-handoff-ask">
+          <h3 className="collaboration-handoff-section-label">
+            {i18n.t('panels:ui.spaceMessage.handoffAskLabel')}
+          </h3>
+          <AstryxMarkdown value={handoff.ask} workspacePath={workspacePath} />
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 export function SpaceMessageBody({
   fromYou,
   text,
@@ -388,10 +485,14 @@ export function SpaceMessageBody({
   const effectiveMentionCtx = memberMentionCtx.enableMemberMentions
     ? memberMentionCtx
     : { ...memberMentionCtx, enableMemberMentions: true };
+  const card = parseCard(text);
+  const handoff = parseHandoff(text);
   if (fromYou) {
-    const { text: cleanText, images, files } = splitDisplayContentImages(text);
+    const source = handoff ? handoffSurroundingText(handoff) : text;
+    const { text: cleanText, images, files } = splitDisplayContentImages(source);
     const hasText =
       cleanText.trim().length > 0 ||
+      Boolean(handoff) ||
       (images.length === 0 && files.length === 0);
     return (
       <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
@@ -413,10 +514,18 @@ export function SpaceMessageBody({
               <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
                 <div className="collaboration-bubble-shell">
                   <ChatMessageBubble className="conv-user-bubble">
-                    <UserMessageMarkdown
-                      value={cleanText}
-                      workspacePath={workspacePath}
-                    />
+                    {cleanText.trim() ? (
+                      <UserMessageMarkdown
+                        value={cleanText}
+                        workspacePath={workspacePath}
+                      />
+                    ) : null}
+                    {handoff ? (
+                      <SpaceHandoffCard
+                        handoff={handoff}
+                        workspacePath={workspacePath}
+                      />
+                    ) : null}
                   </ChatMessageBubble>
                   <SpaceMessageReactionBadge reactions={reactions} />
                 </div>
@@ -438,7 +547,16 @@ export function SpaceMessageBody({
       </CollaborationMemberMentionContext.Provider>
     );
   }
-  const card = parseCard(text);
+  const markdownValue = card
+    ? [
+        card.before,
+        card.questions && card.questions.length > 0 ? '' : card.body,
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    : handoff
+      ? handoffSurroundingText(handoff)
+      : text;
   return (
     <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
       <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
@@ -448,21 +566,18 @@ export function SpaceMessageBody({
               className="conv-assistant-body collaboration-member-bubble"
               data-testid="collaboration-member-bubble"
             >
-              <AstryxMarkdown
-                value={
-                  card
-                    ? [
-                        card.before,
-                        card.questions && card.questions.length > 0
-                          ? ''
-                          : card.body,
-                      ]
-                        .filter(Boolean)
-                        .join('\n\n')
-                    : text
-                }
-                workspacePath={workspacePath}
-              />
+              {markdownValue ? (
+                <AstryxMarkdown
+                  value={markdownValue}
+                  workspacePath={workspacePath}
+                />
+              ) : null}
+              {handoff ? (
+                <SpaceHandoffCard
+                  handoff={handoff}
+                  workspacePath={workspacePath}
+                />
+              ) : null}
               {card ? <SpaceCardActions card={card} /> : null}
             </div>
             <SpaceMessageReactionBadge reactions={reactions} />

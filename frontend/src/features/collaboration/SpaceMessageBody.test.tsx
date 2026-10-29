@@ -15,12 +15,25 @@ import {
   bubbleText,
   messagePreviewText,
   parseCard,
+  parseHandoff,
 } from './SpaceMessageBody';
 
 const approval =
   '请求审批：合并 PR\n\n<card kind="approval" id="card-1">\n<action>\n合并 PR #42\n</action>\n<command>\ngit merge &lt;x&gt;\n</command>\n<reason>\n修复完成\n</reason>\n</card>';
 const ask =
   '问你：用哪个分支？\n\n<card kind="ask" id="card-2">\n<question>\n用哪个分支？\n</question>\n<options>main|dev</options>\n</card>';
+const handoffXml = `<handoff id="h-1" depth="1">
+<done>
+已写完接口草稿
+</done>
+<inputs_constraints>
+不要改数据库
+</inputs_constraints>
+<ask>
+@小B 请补测试
+</ask>
+</handoff>`;
+
 const askUserQuestion = `问你：用哪个方案？
 
 <card kind="ask" id="card-3">
@@ -115,6 +128,24 @@ describe('SpaceMessageBody cards', () => {
           decision: 'deny',
         }
       )
+    );
+  });
+
+  it('parses and hides legacy handoff XML', () => {
+    expect(parseHandoff(handoffXml)).toMatchObject({
+      id: 'h-1',
+      depth: '1',
+      done: '已写完接口草稿',
+      inputsConstraints: '不要改数据库',
+      ask: '@小B 请补测试',
+    });
+    expect(parseHandoff('plain @小B 请补测试')).toBeNull();
+    expect(messagePreviewText(handoffXml)).toBe('请继续：@小B 请补测试');
+    render(<SpaceMessageBody fromYou={false} text={handoffXml} />);
+    expect(screen.queryByText(/<handoff/)).toBeNull();
+    expect(screen.queryByText(/<\/ask>/)).toBeNull();
+    expect(screen.getByTestId('collaboration-handoff')).toHaveTextContent(
+      '请补测试'
     );
   });
 

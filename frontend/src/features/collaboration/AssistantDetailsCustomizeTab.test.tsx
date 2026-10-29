@@ -1,6 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 import { AssistantDetailsCustomizeTab } from './AssistantDetailsCustomizeTab';
@@ -11,13 +13,20 @@ vi.mock('./collaborationApi', () => ({
   collaborationCall,
 }));
 
-vi.mock('@/features/agents/sessionControlsQuery', () => ({
-  loadAgentSessionControlsCatalog: vi.fn(async () => ({
-    current_mode: 'default',
-    modes: [],
-    config_options: [],
-  })),
-}));
+vi.mock('@/features/agents/sessionControlsQuery', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@/features/agents/sessionControlsQuery')
+    >();
+  return {
+    ...actual,
+    loadAgentSessionControlsCatalog: vi.fn(async () => ({
+      current_mode: 'default',
+      modes: [],
+      config_options: [],
+    })),
+  };
+});
 
 describe('AssistantDetailsCustomizeTab', () => {
   beforeEach(() => {

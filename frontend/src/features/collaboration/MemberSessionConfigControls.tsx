@@ -1,17 +1,20 @@
-import { useEffect, useState } from 'react';
-import type { AgentSessionControlsSnapshot } from 'shared/types';
+import { useQuery } from '@tanstack/react-query';
 
 import {
   advertisedSessionConfigValues,
   presentableSessionConfigOptions,
+  resolvedConfigOptionChoices,
   sanitizeDependentConfigValues,
   selectConfigOptionValue,
   visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
-import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
-
-import { COPY } from './spaceModel';
+import {
+  loadAgentSessionControlsCatalog,
+  mergeCreateSessionControls,
+  sessionControlsQueryKey,
+  sessionControlsSchemaQueryKey,
+} from '@/features/agents/sessionControlsQuery';
 
 export function MemberSessionConfigControls({
   agentId,
@@ -26,44 +29,32 @@ export function MemberSessionConfigControls({
   onModeId: (modeId: string) => void;
   onValues: (values: Record<string, string>) => void;
 }) {
-  const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
-    null
-  );
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!agentId) {
-      setFailed(true);
-      return;
-    }
-    let active = true;
-    setFailed(false);
-    setCatalog(null);
-    void loadAgentSessionControlsCatalog(agentId)
-      .then((next) => {
-        if (active) setCatalog(next);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [agentId]);
-
-  if (!agentId || failed) {
-    return (
-      <p className="settings-row__description">{COPY.controlsUnavailable}</p>
-    );
-  }
-  if (!catalog) return null;
-
+  const catalogQuery = useQuery({
+    queryKey: sessionControlsQueryKey(agentId, null),
+    queryFn: () => loadAgentSessionControlsCatalog(agentId),
+    enabled: Boolean(agentId),
+    staleTime: 60_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const schemaQuery = useQuery({
+    queryKey: sessionControlsSchemaQueryKey(agentId),
+    queryFn: () => loadAgentSessionControlsCatalog(agentId),
+    enabled: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const catalog = mergeCreateSessionControls([
+    catalogQuery.data,
+    schemaQuery.data,
+  ]);
   const visibleConfigOptions = visibleSessionConfigOptions(
-    catalog.config_options ?? []
+    catalog?.config_options ?? []
   );
   const presentableConfigOptions = presentableSessionConfigOptions(
     visibleConfigOptions,
-    catalog.modes ?? []
+    catalog?.modes ?? []
   );
   const advertisedConfigValues =
     advertisedSessionConfigValues(visibleConfigOptions);
@@ -74,6 +65,22 @@ export function MemberSessionConfigControls({
       ...values,
     }
   );
+  const hasControls = Boolean(
+    catalog &&
+      (catalog.modes.length > 0 ||
+        presentableConfigOptions.some(
+          (option) =>
+            typeof option.value === 'boolean' ||
+            resolvedConfigOptionChoices(
+              option,
+              visibleConfigOptions,
+              sanitizedConfigValues
+            ).length > 1
+        ))
+  );
+
+  if (!agentId || !catalog || !hasControls) return null;
+
   const presentableConfigKeys = new Set(
     presentableConfigOptions.map((option) => option.key)
   );

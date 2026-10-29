@@ -153,26 +153,53 @@ pub fn is_user_home_directory(path: &Path) -> bool {
 }
 
 pub fn get_vibex_temp_dir() -> std::path::PathBuf {
-    let dir_name = if cfg!(debug_assertions) {
+    let dir_name = vibex_temp_leaf();
+    first_writable_directory(vibex_temp_candidates(dir_name))
+        .unwrap_or_else(|| std::env::temp_dir().join(dir_name))
+}
+
+fn vibex_temp_leaf() -> &'static str {
+    if cfg!(debug_assertions) {
         "vibex-dev"
     } else {
         "vibex"
-    };
+    }
+}
 
+fn vibex_temp_candidates(dir_name: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if cfg!(target_os = "linux") {
         // Prefer /var/tmp over tmpfs /tmp when the location is writable.
-        candidates.push(std::path::PathBuf::from("/var/tmp").join(dir_name));
+        candidates.push(PathBuf::from("/var/tmp").join(dir_name));
     }
     candidates.push(std::env::temp_dir().join(dir_name));
-
-    for path in candidates {
-        if directory_is_writable(&path) {
-            return path;
-        }
+    // Process TEMP can be missing, a file, C:\Windows, or ACCESS_DENIED
+    // (os error 5). LocalAppData / home / the exe directory are short and
+    // typically writable on the same machine.
+    if let Some(local) = dirs::data_local_dir() {
+        let local_leaf = if cfg!(debug_assertions) {
+            "tmp-dev"
+        } else {
+            "tmp"
+        };
+        candidates.push(local.join("VibeX").join(local_leaf));
     }
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".cache").join(dir_name));
+    }
+    if let Some(parent) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        candidates.push(parent.join(dir_name));
+    }
+    candidates
+}
 
-    std::env::temp_dir().join(dir_name)
+fn first_writable_directory(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|path| directory_is_writable(path))
 }
 
 fn directory_is_writable(path: &Path) -> bool {
@@ -360,6 +387,50 @@ mod tests {
             "linux temp dir should use /var/tmp or the process temp dir, got {}",
             path.display()
         );
+    }
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            let root = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"));
+            let dir = root
+                .join("utils-temp-tests")
+                .join(uuid::Uuid::new_v4().simple().to_string());
+            std::fs::create_dir_all(&dir).expect("test scratch must be writable");
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn host_temp_skips_an_unwritable_candidate() {
+        let scratch = Scratch::new();
+        let blocked = scratch.0.join("temp-is-a-file");
+        std::fs::write(&blocked, b"not a directory").unwrap();
+        let fallback = scratch.0.join("host-temp");
+        let chosen = first_writable_directory([blocked.clone(), fallback.clone()])
+            .expect("writable fallback");
+        assert_eq!(chosen, fallback);
+        assert!(chosen.is_dir());
+        let marker = chosen.join(".write-probe");
+        std::fs::write(&marker, b"ok").unwrap();
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[test]
+    fn host_temp_returns_none_when_every_candidate_is_unwritable() {
+        let scratch = Scratch::new();
+        let blocked = scratch.0.join("also-a-file");
+        std::fs::write(&blocked, b"nope").unwrap();
+        assert!(first_writable_directory([blocked]).is_none());
     }
 
     #[test]

@@ -252,9 +252,34 @@ async function requireRunningHost() {
   return host;
 }
 
+function pluginStagingDir() {
+  const candidates = [];
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, "VibeX", "tmp"));
+  }
+  const home = process.env.USERPROFILE || process.env.HOME;
+  if (home) {
+    candidates.push(path.join(home, ".cache", "vibex"));
+  }
+  candidates.push(os.tmpdir());
+  let lastError;
+  for (const root of candidates) {
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      const probe = path.join(root, `.vibex-write-${process.pid}`);
+      fs.writeFileSync(probe, "");
+      fs.unlinkSync(probe);
+      return fs.mkdtempSync(path.join(root, "vibex-plugin-add-"));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 async function addWebPlugin(source, flags) {
   log("Resolving plugin source...");
-  const staging = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-plugin-add-"));
+  const staging = pluginStagingDir();
   try {
     const release = await resolveGithubRelease(source);
     if (release) {
@@ -314,7 +339,7 @@ async function addSnapshotPlugin(source, flags) {
   if (!fs.existsSync(source)) {
     throw new Error(`Plugin package not found: ${source}`);
   }
-  const staging = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-plugin-add-"));
+  const staging = pluginStagingDir();
   try {
     let unpacked = source;
     if (fs.statSync(source).isFile()) {
@@ -1381,4 +1406,5 @@ module.exports = {
   hostDataDirs,
   marketplaceOrigin,
   parseArgs,
+  pluginStagingDir,
 };

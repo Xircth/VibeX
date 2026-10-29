@@ -440,7 +440,7 @@ fn apply_user_agent(webview: &WebView, device: &str, sign_in_ua: bool) {
 }
 
 fn ephemeral_profile_dir() -> PathBuf {
-    std::env::temp_dir().join("vibex-browser-ephemeral")
+    utils::path::get_vibex_temp_dir().join("browser-ephemeral")
 }
 
 fn open_system_browser(url: &str) {

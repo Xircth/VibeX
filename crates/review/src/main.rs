@@ -163,7 +163,8 @@ async fn run(args: Args) -> Result<(), ReviewError> {
     };
 
     // 5. Clone repository to temp directory
-    let temp_dir = TempDir::new().map_err(|e| ReviewError::CloneFailed(e.to_string()))?;
+    let temp_dir = TempDir::new_in(utils::path::get_vibex_temp_dir())
+        .map_err(|e| ReviewError::CloneFailed(e.to_string()))?;
     let repo_dir = temp_dir.path().join(&repo);
 
     let spinner = create_spinner("Cloning repository...");

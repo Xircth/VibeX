@@ -1224,8 +1224,7 @@ async fn install_binary(
         .error_for_status()?
         .bytes()
         .await?;
-    let staging = std::env::temp_dir().join(format!("vibex-agent-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&staging).await?;
+    let staging = utils::path::unique_vibex_scratch_dir("agent")?;
     let extract_result = extract_archive(&bytes, &component.resolved_source, &staging);
     let staged =
         match extract_result.and_then(|_| find_staged_executable(&staging, &component.command)) {
@@ -1365,8 +1364,7 @@ async fn install_kiro_from_official_installer(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
 ) -> anyhow::Result<PathBuf> {
-    let staging = std::env::temp_dir().join(format!("vibex-kiro-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&staging).await?;
+    let staging = utils::path::unique_vibex_scratch_dir("kiro")?;
     let result = if cfg!(windows) {
         install_kiro_windows_with_fallback(component, user_env, &staging).await
     } else {

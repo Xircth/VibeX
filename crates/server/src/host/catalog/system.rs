@@ -483,10 +483,7 @@ pub(super) async fn apply_host_upgrade() -> Result<Value, ApplicationError> {
         .unwrap_or_else(|| DEFAULT_UPDATE_REPOSITORY.to_string());
     let canonical = format!("https://github.com/{repository}/releases/download/{tag}/{archive}");
     let bytes = download_release_bytes(&canonical).await?;
-    let tmp = std::env::temp_dir().join(format!("vibex-upgrade-{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&tmp)
-        .await
-        .map_err(internal_error)?;
+    let tmp = utils::path::unique_vibex_scratch_dir("upgrade").map_err(internal_error)?;
     let archive_path = tmp.join(&archive);
     tokio::fs::write(&archive_path, bytes)
         .await

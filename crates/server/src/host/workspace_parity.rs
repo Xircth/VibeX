@@ -1207,12 +1207,14 @@ async fn generate_pr_description_host(
         .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
     let runtime = &domains.conversations.agent_runtime;
     let events = runtime.subscribe_events();
+    let working_dir =
+        utils::path::vibex_scratch_subdir("pr-description").map_err(internal_error)?;
     let session = runtime
         .ensure_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: launch.launch_lock,
             workspace_id: Uuid::nil(),
-            working_dir: std::env::temp_dir(),
+            working_dir,
             additional_directories: Vec::new(),
             session_id: AgentSessionId::new(),
             acp_session_id: String::new(),

@@ -1,9 +1,9 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use tokio::fs;
 
 pub async fn write_port_file(port: u16) -> std::io::Result<PathBuf> {
-    let dir = env::temp_dir().join("vibex");
+    let dir = crate::path::get_vibex_temp_dir();
     let path = dir.join("vibex.port");
     tracing::debug!("Writing port {} to {:?}", port, path);
     fs::create_dir_all(&dir).await?;
@@ -12,7 +12,7 @@ pub async fn write_port_file(port: u16) -> std::io::Result<PathBuf> {
 }
 
 pub async fn read_port_file(app_name: &str) -> std::io::Result<u16> {
-    let dir = env::temp_dir().join(app_name);
+    let dir = crate::path::get_vibex_temp_dir();
     let path = dir.join(format!("{app_name}.port"));
     tracing::debug!("Reading port from {:?}", path);
 

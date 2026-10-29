@@ -15,7 +15,10 @@ use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use url::Url;
-use utils::{process::new_hidden_std_command, shell::resolve_executable_path_blocking};
+use utils::{
+    path::get_vibex_temp_dir, process::new_hidden_std_command,
+    shell::resolve_executable_path_blocking,
+};
 
 use crate::services::git_host::types::{
     CreatePrRequest, GitHubIssueAuthor, GitHubIssueInfo, GitHubLabel, OpenPrInfo, PrComment,
@@ -231,7 +234,7 @@ impl GhCli {
     ) -> Result<PullRequestInfo, GhCliError> {
         // Write body to temp file to avoid shell escaping and length issues
         let body = request.body.as_deref().unwrap_or("");
-        let mut body_file = NamedTempFile::new()
+        let mut body_file = NamedTempFile::new_in(get_vibex_temp_dir())
             .map_err(|e| GhCliError::CommandFailed(format!("Failed to create temp file: {e}")))?;
         body_file
             .write_all(body.as_bytes())

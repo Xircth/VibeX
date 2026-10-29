@@ -36,6 +36,25 @@ test("vibex plugin pack creates a validated VXP package", () => {
   }
 });
 
+test("plugin staging writes under a probed host scratch directory", () => {
+  const { pluginStagingDir } = require("./plugin");
+  const staging = pluginStagingDir();
+  try {
+    const probe = join(staging, ".write-probe");
+    writeFileSync(probe, "ok");
+    assert.equal(readFileSync(probe, "utf8"), "ok");
+    const local = process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "VibeX", "tmp")
+      : null;
+    assert.ok(
+      (local && staging.startsWith(local)) || staging.startsWith(tmpdir()),
+      staging,
+    );
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+});
+
 test("plugin add extracts a vxp whose entries have no unix mode bits", () => {
   const { extractArchive, pickRoot, findPluginRoots } = require("./plugin");
   const root = mkdtempSync(join(tmpdir(), "vibex-plugin-lock-"));

@@ -367,12 +367,14 @@ pub(super) async fn enhance_prompt(
         return Err(prompt_enhancement_cancelled());
     }
     let events = runtime.subscribe_events();
+    let working_dir =
+        utils::path::vibex_scratch_subdir("prompt-enhance").map_err(internal_error)?;
     let prepared = match runtime
         .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: launch.launch_lock,
             workspace_id: uuid::Uuid::nil(),
-            working_dir: std::env::temp_dir(),
+            working_dir,
             additional_directories: Vec::new(),
             session_id: AgentSessionId::new(),
             acp_session_id: String::new(),

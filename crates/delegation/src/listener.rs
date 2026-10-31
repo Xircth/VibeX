@@ -99,7 +99,13 @@ impl DelegationListener {
         if matches!(message, BrokerMessage::Ask(_)) {
             let response = match message {
                 BrokerMessage::Ask(req) => BrokerResponse::Payload(
-                    match self.authorized_entry(&req.token, TokenFeature::Ask).await {
+                    match self
+                        .authorized_any(
+                            &req.token,
+                            &[TokenFeature::Ask, TokenFeature::Collaboration],
+                        )
+                        .await
+                    {
                         Some(entry) => {
                             let scope = scope_for(&entry);
                             tokio::select! {
@@ -111,6 +117,16 @@ impl DelegationListener {
                     },
                 ),
                 _ => unreachable!(),
+            };
+            return write_frame(conn, &response).await;
+        }
+        if matches!(
+            &message,
+            BrokerMessage::Collaborate(req) if req.name == "request_approval"
+        ) {
+            let response = tokio::select! {
+                outcome = self.handle_message(message) => outcome,
+                _ = wait_for_peer_close(conn) => return Ok(()),
             };
             return write_frame(conn, &response).await;
         }
@@ -172,7 +188,13 @@ impl DelegationListener {
                 BrokerResponse::Ack
             }
             BrokerMessage::Ask(req) => BrokerResponse::Payload(
-                match self.authorized_entry(&req.token, TokenFeature::Ask).await {
+                match self
+                    .authorized_any(
+                        &req.token,
+                        &[TokenFeature::Ask, TokenFeature::Collaboration],
+                    )
+                    .await
+                {
                     Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
                     None => json!({ "declined": true, "answers": [] }),
                 },
@@ -1299,5 +1321,55 @@ mod tests {
 
         assert_eq!(response["found"], true);
         assert_eq!(response["title"], "Prior work");
+    }
+
+    #[tokio::test]
+    async fn ask_accepts_collaboration_scoped_tokens() {
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let (listener, tokens) = listener_with_features(Some(Uuid::nil()), features.clone());
+        tokens.register_with_permissions(
+            "collab-tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: Uuid::nil(),
+                working_root: std::env::temp_dir(),
+            },
+            crate::TokenPermissions {
+                collaboration: true,
+                ..Default::default()
+            },
+        );
+        let scope = DelegationScope {
+            parent_connection_id: "conn-1".to_string(),
+            parent_conversation_id: Uuid::nil(),
+        };
+
+        let ask_task = tokio::spawn({
+            let listener = listener.clone();
+            async move {
+                round_trip(
+                    &listener,
+                    BrokerMessage::Ask(delegation_proto::BrokerAskRequest {
+                        token: "collab-tok".to_string(),
+                        questions: json!([{ "question": "Pick one" }]),
+                    }),
+                )
+                .await
+            }
+        });
+
+        let pending = features.next_question(&scope).await;
+        features
+            .answer_question(
+                &pending.id,
+                scope.parent_conversation_id,
+                json!([{ "questionId": "question-1", "labels": ["Option A"] }]),
+            )
+            .await
+            .unwrap();
+
+        let response = ask_task.await.unwrap();
+        assert_eq!(response["declined"], false);
+        assert_eq!(response["answers"][0]["labels"][0], "Option A");
     }
 }

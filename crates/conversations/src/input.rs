@@ -285,25 +285,24 @@ impl ConversationInputControl {
                     input_id: input.input_id,
                 });
             }
-            let _ = self
-                .cancel(CancelConversationInput {
-                    conversation_id: input.conversation_id,
-                    input_id: input.input_id,
-                    operation_id: input.operation_id,
-                    expected_revision: input.expected_revision,
-                })
-                .await?;
             let deliver_at = Utc::now() + Duration::seconds(delay_seconds);
             let now = Utc::now();
-            let delayed_id = Uuid::new_v4();
-            let delayed_op_id = Uuid::new_v4();
+            let delayed_id = input.input_id;
+            let delayed_op_id = input.operation_id;
             let deliver_at_stamp = deliver_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             let now_stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             sqlx::query(
                 r#"INSERT INTO conversation_delayed_inputs
                    (id, conversation_id, operation_id, payload_json, payload_digest, principal_json,
                     deliver_at, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)"#,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     operation_id = excluded.operation_id,
+                     payload_json = excluded.payload_json,
+                     payload_digest = excluded.payload_digest,
+                     principal_json = excluded.principal_json,
+                     deliver_at = excluded.deliver_at,
+                     status = 'scheduled'"#,
             )
             .bind(delayed_id.to_string())
             .bind(input.conversation_id.to_string())
@@ -315,6 +314,21 @@ impl ConversationInputControl {
             .bind(&now_stamp)
             .execute(&self.pool)
             .await?;
+            if let Err(error) = self
+                .cancel(CancelConversationInput {
+                    conversation_id: input.conversation_id,
+                    input_id: input.input_id,
+                    operation_id: input.operation_id,
+                    expected_revision: input.expected_revision,
+                })
+                .await
+            {
+                let _ = sqlx::query("DELETE FROM conversation_delayed_inputs WHERE id = ?")
+                    .bind(delayed_id.to_string())
+                    .execute(&self.pool)
+                    .await;
+                return Err(error);
+            }
             return Ok(ConversationInputView {
                 id: delayed_id,
                 conversation_id: input.conversation_id,
@@ -490,6 +504,12 @@ impl ConversationInputControl {
         )
         .await?
         {
+            if record.status == "cancelled"
+                && let Some(delayed) =
+                    find_delayed_input_view(&self.pool, conversation_id, input_id).await?
+            {
+                return Ok(delayed);
+            }
             return record.try_into();
         }
         if let Some(delayed) =
@@ -838,8 +858,8 @@ async fn find_delayed_input_view(
     input_id: Uuid,
 ) -> Result<Option<ConversationInputView>, ConversationInputControlError> {
     let conv_str = conversation_id.to_string();
-    let row = sqlx::query_as::<_, DelayedInputRow>(
-        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at
+    let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, String)>(
+        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at, status
            FROM conversation_delayed_inputs
            WHERE id = ?
              AND COALESCE(json_extract(principal_json, '$.kind'), '') != 'collaboration_space_post'
@@ -851,8 +871,38 @@ async fn find_delayed_input_view(
     .bind(&conv_str)
     .fetch_optional(pool)
     .await?;
-    Ok(row
-        .and_then(|r| delayed_row_to_view(r, conversation_id, ConversationInputStatus::Scheduled)))
+    Ok(row.and_then(
+        |(
+            id,
+            row_conv_id,
+            operation_id,
+            payload_json,
+            principal_json,
+            deliver_at,
+            created_at,
+            status,
+        )| {
+            let mapped_status = match status.as_str() {
+                "scheduled" => ConversationInputStatus::Scheduled,
+                "cancelled" => ConversationInputStatus::Cancelled,
+                "dispatched" => ConversationInputStatus::Dispatched,
+                _ => ConversationInputStatus::Scheduled,
+            };
+            delayed_row_to_view(
+                DelayedInputRow {
+                    id,
+                    conversation_id: row_conv_id,
+                    operation_id,
+                    payload_json,
+                    principal_json,
+                    deliver_at,
+                    created_at,
+                },
+                conversation_id,
+                mapped_status,
+            )
+        },
+    ))
 }
 
 async fn update_delayed_input_if_exists(

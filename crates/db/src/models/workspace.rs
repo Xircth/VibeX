@@ -494,7 +494,20 @@ impl Workspace {
         .fetch_one(pool)
         .await?;
 
-        Ok(result.exists)
+        if result.exists {
+            return Ok(true);
+        }
+
+        let target = normalize_repo_path_for_display(Path::new(container_ref));
+        let stored_refs: Vec<String> = sqlx::query_scalar(
+            "SELECT container_ref FROM workspaces WHERE container_ref IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(stored_refs
+            .into_iter()
+            .any(|stored| normalize_repo_path_for_display(Path::new(&stored)) == target))
     }
 
     /// Find workspaces that are expired and eligible for cleanup.
@@ -525,6 +538,34 @@ impl Workspace {
             LEFT JOIN sessions s ON w.id = s.workspace_id
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
             WHERE w.container_ref IS NOT NULL
+                AND w.parent_workspace_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM member_session_workspaces msw
+                    WHERE msw.isolated_workspace_id = w.id
+                       OR replace(lower(CAST(msw.isolated_workspace_id AS TEXT)), '-', '') = lower(hex(w.id))
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM automation_runs ar
+                    WHERE ar.worktree_workspace_id = w.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM workflow_runs wr
+                    WHERE wr.workspace_id = w.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM workflow_step_runs wsr
+                    WHERE wsr.workspace_id = w.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM sessions s3
+                    WHERE s3.workspace_id = w.id
+                      AND s3.active_turn_id IS NOT NULL
+                )
                 AND w.id NOT IN (
                     SELECT DISTINCT s2.workspace_id
                     FROM sessions s2
@@ -532,7 +573,7 @@ impl Workspace {
                     WHERE ep2.completed_at IS NULL
                 )
             GROUP BY w.id, w.container_ref, w.updated_at
-            HAVING datetime('now', 'localtime',
+            HAVING datetime('now',
                 CASE
                     WHEN w.archived = 1 OR t.status NOT IN ('inprogress', 'inreview')
                     THEN '-1 hours'

@@ -304,4 +304,42 @@ describe('agentQuestionModel', () => {
       })?.question_0
     ).toEqual({ selected: [], customActive: true, customText: 'Mixed' });
   });
+
+  it('unwraps MCP arguments and avoids using raw tool names as question titles', () => {
+    const wrapped = questionRequestFromToolUse({
+      type: 'tool_use',
+      tool_use_id: 'call-mcp-1',
+      tool_name: 'vibex-delegation-mcp__ask_user_question',
+      kind: 'other',
+      input_preview: JSON.stringify({
+        server: 'vibex-delegation-mcp',
+        tool: 'ask_user_question',
+        arguments: {
+          questions: [
+            {
+              id: 'q1',
+              question: '接下来先做哪件事？',
+              options: [{ label: '拆解第一步', description: '' }],
+            },
+          ],
+        },
+      }),
+      meta: null,
+    });
+    const wrappedTabs = questionTabsFromRequest(wrapped);
+    expect(firstQuestionTitle(wrappedTabs)).toBe('接下来先做哪件事？');
+    expect(wrappedTabs[0]?.choices[0]?.label).toBe('拆解第一步');
+
+    const empty = questionRequestFromToolUse({
+      type: 'tool_use',
+      tool_use_id: 'call-mcp-2',
+      tool_name: 'vibex-delegation-mcp__ask_user_question',
+      kind: 'other',
+      input_preview: '{}',
+      meta: null,
+    });
+    const emptyTabs = questionTabsFromRequest(empty);
+    expect(emptyTabs).toEqual([]);
+    expect(firstQuestionTitle(emptyTabs)).toBe('');
+  });
 });

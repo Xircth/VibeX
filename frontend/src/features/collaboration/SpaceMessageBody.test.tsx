@@ -100,7 +100,8 @@ describe('SpaceMessageBody cards', () => {
   it('resolves an approval card', async () => {
     render(<SpaceMessageBody fromYou={false} text={approval} />);
     expect(screen.queryByText(/<card/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '批准' }));
+    expect(screen.getByRole('heading', { name: '权限申请' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '允许' }));
     await waitFor(() =>
       expect(collaborationCall).toHaveBeenCalledWith(
         'collaboration',
@@ -171,6 +172,26 @@ describe('SpaceMessageBody cards', () => {
         'card.resolve',
         { cardId: 'card-2', answer: 'feature-x' }
       )
+    );
+  });
+
+  it('renders resolved status when the card record was already resolved in session', () => {
+    render(
+      <SpaceMessageBody
+        fromYou={false}
+        text={ask}
+        cards={[
+          {
+            id: 'card-2',
+            kind: 'ask',
+            status: 'resolved',
+            resolution: { answer: 'dev' },
+          },
+        ]}
+      />
+    );
+    expect(screen.getByTestId('collaboration-card-resolved')).toHaveTextContent(
+      '已回答：dev'
     );
   });
 });

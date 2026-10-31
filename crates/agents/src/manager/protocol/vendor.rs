@@ -8,7 +8,9 @@ pub(in crate::manager) struct VendorSessionControls {
     pub(in crate::manager) config_options: Vec<AcpSessionConfigOption>,
 }
 
-pub(in crate::manager) fn current_grok_model_id(options: &[AcpSessionConfigOption]) -> Option<String> {
+pub(in crate::manager) fn current_grok_model_id(
+    options: &[AcpSessionConfigOption],
+) -> Option<String> {
     options.iter().find_map(|option| {
         if option.category != Some(SessionConfigOptionCategory::Model) {
             return None;
@@ -202,7 +204,9 @@ pub(in crate::manager) fn parse_kiro_reasoning(reasoning: &serde_json::Value) ->
     }
 }
 
-pub(in crate::manager) fn kiro_thinking_option(reasoning: &KiroReasoning) -> Option<AcpSessionConfigOption> {
+pub(in crate::manager) fn kiro_thinking_option(
+    reasoning: &KiroReasoning,
+) -> Option<AcpSessionConfigOption> {
     if !reasoning.thinking_toggleable {
         return None;
     }
@@ -227,7 +231,9 @@ pub(in crate::manager) fn kiro_thinking_option(reasoning: &KiroReasoning) -> Opt
     )
 }
 
-pub(in crate::manager) fn kiro_effort_option(reasoning: &KiroReasoning) -> Option<AcpSessionConfigOption> {
+pub(in crate::manager) fn kiro_effort_option(
+    reasoning: &KiroReasoning,
+) -> Option<AcpSessionConfigOption> {
     if reasoning.levels.is_empty() {
         return None;
     }
@@ -282,7 +288,9 @@ pub(in crate::manager) fn place_kiro_reasoning_selectors(
     );
 }
 
-pub(in crate::manager) fn kiro_available_commands(params: &serde_json::Value) -> Vec<AgentAvailableCommand> {
+pub(in crate::manager) fn kiro_available_commands(
+    params: &serde_json::Value,
+) -> Vec<AgentAvailableCommand> {
     const TUI_ONLY: &[&str] = &["reply", "paste", "voice", "quit", "prompts", "rewind"];
     let mut seen = std::collections::HashSet::new();
     let mut available = Vec::new();
@@ -400,4 +408,3 @@ pub(in crate::manager) fn kiro_prompt_input_hint(prompt: &serde_json::Value) -> 
         _ => Some(names.join(" ")),
     }
 }
-

@@ -290,6 +290,7 @@ export function useTauriTerminal({
   const writeQueueRef = useRef<WriteQueue | null>(null);
   const inputSubscriptionRef = useRef<{ dispose(): void } | null>(null);
   const exitUnlistenRef = useRef<UnlistenFn | null>(null);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snapshotSeqFloorRef = useRef(0);
 
   useEffect(() => {
@@ -323,6 +324,11 @@ export function useTauriTerminal({
     if (resizeObserverRef.current) {
       resizeObserverRef.current.disconnect();
       resizeObserverRef.current = null;
+    }
+
+    if (resizeTimerRef.current !== null) {
+      clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = null;
     }
 
     if (unlistenRef.current) {
@@ -491,7 +497,7 @@ export function useTauriTerminal({
       backendListen<{ theme: string }>('theme-changed', () => {
         applyCurrentTheme();
       }).then((unlisten) => {
-        if (!mountedRef.current || !terminalRef.current) {
+        if (!isCurrentInitialization()) {
           unlisten();
           return;
         }
@@ -576,6 +582,12 @@ export function useTauriTerminal({
             writeOutput(event.data, event.seq);
           }
         );
+        if (!isCurrentInitialization()) {
+          unlisten();
+          return {
+            flushReplay() {},
+          };
+        }
         unlistenRef.current = unlisten;
         const unlistenExit = await backendListen(
           `terminal-exit:${currentSessionId}`,
@@ -590,6 +602,16 @@ export function useTauriTerminal({
             }
           }
         );
+        if (!isCurrentInitialization()) {
+          unlisten();
+          unlistenExit();
+          if (unlistenRef.current === unlisten) {
+            unlistenRef.current = null;
+          }
+          return {
+            flushReplay() {},
+          };
+        }
         exitUnlistenRef.current = unlistenExit;
         return {
           flushReplay(snapshotSeq: number | null) {
@@ -689,6 +711,18 @@ export function useTauriTerminal({
         if (terminalRef.current === terminal) {
           disposeView();
         } else {
+          if (unlistenRef.current) {
+            unlistenRef.current();
+            unlistenRef.current = null;
+          }
+          if (exitUnlistenRef.current) {
+            exitUnlistenRef.current();
+            exitUnlistenRef.current = null;
+          }
+          if (themeUnlistenRef.current) {
+            themeUnlistenRef.current();
+            themeUnlistenRef.current = null;
+          }
           terminal.dispose();
         }
         return;
@@ -715,7 +749,6 @@ export function useTauriTerminal({
         }
       }
 
-      let resizeTimer: ReturnType<typeof setTimeout> | null = null;
       let lastSize: { cols: number; rows: number } | null = null;
       terminal.onResize(({ cols, rows }) => {
         if (!isCurrentInitialization() || !sessionIdRef.current) {
@@ -725,10 +758,14 @@ export function useTauriTerminal({
           return;
         }
         lastSize = { cols, rows };
-        if (resizeTimer) {
-          clearTimeout(resizeTimer);
+        if (resizeTimerRef.current !== null) {
+          clearTimeout(resizeTimerRef.current);
         }
-        resizeTimer = setTimeout(() => {
+        resizeTimerRef.current = setTimeout(() => {
+          resizeTimerRef.current = null;
+          if (!isCurrentInitialization()) {
+            return;
+          }
           const sessionId = sessionIdRef.current;
           if (!sessionId) {
             return;

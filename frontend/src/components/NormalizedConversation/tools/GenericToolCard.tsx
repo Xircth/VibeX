@@ -197,16 +197,18 @@ export function GenericToolCard({
           // inline text instead of exposing `tool_name`.
           summary.detail || meaningfulInlineText;
   const argumentFacts = isGenericTool
-    ? jsonToFacts(actionType.arguments, { skipKeys: ['description'] })
+    ? jsonToFacts(actionType.arguments, {
+        skipKeys: ['description', 'toolSummary', 'toolAction'],
+      })
     : [];
+  const hasGenericResult =
+    isGenericTool &&
+    (actionType.result != null || meaningfulInlineText.length > 0);
   const hasDetails =
     isTaskCreate ||
     isTodo ||
     isOther ||
-    (isGenericTool &&
-      (argumentFacts.length > 0 ||
-        actionType.result != null ||
-        meaningfulInlineText.length > 0));
+    (isGenericTool && (argumentFacts.length > 0 || hasGenericResult));
   const icon = isTaskCreate ? (
     <Plus className="h-3 w-3" />
   ) : isTodo ? (
@@ -258,29 +260,31 @@ export function GenericToolCard({
               <ToolFacts facts={argumentFacts} />
             </ToolArtifact>
           ) : null}
-          <ToolArtifact
-            badge={actionType.result ? t('genericTool.result') : undefined}
-          >
-            <GenericToolDetail
-              arguments={actionType.arguments}
-              result={actionType.result}
-              fallbackText={meaningfulInlineText}
-              taskAttemptId={taskAttemptId}
-              openLink={openLink}
-              openPath={(path, line) => {
-                const resolved = resolveToolFilePath(path);
-                const title = deriveRelativeFilePath(resolved, null) ?? path;
-                panelActions?.openFilePreview(resolved, {
-                  displayPath: title,
-                  title,
-                  location: fileReadLocation(line, line),
-                });
-              }}
-              openDirectory={(path) => {
-                panelActions?.revealInFileTree(path, { nodeType: 'folder' });
-              }}
-            />
-          </ToolArtifact>
+          {hasGenericResult ? (
+            <ToolArtifact
+              badge={actionType.result ? t('genericTool.result') : undefined}
+            >
+              <GenericToolDetail
+                arguments={actionType.arguments}
+                result={actionType.result}
+                fallbackText={meaningfulInlineText}
+                taskAttemptId={taskAttemptId}
+                openLink={openLink}
+                openPath={(path, line) => {
+                  const resolved = resolveToolFilePath(path);
+                  const title = deriveRelativeFilePath(resolved, null) ?? path;
+                  panelActions?.openFilePreview(resolved, {
+                    displayPath: title,
+                    title,
+                    location: fileReadLocation(line, line),
+                  });
+                }}
+                openDirectory={(path) => {
+                  panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+                }}
+              />
+            </ToolArtifact>
+          ) : null}
         </>
       ) : null}
 

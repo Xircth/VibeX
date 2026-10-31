@@ -500,6 +500,139 @@ pub async fn list_space_messages(
             message.envelope["reactions"] = json!(reactions);
         }
     }
+    if audience == MessageAudience::User && space_tracks_turns(space_id) {
+        let max_seq = messages.iter().map(|m| m.seq).max().unwrap_or(since).max(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE(MAX(seq), 0) FROM collaboration_space_messages WHERE space_id = ?",
+            )
+            .bind(space_id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0),
+        );
+        let mut running_turns: Vec<(String, String, Option<String>, i64)> =
+            sqlx::query_as::<_, (String, String, String, i64)>(
+                r#"SELECT t.id, t.conversation_id, t.space_message_id, m.seq
+               FROM collaboration_turns t
+               JOIN collaboration_space_messages m ON m.id = t.space_message_id
+               WHERE t.space_id = ? AND t.state = 'running'
+               ORDER BY m.seq ASC, t.created_at ASC"#,
+            )
+            .bind(space_id)
+            .fetch_all(pool)
+            .await
+            .map_err(db)?
+            .into_iter()
+            .map(|(turn_id, cid_str, trigger_msg_id, trigger_seq)| {
+                (turn_id, cid_str, Some(trigger_msg_id), trigger_seq)
+            })
+            .collect();
+        let seen_cids: std::collections::HashSet<String> = running_turns
+            .iter()
+            .map(|(_, cid_str, _, _)| cid_str.clone())
+            .collect();
+        let member_cids: Vec<String> = sqlx::query_scalar(
+            r#"SELECT DISTINCT conversation_id FROM (
+                 SELECT conversation_id FROM collaboration_space_members
+                 WHERE space_id = ? AND kind = 'agent' AND conversation_id IS NOT NULL
+                 UNION
+                 SELECT conversation_id FROM collaboration_thread_members
+                 WHERE thread_id = ? AND status = 'active' AND conversation_id IS NOT NULL
+               )"#,
+        )
+        .bind(space_id)
+        .bind(space_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for cid_str in member_cids {
+            if seen_cids.contains(&cid_str) {
+                continue;
+            }
+            let Ok(cid) = Uuid::parse_str(&cid_str) else {
+                continue;
+            };
+            if space_turn_streaming_step(cid).is_none() {
+                continue;
+            }
+            if let Ok(Some(direct_ctx)) = latest_direct_session_turn(pool, cid, true).await
+                && direct_ctx.space_ids.iter().any(|s| s == space_id)
+            {
+                running_turns.push((direct_ctx.turn_id, cid_str, None, max_seq));
+            }
+        }
+        let mut draft_seq = max_seq;
+        for (turn_id, cid_str, trigger_msg_id, trigger_seq) in running_turns {
+            let Ok(cid) = Uuid::parse_str(&cid_str) else {
+                continue;
+            };
+            let Some(step) = space_turn_streaming_step(cid) else {
+                continue;
+            };
+            let nickname = member_nickname(pool, space_id, cid)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let body = strip_own_nickname_prefix(step.text.trim(), &nickname);
+            if body.is_empty() || is_pass_token(&body) {
+                continue;
+            }
+            let posted_rows: Vec<String> = sqlx::query_scalar(
+                r#"SELECT envelope_json FROM collaboration_space_messages
+                   WHERE space_id = ? AND seq > ? AND origin = 'agent'
+                   ORDER BY seq ASC"#,
+            )
+            .bind(space_id)
+            .bind(trigger_seq)
+            .fetch_all(pool)
+            .await
+            .map_err(db)?;
+            let already_posted_same = posted_rows.iter().any(|raw| {
+                let parsed = parse_space_envelope_str(raw);
+                envelope_sender_is_conversation(&parsed, cid, Some(&nickname))
+                    && strip_own_nickname_prefix(parsed.content.trim(), &nickname) == body
+            });
+            if already_posted_same {
+                continue;
+            }
+            draft_seq += 1;
+            let draft_id = if step.step_index == 0 {
+                format!("draft:{turn_id}")
+            } else {
+                format!("draft:{turn_id}:{}", step.step_index)
+            };
+            let sender_nickname = if nickname.trim().is_empty() {
+                "Bot".to_string()
+            } else {
+                nickname.trim().to_string()
+            };
+            let sender_label = envelope_member_name(&sender_nickname);
+            let envelope = json!({
+                "id": draft_id,
+                "sender": sender_label,
+                "sender_nickname": sender_nickname,
+                "actor": sender_nickname,
+                "conversation_id": cid.to_string(),
+                "to": [ENVELOPE_USER_ACTOR],
+                "content": body,
+                "display_text": body,
+                "in_reply_to": trigger_msg_id,
+                "reply_to": trigger_msg_id,
+                "created_at": step.updated_at,
+                "turn_id": turn_id,
+                "streaming": true,
+            });
+            messages.push(SpaceMessage {
+                id: draft_id,
+                seq: draft_seq,
+                envelope,
+                origin: "agent".to_string(),
+                in_reply_to: trigger_msg_id,
+                receipts: Vec::new(),
+            });
+        }
+    }
     Ok(messages)
 }
 

@@ -99,6 +99,12 @@ pub async fn refresh_official_product_runtime(
     host::plugin_projections::refresh_official_product_runtime_with(plane, broker, config).await
 }
 
+pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
+    plane: &plugins::PluginControlPlane,
+) {
+    host::plugin_projections::reconcile_disabled_and_uninstalled_plugin_projections(plane).await;
+}
+
 pub fn apply_host_multi_agent_setting(
     gate: &plugins::OfficialMcpRuntime,
     broker: Option<&delegation::DelegationBroker>,

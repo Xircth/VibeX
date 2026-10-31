@@ -509,9 +509,10 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn has_active_runs(&self) -> Result<bool, ApplicationError> {
-        let active = db::workflow_queries::workflow_has_active_runs(&self.context.deployment.db().pool)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let active =
+            db::workflow_queries::workflow_has_active_runs(&self.context.deployment.db().pool)
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?;
         Ok(active)
     }
 
@@ -607,9 +608,10 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn reconcile_terminal_steps(&self) -> Result<bool, ApplicationError> {
-        let rows = db::workflow_queries::running_agent_step_runs(&self.context.deployment.db().pool)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let rows =
+            db::workflow_queries::running_agent_step_runs(&self.context.deployment.db().pool)
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let mut changed = false;
         for row in rows {
             let run_id = row.run_id;
@@ -642,14 +644,28 @@ impl WorkflowAgentDispatcher {
                         .find(|step| step.id == step_id)
                         .ok_or_else(|| ApplicationError::internal("workflow step is missing"))?;
                     let output = match &step.spec {
-                        WorkflowStepSpec::Agent(_) => Some(serde_json::Value::String(
-                            extract_last_assistant_text(
-                                &self.context.deployment.db().pool,
-                                conversation_id,
-                                turn_id,
-                            )
-                            .await?,
-                        )),
+                        WorkflowStepSpec::Agent(_) => match extract_last_assistant_text(
+                            &self.context.deployment.db().pool,
+                            conversation_id,
+                            turn_id,
+                        )
+                        .await
+                        {
+                            Ok(text) => Some(serde_json::Value::String(text)),
+                            Err(error) => {
+                                self.store
+                                    .fail_step(
+                                        run_id,
+                                        &step_id,
+                                        "missing_assistant_output",
+                                        &error.envelope().message,
+                                    )
+                                    .await
+                                    .map_err(map_error)?;
+                                changed = true;
+                                continue;
+                            }
+                        },
                         WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => None,
                     };
                     let completion = match &step.spec {
@@ -867,8 +883,91 @@ pub(crate) async fn extract_last_assistant_text(
     let events = db::workflow_queries::conversation_turn_events(pool, conversation_id, turn_id)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    final_assistant_text(&events)
-        .ok_or_else(|| ApplicationError::bad_request("Agent produced no final text output"))
+    if let Some(text) = final_assistant_text(&events) {
+        return Ok(text);
+    }
+
+    if let Some(turns) = conversations::jsonl_history::load_all_turns(pool, conversation_id)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+    {
+        let db_turns = ConversationTurnRecord::list_for_conversation(pool, conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let user_round_count = turns
+            .iter()
+            .filter(|turn| {
+                matches!(turn.role, agents::TurnRole::User) && !turn.id.contains(":steer:")
+            })
+            .count();
+        let round_index = (db_turns.len() == user_round_count)
+            .then(|| db_turns.iter().position(|turn| turn.id == turn_id))
+            .flatten();
+        if let Some(text) = final_assistant_text_from_transcript_round(&turns, round_index) {
+            return Ok(text);
+        }
+    }
+
+    Err(ApplicationError::bad_request(
+        "Agent produced no final text output",
+    ))
+}
+
+fn final_assistant_text_from_transcript_round(
+    turns: &[agents::MessageTurn],
+    round_index: Option<usize>,
+) -> Option<String> {
+    let user_positions: Vec<usize> = turns
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, turn)| {
+            (matches!(turn.role, agents::TurnRole::User) && !turn.id.contains(":steer:"))
+                .then_some(idx)
+        })
+        .collect();
+    let round_slice = if user_positions.is_empty() {
+        turns
+    } else {
+        let target_round = round_index
+            .filter(|idx| *idx < user_positions.len())
+            .unwrap_or(user_positions.len() - 1);
+        let start = user_positions[target_round];
+        let end = user_positions
+            .get(target_round + 1)
+            .copied()
+            .unwrap_or(turns.len());
+        &turns[start..end]
+    };
+    let assistant_turn = round_slice
+        .iter()
+        .rev()
+        .find(|turn| matches!(turn.role, agents::TurnRole::Assistant))?;
+    let last_boundary = assistant_turn
+        .blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, block)| {
+            matches!(
+                block,
+                agents::ContentBlock::Thinking { .. }
+                    | agents::ContentBlock::ToolUse { .. }
+                    | agents::ContentBlock::ToolResult { .. }
+                    | agents::ContentBlock::Plan { .. }
+            )
+            .then_some(idx)
+        })
+        .max();
+    let text: String = assistant_turn
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| last_boundary.is_none_or(|boundary| *idx > boundary))
+        .filter_map(|(_, block)| match block {
+            agents::ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    (!text.trim().is_empty()).then(|| text.trim().to_owned())
 }
 
 fn final_assistant_text(events: &[(i64, String, String)]) -> Option<String> {
@@ -1358,8 +1457,17 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
             .conversation_context
             .as_ref()
             .map(|context| conversations::ConversationSessionService::new(context.clone()));
-        for step in steps.into_iter().filter(|step| step.status == "running") {
+        for step in steps
+            .into_iter()
+            .filter(|step| step.status == "running" && !step.awaiting_acceptance)
+        {
             if let Some(conversation_id) = step.conversation_id {
+                if let Some(service) = &service {
+                    service
+                        .cancel_turn(conversation_id, Some("Workflow run paused".to_string()))
+                        .await
+                        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+                }
                 self.store
                     .set_step_awaiting_input(
                         request.run_id,
@@ -1370,12 +1478,6 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
                     )
                     .await
                     .map_err(map_error)?;
-                if let Some(service) = &service {
-                    service
-                        .cancel_turn(conversation_id, Some("Workflow run paused".to_string()))
-                        .await
-                        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-                }
             }
         }
         self.core
@@ -1614,6 +1716,31 @@ fn map_error(error: workflows::WorkflowError) -> ApplicationError {
     }
 }
 
+/// Give a collaboration member session its own worktree workspace when the
+/// member's policy is WriteIsolated and another session of the same member
+/// already works in that workspace. Reuses the workflow `write_isolated`
+/// provisioning. Returns the isolated workspace id when one applies.
+pub async fn ensure_member_session_workspace(
+    context: &ConversationContext,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, ApplicationError> {
+    let pool = &context.deployment.db().pool;
+    let Some(session) = db::models::session::Session::find_by_id(pool, conversation_id)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let workspace_id = conversations::isolated_workspace::execution_workspace_id(
+        context,
+        conversation_id,
+        session.workspace_id,
+    )
+    .await
+    .map_err(|error| ApplicationError::internal(error.message))?;
+    Ok((workspace_id != session.workspace_id).then_some(workspace_id))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -1701,29 +1828,64 @@ mod tests {
 
         assert_eq!(final_assistant_text(&events).as_deref(), Some("最终结论"));
     }
-}
 
-/// Give a collaboration member session its own worktree workspace when the
-/// member's policy is WriteIsolated and another session of the same member
-/// already works in that workspace. Reuses the workflow `write_isolated`
-/// provisioning. Returns the isolated workspace id when one applies.
-pub async fn ensure_member_session_workspace(
-    context: &ConversationContext,
-    conversation_id: Uuid,
-) -> Result<Option<Uuid>, ApplicationError> {
-    let pool = &context.deployment.db().pool;
-    let Some(session) = db::models::session::Session::find_by_id(pool, conversation_id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-    else {
-        return Ok(None);
-    };
-    let workspace_id = conversations::isolated_workspace::execution_workspace_id(
-        context,
-        conversation_id,
-        session.workspace_id,
-    )
-    .await
-    .map_err(|error| ApplicationError::internal(error.message))?;
-    Ok((workspace_id != session.workspace_id).then_some(workspace_id))
+    #[test]
+    fn jsonl_transcript_turns_yield_final_assistant_text_after_last_activity_boundary() {
+        let now = chrono::Utc::now();
+        let turns = vec![
+            agents::MessageTurn {
+                id: "u1".to_owned(),
+                role: agents::TurnRole::User,
+                blocks: vec![agents::ContentBlock::Text {
+                    text: "请执行第一步".to_owned(),
+                }],
+                timestamp: now,
+                completed_at: Some(now),
+                usage: None,
+                duration_ms: None,
+                model: None,
+                agent_message_id: None,
+            },
+            agents::MessageTurn {
+                id: "a1".to_owned(),
+                role: agents::TurnRole::Assistant,
+                blocks: vec![
+                    agents::ContentBlock::Text {
+                        text: "先读取文件".to_owned(),
+                    },
+                    agents::ContentBlock::ToolUse {
+                        tool_use_id: Some("call-1".to_owned()),
+                        tool_name: "Read".to_owned(),
+                        input_preview: None,
+                        status: Some("completed".to_owned()),
+                        kind: None,
+                        meta: None,
+                        images: Vec::new(),
+                        started_at: None,
+                        ended_at: None,
+                    },
+                    agents::ContentBlock::Thinking {
+                        text: "整理结果".to_owned(),
+                    },
+                    agents::ContentBlock::Text {
+                        text: "第一步".to_owned(),
+                    },
+                    agents::ContentBlock::Text {
+                        text: "完成".to_owned(),
+                    },
+                ],
+                timestamp: now,
+                completed_at: Some(now),
+                usage: None,
+                duration_ms: None,
+                model: None,
+                agent_message_id: None,
+            },
+        ];
+
+        assert_eq!(
+            super::final_assistant_text_from_transcript_round(&turns, Some(0)).as_deref(),
+            Some("第一步完成")
+        );
+    }
 }

@@ -130,6 +130,22 @@ impl ConversationTurnRecord {
         .await
     }
 
+    pub async fn find_active_for_session(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let Some(active_turn_id) =
+            sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
+                .bind(conversation_id)
+                .fetch_optional(pool)
+                .await?
+                .flatten()
+        else {
+            return Ok(None);
+        };
+        Self::find_by_id(pool, active_turn_id).await
+    }
+
     pub async fn find_by_prompt_id(
         pool: &SqlitePool,
         conversation_id: Uuid,

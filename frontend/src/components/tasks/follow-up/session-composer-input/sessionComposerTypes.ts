@@ -38,6 +38,6 @@ export type SessionComposerInputProps = {
   acceptExternalInserts?: boolean;
   replaceValueRef?: RefObject<((next: string) => void) | null>;
   onChange: (value: string) => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string) => boolean | void;
   onAttachImages: (files: File[]) => void;
 };

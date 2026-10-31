@@ -17,22 +17,22 @@ use agent_client_protocol::{
         ProtocolVersion,
         v1::{
             AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
-            CancelNotification, ClientResponse, CloseSessionRequest,
-            ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
-            CreateTerminalResponse, DeleteSessionRequest, ElicitationAcceptAction,
-            ElicitationAction, ElicitationContentValue, ElicitationMode, ElicitationScope,
-            ExtRequest, ExtResponse, ImageContent, Implementation, InitializeRequest,
-            KillTerminalRequest, KillTerminalResponse, ListSessionsRequest, LoadSessionRequest,
-            LoadSessionResponse, NewSessionRequest, NewSessionResponse, PermissionOptionKind,
-            PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
-            RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
-            ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome,
-            SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
-            SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption,
-            SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState,
-            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-            SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
-            ToolCallContent, ToolCallLocation, WaitForTerminalExitResponse,
+            CancelNotification, ClientResponse, CloseSessionRequest, ContentBlock,
+            CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
+            DeleteSessionRequest, ElicitationAcceptAction, ElicitationAction,
+            ElicitationContentValue, ElicitationMode, ElicitationScope, ExtRequest, ExtResponse,
+            ImageContent, Implementation, InitializeRequest, KillTerminalRequest,
+            KillTerminalResponse, ListSessionsRequest, LoadSessionRequest, LoadSessionResponse,
+            NewSessionRequest, NewSessionResponse, PermissionOptionKind, PromptRequest,
+            ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
+            RequestPermissionResponse, ResourceLink, ResumeSessionRequest, ResumeSessionResponse,
+            SelectedPermissionOutcome, SessionConfigKind,
+            SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
+            SessionConfigOptionValue, SessionConfigSelectOption, SessionConfigSelectOptions,
+            SessionConfigValueId, SessionId, SessionModeState, SessionNotification, SessionUpdate,
+            SetSessionConfigOptionRequest, SetSessionModeRequest, TerminalId,
+            TerminalOutputResponse, TextContent, ToolCallContent, ToolCallLocation,
+            WaitForTerminalExitResponse,
         },
     },
 };
@@ -88,17 +88,16 @@ use crate::{
 
 mod protocol;
 mod requests;
+mod runner;
 mod terminal;
 mod usage;
-mod runner;
 
 use protocol::*;
 use requests::*;
+pub use runner::LeadingEdgeThrottle;
+use runner::*;
 use terminal::*;
 use usage::*;
-use runner::*;
-
-pub use runner::LeadingEdgeThrottle;
 
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
@@ -278,6 +277,8 @@ struct ManagedAgentConnection {
     last_activity: Arc<Mutex<Instant>>,
     active_prompt: Arc<Mutex<Option<(AgentSessionId, AgentPromptId)>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
+    child_pid: Arc<std::sync::Mutex<Option<u32>>>,
     status: Arc<Mutex<AgentConnectionStatus>>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -357,6 +358,8 @@ impl AgentConnectionManager {
         let last_activity = Arc::clone(&runner.last_activity);
         let active_prompt = Arc::clone(&runner.active_prompt);
         let pending_permissions = Arc::clone(&runner.pending_permissions);
+        let pending_elicitations = Arc::clone(&runner.pending_elicitations);
+        let child_pid = Arc::clone(&runner.child_pid);
         let status = Arc::clone(&runner.status);
 
         let task = if self.driver_enabled {
@@ -383,6 +386,8 @@ impl AgentConnectionManager {
                 last_activity,
                 active_prompt,
                 pending_permissions,
+                pending_elicitations,
+                child_pid,
                 status,
                 task,
             },
@@ -835,6 +840,27 @@ impl AgentConnectionManager {
             Err(_) => {
                 task.abort();
                 let _ = task.await;
+                if let Some(pid) = connection.child_pid.lock().unwrap().take() {
+                    #[cfg(unix)]
+                    {
+                        use nix::{
+                            sys::signal::{Signal, killpg},
+                            unistd::{Pid, getpgid},
+                        };
+                        if let Ok(pgid) = getpgid(Some(Pid::from_raw(pid as i32))) {
+                            let _ = killpg(pgid, Signal::SIGKILL);
+                        }
+                    }
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/T", "/PID", &pid.to_string()])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .status();
+                    }
+                }
                 let mut session_ids: std::collections::HashSet<AgentSessionId> = connection
                     .session_map
                     .read()
@@ -860,6 +886,27 @@ impl AgentConnectionManager {
                                 permission_id: pending.permission_id,
                                 response,
                                 auto: false,
+                            },
+                        },
+                    );
+                }
+                let pending_elicitations = {
+                    let mut guard = connection.pending_elicitations.lock().await;
+                    guard.drain().map(|(_, p)| p).collect::<Vec<_>>()
+                };
+                for pending in pending_elicitations {
+                    session_ids.insert(pending.session_id);
+                    let response = AgentElicitationResponse::Cancel;
+                    let _ = pending.tx.send(response.clone());
+                    send_manager_event(
+                        &self.event_tx,
+                        AgentConnectionManagerEvent {
+                            connection_id,
+                            session_id: Some(pending.session_id),
+                            prompt_id: None,
+                            event: AgentEvent::ElicitationResponded {
+                                elicitation_id: pending.elicitation_id,
+                                response,
                             },
                         },
                     );
@@ -2896,11 +2943,12 @@ mod tests {
             "elicitation/create waits for the user the same way as vendor question ext-methods"
         );
 
-        assert!(
-            !acp_request_must_run_off_dispatch_loop(&AgentRequest::KillTerminalRequest(
-                KillTerminalRequest::new(SessionId::new("session-1"), TerminalId::new("term-1"),)
+        assert!(!acp_request_must_run_off_dispatch_loop(
+            &AgentRequest::KillTerminalRequest(KillTerminalRequest::new(
+                SessionId::new("session-1"),
+                TerminalId::new("term-1"),
             ))
-        );
+        ));
     }
 
     #[test]
@@ -3050,6 +3098,24 @@ mod tests {
     fn acp_success_without_a_turn_is_ok() {
         resolve_acp_process_stop(AcpProcessStop::Connection(Ok::<(), &str>(())), false, None)
             .expect("a clean shutdown with no turn must stay success");
+    }
+
+    #[test]
+    fn connection_closed_without_a_prompt_is_not_an_in_flight_turn_failure() {
+        assert!(
+            !agent_error_is_in_flight_turn_failure("connection_closed", None, None),
+            "warmup or idle ACP death must not log as a failed turn"
+        );
+        assert!(agent_error_is_in_flight_turn_failure(
+            "connection_closed",
+            Some(AgentSessionId::new()),
+            Some(AgentPromptId::new()),
+        ));
+        assert!(!agent_error_is_in_flight_turn_failure(
+            "agent_not_installed",
+            Some(AgentSessionId::new()),
+            Some(AgentPromptId::new()),
+        ));
     }
 
     #[test]

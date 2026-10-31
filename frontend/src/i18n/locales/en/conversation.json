@@ -270,7 +270,7 @@
     "dismissLocalError": "Dismiss local error",
     "localErrorTitle": "Action failed",
     "errorBadge": "Error",
-    "warningBadge": "Warning",
+    "warningBadge": "Warn",
     "infoBadge": "Notice",
     "showDetails": "Show details",
     "showDetailsFor": "Show details: {{title}}",

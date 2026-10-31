@@ -154,13 +154,38 @@ export function MultiAgentSettings({
 
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [roleDialogLeft, setRoleDialogLeft] = useState('12.5rem');
 
   useEffect(() => {
+    if (!roleDialogOpen) return;
     const settingsShell = document.querySelector('.settings-page');
-    if (!roleDialogOpen || !settingsShell) return;
-    settingsShell.classList.add('collaboration-settings-window-blurred');
+    settingsShell?.classList.add('collaboration-settings-window-blurred');
+
+    const syncOverlayLeft = () => {
+      const settingsContent = document.querySelector<HTMLElement>(
+        '[data-settings-content]'
+      );
+      const settingsSidebar =
+        document.querySelector<HTMLElement>('.settings-sidebar');
+      const contentLeft = settingsContent?.getBoundingClientRect().left ?? 0;
+      const sidebarRight = settingsSidebar?.getBoundingClientRect().right ?? 0;
+      const measuredLeft = contentLeft > 0 ? contentLeft : sidebarRight;
+      if (measuredLeft > 0) {
+        setRoleDialogLeft(`${Math.round(measuredLeft)}px`);
+        return;
+      }
+      setRoleDialogLeft(
+        settingsSidebar?.classList.contains('settings-sidebar--flush')
+          ? '11rem'
+          : '12.5rem'
+      );
+    };
+
+    syncOverlayLeft();
+    window.addEventListener('resize', syncOverlayLeft);
     return () => {
-      settingsShell.classList.remove('collaboration-settings-window-blurred');
+      window.removeEventListener('resize', syncOverlayLeft);
+      settingsShell?.classList.remove('collaboration-settings-window-blurred');
     };
   }, [roleDialogOpen]);
   const [editingRoleId, setEditingRoleId] = useState<string>('');
@@ -503,8 +528,9 @@ export function MultiAgentSettings({
         ? createPortal(
             <div
               data-testid="custom-role-modal-overlay"
-              className="collaboration-thread-overlay collaboration-settings-modal-overlay fixed inset-0 z-[9999] flex items-center justify-center p-6"
+              className="collaboration-thread-overlay collaboration-settings-modal-overlay fixed inset-y-0 right-0 z-[9999] flex items-center justify-center p-6"
               style={{
+                left: roleDialogLeft,
                 backdropFilter: 'blur(16px)',
                 WebkitBackdropFilter: 'blur(16px)',
               }}

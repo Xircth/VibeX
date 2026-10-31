@@ -254,7 +254,13 @@ impl WorkflowCore {
                 "workflow input exceeds {MAX_WORKFLOW_INPUT_BYTES} bytes"
             )));
         }
+        if input.debug_step_id.is_none()
+            && let Some(schema) = &definition.input_schema
+        {
+            validate_json_value(schema, &input.input)?;
+        }
         let policy = input.policy_override.unwrap_or(definition.policy.clone());
+        crate::spec::validate_policy(&policy)?;
         let debug_execution_steps = input
             .debug_step_id
             .as_deref()
@@ -1718,6 +1724,144 @@ mod tests {
 
         assert_eq!(store.reconcile_completed_evidence().await.unwrap(), 0);
         assert_eq!(store.run(run.id).await.unwrap().status, "running");
+    }
+
+    #[tokio::test]
+    async fn completed_approval_or_notify_step_and_staged_manual_candidate_survive_startup_reconciliation()
+     {
+        let (core, store) = setup().await;
+        let mut def = definition();
+        if let Some(ship) = def.steps.iter_mut().find(|step| step.id == "ship")
+            && let WorkflowStepSpec::Agent(agent) = &mut ship.spec
+        {
+            agent.completion_policy = CompletionPolicy::Manual;
+        }
+        let version = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: def,
+                source_path: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let run = core
+            .start(StartWorkflow {
+                definition_version_id: version.id,
+                workspace_id: Uuid::new_v4(),
+                input: serde_json::json!({"repo": "vibex"}),
+                policy_override: None,
+                debug_step_id: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        store.enable_dispatch(run.id).await.unwrap();
+
+        for expected in ["build", "test"] {
+            let claim = store
+                .claim_ready(4, chrono::Duration::seconds(30))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(claim.step.step_id, expected);
+            let definition_step = claim
+                .definition
+                .steps
+                .iter()
+                .find(|step| step.id == expected)
+                .unwrap();
+            let resolved = store
+                .resolve_step_input(run.id, definition_step)
+                .await
+                .unwrap();
+            store
+                .prepare_step(
+                    run.id,
+                    definition_step,
+                    claim.claim_token,
+                    &resolved,
+                    run.workspace_id,
+                    &serde_json::json!({
+                        "isolated": false,
+                        "workspaceId": run.workspace_id,
+                    }),
+                )
+                .await
+                .unwrap();
+            store
+                .mark_started(run.id, expected, claim.claim_token, None, None)
+                .await
+                .unwrap();
+            core.complete_step(CompleteWorkflowStep {
+                run_id: run.id,
+                step_id: expected.to_string(),
+                output: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        core.decide(DecideApproval {
+            run_id: run.id,
+            step_id: "approve".to_string(),
+            decision: serde_json::json!({"approved": true}),
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "human", "scopes": ["workflow.approve"]}),
+        })
+        .await
+        .unwrap();
+
+        let ship_claim = store
+            .claim_ready(4, chrono::Duration::seconds(30))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ship_claim.step.step_id, "ship");
+        let ship_def = ship_claim
+            .definition
+            .steps
+            .iter()
+            .find(|step| step.id == "ship")
+            .unwrap();
+        let ship_resolved = store.resolve_step_input(run.id, ship_def).await.unwrap();
+        store
+            .prepare_step(
+                run.id,
+                ship_def,
+                ship_claim.claim_token,
+                &ship_resolved,
+                run.workspace_id,
+                &serde_json::json!({
+                    "isolated": false,
+                    "workspaceId": run.workspace_id,
+                }),
+            )
+            .await
+            .unwrap();
+        store
+            .mark_started(run.id, "ship", ship_claim.claim_token, None, None)
+            .await
+            .unwrap();
+        core.stage_step_candidate(StageWorkflowStepCandidate {
+            run_id: run.id,
+            step_id: "ship".to_string(),
+            output: Some(serde_json::Value::String("ship ready".to_string())),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(store.reconcile_interrupted().await.unwrap(), 0);
+        assert_eq!(store.reconcile_completed_evidence().await.unwrap(), 0);
+        assert_eq!(store.run(run.id).await.unwrap().status, "waiting");
+        let steps = store.steps(run.id).await.unwrap();
+        let approve_step = steps.iter().find(|s| s.step_id == "approve").unwrap();
+        assert_eq!(approve_step.status, "completed");
+        let ship_step = steps.iter().find(|s| s.step_id == "ship").unwrap();
+        assert_eq!(ship_step.status, "running");
+        assert!(ship_step.awaiting_acceptance);
     }
 
     #[tokio::test]

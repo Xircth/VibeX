@@ -69,7 +69,10 @@ impl AgentConnectionRunner {
     /// Is the agent currently blocked waiting on a permission decision for this
     /// session? Such a wait produces no ACP activity, so the idle watchdog must
     /// not mistake it for a hang.
-    pub(in crate::manager) async fn has_pending_permission_for(&self, session_id: AgentSessionId) -> bool {
+    pub(in crate::manager) async fn has_pending_permission_for(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
         self.pending_permissions
             .lock()
             .await
@@ -77,7 +80,10 @@ impl AgentConnectionRunner {
             .any(|pending| pending.session_id == session_id)
     }
 
-    pub(in crate::manager) async fn has_running_terminal_for(&self, session_id: AgentSessionId) -> bool {
+    pub(in crate::manager) async fn has_running_terminal_for(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
         agent_terminal_registry()
             .has_running_for_session(session_id)
             .await
@@ -182,7 +188,10 @@ impl AgentConnectionRunner {
     /// Is the agent blocked waiting on a user answer to an elicitation for this
     /// session? Like a permission wait, this produces no ACP activity, so the
     /// idle watchdog must not mistake it for a hang.
-    pub(in crate::manager) async fn has_pending_elicitation_for(&self, session_id: AgentSessionId) -> bool {
+    pub(in crate::manager) async fn has_pending_elicitation_for(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
         self.pending_elicitations
             .lock()
             .await

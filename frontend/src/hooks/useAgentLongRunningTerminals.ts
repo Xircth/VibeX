@@ -104,6 +104,8 @@ function upsertAgentTerminal(input: {
   });
 }
 
+const finishedTerminalIds = new Set<string>();
+
 function applyConversationBatch(batch: ConversationRowOpBatch) {
   for (const op of batch.ops) {
     if (op.op !== 'upsert' || op.row.row.kind !== 'message_turn') {
@@ -113,27 +115,37 @@ function applyConversationBatch(batch: ConversationRowOpBatch) {
     if (captures.length === 0) {
       continue;
     }
+    const runningCaptures = captures.filter((capture) => {
+      if (!capture.running) {
+        finishedTerminalIds.add(capture.toolUseId);
+        useAgentCommandOutputStore.getState().clear(capture.toolUseId);
+        removeAgentTerminal(capture.toolUseId);
+        return false;
+      }
+      return !finishedTerminalIds.has(capture.toolUseId);
+    });
+    if (runningCaptures.length === 0) {
+      continue;
+    }
     void sessionsApi
       .getById(batch.conversation_id)
       .then((session) => {
-        for (const capture of captures) {
-          if (capture.running) {
-            if (capture.output) {
-              useAgentCommandOutputStore
-                .getState()
-                .setOutput(capture.toolUseId, capture.output);
-            }
-            upsertAgentTerminal({
-              terminalId: capture.toolUseId,
-              workspaceId: session.workspace_id,
-              agentLabel: session.agent_id ?? session.executor ?? 'Agent',
-              command: capture.command,
-              type: 'agent-command',
-            });
-          } else {
-            useAgentCommandOutputStore.getState().clear(capture.toolUseId);
-            removeAgentTerminal(capture.toolUseId);
+        for (const capture of runningCaptures) {
+          if (finishedTerminalIds.has(capture.toolUseId)) {
+            continue;
           }
+          if (capture.output) {
+            useAgentCommandOutputStore
+              .getState()
+              .setOutput(capture.toolUseId, capture.output);
+          }
+          upsertAgentTerminal({
+            terminalId: capture.toolUseId,
+            workspaceId: session.workspace_id,
+            agentLabel: session.agent_id ?? session.executor ?? 'Agent',
+            command: capture.command,
+            type: 'agent-command',
+          });
         }
       })
       .catch(() => {
@@ -150,12 +162,16 @@ export function useAgentLongRunningTerminals() {
 
     const handleEvent = (event: AgentTerminalUiEvent) => {
       if (event.type === 'created') {
-        if (!event.workspace_id) {
+        if (!event.workspace_id || finishedTerminalIds.has(event.session_id)) {
           return;
         }
         void resolveAgentLabel(event.agent_label, event.agent_session_id).then(
           (agentLabel) => {
-            if (cancelled || !event.workspace_id) {
+            if (
+              cancelled ||
+              !event.workspace_id ||
+              finishedTerminalIds.has(event.session_id)
+            ) {
               return;
             }
             upsertAgentTerminal({
@@ -169,20 +185,35 @@ export function useAgentLongRunningTerminals() {
         return;
       }
 
+      finishedTerminalIds.add(event.session_id);
       removeAgentTerminal(event.session_id);
     };
 
     void (async () => {
       try {
-        unlisten = await backendListen<AgentTerminalUiEvent>(
+        const nextUnlisten = await backendListen<AgentTerminalUiEvent>(
           'agent-terminal-events',
           handleEvent
         );
-        unlistenConversation = await listenToConversationEvents((batch) => {
-          if (!cancelled) {
-            applyConversationBatch(batch);
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+
+        const nextUnlistenConversation = await listenToConversationEvents(
+          (batch) => {
+            if (!cancelled) {
+              applyConversationBatch(batch);
+            }
           }
-        });
+        );
+        if (cancelled) {
+          nextUnlistenConversation();
+          return;
+        }
+        unlistenConversation = nextUnlistenConversation;
+
         const live = await backendCall<AgentLiveTerminalView[]>(
           'agent_list_live_terminals'
         );
@@ -190,9 +221,12 @@ export function useAgentLongRunningTerminals() {
           return;
         }
         for (const item of live) {
+          if (finishedTerminalIds.has(item.terminalId)) {
+            continue;
+          }
           try {
             const session = await sessionsApi.getById(item.agentSessionId);
-            if (cancelled) {
+            if (cancelled || finishedTerminalIds.has(item.terminalId)) {
               return;
             }
             upsertAgentTerminal({

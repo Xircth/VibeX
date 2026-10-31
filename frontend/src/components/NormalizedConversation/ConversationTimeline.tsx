@@ -190,10 +190,12 @@ export function shouldLoadOlderTimelinePage(input: {
   scrollTop: number;
   previousScrollTop: number;
 }): boolean {
-  const crossedDownward =
-    input.previousScrollTop > LOAD_OLDER_THRESHOLD_PX &&
-    input.scrollTop <= LOAD_OLDER_THRESHOLD_PX;
-  return input.hasEarlier && !input.isAtBottom && crossedDownward;
+  const scrolledUpIntoOrWithinTopZone =
+    input.scrollTop <= LOAD_OLDER_THRESHOLD_PX &&
+    input.scrollTop < input.previousScrollTop;
+  return (
+    input.hasEarlier && !input.isAtBottom && scrolledUpIntoOrWithinTopZone
+  );
 }
 
 interface AgentTimelineConversationProps {
@@ -1155,6 +1157,13 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setFindMatchIndex(0);
   }, [findQuery]);
+
+  useEffect(() => {
+    setChildStack([]);
+    setFindOpen(false);
+    setFindQuery('');
+    setFindMatchIndex(0);
+  }, [sessionId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

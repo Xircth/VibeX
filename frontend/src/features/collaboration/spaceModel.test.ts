@@ -50,8 +50,12 @@ import {
   uniqueBotsForGroupMemberPicker,
   buildCollabDmBootstrapPrompt,
   isCollabDmBootstrapPrompt,
+  stripCollabDmBootstrapTags,
   contactLastMessagePreview,
   COLLAB_DM_BOOTSTRAP_PREFIX,
+  COLLAB_DM_BOOTSTRAP_SUFFIX,
+  DEFAULT_MASTER_BOT_NAME,
+  DEFAULT_MASTER_BOT_PERSONA_PROMPT,
   extractEnvelopeCrossChatMeta,
 } from './spaceModel';
 
@@ -113,8 +117,11 @@ describe('collaboration space model', () => {
     ]);
     expect(COPY.groupDetailsButton).toBe('群组详情');
     expect(COPY.groupDetailsTab).toBe('详情');
-    expect(COPY.groupCollectionTab).toBe('群收藏');
+    expect(COPY.groupCollectionTab).toBe('资产');
     expect(COPY.groupMembersTab).toBe('成员');
+    expect(COPY.spaceTagLabel).toBe('颜色标签');
+    expect(COPY.spaceTagNone).toBe('无标签');
+    expect(COPY.spaceTagClear).toBe('取消标签');
     expect(COPY.spaceLeadLabel).toBe('负责人');
     expect(COPY.spaceLeadSet).toBe('设为负责人');
     expect(COPY.collaborationLimitNotice).toBe(
@@ -126,7 +133,7 @@ describe('collaboration space model', () => {
     expect(COPY.receiptReplied).toBe('已回复');
     expect(COPY.assistantDetailsButton).toBe('助手详情');
     expect(COPY.assistantDetailsTab).toBe('详情');
-    expect(COPY.assistantCollectionTab).toBe('收藏');
+    expect(COPY.assistantCollectionTab).toBe('资产');
     expect(COPY.assistantCustomizeTab).toBe('自定义');
     expect(COPY.personaPromptLabel).toBe('人设（可选）');
     expect(COPY.addSpaceMember).toBe('添加成员');
@@ -815,7 +822,7 @@ describe('create group chat defaults', () => {
 });
 
 describe('collab DM bootstrap prompt', () => {
-  it('wraps identity, persona, and an ordinary-text greeting', () => {
+  it('generates concise DS-Bot kickoff prompts for user-created, bot-created, and master bots', () => {
     const prompt = buildCollabDmBootstrapPrompt({
       userName: '你',
       botName: '小E',
@@ -829,23 +836,30 @@ describe('collab DM bootstrap prompt', () => {
       )
     ).toBe(true);
     expect(prompt.startsWith(COLLAB_DM_BOOTSTRAP_PREFIX)).toBe(true);
-    expect(prompt).toContain('称呼用户：你');
-    expect(prompt).toContain('你的名字：小E');
-    expect(prompt).toContain('擅长写代码的搭档');
-    expect(prompt).toContain('direct:member-e');
-    expect(prompt).toContain('# 本回合立刻执行');
-    expect(prompt).toContain('直接输出招呼正文');
-    expect(prompt).toContain('post_space_message');
-    expect(prompt).not.toContain('以 `@User ` 开头');
-    expect(prompt).not.toContain('先应答，再执行，再交付');
-    expect(prompt).toContain('正在做什么');
-    expect(prompt).toContain('不重复已说内容');
-    expect(prompt).toContain('负责人');
-    expect(prompt).toContain('vibex-bot');
-    expect(prompt).toContain('TeamSpaces');
-    expect(prompt).not.toContain('list_space_collection');
-    expect(prompt).not.toContain('ask_user_question');
-    expect(prompt).not.toContain('post_to_space');
+    expect(prompt.endsWith(COLLAB_DM_BOOTSTRAP_SUFFIX)).toBe(true);
+    expect(stripCollabDmBootstrapTags(prompt)).toBe(
+      '用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。'
+    );
+    expect(prompt).not.toContain('# 身份');
+    expect(prompt).not.toContain('# 本回合立刻执行');
+    expect(prompt).not.toContain('direct:member-e');
+
+    const botCreatedPrompt = buildCollabDmBootstrapPrompt({
+      botName: 'Hailer',
+      creatorName: 'Lander',
+    });
+    expect(stripCollabDmBootstrapTags(botCreatedPrompt)).toBe(
+      'Lander 刚为用户创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问从哪里开始，保持简短。\n如果人设另有说明，以人设为准。'
+    );
+
+    const masterPrompt = buildCollabDmBootstrapPrompt({
+      botName: DEFAULT_MASTER_BOT_NAME,
+      personaPrompt: DEFAULT_MASTER_BOT_PERSONA_PROMPT,
+      isMaster: true,
+    });
+    expect(stripCollabDmBootstrapTags(masterPrompt)).toBe(
+      '你刚被设为用户的总管 Bot。请用一两句简短的话向用户打个招呼：说明你会帮用户统筹管理 Bot 团队，有需要决策的事都可以找你；再用一个简短的问题询问最想先让团队帮什么忙。\n如果人设另有说明，以人设为准。'
+    );
     expect(isCollabDmBootstrapPrompt('你好')).toBe(false);
   });
 
@@ -952,6 +966,74 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
     ]);
   });
 
+  it('preserves mid-turn step bubble alongside subsequent streaming draft and final reply in the same turnId', () => {
+    const step1Persisted = {
+      id: 'msg-step-1',
+      seq: 2,
+      origin: 'agent',
+      turnId: 'turn-1',
+      envelope: {
+        content:
+          '我先查看一下 vibex-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。',
+      },
+    };
+    const step2Draft = {
+      id: 'draft:turn-1:1',
+      seq: 3,
+      origin: 'agent',
+      turnId: 'turn-1',
+      streaming: true,
+      envelope: { content: '已经为你创建好负责邮件管理的' },
+    };
+    const step2Final = {
+      id: 'msg-step-2',
+      seq: 3,
+      origin: 'agent',
+      turnId: 'turn-1',
+      envelope: { content: '已经为你创建好负责邮件管理的 Bot「Hailer」了！' },
+    };
+
+    const withMidTurnAndDraft = mergeDirectSpaceMessages(
+      [],
+      [
+        {
+          id: 'msg-user',
+          seq: 1,
+          origin: 'user',
+          envelope: { content: '创建一个新Bot，名叫Hailer，帮我做邮件管理' },
+        },
+        step1Persisted,
+        step2Draft,
+      ],
+      false
+    );
+    expect(withMidTurnAndDraft.map((m) => m.id)).toEqual([
+      'msg-user',
+      'msg-step-1',
+      'draft:turn-1:1',
+    ]);
+
+    const withFinal = mergeDirectSpaceMessages(
+      withMidTurnAndDraft,
+      [
+        {
+          id: 'msg-user',
+          seq: 1,
+          origin: 'user',
+          envelope: { content: '创建一个新Bot，名叫Hailer，帮我做邮件管理' },
+        },
+        step1Persisted,
+        step2Final,
+      ],
+      true
+    );
+    expect(withFinal.map((m) => m.id)).toEqual([
+      'msg-user',
+      'msg-step-1',
+      'msg-step-2',
+    ]);
+  });
+
   it('keeps a follow-up user bubble while the previous turn is still streaming', () => {
     const merged = mergeDirectSpaceMessages(
       [],
@@ -1034,7 +1116,7 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
       completed: 1,
       total: 3,
       state: 'open',
-      label: '1/3 已完成',
+      label: '1/3 成员已回复',
     });
     expect(resolveMessageDeliveryStatus(inFlightRound)).toBe('sent');
 
@@ -1065,7 +1147,7 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
       completed: 3,
       total: 3,
       state: 'closed',
-      label: '3/3 已完成',
+      label: '3/3 成员已回复',
     });
     expect(resolveMessageDeliveryStatus(finishedRound)).toBe('delivered');
   });

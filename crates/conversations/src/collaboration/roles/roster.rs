@@ -58,6 +58,50 @@ pub async fn host_add_space_member(
         true,
     )
     .await?;
+    if parse_unassigned_space_id(space_id).is_none()
+        && !space_id.starts_with(identity::DIRECT_PREFIX)
+    {
+        let space_meta: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT created_by_conversation_id, lead_member_id FROM collaboration_spaces WHERE id = ?",
+        )
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        if let Some((created_by, current_lead)) = space_meta {
+            let is_user_created = created_by
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none();
+            if is_user_created {
+                let has_lead = current_lead
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|s| !s.is_empty());
+                let is_sup = match identity_member_id_for_conversation(
+                    pool,
+                    record.conversation_id.as_deref(),
+                )
+                .await?
+                {
+                    Some(mid) => is_member_supervisor(pool, &mid).await?,
+                    None => false,
+                };
+                let has_messages = sqlx::query_scalar::<_, i64>(
+                    "SELECT 1 FROM collaboration_space_messages WHERE space_id = ? LIMIT 1",
+                )
+                .bind(space_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?
+                .is_some();
+                if !has_messages && (!has_lead || is_sup) {
+                    set_space_lead(pool, space_id, Some(&record.member_id)).await?;
+                }
+            }
+        }
+    }
     store_operation(
         pool,
         &operation_id.to_string(),
@@ -294,12 +338,14 @@ pub struct CreateSpaceMemberRequest {
 }
 
 /// Create a bot identity plus its private-chat session for `caller_id`.
+/// Only the workspace supervisor bot (主管) is allowed to create new bots.
 pub async fn create_space_member(
     pool: &SqlitePool,
     caller_id: Uuid,
     input: CreateSpaceMemberRequest,
 ) -> Result<Value, CollaborationError> {
     let caller = live_session(load_session(pool, caller_id).await?)?;
+    require_workspace_supervisor(pool, caller_id, "create new bots (创建新 Bot)").await?;
     let agent_id = input
         .agent_id
         .as_deref()
@@ -384,6 +430,72 @@ pub(crate) fn require_group_space(space_id: &str) -> Result<(), CollaborationErr
     Ok(())
 }
 
+pub async fn is_member_supervisor(
+    pool: &SqlitePool,
+    member_id: &str,
+) -> Result<bool, CollaborationError> {
+    let flag: Option<i64> =
+        sqlx::query_scalar("SELECT is_supervisor FROM collaboration_members WHERE id = ?")
+            .bind(member_id.trim())
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    Ok(flag.unwrap_or(0) != 0)
+}
+
+pub async fn is_caller_workspace_supervisor(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    let caller_str = caller_id.to_string();
+    let Some(identity_id) = identity_member_id_for_conversation(pool, Some(&caller_str)).await?
+    else {
+        return Ok(false);
+    };
+    is_member_supervisor(pool, &identity_id).await
+}
+
+pub async fn require_workspace_supervisor(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    action_label: &str,
+) -> Result<(), CollaborationError> {
+    if is_caller_workspace_supervisor(pool, caller_id).await? {
+        return Ok(());
+    }
+    Err(CollaborationError::new(
+        "forbidden",
+        format!(
+            "only the supervisor bot (主管) can {action_label}; ask the supervisor or Person instead"
+        ),
+    ))
+}
+
+pub async fn require_supervisor_or_group_admin(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    space_id: &str,
+) -> Result<(), CollaborationError> {
+    require_group_space(space_id)?;
+    let space = load_space(pool, space_id).await?;
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    if caller.workspace_id.to_string() != space.workspace_id {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
+    if is_caller_workspace_supervisor(pool, caller_id).await? {
+        return Ok(());
+    }
+    let (seat, lead, created_by) = load_caller_seat_in_space(pool, caller_id, space_id).await?;
+    require_roster_admin(
+        pool,
+        &seat,
+        lead.as_deref(),
+        created_by.as_deref(),
+        caller_id,
+    )
+    .await
+}
+
 pub(crate) async fn require_roster_admin(
     pool: &SqlitePool,
     seat: &MemberRecord,
@@ -391,13 +503,16 @@ pub(crate) async fn require_roster_admin(
     created_by: Option<&str>,
     caller_id: Uuid,
 ) -> Result<(), CollaborationError> {
+    if is_caller_workspace_supervisor(pool, caller_id).await? {
+        return Ok(());
+    }
     if lead == Some(seat.member_id.as_str()) {
         return Ok(());
     }
     if lead.is_some() {
         return Err(CollaborationError::new(
             "forbidden",
-            "only the group lead can manage the roster",
+            "only the supervisor (主管) or group lead can manage the roster",
         ));
     }
     // The creator is recorded on the conversation that created the group
@@ -416,51 +531,9 @@ pub(crate) async fn require_roster_admin(
     } else {
         Err(CollaborationError::new(
             "forbidden",
-            "only the group lead can manage the roster",
+            "only the supervisor (主管) or group lead can manage the roster",
         ))
     }
-}
-
-/// Roster admin rights in at least one of the given groups. Used when a bot is
-/// deleted through the unassigned space while it still belongs to groups.
-pub(crate) async fn require_admin_in_any_space(
-    pool: &SqlitePool,
-    caller_id: Uuid,
-    space_ids: &[String],
-) -> Result<(), CollaborationError> {
-    let caller_conversation = caller_id.to_string();
-    for space_id in space_ids {
-        let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
-        let Some(seat) = members
-            .iter()
-            .find(|member| member.conversation_id.as_deref() == Some(caller_conversation.as_str()))
-        else {
-            continue;
-        };
-        let (lead, created_by): (Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT lead_member_id, created_by_conversation_id FROM collaboration_spaces WHERE id = ?",
-        )
-        .bind(space_id)
-        .fetch_one(pool)
-        .await
-        .map_err(db)?;
-        if require_roster_admin(
-            pool,
-            seat,
-            lead.as_deref(),
-            created_by.as_deref(),
-            caller_id,
-        )
-        .await
-        .is_ok()
-        {
-            return Ok(());
-        }
-    }
-    Err(CollaborationError::new(
-        "forbidden",
-        "only a group lead can delete a member who still belongs to a group",
-    ))
 }
 
 /// Resolve a roster member reference: a per-space seat id, an identity id, or

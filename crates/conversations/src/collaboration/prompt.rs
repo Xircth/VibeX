@@ -104,6 +104,36 @@ fn is_broadcast_recipients(recipients: &str) -> bool {
     )
 }
 
+pub const PRIVATE_BOOTSTRAP_OPEN_TAG: &str = "<vibex-private-bootstrap>";
+pub const PRIVATE_BOOTSTRAP_CLOSE_TAG: &str = "</vibex-private-bootstrap>";
+
+pub fn strip_private_bootstrap_tags(text: &str) -> String {
+    text.replace(PRIVATE_BOOTSTRAP_OPEN_TAG, "")
+        .replace(PRIVATE_BOOTSTRAP_CLOSE_TAG, "")
+        .trim()
+        .to_string()
+}
+
+pub fn build_bot_bootstrap_prompt(creator_name: Option<&str>, is_master: bool) -> String {
+    let creator = creator_name.map(str::trim).filter(|name| {
+        !name.is_empty()
+            && !matches!(
+                *name,
+                "你" | "用户" | "User" | "user" | "Person" | "person" | "You" | "you"
+            )
+    });
+    let body = if is_master {
+        "你刚被设为用户的总管 Bot。请用一两句简短的话向用户打个招呼：说明你会帮用户统筹管理 Bot 团队，有需要决策的事都可以找你；再用一个简短的问题询问最想先让团队帮什么忙。\n如果人设另有说明，以人设为准。".to_string()
+    } else if let Some(creator) = creator {
+        format!(
+            "{creator} 刚为用户创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问从哪里开始，保持简短。\n如果人设另有说明，以人设为准。"
+        )
+    } else {
+        "用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。".to_string()
+    };
+    format!("{PRIVATE_BOOTSTRAP_OPEN_TAG}\n{body}\n{PRIVATE_BOOTSTRAP_CLOSE_TAG}")
+}
+
 pub(crate) fn slim_space_envelope_from_parts(
     space_id: &str,
     space_name: Option<&str>,
@@ -112,11 +142,12 @@ pub(crate) fn slim_space_envelope_from_parts(
     content: &str,
     display_text: &str,
 ) -> SlimSpaceEnvelope {
-    let body = if !display_text.trim().is_empty() {
-        display_text.trim().to_string()
+    let raw_body = if !display_text.trim().is_empty() {
+        display_text.trim()
     } else {
-        content.trim().to_string()
+        content.trim()
     };
+    let body = strip_private_bootstrap_tags(raw_body);
     let is_group = is_group_space(space_id);
     SlimSpaceEnvelope {
         sender: sender_nickname(envelope),
@@ -184,9 +215,11 @@ pub(crate) fn format_space_identity_rules(
     format!(
         "[Space 身份与协作规则]\n\
          - 你是 Bot「{nick}」，当前空间是 {kind}（space_id: {space_id}）。Person 即用户（兼容显示 User）。\n\
-         - 完整协作规范位于 `~/.vibex/skills/vibex-bot/SKILL.md`\n\
-         - 当前 Space 的共享文件夹路径为 `{collection_path}`，可直接用普通文件工具读写\n\
-         - 在当前 Space 发言无需调用工具，直接输出最终文本回复即可；不想发言或无需补充直接输出 `[PASS]`。"
+         - 发言与静默：在当前 Space 发言无需调用工具，直接输出最终文本即可（不要以自己的名字或 `@自己` 开头）；无新信息、无需补充或收到纯礼貌确认（如“收到/好的/谢谢”）时直接输出 `[PASS]`。\n\
+         - 点名与接力（GroupSpace）：需要本群其他 Bot 接手、核实或汇总时，正文以 `@对方昵称 ` 开头（可 `@BotA @BotB` 按顺序点名）；未写 `@` 的回复默认交回给派活方或 Person。\n\
+         - 增量上下文与边做边说：GroupSpace 信封已自带 `[上次发言后的群内新消息]`（含本轮前序 Bot 发言），无需再调用 `read_space_messages` 查看本轮消息，严禁输出“我先看一下群里的最新消息/确认某人补充的内容”等查看群聊的过渡话术；仅在调用工具执行实质任务耗时操作时，先在同一回合写一句接下来做什么并紧接着调用工具，完成后输出最终结论。\n\
+         - 独立核实与零复读：群内其他 Bot 的观点不等于已验证事实，涉及代码或根因必须结合自身职责独立核实；前序成员已说过的事实、理由直接跳过，只写你的增量结论。\n\
+         - 空间工具与共享文件：派活前不确定谁在忙可调 `list_spaces`（看 `activity`：working / waiting_for_person / waiting_for_bot / idle）；查折叠或更早历史才用 `read_space_messages`；跨 Space 投递才用 `post_space_message`；当前 Space 共享文件夹为 `{collection_path}`（直接用文件工具读写）。完整规范位于 `~/.vibex/skills/vibex-bot/SKILL.md`。"
     )
 }
 
@@ -241,17 +274,34 @@ pub(crate) async fn compose_space_delivery_prompt(
             }
         }
     }
+    let activity_limit = member_activity_limit();
+    if activity_limit > 0
+        && let Some(memory) = crate::member_memory::memory_context_text(
+            pool,
+            conversation_id,
+            Some(&slim_envelope.body),
+            activity_limit,
+        )
+        .await?
+    {
+        blocks.push(memory);
+    }
+    let mut after_slim = None;
     if is_group_space(space_id) {
         let last_seen = last_completed_delivery_seq(pool, space_id, conversation_id)
             .await?
             .unwrap_or(0);
-        if let Some(missed) =
-            missed_group_context(pool, space_id, conversation_id, last_seen, seq).await?
-        {
-            blocks.push(missed);
+        let (before, after) =
+            split_missed_group_context(pool, space_id, conversation_id, last_seen, seq).await?;
+        if let Some(missed_before) = before {
+            blocks.push(missed_before);
         }
+        after_slim = after;
     }
     blocks.push(slim);
+    if let Some(missed_after) = after_slim {
+        blocks.push(missed_after);
+    }
     Ok(blocks.join("\n\n"))
 }
 
@@ -475,7 +525,7 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
     }
 }
 
-pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含 `lead_bot` / `lead_nickname`）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递、长任务中途向 Person/User 播报进度或 `delay_seconds` 延时；本 Space 常规回复请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头）、`manage_bot`（创建/更新/删除/打断 Bot）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起高危操作审批），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。共享文件用文件工具读写 `~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/`。";
+pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含主管 `supervisor_nickname` / `is_caller_supervisor` 与群负责人 `lead_bot` / `lead_nickname`。每个成员带 `is_supervisor` 与 `activity`：`state` 为 working / waiting_for_person / waiting_for_bot / idle，`at` 是所在 Space，`waiting_for` 是在等的 Person 或 Bot 名。派活前看这个，不要靠记忆）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递或 `delay_seconds` 延时；本 Space 常规回复与耗时进度请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头；发到 Group 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 是日志回执）、`manage_bot`（创建/更新/删除/打断 Bot；其中创建/删除他人/修改人设配置仅限主管调用）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot；其中创建/删除群仅限主管，加人/移出/改名/设负责人限主管或本群负责人）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起阻塞高危操作审批，等到允许/拒绝后直接返回 `decision` 与 `approved`），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。共享文件用文件工具读写 `~/.vibex/spaces/<space_id>/collection/`。";
 
 pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
     let header = match space_id_hint {
@@ -494,16 +544,16 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
     format!(
         "{header}\n\
            1) 在对应空间回复：来自 GroupSpace / BotSpace 的消息，直接输出最终文本即可出现在当前 Space；不想发言或无需补充输出 `[PASS]`。Person（兼容 User）在协作空间里只看见空间消息，不要再写一段重复的普通会话回复；\n\
-           2) 向用户积极汇报进展：收到 Person 任务后，用户必须能从空间消息确认你在推进。工作需要一段时间时，尽快向 Person 写正在做的事（`to: [\"User\"]`）；有实质进展再发；完成时直接发结果或拍板问题。能很快完成的直接发结果。正文写正在做或已经做成的事；普通消息只发 content；\n\
+           2) 向用户积极汇报进展：收到 Person 任务后，用户必须能从空间消息确认你在推进。工作需要调用工具耗时推进时，先在同一回合写一句正在做的事并紧接调用工具，不要为此调用 `post_space_message`；有实质进展再写一两句；完成时直接发结果或拍板问题。能很快完成的直接发结果。同伴来信不要写进度，做完用事实回答。严禁输出“我先看一下刚刚群里的最新消息，确认某人补充的内容，避免重复说明”等查看群聊或读技能的过渡话术，正文只写正在做或已经做成的实质工作；\n\
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接输出 `[PASS]` 结束当前回合；向其他 Bot 发消息时也不要要求“收到请回复”；\n\
            4) 对用户屏蔽内部参数：向用户发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
-           5) 空间感知：投递信封附带上次发言以来的未读增量。需要名单时自行调用 `list_spaces`（传入 `space_id`）；需要更早消息时自行调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。共享文件用文件工具读写 `~/.vibex/{{projectId}}/TeamSpaces/{{spaceId}}/Collection/`；\n\
+           5) 空间感知：投递信封附带上次发言以来的未读增量（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复），直接基于信封增量推进，不要每回合调用 `read_space_messages` 去查看刚刚的群消息。需要名单或成员忙闲时自行调用 `list_spaces`（传入 `space_id`，看每位成员的 `activity`：working / waiting_for_person / waiting_for_bot / idle）；仅当信封提示更早消息已折叠或确需回溯更早历史时才自行调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。共享文件用文件工具读写 `~/.vibex/spaces/<space_id>/collection/`；\n\
            6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史或 `read_space_messages` 中其他 Bot 的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。\n\
-           7) 跨会话投递保持当前 space_id：`post_space_message` 必须传入当前会话的 space_id。联系其他 Bot 时 `to` 传对方昵称（投到对方 BotSpace）；发到其他 GroupSpace 时 `to` 传群名。禁止把 space_id 换成目标私聊或共同群；\n\
+           7) 跨会话投递保持当前 space_id：`post_space_message` 必须传入当前会话的 space_id。联系其他 Bot 时 `to` 传对方昵称（投到对方 BotSpace）；发到其他 GroupSpace 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 只进群日志（日志回执）。正文带 `@` 的即时投递，工具返回后 `list_spaces` 一次核对目标 `activity`；仍 idle 则补带 `@` 的信。跨 Space 向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`。禁止把 space_id 换成目标私聊或共同群；\n\
            8) 不重复已说内容：其他 Bot 已在本群说过的事实、理由或转述链，不要再解释一遍；只发自己的增量。转达已完成且群内已可见时，不必再向 Person 复述同一句话；\n\
            9) 找负责人：争议、排版/格式决策、需要汇总的结果，优先给空间牵头 Bot（`list_spaces` 的 `lead_nickname` / `lead_bot`）。没有负责人时由任务主责人汇总，再没有则向 Person 请示。\n\
-           10) 成员与群生命周期：`manage_bot` 创建/更新/删除/打断 Bot（创建默认不入群）；`manage_group` 创建/重命名/删除群、加人、移出、退出、指定牵头 Bot。删除 Bot 或删除 Group 不可逆，执行前必须先 `request_approval`；\n\
-           11) 打断同群 Bot 的在途回合：需要另一位同群 Bot 立刻响应但它正忙时，先 `manage_bot`（`action: \"interrupt\"`）停止它的当前回合，再投递。同群任意 Bot 都可打断任何其他 Bot；不能打断自己，不能跨群或 BotSpace 打断；被打断的工作不会自动重做，且对方已排队的消息可能先开始，只在确有必要时使用。"
+           10) 成员与群生命周期权限：`manage_bot` 的 `create` / `delete` / 修改他人或变更人设模型配置，以及 `manage_group` 的 `create` / `delete` 仅限工作区 **主管（总管）** 调用（创建前先 `list_spaces` 防重；主管本身受保护不可删除）；`manage_group` 的 `rename` / `add_bot` / `remove_bot` / `set_lead` 限主管或本群负责人调用；普通 Bot 仅可 `manage_bot(update)` 改自己昵称或 `manage_group(leave)` 退群。删除 Bot 或删除 Group 不可逆，执行前必须先 `request_approval`；\n\
+           11) 打断同群 Bot 的在途回合：只在对方必须立刻停下（危险操作、明显跑偏）且口头 `@` 来不及的时候，用 `manage_bot`（`action: \"interrupt\"`）。同群任意 Bot 或工作区主管都可打断其他 Bot；不能打断自己，不能对 BotSpace 打断；被打断的工作不会自动重做，对方已排队的消息可能先开始。"
     )
 }
 
@@ -636,6 +686,11 @@ mod tests {
         assert!(rules.contains("向用户积极汇报进展"), "{rules}");
         assert!(rules.contains("正在做的事"), "{rules}");
         assert!(rules.contains("实质进展"), "{rules}");
+        assert!(rules.contains("同一回合"), "{rules}");
+        assert!(
+            rules.contains("不要为此调用 `post_space_message`"),
+            "{rules}"
+        );
         assert!(
             rules.contains("直接发结果") || rules.contains("很快完成"),
             "{rules}"
@@ -644,8 +699,13 @@ mod tests {
         assert!(!rules.contains("已收到及处理计划"), "{rules}");
         assert!(!rules.contains("我正在查看项目中"), "{rules}");
         assert!(!rules.contains("我已经查看了项目的完整架构"), "{rules}");
+        assert!(!rules.contains("尽快向 Person 写正在做的事"), "{rules}");
         assert!(rules.contains("to: [\"User\"]"), "{rules}");
         assert!(!rules.contains("content 以 `@User ` 开头"), "{rules}");
+        assert!(
+            !COLLABORATION_MCP_TOOLS_SUMMARY.contains("长任务中途"),
+            "{COLLABORATION_MCP_TOOLS_SUMMARY}"
+        );
     }
 
     #[test]
@@ -671,6 +731,10 @@ mod tests {
                 || COLLABORATION_MCP_TOOLS_SUMMARY.contains("负责人"),
             "{COLLABORATION_MCP_TOOLS_SUMMARY}"
         );
+        assert!(
+            rules.contains("activity") && COLLABORATION_MCP_TOOLS_SUMMARY.contains("waiting_for"),
+            "{rules}\n{COLLABORATION_MCP_TOOLS_SUMMARY}"
+        );
     }
 
     #[test]
@@ -685,6 +749,14 @@ mod tests {
         assert!(rules.contains("to"), "{rules}");
         assert!(
             rules.contains("不要把 space_id 换成") || rules.contains("禁止把 space_id 换成"),
+            "{rules}"
+        );
+        assert!(
+            rules.contains("@BotName") && rules.contains("只进群日志"),
+            "{rules}"
+        );
+        assert!(
+            rules.contains("日志回执") && rules.contains("list_spaces"),
             "{rules}"
         );
     }
@@ -706,8 +778,14 @@ mod tests {
         assert!(opening.contains(&format!("~/.vibex/spaces/{SAMPLE_SPACE}/collection/")));
         assert!(opening.contains("[PASS]"));
         assert!(opening.contains("无需调用工具"));
+        assert!(opening.contains("@对方昵称"));
+        assert!(opening.contains("list_spaces"));
+        assert!(opening.contains("read_space_messages"));
+        assert!(opening.contains("独立核实"));
+        assert!(opening.contains("同一回合"));
         assert!(!opening.contains("同空间成员："));
         assert!(!opening.contains("空间内成员："));
+        assert!(!opening.contains("尽快向 Person 写正在做的事"));
     }
 
     #[test]
@@ -725,7 +803,10 @@ mod tests {
             SAMPLE_BODY,
             SAMPLE_BODY,
         ));
-        assert!(slim.contains("[Group chat \"评审工作\" · from Person · to @小A]"), "{slim}");
+        assert!(
+            slim.contains("[Group chat \"评审工作\" · from Person · to @小A]"),
+            "{slim}"
+        );
         assert!(slim.starts_with('['), "{slim}");
         assert_eq!(slim.lines().count(), 2, "{slim}");
     }
@@ -869,12 +950,18 @@ mod tests {
             first.contains("~/.vibex/skills/vibex-bot/SKILL.md"),
             "{first}"
         );
-        assert!(first.contains("[Group chat \"评审工作\" · from Person"), "{first}");
+        assert!(
+            first.contains("[Group chat \"评审工作\" · from Person"),
+            "{first}"
+        );
         assert!(first.contains("请分析登录"), "{first}");
         assert!(!first.contains("空间内成员"), "{first}");
         assert!(!second.contains("[Space 身份与协作规则]"), "{second}");
         assert!(!second.contains("list_space_members"), "{second}");
-        assert!(second.contains("[Group chat \"评审工作\" · from Person"), "{second}");
+        assert!(
+            second.contains("[Group chat \"评审工作\" · from Person"),
+            "{second}"
+        );
         assert!(
             second.contains("请再看缓存") || second.contains("再看缓存"),
             "{second}"
@@ -957,6 +1044,94 @@ mod tests {
         assert!(text.contains("请核对接口"), "{text}");
         assert!(text.contains("接口字段已对齐"), "{text}");
         assert!(!text.contains("root_id"), "{text}");
-        assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
+        assert!(
+            text.contains("[Group chat \"评审工作\" · from 小A"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn bot_bootstrap_prompt_matches_concise_ds_bot_templates_and_strips_wrapper_in_envelope() {
+        let master = build_bot_bootstrap_prompt(None, true);
+        assert_eq!(
+            strip_private_bootstrap_tags(&master),
+            "你刚被设为用户的总管 Bot。请用一两句简短的话向用户打个招呼：说明你会帮用户统筹管理 Bot 团队，有需要决策的事都可以找你；再用一个简短的问题询问最想先让团队帮什么忙。\n如果人设另有说明，以人设为准。"
+        );
+
+        let bot_created = build_bot_bootstrap_prompt(Some("Lander"), false);
+        assert_eq!(
+            strip_private_bootstrap_tags(&bot_created),
+            "Lander 刚为用户创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问从哪里开始，保持简短。\n如果人设另有说明，以人设为准。"
+        );
+
+        let user_created = build_bot_bootstrap_prompt(Some("你"), false);
+        assert_eq!(
+            strip_private_bootstrap_tags(&user_created),
+            "用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。"
+        );
+
+        let env = json!({
+            "sender": "Person",
+            "to": ["Bot (Hailer)"],
+            "content": bot_created,
+        });
+        let slim = slim_space_envelope_from_parts(
+            "direct:member-1",
+            None,
+            &env,
+            None,
+            &bot_created,
+            &bot_created,
+        );
+        assert!(!slim.body.contains("<vibex-private-bootstrap>"));
+        assert!(!slim.body.contains("</vibex-private-bootstrap>"));
+        assert!(slim.body.starts_with("Lander 刚为用户创建了你。"));
+    }
+
+    #[tokio::test]
+    async fn space_delivery_prompt_injects_member_memory_with_privacy_isolation() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+
+        crate::member_memory::tool_write(
+            &pool,
+            a,
+            "登录接口采用 JWT 双 Token 刷新机制",
+            Some("global"),
+        )
+        .await
+        .unwrap();
+        let caller = crate::member_memory::memory_caller(&pool, a)
+            .await
+            .unwrap()
+            .unwrap();
+        crate::member_memory::create_fact(
+            &pool,
+            &caller.member_id,
+            "私聊里的用户邮箱密码偏好",
+            &crate::member_memory::FactScope::Private,
+            Some(&format!("direct:{}", caller.member_id)),
+            "agent",
+        )
+        .await
+        .unwrap();
+
+        post_as(&pool, None, &space, "@小A 请检查登录接口的 Token 刷新", &[]).await;
+        let texts = inputs_of(&pool, a).await;
+        let payload: Value = serde_json::from_str(texts.last().unwrap()).unwrap();
+        let text = payload["text"].as_str().unwrap();
+
+        assert!(text.contains("[成员记忆]"), "{text}");
+        assert!(
+            text.contains("登录接口采用 JWT 双 Token 刷新机制"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("私聊里的用户邮箱密码偏好"),
+            "private memory must never leak into GroupSpace: {text}"
+        );
     }
 }

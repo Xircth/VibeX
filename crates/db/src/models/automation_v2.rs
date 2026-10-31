@@ -362,6 +362,13 @@ impl SqliteAutomationStore {
 
     pub async fn delete(&self, id: Uuid) -> Result<(), sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            "DELETE FROM automation_shared_root_locks
+             WHERE run_id IN (SELECT id FROM automation_runs WHERE automation_id = ?)",
+        )
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query("DELETE FROM automation_runs WHERE automation_id=?")
             .bind(id)
             .execute(&mut *transaction)
@@ -655,6 +662,9 @@ impl RecoveryStorePort for SqliteAutomationStore {
              WHERE run_id IN (
                 SELECT id FROM automation_runs
                 WHERE status = 'running' AND workflow_run_id IS NULL
+             )
+             OR run_id NOT IN (
+                SELECT id FROM automation_runs WHERE status = 'running'
              )",
         )
         .execute(&mut *transaction)

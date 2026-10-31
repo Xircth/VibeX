@@ -1,4 +1,9 @@
-use chrono::{Duration, Utc};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
+
+use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -7,6 +12,165 @@ use super::{routing::ResolvedTarget, *};
 
 pub const DEFAULT_COLLAB_ROUND_TIMEOUT_MINUTES: i64 = 30;
 pub const DEFAULT_COLLAB_ROUND_GRACE_SECS: i64 = 3;
+pub const DEFAULT_COLLAB_ROUND_TURN_WAIT_SECS: i64 = 15;
+
+static ACTIVE_TOOL_TURNS: OnceLock<Mutex<HashMap<Uuid, DateTime<Utc>>>> = OnceLock::new();
+
+fn active_tool_turns() -> &'static Mutex<HashMap<Uuid, DateTime<Utc>>> {
+    ACTIVE_TOOL_TURNS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record the first tool call on this conversation's in-flight space turn.
+pub fn mark_space_turn_tool_started(conversation_id: Uuid) {
+    let mut map = active_tool_turns()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.entry(conversation_id).or_insert_with(Utc::now);
+}
+
+/// Clear the in-memory tool-call mark when the space turn ends.
+pub fn clear_space_turn_tool_started(conversation_id: Uuid) {
+    let mut map = active_tool_turns()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.remove(&conversation_id);
+}
+
+fn space_turn_tool_started_at(conversation_id: Uuid) -> Option<DateTime<Utc>> {
+    let map = active_tool_turns()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.get(&conversation_id).copied()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceTurnStreamingStep {
+    pub step_index: u32,
+    pub text: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SpaceTurnStreamingState {
+    step_index: u32,
+    text: String,
+    updated_at: String,
+    flushing_step_index: u32,
+    flushing_text: String,
+    flushing_updated_at: String,
+}
+
+static ACTIVE_STREAMING_STEPS: OnceLock<Mutex<HashMap<Uuid, SpaceTurnStreamingState>>> =
+    OnceLock::new();
+
+fn active_streaming_steps() -> &'static Mutex<HashMap<Uuid, SpaceTurnStreamingState>> {
+    ACTIVE_STREAMING_STEPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn reset_space_turn_streaming_step(conversation_id: Uuid) {
+    let mut map = active_streaming_steps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.remove(&conversation_id);
+}
+
+pub fn append_space_turn_streaming_text(
+    conversation_id: Uuid,
+    delta: &str,
+    separator_newline: bool,
+) {
+    if delta.is_empty() {
+        return;
+    }
+    let mut map = active_streaming_steps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let entry = map.entry(conversation_id).or_default();
+    if separator_newline && !entry.text.is_empty() && !entry.text.ends_with('\n') {
+        entry.text.push('\n');
+    }
+    entry.text.push_str(delta);
+    entry.updated_at = now_stamp();
+    entry.flushing_text.clear();
+}
+
+pub fn advance_space_turn_streaming_step(conversation_id: Uuid) {
+    let mut map = active_streaming_steps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(entry) = map.get_mut(&conversation_id)
+        && !entry.text.trim().is_empty()
+    {
+        entry.flushing_step_index = entry.step_index;
+        entry.flushing_text = std::mem::take(&mut entry.text);
+        entry.flushing_updated_at = entry.updated_at.clone();
+        entry.step_index = entry.step_index.saturating_add(1);
+    }
+}
+
+pub fn clear_space_turn_flushing_step(conversation_id: Uuid) {
+    let mut map = active_streaming_steps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(entry) = map.get_mut(&conversation_id) {
+        entry.flushing_text.clear();
+        entry.flushing_updated_at.clear();
+    }
+}
+
+pub fn space_turn_streaming_step(conversation_id: Uuid) -> Option<SpaceTurnStreamingStep> {
+    let map = active_streaming_steps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let entry = map.get(&conversation_id)?;
+    if !entry.text.trim().is_empty() {
+        return Some(SpaceTurnStreamingStep {
+            step_index: entry.step_index,
+            text: entry.text.clone(),
+            updated_at: entry.updated_at.clone(),
+        });
+    }
+    if !entry.flushing_text.trim().is_empty() {
+        return Some(SpaceTurnStreamingStep {
+            step_index: entry.flushing_step_index,
+            text: entry.flushing_text.clone(),
+            updated_at: entry.flushing_updated_at.clone(),
+        });
+    }
+    None
+}
+
+pub async fn notify_space_turn_streaming(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    delivery: &DeliveryContext,
+) {
+    let Ok(rows) = open_space_turn_deliveries(pool, conversation_id).await else {
+        return;
+    };
+    let mut space_ids = std::collections::BTreeSet::new();
+    for (space_id, _, _, _) in rows {
+        if space_tracks_turns(&space_id) {
+            space_ids.insert(space_id);
+        }
+    }
+    if space_ids.is_empty()
+        && let Ok(Some(direct_ctx)) = latest_direct_session_turn(pool, conversation_id, true).await
+    {
+        for space_id in direct_ctx.space_ids {
+            space_ids.insert(space_id);
+        }
+    }
+    for space_id in space_ids {
+        if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+            && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
+        {
+            let mut evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
+            evt.kind = Some("turn".to_string());
+            delivery.notify_space_changed(evt);
+        }
+    }
+}
 
 pub fn collab_round_timeout_minutes() -> i64 {
     super::routing::env_i64(
@@ -22,6 +186,14 @@ pub fn collab_round_grace_secs() -> i64 {
         DEFAULT_COLLAB_ROUND_GRACE_SECS,
     )
     .max(1)
+}
+
+pub fn collab_round_turn_wait_secs() -> i64 {
+    super::routing::env_i64(
+        "VIBEX_COLLAB_ROUND_TURN_WAIT_SECS",
+        DEFAULT_COLLAB_ROUND_TURN_WAIT_SECS,
+    )
+    .max(3)
 }
 
 pub(crate) fn first_mention_offset(content: &str, name: &str) -> Option<usize> {
@@ -545,7 +717,18 @@ pub async fn advance_round(
             }
             progressed = true;
             current_ordinal = next_ord;
-            let _ = deliver_pending(pool, &space_id, &root_message_id, delivery_ctx).await;
+            let slot_message_id: String = sqlx::query_scalar(
+                r#"SELECT space_message_id FROM collaboration_space_deliveries
+                   WHERE round_id = ? AND round_ordinal = ?
+                   LIMIT 1"#,
+            )
+            .bind(round_id)
+            .bind(current_ordinal)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .unwrap_or_else(|| root_message_id.clone());
+            let _ = deliver_pending(pool, &space_id, &slot_message_id, delivery_ctx).await;
             let next_state: Option<(String, Option<String>)> = sqlx::query_as(
                 r#"SELECT receipt_state, input_id
                    FROM collaboration_space_deliveries
@@ -632,16 +815,20 @@ async fn round_slot_is_detachable(
     if member_posted_after(pool, space_id, cid, trigger_seq).await? {
         return Ok(true);
     }
-    if conversation_has_open_tool_calls(pool, cid).await? {
-        return Ok(true);
+    if let Some(tool_start) = space_turn_tool_started_at(cid) {
+        let elapsed = Utc::now().signed_duration_since(tool_start);
+        return Ok(elapsed.num_seconds() >= collab_round_grace_secs());
     }
     let started = turn_created_at
         .as_deref()
         .or(receipt_updated_at.as_deref())
         .and_then(parse_stamp);
+    if conversation_has_open_tool_calls(pool, cid).await? {
+        return Ok(true);
+    }
     if let Some(started) = started {
         let elapsed = Utc::now().signed_duration_since(started);
-        if elapsed.num_seconds() >= collab_round_grace_secs() {
+        if elapsed.num_seconds() >= collab_round_turn_wait_secs() {
             return Ok(true);
         }
     }
@@ -654,10 +841,19 @@ async fn conversation_has_open_tool_calls(
     conversation_id: Uuid,
 ) -> Result<bool, CollaborationError> {
     let found: Option<i64> = sqlx::query_scalar(
-        r#"SELECT 1 FROM conversation_tool_calls tc
-           JOIN conversation_turns t ON t.id = tc.turn_id
+        r#"SELECT 1 FROM conversation_turns t
            WHERE t.conversation_id = ?
-             AND t.status IN ('running', 'blocked', 'pending', 'queued')
+             AND (
+               t.status = 'blocked'
+               OR (
+                 t.status IN ('running', 'pending', 'queued')
+                 AND EXISTS (
+                   SELECT 1 FROM conversation_tool_calls tc
+                   WHERE tc.turn_id = t.id
+                     AND tc.status IN ('pending', 'running')
+                 )
+               )
+             )
            LIMIT 1"#,
     )
     .bind(conversation_id)
@@ -800,31 +996,227 @@ pub(crate) async fn message_actor_conversation(
     Ok(envelope_sender_conversation(&envelope))
 }
 
-/// Finalize any unclosed `receipt_state = 'processing'` deliveries for `conversation_id`
-/// when its turn completes without having called `post_to_space`.
-pub async fn finalize_space_turn_deliveries(
+async fn open_space_turn_deliveries(
     pool: &SqlitePool,
     conversation_id: Uuid,
-    turn_assistant_text: &str,
-    delivery: &DeliveryContext,
-) -> Result<Vec<CollaborationSpaceChangedEvent>, CollaborationError> {
-    let rows = sqlx::query_as::<_, (String, String, i64, Option<String>)>(
+) -> Result<Vec<(String, String, i64, Option<String>)>, CollaborationError> {
+    sqlx::query_as::<_, (String, String, i64, Option<String>)>(
         r#"SELECT m.space_id, d.space_message_id, m.seq, d.turn_id
            FROM collaboration_space_deliveries d
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
            WHERE d.conversation_id = ?
-             AND (d.receipt_state = 'processing'
-                  OR (d.receipt_state = 'queued' AND d.turn_id IS NOT NULL AND t.state <> 'finished'))
+             AND (
+               d.receipt_state = 'processing'
+               OR (
+                 d.receipt_state = 'queued'
+                 AND d.turn_id IS NOT NULL
+                 AND t.state <> 'finished'
+                 AND (
+                   d.status = 'dispatched'
+                   OR NOT EXISTS (
+                     SELECT 1 FROM collaboration_space_deliveries d2
+                     WHERE d2.conversation_id = d.conversation_id
+                       AND (d2.receipt_state = 'processing' OR d2.status = 'dispatched')
+                   )
+                 )
+               )
+             )
            ORDER BY m.seq ASC"#,
     )
     .bind(conversation_id.to_string())
     .fetch_all(pool)
     .await
-    .map_err(db)?;
+    .map_err(db)
+}
 
+#[derive(Debug, Clone)]
+pub(crate) struct DirectSessionTurnContext {
+    pub turn_id: String,
+    pub space_ids: Vec<String>,
+}
+
+pub(crate) async fn latest_direct_session_turn(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    require_in_flight: bool,
+) -> Result<Option<DirectSessionTurnContext>, CollaborationError> {
+    let Some(turn) =
+        db::models::conversation_turn::ConversationTurnRecord::latest_for_conversation(
+            pool,
+            conversation_id,
+        )
+        .await
+        .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    if require_in_flight
+        && !matches!(
+            turn.status.as_str(),
+            "pending" | "queued" | "running" | "blocked"
+        )
+    {
+        return Ok(None);
+    }
+    if !require_in_flight && matches!(turn.status.as_str(), "failed" | "cancelled") {
+        return Ok(None);
+    }
+    if turn
+        .input_blocks_json
+        .contains("\"collaboration_space_origin\"")
+    {
+        return Ok(None);
+    }
+    let preview = turn.text_preview.as_deref().unwrap_or("");
+    if preview.contains(PRIVATE_BOOTSTRAP_OPEN_TAG)
+        || turn.input_blocks_json.contains(PRIVATE_BOOTSTRAP_OPEN_TAG)
+        || crate::session_info::is_host_history_prompt(preview.trim())
+    {
+        return Ok(None);
+    }
+    let turn_id_str = turn.id.to_string();
+    let has_delivery: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM collaboration_space_deliveries WHERE turn_id = ? LIMIT 1",
+    )
+    .bind(&turn_id_str)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if has_delivery.is_some() {
+        return Ok(None);
+    }
+
+    let mut space_ids = Vec::new();
+    if let Some(binding) = seat_binding(pool, conversation_id).await?
+        && space_tracks_turns(&binding.thread_id)
+        && load_space_or_unassigned(pool, &binding.thread_id)
+            .await
+            .is_ok()
+    {
+        space_ids.push(binding.thread_id);
+    }
+    if space_ids.is_empty() {
+        let seat_spaces: Vec<String> = sqlx::query_scalar(
+            r#"SELECT DISTINCT space_id FROM collaboration_space_members
+               WHERE conversation_id = ? AND kind = 'agent'
+               ORDER BY joined_at ASC"#,
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
+        for sid in seat_spaces {
+            if space_tracks_turns(&sid)
+                && !space_ids.contains(&sid)
+                && load_space_or_unassigned(pool, &sid).await.is_ok()
+            {
+                space_ids.push(sid);
+            }
+        }
+    }
+    if space_ids.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DirectSessionTurnContext {
+        turn_id: turn_id_str,
+        space_ids,
+    }))
+}
+
+async fn member_posted_recent_content_equals(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    body: &str,
+    nickname: &str,
+) -> Result<bool, CollaborationError> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        r#"SELECT envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND origin = 'agent'
+           ORDER BY seq DESC LIMIT 10"#,
+    )
+    .bind(space_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows.iter().any(|raw| {
+        let parsed = parse_space_envelope_str(raw);
+        envelope_sender_is_conversation(&parsed, conversation_id, Some(nickname))
+            && strip_own_nickname_prefix(&parsed.content, nickname) == body
+    }))
+}
+
+/// Bubble the assistant text that preceded a tool call into the space log
+/// without closing the current processing delivery.
+pub async fn on_space_turn_tool_call(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    step_text: &str,
+    delivery: &DeliveryContext,
+) -> Result<(), CollaborationError> {
+    mark_space_turn_tool_started(conversation_id);
+    let rows = open_space_turn_deliveries(pool, conversation_id).await?;
+    let trimmed = step_text.trim();
     if rows.is_empty() {
-        return Ok(Vec::new());
+        if let Some(direct_ctx) = latest_direct_session_turn(pool, conversation_id, false).await? {
+            for space_id in direct_ctx.space_ids {
+                let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
+                let body = strip_own_nickname_prefix(trimmed, &nickname);
+                let skip = body.is_empty() || is_pass_token(&body) || is_polite_ack_only(&body);
+                if skip {
+                    continue;
+                }
+                if member_posted_recent_content_equals(
+                    pool,
+                    &space_id,
+                    conversation_id,
+                    &body,
+                    &nickname,
+                )
+                .await?
+                {
+                    continue;
+                }
+                let op_id = Uuid::new_v5(
+                    &Uuid::NAMESPACE_OID,
+                    format!(
+                        "direct-mid-turn-step:{}:{}:{}:{}",
+                        conversation_id,
+                        direct_ctx.turn_id,
+                        space_id,
+                        digest_text(&body)
+                    )
+                    .as_bytes(),
+                );
+                if post_to_space_inner(
+                    pool,
+                    PostToSpace {
+                        caller_id: Some(conversation_id),
+                        space_id: space_id.clone(),
+                        content: body,
+                        summary: None,
+                        to: vec![ENVELOPE_USER_ACTOR.to_string()],
+                        in_reply_to: None,
+                        operation_id: op_id,
+                    },
+                    delivery,
+                    false,
+                )
+                .await
+                .is_ok()
+                    && let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+                    && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
+                {
+                    let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
+                    delivery.notify_space_changed(evt);
+                }
+            }
+            clear_space_turn_flushing_step(conversation_id);
+            return Ok(());
+        }
+        clear_space_turn_tool_started(conversation_id);
+        return Ok(());
     }
 
     let mut grouped: std::collections::BTreeMap<String, Vec<(String, i64, Option<String>)>> =
@@ -836,8 +1228,233 @@ pub async fn finalize_space_turn_deliveries(
             .push((message_id, seq, turn_id));
     }
 
+    let trimmed = step_text.trim();
+    for (space_id, deliveries) in grouped {
+        let Some((trigger_message_id, trigger_seq, _)) = deliveries.last().cloned() else {
+            continue;
+        };
+        if space_tracks_turns(&space_id) {
+            let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
+            let body = strip_own_nickname_prefix(trimmed, &nickname);
+            let skip = body.is_empty() || is_pass_token(&body) || is_polite_ack_only(&body);
+            if !skip {
+                let earliest_seq = deliveries
+                    .iter()
+                    .map(|(_, seq, _)| *seq)
+                    .min()
+                    .unwrap_or(trigger_seq);
+                let posted_same = member_posted_content_equals(
+                    pool,
+                    &space_id,
+                    conversation_id,
+                    earliest_seq,
+                    &body,
+                    &nickname,
+                )
+                .await?;
+                if !posted_same {
+                    let op_id = Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!(
+                            "mid-turn-step:{}:{}:{}",
+                            conversation_id,
+                            trigger_message_id,
+                            digest_text(&body)
+                        )
+                        .as_bytes(),
+                    );
+                    match post_to_space_inner(
+                        pool,
+                        PostToSpace {
+                            caller_id: Some(conversation_id),
+                            space_id: space_id.clone(),
+                            content: body,
+                            summary: None,
+                            to: vec![ENVELOPE_USER_ACTOR.to_string()],
+                            in_reply_to: Some(trigger_message_id.clone()),
+                            operation_id: op_id,
+                        },
+                        delivery,
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            reopen_processing_deliveries(pool, conversation_id, &deliveries)
+                                .await?;
+                            if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+                                && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
+                            {
+                                let evt =
+                                    latest_space_changed_event(pool, ws_id, &space_id, None).await;
+                                delivery.notify_space_changed(evt);
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                %conversation_id,
+                                %space_id,
+                                "mid-turn space step post failed"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        advance_open_rounds_for_space(pool, &space_id, delivery).await?;
+    }
+    clear_space_turn_flushing_step(conversation_id);
+    Ok(())
+}
+
+async fn reopen_processing_deliveries(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    deliveries: &[(String, i64, Option<String>)],
+) -> Result<(), CollaborationError> {
+    let now = now_stamp();
+    for (message_id, _, turn_id) in deliveries {
+        sqlx::query(
+            r#"UPDATE collaboration_space_deliveries
+               SET receipt_state = 'processing', receipt_updated_at = ?
+               WHERE conversation_id = ?
+                 AND space_message_id = ?
+                 AND receipt_state IN ('replied', 'passed', 'queued')"#,
+        )
+        .bind(&now)
+        .bind(conversation_id.to_string())
+        .bind(message_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+        if let Some(turn_id) = turn_id.as_deref() {
+            sqlx::query(
+                r#"UPDATE collaboration_turns
+                   SET state = 'running', outcome = NULL, updated_at = ?
+                   WHERE id = ?"#,
+            )
+            .bind(&now)
+            .bind(turn_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        } else {
+            sqlx::query(
+                r#"UPDATE collaboration_turns
+                   SET state = 'running', outcome = NULL, updated_at = ?
+                   WHERE space_message_id = ? AND conversation_id = ?"#,
+            )
+            .bind(&now)
+            .bind(message_id)
+            .bind(conversation_id.to_string())
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        }
+    }
+    Ok(())
+}
+
+/// Finalize any unclosed `receipt_state = 'processing'` deliveries for `conversation_id`
+/// when its turn completes without having called `post_to_space`.
+pub async fn finalize_space_turn_deliveries(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    turn_assistant_text: &str,
+    delivery: &DeliveryContext,
+) -> Result<Vec<CollaborationSpaceChangedEvent>, CollaborationError> {
+    clear_space_turn_tool_started(conversation_id);
+    let rows = open_space_turn_deliveries(pool, conversation_id).await?;
     let trimmed = turn_assistant_text.trim();
     let mut events = Vec::new();
+
+    if rows.is_empty() {
+        if let Some(direct_ctx) = latest_direct_session_turn(pool, conversation_id, false).await? {
+            for space_id in direct_ctx.space_ids {
+                let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
+                let body = strip_own_nickname_prefix(trimmed, &nickname);
+                let passed = body.is_empty() || is_pass_token(&body) || is_polite_ack_only(&body);
+                if !passed
+                    && !member_posted_recent_content_equals(
+                        pool,
+                        &space_id,
+                        conversation_id,
+                        &body,
+                        &nickname,
+                    )
+                    .await?
+                {
+                    let to = if is_bot_space(&space_id) {
+                        vec![ENVELOPE_USER_ACTOR.to_string()]
+                    } else {
+                        let members = list_space_members(pool, &space_id, MessageAudience::Agent)
+                            .await
+                            .unwrap_or_default();
+                        let mentioned =
+                            mentioned_local_bot_nicknames(&body, &members, Some(conversation_id));
+                        if mentioned.is_empty() {
+                            vec![ENVELOPE_USER_ACTOR.to_string()]
+                        } else {
+                            mentioned
+                        }
+                    };
+                    let op_id = Uuid::new_v5(
+                        &Uuid::NAMESPACE_OID,
+                        format!(
+                            "direct-finalize-turn:{}:{}:{}:{}",
+                            conversation_id,
+                            direct_ctx.turn_id,
+                            space_id,
+                            digest_text(&body)
+                        )
+                        .as_bytes(),
+                    );
+                    if let Err(error) = post_to_space_inner(
+                        pool,
+                        PostToSpace {
+                            caller_id: Some(conversation_id),
+                            space_id: space_id.clone(),
+                            content: body,
+                            summary: None,
+                            to,
+                            in_reply_to: None,
+                            operation_id: op_id,
+                        },
+                        delivery,
+                        false,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            %error,
+                            %conversation_id,
+                            %space_id,
+                            "direct session turn post_to_space failed"
+                        );
+                    }
+                }
+                if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+                    && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
+                {
+                    let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
+                    delivery.notify_space_changed(evt.clone());
+                    events.push(evt);
+                }
+            }
+        }
+        reset_space_turn_streaming_step(conversation_id);
+        return Ok(events);
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, Vec<(String, i64, Option<String>)>> =
+        std::collections::BTreeMap::new();
+    for (space_id, message_id, seq, turn_id) in rows {
+        grouped
+            .entry(space_id)
+            .or_default()
+            .push((message_id, seq, turn_id));
+    }
 
     for (space_id, deliveries) in grouped {
         let Some((trigger_message_id, trigger_seq, _)) = deliveries.last().cloned() else {
@@ -921,7 +1538,14 @@ pub async fn finalize_space_turn_deliveries(
                 )
                 .as_bytes(),
             );
-            let to = implicit_space_recipients(pool, &space_id, conversation_id, &body).await?;
+            let to = implicit_space_recipients(
+                pool,
+                &space_id,
+                conversation_id,
+                &body,
+                &trigger_message_id,
+            )
+            .await?;
             match post_to_space_inner(
                 pool,
                 PostToSpace {
@@ -940,12 +1564,6 @@ pub async fn finalize_space_turn_deliveries(
             {
                 Ok(_) => {
                     fallback_posted = true;
-                    if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
-                        && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
-                    {
-                        let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
-                        events.push(evt);
-                    }
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -979,8 +1597,7 @@ pub async fn finalize_space_turn_deliveries(
 
         advance_open_rounds_for_space(pool, &space_id, delivery).await?;
 
-        if !fallback_posted
-            && let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+        if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
             && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
         {
             let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
@@ -989,6 +1606,7 @@ pub async fn finalize_space_turn_deliveries(
         }
     }
 
+    reset_space_turn_streaming_step(conversation_id);
     Ok(events)
 }
 
@@ -1018,6 +1636,7 @@ async fn implicit_space_recipients(
     space_id: &str,
     conversation_id: Uuid,
     content: &str,
+    trigger_message_id: &str,
 ) -> Result<Vec<String>, CollaborationError> {
     if is_bot_space(space_id) {
         return Ok(vec![ENVELOPE_USER_ACTOR.to_string()]);
@@ -1026,9 +1645,83 @@ async fn implicit_space_recipients(
         .await
         .unwrap_or_default();
     let mentioned = mentioned_local_bot_nicknames(content, &members, Some(conversation_id));
-    if mentioned.is_empty() {
-        Ok(vec![ENVELOPE_USER_ACTOR.to_string()])
-    } else {
-        Ok(mentioned)
+    if !mentioned.is_empty() {
+        return Ok(mentioned);
     }
+    if let Some(asker) =
+        implicit_asked_by_recipient(pool, space_id, conversation_id, trigger_message_id).await?
+    {
+        return Ok(vec![asker]);
+    }
+    Ok(vec![ENVELOPE_USER_ACTOR.to_string()])
+}
+
+async fn implicit_asked_by_recipient(
+    pool: &SqlitePool,
+    space_id: &str,
+    sender: Uuid,
+    trigger_message_id: &str,
+) -> Result<Option<String>, CollaborationError> {
+    let envelope = match load_envelope(pool, trigger_message_id).await {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let parsed = parse_space_envelope(&envelope);
+    let Some(asker_cid) = parsed.conversation_id else {
+        return Ok(None);
+    };
+    if asker_cid == sender {
+        return Ok(None);
+    }
+    if delivery_round_has_waiting_peers(pool, sender, trigger_message_id).await? {
+        return Ok(None);
+    }
+    if let Ok(Some(name)) = member_nickname(pool, space_id, asker_cid).await {
+        let name = name.trim();
+        if !name.is_empty() {
+            return Ok(Some(name.to_string()));
+        }
+    }
+    let sender_name = parsed.sender.trim();
+    if !sender_name.is_empty() && !is_person_ref(sender_name) {
+        return Ok(Some(sender_name.to_string()));
+    }
+    Ok(None)
+}
+
+async fn delivery_round_has_waiting_peers(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    trigger_message_id: &str,
+) -> Result<bool, CollaborationError> {
+    let row: Option<(Option<String>, Option<String>, Option<i64>)> = sqlx::query_as(
+        r#"SELECT d.round_id, r.state, r.current_ordinal
+           FROM collaboration_space_deliveries d
+           LEFT JOIN collaboration_rounds r ON r.id = d.round_id
+           WHERE d.conversation_id = ? AND d.space_message_id = ?
+           LIMIT 1"#,
+    )
+    .bind(conversation_id.to_string())
+    .bind(trigger_message_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some((Some(round_id), Some(state), Some(current_ordinal))) = row else {
+        return Ok(false);
+    };
+    if state != "open" && state != "closing" {
+        return Ok(false);
+    }
+    let waiting: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM collaboration_space_deliveries
+           WHERE round_id = ?
+             AND round_ordinal > ?
+             AND receipt_state IN ('queued', 'processing')"#,
+    )
+    .bind(&round_id)
+    .bind(current_ordinal)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    Ok(waiting > 0)
 }

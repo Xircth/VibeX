@@ -28,15 +28,6 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.plugin-development', 'fallback', t)).toBe(
       '插件开发'
     );
-    expect(officialPluginName('vibex.host-chrome', 'fallback', t)).toBe(
-      '宿主界面示例'
-    );
-    expect(officialPluginName('vibex.provider-import', 'fallback', t)).toBe(
-      '环境变量导入供应商'
-    );
-    expect(officialPluginName('vibex.host-surface', 'fallback', t)).toBe(
-      '结构面示例'
-    );
     expect(officialPluginName('vibex.remote-ssh', 'fallback', t)).toBe(
       'Remote SSH'
     );
@@ -44,6 +35,9 @@ describe('official plugin presentation', () => {
       '供应商预置'
     );
     expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
+    expect(officialPluginName('vibex.open-connector', 'fallback', t)).toBe(
+      'Open Connector'
+    );
     expect(officialPluginName('vibex-plugin-computer-use', 'fallback', t)).toBe(
       '电脑控制'
     );
@@ -61,15 +55,6 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.plugin-development', 'fallback', en)).toBe(
       'Plugin Development'
     );
-    expect(officialPluginName('vibex.host-chrome', 'fallback', en)).toBe(
-      'Host chrome sample'
-    );
-    expect(officialPluginName('vibex.provider-import', 'fallback', en)).toBe(
-      'Environment provider import'
-    );
-    expect(officialPluginName('vibex.host-surface', 'fallback', en)).toBe(
-      'Host surface sample'
-    );
     expect(officialPluginName('vibex.remote-ssh', 'fallback', en)).toBe(
       'Remote SSH'
     );
@@ -78,6 +63,9 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
       'Scientific Research'
+    );
+    expect(officialPluginName('vibex.open-connector', 'fallback', en)).toBe(
+      'Open Connector'
     );
     expect(
       officialPluginName('vibex-plugin-computer-use', 'fallback', en)

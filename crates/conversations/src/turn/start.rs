@@ -232,6 +232,12 @@ impl ConversationSessionService {
                 };
                 self.ctx.host.after_turn(&after_event).await;
                 emit_after_turn_event(after_event);
+                spawn_turn_end_collaboration_cleanup(
+                    self.ctx.clone(),
+                    input.conversation_id,
+                    false,
+                    None,
+                );
                 Err(error)
             }
         }
@@ -732,59 +738,65 @@ pub(crate) fn emit_after_turn_event(event: AfterTurnEvent) {
 }
 
 pub(crate) fn spawn_turn_end_collaboration_cleanup(
-    pool: SqlitePool,
+    context: crate::ConversationContext,
     conversation_id: Uuid,
     turn_completed: bool,
     turn_assistant_text: Option<String>,
 ) {
+    let pool = context.deployment.db().pool.clone();
+    let delivery_ctx = crate::ScopedConversationControl::new(context).delivery_context();
     tokio::spawn(async move {
-        if turn_completed {
-            let reply = match turn_assistant_text {
+        crate::collaboration::reset_space_turn_streaming_step(conversation_id);
+        crate::collaboration::clear_space_turn_tool_started(conversation_id);
+        let reply = if turn_completed {
+            match turn_assistant_text {
                 Some(text) => text,
                 None => crate::jsonl_history::load_all_turns(&pool, conversation_id)
                     .await
                     .ok()
                     .flatten()
                     .and_then(|turns| {
-                        turns
-                            .into_iter()
+                        let last_user_idx = turns.iter().rposition(|turn| {
+                            matches!(turn.role, agents::TurnRole::User)
+                                && !turn.id.contains(":steer:")
+                        });
+                        let round_slice = match last_user_idx {
+                            Some(idx) => &turns[idx + 1..],
+                            None => &turns[..],
+                        };
+                        round_slice
+                            .iter()
                             .rev()
                             .find(|turn| turn.role == agents::TurnRole::Assistant)
                             .map(|turn| {
-                                turn.blocks
-                                    .into_iter()
-                                    .filter_map(|block| match block {
-                                        agents::ContentBlock::Text { text } => Some(text),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
+                                crate::runtime_events::space_turn_conclusion_text(
+                                    &turn.blocks,
+                                    false,
+                                    "",
+                                )
                             })
                     })
                     .unwrap_or_default(),
-            };
-            if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
-                &pool,
-                conversation_id,
-                &reply,
-                &crate::collaboration::DeliveryContext::default(),
-            )
-            .await
-            {
-                tracing::warn!(
-                    %conversation_id,
-                    %error,
-                    "finalize_space_turn_deliveries failed in service cleanup"
-                );
             }
-        }
-        let _ = crate::collaboration::release_member_write(&pool, conversation_id).await;
-        if let Err(error) = crate::collaboration::redeliver_deferred(
+        } else {
+            String::new()
+        };
+        if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
             &pool,
-            &crate::collaboration::DeliveryContext::default(),
+            conversation_id,
+            &reply,
+            &delivery_ctx,
         )
         .await
         {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "finalize_space_turn_deliveries failed in service cleanup"
+            );
+        }
+        let _ = crate::collaboration::release_member_write(&pool, conversation_id).await;
+        if let Err(error) = crate::collaboration::redeliver_deferred(&pool, &delivery_ctx).await {
             tracing::warn!(
                 %conversation_id,
                 %error,

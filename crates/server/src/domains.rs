@@ -501,9 +501,9 @@ impl ServerApplicationDomains {
             utils::host_bin::locate_runnable_host_family_binary(binary_id).is_some()
         };
         let mut report = plugins::with_host_collaboration_mcp(
-            plugins::plugin_mcp_status_report(&plugins, &binary_runnable),
+            plugins::plugin_mcp_status_report(&plugins, binary_runnable),
             host_collaboration_enabled,
-            &binary_runnable,
+            binary_runnable,
         );
         if let Some(service) = delegation::DelegationService::current() {
             report.listening = service.is_listening().await;

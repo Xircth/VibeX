@@ -161,7 +161,24 @@ pub(crate) async fn post_to_space_inner(
             .filter(|t| t.conversation_id.is_some())
             .count()
     };
-    let is_round = sender.is_none() && is_real_group_space && agent_target_count >= 2;
+    if is_real_group_space && !hop_exceeded && sender.is_none() {
+        let _ = advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await;
+    }
+    let open_round = if is_real_group_space && !hop_exceeded {
+        load_open_round(pool, &input.space_id).await?
+    } else {
+        None
+    };
+    let explicit_agent_wake = post_has_explicit_agent_wake(&input.to, content, &targets);
+    let is_broadcast = post_is_broadcast(&input.to, content);
+    // Person @two-or-more still opens a replacement round (and supersedes).
+    // A bot @two-or-more only opens a round when the space has none to splice into.
+    // Broadcast stays parallel: it is not a named handoff list.
+    let is_round = is_real_group_space
+        && agent_target_count >= 2
+        && (sender.is_none() || (open_round.is_none() && !is_broadcast));
+    let splice_into_open =
+        is_real_group_space && !hop_exceeded && open_round.is_some() && !is_round;
     if is_round {
         sort_round_agent_targets(pool, &input.space_id, &input.to, content, &mut targets).await?;
     }
@@ -169,25 +186,59 @@ pub(crate) async fn post_to_space_inner(
     let round_deadline =
         is_round.then(|| stamp(Utc::now() + Duration::minutes(collab_round_timeout_minutes())));
     let mut queued_deliveries = Vec::new();
+    let mut splice_ordinal_updates = Vec::new();
     let mut next_ordinal = 1_i64;
     if !hop_exceeded {
-        for target in &targets {
-            let Some(target_id) = target.conversation_id else {
-                continue;
-            };
-            let ordinal = if round_id.is_some() {
-                let current = next_ordinal;
-                next_ordinal += 1;
-                Some(current)
-            } else {
-                None
-            };
-            queued_deliveries.push(QueuedSpaceDelivery {
-                conversation_id: target_id,
-                operation_id: delivery_operation_id(input.operation_id, target_id),
-                round_id: round_id.clone(),
-                round_ordinal: ordinal,
-            });
+        if let (true, Some(open)) = (splice_into_open, open_round.as_ref()) {
+            if explicit_agent_wake && !is_broadcast {
+                let plan = plan_round_splice(
+                    pool,
+                    open,
+                    sender,
+                    &input.to,
+                    content,
+                    &targets,
+                    input.operation_id,
+                )
+                .await?;
+                splice_ordinal_updates = plan.updates;
+                queued_deliveries = plan.inserts;
+            } else if is_broadcast {
+                for target in &targets {
+                    let Some(target_id) = target.conversation_id else {
+                        continue;
+                    };
+                    queued_deliveries.push(QueuedSpaceDelivery {
+                        conversation_id: target_id,
+                        operation_id: delivery_operation_id(input.operation_id, target_id),
+                        round_id: None,
+                        round_ordinal: None,
+                    });
+                }
+            } else if sender.is_none() {
+                queued_deliveries =
+                    plan_untargeted_round_tail_append(pool, open, &targets, input.operation_id)
+                        .await?;
+            }
+        } else {
+            for target in &targets {
+                let Some(target_id) = target.conversation_id else {
+                    continue;
+                };
+                let ordinal = if round_id.is_some() {
+                    let current = next_ordinal;
+                    next_ordinal += 1;
+                    Some(current)
+                } else {
+                    None
+                };
+                queued_deliveries.push(QueuedSpaceDelivery {
+                    conversation_id: target_id,
+                    operation_id: delivery_operation_id(input.operation_id, target_id),
+                    round_id: round_id.clone(),
+                    round_ordinal: ordinal,
+                });
+            }
         }
     }
     let summary = input
@@ -230,7 +281,7 @@ pub(crate) async fn post_to_space_inner(
         .await
         .map_err(db)?;
     let inserted = async {
-        if sender.is_none() && is_real_group_space {
+        if sender.is_none() && is_real_group_space && is_round {
             supersede_open_rounds_tx(&mut conn, &input.space_id, &published).await?;
         }
         if let (Some(rid), Some(deadline)) = (&round_id, &round_deadline) {
@@ -260,6 +311,40 @@ pub(crate) async fn post_to_space_inner(
             &queued_deliveries,
         )
         .await?;
+        for (conversation_id, space_message_id, ordinal, rebind_to_new_message) in
+            &splice_ordinal_updates
+        {
+            if *rebind_to_new_message
+                && let Ok(target_uuid) = Uuid::parse_str(conversation_id)
+            {
+                let new_op_id = delivery_operation_id(input.operation_id, target_uuid).to_string();
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries
+                       SET round_ordinal = ?, space_message_id = ?, operation_id = ?
+                       WHERE round_id = ? AND conversation_id = ? AND space_message_id = ?"#,
+                )
+                .bind(ordinal)
+                .bind(&message_id)
+                .bind(new_op_id)
+                .bind(open_round.as_ref().map(|round| round.id.as_str()))
+                .bind(conversation_id)
+                .bind(space_message_id)
+                .execute(&mut *conn)
+                .await?;
+            } else {
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries
+                       SET round_ordinal = ?
+                       WHERE round_id = ? AND conversation_id = ? AND space_message_id = ?"#,
+                )
+                .bind(ordinal)
+                .bind(open_round.as_ref().map(|round| round.id.as_str()))
+                .bind(conversation_id)
+                .bind(space_message_id)
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
         if let Some(rid) = &round_id
             && space_tracks_events(&input.space_id)
         {
@@ -289,14 +374,31 @@ pub(crate) async fn post_to_space_inner(
             .execute(&mut *conn)
             .await?;
         }
-        if let Some(sender) = sender {
-            // Mid-turn posts in an open sequential round are progress, not the
-            // slot's closing reply. Those deliveries stay processing so
+        let is_card_post = content.trim_start().starts_with("<card ");
+        if let Some(sender) = sender
+            && !is_card_post
+        {
+            // Mid-turn posts in an open sequential round (and interactive <card>
+            // posts such as ask/approval) are progress, not the slot's closing
+            // reply. Those deliveries stay processing so
             // finalize_space_turn_deliveries can still post the implicit text.
             let closed_deliveries: Vec<String> = sqlx::query_scalar(
                 r#"SELECT d.space_message_id FROM collaboration_space_deliveries d
                    WHERE d.conversation_id = ?
-                     AND d.receipt_state IN ('queued', 'processing')
+                     AND (
+                       d.receipt_state = 'processing'
+                       OR (
+                         d.receipt_state = 'queued'
+                         AND (
+                           d.status = 'dispatched'
+                           OR NOT EXISTS (
+                             SELECT 1 FROM collaboration_space_deliveries d2
+                             WHERE d2.conversation_id = d.conversation_id
+                               AND (d2.receipt_state = 'processing' OR d2.status = 'dispatched')
+                           )
+                         )
+                       )
+                     )
                      AND d.space_message_id IN (
                        SELECT id FROM collaboration_space_messages
                        WHERE space_id = ? AND seq < ?)
@@ -310,46 +412,32 @@ pub(crate) async fn post_to_space_inner(
             .bind(seq)
             .fetch_all(&mut *conn)
             .await?;
-            sqlx::query(
-                r#"UPDATE collaboration_space_deliveries
-                   SET receipt_state = 'replied', receipt_updated_at = ?
-                   WHERE conversation_id = ?
-                     AND receipt_state IN ('queued', 'processing')
-                     AND space_message_id IN (
-                       SELECT id FROM collaboration_space_messages
-                       WHERE space_id = ? AND seq < ?)
-                     AND (round_id IS NULL OR round_id NOT IN (
-                       SELECT id FROM collaboration_rounds
-                       WHERE state IN ('open', 'closing')
-                     ))"#,
-            )
-            .bind(&published)
-            .bind(sender.to_string())
-            .bind(&input.space_id)
-            .bind(seq)
-            .execute(&mut *conn)
-            .await?;
-            sqlx::query(
-                r#"UPDATE collaboration_turns
-                   SET outcome = 'sent', state = 'finished', updated_at = ?
-                   WHERE conversation_id = ?
-                     AND state <> 'finished'
-                     AND space_id = ?
-                     AND space_message_id IN (
-                       SELECT id FROM collaboration_space_messages
-                       WHERE space_id = ? AND seq < ?)
-                     AND (round_id IS NULL OR round_id NOT IN (
-                       SELECT id FROM collaboration_rounds
-                       WHERE state IN ('open', 'closing')
-                     ))"#,
-            )
-            .bind(&published)
-            .bind(sender.to_string())
-            .bind(&input.space_id)
-            .bind(&input.space_id)
-            .bind(seq)
-            .execute(&mut *conn)
-            .await?;
+            for closed_msg_id in &closed_deliveries {
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries
+                       SET receipt_state = 'replied', receipt_updated_at = ?
+                       WHERE conversation_id = ?
+                         AND space_message_id = ?
+                         AND receipt_state IN ('queued', 'processing')"#,
+                )
+                .bind(&published)
+                .bind(sender.to_string())
+                .bind(closed_msg_id)
+                .execute(&mut *conn)
+                .await?;
+                sqlx::query(
+                    r#"UPDATE collaboration_turns
+                       SET outcome = 'sent', state = 'finished', updated_at = ?
+                       WHERE conversation_id = ?
+                         AND space_message_id = ?
+                         AND state <> 'finished'"#,
+                )
+                .bind(&published)
+                .bind(sender.to_string())
+                .bind(closed_msg_id)
+                .execute(&mut *conn)
+                .await?;
+            }
             if space_tracks_events(&input.space_id) {
                 for closed_msg_id in closed_deliveries {
                     let event_seq: i64 = sqlx::query_scalar(
@@ -411,6 +499,7 @@ pub(crate) async fn post_to_space_inner(
             result
         })?;
     let concurrency_held = !is_round
+        && !splice_into_open
         && result.receipts.iter().any(|receipt| {
             receipt.delivered == "queued"
                 && receipt.input_id.is_none()
@@ -425,7 +514,8 @@ pub(crate) async fn post_to_space_inner(
     {
         project_direct_space_post(pool, sender, &message_id, content).await?;
     }
-    if sender.is_some() {
+    let is_card_post = content.starts_with("<card kind=\"");
+    if sender.is_some() && !is_card_post {
         advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await?;
     }
     let dests = unique_cross_chat_dests(&input.space_id, &targets);
@@ -496,6 +586,265 @@ pub(crate) async fn resolve_root_and_hop(
         parent.hop
     };
     Ok((root_id, hop))
+}
+
+struct OpenRound {
+    id: String,
+    current_ordinal: i64,
+}
+
+struct RoundSplicePlan {
+    updates: Vec<(String, String, i64, bool)>,
+    inserts: Vec<QueuedSpaceDelivery>,
+}
+
+fn post_is_broadcast(to: &[String], content: &str) -> bool {
+    crate::collaboration::routing::contains_broadcast_mention(content)
+        || to.iter().any(|raw| is_broadcast_target_name(raw))
+}
+
+fn post_has_explicit_agent_wake(
+    to: &[String],
+    content: &str,
+    targets: &[super::ResolvedTarget],
+) -> bool {
+    let explicit_to = to.iter().any(|raw| {
+        let name = raw.trim().trim_start_matches('@').trim();
+        !name.is_empty() && !crate::collaboration::routing::is_user_target_name(name)
+    });
+    if explicit_to || crate::collaboration::routing::contains_broadcast_mention(content) {
+        return true;
+    }
+    targets.iter().any(|target| {
+        target.conversation_id.is_some()
+            && crate::collaboration::routing::contains_mention_token(content, &target.nickname)
+    })
+}
+
+async fn load_open_round(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<Option<OpenRound>, CollaborationError> {
+    let row: Option<(String, i64)> = sqlx::query_as(
+        r#"SELECT id, current_ordinal FROM collaboration_rounds
+           WHERE space_id = ? AND state IN ('open', 'closing')
+           ORDER BY created_at ASC LIMIT 1"#,
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(row.map(|(id, current_ordinal)| OpenRound {
+        id,
+        current_ordinal,
+    }))
+}
+
+fn sort_splice_targets(to: &[String], content: &str, targets: &mut [super::ResolvedTarget]) {
+    let explicit_to: Vec<String> = to
+        .iter()
+        .map(|name| name.trim().trim_start_matches('@').trim().to_string())
+        .filter(|name| {
+            !name.is_empty()
+                && !is_broadcast_target_name(name)
+                && !crate::collaboration::routing::is_user_target_name(name)
+        })
+        .collect();
+    targets.sort_by(|a, b| {
+        let a_to = explicit_to
+            .iter()
+            .position(|name| {
+                name == &a.nickname || a.conversation_id.is_some_and(|id| id.to_string() == *name)
+            })
+            .unwrap_or(usize::MAX);
+        let b_to = explicit_to
+            .iter()
+            .position(|name| {
+                name == &b.nickname || b.conversation_id.is_some_and(|id| id.to_string() == *name)
+            })
+            .unwrap_or(usize::MAX);
+        let a_mention = first_mention_offset(content, &a.nickname).unwrap_or(usize::MAX);
+        let b_mention = first_mention_offset(content, &b.nickname).unwrap_or(usize::MAX);
+        (a_to, a_mention, &a.nickname).cmp(&(b_to, b_mention, &b.nickname))
+    });
+}
+
+async fn plan_untargeted_round_tail_append(
+    pool: &SqlitePool,
+    open: &OpenRound,
+    targets: &[super::ResolvedTarget],
+    operation_id: Uuid,
+) -> Result<Vec<QueuedSpaceDelivery>, CollaborationError> {
+    let waiting_count: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM collaboration_space_deliveries
+           WHERE round_id = ? AND round_ordinal > ? AND receipt_state IN ('queued', 'processing')"#,
+    )
+    .bind(&open.id)
+    .bind(open.current_ordinal)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    if waiting_count > 0 {
+        return Ok(Vec::new());
+    }
+    let speaking: Vec<String> = sqlx::query_scalar(
+        r#"SELECT conversation_id FROM collaboration_space_deliveries
+           WHERE round_id = ? AND (round_ordinal = ? OR receipt_state = 'processing')"#,
+    )
+    .bind(&open.id)
+    .bind(open.current_ordinal)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let max_ordinal: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(round_ordinal), ?) FROM collaboration_space_deliveries WHERE round_id = ?",
+    )
+    .bind(open.current_ordinal)
+    .bind(&open.id)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    let mut next_ordinal = max_ordinal + 1;
+    let mut inserts = Vec::new();
+    for target in targets {
+        if target.dest_thread_id.is_some() {
+            continue;
+        }
+        let Some(target_id) = target.conversation_id else {
+            continue;
+        };
+        if speaking.iter().any(|cid| cid == &target_id.to_string()) {
+            continue;
+        }
+        inserts.push(QueuedSpaceDelivery {
+            conversation_id: target_id,
+            operation_id: delivery_operation_id(operation_id, target_id),
+            round_id: Some(open.id.clone()),
+            round_ordinal: Some(next_ordinal),
+        });
+        next_ordinal += 1;
+    }
+    Ok(inserts)
+}
+
+async fn plan_round_splice(
+    pool: &SqlitePool,
+    open: &OpenRound,
+    sender: Option<Uuid>,
+    to: &[String],
+    content: &str,
+    targets: &[super::ResolvedTarget],
+    operation_id: Uuid,
+) -> Result<RoundSplicePlan, CollaborationError> {
+    let slots: Vec<(String, i64, String, String)> = sqlx::query_as(
+        r#"SELECT conversation_id, COALESCE(round_ordinal, 0), receipt_state, space_message_id
+           FROM collaboration_space_deliveries
+           WHERE round_id = ?
+           ORDER BY COALESCE(round_ordinal, 0) ASC"#,
+    )
+    .bind(&open.id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+
+    let mut local_targets: Vec<super::ResolvedTarget> = targets
+        .iter()
+        .filter(|target| {
+            target.dest_thread_id.is_none()
+                && target.conversation_id.is_some_and(|id| Some(id) != sender)
+        })
+        .cloned()
+        .collect();
+    sort_splice_targets(to, content, &mut local_targets);
+
+    let speaking: std::collections::HashSet<String> = slots
+        .iter()
+        .filter(|(_, ordinal, state, _)| *ordinal == open.current_ordinal || state == "processing")
+        .map(|(conversation_id, _, _, _)| conversation_id.clone())
+        .collect();
+    let waiting_by_conversation: std::collections::HashMap<String, (i64, String, String)> = slots
+        .iter()
+        .filter(|(_, ordinal, state, _)| *ordinal > open.current_ordinal && state == "queued")
+        .map(|(conversation_id, ordinal, state, message_id)| {
+            (
+                conversation_id.clone(),
+                (*ordinal, state.clone(), message_id.clone()),
+            )
+        })
+        .collect();
+
+    let mut next_ordinal = open.current_ordinal + 1;
+    let mut updates = Vec::new();
+    let mut inserts = Vec::new();
+    let mut placed = std::collections::HashSet::new();
+
+    for target in &local_targets {
+        let Some(target_id) = target.conversation_id else {
+            continue;
+        };
+        let key = target_id.to_string();
+        if speaking.contains(&key) {
+            if sender.is_none() {
+                inserts.push(QueuedSpaceDelivery {
+                    conversation_id: target_id,
+                    operation_id: delivery_operation_id(operation_id, target_id),
+                    round_id: None,
+                    round_ordinal: None,
+                });
+            }
+            continue;
+        }
+        placed.insert(key.clone());
+        if let Some((_, _, message_id)) = waiting_by_conversation.get(&key) {
+            updates.push((key, message_id.clone(), next_ordinal, true));
+        } else {
+            inserts.push(QueuedSpaceDelivery {
+                conversation_id: target_id,
+                operation_id: delivery_operation_id(operation_id, target_id),
+                round_id: Some(open.id.clone()),
+                round_ordinal: Some(next_ordinal),
+            });
+        }
+        next_ordinal += 1;
+    }
+
+    let mut remaining: Vec<(String, String, i64)> = slots
+        .iter()
+        .filter(|(conversation_id, ordinal, state, _)| {
+            !placed.contains(conversation_id)
+                && !speaking.contains(conversation_id)
+                && *ordinal > open.current_ordinal
+                && (state == "queued" || state == "processing")
+        })
+        .map(|(conversation_id, ordinal, _, message_id)| {
+            (conversation_id.clone(), message_id.clone(), *ordinal)
+        })
+        .collect();
+    remaining.sort_by_key(|(_, _, ordinal)| *ordinal);
+    for (conversation_id, message_id, _) in remaining {
+        updates.push((conversation_id, message_id, next_ordinal, false));
+        next_ordinal += 1;
+    }
+
+    for target in targets {
+        if target.dest_thread_id.is_none() {
+            continue;
+        }
+        let Some(target_id) = target.conversation_id else {
+            continue;
+        };
+        if Some(target_id) == sender {
+            continue;
+        }
+        inserts.push(QueuedSpaceDelivery {
+            conversation_id: target_id,
+            operation_id: delivery_operation_id(operation_id, target_id),
+            round_id: None,
+            round_ordinal: None,
+        });
+    }
+
+    Ok(RoundSplicePlan { updates, inserts })
 }
 
 pub(crate) async fn insert_collaboration_limit_notice(
@@ -608,6 +957,19 @@ pub async fn cancel_space_turn(
     turn_id: Option<&str>,
     caller_id: Option<Uuid>,
 ) -> Result<Vec<String>, CollaborationError> {
+    let default_ctx = DeliveryContext::default();
+    cancel_space_turn_with(pool, space_id, message_id, turn_id, caller_id, &default_ctx).await
+}
+
+/// Cancel an open collaboration turn using the supplied [`DeliveryContext`].
+pub async fn cancel_space_turn_with(
+    pool: &SqlitePool,
+    space_id: &str,
+    message_id: Option<&str>,
+    turn_id: Option<&str>,
+    caller_id: Option<Uuid>,
+    ctx: &DeliveryContext,
+) -> Result<Vec<String>, CollaborationError> {
     if !space_tracks_turns(space_id) {
         return Err(CollaborationError::new(
             "invalid_space_for_direct_chat",
@@ -700,9 +1062,8 @@ pub async fn cancel_space_turn(
             "caller cannot cancel this turn",
         ));
     }
-    let default_ctx = DeliveryContext::default();
     for rid in rounds_to_advance {
-        let _ = advance_round(pool, &rid, &default_ctx).await;
+        let _ = advance_round(pool, &rid, ctx).await;
     }
     Ok(cancelled)
 }
@@ -749,9 +1110,39 @@ pub async fn interrupt_space_member_turn(
         ));
     }
     roles::require_group_space(space_id)?;
-    load_space(pool, space_id).await?;
+    let space = load_space(pool, space_id).await?;
 
-    let caller = caller_seat(pool, space_id, caller_id).await?;
+    let caller = match caller_seat(pool, space_id, caller_id).await {
+        Ok(seat) => seat,
+        Err(err) => {
+            let caller_session = live_session(load_session(pool, caller_id).await?)?;
+            if caller_session.workspace_id.to_string() == space.workspace_id
+                && roles::is_caller_workspace_supervisor(pool, caller_id).await?
+            {
+                let caller_identity =
+                    identity_member_id_for_conversation(pool, Some(&caller_id.to_string()))
+                        .await?
+                        .unwrap_or_else(|| caller_id.to_string());
+                let nickname: String = sqlx::query_scalar(
+                    "SELECT name FROM collaboration_members WHERE id = ? LIMIT 1",
+                )
+                .bind(&caller_identity)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?
+                .unwrap_or_else(|| "Supervisor".to_string());
+                roles::MemberRecord {
+                    member_id: caller_identity,
+                    conversation_id: Some(caller_id.to_string()),
+                    nickname,
+                    kind: "agent".to_string(),
+                    visible_to_agents: 1,
+                }
+            } else {
+                return Err(err);
+            }
+        }
+    };
     if caller.kind != "agent" {
         return Err(CollaborationError::new(
             "forbidden",
@@ -759,7 +1150,13 @@ pub async fn interrupt_space_member_turn(
         ));
     }
     let target = roles::resolve_space_agent_seat(pool, space_id, member_ref).await?;
-    if target.member_id == caller.member_id {
+    let caller_identity =
+        identity_member_id_for_conversation(pool, Some(&caller_id.to_string())).await?;
+    let target_identity =
+        identity_member_id_for_conversation(pool, target.conversation_id.as_deref()).await?;
+    if target.member_id == caller.member_id
+        || (caller_identity.is_some() && caller_identity == target_identity)
+    {
         return Err(CollaborationError::new(
             "invalid_argument",
             "a member cannot interrupt its own turn",

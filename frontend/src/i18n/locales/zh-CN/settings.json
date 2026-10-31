@@ -1660,6 +1660,8 @@
     "multiAgentTitle": "协作空间",
     "multiAgentEnabled": "协作空间",
     "multiAgentEnabledHint": "新会话可以使用委派、角色和协作空间。",
+    "multiAgentHideBotSessions": "隐藏Bot会话",
+    "multiAgentHideBotSessionsHint": "在看板和工作区的会话列表中隐藏属于 Bot 的会话。",
     "multiAgentDepth": "委派深度",
     "multiAgentCache": "完成缓存 (MB)",
     "multiAgentDays": "查询窗口（天）",

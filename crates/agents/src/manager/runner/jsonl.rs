@@ -29,4 +29,3 @@ pub(in crate::manager) fn is_session_transcript_update(update: &SessionUpdate) -
             | SessionUpdate::Plan(_)
     )
 }
-

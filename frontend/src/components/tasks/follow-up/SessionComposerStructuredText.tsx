@@ -31,10 +31,11 @@ import {
 } from '@/features/collaboration/MemberBotAvatar';
 import { cn } from '@/lib/utils';
 import { QuoteTokenPreview } from './QuoteTokenPreview';
-import type {
-  SessionComposerStructuredToken,
-  SessionComposerStructuredTokenKind,
-  SessionComposerStructuredTokenSegment,
+import {
+  atReferenceChipLabel,
+  type SessionComposerStructuredToken,
+  type SessionComposerStructuredTokenKind,
+  type SessionComposerStructuredTokenSegment,
 } from './sessionComposerStructuredTokens';
 
 export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
@@ -82,6 +83,7 @@ export function getSessionComposerTokenChipClassName(
   if (token.kind === 'member_mention') {
     return cn(
       'session-composer-token-chip collaboration-member-mention-chip collaboration-composer-member-token inline cursor-text select-text align-baseline',
+      token.mentionAll && 'collaboration-member-mention-all',
       className
     );
   }
@@ -103,7 +105,7 @@ export function SessionComposerTokenIcon({
 }: {
   token: Pick<
     SessionComposerStructuredToken,
-    'kind' | 'value' | 'memberAvatar'
+    'kind' | 'value' | 'memberAvatar' | 'mentionAll'
   >;
   className?: string;
 }): ReactNode {
@@ -117,6 +119,9 @@ export function SessionComposerTokenIcon({
     case 'agent_mention':
       return <AgentIcon agent={token.value} className={className} />;
     case 'member_mention':
+      if (token.mentionAll) {
+        return null;
+      }
       return (
         <MemberBotAvatar
           config={token.memberAvatar ?? deriveMemberBotAvatar(token.value)}
@@ -154,6 +159,33 @@ export function toSessionComposerChatToken(
       render: () => ReactNode;
     } {
   if (token.kind === 'member_mention') {
+    if (token.mentionAll) {
+      const mentionLabel = atReferenceChipLabel(token.label);
+      return {
+        value: token.raw,
+        render: () => (
+          <span
+            className="collaboration-member-mention-chip collaboration-composer-member-token collaboration-member-mention-all"
+            data-member-mention={token.key}
+            data-mention-all="true"
+            style={
+              {
+                background: 'transparent',
+                backgroundColor: 'transparent',
+                padding: 0,
+                borderRadius: 0,
+                border: 0,
+                boxShadow: 'none',
+              } as CSSProperties
+            }
+          >
+            <span className="collaboration-member-mention-name">
+              {mentionLabel}
+            </span>
+          </span>
+        ),
+      };
+    }
     const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
     const color = avatar.color || '#2563eb';
     return {
@@ -197,6 +229,9 @@ function restoredSessionComposerTokenIconMarkup(
   token: SessionComposerStructuredToken
 ): string {
   if (token.kind === 'member_mention') {
+    if (token.mentionAll) {
+      return '';
+    }
     const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
     return renderToStaticMarkup(
       <MemberBotAvatar
@@ -246,9 +281,14 @@ export function appendSessionComposerTokenContents(
   }
   const label = document.createElement('span');
   if (token.kind === 'member_mention') {
-    const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
     label.className =
       'session-composer-token-label collaboration-member-mention-name truncate font-bold';
+    if (token.mentionAll) {
+      label.textContent = atReferenceChipLabel(token.label);
+      element.append(label);
+      return;
+    }
+    const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
     if (avatar.color) {
       label.style.setProperty('--member-mention-color', avatar.color);
     }
@@ -270,8 +310,10 @@ export function SessionComposerTokenChip({
   const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
   const isQuote = token.kind === 'quote';
   const showsPreview = isQuote || token.kind === 'element';
+  const isMentionAll =
+    token.kind === 'member_mention' && Boolean(token.mentionAll);
   const memberAvatar =
-    token.kind === 'member_mention'
+    token.kind === 'member_mention' && !isMentionAll
       ? (token.memberAvatar ?? deriveMemberBotAvatar(token.value))
       : null;
 
@@ -305,8 +347,9 @@ export function SessionComposerTokenChip({
         data-testid="session-composer-token-chip"
         data-token-kind={token.kind}
         data-member-mention={
-          token.kind === 'member_mention' ? token.label : undefined
+          token.kind === 'member_mention' ? token.key : undefined
         }
+        data-mention-all={isMentionAll ? 'true' : undefined}
         data-variant={
           token.kind === 'member_mention'
             ? undefined
@@ -315,7 +358,9 @@ export function SessionComposerTokenChip({
         style={
           token.kind === 'member_mention'
             ? ({
-                '--member-mention-color': memberAvatar?.color,
+                ...(memberAvatar?.color
+                  ? { '--member-mention-color': memberAvatar.color }
+                  : {}),
                 background: 'transparent',
                 backgroundColor: 'transparent',
                 padding: 0,
@@ -341,14 +386,16 @@ export function SessionComposerTokenChip({
           showsPreview ? undefined : getSessionComposerTokenChipTitle(token)
         }
       >
-        <SessionComposerTokenIcon
-          token={token}
-          className={
-            token.kind === 'member_mention'
-              ? 'collaboration-member-mention-avatar shrink-0'
-              : 'h-3 w-3 shrink-0'
-          }
-        />
+        {!isMentionAll ? (
+          <SessionComposerTokenIcon
+            token={token}
+            className={
+              token.kind === 'member_mention'
+                ? 'collaboration-member-mention-avatar shrink-0'
+                : 'h-3 w-3 shrink-0'
+            }
+          />
+        ) : null}
         <span
           className={
             token.kind === 'member_mention'
@@ -356,7 +403,7 @@ export function SessionComposerTokenChip({
               : 'truncate font-medium'
           }
         >
-          {token.label}
+          {isMentionAll ? atReferenceChipLabel(token.label) : token.label}
         </span>
       </span>
       {showsPreview && quotePreviewOpen && chipRef.current ? (

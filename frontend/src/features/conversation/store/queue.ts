@@ -286,7 +286,7 @@ function livePromptStartsAfterWindowUser(
   return liveMs > windowMs + SAME_TURN_STAMP_SKEW_MS;
 }
 
-function windowBlocksCoverLiveBlocks(
+export function windowBlocksCoverLiveBlocks(
   windowBlocks: ContentBlock[],
   liveBlocks: ContentBlock[]
 ): boolean {

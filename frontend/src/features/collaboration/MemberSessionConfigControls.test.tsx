@@ -146,4 +146,18 @@ describe('MemberSessionConfigControls', () => {
       expect(refreshCapabilityCatalog).toHaveBeenCalledWith('codex')
     );
   });
+
+  it('normalizes uppercase agent ids when loading capability catalog', async () => {
+    capabilityCatalog.mockResolvedValue({
+      modes: [{ id: 'agent', label: 'Agent', description: null }],
+      current_mode: 'agent',
+      config_options: [CODEX_MODEL, CODEX_EFFORT],
+    });
+    renderControls('CODEX');
+
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    expect(capabilityCatalog).toHaveBeenCalledWith('codex');
+  });
 });

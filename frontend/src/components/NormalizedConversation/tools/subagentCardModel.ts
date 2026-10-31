@@ -168,7 +168,9 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
 export function hostMcpBareToolName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return trimmed;
-  const stripped = trimmed.replace(/^mcp__/i, '');
+  const stripped = trimmed
+    .replace(/^mcp__/i, '')
+    .replace(/^vibex[-_]delegation(?:[-_]mcp)?[-_]+/i, '');
   const parts = stripped.split(/__|\/|:/);
   return parts[parts.length - 1] ?? stripped;
 }
@@ -182,9 +184,24 @@ export function peelHostDelegationCall(use: ToolUseBlock): {
   name: string;
   input: Record<string, unknown> | null;
 } {
-  const input = inputRecord(use);
+  const rawInput = inputRecord(use);
+  const innerArgs = asObject(rawInput?.arguments);
+  const input =
+    rawInput &&
+    innerArgs &&
+    Object.keys(rawInput)
+      .filter((key) => key !== 'arguments')
+      .every((key) => key in innerArgs)
+      ? innerArgs
+      : rawInput;
+  const meta = asObject(use.meta);
+  const mcpTool = readString(asObject(meta?.mcp) as JsonValue, [
+    'tool',
+    'tool_name',
+    'toolName',
+  ]);
   const vendorName = readString(
-    asObject(asObject(use.meta)?.['x.ai/tool']) as JsonValue,
+    asObject(meta?.['x.ai/tool']) as JsonValue,
     'name'
   );
   const envelopeName = readString(input as JsonValue, 'tool_name');
@@ -218,7 +235,7 @@ export function peelHostDelegationCall(use: ToolUseBlock): {
       return { name: 'cancel_delegation', input };
     }
   }
-  return { name: use.tool_name, input };
+  return { name: mcpTool ?? use.tool_name, input };
 }
 
 function hostCompanionCanonicalName(name: string): string {

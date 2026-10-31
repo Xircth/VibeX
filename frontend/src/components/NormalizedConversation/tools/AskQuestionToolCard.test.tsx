@@ -79,9 +79,58 @@ describe('AskQuestionToolCard', () => {
     fireEvent.click(details);
     expect(details).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('ask-question-detail-well')).toBeInTheDocument();
-    expect(screen.queryByText('Local markdown')).not.toBeInTheDocument();
+    expect(screen.getByText('Local markdown')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '提交回答' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('unwraps MCP argument envelopes and falls back to generic title instead of raw tool name when input is empty', () => {
+    const { unmount } = render(
+      <AskQuestionToolCard
+        use={{
+          type: 'tool_use',
+          tool_use_id: 'call-mcp-ask',
+          tool_name: 'vibex-delegation-mcp__ask_user_question',
+          kind: 'other',
+          input_preview: JSON.stringify({
+            server: 'vibex-delegation-mcp',
+            tool: 'ask_user_question',
+            arguments: { questions: QUESTIONS },
+          }),
+          meta: null,
+        }}
+        result={result({ declined: true, answers: [] })}
+      />
+    );
+
+    expect(screen.getByTestId('ask-question-title')).toHaveTextContent(
+      QUESTIONS[0]!.question
+    );
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('Local markdown')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Issues')).toBeInTheDocument();
+    unmount();
+
+    render(
+      <AskQuestionToolCard
+        use={{
+          type: 'tool_use',
+          tool_use_id: 'call-empty-ask',
+          tool_name: 'vibex-delegation-mcp__ask_user_question',
+          kind: 'other',
+          input_preview: '{}',
+          meta: null,
+        }}
+        result={result({ declined: true, answers: [] })}
+      />
+    );
+
+    expect(screen.getByTestId('ask-question-title')).not.toHaveTextContent(
+      'vibex-delegation-mcp__ask_user_question'
+    );
+    expect(
+      screen.queryByRole('button', { name: '查看详情' })
     ).not.toBeInTheDocument();
   });
 

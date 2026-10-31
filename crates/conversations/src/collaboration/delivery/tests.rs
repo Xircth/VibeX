@@ -234,6 +234,33 @@ async fn space_mention_submits_same_text_to_each() {
     .await
     .unwrap();
     assert_eq!(posted.receipts.len(), 2);
+    let initial_texts: Vec<String> = sqlx::query_scalar(
+        "SELECT payload_json FROM conversation_inputs WHERE conversation_id IN (?, ?)",
+    )
+    .bind(b)
+    .bind(c)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        initial_texts.len(),
+        1,
+        "a two-target group post opens a sequential round and wakes only the current ordinal"
+    );
+    let woken = posted
+        .receipts
+        .iter()
+        .find(|receipt| receipt.input_id.is_some())
+        .expect("current ordinal is woken");
+    mark_processing(&pool, &posted.message_id, woken.conversation_id).await;
+    finalize_space_turn_deliveries(
+        &pool,
+        woken.conversation_id,
+        "评审完成。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
     let texts: Vec<String> = sqlx::query_scalar(
         "SELECT payload_json FROM conversation_inputs WHERE conversation_id IN (?, ?)",
     )
@@ -247,13 +274,6 @@ async fn space_mention_submits_same_text_to_each() {
         .iter()
         .map(|text| serde_json::from_str(text).unwrap())
         .collect();
-    let slim_of = |payload: &Value| -> String {
-        let text = payload["text"].as_str().unwrap();
-        text.find("[Group chat")
-            .or_else(|| text.find("[Message from"))
-            .map(|index| text[index..].to_string())
-            .unwrap_or_default()
-    };
     for payload in &payloads {
         assert_eq!(
             payload["displayText"].as_str(),
@@ -262,10 +282,12 @@ async fn space_mention_submits_same_text_to_each() {
         let text = payload["text"].as_str().unwrap();
         assert!(text.contains("请评审当前 diff"));
         assert!(text.contains("auth.ts"));
-        assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
+        assert!(
+            text.contains("[Group chat \"评审工作\" · from 小A"),
+            "{text}"
+        );
         assert!(text.contains("[Space") && text.contains("[PASS]"), "{text}");
     }
-    assert_eq!(slim_of(&payloads[0]), slim_of(&payloads[1]));
     let joined = texts.join("\n");
     assert!(joined.contains("Bot「小B」"), "{joined}");
     assert!(joined.contains("Bot「小C」"), "{joined}");
@@ -1108,6 +1130,83 @@ async fn dm_caller_addresses_group_by_name_keeps_origin_thread() {
 }
 
 #[tokio::test]
+async fn group_name_in_to_wakes_body_mentions_not_the_lead() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let c = Uuid::new_v4();
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    create_session(&pool, c, workspace, Some("小C")).await;
+    let origin = space_of(&pool, a).await;
+    add_space_member(&pool, a, &origin, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    let dest = create_collaboration_space(&pool, a, "二群", Uuid::new_v4())
+        .await
+        .unwrap()
+        .space_id;
+    let b_seat = add_space_member(&pool, a, &dest, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    let c_seat = add_space_member(&pool, a, &dest, c, "小C", Uuid::new_v4())
+        .await
+        .unwrap();
+    set_space_lead(&pool, &dest, Some(&c_seat.member_id))
+        .await
+        .unwrap();
+    let b_dest = Uuid::parse_str(b_seat.conversation_id.as_deref().unwrap()).unwrap();
+    let c_dest = Uuid::parse_str(c_seat.conversation_id.as_deref().unwrap()).unwrap();
+    assert_ne!(b_dest, b);
+
+    let posted = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(a),
+            space_id: origin.clone(),
+            content: "@小B 请看登录".to_string(),
+            summary: None,
+            to: vec!["二群".to_string()],
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let woken: Vec<Uuid> = posted.receipts.iter().map(|r| r.conversation_id).collect();
+    assert_eq!(woken, vec![b_dest]);
+    assert_eq!(input_count(&pool, b_dest).await, 1);
+    assert_eq!(input_count(&pool, c_dest).await, 0);
+    assert_eq!(input_count(&pool, b).await, 0);
+
+    let silent = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(a),
+            space_id: origin,
+            content: "进度同步".to_string(),
+            summary: None,
+            to: vec!["二群".to_string()],
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(silent.receipts.is_empty());
+    let dest_messages = list_space_messages(&pool, &dest, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    assert!(
+        dest_messages
+            .iter()
+            .any(|message| { message.envelope.get("crossChatReceivedFrom").is_some() }),
+        "destination group still logs the cross-space receipt"
+    );
+}
+
+#[tokio::test]
 async fn direct_user_message_wraps_space_context_for_agent() {
     let pool = setup_pool().await;
     let workspace = Uuid::new_v4();
@@ -1737,7 +1836,10 @@ async fn space_delivery_strips_mention_for_display_and_embeds_protocol_context()
         Some("请你分析我当前项目的性能")
     );
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("[Group chat \"评审工作\" · from Person"), "{text}");
+    assert!(
+        text.contains("[Group chat \"评审工作\" · from Person"),
+        "{text}"
+    );
     assert!(text.contains("GroupSpace") || text.contains(&space));
     assert!(text.contains(&space));
     assert!(text.contains("from Person"), "{text}");
@@ -1825,7 +1927,10 @@ async fn member_space_post_labels_origin_sender_on_peer_input() {
     let payload: Value = serde_json::from_str(&raw_payload).unwrap();
     assert_eq!(payload["displayText"].as_str(), Some("请核对接口"));
     let text = payload["text"].as_str().unwrap();
-    assert!(text.contains("[Group chat \"评审工作\" · from 小A"), "{text}");
+    assert!(
+        text.contains("[Group chat \"评审工作\" · from 小A"),
+        "{text}"
+    );
     assert!(text.contains("小A"), "{text}");
     assert_eq!(payload["collaborationOrigin"]["threadKind"], "group");
     assert_eq!(payload["collaborationOrigin"]["senderKind"], "member");
@@ -3418,10 +3523,7 @@ async fn group_delivery_prompt_lists_working_peers() {
     let texts = inputs_of(&pool, b).await;
     let payload: Value = serde_json::from_str(texts.last().unwrap()).unwrap();
     let text = payload["text"].as_str().unwrap();
-    assert!(
-        text.contains("still at work: @小A (working)"),
-        "{text}"
-    );
+    assert!(text.contains("still at work: @小A (working)"), "{text}");
 }
 
 #[tokio::test]
@@ -3561,4 +3663,898 @@ async fn round_progress_post_detaches_without_closing_the_slot() {
             .any(|m| m.origin == "agent" && m.envelope["content"] == json!("登录已修好。")),
         "{messages:?}"
     );
+}
+
+async fn round_slots(pool: &SqlitePool, round_id: &str) -> Vec<(String, i64, String, String)> {
+    sqlx::query_as(
+        r#"SELECT conversation_id, round_ordinal, receipt_state, space_message_id
+           FROM collaboration_space_deliveries
+           WHERE round_id = ?
+           ORDER BY round_ordinal ASC, conversation_id ASC"#,
+    )
+    .bind(round_id)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn bot_mention_during_open_round_splices_next_slot_instead_of_waking_in_parallel() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (arch, coder, qa) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, arch, workspace, Some("Arch")).await;
+    create_session(&pool, coder, workspace, Some("Coder")).await;
+    create_session(&pool, qa, workspace, Some("QA")).await;
+    let space = space_of(&pool, arch).await;
+    add_space_member(&pool, arch, &space, coder, "Coder", Uuid::new_v4())
+        .await
+        .unwrap();
+    add_space_member(&pool, arch, &space, qa, "QA", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let before_coder = input_count(&pool, coder).await;
+    let before_qa = input_count(&pool, qa).await;
+    let multi = post_as(
+        &pool,
+        None,
+        &space,
+        "@Arch @Coder 请接力",
+        &["Arch", "Coder"],
+    )
+    .await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, arch).await;
+
+    let handoff = post_as(&pool, Some(arch), &space, "@QA 请先做验收", &["QA"]).await;
+    let slots = round_slots(&pool, &round_id).await;
+    assert_eq!(slots.len(), 3, "QA must join the open round: {slots:?}");
+    assert_eq!(slots[0].0, arch.to_string());
+    assert_eq!(slots[0].1, 1);
+    assert_eq!(slots[1].0, qa.to_string());
+    assert_eq!(slots[1].1, 2);
+    assert_eq!(slots[1].3, handoff.message_id);
+    assert_eq!(slots[2].0, coder.to_string());
+    assert_eq!(slots[2].1, 3);
+
+    let open_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM collaboration_rounds WHERE space_id = ? AND state = 'open'",
+    )
+    .bind(&space)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(open_count, 1);
+    assert_eq!(
+        input_count(&pool, qa).await,
+        before_qa + 1,
+        "spliced QA becomes the next slot and is woken after Arch's handoff detaches"
+    );
+    assert_eq!(
+        input_count(&pool, coder).await,
+        before_coder,
+        "Coder must not speak in parallel with the spliced QA slot"
+    );
+
+    finalize_space_turn_deliveries(&pool, arch, "方案已写完。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    assert_eq!(input_count(&pool, qa).await, before_qa + 1);
+    assert_eq!(input_count(&pool, coder).await, before_coder);
+
+    let qa_text = inputs_of(&pool, qa).await;
+    let payload: Value = serde_json::from_str(qa_text.last().unwrap()).unwrap();
+    let text = payload["text"].as_str().unwrap();
+    assert!(text.contains("请先做验收"), "{text}");
+    assert!(text.contains("@QA (you, now)"), "{text}");
+    assert!(text.contains("@Coder (waiting)"), "{text}");
+
+    mark_processing(&pool, &handoff.message_id, qa).await;
+    finalize_space_turn_deliveries(&pool, qa, "验收通过。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    assert_eq!(input_count(&pool, coder).await, before_coder + 1);
+}
+
+#[tokio::test]
+async fn bot_multi_mention_without_open_round_creates_a_serial_round() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (arch, coder, qa) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, arch, workspace, Some("Arch")).await;
+    create_session(&pool, coder, workspace, Some("Coder")).await;
+    create_session(&pool, qa, workspace, Some("QA")).await;
+    let space = space_of(&pool, arch).await;
+    add_space_member(&pool, arch, &space, coder, "Coder", Uuid::new_v4())
+        .await
+        .unwrap();
+    add_space_member(&pool, arch, &space, qa, "QA", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let before_coder = input_count(&pool, coder).await;
+    let before_qa = input_count(&pool, qa).await;
+    let posted = post_as(
+        &pool,
+        Some(arch),
+        &space,
+        "@Coder @QA 请依次实现再验收",
+        &["Coder", "QA"],
+    )
+    .await;
+
+    let round: (String, String, i64) = sqlx::query_as(
+        "SELECT id, state, current_ordinal FROM collaboration_rounds WHERE root_message_id = ?",
+    )
+    .bind(&posted.message_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(round.1, "open");
+    assert_eq!(round.2, 1);
+
+    let slots = round_slots(&pool, &round.0).await;
+    assert_eq!(
+        slots
+            .iter()
+            .map(|(id, ord, _, _)| (id.clone(), *ord))
+            .collect::<Vec<_>>(),
+        vec![(coder.to_string(), 1), (qa.to_string(), 2)]
+    );
+    assert_eq!(input_count(&pool, coder).await, before_coder + 1);
+    assert_eq!(
+        input_count(&pool, qa).await,
+        before_qa,
+        "QA must wait behind Coder in the bot-started round"
+    );
+
+    mark_processing(&pool, &posted.message_id, coder).await;
+    finalize_space_turn_deliveries(&pool, coder, "实现完成。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    assert_eq!(input_count(&pool, qa).await, before_qa + 1);
+}
+
+#[tokio::test]
+async fn person_comment_during_open_round_is_absorbed_without_supersede_or_extra_wake() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (arch, coder) = (Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, arch, workspace, Some("Arch")).await;
+    create_session(&pool, coder, workspace, Some("Coder")).await;
+    let space = space_of(&pool, arch).await;
+    add_space_member(&pool, arch, &space, coder, "Coder", Uuid::new_v4())
+        .await
+        .unwrap();
+    let arch_member: String = sqlx::query_scalar(
+        "SELECT member_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+    )
+    .bind(&space)
+    .bind(arch.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    crate::collaboration::roles::set_space_lead(&pool, &space, Some(arch_member.as_str()))
+        .await
+        .unwrap();
+
+    let before_coder = input_count(&pool, coder).await;
+    let before_arch = input_count(&pool, arch).await;
+    let multi = post_as(
+        &pool,
+        None,
+        &space,
+        "@Arch @Coder 请接力",
+        &["Arch", "Coder"],
+    )
+    .await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, arch).await;
+
+    post_as(&pool, None, &space, "补充：注意超时边界", &[]).await;
+
+    let round_state: String =
+        sqlx::query_scalar("SELECT state FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(round_state, "open");
+    let receipts = list_message_receipts(&pool, &multi.message_id)
+        .await
+        .unwrap();
+    let arch_receipt = receipts
+        .iter()
+        .find(|r| r.conversation_id == arch.to_string())
+        .unwrap();
+    assert_eq!(arch_receipt.state, "processing");
+    assert_eq!(
+        input_count(&pool, arch).await,
+        before_arch + 1,
+        "Person interrupt must not steer or re-wake the current speaker"
+    );
+    assert_eq!(
+        input_count(&pool, coder).await,
+        before_coder,
+        "Person interrupt must not wake the next slot immediately"
+    );
+
+    finalize_space_turn_deliveries(&pool, arch, "方案已写完。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    assert_eq!(input_count(&pool, coder).await, before_coder + 1);
+    let coder_text = inputs_of(&pool, coder).await;
+    let payload: Value = serde_json::from_str(coder_text.last().unwrap()).unwrap();
+    let text = payload["text"].as_str().unwrap();
+    assert!(text.contains("补充：注意超时边界"), "{text}");
+}
+
+#[tokio::test]
+async fn person_single_mention_during_open_round_splices_instead_of_superseding() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (arch, coder, qa) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, arch, workspace, Some("Arch")).await;
+    create_session(&pool, coder, workspace, Some("Coder")).await;
+    create_session(&pool, qa, workspace, Some("QA")).await;
+    let space = space_of(&pool, arch).await;
+    add_space_member(&pool, arch, &space, coder, "Coder", Uuid::new_v4())
+        .await
+        .unwrap();
+    add_space_member(&pool, arch, &space, qa, "QA", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let before_coder = input_count(&pool, coder).await;
+    let before_qa = input_count(&pool, qa).await;
+    let multi = post_as(
+        &pool,
+        None,
+        &space,
+        "@Arch @Coder 请接力",
+        &["Arch", "Coder"],
+    )
+    .await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, arch).await;
+
+    let interrupt = post_as(&pool, None, &space, "@QA 先插一嘴验收标准", &["QA"]).await;
+    let round_state: String =
+        sqlx::query_scalar("SELECT state FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(round_state, "open");
+    let slots = round_slots(&pool, &round_id).await;
+    assert_eq!(slots[1].0, qa.to_string());
+    assert_eq!(slots[1].1, 2);
+    assert_eq!(slots[1].3, interrupt.message_id);
+    assert_eq!(slots[2].0, coder.to_string());
+    assert_eq!(slots[2].1, 3);
+    assert_eq!(input_count(&pool, qa).await, before_qa);
+    assert_eq!(input_count(&pool, coder).await, before_coder);
+
+    finalize_space_turn_deliveries(&pool, arch, "方案已写完。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    assert_eq!(input_count(&pool, qa).await, before_qa + 1);
+    assert_eq!(input_count(&pool, coder).await, before_coder);
+}
+
+#[tokio::test]
+async fn mid_turn_tool_call_bubbles_step_text_without_closing_or_duplicating() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let a = Uuid::new_v4();
+    create_session(&pool, a, workspace, Some("小A")).await;
+    let space = space_of(&pool, a).await;
+    let posted = post_as(&pool, None, &space, "@小A 请看登录", &[]).await;
+    mark_processing(&pool, &posted.message_id, a).await;
+    clear_space_turn_tool_started(a);
+
+    on_space_turn_tool_call(
+        &pool,
+        a,
+        "我先检查一下 auth.rs",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let receipts = list_message_receipts(&pool, &posted.message_id)
+        .await
+        .unwrap();
+    assert_eq!(receipts[0].state, "processing");
+    let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    let step = messages
+        .iter()
+        .find(|m| m.origin == "agent" && m.envelope["content"] == json!("我先检查一下 auth.rs"))
+        .expect("step text must land in the space log");
+    assert_eq!(step.envelope["to"], json!(["Person"]));
+
+    on_space_turn_tool_call(
+        &pool,
+        a,
+        "我先检查一下 auth.rs",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+    let after_repeat = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    let step_count = after_repeat
+        .iter()
+        .filter(|m| m.origin == "agent" && m.envelope["content"] == json!("我先检查一下 auth.rs"))
+        .count();
+    assert_eq!(
+        step_count, 1,
+        "identical mid-turn text must not be posted twice"
+    );
+
+    finalize_space_turn_deliveries(&pool, a, "鉴权没有问题。", &DeliveryContext::default())
+        .await
+        .unwrap();
+    let final_messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    assert_eq!(
+        final_messages
+            .iter()
+            .filter(|m| m.origin == "agent")
+            .count(),
+        2
+    );
+    assert!(
+        final_messages
+            .iter()
+            .any(|m| m.origin == "agent" && m.envelope["content"] == json!("鉴权没有问题。")),
+        "{final_messages:?}"
+    );
+    assert!(
+        final_messages.iter().all(|m| m.origin != "agent"
+            || m.envelope["content"] != json!("我先检查一下 auth.rs\n鉴权没有问题。")),
+        "pre-tool step text must not be concatenated into the conclusion"
+    );
+}
+
+#[tokio::test]
+async fn plain_text_round_does_not_detach_within_ten_seconds() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    create_session(&pool, c, workspace, Some("小C")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+        .await
+        .unwrap();
+    let a_member: String = sqlx::query_scalar(
+        "SELECT member_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+    )
+    .bind(&space)
+    .bind(a.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    crate::collaboration::roles::set_space_lead(&pool, &space, Some(a_member.as_str()))
+        .await
+        .unwrap();
+
+    let before_c = input_count(&pool, c).await;
+    let multi = post_as(
+        &pool,
+        None,
+        &space,
+        "@小C @小B @小A 请依次汇报",
+        &["小C", "小B", "小A"],
+    )
+    .await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, a).await;
+    clear_space_turn_tool_started(a);
+    let started = chrono::Utc::now() - chrono::Duration::seconds(5);
+    sqlx::query(
+        "UPDATE collaboration_turns SET created_at = ? WHERE space_message_id = ? AND conversation_id = ?",
+    )
+    .bind(started.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    .bind(&multi.message_id)
+    .bind(a.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    advance_round(&pool, &round_id, &DeliveryContext::default())
+        .await
+        .unwrap();
+    let ordinal: i64 =
+        sqlx::query_scalar("SELECT current_ordinal FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ordinal, 1, "plain-text generation must not detach at 5s");
+    assert_eq!(input_count(&pool, c).await, before_c);
+}
+
+#[tokio::test]
+async fn open_tool_calls_detach_the_round_without_waiting_for_plain_text() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    create_session(&pool, c, workspace, Some("小C")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+        .await
+        .unwrap();
+    let a_member: String = sqlx::query_scalar(
+        "SELECT member_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+    )
+    .bind(&space)
+    .bind(a.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    crate::collaboration::roles::set_space_lead(&pool, &space, Some(a_member.as_str()))
+        .await
+        .unwrap();
+
+    let before_c = input_count(&pool, c).await;
+    let multi = post_as(
+        &pool,
+        None,
+        &space,
+        "@小C @小B @小A 请依次汇报",
+        &["小C", "小B", "小A"],
+    )
+    .await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, a).await;
+    clear_space_turn_tool_started(a);
+    let turn_id = mark_running(&pool, a).await;
+    sqlx::query(
+        r#"INSERT INTO conversation_tool_calls
+           (id, conversation_id, turn_id, tool_call_id, status)
+           VALUES (?, ?, ?, 'read-auth', 'running')"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(a)
+    .bind(turn_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    advance_round(&pool, &round_id, &DeliveryContext::default())
+        .await
+        .unwrap();
+    let ordinal: i64 =
+        sqlx::query_scalar("SELECT current_ordinal FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ordinal, 2);
+    assert_eq!(input_count(&pool, c).await, before_c + 1);
+}
+
+#[tokio::test]
+async fn in_memory_tool_start_does_not_detach_before_grace() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    let a_member: String = sqlx::query_scalar(
+        "SELECT member_id FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+    )
+    .bind(&space)
+    .bind(a.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    crate::collaboration::roles::set_space_lead(&pool, &space, Some(a_member.as_str()))
+        .await
+        .unwrap();
+
+    let before_b = input_count(&pool, b).await;
+    let multi = post_as(&pool, None, &space, "@小A @小B 请接力", &["小A", "小B"]).await;
+    let round_id: String =
+        sqlx::query_scalar("SELECT id FROM collaboration_rounds WHERE root_message_id = ?")
+            .bind(&multi.message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    mark_processing(&pool, &multi.message_id, a).await;
+    let started = chrono::Utc::now() - chrono::Duration::seconds(20);
+    sqlx::query(
+        "UPDATE collaboration_turns SET created_at = ? WHERE space_message_id = ? AND conversation_id = ?",
+    )
+    .bind(started.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    .bind(&multi.message_id)
+    .bind(a.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+    clear_space_turn_tool_started(a);
+    mark_space_turn_tool_started(a);
+
+    advance_round(&pool, &round_id, &DeliveryContext::default())
+        .await
+        .unwrap();
+    let ordinal: i64 =
+        sqlx::query_scalar("SELECT current_ordinal FROM collaboration_rounds WHERE id = ?")
+            .bind(&round_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        ordinal, 1,
+        "a just-started tool call must wait for the 3s grace"
+    );
+    assert_eq!(input_count(&pool, b).await, before_b);
+    clear_space_turn_tool_started(a);
+}
+
+#[tokio::test]
+async fn asked_by_bot_is_the_implicit_recipient_when_reply_has_no_mention() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let ask = post_as(&pool, Some(a), &space, "@小B 请修登录", &["小B"]).await;
+    mark_processing(&pool, &ask.message_id, b).await;
+    let before_a = input_count(&pool, a).await;
+    finalize_space_turn_deliveries(&pool, b, "登录已修好。", &DeliveryContext::default())
+        .await
+        .unwrap();
+
+    let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    let fallback = messages
+        .iter()
+        .find(|m| m.origin == "agent" && m.envelope["content"] == json!("登录已修好。"))
+        .expect("B's conclusion must be posted");
+    assert_eq!(fallback.envelope["to"], json!(["小A"]));
+    assert_eq!(fallback.envelope["sender"].as_str().unwrap(), "小B");
+    assert_eq!(input_count(&pool, a).await, before_a + 1);
+}
+
+#[tokio::test]
+async fn queued_follow_up_delivery_survives_turn_one_completion_and_syncs_turn_two_reply() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let bot = Uuid::new_v4();
+    create_session(&pool, bot, workspace, Some("小A")).await;
+    let space = space_of(&pool, bot).await;
+
+    let msg1 = post_as(&pool, None, &space, "@小A 第一个问题", &["小A"]).await;
+    mark_processing(&pool, &msg1.message_id, bot).await;
+
+    // While msg1 is processing, user sends msg2 which stays queued in collaboration_space_deliveries.
+    let msg2 = post_as(&pool, None, &space, "@小A 第二个问题", &["小A"]).await;
+
+    let notified = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let notified_clone = notified.clone();
+    let ctx = DeliveryContext {
+        space_changed: Some(Arc::new(move |evt| {
+            notified_clone.lock().unwrap().push(evt);
+        })),
+        ..DeliveryContext::default()
+    };
+
+    // Turn 1 finishes: msg1 must be replied, notify_space_changed must fire, and msg2 must remain queued.
+    finalize_space_turn_deliveries(&pool, bot, "第一个问题的回答。", &ctx)
+        .await
+        .unwrap();
+
+    assert!(
+        !notified.lock().unwrap().is_empty(),
+        "fallback post on turn completion must emit notify_space_changed"
+    );
+
+    let state2: String = sqlx::query_scalar(
+        "SELECT receipt_state FROM collaboration_space_deliveries WHERE space_message_id = ? AND conversation_id = ?",
+    )
+    .bind(&msg2.message_id)
+    .bind(bot.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        state2, "queued",
+        "queued follow-up delivery must not be prematurely closed by Turn 1 completion"
+    );
+
+    // Turn 2 now dispatches msg2 and completes.
+    mark_processing(&pool, &msg2.message_id, bot).await;
+    finalize_space_turn_deliveries(&pool, bot, "第二个问题的回答。", &ctx)
+        .await
+        .unwrap();
+
+    let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.origin == "agent" && m.envelope["content"] == json!("第一个问题的回答。")),
+        "Turn 1 reply must be in space"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.origin == "agent" && m.envelope["content"] == json!("第二个问题的回答。")),
+        "Turn 2 reply must also be synced to space"
+    );
+}
+
+#[tokio::test]
+async fn sequential_round_packs_peer_reply_after_trigger_and_advances_completed_watermark() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (docu, coder) = (Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, docu, workspace, Some("Docu")).await;
+    create_session(&pool, coder, workspace, Some("Coder")).await;
+    let space = space_of(&pool, docu).await;
+    add_space_member(&pool, docu, &space, coder, "Coder", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    // Person triggers a sequential round: @Docu @Coder
+    post_as(&pool, None, &space, "@Docu @Coder 请排查超时配置", &[]).await;
+
+    // Docu finishes slot 1, which posts #2 and wakes Coder for #1
+    finalize_space_turn_deliveries(
+        &pool,
+        docu,
+        "文档里定义的字段名是 timeout_ms。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let coder_inputs = inputs_of(&pool, coder).await;
+    assert_eq!(coder_inputs.len(), 1);
+    let first_payload: Value = serde_json::from_str(&coder_inputs[0]).unwrap();
+    let first_text = first_payload["text"].as_str().unwrap();
+
+    // The root trigger message #1 must appear BEFORE Docu's reply #2 in chronological order.
+    let trigger_pos = first_text
+        .find("请排查超时配置")
+        .expect("root trigger message in envelope");
+    let peer_reply_pos = first_text
+        .find("[#2] Docu: 文档里定义的字段名是 timeout_ms。")
+        .expect("Docu's round reply packed in envelope");
+    assert!(
+        trigger_pos < peer_reply_pos,
+        "round peer reply #2 must appear chronologically after root trigger #1:\n{first_text}"
+    );
+
+    // Coder finishes slot 2, posting #3.
+    finalize_space_turn_deliveries(
+        &pool,
+        coder,
+        "代码侧已统一改为 timeout_ms。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    // Next turn: Person sends #4 to @Coder. Since Coder already saw #2 and authored #3,
+    // #2 must NOT be re-packed as missed context on #4.
+    post_as(&pool, None, &space, "@Coder 再确认一下默认值", &[]).await;
+    let coder_inputs = inputs_of(&pool, coder).await;
+    assert_eq!(coder_inputs.len(), 2);
+    let second_payload: Value = serde_json::from_str(&coder_inputs[1]).unwrap();
+    let second_text = second_payload["text"].as_str().unwrap();
+    assert!(
+        !second_text.contains("文档里定义的字段名是 timeout_ms。"),
+        "already-seen round reply #2 must not be re-packed in subsequent turn:\n{second_text}"
+    );
+}
+
+#[tokio::test]
+async fn group_space_member_session_resolve_and_direct_session_reply_projection() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let dm_cid = Uuid::new_v4();
+    create_session(&pool, dm_cid, workspace, Some("Bot A")).await;
+    let unassigned = unassigned_space_id(workspace);
+    let (_, _, dm_resolved) = identity::bind_seat(&pool, &unassigned, dm_cid, Some("Bot A"))
+        .await
+        .unwrap();
+    let dm_resolved_cid = dm_resolved.conversation_id;
+
+    // Create a GroupSpace and add Bot A using its DM conversation id (`dm_resolved_cid`).
+    let creator_cid = Uuid::new_v4();
+    create_session(&pool, creator_cid, workspace, Some("Lead")).await;
+    let group_space = create_collaboration_space(&pool, creator_cid, "Group 1", Uuid::new_v4())
+        .await
+        .unwrap();
+    let seat = host_add_space_member(
+        &pool,
+        &group_space.space_id,
+        dm_resolved_cid,
+        "Bot A",
+        Uuid::new_v4(),
+    )
+    .await
+    .unwrap();
+    let group_cid = Uuid::parse_str(seat.conversation_id.as_deref().unwrap()).unwrap();
+    assert_ne!(
+        group_cid, dm_resolved_cid,
+        "adding a DM member to a GroupSpace must create an isolated per-space session instead of stealing the DM session"
+    );
+
+    // Resolving the session tab by the seat's per-space UUID (`seat.member_id`) must return `group_cid`.
+    let resolved_by_seat_id = resolve_thread_session(&pool, &seat.member_id, &group_space.space_id)
+        .await
+        .unwrap();
+    assert_eq!(resolved_by_seat_id, group_cid);
+
+    // Posting `@Bot A` in the GroupSpace routes to `group_cid`.
+    let post_res = post_to_space_with(
+        &pool,
+        PostToSpace {
+            caller_id: None,
+            space_id: group_space.space_id.clone(),
+            content: "@Bot A 请检查构建脚本".to_string(),
+            summary: None,
+            to: vec![],
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(post_res.receipts.len(), 1);
+    assert_eq!(post_res.receipts[0].conversation_id, group_cid);
+
+    let group_inputs = inputs_of(&pool, group_cid).await;
+    assert_eq!(group_inputs.len(), 1);
+
+    // Finish the first turn so no space deliveries remain open.
+    finalize_space_turn_deliveries(
+        &pool,
+        group_cid,
+        "构建脚本检查完毕。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    // Now simulate the user sending a message directly inside Bot A's GroupSpace session tab
+    // (a `conversation_turns` row without `collaboration_space_origin`).
+    let direct_turn = db::models::conversation_turn::ConversationTurnRecord::create_pending(
+        &pool,
+        Uuid::new_v4(),
+        db::models::conversation_turn::CreateConversationTurn {
+            conversation_id: group_cid,
+            prompt_id: None,
+            text_preview: Some("顺便看下环境变量"),
+            input_blocks_json: r#"[{"type":"text","text":"顺便看下环境变量"}]"#,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE conversation_turns SET status = 'completed' WHERE id = ?")
+        .bind(direct_turn.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    finalize_space_turn_deliveries(
+        &pool,
+        group_cid,
+        "环境变量 VIBEX_PORT 已配置。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let messages = list_space_messages(
+        &pool,
+        &group_space.space_id,
+        None,
+        None,
+        MessageAudience::User,
+    )
+    .await
+    .unwrap();
+    assert!(
+        messages.iter().any(|m| {
+            m.origin == "agent" && m.envelope["content"] == json!("环境变量 VIBEX_PORT 已配置。")
+        }),
+        "Bot A's reply to a direct session-tab message must also be projected into the GroupSpace"
+    );
+}
+
+#[tokio::test]
+async fn user_mention_during_open_round_queues_delivery_for_currently_speaking_bot() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let (bot_a, bot_b) = (Uuid::new_v4(), Uuid::new_v4());
+    create_session(&pool, bot_a, workspace, Some("BotA")).await;
+    create_session(&pool, bot_b, workspace, Some("BotB")).await;
+    let space = space_of(&pool, bot_a).await;
+    add_space_member(&pool, bot_a, &space, bot_b, "BotB", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    // Start a sequential round with @BotA @BotB so BotA is currently speaking in an open round.
+    post_as(&pool, None, &space, "@BotA @BotB 第一轮任务", &[]).await;
+    assert_eq!(inputs_of(&pool, bot_a).await.len(), 1);
+
+    // While BotA is still speaking in the open round, user sends a follow-up `@BotA 补充说明`.
+    let follow_up = post_to_space_with(
+        &pool,
+        PostToSpace {
+            caller_id: None,
+            space_id: space.clone(),
+            content: "@BotA 补充说明".to_string(),
+            summary: None,
+            to: vec!["BotA".to_string()],
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        follow_up.receipts.len(),
+        1,
+        "User's explicit @BotA during an open round must create a delivery receipt for BotA"
+    );
+    assert_eq!(follow_up.receipts[0].conversation_id, bot_a);
 }

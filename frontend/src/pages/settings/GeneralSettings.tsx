@@ -41,6 +41,10 @@ import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
 import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
 import { MultiAgentSettings } from '@/features/collaboration/MultiAgentSettings';
+import {
+  setHideBotSessions,
+  useHideBotSessions,
+} from '@/lib/hideBotSessions';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
@@ -73,6 +77,7 @@ export function GeneralSettings() {
   const { config, environment, loading, updateAndSaveConfig } = useUserSystem();
   const basicGuide = useOptionalBasicGuide();
   const localDesktopHost = useLocalDesktopHost();
+  const hideBotSessions = useHideBotSessions();
 
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
@@ -225,6 +230,27 @@ export function GeneralSettings() {
                     );
                     toast.error(t('general.saveFailed'));
                   });
+                }}
+              />
+            </div>
+            <div className="settings-row">
+              <div>
+                <Label
+                  htmlFor="multi-agent-hide-bot-sessions"
+                  className="cursor-pointer"
+                >
+                  {t('general.multiAgentHideBotSessions')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.multiAgentHideBotSessionsHint')}
+                </p>
+              </div>
+              <Switch
+                id="multi-agent-hide-bot-sessions"
+                className="settings-switch"
+                checked={hideBotSessions}
+                onCheckedChange={(checked: boolean) => {
+                  setHideBotSessions(checked);
                 }}
               />
             </div>

@@ -1108,8 +1108,14 @@ pub async fn import_legacy_channel_tokens(
     Ok(())
 }
 
+fn im_env_write_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 /// Upsert a channel's token, preserving every other line in the file.
 pub async fn save_channel_token(channel_id: &str, token: &str) -> Result<(), NotificationError> {
+    let _guard = im_env_write_lock().lock().await;
     let path =
         im_env_path().ok_or_else(|| NotificationError::Internal("no home directory".into()))?;
     let key = token_key(channel_id);
@@ -1126,6 +1132,7 @@ pub async fn save_channel_token(channel_id: &str, token: &str) -> Result<(), Not
 
 /// Remove a channel's token line (no-op if absent).
 pub async fn delete_channel_token(channel_id: &str) -> Result<(), NotificationError> {
+    let _guard = im_env_write_lock().lock().await;
     let Some(path) = im_env_path() else {
         return Ok(());
     };

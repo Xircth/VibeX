@@ -26,6 +26,7 @@ const STORAGE_KEYS = {
   'vibex:operation-diagnostics': 'operation_diagnostics_enabled',
   'vibex:auto-open-created-previews': 'auto_open_created_previews',
   'vibex:settings-nav-float': 'settings_nav_float',
+  'vibex:hide-bot-sessions': 'hide_bot_sessions',
   'vibex:basic-guide': 'basic_guide',
 } as const;
 

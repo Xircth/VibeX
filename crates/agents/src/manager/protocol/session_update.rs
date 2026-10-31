@@ -1,7 +1,10 @@
 use super::*;
 
 impl AcpClientBridge {
-    pub(in crate::manager) async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
+    pub(in crate::manager) async fn session_notification(
+        &self,
+        args: SessionNotification,
+    ) -> Result<(), acp::Error> {
         let acp_session_id = args.session_id.0.to_string();
         let bound_session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
         let session_id =

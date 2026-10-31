@@ -119,6 +119,7 @@ export type SessionComposerStructuredToken = {
   raw: string;
   title?: string;
   memberAvatar?: MemberBotAvatarConfig;
+  mentionAll?: boolean;
 };
 
 export type SessionComposerStructuredTokenSegment =
@@ -308,23 +309,24 @@ function parseSpaceMemberMentionAt(
     const nextChar = source.charAt(candidateEnd);
     // Require a trailing space or end after `@nickname ` when typing so partial prefixes don't prematurely lock,
     // OR any non-identifier boundary.
-    if (
-      nextChar !== '' &&
-      /[\p{L}\p{N}_-]/u.test(nextChar)
-    ) {
+    if (nextChar !== '' && /[\p{L}\p{N}_-]/u.test(nextChar)) {
       continue;
     }
     const raw = `@${nick}`;
+    const mentionAll =
+      Boolean(member.mentionAll) ||
+      (!member.avatar && (nick === '全体成员' || nick === '全体'));
     return {
       token: {
         kind: 'member_mention',
         type: '@',
         key: nick,
-        label: nick,
+        label: mentionAll ? `@${nick}` : nick,
         value: nick,
         raw,
         title: nick,
-        memberAvatar: member.avatar,
+        memberAvatar: mentionAll ? undefined : member.avatar,
+        ...(mentionAll ? { mentionAll: true } : {}),
       },
       end: candidateEnd,
     };

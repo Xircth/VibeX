@@ -106,11 +106,24 @@ impl AgentConnectionRunner {
         *self.replay_hydrate.lock().await = Some(external_session_id.to_string());
     }
 
-    pub(in crate::manager) async fn end_load_replay(&self) {
+    pub(in crate::manager) async fn end_load_replay(
+        &self,
+        external_session_id: &str,
+        load_succeeded: bool,
+    ) {
         *self.replay_hydrate.lock().await = None;
+        if !load_succeeded && records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+            crate::acp_transcript::release_unrecorded_replay_claim(&agent_dir, external_session_id);
+        }
     }
 
-    pub(in crate::manager) fn record_continuation_header(&self, new_session_id: &str, previous_session_id: &str) {
+    pub(in crate::manager) fn record_continuation_header(
+        &self,
+        session_id: AgentSessionId,
+        new_session_id: &str,
+        previous_session_id: &str,
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -118,17 +131,40 @@ impl AgentConnectionRunner {
         if !crate::acp_transcript::safe_component(new_session_id) {
             return;
         }
+        let root = crate::acp_transcript::vibex_acp_transcripts_root();
+        let local_sid = session_id.0.simple().to_string();
+        let continues_from =
+            if !crate::acp_transcript::read_chain_in(&root, &agent_dir, previous_session_id)
+                .entries
+                .is_empty()
+            {
+                previous_session_id
+            } else if local_sid != new_session_id
+                && !crate::acp_transcript::read_chain_in(&root, &agent_dir, &local_sid)
+                    .entries
+                    .is_empty()
+            {
+                local_sid.as_str()
+            } else {
+                previous_session_id
+            };
         let header = crate::acp_transcript::TranscriptHeader::new(
             self.snapshot.agent_id.as_str(),
             new_session_id,
             &self.snapshot.working_dir.to_string_lossy(),
             crate::acp_transcript::now_epoch_ms(),
         )
-        .continuing(previous_session_id);
-        let _ = crate::acp_transcript::claim_replay_transcript(&agent_dir, new_session_id, &header);
+        .continuing(continues_from);
+        if !crate::acp_transcript::claim_replay_transcript(&agent_dir, new_session_id, &header) {
+            drop(crate::acp_transcript::record_header(&agent_dir, &header));
+        }
     }
 
-    pub(in crate::manager) fn record_session_header(&self, session_id: AgentSessionId, acp_session_id: &str) {
+    pub(in crate::manager) fn record_session_header(
+        &self,
+        session_id: AgentSessionId,
+        acp_session_id: &str,
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -142,21 +178,26 @@ impl AgentConnectionRunner {
             &self.snapshot.working_dir.to_string_lossy(),
             crate::acp_transcript::now_epoch_ms(),
         );
+        let root = crate::acp_transcript::vibex_acp_transcripts_root();
         let local_sid = session_id.0.simple().to_string();
         if acp_session_id != local_sid
             && !crate::acp_transcript::has_recorded_history(&agent_dir, acp_session_id)
-            && crate::acp_transcript::has_entries_in(
-                &crate::acp_transcript::vibex_acp_transcripts_root(),
-                &agent_dir,
-                &local_sid,
-            )
+            && !crate::acp_transcript::read_chain_in(&root, &agent_dir, &local_sid)
+                .entries
+                .is_empty()
         {
             header = header.continuing(&local_sid);
         }
-        drop(crate::acp_transcript::record_header(&agent_dir, &header));
+        if !crate::acp_transcript::claim_replay_transcript(&agent_dir, acp_session_id, &header) {
+            drop(crate::acp_transcript::record_header(&agent_dir, &header));
+        }
     }
 
-    pub(in crate::manager) async fn record_prompt(&self, acp_session_id: &str, blocks: &[ContentBlock]) {
+    pub(in crate::manager) async fn record_prompt(
+        &self,
+        acp_session_id: &str,
+        blocks: &[ContentBlock],
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -176,7 +217,11 @@ impl AgentConnectionRunner {
         let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
     }
 
-    pub(in crate::manager) async fn record_steer(&self, acp_session_id: &str, blocks: &[ContentBlock]) {
+    pub(in crate::manager) async fn record_steer(
+        &self,
+        acp_session_id: &str,
+        blocks: &[ContentBlock],
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -191,7 +236,11 @@ impl AgentConnectionRunner {
         let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
     }
 
-    pub(in crate::manager) fn record_in_memory_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+    pub(in crate::manager) fn record_in_memory_update(
+        &self,
+        acp_session_id: &str,
+        update: &SessionUpdate,
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -282,7 +331,11 @@ impl AgentConnectionRunner {
         let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
     }
 
-    pub(in crate::manager) async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
+    pub(in crate::manager) async fn emit_session_linked(
+        &self,
+        session_id: AgentSessionId,
+        acp_session_id: String,
+    ) {
         if !crate::is_restorable_acp_session_id(&acp_session_id) {
             tracing::error!(
                 session_id = %session_id.0,
@@ -303,7 +356,11 @@ impl AgentConnectionRunner {
         self.emit_session_bind_ready(session_id, acp_session_id);
     }
 
-    pub(in crate::manager) fn emit_session_bind_ready(&self, session_id: AgentSessionId, acp_session_id: String) {
+    pub(in crate::manager) fn emit_session_bind_ready(
+        &self,
+        session_id: AgentSessionId,
+        acp_session_id: String,
+    ) {
         if !crate::is_restorable_acp_session_id(&acp_session_id) {
             return;
         }

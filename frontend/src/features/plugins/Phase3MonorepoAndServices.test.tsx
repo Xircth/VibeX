@@ -135,8 +135,21 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
         viewRegistry.get('vibex.open-connector:console')?.component
       ).toBeTypeOf('function');
       expect(
-        settingsPageRegistry.get('vibex.remote-ssh:connect-panel')?.component
+        viewRegistry.get('vibex.open-connector:settings')?.component
       ).toBeTypeOf('function');
+      expect(
+        viewRegistry.get('vibex.remote-ssh:connect-panel')?.component
+      ).toBeTypeOf('function');
+      expect(
+        settingsPageRegistry
+          .getAll()
+          .filter((page) => !page.builtin && !page.id.startsWith('builtin:'))
+          .map((page) => `${page.pluginId}:${page.id}`)
+          .sort()
+      ).toEqual([
+        'vibex-plugin-computer-use:computer-use',
+        'vibex.browser:browser-settings',
+      ]);
 
       // Disabling upstream vibex.provider-switch automatically suspends vibex.session-enhance
       pluginRuntimeLoader.deactivate('vibex.provider-switch');

@@ -423,6 +423,25 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
     };
     migrate_legacy_antigravity_auth_mode(agent_id, env);
     let mode = resolved_auth_mode(agent_id, policy, env).to_string();
+    if mode != "official_api" {
+        match agent_id.as_str() {
+            "qoder" => {
+                if env.get("QODER_PERSONAL_ACCESS_TOKEN").map(|v| v.trim())
+                    == env.get("QODER_API_KEY").map(|v| v.trim())
+                {
+                    env.remove("QODER_PERSONAL_ACCESS_TOKEN");
+                }
+            }
+            "trae" => {
+                if env.get("TRAECLI_PERSONAL_ACCESS_TOKEN").map(|v| v.trim())
+                    == env.get("TRAE_API_KEY").map(|v| v.trim())
+                {
+                    env.remove("TRAECLI_PERSONAL_ACCESS_TOKEN");
+                }
+            }
+            _ => {}
+        }
+    }
     for key in auth_mode_scrubbed_env_keys(agent_id, &mode) {
         env.remove(*key);
     }
@@ -539,13 +558,14 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
         ("deepseek_harness", "deepseek") => DSH_OFFICIAL_SCRUB_ENV,
-        ("codebuddy", "official_subscription") => CODEBUDDY_SCRUB_ENV,
-        ("qoder", "official_subscription") => QODER_SCRUB_ENV,
+        ("codebuddy", "official_subscription" | "model_provider") => CODEBUDDY_SCRUB_ENV,
+        ("qoder", "official_subscription" | "model_provider") => QODER_SCRUB_ENV,
         ("kiro", "official_subscription") => KIRO_SCRUB_ENV,
-        ("auggie", "official_subscription") => AUGGIE_SCRUB_ENV,
-        ("trae", "official_subscription") => TRAE_SCRUB_ENV,
-        ("command_code", "official_subscription") => COMMAND_CODE_SCRUB_ENV,
-        ("zcode", "official_subscription") => ZCODE_SCRUB_ENV,
+        ("auggie", "official_subscription" | "model_provider") => AUGGIE_SCRUB_ENV,
+        ("trae", "official_subscription" | "model_provider") => TRAE_SCRUB_ENV,
+        ("command_code", "official_subscription" | "model_provider") => COMMAND_CODE_SCRUB_ENV,
+        ("zcode", "official_subscription" | "model_provider") => ZCODE_SCRUB_ENV,
+        ("mimo_code", "official_subscription" | "model_provider") => MIMO_SCRUB_ENV,
         _ => &[],
     }
 }
@@ -627,6 +647,10 @@ pub fn apply_built_in_launch_policy(
                 "DISABLE_MCP_CONFIG_FILTERING".to_string(),
                 "true".to_string(),
             );
+            if codex_uses_chatgpt_subscription(env) {
+                env.remove("OPENAI_API_KEY");
+                env.remove("OPENAI_BASE_URL");
+            }
             apply_codex_initial_agent_mode(env);
         }
         // pi-acp only advertises embedded-context support behind this switch.
@@ -760,6 +784,13 @@ fn codex_config_dir(env: &HashMap<String, String>) -> PathBuf {
         .or_else(dirs::home_dir)
         .map(|home| home.join(".codex"))
         .unwrap_or_else(|| PathBuf::from(".codex"))
+}
+
+pub fn codex_uses_chatgpt_subscription(env: &HashMap<String, String>) -> bool {
+    let Some(auth) = read_json_object(&codex_config_dir(env).join("auth.json")) else {
+        return false;
+    };
+    auth.get("auth_mode").and_then(Value::as_str) == Some("chatgpt")
 }
 
 fn read_codex_initial_agent_mode(env: &HashMap<String, String>) -> Option<String> {

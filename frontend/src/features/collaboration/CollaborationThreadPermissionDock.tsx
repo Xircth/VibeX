@@ -6,8 +6,10 @@ import { useConversationTimeline } from '@/features/conversation/useConversation
 
 export function CollaborationThreadPermissionDock({
   conversationId,
+  excludePermissionIds,
 }: {
   conversationId: string;
+  excludePermissionIds?: ReadonlySet<string>;
 }) {
   const conversation = useConversationTimeline(conversationId, {
     active: true,
@@ -16,11 +18,12 @@ export function CollaborationThreadPermissionDock({
     () =>
       conversation.sideRows.flatMap((entry) =>
         entry.row.kind === 'permission_request' &&
-        entry.row.request.status === 'pending'
+        entry.row.request.status === 'pending' &&
+        !excludePermissionIds?.has(entry.row.request.permission_id)
           ? [entry.row.request]
           : []
       ),
-    [conversation.sideRows]
+    [conversation.sideRows, excludePermissionIds]
   );
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const onRespond = useCallback(

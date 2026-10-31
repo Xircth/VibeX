@@ -686,7 +686,41 @@ pub async fn conversation_persona(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
-    Ok(row.map(
+    if let Some((name, team_name, summary, agent_id)) =
+        row.filter(|(name, _, _, agent_id)| !name.trim().is_empty() && !agent_id.trim().is_empty())
+    {
+        return Ok(Some(ConversationPersonaView {
+            name,
+            team_name: team_name.filter(|value| !value.trim().is_empty()),
+            summary: (!summary.trim().is_empty()).then_some(summary),
+            agent_name: agent_id,
+        }));
+    }
+    let fallback = sqlx::query_as::<_, (String, Option<String>, String, String)>(
+        r#"SELECT
+             m.name,
+             t.name,
+             COALESCE(r.summary, ''),
+             COALESCE(
+               NULLIF(trim(m.agent), ''),
+               NULLIF(trim(s.agent_id), ''),
+               NULLIF(trim(s.executor), ''),
+               'codex'
+             )
+           FROM collaboration_thread_members tm
+           JOIN collaboration_members m ON m.id = tm.member_id
+           LEFT JOIN collaboration_roles r ON r.id = m.role_id
+           LEFT JOIN collaboration_teams t ON t.id = r.team_id
+           LEFT JOIN sessions s ON s.id = ?
+           WHERE tm.conversation_id = ?
+           LIMIT 1"#,
+    )
+    .bind(conversation_id)
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(fallback.map(
         |(name, team_name, summary, agent_id)| ConversationPersonaView {
             name,
             team_name: team_name.filter(|value| !value.trim().is_empty()),

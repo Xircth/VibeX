@@ -629,4 +629,108 @@ describe('SessionHubSidebar', () => {
     expect(screen.queryByText('删除失败')).not.toBeInTheDocument();
     vi.useRealTimers();
   });
+
+  it('hides Bot sessions from the Kanban session list when hideBotSessions is enabled', () => {
+    act(() => {
+      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'vibex:hide-bot-sessions',
+          newValue: 'false',
+        })
+      );
+    });
+
+    const workspace = {
+      id: 'workspace-1',
+      project_id: 'project-1',
+      task_id: 'task-1',
+      parent_workspace_id: null,
+      container_ref: null,
+      branch: 'main',
+      use_worktree: true,
+      agent_working_dir: null,
+      setup_completed_at: null,
+      created_at: '2026-04-15T00:00:00.000Z',
+      updated_at: '2026-04-15T00:00:00.000Z',
+      archived: false,
+      pinned: false,
+      name: 'Main',
+    };
+    const userSession: ComponentProps<typeof SessionHubSidebar>['sessions'][0] =
+      {
+        id: 'session-user',
+        placement: { sessionId: 'session-user', workspaceId: 'workspace-1' },
+        workspace,
+        task: null,
+        taskId: null,
+        name: 'User session',
+        status: 'todo',
+        branch: 'main',
+        workspaceName: 'Main',
+        workspaceDisplayLabel: 'Main · main',
+        collaboration: null,
+        executor: null,
+        agentId: null,
+        updatedAt: '2026-04-15T00:00:00.000Z',
+        createdAt: '2026-04-15T00:00:00.000Z',
+        firstPrompt: null,
+        model: null,
+        fullName: 'User session',
+        shortName: 'User',
+        taskTitle: null,
+        isCompleted: false,
+        isRunning: false,
+        isErrored: false,
+        pinnedAt: null,
+      };
+    const botSession: ComponentProps<typeof SessionHubSidebar>['sessions'][0] =
+      {
+        ...userSession,
+        id: 'session-bot',
+        placement: { sessionId: 'session-bot', workspaceId: 'workspace-1' },
+        name: 'Bot session',
+        fullName: 'Bot session',
+        shortName: 'Bot',
+        collaboration: {
+          memberId: 'mem-1',
+          memberName: 'Bot A',
+          threadId: 'direct:mem-1',
+          threadKind: 'dm',
+          threadName: 'Bot A',
+        },
+      };
+
+    render(
+      <Harness
+        sessions={[userSession, botSession]}
+        groupedSessions={{ todo: [userSession, botSession] }}
+      />
+    );
+    expect(screen.getByText('User session')).toBeInTheDocument();
+    expect(screen.getByText('Bot session')).toBeInTheDocument();
+
+    act(() => {
+      localStorage.setItem('vibex:hide-bot-sessions', 'true');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'vibex:hide-bot-sessions',
+          newValue: 'true',
+        })
+      );
+    });
+
+    expect(screen.getByText('User session')).toBeInTheDocument();
+    expect(screen.queryByText('Bot session')).not.toBeInTheDocument();
+
+    act(() => {
+      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'vibex:hide-bot-sessions',
+          newValue: 'false',
+        })
+      );
+    });
+  });
 });

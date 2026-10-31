@@ -1272,28 +1272,50 @@ export function FileTreePanel({
         return;
       }
 
+      const sourcePath = dragged.relativePath;
+      const sourceNodeType = dragged.kind === 'directory' ? 'folder' : 'file';
+      const sourceParent = sourcePath.includes('/')
+        ? sourcePath.slice(0, sourcePath.lastIndexOf('/'))
+        : '';
       const nextRelativePath = buildMoveDestinationRelativePath(
-        dragged.relativePath,
+        sourcePath,
         targetDirectoryPath
       );
 
       try {
         await fileTreeApi.moveItem(
-          resolvePath(dragged.relativePath),
+          resolvePath(sourcePath),
           resolvePath(nextRelativePath)
         );
-        if (targetDirectoryPath) {
-          setExpandedFolders((prev) => {
-            if (prev.has(targetDirectoryPath)) {
-              return prev;
-            }
-            const next = new Set(prev);
+        const remap = (path: string) =>
+          path === sourcePath || path.startsWith(`${sourcePath}/`)
+            ? nextRelativePath + path.slice(sourcePath.length)
+            : path;
+        const remapSet = (paths: Set<string>) =>
+          new Set(Array.from(paths, remap));
+        setLazyListing((current) => ({
+          files: remapSet(current.files),
+          directories: remapSet(current.directories),
+          gitignoredFiles: remapSet(current.gitignoredFiles),
+          gitignoredDirectories: remapSet(current.gitignoredDirectories),
+          loadableDirectories: remapSet(current.loadableDirectories),
+          loadedDirectories: remapSet(current.loadedDirectories),
+        }));
+        setExpandedFolders((prev) => {
+          const next = remapSet(prev);
+          if (targetDirectoryPath) {
             next.add(targetDirectoryPath);
-            return next;
-          });
-        }
+          }
+          return next;
+        });
         setSelectedNodePath(nextRelativePath);
-        setSelectedNodeType(dragged.kind === 'directory' ? 'folder' : 'file');
+        setSelectedNodeType(sourceNodeType);
+        closePreview();
+        onRenamePath?.(sourcePath, nextRelativePath);
+        void loadLazyDirectoryChildren(sourceParent, { force: true });
+        if (targetDirectoryPath !== sourceParent) {
+          void loadLazyDirectoryChildren(targetDirectoryPath, { force: true });
+        }
         onRefreshFiles?.();
       } catch (error) {
         console.error('Failed to move item:', error);
@@ -1306,9 +1328,13 @@ export function FileTreePanel({
     [
       buildMoveDestinationRelativePath,
       canDropIntoDirectory,
+      closePreview,
+      loadLazyDirectoryChildren,
       onRefreshFiles,
+      onRenamePath,
       resolvePath,
       setExpandedFolders,
+      setLazyListing,
     ]
   );
 

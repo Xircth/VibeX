@@ -877,14 +877,6 @@ async fn handle_feishu_event(
         .pointer("/event/message/chat_type")
         .and_then(Value::as_str)
         .unwrap_or("p2p");
-    if chat_type == "group" {
-        let mentions = event
-            .pointer("/event/message/mentions")
-            .and_then(Value::as_array);
-        if mentions.map(|mentions| mentions.is_empty()).unwrap_or(true) {
-            return;
-        }
-    }
     let content = event
         .pointer("/event/message/content")
         .and_then(Value::as_str)
@@ -898,6 +890,46 @@ async fn handle_feishu_event(
                 .map(ToString::to_string)
         })
         .unwrap_or_default();
+    if chat_type == "group" {
+        let Some(mentions) = event
+            .pointer("/event/message/mentions")
+            .and_then(Value::as_array)
+            .filter(|mentions| !mentions.is_empty())
+        else {
+            return;
+        };
+        let configured_bot_open_id = config
+            .get("bot_open_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let addressed_bot = if let Some(bot_open_id) = configured_bot_open_id {
+            mentions.iter().any(|mention| {
+                mention
+                    .pointer("/id/open_id")
+                    .or_else(|| mention.get("open_id"))
+                    .and_then(Value::as_str)
+                    == Some(bot_open_id)
+            })
+        } else {
+            let store = load_store().await.unwrap_or_default();
+            let prefix = if store.command_prefix.trim().is_empty() {
+                "/".to_string()
+            } else {
+                store.command_prefix
+            };
+            let trimmed_raw = text.trim_start();
+            mentions.iter().any(|mention| {
+                mention
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .is_some_and(|key| trimmed_raw.starts_with(key))
+            }) || trimmed_raw.contains(&prefix)
+        };
+        if !addressed_bot {
+            return;
+        }
+    }
     if let Some(mentions) = event
         .pointer("/event/message/mentions")
         .and_then(Value::as_array)
@@ -1684,8 +1716,26 @@ async fn send_task(
         return CommandReply::text("No conversation available on this Host.");
     };
     let selected = selected_conversation(channel_id, sender_id);
+    let direct_selected = if let Some(id) = selected {
+        if rows.iter().any(|row| row.id == id) {
+            None
+        } else {
+            sqlx::query_as::<_, ConversationRow>(&format!("{CONVERSATION_SELECT} AND s.id = ?"))
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+        }
+    } else {
+        None
+    };
     let existing = selected
-        .and_then(|id| rows.iter().find(|row| row.id == id))
+        .and_then(|id| {
+            rows.iter()
+                .find(|row| row.id == id)
+                .or(direct_selected.as_ref())
+        })
         .or_else(|| {
             (selected.is_none() && rows.len() == 1)
                 .then(|| rows.first())

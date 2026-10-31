@@ -178,6 +178,9 @@ export function AgentSettings() {
   useEffect(() => {
     setPluginCount(0);
     setNativePluginsExpanded(false);
+    dirtySourcesRef.current = {};
+    configDirtyRef.current = false;
+    setDirtySources({});
   }, [selectedAgentId]);
   const liveConfig = config?.agent_id === selectedAgentId ? config : null;
   const hasAuthenticationMode = Boolean(

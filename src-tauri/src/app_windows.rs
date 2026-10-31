@@ -12,15 +12,25 @@ pub fn is_app_window(label: &str) -> bool {
     label.starts_with(APP_WINDOW_PREFIX) && label.len() > APP_WINDOW_PREFIX.len()
 }
 
-/// Extra local app windows share `main`'s WebView2 user-data folder.
+/// Local non-host windows (`main`, `settings`, `app-*`, `desktop-toast`) share
+/// `main`'s WebView2 user-data folder.
 ///
 /// A second folder needs a second WebView2 environment. Creating that from
-/// the first window's IPC (`WebMessageReceived`) deadlocks on Windows: the
-/// new window stays blank, cannot close, and the caller freezes. Host-bound
-/// windows still use isolated profiles.
+/// the first window's IPC (`WebMessageReceived`) or while `%LOCALAPPDATA%`
+/// is busy fails with `HRESULT(0x800700AA)` or deadlocks on Windows.
+/// Host-bound windows (`host-*`, `settings-host-*`) use isolated profiles.
 pub fn app_webview_data_directory(window_label: &str) -> Option<PathBuf> {
-    let _ = window_label;
-    None
+    if crate::host_windows::host_app_window_label(window_label).is_some() {
+        return None;
+    }
+    #[cfg(all(windows, debug_assertions))]
+    {
+        Some(crate::windows_webview2::active_debug_webview2_environment_dir())
+    }
+    #[cfg(not(all(windows, debug_assertions)))]
+    {
+        None
+    }
 }
 
 pub fn open_local_app_window(app: &tauri::AppHandle) -> Result<String, AppError> {
@@ -88,14 +98,29 @@ mod tests {
         assert!(app_window.contains("run_on_main_thread"));
         assert!(settings.contains("async fn open_settings_window"));
         assert!(settings.contains("run_on_main_thread"));
+        assert!(settings.contains("yield_now"));
     }
 
     #[test]
     fn extra_app_windows_share_the_default_webview_profile() {
         let label = "app-550e8400-e29b-41d4-a716-446655440000";
-        assert!(app_webview_data_directory(label).is_none());
-        assert!(app_webview_data_directory("main").is_none());
-        assert!(app_webview_data_directory("settings").is_none());
-        assert!(app_webview_data_directory("app-").is_none());
+        assert!(app_webview_data_directory("host-abc").is_none());
+        assert!(app_webview_data_directory("settings-host-abc").is_none());
+        #[cfg(all(windows, debug_assertions))]
+        {
+            let expected = crate::windows_webview2::active_debug_webview2_environment_dir();
+            assert_eq!(app_webview_data_directory(label), Some(expected.clone()));
+            assert_eq!(app_webview_data_directory("main"), Some(expected.clone()));
+            assert_eq!(app_webview_data_directory("settings"), Some(expected.clone()));
+            assert_eq!(app_webview_data_directory("desktop-toast"), Some(expected));
+        }
+        #[cfg(not(all(windows, debug_assertions)))]
+        {
+            assert!(app_webview_data_directory(label).is_none());
+            assert!(app_webview_data_directory("main").is_none());
+            assert!(app_webview_data_directory("settings").is_none());
+            assert!(app_webview_data_directory("desktop-toast").is_none());
+            assert!(app_webview_data_directory("app-").is_none());
+        }
     }
 }

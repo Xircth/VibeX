@@ -300,15 +300,6 @@ export default {
       },
     });
 
-    ctx.ui.registerSettingsSection({
-      id: 'prompt-enhancer-settings',
-      title: 'Prompt Enhancer',
-      description:
-        'Configure prompt enhancement mode, custom constraints, and automatic beforeTurn refinement.',
-      category: 'Agent',
-      icon: 'sparkles',
-    });
-
     ctx.services.provide('vibex.prompt-enhancer', {
       enhance,
       enhanceAsync,

@@ -96,16 +96,31 @@ pub fn next_run_after(
         .map_err(|_| ScheduleError::InvalidTimezone(timezone.clone()))?;
     let mut cursor = after.with_timezone(&timezone).naive_local();
 
-    for _ in 0..8 {
+    for _ in 0..1440 {
         let Some(next_local) = schedule.next_after(cursor) else {
             return Ok(None);
         };
         match timezone.from_local_datetime(&next_local) {
-            LocalResult::Single(next) => return Ok(Some(next.with_timezone(&Utc))),
+            LocalResult::Single(next) => {
+                let next_utc = next.with_timezone(&Utc);
+                if next_utc > after {
+                    return Ok(Some(next_utc));
+                }
+                cursor = next_local;
+            }
             LocalResult::Ambiguous(first, second) => {
                 let first = first.with_timezone(&Utc);
                 let second = second.with_timezone(&Utc);
-                return Ok(Some(first.min(second)));
+                let chosen = match (first > after, second > after) {
+                    (true, true) => Some(first.min(second)),
+                    (true, false) => Some(first),
+                    (false, true) => Some(second),
+                    (false, false) => None,
+                };
+                if let Some(next_utc) = chosen {
+                    return Ok(Some(next_utc));
+                }
+                cursor = next_local;
             }
             LocalResult::None => cursor = next_local,
         }

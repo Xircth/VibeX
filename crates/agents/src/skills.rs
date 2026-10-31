@@ -2790,22 +2790,99 @@ mod tests {
                 body.contains("post_space_message"),
                 "missing cross-space post tool"
             );
-            assert!(
-                body.contains("【已完成】")
-                    && body.contains("【上下文与约束】")
-                    && body.contains("【待办与闭环要求】"),
-                "missing three-part handoff structure"
-            );
         }
+        assert!(
+            skill.contains("任务交接") && skill.contains("SPACE-RULES.md"),
+            "skill must point at the handoff playbook"
+        );
+        assert!(
+            playbook.contains("【已完成】")
+                && playbook.contains("【上下文与约束】")
+                && playbook.contains("【待办与闭环要求】"),
+            "missing three-part handoff structure"
+        );
+        assert!(
+            playbook.contains("三节都空则输出 `[PASS]`"),
+            "empty handoff must fail closed"
+        );
+        assert!(
+            playbook.contains("日志回执") && playbook.contains("叫醒回读"),
+            "cross-space posts must distinguish log receipt from wake"
+        );
         assert!(playbook.contains("~/.vibex/spaces/<space_id>/collection/"));
+        assert!(
+            playbook.contains("VIBEX_TEAM_SPACES_ROOT"),
+            "collection root override must be named"
+        );
         assert!(playbook.contains("space_id") && playbook.contains("session_id"));
         assert!(playbook.contains("负责人"), "missing group lead role");
         assert!(playbook.contains("叫你的人"), "missing asker-replies rule");
         assert!(
+            playbook.contains("activity") && playbook.contains("waiting_for_bot"),
+            "list_spaces roster must expose live activity"
+        );
+        assert!(
+            playbook.contains("没有 `@` 则只进群日志"),
+            "cross-space group posts must wake from body @"
+        );
+        assert!(
             playbook.contains("像同事发消息"),
             "missing everyday speech register"
         );
+        assert!(
+            playbook.contains("三种回合"),
+            "playbook must distinguish Person / peer / group turns"
+        );
+        assert!(
+            playbook.contains("[Message from …]") && playbook.contains("[Group chat …]"),
+            "playbook must key off delivery headers"
+        );
+        assert!(
+            playbook.contains("[上次发言后的群内新消息]")
+                && playbook.contains("严禁播报查看群消息的过渡话术"),
+            "playbook must document envelope incremental context and forbid group-message peek announcements"
+        );
+        assert!(
+            skill.contains("[上次发言后的群内新消息]"),
+            "skill must note that GroupSpace envelopes already carry incremental context"
+        );
+        assert!(
+            playbook.contains("interrupt"),
+            "playbook must document manage_bot interrupt"
+        );
+        assert!(
+            skill.contains("按场景加载") && skill.contains("只加载当前回合用得到的节"),
+            "skill must load SPACE-RULES by turn branch"
+        );
+        assert!(
+            skill.contains("`action`: `create` / `rename` / `delete` / `add_bot` / `remove_bot` / `leave` / `set_lead`"),
+            "manage_group must name required actions"
+        );
+        assert!(
+            skill.contains("必填 `agent_type`、`task`"),
+            "delegate_to_agent must name required args"
+        );
         assert!(memory.contains("private"));
+        assert!(
+            memory.contains("`memory_write` 返回成功才算已记住"),
+            "memory writes need a completion check"
+        );
+        assert!(
+            memory.contains("[[topic:<slug>]]") && memory.contains("[[collection:<file>]]"),
+            "memory skill must document topic and collection index pointers"
+        );
+        assert!(
+            memory.contains("replace") && memory.contains("remove") && memory.contains("fact_id"),
+            "memory skill must document in-place fact update and removal"
+        );
+        assert!(
+            memory.contains("严禁写入密钥与凭证"),
+            "memory skill must state the credential guard rule"
+        );
+        assert!(
+            skill.contains("[[topic:...]]") && skill.contains("[[collection:...]]"),
+            "SKILL.md router must point to MEMORY.md for topic and collection index pointers"
+        );
         for tool in [
             "list_spaces",
             "read_space_messages",
@@ -2817,6 +2894,8 @@ mod tests {
             "memory_search",
             "memory_write",
             "delegate_to_agent",
+            "get_delegation_status",
+            "send_session_input",
         ] {
             assert!(skill.contains(tool), "missing tool {tool}");
         }

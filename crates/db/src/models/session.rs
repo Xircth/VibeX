@@ -415,7 +415,7 @@ impl Session {
         }
         sqlx::query(
             r#"UPDATE sessions
-               SET external_session_id = ?,
+               SET external_session_id = COALESCE(?, external_session_id),
                    updated_at = datetime('now', 'subsec')
                WHERE id = ?"#,
         )
@@ -432,15 +432,23 @@ impl Session {
         external_session_id: Option<&str>,
         agent_id: Option<&AgentId>,
     ) -> Result<(), sqlx::Error> {
+        let trimmed_ext = external_session_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let next_agent = agent_id.map(AgentId::as_str);
         sqlx::query(
             r#"UPDATE sessions
-               SET external_session_id = ?,
-                   agent_id = ?,
+               SET external_session_id = CASE
+                       WHEN ?1 IS NOT NULL THEN ?1
+                       WHEN ?2 IS NOT NULL AND agent_id IS NOT NULL AND agent_id != ?2 THEN NULL
+                       ELSE external_session_id
+                   END,
+                   agent_id = COALESCE(?2, agent_id),
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ?3"#,
         )
-        .bind(external_session_id.filter(|value| !value.trim().is_empty()))
-        .bind(agent_id.map(AgentId::as_str))
+        .bind(trimmed_ext)
+        .bind(next_agent)
         .bind(id)
         .execute(pool)
         .await?;

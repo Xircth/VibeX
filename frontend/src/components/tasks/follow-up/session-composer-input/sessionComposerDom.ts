@@ -51,31 +51,56 @@ export function decorateStructuredTokenElement(
       childSpan.style.border = '0';
       childSpan.style.boxShadow = 'none';
     });
-    if (token.memberAvatar?.color) {
-      element.style.setProperty(
-        '--member-mention-color',
-        token.memberAvatar.color
-      );
+    if (token.mentionAll) {
+      element.dataset.mentionAll = 'true';
+      element.classList.add('collaboration-member-mention-all');
+      element.style.removeProperty('--member-mention-color');
+      element.querySelector('.collaboration-member-mention-avatar')?.remove();
+      element.querySelector('.session-composer-token-icon')?.remove();
       const labelEl =
         element.querySelector<HTMLElement>(
           '.collaboration-member-mention-name, .astryx-chat-composer__token-label, .session-composer-token-label'
         ) ?? element.querySelector<HTMLElement>('span:last-of-type');
       if (labelEl) {
         labelEl.style.removeProperty('color');
-        labelEl.style.setProperty(
+        labelEl.style.removeProperty('--member-mention-color');
+        labelEl.style.fontWeight = '700';
+        const trimmedLabel = labelEl.textContent?.trim() ?? token.key;
+        labelEl.textContent = trimmedLabel.startsWith('@')
+          ? trimmedLabel
+          : `@${trimmedLabel}`;
+      }
+    } else {
+      delete element.dataset.mentionAll;
+      element.classList.remove('collaboration-member-mention-all');
+      if (token.memberAvatar?.color) {
+        element.style.setProperty(
           '--member-mention-color',
           token.memberAvatar.color
         );
-        labelEl.style.fontWeight = '700';
+        const labelEl =
+          element.querySelector<HTMLElement>(
+            '.collaboration-member-mention-name, .astryx-chat-composer__token-label, .session-composer-token-label'
+          ) ?? element.querySelector<HTMLElement>('span:last-of-type');
+        if (labelEl) {
+          labelEl.style.removeProperty('color');
+          labelEl.style.setProperty(
+            '--member-mention-color',
+            token.memberAvatar.color
+          );
+          labelEl.style.fontWeight = '700';
+        }
       }
     }
   } else {
     element.dataset.variant = SESSION_COMPOSER_TOKEN_VARIANTS[token.kind];
     element.classList.remove(
       'collaboration-member-mention-chip',
-      'collaboration-composer-member-token'
+      'collaboration-composer-member-token',
+      'collaboration-member-mention-all'
     );
     delete element.dataset.memberMention;
+    delete element.dataset.mentionAll;
     element.style.removeProperty('--member-mention-color');
   }
   if (token.kind === 'element') {
@@ -297,6 +322,10 @@ export function restoreStructuredTokens(
     )
   ) {
     existingTokens.forEach((element, index) => {
+      element.setAttribute(
+        'data-astryx-token-source-length',
+        String(tokenSegments[index].end - tokenSegments[index].start)
+      );
       decorateStructuredTokenElement(element, tokenSegments[index].token);
     });
     return;

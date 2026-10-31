@@ -120,6 +120,17 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
     ) -> Result<(), ApplicationError> {
         let response = serde_json::from_value::<AgentPermissionResponse>(request.response)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        if let Some(companion) = &self.companion
+            && companion
+                .answer_permission(
+                    request.conversation_id,
+                    &request.permission_id,
+                    response.clone(),
+                )
+                .await?
+        {
+            return Ok(());
+        }
         self.service
             .respond_permission(request.conversation_id, request.permission_id, response)
             .await
@@ -187,13 +198,13 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             .await
             .map_err(map_input_error)?;
         let turn = match (dispatched, input.turn_id) {
-            (Some(turn), _) => Some(turn),
-            (None, Some(turn_id)) => self
+            (Some(turn), Some(turn_id)) if turn.turn_id == turn_id => Some(turn),
+            (_, Some(turn_id)) => self
                 .service
                 .turn_snapshot(turn_id)
                 .await
                 .map_err(map_service_error)?,
-            (None, None) => None,
+            (_, None) => None,
         };
         Ok(ConversationInputSubmission { input, turn })
     }

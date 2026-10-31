@@ -123,7 +123,7 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
 
   const child = spawn(process.execPath, [mcpEntry], {
     cwd: PLUGIN_ROOT,
-    env: { ...process.env },
+    env: { ...process.env, VIBEX_COMPUTER_USE_STANDALONE_TEST: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -193,6 +193,66 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
     const listRes = await request(2, 'tools/list', {});
     assert.ok(Array.isArray(listRes.result.tools));
     assert.ok(listRes.result.tools.length >= 14);
+  } finally {
+    rl.close();
+    child.kill();
+  }
+});
+
+test('packaged stdio MCP server hides tools and rejects calls when VibeX Host authorization is invalid or plugin is disabled', async () => {
+  const mcpEntry = path.join(PLUGIN_ROOT, 'dist', 'mcp', 'computer-use.mjs');
+  const child = spawn(process.execPath, [mcpEntry], {
+    cwd: PLUGIN_ROOT,
+    env: {
+      ...process.env,
+      NODE_TEST_CONTEXT: '',
+      VIBEX_COMPUTER_USE_STANDALONE_TEST: '',
+      VIBEX_HOST_CALL_URL: 'http://127.0.0.1:9/host-call',
+      VIBEX_HOST_CALL_TOKEN: 'revoked-token',
+      VIBEX_PLUGIN_ID: 'vibex-plugin-computer-use',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const rl = readline.createInterface({ input: child.stdout });
+  const waiters = new Map();
+  rl.on('line', (line) => {
+    if (!line.trim()) return;
+    const msg = JSON.parse(line);
+    if (msg.id != null && waiters.has(msg.id)) {
+      waiters.get(msg.id)(msg);
+      waiters.delete(msg.id);
+    }
+  });
+
+  const request = (id, method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Timeout waiting for MCP response ${id}`)),
+        8000
+      );
+      waiters.set(id, (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+      child.stdin.write(
+        `${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`
+      );
+    });
+
+  try {
+    const listRes = await request(1, 'tools/list', {});
+    assert.deepEqual(listRes.result.tools, []);
+
+    const callRes = await request(2, 'tools/call', {
+      name: 'computer_list_windows',
+      arguments: {},
+    });
+    assert.equal(callRes.result.isError, true);
+    assert.match(
+      callRes.result.content[0].text,
+      /Computer Use plugin is not installed or enabled in VibeX/
+    );
   } finally {
     rl.close();
     child.kill();

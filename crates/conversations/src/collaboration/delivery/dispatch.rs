@@ -5,6 +5,74 @@ use uuid::Uuid;
 
 use super::*;
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct PendingDeliveryRow {
+    space_message_id: String,
+    conversation_id: String,
+    operation_id: String,
+    input_id: Option<String>,
+    status: String,
+    receipt_state: String,
+    context_from_seq: Option<i64>,
+    wake_deferred_turn_key: Option<String>,
+    round_id: Option<String>,
+    round_ordinal: Option<i64>,
+    round_ready: i64,
+}
+
+fn pending_row_on_message(message_id: &str, delivery: PendingDelivery) -> PendingDeliveryRow {
+    PendingDeliveryRow {
+        space_message_id: message_id.to_string(),
+        conversation_id: delivery.conversation_id,
+        operation_id: delivery.operation_id,
+        input_id: delivery.input_id,
+        status: delivery.status,
+        receipt_state: delivery.receipt_state,
+        context_from_seq: delivery.context_from_seq,
+        wake_deferred_turn_key: delivery.wake_deferred_turn_key,
+        round_id: delivery.round_id,
+        round_ordinal: delivery.round_ordinal,
+        round_ready: delivery.round_ready,
+    }
+}
+
+struct PackedDeliveryMessage {
+    seq: i64,
+    hop: i64,
+    envelope: serde_json::Value,
+    content: String,
+    display_text: String,
+}
+
+async fn load_packed_delivery_message(
+    pool: &SqlitePool,
+    message_id: &str,
+    member_nicknames: &[String],
+) -> Result<PackedDeliveryMessage, CollaborationError> {
+    let envelope = load_envelope(pool, message_id).await?;
+    let seq: i64 = sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
+        .bind(message_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db)?;
+    let hop: i64 = sqlx::query_scalar("SELECT hop FROM collaboration_space_messages WHERE id = ?")
+        .bind(message_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?
+        .unwrap_or(0);
+    let parsed = parse_space_envelope(&envelope);
+    let content = parsed.content.clone();
+    let display_text = clean_space_display_text(&content, member_nicknames);
+    Ok(PackedDeliveryMessage {
+        seq,
+        hop,
+        envelope,
+        content,
+        display_text,
+    })
+}
+
 async fn in_flight_delivery_count(
     pool: &SqlitePool,
     space_id: &str,
@@ -28,12 +96,11 @@ pub(crate) async fn deliver_pending(
     turn_delivery: &DeliveryContext,
 ) -> Result<SpacePostResult, CollaborationError> {
     let envelope = load_envelope(pool, message_id).await?;
-    let seq: i64 =
-        sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
-            .bind(message_id)
-            .fetch_one(pool)
-            .await
-            .map_err(db)?;
+    let seq: i64 = sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
+        .bind(message_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db)?;
     let space_members = list_space_members(pool, space_id, MessageAudience::Agent)
         .await
         .unwrap_or_default();
@@ -44,7 +111,7 @@ pub(crate) async fn deliver_pending(
     let parsed = parse_space_envelope(&envelope);
     let content = parsed.content.clone();
     let display_text = clean_space_display_text(&content, &member_nicknames);
-    let pending = sqlx::query_as::<_, PendingDelivery>(
+    let same_message = sqlx::query_as::<_, PendingDelivery>(
         r#"SELECT d.conversation_id, d.operation_id, d.input_id, d.status, d.receipt_state,
                   d.context_from_seq, d.wake_deferred_turn_key, d.round_id, d.round_ordinal,
                   CASE WHEN d.round_id IS NULL
@@ -59,20 +126,79 @@ pub(crate) async fn deliver_pending(
     .fetch_all(pool)
     .await
     .map_err(db)?;
-    let message_hop: i64 =
-        sqlx::query_scalar("SELECT hop FROM collaboration_space_messages WHERE id = ?")
-            .bind(message_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db)?
-            .unwrap_or(0);
-    let chain_limit_exceeded = message_hop > MAX_ASSISTANT_HOPS_PER_ROOT;
+    let other_ready = sqlx::query_as::<_, PendingDeliveryRow>(
+        r#"SELECT d.space_message_id, d.conversation_id, d.operation_id, d.input_id, d.status,
+                  d.receipt_state, d.context_from_seq, d.wake_deferred_turn_key, d.round_id,
+                  d.round_ordinal,
+                  CASE WHEN d.round_id IS NULL
+                         OR d.round_ordinal = (SELECT current_ordinal FROM collaboration_rounds r
+                                               WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                       THEN 1 ELSE 0 END AS round_ready
+           FROM collaboration_space_deliveries d
+           WHERE d.space_message_id != ?
+             AND d.round_id IS NOT NULL
+             AND TRIM(d.round_id) != ''
+             AND d.round_ordinal = (
+                 SELECT r.current_ordinal FROM collaboration_rounds r
+                 WHERE r.id = d.round_id
+                   AND r.state IN ('open', 'closing')
+                   AND r.root_message_id = ?
+             )
+           ORDER BY COALESCE(d.round_ordinal, 0) ASC, d.rowid ASC"#,
+    )
+    .bind(message_id)
+    .bind(message_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let mut pending: Vec<PendingDeliveryRow> = same_message
+        .into_iter()
+        .map(|delivery| pending_row_on_message(message_id, delivery))
+        .collect();
+    pending.extend(other_ready);
+    pending.sort_by(|a, b| {
+        a.round_ordinal
+            .unwrap_or(0)
+            .cmp(&b.round_ordinal.unwrap_or(0))
+            .then_with(|| a.conversation_id.cmp(&b.conversation_id))
+    });
+    let mut packed_by_id: std::collections::HashMap<String, PackedDeliveryMessage> =
+        std::collections::HashMap::new();
+    packed_by_id.insert(
+        message_id.to_string(),
+        PackedDeliveryMessage {
+            seq,
+            hop: sqlx::query_scalar("SELECT hop FROM collaboration_space_messages WHERE id = ?")
+                .bind(message_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?
+                .unwrap_or(0),
+            envelope: envelope.clone(),
+            content: content.clone(),
+            display_text: display_text.clone(),
+        },
+    );
     let mut in_flight = in_flight_delivery_count(pool, space_id).await?;
     let mut receipts = Vec::new();
     for delivery in pending {
         let Ok(conversation_id) = Uuid::parse_str(&delivery.conversation_id) else {
             continue;
         };
+        let delivery_message_id = delivery.space_message_id.clone();
+        if !packed_by_id.contains_key(&delivery_message_id) {
+            let packed =
+                load_packed_delivery_message(pool, &delivery_message_id, &member_nicknames).await?;
+            packed_by_id.insert(delivery_message_id.clone(), packed);
+        }
+        let packed = packed_by_id
+            .get(&delivery_message_id)
+            .expect("packed delivery message");
+        let seq = packed.seq;
+        let envelope = &packed.envelope;
+        let content = packed.content.as_str();
+        let display_text = packed.display_text.as_str();
+        let chain_limit_exceeded = packed.hop > MAX_ASSISTANT_HOPS_PER_ROOT;
         let nickname = member_nickname(pool, space_id, conversation_id)
             .await?
             .unwrap_or_else(|| conversation_id.to_string());
@@ -121,7 +247,7 @@ pub(crate) async fn deliver_pending(
                    WHERE space_message_id = ? AND conversation_id = ?"#,
             )
             .bind(now_stamp())
-            .bind(message_id)
+            .bind(&delivery_message_id)
             .bind(conversation_id.to_string())
             .execute(&mut *conn)
             .await;
@@ -140,7 +266,7 @@ pub(crate) async fn deliver_pending(
             continue;
         }
         let Some(target) = load_session(pool, conversation_id).await? else {
-            mark_delivery_failed(pool, message_id, conversation_id).await?;
+            mark_delivery_failed(pool, &delivery_message_id, conversation_id).await?;
             receipts.push(DeliveryReceipt {
                 conversation_id,
                 nickname,
@@ -152,7 +278,7 @@ pub(crate) async fn deliver_pending(
             continue;
         };
         if target.deleted_at.is_some() || target.status == "archived" {
-            mark_delivery_failed(pool, message_id, conversation_id).await?;
+            mark_delivery_failed(pool, &delivery_message_id, conversation_id).await?;
             receipts.push(DeliveryReceipt {
                 conversation_id,
                 nickname,
@@ -187,19 +313,20 @@ pub(crate) async fn deliver_pending(
                 None => false,
             };
             if !released {
-                let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
+                let turn_key = wake_turn_key(pool, &delivery_message_id, envelope).await?;
                 if !reserve_wake(
                     pool,
                     &turn_key,
                     conversation_id,
-                    message_id,
+                    &delivery_message_id,
                     wake_cap_per_turn(),
                 )
                 .await?
                 {
                     // Over the per-turn wake cap: held visibly as
                     // 'limit_reached' until the originating turn ends.
-                    hold_over_wake_cap(pool, message_id, conversation_id, &turn_key).await?;
+                    hold_over_wake_cap(pool, &delivery_message_id, conversation_id, &turn_key)
+                        .await?;
                     receipts.push(DeliveryReceipt {
                         conversation_id,
                         nickname,
@@ -230,7 +357,7 @@ pub(crate) async fn deliver_pending(
                    WHERE space_message_id = ? AND conversation_id = ?"#,
             )
             .bind(from)
-            .bind(message_id)
+            .bind(&delivery_message_id)
             .bind(conversation_id.to_string())
             .execute(pool)
             .await
@@ -245,31 +372,46 @@ pub(crate) async fn deliver_pending(
             conversation_id,
             &dest_thread,
             seq,
-            &envelope,
-            &content,
-            &display_text,
+            envelope,
+            content,
+            display_text,
         )
         .await?;
-        let origin = origin_from_envelope(space_id, &envelope, &space_members);
+        let origin = origin_from_envelope(space_id, envelope, &space_members);
         match deliver_text(
             pool,
             conversation_id,
             operation_id,
             &packed,
-            Some(display_text.clone()),
+            Some(display_text.to_string()),
             Some(origin),
             &target,
             json!({
                 "kind": "collaboration_space",
                 "spaceId": space_id,
-                "messageId": message_id,
+                "messageId": delivery_message_id,
             }),
             turn_delivery,
         )
         .await
         {
             Ok(receipt) => {
-                let state = if receipt.delivered == "dispatched" {
+                let mut delivered_status = receipt.delivered.clone();
+                if delivered_status == "queued"
+                    && let Some(input_id) = receipt.input_id
+                {
+                    let input_status: Option<String> =
+                        sqlx::query_scalar("SELECT status FROM conversation_inputs WHERE id = ?")
+                            .bind(input_id)
+                            .fetch_optional(pool)
+                            .await
+                            .ok()
+                            .flatten();
+                    if input_status.as_deref() == Some("dispatched") {
+                        delivered_status = "dispatched".to_string();
+                    }
+                }
+                let state = if delivered_status == "dispatched" {
                     "processing"
                 } else {
                     "queued"
@@ -281,9 +423,9 @@ pub(crate) async fn deliver_pending(
                     bind_delivery_turn(
                         pool,
                         space_id,
-                        message_id,
+                        &delivery_message_id,
                         conversation_id,
-                        &envelope,
+                        envelope,
                         delivery.round_id.as_deref(),
                         delivery.round_ordinal,
                     )
@@ -295,30 +437,53 @@ pub(crate) async fn deliver_pending(
                 // so never move a receipt backwards.
                 sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
-                       SET input_id = ?, status = ?, wake_deferred_turn_key = NULL,
+                       SET input_id = ?,
+                           status = CASE
+                             WHEN ? = 'dispatched' THEN 'dispatched'
+                             WHEN ? IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM conversation_inputs ci
+                               WHERE ci.id = ? AND ci.status = 'dispatched'
+                             ) THEN 'dispatched'
+                             ELSE ?
+                           END,
+                           wake_deferred_turn_key = NULL,
                            turn_id = COALESCE(?, turn_id),
                            receipt_state = CASE
-                             WHEN receipt_state = 'queued' THEN ? ELSE receipt_state END,
+                             WHEN ? = 'processing' THEN 'processing'
+                             WHEN ? IS NOT NULL AND EXISTS (
+                               SELECT 1 FROM conversation_inputs ci
+                               WHERE ci.id = ? AND ci.status = 'dispatched'
+                             ) THEN 'processing'
+                             WHEN receipt_state = 'queued' THEN ?
+                             ELSE receipt_state
+                           END,
                            receipt_updated_at = ?
                        WHERE space_message_id = ? AND conversation_id = ?"#,
                 )
                 .bind(receipt.input_id.map(|id| id.to_string()))
-                .bind(&receipt.delivered)
+                .bind(&delivered_status)
+                .bind(receipt.input_id)
+                .bind(receipt.input_id)
+                .bind(&delivered_status)
                 .bind(turn_id.as_deref())
                 .bind(state)
+                .bind(receipt.input_id)
+                .bind(receipt.input_id)
+                .bind(state)
                 .bind(now_stamp())
-                .bind(message_id)
+                .bind(&delivery_message_id)
                 .bind(conversation_id.to_string())
                 .execute(pool)
                 .await
                 .map_err(db)?;
-                advance_last_seen(pool, space_id, conversation_id, message_id, seq).await?;
+                advance_last_seen(pool, space_id, conversation_id, &delivery_message_id, seq)
+                    .await?;
                 touch_session_activity(pool, conversation_id).await?;
                 let state: String = sqlx::query_scalar(
                     r#"SELECT receipt_state FROM collaboration_space_deliveries
                        WHERE space_message_id = ? AND conversation_id = ?"#,
                 )
-                .bind(message_id)
+                .bind(&delivery_message_id)
                 .bind(conversation_id.to_string())
                 .fetch_one(pool)
                 .await
@@ -334,8 +499,8 @@ pub(crate) async fn deliver_pending(
             }
             Err(error) => {
                 if error.code != "limit_exceeded" {
-                    mark_delivery_failed(pool, message_id, conversation_id).await?;
-                    finish_open_turn(pool, message_id, conversation_id, "error").await?;
+                    mark_delivery_failed(pool, &delivery_message_id, conversation_id).await?;
+                    finish_open_turn(pool, &delivery_message_id, conversation_id, "error").await?;
                 }
                 receipts.push(DeliveryReceipt {
                     conversation_id,
@@ -413,24 +578,91 @@ pub(crate) async fn binding_last_seen_seq(
 }
 
 /// Highest seq this conversation already finished (`replied` / `passed`)
-/// in `space_id`. `None` when it has never completed a delivery.
+/// or authored/observed during a completed turn in `space_id`. `None` when it
+/// has never completed a delivery.
 pub(crate) async fn last_completed_delivery_seq(
     pool: &SqlitePool,
     space_id: &str,
     conversation_id: Uuid,
 ) -> Result<Option<i64>, CollaborationError> {
-    sqlx::query_scalar::<_, Option<i64>>(
+    let cid = conversation_id.to_string();
+    let delivery_max = sqlx::query_scalar::<_, Option<i64>>(
         r#"SELECT MAX(m.seq) FROM collaboration_space_deliveries d
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            WHERE d.conversation_id = ?
              AND m.space_id = ?
              AND d.receipt_state IN ('replied', 'passed')"#,
     )
-    .bind(conversation_id.to_string())
+    .bind(&cid)
     .bind(space_id)
     .fetch_one(pool)
     .await
-    .map_err(db)
+    .map_err(db)?;
+    let Some(mut max_seq) = delivery_max else {
+        return Ok(None);
+    };
+
+    let nickname = member_nickname(pool, space_id, conversation_id)
+        .await
+        .ok()
+        .flatten();
+    let agent_rows = sqlx::query_as::<_, (i64, String)>(
+        r#"SELECT seq, envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND seq > ? AND origin = 'agent'
+           ORDER BY seq DESC LIMIT ?"#,
+    )
+    .bind(space_id)
+    .bind(max_seq)
+    .bind(MISSED_CONTEXT_LIMIT)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for (seq, raw) in &agent_rows {
+        let parsed = parse_space_envelope_str(raw);
+        if envelope_sender_is_conversation(&parsed, conversation_id, nickname.as_deref()) {
+            max_seq = max_seq.max(*seq);
+            break;
+        }
+    }
+
+    let earlier_round_peers = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT DISTINCT d_prev.conversation_id, COALESCE(m_root.seq, 0)
+           FROM collaboration_space_deliveries d
+           JOIN collaboration_space_messages m_root ON m_root.id = d.space_message_id
+           JOIN collaboration_space_deliveries d_prev ON d_prev.round_id = d.round_id
+           WHERE d.conversation_id = ?
+             AND m_root.space_id = ?
+             AND d.receipt_state IN ('replied', 'passed')
+             AND d.round_id IS NOT NULL
+             AND COALESCE(d.round_ordinal, 0) > 1
+             AND COALESCE(d_prev.round_ordinal, 0) > 0
+             AND COALESCE(d_prev.round_ordinal, 0) < COALESCE(d.round_ordinal, 0)"#,
+    )
+    .bind(&cid)
+    .bind(space_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for (peer_cid_raw, root_seq) in earlier_round_peers {
+        let Ok(peer_cid) = Uuid::parse_str(&peer_cid_raw) else {
+            continue;
+        };
+        let peer_nick = member_nickname(pool, space_id, peer_cid)
+            .await
+            .ok()
+            .flatten();
+        for (seq, raw) in &agent_rows {
+            if *seq <= root_seq {
+                continue;
+            }
+            let parsed = parse_space_envelope_str(raw);
+            if envelope_sender_is_conversation(&parsed, peer_cid, peer_nick.as_deref()) {
+                max_seq = max_seq.max(*seq);
+            }
+        }
+    }
+
+    Ok(Some(max_seq))
 }
 
 /// One-line speaking-order trail for a multi-bot round this delivery belongs
@@ -446,9 +678,11 @@ pub(crate) async fn round_speaking_order_line(
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            WHERE d.conversation_id = ?
              AND m.space_id = ?
-             AND m.seq = ?
+             AND m.seq <= ?
              AND d.round_id IS NOT NULL
-             AND TRIM(d.round_id) != ''"#,
+             AND TRIM(d.round_id) != ''
+           ORDER BY m.seq DESC, COALESCE(d.round_ordinal, 0) DESC
+           LIMIT 1"#,
     )
     .bind(conversation_id.to_string())
     .bind(space_id)
@@ -466,11 +700,12 @@ pub(crate) async fn round_speaking_order_line(
             .await
             .map_err(db)?
             .unwrap_or(1);
-    let members: Vec<(String, i64, String)> = sqlx::query_as(
-        r#"SELECT conversation_id, COALESCE(round_ordinal, 0), receipt_state
-           FROM collaboration_space_deliveries
-           WHERE round_id = ?
-           ORDER BY COALESCE(round_ordinal, 2147483647), conversation_id"#,
+    let members: Vec<(String, i64, String, i64)> = sqlx::query_as(
+        r#"SELECT d.conversation_id, COALESCE(d.round_ordinal, 0), d.receipt_state, COALESCE(m.seq, 0)
+           FROM collaboration_space_deliveries d
+           LEFT JOIN collaboration_space_messages m ON m.id = d.space_message_id
+           WHERE d.round_id = ?
+           ORDER BY COALESCE(d.round_ordinal, 2147483647), d.conversation_id"#,
     )
     .bind(&round_id)
     .fetch_all(pool)
@@ -479,8 +714,12 @@ pub(crate) async fn round_speaking_order_line(
     if members.len() < 2 {
         return Ok(None);
     }
+    let self_cid = conversation_id.to_string();
+    let self_has_current = members
+        .iter()
+        .any(|(cid, ordinal, _, _)| cid == &self_cid && *ordinal == current_ordinal);
     let mut parts = Vec::new();
-    for (cid, ordinal, state) in members {
+    for (cid, ordinal, state, slot_seq) in members {
         let cid_uuid = Uuid::parse_str(&cid).ok();
         let nick = match cid_uuid {
             Some(id) => member_nickname(pool, space_id, id)
@@ -488,10 +727,20 @@ pub(crate) async fn round_speaking_order_line(
                 .unwrap_or_else(|| cid.clone()),
             None => cid.clone(),
         };
-        let status = if cid_uuid == Some(conversation_id) {
+        let is_self_active_slot =
+            cid_uuid == Some(conversation_id) && (ordinal == current_ordinal || !self_has_current);
+        let status = if is_self_active_slot {
             "you, now"
         } else if state == "passed" {
             "passed"
+        } else if state == "processing" && ordinal > 0 && ordinal < current_ordinal {
+            let posted = match cid_uuid {
+                Some(id) => member_posted_after(pool, space_id, id, slot_seq)
+                    .await
+                    .unwrap_or(false),
+                None => false,
+            };
+            if posted { "posted" } else { "working" }
         } else if matches!(
             state.as_str(),
             "replied" | "timed_out" | "cancelled" | "failed"
@@ -583,6 +832,7 @@ pub(crate) async fn working_peers_line(
 
 /// Group messages in `(from_seq, before_seq)` that this conversation did not
 /// author, rendered as a "while you were away" block. `None` when empty.
+#[cfg(test)]
 pub(crate) async fn missed_group_context(
     pool: &SqlitePool,
     space_id: &str,
@@ -590,17 +840,76 @@ pub(crate) async fn missed_group_context(
     from_seq: i64,
     before_seq: i64,
 ) -> Result<Option<String>, CollaborationError> {
-    if before_seq - from_seq <= 1 {
-        return Ok(None);
+    let lines =
+        fetch_missed_group_lines(pool, space_id, conversation_id, from_seq, before_seq).await?;
+    Ok(format_missed_group_block(
+        "[上次发言后的群内新消息]",
+        &lines,
+    ))
+}
+
+/// Split incremental group messages since `from_seq` around `trigger_seq` so
+/// messages before `#trigger_seq` appear above the trigger envelope and
+/// messages after `#trigger_seq` (e.g. earlier speakers' replies in the same
+/// sequential round) appear below the trigger envelope in chronological order.
+pub(crate) async fn split_missed_group_context(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    from_seq: i64,
+    trigger_seq: i64,
+) -> Result<(Option<String>, Option<String>), CollaborationError> {
+    let lines =
+        fetch_missed_group_lines(pool, space_id, conversation_id, from_seq, trigger_seq).await?;
+    if lines.is_empty() {
+        return Ok((None, None));
     }
+    let pre: Vec<(i64, String, String)> = lines
+        .iter()
+        .filter(|(seq, _, _)| *seq < trigger_seq)
+        .cloned()
+        .collect();
+    let post: Vec<(i64, String, String)> = lines
+        .iter()
+        .filter(|(seq, _, _)| *seq > trigger_seq)
+        .cloned()
+        .collect();
+    match (pre.is_empty(), post.is_empty()) {
+        (true, true) => Ok((None, None)),
+        (false, true) => Ok((
+            format_missed_group_block("[上次发言后的群内新消息]", &pre),
+            None,
+        )),
+        (true, false) => Ok((
+            None,
+            format_missed_group_block("[上次发言后的群内新消息]", &post),
+        )),
+        (false, false) => Ok((
+            format_missed_group_block("[上次发言后的群内新消息]", &pre),
+            format_missed_group_block("[本轮新增群内消息]", &post),
+        )),
+    }
+}
+
+async fn fetch_missed_group_lines(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    from_seq: i64,
+    exclude_seq: i64,
+) -> Result<Vec<(i64, String, String)>, CollaborationError> {
+    let nickname = member_nickname(pool, space_id, conversation_id)
+        .await
+        .ok()
+        .flatten();
     let rows = sqlx::query_as::<_, (i64, String)>(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
-           WHERE space_id = ? AND seq > ? AND seq < ?
+           WHERE space_id = ? AND seq > ? AND seq != ?
            ORDER BY seq DESC LIMIT ?"#,
     )
     .bind(space_id)
     .bind(from_seq)
-    .bind(before_seq)
+    .bind(exclude_seq)
     .bind(MISSED_CONTEXT_LIMIT)
     .fetch_all(pool)
     .await
@@ -608,7 +917,7 @@ pub(crate) async fn missed_group_context(
     let mut lines = Vec::new();
     for (seq, raw) in rows {
         let parsed = parse_space_envelope_str(&raw);
-        if envelope_sender_is_conversation(&parsed, conversation_id, None) {
+        if envelope_sender_is_conversation(&parsed, conversation_id, nickname.as_deref()) {
             continue;
         }
         let who = if parsed.sender.is_empty() {
@@ -618,10 +927,14 @@ pub(crate) async fn missed_group_context(
         };
         lines.push((seq, who, parsed.content));
     }
-    if lines.is_empty() {
-        return Ok(None);
-    }
     lines.reverse();
+    Ok(lines)
+}
+
+fn format_missed_group_block(header: &str, lines: &[(i64, String, String)]) -> Option<String> {
+    if lines.is_empty() {
+        return None;
+    }
     let older = lines.len().saturating_sub(MISSED_CONTEXT_VERBATIM);
     let mut out = Vec::new();
     if older > 0 {
@@ -650,10 +963,7 @@ pub(crate) async fn missed_group_context(
         }
         out.push(format!("[#{seq}] {who}: {content}"));
     }
-    Ok(Some(format!(
-        "[上次发言后的群内新消息]\n{}",
-        out.join("\n")
-    )))
+    Some(format!("{header}\n{}", out.join("\n")))
 }
 
 /// Record that the member behind `conversation_id` has now seen `message_id`

@@ -28,6 +28,9 @@ import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
+const STAGE_OURS_SENTINEL = '__VIBEX_CONFLICT_STAGE_OURS__';
+const STAGE_THEIRS_SENTINEL = '__VIBEX_CONFLICT_STAGE_THEIRS__';
+
 function languageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
@@ -100,13 +103,14 @@ export function MergeConflictEditor({
     };
   }, []);
 
+  const seedKey = `${workspaceId}:${repoId}:${filePath}`;
   useEffect(() => {
     if (!query.data) return;
-    if (seededPath.current === filePath) return;
-    seededPath.current = filePath;
+    if (seededPath.current === seedKey) return;
+    seededPath.current = seedKey;
     setResult(query.data.result);
     setSavedResult(query.data.result);
-  }, [filePath, query.data]);
+  }, [seedKey, query.data]);
 
   const dirty = result !== savedResult;
   useEffect(() => {
@@ -143,6 +147,10 @@ export function MergeConflictEditor({
   const takeWhole = (side: 'ours' | 'theirs') => {
     const source = side === 'ours' ? ours : theirs;
     if (source.missing) return;
+    if (detail?.is_binary) {
+      setResult(side === 'ours' ? STAGE_OURS_SENTINEL : STAGE_THEIRS_SENTINEL);
+      return;
+    }
     setResult(source.value);
   };
 
@@ -209,6 +217,8 @@ export function MergeConflictEditor({
   }
 
   if (detail.is_binary) {
+    const binarySideSelected =
+      result === STAGE_OURS_SENTINEL || result === STAGE_THEIRS_SENTINEL;
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-sm">
         <GitMerge className="h-6 w-6 text-muted-foreground" />
@@ -216,6 +226,7 @@ export function MergeConflictEditor({
         <div className="flex gap-2">
           <Button
             size="sm"
+            variant={result === STAGE_OURS_SENTINEL ? 'default' : 'outline'}
             disabled={ours.missing}
             onClick={() => takeWhole('ours')}
           >
@@ -223,13 +234,17 @@ export function MergeConflictEditor({
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant={result === STAGE_THEIRS_SENTINEL ? 'default' : 'outline'}
             disabled={theirs.missing}
             onClick={() => takeWhole('theirs')}
           >
             {i18n.t('panels:ui.merge.takeTheirs')}
           </Button>
-          <Button size="sm" onClick={() => void save()} disabled={saving}>
+          <Button
+            size="sm"
+            onClick={() => void save()}
+            disabled={saving || !dirty || !binarySideSelected}
+          >
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>

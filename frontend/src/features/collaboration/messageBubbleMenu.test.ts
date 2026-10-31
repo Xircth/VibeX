@@ -53,4 +53,28 @@ describe('message bubble menu', () => {
     const copyId = items.find((item) => item.id === 'copy-request-id');
     expect(copyId && 'disabled' in copyId && copyId.disabled).toBe(true);
   });
+
+  it('includes save-to-collection and distill-memory actions when handlers are provided', () => {
+    const onSaveToCollection = vi.fn();
+    const onDistillMemory = vi.fn();
+    const items = buildMessageBubbleMenuItems({
+      canCopyRequestId: true,
+      onReact: vi.fn(),
+      onReply: vi.fn(),
+      onCopy: vi.fn(),
+      onCopyRequestId: vi.fn(),
+      onSaveToCollection,
+      onDistillMemory,
+    });
+    expect(labels(items)).toEqual([
+      '👍👎❤️😄🎉',
+      '---',
+      '回复',
+      '复制',
+      '复制请求 ID',
+      '---',
+      '收藏到本空间',
+      '提炼为记忆',
+    ]);
+  });
 });

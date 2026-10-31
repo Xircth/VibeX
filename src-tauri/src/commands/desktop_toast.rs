@@ -64,12 +64,10 @@ fn configure_desktop_toast_window(window: &tauri::WebviewWindow) -> Result<(), S
 
 pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
-        crate::apply_app_icon(&window)?;
-        configure_desktop_toast_window(&window)?;
         return Ok(window);
     }
 
-    let builder = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app,
         DESKTOP_TOAST_WINDOW_LABEL,
         WebviewUrl::App("/desktop-toast".into()),
@@ -85,6 +83,12 @@ pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::Webv
     .shadow(false)
     .focused(false)
     .visible(false);
+
+    if let Some(data_directory) =
+        crate::app_windows::app_webview_data_directory(DESKTOP_TOAST_WINDOW_LABEL)
+    {
+        builder = builder.data_directory(data_directory);
+    }
 
     let builder = builder
         .icon(crate::load_app_icon()?)
@@ -163,10 +167,25 @@ fn schedule_desktop_toast_idle_cleanup(app: &tauri::AppHandle) {
                 false
             }
         };
-        if should_close
-            && let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL)
-        {
-            let _ = toast_window.destroy();
+        if should_close {
+            let app_for_close = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let state = app_for_close.state::<crate::state::AppState>();
+                let still_idle = state
+                    .desktop_toast_state
+                    .try_lock()
+                    .is_ok_and(|runtime| {
+                        runtime.idle_generation == generation && runtime.pending.is_empty()
+                    });
+                if !still_idle {
+                    return;
+                }
+                if let Some(toast_window) =
+                    app_for_close.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL)
+                {
+                    let _ = toast_window.destroy();
+                }
+            });
         }
     });
 }
@@ -177,8 +196,25 @@ pub async fn show_desktop_toast(
     state: tauri::State<'_, crate::state::AppState>,
     payload: DesktopToastPayload,
 ) -> Result<(), String> {
-    let window = ensure_desktop_toast_window(&app)?;
-    position_desktop_toast_window(&app, &window)?;
+    {
+        let mut runtime = state.desktop_toast_state.lock().await;
+        runtime.idle_generation = runtime.idle_generation.wrapping_add(1);
+    }
+
+    tokio::task::yield_now().await;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let app_for_ui = app.clone();
+    app.run_on_main_thread(move || {
+        let result = ensure_desktop_toast_window(&app_for_ui).and_then(|window| {
+            position_desktop_toast_window(&app_for_ui, &window)?;
+            Ok(window)
+        });
+        let _ = tx.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    let window = rx
+        .await
+        .map_err(|_| "Desktop toast UI thread task cancelled".to_string())??;
 
     #[cfg(target_os = "windows")]
     {

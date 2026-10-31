@@ -172,6 +172,7 @@ pub fn read_existing_transcript_turns_with_external(
     let root = vibex_acp_transcripts_root();
     let candidates = transcript_session_id_candidates(conversation_id, external_session_id);
     let entries = std::fs::read_dir(&root).ok()?;
+    let mut fallback_turns: Option<Vec<MessageTurn>> = None;
     for dir_entry in entries.flatten() {
         let Ok(file_type) = dir_entry.file_type() else {
             continue;
@@ -182,17 +183,29 @@ pub fn read_existing_transcript_turns_with_external(
         let Some(agent_dir) = dir_entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
+        let kind = AgentKind::from_lenient(&agent_dir);
         for sid in &candidates {
-            if acp_transcript::has_entries_in(&root, &agent_dir, sid) {
-                let chain = acp_transcript::read_chain_in(&root, &agent_dir, sid);
-                let turns = project_turns_for(&chain.entries, AgentKind::from_lenient(&agent_dir));
-                if !turns.is_empty() {
-                    return Some(turns);
-                }
+            let chain = acp_transcript::read_chain_in(&root, &agent_dir, sid);
+            if chain.entries.is_empty() {
+                continue;
+            }
+            let turns = project_turns_for(&chain.entries, kind);
+            if turns.is_empty() {
+                continue;
+            }
+            if chain
+                .entries
+                .iter()
+                .any(|entry| matches!(entry.k, EntryKind::Update | EntryKind::TurnEnd))
+            {
+                return Some(turns);
+            }
+            if fallback_turns.is_none() {
+                fallback_turns = Some(turns);
             }
         }
     }
-    None
+    fallback_turns
 }
 
 pub async fn flush_and_read_existing_transcript_turns(
@@ -209,12 +222,15 @@ pub async fn flush_and_read_existing_transcript_turns(
             };
             if !file_type.is_dir() {
                 continue;
-            }
+            };
             let Some(agent_dir) = dir_entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
             for sid in &candidates {
                 let _ = acp_transcript::flush_in(&root, &agent_dir, sid).await;
+                for ancestor in acp_transcript::continuation_ancestors_in(&root, &agent_dir, sid) {
+                    let _ = acp_transcript::flush_in(&root, &agent_dir, &ancestor).await;
+                }
             }
         }
     }
@@ -295,6 +311,14 @@ pub async fn load_window(
     let mut side_rows = ConversationProjector::persisted_side_rows(pool, conversation_id)
         .await
         .unwrap_or_default();
+    if all.is_empty()
+        && ConversationTurnRecord::list_for_conversation(pool, conversation_id)
+            .await
+            .map(|turns| turns.is_empty())
+            .unwrap_or(false)
+    {
+        side_rows.retain(|row| row.row_id != "notice:agent-binding-load-failed");
+    }
     attach_acp_turn_ids_to_side_rows(pool, conversation_id, &all, &mut side_rows).await;
     let fork_point_statuses = fork_point_statuses_for_turns(pool, conversation_id, &all, &slice)
         .await
@@ -332,11 +356,8 @@ async fn attach_acp_turn_ids_to_side_rows(
     if db_turns.is_empty() {
         return;
     }
-    let rounds = non_steer_rounds_acp_ids(all_turns);
-    let mut by_turn_uuid: HashMap<Uuid, (String, Option<String>)> = HashMap::new();
-    for (db_turn, acp_pair) in db_turns.iter().zip(rounds.into_iter()) {
-        by_turn_uuid.insert(db_turn.id, acp_pair);
-    }
+    let user_texts_by_turn_id = load_db_turn_user_texts(pool, conversation_id).await;
+    let by_turn_uuid = pair_db_turns_with_acp_rounds(&db_turns, &user_texts_by_turn_id, all_turns);
     for side_row in side_rows.iter_mut() {
         let turn_uuid = match &side_row.row {
             ConversationTimelineRow::FileChangeSummary { turn_id, .. } => *turn_id,
@@ -362,11 +383,128 @@ async fn attach_acp_turn_ids_to_side_rows(
     }
 }
 
-pub fn non_steer_rounds_acp_ids(all_turns: &[MessageTurn]) -> Vec<(String, Option<String>)> {
-    let mut rounds: Vec<(String, Option<String>)> = Vec::new();
+async fn load_db_turn_user_texts(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> HashMap<Uuid, String> {
+    let rows: Vec<(Option<Uuid>, String)> = sqlx::query_as(
+        r#"SELECT turn_id, normalized_json
+           FROM conversation_events
+           WHERE conversation_id = ? AND event_kind = 'user_turn_created'
+           ORDER BY sequence ASC"#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let mut map = HashMap::new();
+    for (turn_id, json) in rows {
+        let Some(turn_id) = turn_id else {
+            continue;
+        };
+        if let Ok(ConversationEvent::UserTurnCreated { blocks, .. }) =
+            serde_json::from_str::<ConversationEvent>(&json)
+        {
+            let text = blocks
+                .into_iter()
+                .filter_map(|block| match block {
+                    agents::conversation::ConversationInputBlock::Text { text } => {
+                        let trimmed = text.trim();
+                        (!trimmed.is_empty()).then(|| trimmed.to_string())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            map.insert(turn_id, text);
+        }
+    }
+    map
+}
+
+fn turn_visible_user_text(turn: &MessageTurn) -> String {
+    turn.blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => {
+                let trimmed = text.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn pair_db_turns_with_acp_rounds(
+    db_turns: &[ConversationTurnRecord],
+    user_texts_by_turn_id: &HashMap<Uuid, String>,
+    all_turns: &[MessageTurn],
+) -> HashMap<Uuid, (String, Option<String>)> {
+    let rounds = non_steer_rounds_acp_ids_with_text(all_turns);
+    let mut by_turn_uuid: HashMap<Uuid, (String, Option<String>)> = HashMap::new();
+    if db_turns.len() == rounds.len() {
+        for (db_turn, (user_id, assistant_id, _)) in db_turns.iter().zip(rounds) {
+            by_turn_uuid.insert(db_turn.id, (user_id, assistant_id));
+        }
+        return by_turn_uuid;
+    }
+
+    let mut db_index = 0usize;
+    for (round_index, (user_id, assistant_id, round_text)) in rounds.into_iter().enumerate() {
+        let remaining_rounds = all_turns
+            .iter()
+            .filter(|turn| matches!(turn.role, TurnRole::User) && !turn.id.contains(":steer:"))
+            .count()
+            .saturating_sub(round_index);
+        while db_index < db_turns.len() {
+            let remaining_db = db_turns.len() - db_index;
+            let candidate = &db_turns[db_index];
+            if remaining_db <= remaining_rounds {
+                break;
+            }
+            let candidate_text = user_texts_by_turn_id
+                .get(&candidate.id)
+                .map(String::as_str)
+                .unwrap_or("");
+            let candidate_aborted = matches!(
+                candidate.status.as_str(),
+                "failed" | "cancelled" | "interrupted"
+            );
+            let next_matches_better = db_turns[db_index + 1..].iter().any(|later| {
+                let later_text = user_texts_by_turn_id
+                    .get(&later.id)
+                    .map(String::as_str)
+                    .unwrap_or("");
+                (!round_text.is_empty() && later_text == round_text && candidate_text != round_text)
+                    || (later_text == round_text
+                        && candidate_aborted
+                        && assistant_id.is_some()
+                        && later.status == "completed")
+            });
+            if next_matches_better
+                || (candidate_aborted && candidate_text != round_text && !round_text.is_empty())
+            {
+                db_index += 1;
+                continue;
+            }
+            break;
+        }
+        if let Some(matched) = db_turns.get(db_index) {
+            by_turn_uuid.insert(matched.id, (user_id, assistant_id));
+            db_index += 1;
+        }
+    }
+    by_turn_uuid
+}
+
+fn non_steer_rounds_acp_ids_with_text(
+    all_turns: &[MessageTurn],
+) -> Vec<(String, Option<String>, String)> {
+    let mut rounds: Vec<(String, Option<String>, String)> = Vec::new();
     for turn in all_turns {
         if matches!(turn.role, TurnRole::User) && !turn.id.contains(":steer:") {
-            rounds.push((turn.id.clone(), None));
+            rounds.push((turn.id.clone(), None, turn_visible_user_text(turn)));
         } else if matches!(turn.role, TurnRole::Assistant)
             && let Some(last_round) = rounds.last_mut()
         {
@@ -374,6 +512,13 @@ pub fn non_steer_rounds_acp_ids(all_turns: &[MessageTurn]) -> Vec<(String, Optio
         }
     }
     rounds
+}
+
+pub fn non_steer_rounds_acp_ids(all_turns: &[MessageTurn]) -> Vec<(String, Option<String>)> {
+    non_steer_rounds_acp_ids_with_text(all_turns)
+        .into_iter()
+        .map(|(user_id, assistant_id, _)| (user_id, assistant_id))
+        .collect()
 }
 
 async fn fork_point_statuses_for_turns(
@@ -465,41 +610,169 @@ async fn load_turns(
     pool: &SqlitePool,
     summary: &DbConversationSummary,
 ) -> Result<Vec<MessageTurn>, sqlx::Error> {
-    let kind = summary
+    let bindings = ConversationAgentBindingRecord::list_for_conversation(pool, summary.id)
+        .await
+        .unwrap_or_default();
+    let effective_agent_id = summary
         .agent_id
         .as_ref()
-        .and_then(|id| AgentKind::from_lenient(id.as_ref()));
-    let (agent_dir, session_id) = transcript_identity(summary, kind);
+        .or_else(|| bindings.last().map(|binding| &binding.agent_id));
+    let kind = effective_agent_id.and_then(|id| AgentKind::from_lenient(id.as_ref()));
+    let (agent_dir, session_id) = transcript_identity_with_agent(summary, effective_agent_id, kind);
     let root = vibex_acp_transcripts_root();
 
-    let _ = acp_transcript::flush_in(&root, &agent_dir, &session_id).await;
-    if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref() {
-        let _ = acp_transcript::flush_in(&root, &agent_dir, legacy_sid).await;
+    let recovered_ancestors: Vec<String> = sqlx::query_scalar::<_, String>(
+        r#"SELECT normalized_json
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'agent_binding_recovered'
+           ORDER BY sequence DESC"#,
+    )
+    .bind(summary.id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|json| {
+        serde_json::from_str::<serde_json::Value>(&json)
+            .ok()?
+            .get("continues_from")?
+            .as_str()
+            .map(str::trim)
+            .filter(|sid| !sid.is_empty() && safe_component(sid))
+            .map(str::to_string)
+    })
+    .collect();
+
+    let mut candidates: Vec<String> = Vec::new();
+    let mut push_candidate = |sid: &str| {
+        let trimmed = sid.trim();
+        if !trimmed.is_empty()
+            && safe_component(trimmed)
+            && !candidates.iter().any(|existing| existing == trimmed)
+        {
+            candidates.push(trimmed.to_string());
+        }
+    };
+    if let Some(legacy_sid) = legacy_external_session_id(summary) {
+        push_candidate(&legacy_sid);
+    }
+    for binding in bindings.iter().rev() {
+        if let Some(acp_sid) = binding.acp_session_id.as_deref() {
+            push_candidate(acp_sid);
+        }
+    }
+    for ancestor in &recovered_ancestors {
+        push_candidate(ancestor);
+    }
+    push_candidate(&session_id);
+    push_candidate(&summary.id.to_string());
+
+    for sid in &candidates {
+        let _ = acp_transcript::flush_in(&root, &agent_dir, sid).await;
+        for ancestor in acp_transcript::continuation_ancestors_in(&root, &agent_dir, sid) {
+            let _ = acp_transcript::flush_in(&root, &agent_dir, &ancestor).await;
+        }
     }
 
-    if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref()
-        && acp_transcript::has_entries_in(&root, &agent_dir, legacy_sid)
-    {
-        let existing = acp_transcript::read_chain_in(&root, &agent_dir, legacy_sid);
-        return Ok(project_turns_for(&existing.entries, kind));
+    let stitch_recovered_ancestors =
+        |head_sid: &str, mut entries: Vec<acp_transcript::TranscriptEntry>| {
+            if recovered_ancestors.is_empty() && bindings.len() <= 1 {
+                return entries;
+            }
+            let mut visited: std::collections::HashSet<String> =
+                acp_transcript::continuation_ancestors_in(&root, &agent_dir, head_sid)
+                    .into_iter()
+                    .collect();
+            visited.insert(head_sid.to_string());
+            if visited.contains(&session_id) {
+                return entries;
+            }
+            let mut chronological_ancestors: Vec<String> = Vec::new();
+            for binding in &bindings {
+                let Some(acp_sid) = binding.acp_session_id.as_deref().map(str::trim) else {
+                    continue;
+                };
+                if acp_sid == head_sid {
+                    break;
+                }
+                if !acp_sid.is_empty()
+                    && safe_component(acp_sid)
+                    && !chronological_ancestors
+                        .iter()
+                        .any(|existing| existing == acp_sid)
+                {
+                    chronological_ancestors.push(acp_sid.to_string());
+                }
+            }
+            // `recovered_ancestors` is newest -> oldest; iterate in reverse for chronological order.
+            for ancestor_sid in recovered_ancestors.iter().rev() {
+                if !chronological_ancestors
+                    .iter()
+                    .any(|existing| existing == ancestor_sid)
+                {
+                    chronological_ancestors.push(ancestor_sid.clone());
+                }
+            }
+            let mut prefix_entries = Vec::new();
+            for ancestor_sid in &chronological_ancestors {
+                if !visited.insert(ancestor_sid.clone()) {
+                    continue;
+                }
+                for chained in
+                    acp_transcript::continuation_ancestors_in(&root, &agent_dir, ancestor_sid)
+                {
+                    visited.insert(chained);
+                }
+                let mut ancestor_chain =
+                    acp_transcript::read_chain_in(&root, &agent_dir, ancestor_sid);
+                if ancestor_chain
+                    .entries
+                    .iter()
+                    .any(|entry| matches!(entry.k, EntryKind::Update | EntryKind::TurnEnd))
+                {
+                    prefix_entries.append(&mut ancestor_chain.entries);
+                }
+            }
+            if prefix_entries.is_empty()
+                && head_sid != session_id
+                && visited.insert(session_id.clone())
+            {
+                let mut preserved_chain =
+                    acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
+                if preserved_chain
+                    .entries
+                    .iter()
+                    .any(|entry| matches!(entry.k, EntryKind::Update | EntryKind::TurnEnd))
+                {
+                    prefix_entries.append(&mut preserved_chain.entries);
+                }
+            }
+            if !prefix_entries.is_empty() {
+                prefix_entries.append(&mut entries);
+                prefix_entries
+            } else {
+                entries
+            }
+        };
+
+    for sid in &candidates {
+        let existing = acp_transcript::read_chain_in(&root, &agent_dir, sid);
+        if existing
+            .entries
+            .iter()
+            .any(|entry| matches!(entry.k, EntryKind::Update | EntryKind::TurnEnd))
+        {
+            let entries = stitch_recovered_ancestors(sid, existing.entries);
+            return Ok(project_turns_for(&entries, kind));
+        }
     }
-    if acp_transcript::has_entries_in(&root, &agent_dir, &session_id) {
-        let existing = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
-        return Ok(project_turns_for(&existing.entries, kind));
-    }
-    // A file that exists — even a header claimed by an in-flight session/load
-    // replay or session bind — is the transcript. Overwriting it would duplicate history.
-    if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref()
-        && acp_transcript::has_entries_in(&root, &agent_dir, legacy_sid)
-    {
-        let existing = acp_transcript::read_chain_in(&root, &agent_dir, legacy_sid);
-        return Ok(project_turns_for(&existing.entries, kind));
-    }
-    if acp_transcript::transcript_path_in(&root, &agent_dir, &session_id)
-        .is_some_and(|path| path.is_file())
-    {
-        let existing = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
-        return Ok(project_turns_for(&existing.entries, kind));
+    for sid in &candidates {
+        let existing = acp_transcript::read_chain_in(&root, &agent_dir, sid);
+        if !existing.entries.is_empty() {
+            let entries = stitch_recovered_ancestors(sid, existing.entries);
+            return Ok(project_turns_for(&entries, kind));
+        }
     }
 
     let timeline = ConversationProjector::project(pool, summary.id).await?;
@@ -516,9 +789,6 @@ async fn load_turns(
     } else {
         false
     };
-    if extracted.is_empty() {
-        return Ok(Vec::new());
-    }
     let has_active_turn = ConversationRecord::find_by_id(pool, summary.id)
         .await?
         .is_some_and(|record| record.active_turn_id.is_some());
@@ -533,6 +803,24 @@ async fn load_turns(
             .iter()
             .any(|turn| matches!(turn.role, TurnRole::Assistant) && turn.completed_at.is_some());
     if only_inflight_first_turn {
+        return Ok(extracted);
+    }
+    // A file that exists — even a header claimed by an in-flight session/load
+    // replay or session bind — is the transcript. Overwriting it would duplicate history.
+    if candidates.iter().any(|sid| {
+        acp_transcript::transcript_path_in(&root, &agent_dir, sid)
+            .is_some_and(|path| path.is_file())
+    }) {
+        return Ok(extracted);
+    }
+    if extracted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let has_migratable_assistant_history = imported_from_vendor
+        || extracted
+            .iter()
+            .any(|turn| matches!(turn.role, TurnRole::Assistant) && !turn.blocks.is_empty());
+    if !has_migratable_assistant_history {
         return Ok(extracted);
     }
     write_migrated_transcript(&root, &agent_dir, &session_id, summary, &extracted);
@@ -555,9 +843,17 @@ fn transcript_identity(
     summary: &DbConversationSummary,
     kind: Option<AgentKind>,
 ) -> (String, String) {
+    transcript_identity_with_agent(summary, summary.agent_id.as_ref(), kind)
+}
+
+fn transcript_identity_with_agent(
+    summary: &DbConversationSummary,
+    agent_id: Option<&agents::AgentId>,
+    kind: Option<AgentKind>,
+) -> (String, String) {
     let raw_dir = kind
         .map(|kind| kind.as_str().to_string())
-        .or_else(|| summary.agent_id.as_ref().map(|id| id.to_string()))
+        .or_else(|| agent_id.map(|id| id.to_string()))
         .unwrap_or_else(|| "session".to_string());
     let agent_dir = if safe_component(&raw_dir) {
         raw_dir

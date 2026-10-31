@@ -491,4 +491,52 @@ describe('settings page alignment', () => {
     );
     expect(selectedItem.get('box-shadow')).toBe('var(--shadow-card)');
   });
+
+  it('styles the selected settings sidebar item with an accent fill and contrasting label instead of a thin border', () => {
+    const activeNav = declarationsFor('.settings-nav-button.is-active');
+    const activeNavHover = declarationsFor(
+      '.settings-nav-button.is-active:hover'
+    );
+
+    expect(activeNav.get('background')).toBe('hsl(var(--primary))');
+    expect(activeNav.get('background-color')).toBe('hsl(var(--primary))');
+    expect(activeNav.get('color')).toBe('hsl(var(--primary-foreground))');
+    expect(activeNav.get('border-color')).toBe('transparent');
+    expect(activeNav.get('font-weight')).toBe('500');
+    expect(activeNavHover.get('background')).toBe(
+      'hsl(var(--primary) / 0.92)'
+    );
+    expect(activeNavHover.get('color')).toBe('hsl(var(--primary-foreground))');
+    expect(activeNavHover.get('border-color')).toBe('transparent');
+  });
+
+  it('blurs only the settings content pane and excludes the left sidebar when the custom role modal is open', () => {
+    const collaborationCss = parse(
+      readFileSync(
+        resolve(process.cwd(), 'src/features/collaboration/collaboration.css'),
+        'utf8'
+      )
+    );
+    const rules = new Map<string, Map<string, string>>();
+    collaborationCss.walkRules((rule) => {
+      const normalized = rule.selector.replace(/\s+/g, ' ').trim();
+      const decls = rules.get(normalized) ?? new Map<string, string>();
+      rule.walkDecls((decl) => {
+        decls.set(decl.prop, decl.value);
+      });
+      rules.set(normalized, decls);
+    });
+
+    expect(
+      rules.get('.settings-page.collaboration-settings-window-blurred')
+    ).toBeUndefined();
+    const contentBlurred = rules.get(
+      '.settings-page.collaboration-settings-window-blurred [data-settings-content]'
+    );
+    expect(contentBlurred?.get('filter')).toBe('blur(10px)');
+    const overlay = rules.get('.collaboration-settings-modal-overlay');
+    expect(overlay?.get('left')).toBe(
+      'var(--settings-modal-overlay-left, 12.5rem)'
+    );
+  });
 });

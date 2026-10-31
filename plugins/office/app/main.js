@@ -36,14 +36,6 @@ export default {
       },
     });
 
-    ctx.ui.registerSettingsSection({
-      id: 'office-settings',
-      title: 'VibeX Office',
-      description: 'Configure Office document preview idle timeout.',
-      category: 'Tools',
-      icon: 'file-text',
-    });
-
     ctx.services.provide('vibex.office', {
       supportedExtensions: [...SUPPORTED_EXTENSIONS],
       supportedMediaTypes: [...SUPPORTED_MEDIA_TYPES],

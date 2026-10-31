@@ -87,9 +87,23 @@ export function useSessionComposerDraftScratch({
     cancelDebouncedSaveRef.current();
   };
 
+  const activeScratchIdRef = useRef(scratchId);
+  useEffect(() => {
+    if (activeScratchIdRef.current === scratchId) return;
+    activeScratchIdRef.current = scratchId;
+    saveGenerationRef.current += 1;
+    cancelDebouncedSaveRef.current();
+    lastSavedRevisionRef.current = null;
+    lastSeenRevisionRef.current = null;
+    setLastSavedRevision(null);
+    setConflict(null);
+  }, [scratchId]);
+
   useEffect(() => {
     if (!scratch) {
       lastSeenRevisionRef.current = null;
+      lastSavedRevisionRef.current = null;
+      setLastSavedRevision(null);
       return;
     }
     if (lastSeenRevisionRef.current == null) {
@@ -109,7 +123,7 @@ export function useSessionComposerDraftScratch({
     ) {
       setConflict(scratch);
     }
-  }, [localMessage, scratch]);
+  }, [localMessage, scratch, scratchId]);
 
   const saveToScratch = useCallback(
     async (

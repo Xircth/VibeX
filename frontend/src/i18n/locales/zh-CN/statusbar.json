@@ -103,6 +103,7 @@
       "get_session_info": "获取会话信息",
       "send_session_input": "向会话发送输入",
       "cancel_session_turn": "取消会话回合",
+      "wait_for_session": "等待会话结束",
       "list_conversations": "列出会话",
       "create_conversation": "创建会话",
       "list_spaces": "列出协作空间",

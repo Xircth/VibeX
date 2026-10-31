@@ -319,8 +319,16 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
       dirty={dirty}
       saving={saving}
       publishing={publishing}
-      onSave={() => void save()}
-      onPublish={() => void publish()}
+      onSave={() => {
+        void save().catch((error) =>
+          toast.error(error instanceof Error ? error.message : String(error))
+        );
+      }}
+      onPublish={() => {
+        void publish().catch((error) =>
+          toast.error(error instanceof Error ? error.message : String(error))
+        );
+      }}
       editorName={definition.name}
       onEditorNameChange={(name) => applyDefinition({ ...definition, name })}
       releaseVersion={releaseVersion(version?.version)}
@@ -386,13 +394,19 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
         if (!run) return;
         void workflowApi
           .pause(run.id, 'Paused from Workflow artifact editor')
-          .then(() => refreshRun(run.id));
+          .then(() => refreshRun(run.id))
+          .catch((error) =>
+            toast.error(error instanceof Error ? error.message : String(error))
+          );
       }}
       onTerminateRun={() => {
         if (!run) return;
         void workflowApi
           .cancel(run.id, 'Terminated from Workflow artifact editor')
-          .then(() => refreshRun(run.id));
+          .then(() => refreshRun(run.id))
+          .catch((error) =>
+            toast.error(error instanceof Error ? error.message : String(error))
+          );
       }}
       onTestNode={(stepId) => {
         void startNode(stepId).catch((error) =>
@@ -408,7 +422,10 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
         if (!run) return;
         void workflowApi
           .pauseStep(run.id, stepId, 'Paused in node conversation')
-          .then(() => refreshRun(run.id));
+          .then(() => refreshRun(run.id))
+          .catch((error) =>
+            toast.error(error instanceof Error ? error.message : String(error))
+          );
       }}
       onSubmitStepInput={async (stepId, text) => {
         const activeRun = run ?? (await startNode(stepId));
@@ -431,7 +448,10 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
         if (!run) return;
         void workflowApi
           .acceptCandidate(run.id, stepId)
-          .then(() => refreshRun(run.id));
+          .then(() => refreshRun(run.id))
+          .catch((error) =>
+            toast.error(error instanceof Error ? error.message : String(error))
+          );
       }}
       onDecideApproval={async (stepId, decision) => {
         if (!run) return;

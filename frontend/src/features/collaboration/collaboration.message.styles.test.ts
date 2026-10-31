@@ -26,9 +26,7 @@ function declarationsFor(
   return declarations;
 }
 
-function keyframesFor(
-  name: string
-): Record<string, Record<string, string>> {
+function keyframesFor(name: string): Record<string, Record<string, string>> {
   const css = readFileSync(
     resolve(process.cwd(), 'src/features/collaboration/collaboration.css'),
     'utf8'
@@ -247,6 +245,20 @@ describe('collaboration assistant list and message cluster chrome', () => {
     );
     expect(bubble.width?.value).toBe('fit-content');
     expect(bubble['max-width']?.value).toBe('100%');
+  });
+
+  it('paints user message bubbles in space with the user primary accent color', () => {
+    const userMsg = declarationsFor('.collaboration-message .conv-user-msg');
+    expect(userMsg['--conv-user-bg']?.value).toBe('hsl(var(--primary))');
+    expect(userMsg['--conv-user-text']?.value).toBe(
+      'hsl(var(--primary-foreground))'
+    );
+
+    const bubble = declarationsFor(
+      '.collaboration-message .vibex-user-message .conv-user-bubble'
+    );
+    expect(bubble.background?.value).toBe('hsl(var(--primary))');
+    expect(bubble.color?.value).toBe('hsl(var(--primary-foreground))');
   });
 
   it('draws cross-chat notice lines in the sender avatar color, thicker toward the copy', () => {

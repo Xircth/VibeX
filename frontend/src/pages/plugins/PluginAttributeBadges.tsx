@@ -52,11 +52,6 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
     repo: 'Xircth/vibex-plugin-workflow-creator',
     trend: [72, 86, 101, 115, 129, 143, 157, 171, 184, 196, 208, 218],
   },
-  promptEnhancer: {
-    installs: 196,
-    repo: 'Xircth/vibex-plugin-prompt-enhancer',
-    trend: [64, 77, 90, 103, 116, 129, 142, 154, 166, 177, 187, 196],
-  },
   remoteSsh: {
     installs: 175,
     repo: 'Xircth/vibex-plugin-remote-ssh',
@@ -72,40 +67,15 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
     repo: 'Xircth/vibex-plugin-provider-switch',
     trend: [46, 56, 66, 76, 86, 96, 106, 115, 124, 133, 141, 148],
   },
-  notes: {
-    installs: 134,
-    repo: 'Xircth/vibex-plugin-notes',
-    trend: [41, 50, 59, 68, 77, 86, 95, 104, 112, 120, 127, 134],
-  },
   openConnector: {
     installs: 119,
     repo: 'Xircth/vibex-plugin-open-connector',
     trend: [36, 44, 52, 60, 68, 76, 84, 92, 99, 106, 113, 119],
   },
-  kanbanViews: {
-    installs: 96,
-    repo: 'Xircth/vibex-plugin-kanban-views',
-    trend: [29, 35, 42, 49, 55, 62, 68, 74, 80, 86, 91, 96],
-  },
   pluginDevelopment: {
     installs: 84,
     repo: 'Xircth/vibex-plugin-development',
     trend: [25, 31, 37, 43, 48, 54, 60, 65, 70, 75, 80, 84],
-  },
-  providerImport: {
-    installs: 52,
-    repo: 'Xircth/vibex-plugin-provider-import',
-    trend: [15, 19, 23, 27, 30, 34, 38, 41, 44, 47, 50, 52],
-  },
-  hostSurface: {
-    installs: 38,
-    repo: 'Xircth/vibex-plugin-host-surface',
-    trend: [12, 14, 17, 20, 22, 25, 28, 30, 32, 34, 36, 38],
-  },
-  hostChrome: {
-    installs: 27,
-    repo: 'Xircth/vibex-plugin-host-chrome',
-    trend: [10, 11, 13, 15, 16, 18, 20, 21, 23, 24, 26, 27],
   },
 };
 

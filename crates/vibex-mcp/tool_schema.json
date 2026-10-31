@@ -336,7 +336,7 @@
   },
   {
     "name": "list_spaces",
-    "description": "List collaboration spaces in this workspace. Omit space_id to list every BotSpace (private chat, space_id direct:<identity_member_id>) and GroupSpace (group UUID) as an overview: name, kind, member_count, lead_nickname / lead_member_id when set. Pass space_id to return that space's details and the full member list, including identity_member_id, nickname, conversation_id, is_self, and lead_bot (true for the group lead).",
+    "description": "List collaboration spaces in this workspace. Omit space_id to list every BotSpace (private chat, space_id direct:<identity_member_id>) and GroupSpace (group UUID) as an overview: name, kind, member_count, lead_nickname / lead_member_id when set. Pass space_id to return that space's details and the full member list, including identity_member_id, nickname, conversation_id, is_self, and lead_bot (true for the group lead). Each member includes activity: state (working | waiting_for_person | waiting_for_bot | idle), at (BotSpace or group name), waiting_for (Person or Bot nicknames), queued (undelivered work for that Bot). Activity is identity-wide: a Bot busy in one Space still shows busy here. Call this when you need to know who exists or what each Bot is doing; do not rely on memory.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -373,7 +373,7 @@
   },
   {
     "name": "post_space_message",
-    "description": "Post one message into a collaboration space and return immediately. For a regular reply in the current space, output ordinary assistant text; call this tool only to deliver across spaces, to report progress during a long task, or to schedule a delayed post. to is a list of member nicknames; \"User\" and \"Person\" both address the human user. delay_seconds (optional integer, default 0) schedules the message. Rules (see vibex-bot SKILL.md): (1) When a User task takes time, post_space_message (to: [\"User\"]) with what you are doing now so the user can see progress; post again on a real update; at completion post the result or a decision question. If the work finishes quickly, post only the result. Ordinary chat posts content only. (2) Audience filtering: when messaging User/Person (to: [\"User\"] or [\"Person\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call this tool to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. (4) Do not restate facts, reasons, or relay chains another member already posted; only send incremental new information. (5) For disputes, layout/format decisions, or aggregated results, address the space lead first (list_spaces lead_nickname / lead_bot).",
+    "description": "Post one message into a collaboration space and return immediately. For a regular reply in the current space, output ordinary assistant text; do not call this tool for that reply or for in-space progress. Call it only to deliver across spaces or to schedule a delayed post (delay_seconds). Keep space_id as this session. to is nicknames: a Bot name goes to that BotSpace; a Group name goes to that GroupSpace (body @BotName wakes those members; without @ the group log records it and no Bot is woken). \"User\" and \"Person\" both address the human. Never wait, poll, or resend. Rules (see vibex-bot SKILL.md): (1) When messaging User/Person, NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (2) Silent closure: do NOT call this tool to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed. (3) Do not restate facts, reasons, or relay chains another member already posted; only send incremental new information. (4) For disputes, layout/format decisions, or aggregated results, address the space lead first (list_spaces lead_nickname / lead_bot).",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -410,7 +410,7 @@
   },
   {
     "name": "manage_bot",
-    "description": "Create, update, delete, or interrupt a collaboration bot. action=create makes a bot identity plus its private chat (not auto-joined to a group). action=update sets your nickname in a space (and optional persona/mode). action=delete permanently removes another bot (call request_approval first). action=interrupt stops another group member's in-flight turn. bot_id accepts the identity id, per-space seat id, conversation id, or nickname.",
+    "description": "Create, update, delete, or interrupt a collaboration bot. Permission rules: action=create, action=delete, and updating another bot or changing persona_prompt/mode_id/agent_id require the workspace supervisor (主管/总管) identity; ordinary bots can only call action=update to rename themselves. The supervisor bot itself cannot be deleted. action=create makes a bot identity plus its private chat (check list_spaces first to avoid duplicates). action=delete permanently removes another bot (call request_approval first). action=interrupt stops another group member's in-flight turn (same-group peers or the workspace supervisor). bot_id accepts the identity id, per-space seat id, conversation id, or nickname.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -458,7 +458,7 @@
   },
   {
     "name": "manage_group",
-    "description": "Create, rename, or delete a group, add or remove a bot, leave, or transfer the lead. action=create joins you to a new group. action=delete is destructive (call request_approval first). bot_id accepts identity id, seat id, conversation id, or nickname.",
+    "description": "Create, rename, or delete a group, add or remove a bot, leave, or transfer the lead. Permission rules: action=create and action=delete require the workspace supervisor (主管/总管) identity; action=rename, action=add_bot, action=remove_bot, and action=set_lead require the workspace supervisor or the group's current lead; any group member can call action=leave. action=create joins you to a new group. action=delete is destructive (call request_approval first). bot_id accepts identity id, seat id, conversation id, or nickname.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -499,7 +499,7 @@
   },
   {
     "name": "request_approval",
-    "description": "Request the human user's (Person / User) approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this thread: this group or direct chat) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
+    "description": "Request the human user's (Person / User) approval in a collaboration thread before a risky action. Blocks until the user picks allow_once, allow_always (for this thread: this group or direct chat) or deny, and returns the resolved decision (`decision` and `approved`). Do not perform the action unless `approved` is true.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -527,7 +527,7 @@
   },
   {
     "name": "memory_search",
-    "description": "Search your own long-term memory (facts) and recent activity across your collaboration threads, ranked by BM25. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
+    "description": "Search your own long-term memory (facts, topics) and recent activity across your collaboration threads, ranked by BM25, or recall a full topic Markdown document by passing `topic`. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -537,6 +537,10 @@
         "query": {
           "type": "string",
           "minLength": 1
+        },
+        "topic": {
+          "type": "string",
+          "description": "Optional topic slug (from [[topic:<slug>]]) to recall the full topic Markdown document."
         },
         "limit": {
           "type": "integer",
@@ -549,7 +553,7 @@
   },
   {
     "name": "memory_write",
-    "description": "Remember a durable fact for yourself. scope: thread (default, only this thread), global (all your threads) or private (only your private chat with the user). Writes made in a private chat are always stored as private.",
+    "description": "Remember, update, or remove a durable fact or topic document. scope: thread (default, shared in this group thread), global (all your group threads) or private (only your private chat with the user). Writes made in a private chat are always stored as private. Secrets, passwords, and API keys are rejected.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -567,6 +571,27 @@
             "global",
             "private"
           ]
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "add",
+            "replace",
+            "remove"
+          ],
+          "default": "add"
+        },
+        "fact_id": {
+          "type": "integer",
+          "description": "Fact ID (#id) when replacing or removing an existing fact."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Optional topic slug to write or remove a deep Markdown topic file under topics/<topic>.md."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional title when writing a topic file."
         }
       }
     }

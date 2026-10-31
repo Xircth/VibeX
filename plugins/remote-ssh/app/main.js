@@ -39,13 +39,6 @@ export default {
   activate(ctx) {
     const ConnectPanelComponent = createRemoteSshConnectPanelComponent(ctx);
 
-    ctx.ui.registerSettingsPage({
-      id: 'connect-panel',
-      title: 'Remote SSH',
-      icon: 'cloud',
-      component: ConnectPanelComponent,
-    });
-
     ctx.ui.registerView({
       id: 'connect-panel',
       title: 'Remote SSH',

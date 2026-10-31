@@ -134,6 +134,7 @@ type Controller = {
 
 type Slot = {
   refs: number;
+  surfaceRefs: number;
   bindReady: boolean;
   keepalive?: () => void;
   controller: Controller | null;
@@ -440,10 +441,25 @@ export function getConversationTimelineView(
   return view;
 }
 
+export function retainConversationSurface(conversationId: string): () => void {
+  let slot = slots.get(conversationId);
+  if (!slot) {
+    slot = { refs: 0, surfaceRefs: 0, bindReady: false, controller: null };
+    slots.set(conversationId, slot);
+  }
+  slot.surfaceRefs += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    releaseConversationSurface(conversationId);
+  };
+}
+
 export function retainConversationTimeline(conversationId: string): () => void {
   let slot = slots.get(conversationId);
   if (!slot) {
-    slot = { refs: 0, bindReady: false, controller: null };
+    slot = { refs: 0, surfaceRefs: 0, bindReady: false, controller: null };
     slots.set(conversationId, slot);
   }
   slot.refs += 1;
@@ -473,8 +489,22 @@ export function resetConversationTimelineRegistryForTests(): void {
 function releaseConversationTimeline(conversationId: string): void {
   const slot = slots.get(conversationId);
   if (!slot) return;
-  slot.refs -= 1;
+  slot.refs = Math.max(0, slot.refs - 1);
   if (slot.refs > 0) return;
+  stopController(slot);
+  notify();
+  if (slot.surfaceRefs > 0) return;
+  slots.delete(conversationId);
+  viewCache.delete(conversationId);
+  factsCache.delete(conversationId);
+  dispatch({ type: 'reset', conversationId });
+}
+
+function releaseConversationSurface(conversationId: string): void {
+  const slot = slots.get(conversationId);
+  if (!slot) return;
+  slot.surfaceRefs = Math.max(0, slot.surfaceRefs - 1);
+  if (slot.refs > 0 || slot.surfaceRefs > 0) return;
   stopController(slot);
   slots.delete(conversationId);
   viewCache.delete(conversationId);

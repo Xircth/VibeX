@@ -41,6 +41,7 @@ import {
   settleIdleOpenTail,
   toBigInt,
   userTurnText,
+  windowBlocksCoverLiveBlocks,
 } from './queue';
 
 /**
@@ -315,7 +316,13 @@ export function conversationStoreReducer(
               )
             : (action.detail.timeline.older_cursor ?? null),
           prefixHash: keepRealtimeRows
-            ? (windowPrefixHash(action.detail) ?? entry.prefixHash)
+            ? preferLoadedOlderCursor(
+                entry.olderCursor,
+                action.detail.timeline.older_cursor,
+                entry.windowRows.length > 0
+              ) === (action.detail.timeline.older_cursor ?? null)
+              ? (windowPrefixHash(action.detail) ?? entry.prefixHash)
+              : entry.prefixHash
             : windowPrefixHash(action.detail),
           userTurnsBeforeOffset: keepRealtimeRows
             ? entry.userTurnsBeforeOffset
@@ -388,24 +395,19 @@ export function conversationStoreReducer(
           const older: TimelineRow[] = [];
           const updates: TimelineRow[] = [];
           for (const row of action.rows) {
-            const reconciled = reconcileOptimisticTurnAgainstUserRow(
-              optimisticTurns,
-              row
-            );
-            optimisticTurns = reconciled.optimisticTurns;
-            if (!existing.has(reconciled.row.row_id)) {
-              older.push(reconciled.row);
-              existing.add(reconciled.row.row_id);
+            if (!existing.has(row.row_id)) {
+              older.push(row);
+              existing.add(row.row_id);
               prepended += 1;
               if (
-                reconciled.row.row.kind === 'message_turn' &&
-                reconciled.row.row.turn.role === 'user' &&
-                !reconciled.row.row_id.includes(':steer:')
+                row.row.kind === 'message_turn' &&
+                row.row.turn.role === 'user' &&
+                !row.row_id.includes(':steer:')
               ) {
                 prependedUserTurns += 1;
               }
             } else {
-              updates.push(reconciled.row);
+              updates.push(row);
             }
           }
           windowRows = [...older, ...windowRows];
@@ -456,6 +458,16 @@ export function conversationStoreReducer(
           liveRows,
           liveText
         );
+        const nextOlderCursor =
+          action.olderCursor !== undefined
+            ? action.olderCursor
+            : entry.olderCursor;
+        const nextLoadedToStart =
+          entry.loadedToStart ||
+          (action.olderCursor !== undefined && action.olderCursor == null);
+        const windowStartChanged =
+          nextOlderCursor !== entry.olderCursor ||
+          nextLoadedToStart !== entry.loadedToStart;
         return {
           ...entry,
           windowRows,
@@ -467,19 +479,15 @@ export function conversationStoreReducer(
             action.lastSequence > entry.lastSequence
               ? action.lastSequence
               : entry.lastSequence,
-          olderCursor:
-            action.olderCursor !== undefined
-              ? action.olderCursor
-              : entry.olderCursor,
+          olderCursor: nextOlderCursor,
+          prefixHash: windowStartChanged ? null : entry.prefixHash,
           userTurnsBeforeOffset: Math.max(
             0,
             entry.userTurnsBeforeOffset - prependedUserTurns
           ),
           olderTurnsPrependEpoch:
             entry.olderTurnsPrependEpoch + (prepended > 0 ? 1 : 0),
-          loadedToStart:
-            entry.loadedToStart ||
-            (action.olderCursor !== undefined && action.olderCursor == null),
+          loadedToStart: nextLoadedToStart,
           gap: { kind: 'none' },
         };
       });
@@ -794,9 +802,6 @@ function preserveAssistantBlocksOnColdUpsert(
   ) {
     return incoming;
   }
-  if (incoming.row.turn.blocks.length > 0) {
-    return withMergedTurnUsage(existing, incoming);
-  }
   const incomingRevision = toBigInt(incoming.revision);
   const baseBlocks =
     overlay && (incomingRevision >= overlay.revision || forceApplyOverlay)
@@ -805,13 +810,23 @@ function preserveAssistantBlocksOnColdUpsert(
   if (baseBlocks.length === 0) {
     return incoming;
   }
+  if (
+    incoming.row.turn.blocks.length > 0 &&
+    windowBlocksCoverLiveBlocks(incoming.row.turn.blocks, baseBlocks)
+  ) {
+    return withMergedTurnUsage(existing, incoming);
+  }
+  const mergedBlocks =
+    incoming.row.turn.blocks.length > 0
+      ? mergePatchedBlocks(baseBlocks, incoming.row.turn.blocks)
+      : baseBlocks;
   return {
     ...incoming,
     row: {
       ...incoming.row,
       turn: {
         ...incoming.row.turn,
-        blocks: baseBlocks,
+        blocks: mergedBlocks,
         usage: mergeReportedTurnUsage(
           existing.row.turn.usage,
           incoming.row.turn.usage

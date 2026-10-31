@@ -557,6 +557,7 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             if features & SESSION_FEAT_SESSION_CONTROL != 0 {
                 tools.push(tool("send_session_input", "sessionControl"));
                 tools.push(tool("cancel_session_turn", "sessionControl"));
+                tools.push(tool("wait_for_session", "sessionControl"));
             }
             tools
         }
@@ -1082,13 +1083,24 @@ mod tests {
             assert!(tools.iter().all(|tool| tool.name != name), "{name}");
         }
         assert_eq!(report.plugins[1].connection, "disabled");
+        let session_tools = &report.plugins[1].servers[0].tools;
         assert!(
-            report.plugins[1]
-                .servers
+            session_tools
                 .iter()
-                .flat_map(|server| &server.tools)
                 .all(|tool| tool.name != "ask_user_question")
         );
+        for name in [
+            "check_user_feedback",
+            "get_session_info",
+            "send_session_input",
+            "cancel_session_turn",
+            "wait_for_session",
+        ] {
+            assert!(
+                session_tools.iter().any(|tool| tool.name == name),
+                "session MCP should advertise {name}"
+            );
+        }
 
         let running = plugin_mcp_status_report(
             std::slice::from_ref(&plugin(

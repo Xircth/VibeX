@@ -3,10 +3,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
+const os = require('node:os');
+
 const {
   applyDesktopDevIdentity,
+  clearIncrementalCacheIfDisabled,
   createCargoLeanDevEnv,
   DESKTOP_DEV_IDENTITY,
+  relocateStaleWebView2UserData,
+  webview2DevUserDataDir,
+  windowsStaleDesktopCleanupScript,
 } = require('./run-tauri-dev-desktop');
 
 test('desktop dev compiles SQLx queries from the prepared cache', () => {
@@ -77,10 +83,76 @@ test('desktop dev uses a distinct app identity from the installed product', () =
   assert.deepEqual(product.plugins['deep-link'].desktop.schemes, ['vibex']);
   assert.equal(generated.identifier, DESKTOP_DEV_IDENTITY.identifier);
   assert.equal(generated.productName, DESKTOP_DEV_IDENTITY.productName);
-  assert.equal(generated.app.windows[0].title, DESKTOP_DEV_IDENTITY.productName);
+  assert.equal(
+    generated.app.windows.find((window) => window.label === 'main'),
+    undefined
+  );
   assert.deepEqual(generated.plugins['deep-link'].desktop.schemes, [
     DESKTOP_DEV_IDENTITY.deepLinkScheme,
   ]);
   assert.notEqual(generated.identifier, product.identifier);
   assert.equal(product.identifier, 'com.vibex.app');
+});
+
+test('desktop dev cleanup reaps WebView2 processes that hold the dev user-data folder', () => {
+  const script = windowsStaleDesktopCleanupScript();
+  assert.match(script, /msedgewebview2\.exe/);
+  assert.match(script, /com\.vibex\.app\.dev/);
+  assert.match(script, /taskkill\.exe/);
+  assert.match(script, /Start-Sleep/);
+});
+
+test('desktop dev WebView2 user data lives under LOCALAPPDATA and the dev identity', () => {
+  assert.equal(
+    webview2DevUserDataDir({ LOCALAPPDATA: 'C:\\Users\\test\\AppData\\Local' }),
+    path.join('C:\\Users\\test\\AppData\\Local', DESKTOP_DEV_IDENTITY.identifier)
+  );
+  assert.equal(webview2DevUserDataDir({}), null);
+});
+
+test('desktop dev relocates a busy WebView2 profile so the next Environment can start', () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-wv2-'));
+  const dir = path.join(parent, DESKTOP_DEV_IDENTITY.identifier);
+  fs.mkdirSync(path.join(dir, 'EBWebView', 'Default'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'EBWebView', 'Default', 'LOCK'), 'busy');
+
+  const stale = relocateStaleWebView2UserData(dir, 1700000000000);
+  assert.ok(stale);
+  assert.equal(
+    path.basename(stale),
+    `${DESKTOP_DEV_IDENTITY.identifier}.stale-1700000000000`
+  );
+  assert.equal(fs.existsSync(dir), false);
+  assert.equal(
+    fs.existsSync(path.join(stale, 'EBWebView', 'Default', 'LOCK')),
+    true
+  );
+  assert.equal(relocateStaleWebView2UserData(dir, 1700000000001), null);
+
+  fs.rmSync(parent, { recursive: true, force: true });
+});
+
+test('desktop dev tolerates Windows ENOTEMPTY/EBUSY when clearing target/debug/incremental', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-inc-'));
+  const incremental = path.join(root, 'target', 'debug', 'incremental');
+  fs.mkdirSync(incremental, { recursive: true });
+
+  let capturedOptions = null;
+  assert.doesNotThrow(() => {
+    clearIncrementalCacheIfDisabled(
+      { CARGO_INCREMENTAL: '0' },
+      root,
+      (_target, options) => {
+        capturedOptions = options;
+        const err = new Error('ENOTEMPTY: directory not empty');
+        err.code = 'ENOTEMPTY';
+        throw err;
+      }
+    );
+  });
+  assert.equal(capturedOptions?.recursive, true);
+  assert.equal(capturedOptions?.force, true);
+  assert.ok(capturedOptions?.maxRetries >= 3);
+
+  fs.rmSync(root, { recursive: true, force: true });
 });

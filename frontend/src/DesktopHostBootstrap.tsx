@@ -38,6 +38,9 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
     tauriBackendTransport
   );
   const [shellKey, setShellKey] = useState('desktop');
+  const [ready, setReady] = useState(
+    () => !bindShell || !isHostBoundWindowLabel(currentWindowLabel())
+  );
 
   useEffect(() => {
     if (!bindShell) return;
@@ -73,6 +76,10 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
         if (!cancelled && boundOrigin == null) {
           setTransport(tauriBackendTransport);
         }
+      } finally {
+        if (!cancelled) {
+          setReady(true);
+        }
       }
     };
 
@@ -94,6 +101,10 @@ export function DesktopHostBootstrap({ children }: { children: ReactNode }) {
 
   if (!bindShell) {
     return children;
+  }
+
+  if (!ready) {
+    return null;
   }
 
   return (

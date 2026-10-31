@@ -2,7 +2,10 @@ use super::*;
 use crate::stderr_tail::{sanitize_diagnostic, summarize_parser_error};
 
 impl AcpClientBridge {
-    pub(in crate::manager) async fn handle_ext_method(&self, ext: ExtRequest) -> Result<ClientResponse, acp::Error> {
+    pub(in crate::manager) async fn handle_ext_method(
+        &self,
+        ext: ExtRequest,
+    ) -> Result<ClientResponse, acp::Error> {
         let Some(parsed) = crate::ext_question::parse(ext.method.as_ref(), ext.params.get()) else {
             return Err(acp::Error::method_not_found());
         };

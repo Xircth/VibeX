@@ -249,6 +249,9 @@ pub fn monorepo_official_plugin_root(plugin_id: &str) -> Option<PathBuf> {
         return None;
     }
     for (dir_name, canonical_id) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        if official_plugin_record(canonical_id).is_none() {
+            continue;
+        }
         if plugin_ids_match(trimmed, canonical_id)
             || plugin_ids_match(canonical_id, trimmed)
             || dir_name.eq_ignore_ascii_case(trimmed)
@@ -291,6 +294,12 @@ mod tests {
             Some("ai-enhancement")
         );
         assert!(official_plugin_category("vibex.multi-agent").is_none());
+        assert!(official_plugin_record("vibex.kanban-views").is_none());
+        assert!(official_plugin_record("vibex.notes").is_none());
+        assert!(official_plugin_record("vibex.prompt-enhancer").is_none());
+        assert!(monorepo_official_plugin_root("vibex.kanban-views").is_none());
+        assert!(monorepo_official_plugin_root("vibex.notes").is_none());
+        assert!(monorepo_official_plugin_root("vibex.prompt-enhancer").is_none());
     }
 
     #[test]

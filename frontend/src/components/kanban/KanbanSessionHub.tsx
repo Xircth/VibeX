@@ -36,6 +36,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from '@/components/ui/toast';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
+import {
+  filterVisibleBotSessions,
+  useHideBotSessions,
+} from '@/lib/hideBotSessions';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
   isCreateSessionFormVisibleForProject,
@@ -210,6 +214,11 @@ export function KanbanSessionHub({
   );
   const { sessions, workspaces, isLoading } =
     useKanbanProjectSessions(projectId);
+  const hideBotSessions = useHideBotSessions();
+  const visibleListSessions = useMemo(
+    () => filterVisibleBotSessions(sessions, hideBotSessions),
+    [hideBotSessions, sessions]
+  );
   const primaryRepo = repos?.[0];
   const { data: primaryRepoBranches = [], isPending: isBranchesPending } =
     useRepoBranches(primaryRepo?.id, {
@@ -540,14 +549,16 @@ export function KanbanSessionHub({
   }, [sessions]);
 
   useEffect(() => {
-    const availableSessionIds = new Set(sessions.map((session) => session.id));
+    const availableSessionIds = new Set(
+      visibleListSessions.map((session) => session.id)
+    );
     setSelectedSessionIds((current) => {
       const next = current.filter((sessionId) =>
         availableSessionIds.has(sessionId)
       );
       return next.length === current.length ? current : next;
     });
-  }, [sessions]);
+  }, [visibleListSessions]);
 
   const { createSessionMutation, renameSessionMutation } =
     useKanbanSessionMutations({
@@ -642,21 +653,39 @@ export function KanbanSessionHub({
     [sessionsWithOptimisticStatus]
   );
 
+  const listActiveSessionsWithOptimisticStatus = useMemo(
+    () =>
+      filterVisibleBotSessions(
+        activeSessionsWithOptimisticStatus,
+        hideBotSessions
+      ),
+    [activeSessionsWithOptimisticStatus, hideBotSessions]
+  );
+
+  const listArchivedSessionsWithOptimisticStatus = useMemo(
+    () =>
+      filterVisibleBotSessions(
+        archivedSessionsWithOptimisticStatus,
+        hideBotSessions
+      ),
+    [archivedSessionsWithOptimisticStatus, hideBotSessions]
+  );
+
   const executorFilterOptions = useMemo(
-    () => getExecutorFilterOptions(activeSessionsWithOptimisticStatus),
-    [activeSessionsWithOptimisticStatus]
+    () => getExecutorFilterOptions(listActiveSessionsWithOptimisticStatus),
+    [listActiveSessionsWithOptimisticStatus]
   );
 
   const filteredSessions = useMemo(
     () =>
       filterKanbanSessions({
-        sessions: activeSessionsWithOptimisticStatus,
+        sessions: listActiveSessionsWithOptimisticStatus,
         workspaceFilterIds,
         executorFilterValues,
       }),
     [
       executorFilterValues,
-      activeSessionsWithOptimisticStatus,
+      listActiveSessionsWithOptimisticStatus,
       workspaceFilterIds,
     ]
   );
@@ -667,8 +696,8 @@ export function KanbanSessionHub({
   );
 
   const groupedSessions = useMemo(() => {
-    return groupKanbanSessionsByStatus(activeSessionsWithOptimisticStatus);
-  }, [activeSessionsWithOptimisticStatus]);
+    return groupKanbanSessionsByStatus(listActiveSessionsWithOptimisticStatus);
+  }, [listActiveSessionsWithOptimisticStatus]);
 
   const sessionsForCanvas = useMemo(() => {
     if (pendingCreatedRecords.length === 0) {
@@ -1239,10 +1268,10 @@ export function KanbanSessionHub({
       isLoading={isLoading}
       sessions={
         boardStyle === 'canvas'
-          ? sessionsForCanvas
-          : activeSessionsWithOptimisticStatus
+          ? filterVisibleBotSessions(sessionsForCanvas, hideBotSessions)
+          : listActiveSessionsWithOptimisticStatus
       }
-      archivedSessions={archivedSessionsWithOptimisticStatus}
+      archivedSessions={listArchivedSessionsWithOptimisticStatus}
       groupedSessions={
         boardStyle === 'canvas'
           ? groupKanbanSessionsByStatus(sessionsForCanvas)

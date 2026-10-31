@@ -667,30 +667,23 @@ fn v2_runtime_source_template(plugin: &InstalledPlugin) -> Option<ContributionTe
             path.is_file().then(|| std::fs::read_to_string(path).ok())?
         });
     let mut spec = plugin.package.manifest.clone();
-    if let Some(spec_obj) = spec.as_object_mut() {
-        if !spec_obj.contains_key("settingsSchema")
-            && let Some(schema) = plugin.package.config_schema.as_ref()
-            && schema.get("properties").is_some()
-        {
-            spec_obj.insert("settingsSchema".to_owned(), schema.clone());
-        }
-        if !spec_obj.contains_key("dependencies")
-            && let Some(plugin_deps) = spec_obj
-                .get("_pluginDependencies")
-                .and_then(Value::as_array)
-                .cloned()
-        {
-            let deps = plugin_deps
-                .into_iter()
-                .map(|mut dep| {
-                    if let Some(obj) = dep.as_object_mut() {
-                        obj.insert("kind".to_owned(), Value::String("plugin".to_owned()));
-                    }
-                    dep
-                })
-                .collect::<Vec<_>>();
-            spec_obj.insert("dependencies".to_owned(), Value::Array(deps));
-        }
+    if let Some(spec_obj) = spec.as_object_mut()
+        && !spec_obj.contains_key("dependencies")
+        && let Some(plugin_deps) = spec_obj
+            .get("_pluginDependencies")
+            .and_then(Value::as_array)
+            .cloned()
+    {
+        let deps = plugin_deps
+            .into_iter()
+            .map(|mut dep| {
+                if let Some(obj) = dep.as_object_mut() {
+                    obj.insert("kind".to_owned(), Value::String("plugin".to_owned()));
+                }
+                dep
+            })
+            .collect::<Vec<_>>();
+        spec_obj.insert("dependencies".to_owned(), Value::Array(deps));
     }
     let has_declarative_spec = spec.as_object().is_some_and(|obj| {
         obj.get("themes").is_some()
@@ -918,5 +911,57 @@ mod tests {
         assert!(!loopback_dev_remote_is_live(
             "http://127.0.0.1:9/remoteEntry.js"
         ));
+    }
+
+    #[test]
+    fn v4_config_schema_is_not_promoted_to_runtime_settings_schema() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".vibex-plugin")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join("app")).expect("mkdir app");
+        std::fs::write(
+            dir.path().join("app/main.js"),
+            "export default { apiVersion: '2.0', id: 'acme.config-only', activate() {} };\n",
+        )
+        .expect("write app");
+        std::fs::write(
+            dir.path().join(".vibex-plugin/plugin.json"),
+            r#"{
+              "manifestVersion": 4,
+              "apiVersion": "2.0",
+              "id": "acme.config-only",
+              "name": "Acme Config Only",
+              "version": "1.0.0",
+              "description": "Plugin with config.schema for detail config tab only",
+              "publisher": "acme",
+              "entrypoints": { "app": { "entry": "app/main.js", "protocol": "2.0" } },
+              "config": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "timeout": { "type": "number", "default": 10 }
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("write manifest");
+
+        let package =
+            crate::PluginPackage::inspect(dir.path(), crate::PluginSourceKind::Snapshot)
+                .expect("inspect");
+        let descriptors = descriptors_for_package(&package, 1);
+        let runtime = descriptors
+            .iter()
+            .find(|item| item.id == "__runtime__")
+            .expect("runtime descriptor");
+        let spec = runtime
+            .metadata
+            .get("runtimeSource")
+            .and_then(|rs| rs.get("spec"))
+            .expect("runtimeSource.spec");
+        assert!(
+            spec.get("settingsSchema").is_none(),
+            "v4 config.schema must remain on PluginDetailConfig and not auto-register a standalone Settings page via spec.settingsSchema"
+        );
     }
 }

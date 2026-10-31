@@ -28,6 +28,7 @@ pub struct SidebarMember {
     /// This member's hidden session inside the thread.
     pub conversation_id: String,
     pub agent: Option<String>,
+    pub is_supervisor: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -68,6 +69,7 @@ type MemberJoinRow = (
     Option<String>,
     String,
     Option<String>,
+    i64,
 );
 
 async fn thread_members(
@@ -75,7 +77,7 @@ async fn thread_members(
     thread_id: &str,
 ) -> Result<Vec<SidebarMember>, CollaborationError> {
     let rows = sqlx::query_as::<_, MemberJoinRow>(
-        r#"SELECT m.id, m.name, m.avatar, m.color, tm.conversation_id, m.agent
+        r#"SELECT m.id, m.name, m.avatar, m.color, tm.conversation_id, m.agent, m.is_supervisor
            FROM collaboration_thread_members tm
            JOIN collaboration_members m ON m.id = tm.member_id
            WHERE tm.thread_id = ? AND tm.status = 'active'
@@ -88,13 +90,16 @@ async fn thread_members(
     Ok(rows
         .into_iter()
         .map(
-            |(member_id, name, avatar, color, conversation_id, agent)| SidebarMember {
-                member_id,
-                name,
-                avatar,
-                color,
-                conversation_id,
-                agent,
+            |(member_id, name, avatar, color, conversation_id, agent, is_supervisor)| {
+                SidebarMember {
+                    member_id,
+                    name,
+                    avatar,
+                    color,
+                    conversation_id,
+                    agent,
+                    is_supervisor: is_supervisor != 0,
+                }
             },
         )
         .collect())
@@ -814,63 +819,143 @@ async fn dm_streaming_draft(
     let Some((turn_id, _trigger_msg_id, trigger_seq)) = open_turn else {
         return Ok(None);
     };
-    let already_posted: Option<i64> = sqlx::query_scalar(
-        r#"SELECT 1 FROM collaboration_space_messages
+    let posted_rows: Vec<(i64, String)> = sqlx::query_as(
+        r#"SELECT seq, envelope_json FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ? AND origin = 'agent'
-           LIMIT 1"#,
+           ORDER BY seq ASC"#,
     )
     .bind(thread_id)
     .bind(trigger_seq)
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)?;
-    if already_posted.is_some() {
-        return Ok(None);
-    }
-    let user_sql = format!(
-        r#"SELECT COALESCE(MAX(sequence), 0)
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind IN ({DM_USER_EVENT_KINDS})"#
-    );
-    let latest_user_seq: i64 = sqlx::query_scalar(&user_sql)
-        .bind(conversation_id)
-        .fetch_one(pool)
-        .await
-        .map_err(db_err)?;
-    let lower_seq = latest_user_seq.max(cutover_seq);
-    let delta_rows = sqlx::query_as::<_, (i64, String, String)>(
-        r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
-           FROM conversation_events
-           WHERE conversation_id = ? AND sequence > ?
-             AND event_kind = 'assistant_text_delta'
-           ORDER BY sequence ASC"#,
-    )
-    .bind(conversation_id)
-    .bind(lower_seq)
     .fetch_all(pool)
     .await
     .map_err(db_err)?;
-    if delta_rows.is_empty() {
+    let max_seq: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(seq), 0) FROM collaboration_space_messages WHERE space_id = ?",
+    )
+    .bind(thread_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    let draft_seq = max_seq.max(trigger_seq) + 1;
+
+    let draft_candidate: Option<(u32, String, String)> =
+        if let Some(step) = crate::collaboration::space_turn_streaming_step(conversation_id) {
+            Some((step.step_index, step.text, step.updated_at))
+        } else {
+            let mut from_deltas = None;
+            if posted_rows.is_empty() {
+                let user_sql = format!(
+                    r#"SELECT COALESCE(MAX(sequence), 0)
+                       FROM conversation_events
+                       WHERE conversation_id = ?
+                         AND event_kind IN ({DM_USER_EVENT_KINDS})"#
+                );
+                let latest_user_seq: i64 = sqlx::query_scalar(&user_sql)
+                    .bind(conversation_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(db_err)?;
+                let lower_seq = latest_user_seq.max(cutover_seq);
+                let delta_rows = sqlx::query_as::<_, (i64, String, String)>(
+                    r#"SELECT sequence, normalized_json, CAST(created_at AS TEXT)
+                       FROM conversation_events
+                       WHERE conversation_id = ? AND sequence > ?
+                         AND event_kind = 'assistant_text_delta'
+                       ORDER BY sequence ASC"#,
+                )
+                .bind(conversation_id)
+                .bind(lower_seq)
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?;
+                if !delta_rows.is_empty() {
+                    let mut text = String::new();
+                    let mut created_at = String::new();
+                    for (_seq, raw, ts) in delta_rows {
+                        if let Ok(agents::ConversationEvent::AssistantTextDelta {
+                            text: delta,
+                            ..
+                        }) = serde_json::from_str::<agents::ConversationEvent>(&raw)
+                        {
+                            text.push_str(&delta);
+                            created_at = ts;
+                        }
+                    }
+                    if !text.trim().is_empty() {
+                        from_deltas = Some((0, text, created_at));
+                    }
+                }
+            }
+            if from_deltas.is_some() {
+                from_deltas
+            } else {
+                crate::jsonl_history::load_all_turns(pool, conversation_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|turns| {
+                        let last_turn = turns.last()?;
+                        if last_turn.role != agents::TurnRole::Assistant
+                            || last_turn.completed_at.is_some()
+                        {
+                            return None;
+                        }
+                        let tool_count = last_turn
+                            .blocks
+                            .iter()
+                            .filter(|block| matches!(block, agents::ContentBlock::ToolUse { .. }))
+                            .count() as u32;
+                        let last_tool = last_turn.blocks.iter().rposition(|block| {
+                            matches!(block, agents::ContentBlock::ToolUse { .. })
+                        });
+                        let slice = match last_tool {
+                            Some(idx) => &last_turn.blocks[idx + 1..],
+                            None => &last_turn.blocks[..],
+                        };
+                        let text = slice
+                            .iter()
+                            .filter_map(|block| match block {
+                                agents::ContentBlock::Text { text } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if text.trim().is_empty() {
+                            None
+                        } else {
+                            Some((tool_count, text, last_turn.timestamp.to_rfc3339()))
+                        }
+                    })
+            }
+        };
+
+    let Some((step_index, raw_text, created_at)) = draft_candidate else {
+        return Ok(None);
+    };
+    let nickname = identity_member_name_of_conversation(pool, conversation_id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let text = crate::collaboration::strip_own_nickname_prefix(raw_text.trim(), &nickname);
+    if text.is_empty() || crate::collaboration::is_pass_token(&text) {
         return Ok(None);
     }
-    let mut text = String::new();
-    let mut created_at = String::new();
-    for (_seq, raw, ts) in delta_rows {
-        if let Ok(agents::ConversationEvent::AssistantTextDelta { text: delta, .. }) =
-            serde_json::from_str::<agents::ConversationEvent>(&raw)
-        {
-            text.push_str(&delta);
-            created_at = ts;
-        }
-    }
-    let text = text.trim().to_string();
-    if text.is_empty() {
+    let already_posted_same = posted_rows.iter().any(|(_, raw)| {
+        let parsed = crate::collaboration::parse_space_envelope_str(raw);
+        crate::collaboration::strip_own_nickname_prefix(parsed.content.trim(), &nickname) == text
+    });
+    if already_posted_same {
         return Ok(None);
     }
+    let id = if step_index == 0 {
+        format!("draft:{turn_id}")
+    } else {
+        format!("draft:{turn_id}:{step_index}")
+    };
     Ok(Some(DmMessage {
-        id: format!("draft:{turn_id}"),
-        seq: trigger_seq,
+        id,
+        seq: draft_seq,
         origin: "agent".into(),
         text,
         created_at,
@@ -998,6 +1083,9 @@ pub async fn list_dm_messages(
         list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, Some(cutover_seq))
             .await?;
     let post = dm_space_messages_since(pool, &thread_id, since_seq.unwrap_or(0)).await?;
+    if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
+        pre = list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, None).await?;
+    }
     let post_keys: HashSet<(String, String)> = post
         .iter()
         .map(|message| (message.origin.clone(), normalize_dm_text(&message.text)))
@@ -1212,6 +1300,7 @@ type ThreadMemberJoinRow = (
     Option<String>,
     String,
     Option<String>,
+    i64,
 );
 
 async fn workspace_thread_members(
@@ -1219,7 +1308,7 @@ async fn workspace_thread_members(
     workspace_id: &str,
 ) -> Result<HashMap<String, Vec<SidebarMember>>, CollaborationError> {
     let rows = sqlx::query_as::<_, ThreadMemberJoinRow>(
-        r#"SELECT tm.thread_id, m.id, m.name, m.avatar, m.color, tm.conversation_id, m.agent
+        r#"SELECT tm.thread_id, m.id, m.name, m.avatar, m.color, tm.conversation_id, m.agent, m.is_supervisor
            FROM collaboration_thread_members tm
            JOIN collaboration_members m ON m.id = tm.member_id
            WHERE tm.status = 'active'
@@ -1234,7 +1323,7 @@ async fn workspace_thread_members(
     .await
     .map_err(db_err)?;
     let mut by_thread: HashMap<String, Vec<SidebarMember>> = HashMap::new();
-    for (thread_id, member_id, name, avatar, color, conversation_id, agent) in rows {
+    for (thread_id, member_id, name, avatar, color, conversation_id, agent, is_supervisor) in rows {
         by_thread.entry(thread_id).or_default().push(SidebarMember {
             member_id,
             name,
@@ -1242,6 +1331,7 @@ async fn workspace_thread_members(
             color,
             conversation_id,
             agent,
+            is_supervisor: is_supervisor != 0,
         });
     }
     Ok(by_thread)
@@ -1594,6 +1684,7 @@ pub struct MemberSummary {
     pub color: Option<String>,
     pub agent: Option<String>,
     pub role_id: Option<String>,
+    pub is_supervisor: bool,
     pub direct_thread_id: String,
     /// Threads (direct + group) the member is active in, join order.
     pub thread_ids: Vec<String>,
@@ -1611,10 +1702,11 @@ pub async fn list_members(
         Option<String>,
         Option<String>,
         Option<String>,
+        i64,
     );
     let workspace_str = workspace_id.to_string();
     let rows = sqlx::query_as::<_, Row>(
-        r#"SELECT DISTINCT m.id, m.name, m.avatar, m.color, m.agent, m.role_id
+        r#"SELECT DISTINCT m.id, m.name, m.avatar, m.color, m.agent, m.role_id, m.is_supervisor
            FROM collaboration_members m
            JOIN collaboration_thread_members tm ON tm.member_id = m.id AND tm.status = 'active'
            JOIN collaboration_threads t ON t.id = tm.thread_id
@@ -1649,7 +1741,7 @@ pub async fn list_members(
             .push(thread_id);
     }
     let mut out = Vec::new();
-    for (member_id, name, avatar, color, agent, role_id) in rows {
+    for (member_id, name, avatar, color, agent, role_id, is_supervisor) in rows {
         let thread_ids = threads_by_member.remove(&member_id).unwrap_or_default();
         out.push(MemberSummary {
             direct_thread_id: identity::direct_thread_id(&member_id),
@@ -1659,6 +1751,7 @@ pub async fn list_members(
             color,
             agent,
             role_id,
+            is_supervisor: is_supervisor != 0,
             thread_ids,
         });
     }
@@ -1802,6 +1895,176 @@ pub async fn identity_member_of_conversation(
     .fetch_optional(pool)
     .await
     .map_err(db_err)
+}
+
+/// Display name of the identity member behind a seat conversation.
+pub async fn identity_member_name_of_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
+    sqlx::query_scalar(
+        r#"SELECT m.name
+           FROM collaboration_members m
+           JOIN collaboration_thread_members tm ON tm.member_id = m.id
+           WHERE tm.conversation_id = ? AND tm.status = 'active'
+           LIMIT 1"#,
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)
+}
+
+/// Returns `(member_id, name)` of the active supervisor bot in `workspace_id`, if any.
+pub async fn workspace_supervisor_member(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Option<(String, String)>, CollaborationError> {
+    sqlx::query_as::<_, (String, String)>(
+        r#"SELECT m.id, m.name
+           FROM collaboration_members m
+           JOIN collaboration_thread_members tm ON tm.member_id = m.id AND tm.status = 'active'
+           JOIN collaboration_threads t ON t.id = tm.thread_id
+           WHERE t.workspace_id = ? AND m.is_supervisor != 0
+           ORDER BY m.created_at, m.id
+           LIMIT 1"#,
+    )
+    .bind(workspace_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)
+}
+
+/// Assign, replace, or clear (`None` / `Some("")`) the supervisor bot for `workspace_id`.
+/// `member_ref` may be a `collaboration_members.id`, `direct:<member_id>`, or a session `conversation_id`.
+/// Returns the new supervisor `member_id` (or `None` when cleared).
+pub async fn set_workspace_supervisor(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    member_ref: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
+    let workspace_str = workspace_id.to_string();
+    let target_member_id = match member_ref.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(raw) => {
+            let stripped = raw.strip_prefix(identity::DIRECT_PREFIX).unwrap_or(raw);
+            let direct_match: Option<String> = sqlx::query_scalar(
+                r#"SELECT m.id
+                   FROM collaboration_members m
+                   JOIN collaboration_thread_members tm ON tm.member_id = m.id AND tm.status = 'active'
+                   JOIN collaboration_threads t ON t.id = tm.thread_id
+                   WHERE t.workspace_id = ?1
+                     AND (m.id = ?2 OR tm.conversation_id = ?2 OR LOWER(TRIM(m.name)) = LOWER(?2))
+                   ORDER BY CASE
+                     WHEN m.id = ?2 THEN 0
+                     WHEN tm.conversation_id = ?2 THEN 1
+                     ELSE 2
+                   END
+                   LIMIT 1"#,
+            )
+            .bind(&workspace_str)
+            .bind(stripped)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+            let resolved = match direct_match {
+                Some(id) => Some(id),
+                None => {
+                    let fallback_conv: Option<(Option<String>, String)> = sqlx::query_as(
+                        r#"SELECT sm.conversation_id, sm.nickname
+                           FROM collaboration_space_members sm
+                           JOIN collaboration_spaces s ON s.id = sm.space_id
+                           WHERE s.workspace_id = ?1
+                             AND sm.kind = 'agent'
+                             AND (sm.id = ?2 OR sm.conversation_id = ?2 OR LOWER(TRIM(sm.nickname)) = LOWER(?2))
+                           ORDER BY CASE
+                             WHEN sm.id = ?2 THEN 0
+                             WHEN sm.conversation_id = ?2 THEN 1
+                             ELSE 2
+                           END
+                           LIMIT 1"#,
+                    )
+                    .bind(&workspace_str)
+                    .bind(stripped)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(db_err)?;
+                    if let Some((Some(conv_raw), nickname)) = fallback_conv
+                        && let Ok(conv_id) = Uuid::parse_str(conv_raw.trim())
+                    {
+                        Some(
+                            identity::ensure_member_for_conversation(
+                                pool,
+                                conv_id,
+                                Some(&nickname),
+                            )
+                            .await
+                            .map_err(|e| {
+                                CollaborationError::new(
+                                    "conversation_control_failed",
+                                    e.to_string(),
+                                )
+                            })?,
+                        )
+                    } else {
+                        None
+                    }
+                }
+            };
+            let Some(resolved) = resolved else {
+                return Err(CollaborationError::new(
+                    "not_found",
+                    "member was not found in this workspace",
+                ));
+            };
+            Some(resolved)
+        }
+        None => None,
+    };
+
+    let mut conn = pool.acquire().await.map_err(db_err)?;
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *conn)
+        .await
+        .map_err(db_err)?;
+    let res = async {
+        sqlx::query(
+            r#"UPDATE collaboration_members
+               SET is_supervisor = 0
+               WHERE is_supervisor != 0
+                 AND id IN (
+                   SELECT DISTINCT tm.member_id
+                   FROM collaboration_thread_members tm
+                   JOIN collaboration_threads t ON t.id = tm.thread_id
+                   WHERE t.workspace_id = ?
+                 )"#,
+        )
+        .bind(&workspace_str)
+        .execute(&mut *conn)
+        .await
+        .map_err(db_err)?;
+        if let Some(ref mid) = target_member_id {
+            sqlx::query("UPDATE collaboration_members SET is_supervisor = 1 WHERE id = ?")
+                .bind(mid)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok::<Option<String>, CollaborationError>(target_member_id)
+    }
+    .await;
+    match res {
+        Ok(out) => {
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            Ok(out)
+        }
+        Err(err) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(err)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -2048,6 +2311,136 @@ pub async fn set_thread_contact_group(
     Ok(())
 }
 
+fn input_optional_text(input: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| input.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn input_required_text(
+    input: &serde_json::Value,
+    keys: &[&str],
+) -> Result<String, CollaborationError> {
+    let field = keys.first().copied().unwrap_or("value");
+    input_optional_text(input, keys)
+        .ok_or_else(|| CollaborationError::new("invalid_input", format!("{field} is required")))
+}
+
+fn input_required_uuid(
+    input: &serde_json::Value,
+    keys: &[&str],
+) -> Result<Uuid, CollaborationError> {
+    let raw = input_required_text(input, keys)?;
+    let field = keys.first().copied().unwrap_or("id");
+    Uuid::parse_str(&raw)
+        .map_err(|err| CollaborationError::new("invalid_input", format!("invalid {field}: {err}")))
+}
+
+/// Execute a sidebar / contactGroup / member list host operation and return `(payload, changed_space_id)`.
+pub async fn execute_sidebar_op(
+    pool: &SqlitePool,
+    op: &str,
+    input: &serde_json::Value,
+) -> Result<(serde_json::Value, Option<String>), CollaborationError> {
+    match op {
+        "contactGroup.list" => {
+            let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
+            let groups = list_contact_groups(pool, workspace_id).await?;
+            Ok((serde_json::json!({ "groups": groups }), None))
+        }
+        "contactGroup.create" => {
+            let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
+            let name = input_required_text(input, &["name"])?;
+            let group = create_contact_group(pool, workspace_id, &name).await?;
+            Ok((serde_json::json!({ "group": group }), None))
+        }
+        "contactGroup.rename" => {
+            let group_id = input_required_text(input, &["groupId", "group_id"])?;
+            let name = input_required_text(input, &["name"])?;
+            let group = rename_contact_group(pool, &group_id, &name).await?;
+            Ok((serde_json::json!({ "group": group }), None))
+        }
+        "contactGroup.delete" => {
+            let group_id = input_required_text(input, &["groupId", "group_id"])?;
+            let ungrouped = delete_contact_group(pool, &group_id).await?;
+            Ok((
+                serde_json::json!({ "groupId": group_id, "deleted": true, "ungroupedThreadIds": ungrouped }),
+                None,
+            ))
+        }
+        "contactGroup.reorder" => {
+            let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
+            let group_ids = input
+                .get("groupIds")
+                .or_else(|| input.get("group_ids"))
+                .and_then(serde_json::Value::as_array)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .ok_or_else(|| CollaborationError::new("invalid_input", "groupIds is required"))?;
+            let groups = reorder_contact_groups(pool, workspace_id, &group_ids).await?;
+            Ok((serde_json::json!({ "groups": groups }), None))
+        }
+        "thread.setGroup" => {
+            let thread_id = input_required_text(input, &["threadId", "thread_id"])?;
+            let group_id = input_optional_text(input, &["groupId", "group_id"]);
+            set_thread_contact_group(pool, &thread_id, group_id.as_deref()).await?;
+            Ok((
+                serde_json::json!({ "threadId": thread_id, "groupId": group_id }),
+                None,
+            ))
+        }
+        "thread.listSidebar" => {
+            let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
+            let items = list_sidebar(pool, workspace_id).await?;
+            Ok((serde_json::json!({ "items": items }), None))
+        }
+        "thread.markRead" => {
+            let thread_id =
+                input_required_text(input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+            let seq = input.get("seq").and_then(serde_json::Value::as_i64);
+            let last_read_seq = mark_thread_read(pool, &thread_id, seq).await?;
+            Ok((
+                serde_json::json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }),
+                None,
+            ))
+        }
+        "thread.markUnread" => {
+            let thread_id =
+                input_required_text(input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+            let last_read_seq = mark_thread_unread(pool, &thread_id).await?;
+            Ok((
+                serde_json::json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }),
+                None,
+            ))
+        }
+        "thread.update" => {
+            let space_id =
+                input_required_text(input, &["threadId", "thread_id", "spaceId", "space_id"])?;
+            let tag_color = input_optional_text(input, &["tagColor", "tag_color"]);
+            set_space_tag_color(pool, &space_id, tag_color.as_deref()).await?;
+            Ok((
+                serde_json::json!({ "threadId": space_id, "tagColor": tag_color }),
+                Some(space_id),
+            ))
+        }
+        "member.list" => {
+            let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
+            let members = list_members(pool, workspace_id).await?;
+            Ok((serde_json::json!({ "members": members }), None))
+        }
+        _ => Err(CollaborationError::new(
+            "invalid_input",
+            format!("unknown sidebar op: {op}"),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -2227,5 +2620,129 @@ mod tests {
         mark_thread_read(&pool, &thread_id, None).await.unwrap();
         let sidebar = list_sidebar(&pool, workspace).await.unwrap();
         assert_eq!(sidebar[0].unread_count, 0);
+    }
+
+    #[tokio::test]
+    async fn dm_streaming_draft_streams_live_step_and_continues_after_mid_turn_tool_step() {
+        let pool = crate::collaboration::test_support::setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created = crate::collaboration::host_create_space_member(
+            &pool,
+            crate::collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Lander".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: Some("主管 Bot".to_string()),
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let conversation_id = Uuid::parse_str(created.conversation_id.as_deref().unwrap()).unwrap();
+        let member_id = identity_member_of_conversation(&pool, &conversation_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
+        let thread_id = format!("direct:{member_id}");
+
+        crate::collaboration::post_direct_message(
+            &pool,
+            crate::collaboration::PostDirectMessage {
+                thread_id: thread_id.clone(),
+                content: "创建一个新Bot，名叫Hailer，帮我做邮件管理".to_string(),
+                summary: None,
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+
+        // Step 0 streaming before tool call:
+        crate::collaboration::reset_space_turn_streaming_step(conversation_id);
+        crate::collaboration::append_space_turn_streaming_text(
+            conversation_id,
+            "我先查看一下 vibex-bot 规范和 manage_bot 工具参数",
+            false,
+        );
+        crate::collaboration::append_space_turn_streaming_text(
+            conversation_id,
+            "，接着为你创建专门负责邮件管理的 Bot「Hailer」。",
+            false,
+        );
+
+        let messages_step0 = list_dm_messages(&pool, conversation_id, None, Some(50))
+            .await
+            .unwrap();
+        assert_eq!(messages_step0.len(), 2);
+        assert_eq!(messages_step0[1].streaming, Some(true));
+        assert_eq!(
+            messages_step0[1].text,
+            "我先查看一下 vibex-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。"
+        );
+        assert!(messages_step0[1].seq > messages_step0[0].seq);
+
+        // ToolCallUpsert bubbles mid-turn step 0 and advances streaming step to step 1:
+        let step0_text = messages_step0[1].text.clone();
+        crate::collaboration::advance_space_turn_streaming_step(conversation_id);
+        crate::collaboration::on_space_turn_tool_call(
+            &pool,
+            conversation_id,
+            &step0_text,
+            &crate::collaboration::DeliveryContext::default(),
+        )
+        .await
+        .unwrap();
+
+        let messages_after_tool = list_dm_messages(&pool, conversation_id, None, Some(50))
+            .await
+            .unwrap();
+        assert_eq!(messages_after_tool.len(), 2);
+        assert_eq!(messages_after_tool[1].streaming, None);
+        assert_eq!(messages_after_tool[1].text, step0_text);
+
+        // Step 1 streaming after tool call:
+        crate::collaboration::append_space_turn_streaming_text(
+            conversation_id,
+            "已经为你创建好负责邮件管理的 Bot「Hailer」了！",
+            false,
+        );
+        let messages_step1 = list_dm_messages(&pool, conversation_id, None, Some(50))
+            .await
+            .unwrap();
+        assert_eq!(
+            messages_step1.len(),
+            3,
+            "both mid-turn persisted bubble and step 1 streaming draft must be returned"
+        );
+        assert_eq!(messages_step1[1].streaming, None);
+        assert_eq!(messages_step1[1].text, step0_text);
+        assert_eq!(messages_step1[2].streaming, Some(true));
+        assert_eq!(
+            messages_step1[2].text,
+            "已经为你创建好负责邮件管理的 Bot「Hailer」了！"
+        );
+        assert!(messages_step1[2].id.ends_with(":1"));
+
+        crate::collaboration::reset_space_turn_streaming_step(conversation_id);
     }
 }

@@ -43,7 +43,9 @@ pub use steering::{
     MAX_FEEDBACK_CHARS, NoopCompanionFeatures, PendingQuestion, PendingQuestionWait,
     SharedCompanionFeatures,
 };
-pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
+pub use stop_reason::{
+    ResolverEntry, StopClass, classify_stop_reason, outcome_from_turn, process_resolver_event,
+};
 pub use token_registry::{TokenEntry, TokenFeature, TokenPermissions, TokenRegistry};
 pub use types::{
     AgentDelegationDefaults, DelegationConfig, DelegationError, DelegationLink, DelegationMatchKey,

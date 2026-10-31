@@ -51,6 +51,7 @@ export function attachSidebarIdentityIds(
   }
   const identityByConvId = new Map<string, string>();
   const identityByNickname = new Map<string, string>();
+  const supervisorByIdentity = new Map<string, boolean>();
 
   const indexSidebarMember = (
     m:
@@ -59,6 +60,7 @@ export function attachSidebarIdentityIds(
           identity_member_id?: string | null;
           conversation_id?: string | null;
           name?: string | null;
+          is_supervisor?: boolean;
         }
       | null
       | undefined
@@ -66,6 +68,9 @@ export function attachSidebarIdentityIds(
     if (!m) return;
     const identityId = resolveMemberIdentityId(m);
     if (!identityId) return;
+    if (typeof m.is_supervisor === 'boolean') {
+      supervisorByIdentity.set(identityId, m.is_supervisor);
+    }
     const convId = String(m.conversation_id ?? '').trim();
     if (convId && !identityByConvId.has(convId)) {
       identityByConvId.set(convId, identityId);
@@ -84,17 +89,21 @@ export function attachSidebarIdentityIds(
   }
 
   return members.map((member) => {
-    if (member.identity_member_id) return member;
     if (member.kind && member.kind !== 'agent') return member;
     const convId = String(member.conversation_id ?? '').trim();
     const nickKey = normalizeMemberNickname(member.nickname);
     const resolvedIdentity =
+      member.identity_member_id ||
       (convId ? identityByConvId.get(convId) : undefined) ||
       (nickKey ? identityByNickname.get(nickKey) : undefined);
     if (!resolvedIdentity) return member;
+    const supervisorFlag = supervisorByIdentity.get(resolvedIdentity);
     return {
       ...member,
       identity_member_id: resolvedIdentity,
+      ...(typeof supervisorFlag === 'boolean'
+        ? { is_supervisor: supervisorFlag }
+        : {}),
     };
   });
 }
@@ -168,7 +177,7 @@ export async function resolveMemberSession(
   }
 }
 
-export type DirectMessagePage<M> = { messages: M[] };
+export type DirectMessagePage<M> = { messages: M[]; cards?: unknown[] };
 
 /** `space.listMessages` for a private chat (`direct:<id>`); null on failure.
  * Always a latest page: queued `conversation_input` rows and later
@@ -181,12 +190,17 @@ export async function loadDirectMessages<M>(
   _sinceSeq?: number
 ): Promise<DirectMessagePage<M> | null> {
   try {
-    const page = await collab<{ messages?: M[] }>(
+    const page = await collab<{ messages?: M[]; cards?: unknown[] }>(
       'collaboration',
       'space.listMessages',
       { spaceId: threadId, latest: true, limit: 200 }
     );
-    return Array.isArray(page?.messages) ? { messages: page.messages } : null;
+    return Array.isArray(page?.messages)
+      ? {
+          messages: page.messages,
+          ...(Array.isArray(page?.cards) ? { cards: page.cards } : {}),
+        }
+      : null;
   } catch {
     return null;
   }
@@ -233,4 +247,21 @@ export async function reactToSpaceMessage(
     { spaceId, messageId, emoji }
   );
   return Array.isArray(result?.reactions) ? result.reactions : [];
+}
+
+/**
+ * Set or clear (`memberId: null`) the workspace Supervisor (主管) bot.
+ * Returns the updated supervisor `member_id` (or `null` when cleared).
+ */
+export async function setWorkspaceSupervisor(
+  collab: CollaborationCaller,
+  workspaceId: string,
+  memberId: string | null
+): Promise<string | null> {
+  const result = await collab<{ supervisor_member_id?: string | null } | null>(
+    'collaboration',
+    'member.setSupervisor',
+    { workspaceId, memberId }
+  );
+  return result?.supervisor_member_id ?? null;
 }

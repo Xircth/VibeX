@@ -750,14 +750,14 @@
     "removeSpaceMember": "Remove",
     "groupDetailsButton": "Group details",
     "groupDetailsTab": "Details",
-    "groupCollectionTab": "Group saved",
+    "groupCollectionTab": "Assets",
     "groupMembersTab": "Members",
     "spaceLeadLabel": "Lead",
     "spaceLeadSet": "Set as lead",
     "collaborationLimitNotice": "Automatic collaboration limit reached. @ a Bot to continue.",
     "assistantDetailsButton": "Bot details",
     "assistantDetailsTab": "Details",
-    "assistantCollectionTab": "Saved",
+    "assistantCollectionTab": "Assets",
     "assistantCustomizeTab": "Customize",
     "saveAssistant": "Save",
     "tokenOverview": "Token overview",
@@ -822,6 +822,8 @@
     "backToBottom": "Back to bottom"
   },
   "spaceTag": {
+    "none": "No tag",
+    "clear": "Clear tag",
     "blue": "Blue",
     "emerald": "Green",
     "amber": "Amber",
@@ -840,7 +842,8 @@
     "copyThreadId": "Copy conversation ID",
     "hideFromSidebar": "Hide from sidebar",
     "showInSidebar": "Show in sidebar",
-    "delete": "Delete"
+    "delete": "Delete",
+    "stepDownSupervisor": "Step down as Supervisor"
   },
   "botAvatar": {
     "color": {
@@ -1102,14 +1105,14 @@
       "collapseSavedItem": "Collapse saved item",
       "none": "None",
       "loading": "Loading",
-      "dragAFileHereOr": "Drag a file here or click to upload (max 200MB per file)",
+      "dragAFileHereOr": "Drag or click to upload file",
       "addText": "Add text",
       "uploadFile": "Upload file",
       "copySavedItem": "Copy",
       "deleteSavedItem": "Delete",
       "cancel": "Cancel",
-      "addToGroupSaved": "Add to group saved",
-      "nothingSavedInThisGroup": "Nothing saved in this group yet. Text, images and files added by you or Bots appear here.",
+      "addToGroupSaved": "Save",
+      "nothingSavedInThisGroup": "No saved items",
       "note": "Note:",
       "noBotReadsYet": "No Bot reads yet",
       "createdAt": "Created: {{time}}",

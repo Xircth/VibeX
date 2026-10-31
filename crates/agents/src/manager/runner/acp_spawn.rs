@@ -182,17 +182,20 @@ impl AgentConnectionRunner {
         // ChatGPT-oauth auth. Drop such empty, non-user-configured creds so the
         // agent authenticates the same way it does when launched from a clean
         // shell. Non-empty values are left untouched (a real key is honored).
+        let codex_subscription = self.snapshot.agent_id.as_str() == "codex"
+            && crate::codex_uses_chatgpt_subscription(&self.snapshot.env);
         for key in ["OPENAI_API_KEY", "OPENAI_BASE_URL"] {
             let inherited_blank = std::env::var(key)
                 .map(|value| value.trim().is_empty())
                 .unwrap_or(false);
-            if inherited_blank && !self.snapshot.env.contains_key(key) {
+            if (codex_subscription || inherited_blank) && !self.snapshot.env.contains_key(key) {
                 command.env_remove(key);
             }
         }
 
         let mut child = group_spawn_no_window(&mut command)
             .map_err(|error| AgentError::Runtime(format!("failed to spawn ACP agent: {error}")))?;
+        *self.child_pid.lock().unwrap() = child.id();
         let stdout = child
             .inner()
             .stdout
@@ -364,6 +367,7 @@ impl AgentConnectionRunner {
         if !matches!(stop, AcpProcessStop::ChildExited(_)) {
             let _ = kill_process_group(&mut child).await;
         }
+        *self.child_pid.lock().unwrap() = None;
         if handshake_timed_out.load(Ordering::SeqCst) {
             let stderr = self.stderr_tail.summary();
             return Err(AgentError::Runtime(format_handshake_timeout_error(

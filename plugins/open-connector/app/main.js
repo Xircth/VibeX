@@ -89,13 +89,6 @@ export default {
       component: ConsoleComponent,
     });
 
-    ctx.ui.registerSettingsPage({
-      id: 'settings',
-      title: 'Open Connector',
-      icon: 'plug',
-      component: ConfigComponent,
-    });
-
     ctx.ui.registerView({
       id: 'settings',
       title: 'Open Connector',

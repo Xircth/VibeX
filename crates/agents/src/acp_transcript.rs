@@ -1264,6 +1264,124 @@ pub fn claim_replay_transcript_in(
     writeln!(file, "{line}").is_ok()
 }
 
+/// Remove a header-only transcript file claimed before a `session/load` RPC
+/// when that RPC fails and no entries were recorded.
+pub fn release_unrecorded_replay_claim(agent_dir: &str, session_id: &str) {
+    release_unrecorded_replay_claim_in(&vibex_acp_transcripts_root(), agent_dir, session_id);
+}
+
+pub fn release_unrecorded_replay_claim_in(root: &Path, agent_dir: &str, session_id: &str) {
+    if has_recorded_history_in(root, agent_dir, session_id) {
+        return;
+    }
+    let Some(path) = transcript_path_in(root, agent_dir, session_id) else {
+        return;
+    };
+    if path.is_file() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn read_transcript_with_fallback_in(
+    root: &Path,
+    preferred_agent_dir: &str,
+    session_id: &str,
+) -> Transcript {
+    let preferred = read_transcript_in(root, preferred_agent_dir, session_id);
+    if !preferred.entries.is_empty() {
+        return preferred;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return preferred;
+    };
+    let mut fallback: Option<Transcript> = None;
+    for dir_entry in entries.flatten() {
+        if !dir_entry.file_type().is_ok_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let Some(other_dir) = dir_entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if other_dir == preferred_agent_dir {
+            continue;
+        }
+        let mut candidate = read_transcript_in(root, &other_dir, session_id);
+        if candidate.entries.is_empty() {
+            continue;
+        }
+        if candidate
+            .header
+            .as_ref()
+            .and_then(|h| h.continues_from.as_ref())
+            .is_none()
+            && let Some(prev) = preferred
+                .header
+                .as_ref()
+                .and_then(|h| h.continues_from.clone())
+            && let Some(header) = candidate.header.as_mut()
+        {
+            header.continues_from = Some(prev);
+        }
+        if candidate
+            .entries
+            .iter()
+            .any(|e| matches!(e.k, EntryKind::Update | EntryKind::TurnEnd))
+        {
+            return candidate;
+        }
+        if fallback.is_none() {
+            fallback = Some(candidate);
+        }
+    }
+    fallback.unwrap_or(preferred)
+}
+
+fn read_header_with_fallback_in(
+    root: &Path,
+    preferred_agent_dir: &str,
+    session_id: &str,
+) -> Option<TranscriptHeader> {
+    let preferred = read_header_in(root, preferred_agent_dir, session_id);
+    if preferred
+        .as_ref()
+        .and_then(|h| h.continues_from.as_ref())
+        .is_some()
+        && has_entries_in(root, preferred_agent_dir, session_id)
+    {
+        return preferred;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return preferred;
+    };
+    let mut fallback_header: Option<TranscriptHeader> = None;
+    for dir_entry in entries.flatten() {
+        if !dir_entry.file_type().is_ok_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let Some(other_dir) = dir_entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if other_dir == preferred_agent_dir {
+            continue;
+        }
+        let Some(mut header) = read_header_in(root, &other_dir, session_id) else {
+            continue;
+        };
+        if header.continues_from.is_none()
+            && let Some(prev) = preferred.as_ref().and_then(|h| h.continues_from.clone())
+        {
+            header.continues_from = Some(prev);
+        }
+        if header.continues_from.is_some() {
+            return Some(header);
+        }
+        if fallback_header.is_none() {
+            fallback_header = Some(header);
+        }
+    }
+    preferred.or(fallback_header)
+}
+
 /// True when a transcript FILE already holds at least one entry. Returns at the
 /// first entry rather than parsing the file to answer a yes/no — this runs on
 /// every reconnect, where the transcript is at its longest.
@@ -1317,7 +1435,7 @@ pub fn read_chain_in(root: &Path, agent_dir: &str, session_id: &str) -> Transcri
             );
             break;
         }
-        let transcript = read_transcript_in(root, agent_dir, &id);
+        let transcript = read_transcript_with_fallback_in(root, agent_dir, &id);
         cursor = transcript
             .header
             .as_ref()
@@ -1354,7 +1472,8 @@ pub fn continuation_ancestors_in(root: &Path, agent_dir: &str, session_id: &str)
     let mut out = Vec::new();
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
     visited.insert(session_id.to_string());
-    let mut cursor = read_header_in(root, agent_dir, session_id).and_then(|h| h.continues_from);
+    let mut cursor =
+        read_header_with_fallback_in(root, agent_dir, session_id).and_then(|h| h.continues_from);
 
     while let Some(id) = cursor.take() {
         if !visited.insert(id.clone()) {
@@ -1367,7 +1486,7 @@ pub fn continuation_ancestors_in(root: &Path, agent_dir: &str, session_id: &str)
             );
             break;
         }
-        cursor = read_header_in(root, agent_dir, &id).and_then(|h| h.continues_from);
+        cursor = read_header_with_fallback_in(root, agent_dir, &id).and_then(|h| h.continues_from);
         out.push(id);
     }
     out

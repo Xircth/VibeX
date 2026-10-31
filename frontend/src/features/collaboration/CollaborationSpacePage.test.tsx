@@ -15,6 +15,7 @@ import { sessionsApi } from '@/lib/api';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import { CollaborationSpacePage } from './CollaborationSpacePage';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
+import { mentionNicknames, strayMentions } from './spaceModel';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
 const writeClipboard = vi.hoisted(() => vi.fn(async () => true));
@@ -422,8 +423,12 @@ describe('CollaborationSpacePage', () => {
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
     ).toBeNull();
 
-    // Setting a space tag color draws it as an outline ring around the group avatar
+    // Setting a space tag color draws it as an outline ring around the group avatar, with bold 颜色标签 title and 取消标签 action
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
+    const tagHeading = await screen.findByText('颜色标签');
+    expect(tagHeading).toHaveClass('font-bold');
+    const clearTagBtn = screen.getByRole('button', { name: '取消标签' });
+    expect(clearTagBtn).toBeTruthy();
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
     const spaceButton = screen.getByRole('button', { name: '设计' });
     const groupAvatar = within(spaceButton).getByTestId(
@@ -435,6 +440,10 @@ describe('CollaborationSpacePage', () => {
     expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toContain(
       'hsl('
     );
+    await user.click(clearTagBtn);
+    expect(groupAvatar).not.toHaveClass('has-tag');
+    await user.click(await screen.findByRole('button', { name: '蓝色' }));
+    expect(groupAvatar).toHaveClass('has-tag');
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();
@@ -585,11 +594,47 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
     ).toBeDisabled();
+    const noTagBtn = within(dialogInThread).getByRole('button', {
+      name: '无标签',
+    });
+    expect(noTagBtn).toHaveClass('is-selected');
     await user.click(
-      within(dialogInThread).getByRole('button', { name: '小A' })
+      within(dialogInThread).getByRole('button', { name: '绿色' })
+    );
+    expect(
+      within(dialogInThread).queryByRole('textbox', { name: '标签名称' })
+    ).toBeNull();
+    expect(noTagBtn).not.toHaveClass('is-selected');
+    await user.click(noTagBtn);
+    expect(noTagBtn).toHaveClass('is-selected');
+
+    const createBotList = within(dialogInThread).getByTestId(
+      'collaboration-create-bot-list'
     );
     await user.click(
-      within(dialogInThread).getByRole('button', { name: '小B' })
+      within(createBotList).getByRole('button', { name: '小B' })
+    );
+    expect(
+      within(createBotList).queryByRole('button', { name: '小B' })
+    ).toBeNull();
+    const selectedChips = within(dialogInThread).getByTestId(
+      'collaboration-space-members-list'
+    );
+    const chipB = within(selectedChips).getByTestId(
+      'collaboration-space-member-chip-conv-2'
+    );
+    expect(chipB).toHaveTextContent('小B');
+    await user.click(
+      within(chipB).getByRole('button', { name: /小B/ })
+    );
+    expect(
+      within(createBotList).getByRole('button', { name: '小B' })
+    ).toBeTruthy();
+    await user.click(
+      within(createBotList).getByRole('button', { name: '小A' })
+    );
+    await user.click(
+      within(createBotList).getByRole('button', { name: '小B' })
     );
     expect(
       within(dialogInThread).getByRole('button', { name: '创建群聊' })
@@ -1702,7 +1747,7 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*Master[\s\S]*全能管家[\s\S]*direct:m-created[\s\S]*vibex-bot/
+            /<vibex-private-bootstrap>[\s\S]*你刚被设为用户的总管 Bot[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/vibex-private-bootstrap>/
           ),
         })
       );
@@ -1769,7 +1814,7 @@ describe('CollaborationSpacePage', () => {
         expect.objectContaining({
           spaceId: 'direct:m-created',
           content: expect.stringMatching(
-            /<vibex-private-bootstrap>[\s\S]*架构助手[\s\S]*擅长前端架构的搭档[\s\S]*direct:m-created[\s\S]*vibex-bot/
+            /<vibex-private-bootstrap>[\s\S]*用户刚创建了你。请用一句简短的话向用户打个招呼[\s\S]*如果人设另有说明，以人设为准。[\s\S]*<\/vibex-private-bootstrap>/
           ),
         })
       );
@@ -2195,6 +2240,9 @@ describe('CollaborationSpacePage', () => {
         'collaboration-group-details-tab-collection'
       )
     );
+    await user.click(
+      within(collectionPanel).getByTestId('collaboration-assets-tab-collection')
+    );
 
     // Dropzone is placed at the bottom (after the list)
     const listEl = within(collectionPanel).getByTestId(
@@ -2219,8 +2267,8 @@ describe('CollaborationSpacePage', () => {
       within(collectionPanel).getByTestId('collection-item-creator-col-2')
     ).toHaveTextContent('你');
     expect(
-      within(collectionPanel).getByTestId('collaboration-collection-path')
-    ).toHaveTextContent('C:/Users/test/.vibex/spaces/s1/collection');
+      within(collectionPanel).queryByTestId('collaboration-collection-path')
+    ).toBeNull();
     expect(
       within(collectionPanel).getByTestId('collection-item-content-col-1')
     ).toHaveTextContent('GET /api/v1/spaces');
@@ -2370,6 +2418,9 @@ describe('CollaborationSpacePage', () => {
       within(collectionPanel).getByTestId(
         'collaboration-group-details-tab-collection'
       )
+    );
+    await user.click(
+      within(collectionPanel).getByTestId('collaboration-assets-tab-collection')
     );
 
     const textKind = await within(collectionPanel).findByTestId(
@@ -3994,12 +4045,15 @@ describe('CollaborationSpacePage', () => {
     expect(within(panel).queryByText('消息导航')).toBeNull();
     expect(within(panel).queryByTestId('session-message-nav')).toBeNull();
     expect(within(panel).queryByText('群收藏')).toBeNull();
-    expect(within(panel).getByText('收藏')).toBeTruthy();
+    expect(within(panel).getByText('资产')).toBeTruthy();
     expect(within(panel).getByText('自定义')).toBeTruthy();
     expect(within(panel).queryByText('成员')).toBeNull();
 
     await user.click(
       within(panel).getByTestId('collaboration-group-details-tab-collection')
+    );
+    await user.click(
+      within(panel).getByTestId('collaboration-assets-tab-collection')
     );
     expect(
       within(panel).getByTestId('collaboration-collection-dropzone')
@@ -4481,5 +4535,608 @@ describe('CollaborationSpacePage', () => {
           .clientHeight;
       }
     }
+  });
+
+  it('keeps the active BotSpace view steady when another GroupSpace receives a new message and triggers space refresh', async () => {
+    const user = userEvent.setup();
+    const baseImpl = collaborationCall.getMockImplementation()!;
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                unread_count: 0,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: { id: 5, seq: 5, preview: '我是小A私聊消息' },
+                unread_count: 0,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead') return {};
+        if (method === 'space.listMessages' && input?.spaceId === 'direct:mem-a') {
+          return {
+            messages: [
+              {
+                seq: 5,
+                conversationId: 'conv-1',
+                envelope: { sender: '小A', content: '我是小A私聊消息' },
+              },
+            ],
+          };
+        }
+        if (method === 'space.listEvents') {
+          const spaceId = String(input?.spaceId ?? '');
+          if (spaceId === 's1') {
+            return {
+              generation: 1,
+              nextSeq: 2,
+              events: [
+                { seq: 1, kind: 'space' },
+                { seq: 2, kind: 'message' },
+              ],
+            };
+          }
+        }
+        return baseImpl(capability, method, input);
+      }
+    );
+
+    renderPage();
+    await screen.findByText('你好');
+    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      '设计'
+    );
+
+    // Switch to BotSpace (小A)
+    await user.click(await screen.findByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(
+        Array.from(document.querySelectorAll('.collaboration-message')).some(
+          (node) => node.textContent?.includes('我是小A私聊消息')
+        )
+      ).toBe(true);
+    });
+    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      '小A'
+    );
+
+    // Emit a new message event in GroupSpace s1 while viewing BotSpace 小A
+    await act(async () => {
+      for (const listener of spaceEventListeners) {
+        listener({
+          workspaceId: 'workspace-1',
+          spaceId: 's1',
+          seq: 3,
+          kind: 'message',
+          generation: 1,
+        });
+      }
+    });
+
+    // The page must remain in BotSpace 小A and not jump to GroupSpace 设计
+    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      '小A'
+    );
+    expect(
+      Array.from(document.querySelectorAll('.collaboration-message')).some(
+        (node) => node.textContent?.includes('我是小A私聊消息')
+      )
+    ).toBe(true);
+    expect(screen.queryByText('请查看')).toBeNull();
+  });
+
+  it('renders Supervisor bot in top slot, hides it from lower list, protects it from delete, and supports stepping down and drag-to-replace', async () => {
+    const user = userEvent.setup();
+    const baseImpl = collaborationCall.getMockImplementation()!;
+    let currentSupervisorId: string | null = 'mem-master';
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-master',
+                space_id: 'unassigned:workspace-1',
+                name: '大总管',
+                member: {
+                  member_id: 'mem-master',
+                  name: '大总管',
+                  conversation_id: 'conv-master',
+                  agent: 'claude-code',
+                  is_supervisor: currentSupervisorId === 'mem-master',
+                },
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                  agent: 'claude-code',
+                  is_supervisor: currentSupervisorId === 'mem-a',
+                },
+              },
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '专业团队 1',
+                member_count: 2,
+                members_preview: [],
+              },
+            ],
+          };
+        }
+        if (method === 'contactGroup.list') {
+          return { groups: [] };
+        }
+        if (method === 'member.setSupervisor') {
+          currentSupervisorId =
+            (input?.memberId as string | null | undefined) ?? null;
+          return { supervisor_member_id: currentSupervisorId };
+        }
+        return baseImpl(capability, method, input);
+      }
+    );
+
+    renderPage();
+
+    const supervisorSlot = await screen.findByTestId(
+      'collaboration-supervisor-slot'
+    );
+    expect(supervisorSlot).toHaveAttribute('data-supervisor-empty', 'false');
+    expect(
+      within(supervisorSlot).getByRole('button', { name: '大总管' })
+    ).toBeTruthy();
+    expect(supervisorSlot.querySelector('[data-gaze="up-right"]')).toBeTruthy();
+
+    // Supervisor bot is NOT duplicated in the regular contact list below
+    expect(
+      screen.queryByTestId('collaboration-contact-row-direct:direct:mem-master')
+    ).toBeNull();
+    // Normal bot 小A IS in the regular contact list below
+    expect(
+      await screen.findByTestId('collaboration-contact-row-direct:direct:mem-a')
+    ).toBeTruthy();
+
+    // Entering delete mode shows no checkbox on the Supervisor bot, but shows one on 小A
+    await user.click(screen.getByRole('button', { name: '批量删除' }));
+    expect(within(supervisorSlot).queryByRole('checkbox')).toBeNull();
+    expect(
+      screen.getByRole('checkbox', { name: '选择助手 小A' })
+    ).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '取消' }));
+
+    // Right-clicking Supervisor slot shows 卸任主管 and no 删除
+    fireEvent.contextMenu(supervisorSlot, { clientX: 80, clientY: 80 });
+    const menu = await screen.findByRole('menu', { name: '联系人菜单' });
+    expect(within(menu).queryByRole('menuitem', { name: '删除' })).toBeNull();
+    const stepDownItem = within(menu).getByRole('menuitem', {
+      name: '卸任主管',
+    });
+    await user.click(stepDownItem);
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.setSupervisor',
+        { workspaceId: 'workspace-1', memberId: null }
+      );
+    });
+    // Supervisor slot is now empty, and 大总管 appears in the regular list below
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('collaboration-supervisor-slot')
+      ).toHaveAttribute('data-supervisor-empty', 'true');
+    });
+    expect(
+      await screen.findByTestId(
+        'collaboration-contact-row-direct:direct:mem-master'
+      )
+    ).toBeTruthy();
+
+    // Drag 小A into the empty Supervisor slot -> 小A becomes Supervisor
+    const emptySlot = screen.getByTestId('collaboration-supervisor-slot');
+    fireEvent.drop(emptySlot, {
+      dataTransfer: {
+        getData: (type: string) =>
+          type === 'application/x-vibex-space-member'
+            ? JSON.stringify({
+                fromSpaceId: 'unassigned:workspace-1',
+                conversationId: 'conv-1',
+                nickname: '小A',
+                memberId: 'mem-a',
+              })
+            : '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.setSupervisor',
+        { workspaceId: 'workspace-1', memberId: 'mem-a' }
+      );
+    });
+    await waitFor(() => {
+      expect(
+        within(screen.getByTestId('collaboration-supervisor-slot')).getByRole(
+          'button',
+          { name: '小A' }
+        )
+      ).toBeTruthy();
+    });
+    expect(
+      screen.queryByTestId('collaboration-contact-row-direct:direct:mem-a')
+    ).toBeNull();
+
+    // Drag 大总管 onto the occupied Supervisor slot -> replaces 小A, returning 小A to the list below
+    fireEvent.drop(screen.getByTestId('collaboration-supervisor-slot'), {
+      dataTransfer: {
+        getData: (type: string) =>
+          type === 'application/x-vibex-space-member'
+            ? JSON.stringify({
+                fromSpaceId: 'unassigned:workspace-1',
+                conversationId: 'conv-master',
+                nickname: '大总管',
+                memberId: 'mem-master',
+              })
+            : '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'member.setSupervisor',
+        { workspaceId: 'workspace-1', memberId: 'mem-master' }
+      );
+    });
+    await waitFor(() => {
+      expect(
+        within(screen.getByTestId('collaboration-supervisor-slot')).getByRole(
+          'button',
+          { name: '大总管' }
+        )
+      ).toBeTruthy();
+    });
+    expect(
+      await screen.findByTestId('collaboration-contact-row-direct:direct:mem-a')
+    ).toBeTruthy();
+    expect(
+      screen.queryByTestId('collaboration-contact-row-direct:direct:mem-master')
+    ).toBeNull();
+  });
+
+  it('defaults group lead to Supervisor when included in user-created group, or to the first selected Bot otherwise', async () => {
+    const user = userEvent.setup();
+    const baseImpl = collaborationCall.getMockImplementation()!;
+    const createdSpaces: Array<{
+      space_id: string;
+      name: string;
+      lead_member_id?: string;
+    }> = [];
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-master',
+                name: '大总管',
+                member_count: 1,
+                members_preview: [
+                  {
+                    member_id: 'mem-master',
+                    name: '大总管',
+                    conversation_id: 'conv-master',
+                    agent: 'CLAUDE_CODE',
+                    is_supervisor: true,
+                  },
+                ],
+                member: {
+                  member_id: 'mem-master',
+                  name: '大总管',
+                  conversation_id: 'conv-master',
+                  agent: 'CLAUDE_CODE',
+                  is_supervisor: true,
+                },
+                last_activity_at: '2026-04-12T10:02:00Z',
+                unread_count: 0,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                name: '小A',
+                member_count: 1,
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                    agent: 'CLAUDE_CODE',
+                    is_supervisor: false,
+                  },
+                ],
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                  agent: 'CLAUDE_CODE',
+                  is_supervisor: false,
+                },
+                last_activity_at: '2026-04-12T10:01:00Z',
+                unread_count: 0,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-b',
+                name: '小B',
+                member_count: 1,
+                members_preview: [
+                  {
+                    member_id: 'mem-b',
+                    name: '小B',
+                    conversation_id: 'conv-2',
+                    agent: 'CODEX',
+                    is_supervisor: false,
+                  },
+                ],
+                member: {
+                  member_id: 'mem-b',
+                  name: '小B',
+                  conversation_id: 'conv-2',
+                  agent: 'CODEX',
+                  is_supervisor: false,
+                },
+                last_activity_at: '2026-04-12T10:00:00Z',
+                unread_count: 0,
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMembers') {
+          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
+            return {
+              members: [
+                {
+                  member_id: 'seat-master-dm',
+                  identity_member_id: 'mem-master',
+                  nickname: '大总管',
+                  kind: 'agent',
+                  visible_to_agents: 1,
+                  conversation_id: 'conv-master',
+                  is_supervisor: true,
+                },
+                {
+                  member_id: 'seat-a-dm',
+                  identity_member_id: 'mem-a',
+                  nickname: '小A',
+                  kind: 'agent',
+                  visible_to_agents: 1,
+                  conversation_id: 'conv-1',
+                  is_supervisor: false,
+                },
+                {
+                  member_id: 'seat-b-dm',
+                  identity_member_id: 'mem-b',
+                  nickname: '小B',
+                  kind: 'agent',
+                  visible_to_agents: 1,
+                  conversation_id: 'conv-2',
+                  is_supervisor: false,
+                },
+              ],
+            };
+          }
+          return { members: [] };
+        }
+        if (method === 'space.create') {
+          const next = {
+            space_id: `space-${createdSpaces.length + 1}`,
+            name: String(input?.name ?? '新群'),
+          };
+          createdSpaces.push(next);
+          return next;
+        }
+        if (method === 'space.addMember') {
+          const cid = String(input?.conversationId ?? '');
+          const seatId =
+            cid === 'conv-master'
+              ? 'group-seat-master'
+              : cid === 'conv-1'
+                ? 'group-seat-a'
+                : 'group-seat-b';
+          return {
+            member_id: seatId,
+            conversation_id: cid,
+            nickname: String(input?.nickname ?? ''),
+            is_supervisor: cid === 'conv-master',
+          };
+        }
+        if (method === 'space.update') {
+          const sid = String(input?.spaceId ?? '');
+          const lead = String(input?.leadMemberId ?? '');
+          const found = createdSpaces.find((s) => s.space_id === sid);
+          if (found) found.lead_member_id = lead;
+          return { space_id: sid, lead_member_id: lead };
+        }
+        if (method === 'space.list') {
+          return { spaces: [...createdSpaces] };
+        }
+        return baseImpl(capability, method, input);
+      }
+    );
+
+    renderPage();
+    await screen.findByTestId('collaboration-supervisor-slot');
+
+    // 1. Create group with [小A, 大总管] (小A selected first, Supervisor selected second) -> Supervisor (group-seat-master) becomes lead
+    await user.click(screen.getByRole('button', { name: '创建' }));
+    await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
+    const dialog1 = await screen.findByRole('dialog', { name: '创建群聊' });
+    const botList1 = within(dialog1).getByTestId('collaboration-create-bot-list');
+    await user.click(within(botList1).getByRole('button', { name: '小A' }));
+    await user.click(within(botList1).getByRole('button', { name: '大总管' }));
+    await user.click(
+      dialog1.querySelector('button[type="submit"]') as HTMLButtonElement
+    );
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.update',
+        {
+          spaceId: 'space-1',
+          leadMemberId: 'group-seat-master',
+        }
+      );
+    });
+
+    // 2. Create group with [小B, 小A] (without Supervisor, 小B selected first) -> first selected Bot (group-seat-b) becomes lead
+    await user.click(screen.getByRole('button', { name: '创建' }));
+    await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
+    const dialog2 = await screen.findByRole('dialog', { name: '创建群聊' });
+    const botList2 = within(dialog2).getByTestId('collaboration-create-bot-list');
+    await user.click(within(botList2).getByRole('button', { name: '小B' }));
+    await user.click(within(botList2).getByRole('button', { name: '小A' }));
+    await user.click(
+      dialog2.querySelector('button[type="submit"]') as HTMLButtonElement
+    );
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.update',
+        {
+          spaceId: 'space-2',
+          leadMemberId: 'group-seat-b',
+        }
+      );
+    });
+  });
+
+  it('parses @Bot A mentions with spaces in nickname or CJK text immediately following @mention', () => {
+    const roster = [
+      {
+        member_id: 'seat-a',
+        nickname: 'Bot A',
+        kind: 'agent',
+        visible_to_agents: 1,
+      },
+      {
+        member_id: 'seat-b',
+        nickname: 'BotB',
+        kind: 'agent',
+        visible_to_agents: 1,
+      },
+    ];
+
+    expect(mentionNicknames('@Bot A 请检查配置', roster)).toEqual(['Bot A']);
+    expect(strayMentions('@Bot A 请检查配置', roster)).toEqual([]);
+
+    expect(mentionNicknames('@Bot A帮我看看 @BotB顺便确认', roster)).toEqual([
+      'Bot A',
+      'BotB',
+    ]);
+    expect(strayMentions('@Bot A帮我看看 @BotB顺便确认', roster)).toEqual([]);
+
+    expect(mentionNicknames('@UnknownBot 请看', roster)).toEqual([]);
+    expect(strayMentions('@UnknownBot 请看', roster)).toEqual(['UnknownBot']);
+  });
+
+  it('docks request_approval cards at the bottom permission dock instead of rendering a chat bubble', async () => {
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listMessages') {
+          if (input?.sinceSeq) return { messages: [] };
+          return {
+            messages: [
+              {
+                id: 'msg-hello',
+                seq: 1,
+                envelope: { sender: '小A', content: '准备执行删除' },
+              },
+              {
+                id: 'msg-approval',
+                seq: 2,
+                envelope: {
+                  sender: '小A',
+                  content:
+                    '<card kind="approval" id="card-appr-1">\n<action>\n删除旧 Bot\n</action>\n<command>\nmanage_bot delete\n</command>\n<reason>\n清理废弃成员\n</reason>\n</card>',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'card.resolve') {
+          return { card: { id: 'card-appr-1', status: 'resolved' } };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect(await screen.findByText('准备执行删除')).toBeTruthy();
+    expect(screen.queryByTestId('collaboration-message-2')).toBeNull();
+    const dock = await screen.findByTestId('collaboration-thread-approval-dock');
+    expect(dock).toBeTruthy();
+    expect(within(dock).getByRole('heading', { name: '权限申请' })).toBeTruthy();
+    expect(within(dock).getByText('删除旧 Bot')).toBeTruthy();
+
+    fireEvent.click(within(dock).getByRole('button', { name: '允许' }));
+    await waitFor(() =>
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'card.resolve',
+        {
+          cardId: 'card-appr-1',
+          decision: 'allow_once',
+        }
+      )
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('collaboration-thread-approval-dock')
+      ).toBeNull()
+    );
   });
 });

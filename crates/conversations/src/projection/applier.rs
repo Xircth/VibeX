@@ -4,8 +4,8 @@ use agents::conversation::{ConversationEvent, ConversationInputEvent};
 use db::models::{
     conversation::{ConversationAgentBindingRecord, ConversationRecord},
     conversation_event::{
-        AppendConversationEvent, ConversationEventRecord,
-        find_conversation_event_by_idempotency, insert_conversation_event,
+        AppendConversationEvent, ConversationEventRecord, find_conversation_event_by_idempotency,
+        insert_conversation_event,
     },
     conversation_input::{ConversationInputRecord, CreateConversationInput},
     conversation_relation::ConversationRelationRecord,
@@ -21,9 +21,8 @@ use serde::Serialize;
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-use super::cache::json_decode_error;
 use super::{
-    ConversationProjector, ParsedEvent, conversation_event_from_record,
+    ConversationProjector, ParsedEvent, cache::json_decode_error, conversation_event_from_record,
     conversation_input_event_id,
 };
 
@@ -640,7 +639,6 @@ impl ConversationStateApplier {
     }
 }
 
-
 impl ConversationProjector {
     /// Truncate the conversation to *before* the user turn at `ordinal`: delete that
     /// turn and every later turn, drop every event from that turn onward, then rebuild
@@ -651,6 +649,12 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
+        let _ = crate::jsonl_history::truncate_transcript_to_user_ordinal(
+            pool,
+            conversation_id,
+            ordinal.saturating_sub(1).max(0) as usize,
+        )
+        .await;
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
@@ -724,7 +728,17 @@ impl ConversationProjector {
         let reindex = async {
             let fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
             let timeline = fold.into_timeline(conversation_id);
-            let body = crate::search::extract_searchable_text(&timeline);
+            let mut body = crate::search::extract_searchable_text(&timeline);
+            if let Some(turns) =
+                crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+            {
+                let jsonl_timeline =
+                    crate::jsonl_history::timeline_from_turns(conversation_id, &turns);
+                let jsonl_body = crate::search::extract_searchable_text(&jsonl_timeline);
+                if !jsonl_body.is_empty() {
+                    body = jsonl_body;
+                }
+            }
             crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
         }
         .await;
@@ -826,7 +840,6 @@ impl ConversationProjector {
         }
         Ok(())
     }
-
 }
 
 fn json_string<T: Serialize>(value: &T) -> Result<String, sqlx::Error> {
@@ -836,7 +849,6 @@ fn json_string<T: Serialize>(value: &T) -> Result<String, sqlx::Error> {
 fn json_string_ref<T: Serialize>(value: &Option<T>) -> Result<Option<String>, sqlx::Error> {
     value.as_ref().map(json_string).transpose()
 }
-
 
 fn event_revision(revision: u64) -> Result<i64, sqlx::Error> {
     i64::try_from(revision)
@@ -863,7 +875,6 @@ fn projection_conflict(message: String) -> sqlx::Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::projection::CONVERSATION_PROJECTION_VERSION;
     use agents::{
         AcpCapabilitySnapshot, AgentId, AgentPermissionId, AgentPermissionOption,
         AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse,
@@ -877,19 +888,19 @@ mod tests {
     };
     use db::models::{
         conversation::{
-            ConversationAgentBindingRecord, CreateConversationAgentBinding,
-            DbConversationSummary,
+            ConversationAgentBindingRecord, CreateConversationAgentBinding, DbConversationSummary,
         },
-        conversation_event::{
-            AppendConversationEvent, ConversationEventRecord,
-        },
+        conversation_event::{AppendConversationEvent, ConversationEventRecord},
         conversation_turn::ConversationTurnRecord,
         session::Session,
     };
     use uuid::Uuid;
 
     use super::{ConversationEventAppender, ConversationStateApplier};
-    use crate::projection::rows::tests::{append_event, seed_turn, setup_pool};
+    use crate::projection::{
+        CONVERSATION_PROJECTION_VERSION,
+        rows::tests::{append_event, seed_turn, setup_pool},
+    };
     #[tokio::test]
     async fn negotiated_handshake_snapshot_updates_binding_columns() {
         let pool = setup_pool().await;
@@ -977,7 +988,6 @@ mod tests {
         assert!(session.resume_session);
     }
 
-
     #[tokio::test]
     async fn usage_and_config_events_cache_session_model() {
         let pool = setup_pool().await;
@@ -1042,7 +1052,6 @@ mod tests {
         assert_eq!(snapshot.protocol_total_tokens, Some(87_826));
     }
 
-
     #[tokio::test]
     async fn conversation_state_applier_skips_unknown_event() {
         // An event this build can't parse (e.g. written by a newer version) must not
@@ -1072,7 +1081,6 @@ mod tests {
         .expect("unknown event should be skipped, not fail");
     }
 
-
     #[tokio::test]
     async fn completed_unviewed_turn_moves_session_to_in_review() {
         let pool = setup_pool().await;
@@ -1093,7 +1101,6 @@ mod tests {
             .expect("session");
         assert_eq!(session.status, db::models::session::SessionStatus::InReview);
     }
-
 
     #[tokio::test]
     async fn viewing_a_completed_turn_moves_session_to_done() {
@@ -1118,7 +1125,6 @@ mod tests {
             .expect("session");
         assert_eq!(session.status, db::models::session::SessionStatus::Done);
     }
-
 
     #[tokio::test]
     async fn viewing_an_in_flight_turn_stays_in_review_when_the_turn_completes() {
@@ -1151,7 +1157,6 @@ mod tests {
         assert_ne!(viewed, Some(turn_id));
     }
 
-
     #[tokio::test]
     async fn in_flight_view_cursor_is_cleared_when_the_turn_completes() {
         let pool = setup_pool().await;
@@ -1181,7 +1186,6 @@ mod tests {
         assert_eq!(session.status, db::models::session::SessionStatus::InReview);
     }
 
-
     #[tokio::test]
     async fn manual_done_during_an_in_flight_turn_stays_done_after_completion() {
         let pool = setup_pool().await;
@@ -1210,7 +1214,6 @@ mod tests {
         assert_eq!(session.status, db::models::session::SessionStatus::Done);
     }
 
-
     #[tokio::test]
     async fn cancelled_turn_moves_session_to_done() {
         let pool = setup_pool().await;
@@ -1231,7 +1234,6 @@ mod tests {
             .expect("session");
         assert_eq!(session.status, db::models::session::SessionStatus::Done);
     }
-
 
     #[tokio::test]
     async fn conversation_event_appender_dedupes_and_applies_turn_state() {
@@ -1264,7 +1266,6 @@ mod tests {
             .expect("turn");
         assert_eq!(turn.status, "running");
     }
-
 
     #[tokio::test]
     async fn conversation_turn_state_is_event_driven() {
@@ -1303,7 +1304,6 @@ mod tests {
         assert_eq!(turn.status, "completed");
         assert_eq!(turn.stop_reason.as_deref(), Some("end_turn"));
     }
-
 
     #[tokio::test]
     async fn conversation_tool_projection_updates_by_tool_call_id() {
@@ -1367,7 +1367,6 @@ mod tests {
         assert!(tools[0].raw_input_json.is_some());
         assert!(tools[0].raw_output_json.is_some());
     }
-
 
     #[tokio::test]
     async fn conversation_side_effect_projection_updates_state_tables() {
@@ -1486,7 +1485,6 @@ mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn conversation_checkpoint_file_changes_are_projected_from_event() {
         let pool = setup_pool().await;
@@ -1524,7 +1522,6 @@ mod tests {
         assert_eq!(files[0].source, "checkpoint_diff");
         assert_eq!(files[0].path, "src/lib.rs");
     }
-
 
     #[tokio::test]
     async fn append_rolls_back_event_when_apply_fails() {
@@ -1579,7 +1576,6 @@ mod tests {
             "failed append must not leave an orphaned event row"
         );
     }
-
 
     #[tokio::test]
     async fn snapshot_is_materialized_only_on_turn_settle() {
@@ -1646,5 +1642,4 @@ mod tests {
             CONVERSATION_PROJECTION_VERSION as i64
         );
     }
-
 }

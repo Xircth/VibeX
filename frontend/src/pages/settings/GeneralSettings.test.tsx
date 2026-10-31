@@ -276,6 +276,9 @@ describe('GeneralSettings Agent model catalogs', () => {
     await userEvent.setup().click(emptyCreateBtn);
     const overlay = await screen.findByTestId('custom-role-modal-overlay');
     expect(overlay).toHaveClass('collaboration-settings-modal-overlay');
+    expect(overlay).not.toHaveClass('inset-0');
+    expect(overlay).toHaveClass('inset-y-0', 'right-0');
+    expect(overlay.style.left).toBe('12.5rem');
     expect(overlay.style.backdropFilter).toBe('blur(16px)');
     const dialog = await screen.findByRole('dialog', { name: '新建角色' });
     expect(dialog).toBeInTheDocument();
@@ -517,5 +520,21 @@ describe('GeneralSettings Agent model catalogs', () => {
         })
       );
     });
+  });
+
+  it('toggles Hide Bot sessions in the Collaboration space section', async () => {
+    localStorage.removeItem('vibex:hide-bot-sessions');
+    const user = userEvent.setup();
+    renderSettings();
+
+    const toggle = await screen.findByRole('switch', {
+      name: '隐藏Bot会话',
+    });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+
+    expect(toggle).toBeChecked();
+    expect(localStorage.getItem('vibex:hide-bot-sessions')).toBe('true');
   });
 });

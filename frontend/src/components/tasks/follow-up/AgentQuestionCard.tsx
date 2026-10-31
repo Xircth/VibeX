@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import {
   emptyQuestionAnswerState,
   hasAnswer,
-  hasCompletedAnswers,
   initialAnswerState,
   questionTabsFromRequest,
   responseContent,
@@ -56,7 +55,6 @@ export function AgentQuestionCard({
     : t('questionRequestCard.justNow');
 
   if (mode === 'readonly') {
-    if (!hasCompletedAnswers(resolvedState)) return null;
     const question = questions[activeIndex] ?? questions[0];
     if (!question) return null;
     return (

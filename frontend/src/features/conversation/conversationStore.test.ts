@@ -3129,6 +3129,138 @@ describe('conversationStore (row-op dumb container)', () => {
       ['assistant', '', 'streaming'],
     ]);
   });
+
+  it('preserves earlier streamed text and tool blocks when a cold projector emits a partial upsert on turn completion', () => {
+    const detail = emptyDetail([]);
+    detail.timeline.last_sequence = 0n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t1', 'hello', 1n) },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'Streamed reply before eviction.',
+          },
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'call-1',
+                tool_name: 'Read',
+                status: 'completed',
+                kind: 'read',
+                input_preview: '{"path":"a.rs"}',
+                meta: null,
+              },
+            ],
+          },
+        ],
+        1n
+      ),
+    });
+
+    // Simulate a cold projector reconstructed mid-turn emitting a settled upsert
+    // with only a subset of blocks (e.g. missing the earlier streamed text).
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [
+                {
+                  type: 'tool_use',
+                  tool_use_id: 'call-1',
+                  tool_name: 'Read',
+                  status: 'completed',
+                  kind: 'read',
+                  input_preview: '{"path":"a.rs"}',
+                  meta: null,
+                },
+              ],
+              4n,
+              'settled'
+            ),
+          },
+        ],
+        4n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const assistant = turns.find((row) => row.turn.role === 'assistant');
+    expect(assistant?.phase).toBe('settled');
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe(
+      'Streamed reply before eviction.'
+    );
+    expect(
+      assistant?.turn.blocks.some((b) => b.type === 'tool_use')
+    ).toBe(true);
+  });
+
+  it('clears stale prefixHash and preserves tail optimistic turns when prepending an older history page', () => {
+    const initialDetail = {
+      ...emptyDetail([
+        fileTurn('acp-180', 'user', 'later question', 180n, 'settled'),
+        fileTurn('acp-181', 'assistant', 'later answer', 181n, 'settled'),
+      ]),
+      prefix_hash: 'hash-at-offset-180',
+    };
+    initialDetail.timeline.older_cursor = '180';
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: initialDetail,
+    });
+    expect(entryOf(state).prefixHash).toBe('hash-at-offset-180');
+    expect(entryOf(state).olderCursor).toBe('180');
+
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: {
+        id: 'opt-continue',
+        role: 'user',
+        blocks: [{ type: 'text', text: '继续' }],
+        timestamp: '2026-07-03T01:00:00.000Z',
+      },
+    });
+    expect(entryOf(state).optimisticTurns).toHaveLength(1);
+
+    // Prepend an older history page (offset 60..180) that happens to contain an old '继续' user turn
+    state = conversationStoreReducer(state, {
+      type: 'upsert_rows',
+      conversationId: CONVERSATION_ID,
+      rows: [
+        fileTurn('acp-60', 'user', '继续', 60n, 'settled'),
+        fileTurn('acp-61', 'assistant', 'earlier answer', 61n, 'settled'),
+      ],
+      lastSequence: 181n,
+      olderCursor: '60',
+      protectLoaded: true,
+    });
+
+    expect(entryOf(state).olderCursor).toBe('60');
+    expect(entryOf(state).prefixHash).toBeNull();
+    expect(entryOf(state).optimisticTurns).toHaveLength(1);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

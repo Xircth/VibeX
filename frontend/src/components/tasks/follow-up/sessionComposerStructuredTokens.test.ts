@@ -414,4 +414,62 @@ describe('session composer structured commands', () => {
       caretOffset: `Please ${formatQuoteToken('请你帮我完成这次修改')} `.length,
     });
   });
+
+  it('distinguishes @全体成员 broadcast mentions from @Bot member mentions', () => {
+    const tokens = getSessionComposerStructuredTokens('@全体成员 @小A 请查看', {
+      spaceMembers: [
+        {
+          id: '__all__',
+          nickname: '全体成员',
+          detail: '通知本群所有成员',
+          mentionAll: true,
+        },
+        {
+          id: 'm1',
+          nickname: '小A',
+          avatar: {
+            color: '#2563eb',
+            shape: 'circle',
+            expression: 'neutral',
+          },
+        },
+      ],
+    });
+
+    expect(tokens).toEqual([
+      expect.objectContaining({
+        kind: 'member_mention',
+        key: '全体成员',
+        label: '@全体成员',
+        value: '全体成员',
+        raw: '@全体成员',
+        mentionAll: true,
+        memberAvatar: undefined,
+      }),
+      expect.objectContaining({
+        kind: 'member_mention',
+        key: '小A',
+        label: '小A',
+        value: '小A',
+        raw: '@小A',
+        memberAvatar: {
+          color: '#2563eb',
+          shape: 'circle',
+          expression: 'neutral',
+        },
+      }),
+    ]);
+
+    const fallbackBroadcast = getSessionComposerStructuredTokens('@全体成员 收到', {
+      spaceMembers: [{ id: '__all__', nickname: '全体成员' }],
+    });
+    expect(fallbackBroadcast).toEqual([
+      expect.objectContaining({
+        kind: 'member_mention',
+        key: '全体成员',
+        label: '@全体成员',
+        mentionAll: true,
+      }),
+    ]);
+  });
 });

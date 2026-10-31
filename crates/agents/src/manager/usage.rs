@@ -70,7 +70,11 @@ impl AcpClientBridge {
         );
     }
 
-    pub(in crate::manager) async fn emit_end_turn_usage(&self, session_id: Option<AgentSessionId>, mut usage: AgentUsage) {
+    pub(in crate::manager) async fn emit_end_turn_usage(
+        &self,
+        session_id: Option<AgentSessionId>,
+        mut usage: AgentUsage,
+    ) {
         if let Some(session_id) = session_id {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
@@ -120,7 +124,9 @@ pub(in crate::manager) fn session_update_is_end_turn_usage(update: &SessionUpdat
         .is_some_and(|raw| crate::usage_from_session_update(&raw).is_some())
 }
 
-pub(in crate::manager) fn agent_usage_from_end_turn(usage: &agent_client_protocol::schema::v1::Usage) -> AgentUsage {
+pub(in crate::manager) fn agent_usage_from_end_turn(
+    usage: &agent_client_protocol::schema::v1::Usage,
+) -> AgentUsage {
     let value = serde_json::to_value(usage).unwrap_or(serde_json::Value::Null);
     crate::prompt_usage_from_value(&value).unwrap_or_else(|| AgentUsage {
         model: crate::model_id_from_meta(value.get("_meta")),
@@ -128,7 +134,9 @@ pub(in crate::manager) fn agent_usage_from_end_turn(usage: &agent_client_protoco
     })
 }
 
-pub(in crate::manager) fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) -> AgentUsage {
+pub(in crate::manager) fn agent_usage_from_acp(
+    update: agent_client_protocol::schema::v1::UsageUpdate,
+) -> AgentUsage {
     let (cost_amount, cost_currency) = update
         .cost
         .map(|cost| (Some(cost.amount), Some(cost.currency)))
@@ -159,4 +167,3 @@ pub(in crate::manager) fn agent_usage_from_acp(update: agent_client_protocol::sc
         }),
     }
 }
-

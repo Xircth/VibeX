@@ -574,16 +574,27 @@ pub(crate) fn official_delegation_config(
 }
 
 fn plugin_mcp_server_ids(plugin: &InstalledPlugin) -> Vec<String> {
-    let mut ids = plugin
+    package_mcp_server_ids(&plugin.package)
+}
+
+pub(crate) fn package_mcp_server_ids(package: &PluginPackage) -> Vec<String> {
+    let mut ids = package
         .mcp
         .get("mcpServers")
-        .unwrap_or(&plugin.mcp)
+        .unwrap_or(&package.mcp)
         .as_object()
         .map(|servers| {
             servers
                 .iter()
-                .map(|(server_id, spec)| {
-                    plugins::projected_mcp_server_id(plugin.id(), server_id, spec)
+                .flat_map(|(server_id, spec)| {
+                    [
+                        plugins::projected_mcp_server_id(package.id.as_str(), server_id, spec),
+                        plugins::legacy_projected_mcp_server_id(
+                            package.id.as_str(),
+                            server_id,
+                            spec,
+                        ),
+                    ]
                 })
                 .collect::<Vec<_>>()
         })
@@ -591,6 +602,148 @@ fn plugin_mcp_server_ids(plugin: &InstalledPlugin) -> Vec<String> {
     ids.sort();
     ids.dedup();
     ids
+}
+
+pub(crate) fn spec_plugin_id(spec: &Value) -> Option<String> {
+    let env = spec.get("env")?.as_object()?;
+    if let Some(plugin_id) = env
+        .get(plugins::HOST_CALL_PLUGIN_ID_ENV)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(plugin_id.to_owned());
+    }
+    let raw_token = env.get("VIBEX_PLUGIN_MCP_TOKEN")?.as_str()?;
+    let parsed: Value = serde_json::from_str(raw_token).ok()?;
+    parsed
+        .get("plugin_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// Remove native Agent MCP and Skill projections for any plugin that is
+/// currently disabled or uninstalled, including official monorepo plugins and
+/// any leftover local MCP entry carrying `VIBEX_PLUGIN_ID` /
+/// `VIBEX_PLUGIN_MCP_TOKEN`.
+pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
+    plane: &plugins::PluginControlPlane,
+) {
+    let Ok(catalog) = plane.catalog().await else {
+        return;
+    };
+    let gate = plane.official_product_mcp_gate();
+    let allow_host_delegation = gate.allow_delegation_mcp();
+
+    let enabled_plugins = catalog
+        .iter()
+        .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
+        .collect::<Vec<_>>();
+    let enabled_plugin_ids = enabled_plugins
+        .iter()
+        .map(|plugin| plugin.id())
+        .collect::<BTreeSet<_>>();
+    let mut active_mcp_server_ids = enabled_plugins
+        .iter()
+        .flat_map(|plugin| {
+            plugin
+                .mcp
+                .get("mcpServers")
+                .unwrap_or(&plugin.mcp)
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(server_id, spec)| {
+                    plugins::projected_mcp_server_id(plugin.id(), server_id, spec)
+                })
+        })
+        .collect::<BTreeSet<_>>();
+    if allow_host_delegation {
+        active_mcp_server_ids.insert(plugins::DELEGATION_MCP_NAME.to_owned());
+    }
+
+    let mut stale_mcp_server_ids = BTreeSet::new();
+
+    for plugin in catalog
+        .iter()
+        .filter(|plugin| plugin.activation != plugins::PluginActivation::Enabled)
+    {
+        if let Some(host_call) = plugins::PluginHostCall::process_instance() {
+            host_call.revoke_plugin(plugin.id());
+        }
+        if !plugin.skills.is_empty() {
+            let skill_ids = plugin
+                .skills
+                .iter()
+                .map(|skill| skill.id.clone())
+                .collect::<Vec<_>>();
+            let _ = skills::remove_plugin_skill_projections(plugin.id(), &skill_ids);
+        }
+        for server_id in package_mcp_server_ids(&plugin.package) {
+            if !active_mcp_server_ids.contains(&server_id) {
+                stale_mcp_server_ids.insert(server_id);
+            }
+        }
+    }
+
+    for &(_, plugin_id) in plugins::MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        if enabled_plugin_ids.contains(plugin_id) {
+            continue;
+        }
+        if let Some(host_call) = plugins::PluginHostCall::process_instance() {
+            host_call.revoke_plugin(plugin_id);
+        }
+        let Some(root) = plugins::monorepo_official_plugin_root(plugin_id) else {
+            continue;
+        };
+        let Ok(package) = PluginPackage::inspect(&root, plugins::PluginSourceKind::Snapshot) else {
+            continue;
+        };
+        if !package.skills.is_empty() {
+            let skill_ids = package
+                .skills
+                .iter()
+                .map(|skill| skill.id.clone())
+                .collect::<Vec<_>>();
+            let _ = skills::remove_plugin_skill_projections(package.id.as_str(), &skill_ids);
+        }
+        for server_id in package_mcp_server_ids(&package) {
+            if !active_mcp_server_ids.contains(&server_id) {
+                stale_mcp_server_ids.insert(server_id);
+            }
+        }
+    }
+
+    let local_servers = services::services::mcp::scan_local_sync().unwrap_or_default();
+    let local_server_ids = local_servers
+        .iter()
+        .map(|server| server.id.clone())
+        .collect::<BTreeSet<_>>();
+    for server in &local_servers {
+        if let Some(plugin_id) = spec_plugin_id(&server.spec)
+            && !enabled_plugin_ids.contains(plugin_id.as_str())
+            && !active_mcp_server_ids.contains(&server.id)
+        {
+            if let Some(host_call) = plugins::PluginHostCall::process_instance() {
+                host_call.revoke_plugin(&plugin_id);
+            }
+            stale_mcp_server_ids.insert(server.id.clone());
+        }
+    }
+
+    for server_id in stale_mcp_server_ids {
+        if local_server_ids.contains(&server_id)
+            && let Err(error) = services::services::mcp::uninstall_server(server_id.clone()).await
+        {
+            tracing::warn!(
+                mcp_server_id = %server_id,
+                %error,
+                "stale plugin MCP projection removal failed"
+            );
+        }
+    }
 }
 
 async fn configure_plugin_mcp(
@@ -777,6 +930,15 @@ async fn materialize_plugin_mcp_spec(
     let Some(managed) = spec.get("managedRuntime").and_then(Value::as_object) else {
         let mut spec = spec;
         plugins::prepare_plugin_mcp_projection(&mut spec, plugin.package.content_root());
+        if spec.get("command").and_then(Value::as_str) == Some("node") {
+            let node = worker_runtime.resolve().await.map_err(internal_error)?;
+            if let Some(object) = spec.as_object_mut() {
+                object.insert(
+                    "command".to_owned(),
+                    Value::String(plugins::spawnable_fs_path(&node)),
+                );
+            }
+        }
         return inject_plugin_host_call(control_plane, host_call, plugin, spec).await;
     };
     if host_family {
@@ -1030,5 +1192,39 @@ mod tests {
         let closed = official_delegation_config(DelegationConfig::default(), &gate);
         assert!(!closed.enabled);
         assert_eq!(closed.depth_limit, 1);
+    }
+
+    #[test]
+    fn spec_plugin_id_extracts_host_call_or_mcp_token_plugin_id() {
+        let with_host_call = json!({
+            "type": "stdio",
+            "command": "node",
+            "env": {
+                "VIBEX_PLUGIN_ID": "vibex-plugin-computer-use"
+            }
+        });
+        assert_eq!(
+            spec_plugin_id(&with_host_call).as_deref(),
+            Some("vibex-plugin-computer-use")
+        );
+
+        let with_mcp_token = json!({
+            "type": "stdio",
+            "command": "node",
+            "env": {
+                "VIBEX_PLUGIN_MCP_TOKEN": r#"{"typ":"vibex.plugin-mcp","plugin_id":"vibex.browser","mcp_id":"browser-tools"}"#
+            }
+        });
+        assert_eq!(
+            spec_plugin_id(&with_mcp_token).as_deref(),
+            Some("vibex.browser")
+        );
+
+        let external = json!({
+            "type": "stdio",
+            "command": "npx",
+            "args": ["some-user-mcp"]
+        });
+        assert_eq!(spec_plugin_id(&external), None);
     }
 }

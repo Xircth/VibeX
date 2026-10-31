@@ -40,7 +40,10 @@ pub(in crate::manager) fn merge_session_config_options(
     options
 }
 
-pub(in crate::manager) fn merge_select_choices(into: &mut AcpSessionConfigOption, from: &AcpSessionConfigOption) {
+pub(in crate::manager) fn merge_select_choices(
+    into: &mut AcpSessionConfigOption,
+    from: &AcpSessionConfigOption,
+) {
     let SessionConfigKind::Select(from_select) = &from.kind else {
         return;
     };
@@ -405,7 +408,9 @@ pub(in crate::manager) fn agent_available_commands_from_acp(
         .collect()
 }
 
-pub(in crate::manager) fn agent_permission_option_kind(kind: PermissionOptionKind) -> AgentPermissionOptionKind {
+pub(in crate::manager) fn agent_permission_option_kind(
+    kind: PermissionOptionKind,
+) -> AgentPermissionOptionKind {
     match kind {
         PermissionOptionKind::AllowOnce => AgentPermissionOptionKind::AllowOnce,
         PermissionOptionKind::AllowAlways => AgentPermissionOptionKind::AllowAlways,
@@ -416,7 +421,9 @@ pub(in crate::manager) fn agent_permission_option_kind(kind: PermissionOptionKin
     }
 }
 
-pub(in crate::manager) fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPermissionOutcome {
+pub(in crate::manager) fn permission_response_outcome(
+    response: AgentPermissionResponse,
+) -> RequestPermissionOutcome {
     match response {
         AgentPermissionResponse::Selected { option_id, .. } => {
             RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
@@ -425,7 +432,9 @@ pub(in crate::manager) fn permission_response_outcome(response: AgentPermissionR
     }
 }
 
-pub(in crate::manager) fn elicitation_response_action(response: AgentElicitationResponse) -> ElicitationAction {
+pub(in crate::manager) fn elicitation_response_action(
+    response: AgentElicitationResponse,
+) -> ElicitationAction {
     match response {
         AgentElicitationResponse::Accept { content } => {
             // The wire type only admits primitive values; anything else the UI
@@ -448,4 +457,3 @@ pub(in crate::manager) fn elicitation_response_action(response: AgentElicitation
         AgentElicitationResponse::Cancel => ElicitationAction::Cancel,
     }
 }
-

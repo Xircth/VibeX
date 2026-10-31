@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import {
   getConversationSessionFacts,
   getConversationTimelineView,
+  retainConversationSurface,
   retainConversationTimeline,
   subscribeConversationTimeline,
   type ConversationSessionFacts,
@@ -20,6 +21,10 @@ export function useConversationTimeline(
     () => getConversationTimelineView(conversationId),
     () => getConversationTimelineView(conversationId)
   );
+  useEffect(() => {
+    if (!conversationId) return;
+    return retainConversationSurface(conversationId);
+  }, [conversationId]);
   useEffect(() => {
     if (!conversationId || !isActive) return;
     return retainConversationTimeline(conversationId);

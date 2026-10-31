@@ -56,6 +56,10 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { WorkspaceSessionList } from '@/components/workspace-session-list/WorkspaceSessionList';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
 import { SessionListSearchControl } from '@/components/workspace-session-list/SessionListSearchControl';
+import {
+  filterVisibleBotSessions,
+  useHideBotSessions,
+} from '@/lib/hideBotSessions';
 import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
 import { useAppContextMenu } from '@/components/context-menu';
@@ -507,10 +511,10 @@ export function SessionHubSidebar({
   fill = false,
   compactHeader = false,
   isLoading,
-  sessions,
-  archivedSessions,
-  groupedSessions,
-  flatSessions,
+  sessions: rawSessions,
+  archivedSessions: rawArchivedSessions,
+  groupedSessions: rawGroupedSessions,
+  flatSessions: rawFlatSessions,
   workspaces,
   sortField,
   workspaceFilterIds,
@@ -550,6 +554,30 @@ export function SessionHubSidebar({
   const { t } = useTranslation(['tasks', 'common']);
   const { openSurfaceMenu } = useAppContextMenu();
   const listView = useKanbanSessionListView();
+  const hideBotSessions = useHideBotSessions();
+  const sessions = useMemo(
+    () => filterVisibleBotSessions(rawSessions, hideBotSessions),
+    [hideBotSessions, rawSessions]
+  );
+  const archivedSessions = useMemo(
+    () => filterVisibleBotSessions(rawArchivedSessions, hideBotSessions),
+    [hideBotSessions, rawArchivedSessions]
+  );
+  const flatSessions = useMemo(
+    () => filterVisibleBotSessions(rawFlatSessions, hideBotSessions),
+    [hideBotSessions, rawFlatSessions]
+  );
+  const groupedSessions = useMemo(() => {
+    if (!hideBotSessions) return rawGroupedSessions;
+    const next: Record<string, KanbanProjectSessionRecord[]> = {};
+    SESSION_STATUS_ORDER.forEach((status) => {
+      next[status] = filterVisibleBotSessions(
+        rawGroupedSessions[status] ?? [],
+        true
+      );
+    });
+    return next;
+  }, [hideBotSessions, rawGroupedSessions]);
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
   const isWorkspaceListView =

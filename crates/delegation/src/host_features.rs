@@ -3,7 +3,8 @@
 use std::sync::{Arc, Mutex};
 
 use agents::{
-    AgentElicitationId, AgentElicitationRequest, AgentEvent, AgentSessionId,
+    AgentElicitationId, AgentElicitationRequest, AgentEvent, AgentPermissionId,
+    AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest, AgentSessionId,
     ids::AgentConnectionId, runtime::AgentRuntime,
 };
 use async_trait::async_trait;
@@ -114,6 +115,203 @@ impl HostCompanionFeatures {
             .answer_question(question_id, parent_conversation_id, answers)
             .await
     }
+
+    async fn request_approval(&self, scope: &DelegationScope, arguments: Value) -> Value {
+        let text = |key: &str| {
+            arguments
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let mut space_id = text("space_id");
+        if space_id.is_empty()
+            && let Ok(Some(thread_id)) =
+                collaboration::thread_id_for_conversation(&self.pool, scope.parent_conversation_id)
+                    .await
+        {
+            space_id = thread_id;
+        }
+        let action = text("action");
+        let command = text("command");
+        let reason = text("reason");
+        let provided_operation_id = match arguments.get("operation_id").and_then(|v| v.as_str()) {
+            Some(raw) if !raw.trim().is_empty() => match Uuid::parse_str(raw.trim()) {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    return collaboration::CollaborationError::new(
+                        "conversation_control_failed",
+                        "operation_id must be a UUID",
+                    )
+                    .to_json();
+                }
+            },
+            _ => None,
+        };
+        if let Some(op_id) = provided_operation_id
+            && let Ok(Some(existing)) =
+                conversations::collaboration_cards::load_card(&self.pool, &op_id.to_string()).await
+        {
+            if existing.space_id != space_id
+                || existing.kind != conversations::collaboration_cards::CardKind::Approval
+            {
+                return collaboration::CollaborationError::new(
+                    "operation_conflict",
+                    "operation_id was already used for a different card",
+                )
+                .to_json();
+            }
+            if existing.status == "resolved" {
+                return approval_card_value(existing, None);
+            }
+        }
+        let Ok(wait) = self.memory.begin_question(scope.clone(), json!([])).await else {
+            return collaboration::CollaborationError::new(
+                "conversation_control_failed",
+                "question or approval already pending for parent conversation",
+            )
+            .to_json();
+        };
+        let pending = wait.question().clone();
+        let wait_fut = wait.wait();
+        let operation_id = provided_operation_id
+            .or_else(|| Uuid::parse_str(&pending.id).ok())
+            .unwrap_or_else(Uuid::new_v4);
+        let mut delivery = self.conversations.delivery_context();
+        delivery.space_changed = self.space_changed_listener();
+        let card = match conversations::collaboration_cards::post_card(
+            &self.pool,
+            conversations::collaboration_cards::PostCard {
+                caller_id: scope.parent_conversation_id,
+                space_id: space_id.clone(),
+                kind: conversations::collaboration_cards::CardKind::Approval,
+                payload: json!({
+                    "action": action,
+                    "command": command,
+                    "reason": reason,
+                    "question_id": pending.id,
+                }),
+                operation_id,
+            },
+            &delivery,
+        )
+        .await
+        {
+            Ok(card) => card,
+            Err(error) => return error.to_json(),
+        };
+        if let Some(listener) = self.space_changed_listener()
+            && let Ok(workspace_id) =
+                collaboration::space_workspace_id(&self.pool, &card.space_id).await
+        {
+            let evt = collaboration::latest_space_changed_event(
+                &self.pool,
+                workspace_id,
+                &card.space_id,
+                card.member_id.clone(),
+            )
+            .await;
+            listener(evt);
+        }
+        if let (Ok(connection_id), Ok(permission_uuid)) = (
+            Uuid::parse_str(&scope.parent_connection_id),
+            Uuid::parse_str(&card.id),
+        ) {
+            let mut content_blocks = Vec::new();
+            if !command.is_empty() && !reason.is_empty() {
+                content_blocks.push(json!({ "text": command }));
+                content_blocks.push(json!({ "text": reason }));
+            } else if !reason.is_empty() {
+                content_blocks.push(json!({ "text": reason }));
+            }
+            let raw_input = if !command.is_empty() {
+                json!({
+                    "command": command,
+                    "description": reason,
+                })
+            } else {
+                json!({
+                    "description": reason,
+                })
+            };
+            self.runtime
+                .emit_external(
+                    AgentConnectionId::from(connection_id),
+                    Some(AgentSessionId::from(scope.parent_conversation_id)),
+                    AgentEvent::PermissionRequested {
+                        request: AgentPermissionRequest {
+                            id: AgentPermissionId(permission_uuid),
+                            session_id: AgentSessionId::from(scope.parent_conversation_id),
+                            title: action.clone(),
+                            details: Some(json!({
+                                "fields": {
+                                    "kind": if command.is_empty() { "tool" } else { "execute" },
+                                    "title": action,
+                                    "rawInput": raw_input,
+                                    "content": content_blocks,
+                                }
+                            })),
+                            options: vec![
+                                AgentPermissionOption {
+                                    id: "allow_once".to_string(),
+                                    label: "允许一次".to_string(),
+                                    kind: AgentPermissionOptionKind::AllowOnce,
+                                    description: None,
+                                },
+                                AgentPermissionOption {
+                                    id: "allow_always".to_string(),
+                                    label: "始终允许".to_string(),
+                                    kind: AgentPermissionOptionKind::AllowAlways,
+                                    description: None,
+                                },
+                                AgentPermissionOption {
+                                    id: "deny".to_string(),
+                                    label: "拒绝".to_string(),
+                                    kind: AgentPermissionOptionKind::RejectOnce,
+                                    description: None,
+                                },
+                            ],
+                        },
+                    },
+                )
+                .await;
+        }
+        let waited_decision = match wait_fut.await {
+            Ok(answer) if answer["__declined"] == true => Some("deny".to_string()),
+            Ok(answer) => answer
+                .get("decision")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            Err(_) => Some("deny".to_string()),
+        };
+        let resolved_card = conversations::collaboration_cards::load_card(&self.pool, &card.id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(card);
+        approval_card_value(resolved_card, waited_decision.as_deref())
+    }
+}
+
+fn approval_card_value(
+    card: conversations::collaboration_cards::Card,
+    fallback_decision: Option<&str>,
+) -> Value {
+    let decision = card
+        .resolution
+        .as_ref()
+        .and_then(|res| res.get("decision"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| fallback_decision.map(str::to_string));
+    let mut value = serde_json::to_value(&card).unwrap_or_else(|_| json!({}));
+    if let (Some(obj), Some(decision)) = (value.as_object_mut(), decision) {
+        let approved = matches!(decision.as_str(), "allow_once" | "allow_always");
+        obj.insert("decision".to_string(), json!(decision));
+        obj.insert("approved".to_string(), json!(approved));
+    }
+    value
 }
 
 #[async_trait]
@@ -190,7 +388,7 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         let wait_fut = wait.wait();
         let mut delivery = self.conversations.delivery_context();
         delivery.space_changed = self.space_changed_listener();
-        let posted_to_space = match conversations::collaboration_cards::post_blocking_user_question(
+        match conversations::collaboration_cards::post_blocking_user_question(
             &self.pool,
             scope.parent_conversation_id,
             &questions,
@@ -213,9 +411,8 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                     .await;
                     listener(event);
                 }
-                true
             }
-            Err(error) if error.code == "not_found" => false,
+            Err(error) if error.code == "not_found" => {}
             Err(error) => {
                 return json!({
                     "declined": false,
@@ -224,13 +421,11 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                     "answers": [],
                 });
             }
-        };
-        if !posted_to_space
-            && let (Ok(connection_id), Ok(question_id)) = (
-                Uuid::parse_str(&scope.parent_connection_id),
-                Uuid::parse_str(&pending.id),
-            )
-        {
+        }
+        if let (Ok(connection_id), Ok(question_id)) = (
+            Uuid::parse_str(&scope.parent_connection_id),
+            Uuid::parse_str(&pending.id),
+        ) {
             let message = questions
                 .as_array()
                 .into_iter()
@@ -418,6 +613,9 @@ impl CompanionFeaturePort for HostCompanionFeatures {
     }
 
     async fn collaborate(&self, scope: &DelegationScope, name: &str, arguments: Value) -> Value {
+        if name == "request_approval" {
+            return self.request_approval(scope, arguments).await;
+        }
         let limits = self.limits();
         match collaboration_tool(
             &self.pool,
@@ -430,7 +628,27 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         )
         .await
         {
-            Ok(value) => value,
+            Ok(value) => {
+                if name == "resolve_card"
+                    && let Some(question_id) = value
+                        .get("payload")
+                        .and_then(|p| p.get("question_id"))
+                        .and_then(Value::as_str)
+                    && let Some(from_str) =
+                        value.get("from_conversation_id").and_then(Value::as_str)
+                    && let Ok(from_id) = Uuid::parse_str(from_str)
+                {
+                    let resolution = value
+                        .get("resolution")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    let _ = self
+                        .memory
+                        .answer_question(question_id, from_id, resolution)
+                        .await;
+                }
+                value
+            }
             Err(error) => error.to_json(),
         }
     }
@@ -612,54 +830,104 @@ async fn collaboration_tool(
         }
         "list_roles" => Ok(json!({ "roles": collaboration::list_roles(pool).await? })),
         "list_teams" => Ok(json!({ "teams": collaboration::list_teams(pool).await? })),
-        "create_role" => Ok(serde_json::to_value(
-            collaboration::create_role(pool, role_input(&arguments)).await?,
-        )
-        .unwrap_or(json!({}))),
-        "update_role" => Ok(serde_json::to_value(
-            collaboration::update_role(pool, &text("role_id"), role_input(&arguments)).await?,
-        )
-        .unwrap_or(json!({}))),
+        "create_role" => {
+            require_supervisor_if_space_session(
+                pool,
+                caller_id,
+                "manage workspace roles (管理角色)",
+            )
+            .await?;
+            Ok(serde_json::to_value(
+                collaboration::create_role(pool, role_input(&arguments)).await?,
+            )
+            .unwrap_or(json!({})))
+        }
+        "update_role" => {
+            require_supervisor_if_space_session(
+                pool,
+                caller_id,
+                "manage workspace roles (管理角色)",
+            )
+            .await?;
+            Ok(serde_json::to_value(
+                collaboration::update_role(pool, &text("role_id"), role_input(&arguments)).await?,
+            )
+            .unwrap_or(json!({})))
+        }
         "delete_role" => {
+            require_supervisor_if_space_session(
+                pool,
+                caller_id,
+                "manage workspace roles (管理角色)",
+            )
+            .await?;
             collaboration::delete_role(pool, &text("role_id")).await?;
             Ok(json!({ "deleted": true }))
         }
-        "create_team" => Ok(serde_json::to_value(
-            collaboration::create_team(
+        "create_team" => {
+            require_supervisor_if_space_session(
                 pool,
-                collaboration::SaveTeam {
-                    id: None,
-                    name: text("name"),
-                    summary: arguments
-                        .get("summary")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                },
+                caller_id,
+                "manage workspace teams (管理团队)",
             )
-            .await?,
-        )
-        .unwrap_or(json!({}))),
-        "update_team" => Ok(serde_json::to_value(
-            collaboration::update_team(
+            .await?;
+            Ok(serde_json::to_value(
+                collaboration::create_team(
+                    pool,
+                    collaboration::SaveTeam {
+                        id: None,
+                        name: text("name"),
+                        summary: arguments
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    },
+                )
+                .await?,
+            )
+            .unwrap_or(json!({})))
+        }
+        "update_team" => {
+            require_supervisor_if_space_session(
                 pool,
-                &text("team_id"),
-                collaboration::SaveTeam {
-                    id: None,
-                    name: text("name"),
-                    summary: arguments
-                        .get("summary")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                },
+                caller_id,
+                "manage workspace teams (管理团队)",
             )
-            .await?,
-        )
-        .unwrap_or(json!({}))),
+            .await?;
+            Ok(serde_json::to_value(
+                collaboration::update_team(
+                    pool,
+                    &text("team_id"),
+                    collaboration::SaveTeam {
+                        id: None,
+                        name: text("name"),
+                        summary: arguments
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    },
+                )
+                .await?,
+            )
+            .unwrap_or(json!({})))
+        }
         "delete_team" => {
+            require_supervisor_if_space_session(
+                pool,
+                caller_id,
+                "manage workspace teams (管理团队)",
+            )
+            .await?;
             collaboration::delete_team(pool, &text("team_id")).await?;
             Ok(json!({ "deleted": true }))
         }
         "create_conversation" => {
+            require_supervisor_if_space_session(
+                pool,
+                caller_id,
+                "create workspace sessions (创建会话)",
+            )
+            .await?;
             let created = collaboration::create_spawned_conversation(
                 pool,
                 collaboration::CreateSpawnedConversation {
@@ -694,6 +962,12 @@ async fn collaboration_tool(
             Ok(serde_json::to_value(created).unwrap_or(json!({})))
         }
         "create_collaboration_space" => {
+            collaboration::require_workspace_supervisor(
+                pool,
+                caller_id,
+                "create group spaces (创建群组)",
+            )
+            .await?;
             let space = collaboration::create_collaboration_space(
                 pool,
                 caller_id,
@@ -721,6 +995,7 @@ async fn collaboration_tool(
                 collaboration::CollaborationError::new("not_found", "conversation was not found")
             })?;
             let space_id = text("space_id");
+            collaboration::require_supervisor_or_group_admin(pool, caller_id, &space_id).await?;
             let member = collaboration::add_space_member(
                 pool,
                 caller_id,
@@ -1005,17 +1280,59 @@ async fn collaboration_tool(
                 .and_then(|v| v.as_u64())
                 .unwrap_or(8)
                 .clamp(1, 50) as usize;
-            Ok(
-                conversations::member_memory::tool_search(pool, caller_id, &text("query"), limit)
-                    .await?,
+            let topic = arguments.get("topic").and_then(|v| v.as_str());
+            Ok(conversations::member_memory::tool_search_with_topic(
+                pool,
+                caller_id,
+                &text("query"),
+                topic,
+                limit,
             )
+            .await?)
         }
         "memory_write" => {
-            let scope = arguments.get("scope").and_then(|v| v.as_str());
-            let fact =
-                conversations::member_memory::tool_write(pool, caller_id, &text("content"), scope)
+            let options = conversations::member_memory::ToolWriteOptions {
+                content: text("content"),
+                scope: arguments
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                op: arguments
+                    .get("op")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                fact_id: arguments
+                    .get("fact_id")
+                    .or_else(|| arguments.get("factId"))
+                    .and_then(|v| v.as_i64()),
+                topic: arguments
+                    .get("topic")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                title: arguments
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            };
+            let result =
+                conversations::member_memory::tool_write_with_options(pool, caller_id, options)
                     .await?;
-            Ok(serde_json::to_value(fact).unwrap_or(json!({})))
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(Some(caller)) =
+                    conversations::member_memory::memory_caller(pool, caller_id).await
+                && let Ok(workspace_id) =
+                    collaboration::space_workspace_id(pool, &caller.thread_id).await
+            {
+                let evt = collaboration::latest_space_changed_event(
+                    pool,
+                    workspace_id,
+                    &caller.thread_id,
+                    Some(caller.member_id),
+                )
+                .await;
+                listener(evt);
+            }
+            Ok(result)
         }
         "post_space_message" | "post_to_space" => {
             let to = arguments
@@ -1254,6 +1571,20 @@ fn missing_arg(name: &str) -> collaboration::CollaborationError {
     collaboration::CollaborationError::new("invalid_argument", format!("{name} is required"))
 }
 
+async fn require_supervisor_if_space_session(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    action_label: &str,
+) -> Result<(), collaboration::CollaborationError> {
+    if collaboration::conversation_is_space_session(pool, caller_id)
+        .await
+        .unwrap_or(false)
+    {
+        collaboration::require_workspace_supervisor(pool, caller_id, action_label).await?;
+    }
+    Ok(())
+}
+
 async fn manage_bot_tool(
     pool: &SqlitePool,
     caller_id: Uuid,
@@ -1301,6 +1632,80 @@ async fn manage_bot_tool(
                 },
             )
             .await?;
+            let mut creator_name =
+                conversations::collaboration_sidebar::identity_member_name_of_conversation(
+                    pool, caller_id,
+                )
+                .await
+                .ok()
+                .flatten()
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty());
+            if creator_name.is_none() {
+                creator_name = collaboration::conversation_persona(pool, caller_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|persona| persona.name.trim().to_string())
+                    .filter(|name| !name.is_empty());
+            }
+            let identity_member_id = created
+                .get("identity_member_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            if let Some(created_space_id) = created
+                .get("space_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                emit_space_changed(
+                    pool,
+                    on_space_changed,
+                    created_space_id,
+                    identity_member_id.clone(),
+                )
+                .await;
+            }
+            if let Some(direct_thread_id) = created
+                .get("direct_thread_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let bootstrap =
+                    collaboration::build_bot_bootstrap_prompt(creator_name.as_deref(), false);
+                if let Err(error) = collaboration::post_direct_message_with(
+                    pool,
+                    collaboration::PostDirectMessage {
+                        thread_id: direct_thread_id.to_string(),
+                        content: bootstrap,
+                        summary: None,
+                        in_reply_to: None,
+                        operation_id: Uuid::new_v5(&operation_id, b"bootstrap_dm"),
+                    },
+                    delivery,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        %caller_id,
+                        %direct_thread_id,
+                        error = %error.message,
+                        "failed to send bootstrap greeting to newly created bot"
+                    );
+                } else {
+                    emit_space_changed(
+                        pool,
+                        on_space_changed,
+                        direct_thread_id,
+                        identity_member_id.clone(),
+                    )
+                    .await;
+                }
+            }
             if is_manageable_group(&space_id) {
                 let conversation_id = created
                     .get("conversation_id")
@@ -1352,15 +1757,43 @@ async fn manage_bot_tool(
                     .await?
                     .0
             };
+            let caller_identity = collaboration::identity_member_id_for_conversation(
+                pool,
+                Some(&caller_id.to_string()),
+            )
+            .await?;
+            let target_identity = collaboration::identity_member_id_for_conversation(
+                pool,
+                Some(&target_id.to_string()),
+            )
+            .await?;
+            let is_self = target_id == caller_id
+                || (caller_identity.is_some() && caller_identity == target_identity);
+            if !is_self || persona.is_some() || mode_id.is_some() || agent_id.is_some() {
+                collaboration::require_workspace_supervisor(
+                    pool,
+                    caller_id,
+                    "update another bot or modify persona/agent/mode settings (修改其他 Bot 或变更人设/模型配置)",
+                )
+                .await?;
+            }
             let mut result = json!({ "updated": true, "conversation_id": target_id });
             if !nickname.is_empty() {
                 if space_id.is_empty() {
                     return Err(missing_arg("space_id"));
                 }
+                let rename_space_id = if !is_self
+                    && space_id.starts_with("direct:")
+                    && let Some(ref tid) = target_identity
+                {
+                    format!("direct:{tid}")
+                } else {
+                    space_id.clone()
+                };
                 let member = collaboration::set_space_identity(
                     pool,
                     target_id,
-                    &space_id,
+                    &rename_space_id,
                     &nickname,
                     operation_id,
                 )
@@ -1368,19 +1801,14 @@ async fn manage_bot_tool(
                 emit_space_changed(
                     pool,
                     on_space_changed,
-                    &space_id,
+                    &rename_space_id,
                     Some(member.member_id.clone()),
                 )
                 .await;
                 result = serde_json::to_value(&member).unwrap_or(result);
             }
             if persona.is_some() || mode_id.is_some() || agent_id.is_some() {
-                let identity = collaboration::identity_member_id_for_conversation(
-                    pool,
-                    Some(&target_id.to_string()),
-                )
-                .await?
-                .ok_or_else(|| {
+                let identity = target_identity.ok_or_else(|| {
                     collaboration::CollaborationError::new("not_found", "member was not found")
                 })?;
                 let mut config = collaboration::load_member_session_config(pool, &identity)
@@ -1500,6 +1928,12 @@ async fn manage_group_tool(
             if name.is_empty() {
                 return Err(missing_arg("name"));
             }
+            collaboration::require_workspace_supervisor(
+                pool,
+                caller_id,
+                "create group spaces (创建群组)",
+            )
+            .await?;
             let space =
                 collaboration::create_collaboration_space(pool, caller_id, &name, operation_id)
                     .await?;
@@ -1513,6 +1947,7 @@ async fn manage_group_tool(
             if name.is_empty() {
                 return Err(missing_arg("name"));
             }
+            collaboration::require_supervisor_or_group_admin(pool, caller_id, &space_id).await?;
             let space = collaboration::rename_workspace_space(pool, &space_id, &name).await?;
             emit_space_changed(pool, on_space_changed, &space_id, None).await;
             Ok(serde_json::to_value(space).unwrap_or(json!({})))
@@ -1521,18 +1956,17 @@ async fn manage_group_tool(
             if space_id.is_empty() {
                 return Err(missing_arg("space_id"));
             }
-            let workspace_id = collaboration::space_workspace_id(pool, &space_id).await.ok();
+            let workspace_id = collaboration::space_workspace_id(pool, &space_id)
+                .await
+                .ok();
             let result =
                 collaboration::delete_collaboration_space(pool, caller_id, &space_id, operation_id)
                     .await?;
-            if let (Some(listener), Some(workspace_id)) = (on_space_changed.as_ref(), workspace_id) {
-                let evt = collaboration::latest_space_changed_event(
-                    pool,
-                    workspace_id,
-                    &space_id,
-                    None,
-                )
-                .await;
+            if let (Some(listener), Some(workspace_id)) = (on_space_changed.as_ref(), workspace_id)
+            {
+                let evt =
+                    collaboration::latest_space_changed_event(pool, workspace_id, &space_id, None)
+                        .await;
                 listener(evt);
             }
             Ok(result)
@@ -1544,6 +1978,7 @@ async fn manage_group_tool(
             if bot_ref.is_empty() {
                 return Err(missing_arg("bot_id"));
             }
+            collaboration::require_supervisor_or_group_admin(pool, caller_id, &space_id).await?;
             let (conversation_id, current_nick) =
                 collaboration::resolve_bot_conversation(pool, caller_id, &space_id, &bot_ref)
                     .await?;
@@ -1685,5 +2120,115 @@ fn control_error(
             "error_code": code,
             "message": error.to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn manage_bot_create_automatically_posts_bootstrap_dm_to_new_bot() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite memory pool");
+        sqlx::migrate!("../../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+
+        let workspace_id = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("fk off");
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace_id)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .expect("insert workspace");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("fk on");
+
+        let supervisor = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id,
+                space_id: None,
+                nickname: "Lander".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: Some("主管 Bot".to_string()),
+                mode_id: None,
+                config_values: Some(json!({ "is_supervisor": true })),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect("create supervisor");
+        let caller_id =
+            Uuid::parse_str(supervisor.conversation_id.as_deref().unwrap()).expect("caller uuid");
+
+        let delivery = collaboration::DeliveryContext::default();
+        let on_space_changed = None;
+        let created = manage_bot_tool(
+            &pool,
+            caller_id,
+            &json!({
+                "action": "create",
+                "nickname": "Hailer",
+                "persona_prompt": "专门负责邮件管理的助手"
+            }),
+            Uuid::new_v4(),
+            &delivery,
+            &on_space_changed,
+        )
+        .await
+        .expect("manage_bot create");
+
+        let direct_thread_id = created
+            .get("direct_thread_id")
+            .and_then(Value::as_str)
+            .expect("direct_thread_id")
+            .to_string();
+        let new_bot_cid = created
+            .get("conversation_id")
+            .and_then(Value::as_str)
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .expect("new bot conversation_id");
+
+        // Verify the private bootstrap message was posted into `direct:<identity_member_id>`:
+        let raw_envelopes: Vec<String> = sqlx::query_scalar(
+            "SELECT envelope_json FROM collaboration_space_messages WHERE space_id = ? ORDER BY seq ASC",
+        )
+        .bind(&direct_thread_id)
+        .fetch_all(&pool)
+        .await
+        .expect("query direct messages");
+        assert_eq!(raw_envelopes.len(), 1);
+        assert!(raw_envelopes[0].contains("<vibex-private-bootstrap>"));
+        assert!(raw_envelopes[0].contains("Lander 刚为用户创建了你。"));
+
+        // Verify the new bot's conversation received the queued input without XML wrapper tags:
+        let queued_inputs: Vec<String> = sqlx::query_scalar(
+            "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ? ORDER BY created_at ASC",
+        )
+        .bind(new_bot_cid)
+        .fetch_all(&pool)
+        .await
+        .expect("query queued inputs");
+        assert_eq!(queued_inputs.len(), 1);
+        let payload: Value = serde_json::from_str(&queued_inputs[0]).expect("parse payload");
+        let text = payload["text"].as_str().expect("input text");
+        assert!(text.contains("Lander 刚为用户创建了你。"), "{text}");
+        assert!(!text.contains("<vibex-private-bootstrap>"), "{text}");
     }
 }

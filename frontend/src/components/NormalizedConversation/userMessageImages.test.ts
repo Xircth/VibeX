@@ -143,6 +143,18 @@ describe('splitDisplayContentImages', () => {
       ],
     });
   });
+
+  it('strips <vibex-private-bootstrap> wrapper tags from session user turns', () => {
+    expect(
+      splitDisplayContentImages(
+        '<vibex-private-bootstrap>\n用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。\n</vibex-private-bootstrap>'
+      )
+    ).toEqual({
+      text: '用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。',
+      images: [],
+      files: [],
+    });
+  });
 });
 
 describe('splitUserTurnContent', () => {

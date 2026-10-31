@@ -5,7 +5,10 @@
 //! adapters can observe the resulting conversation log through their normal
 //! snapshot/replay seam.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
@@ -49,6 +52,8 @@ pub struct ConversationAgentEventRecorder {
     coalescer: ConversationEventCoalescer,
     active_turn_cache: HashMap<Uuid, Option<Uuid>>,
     cached_turn_epoch: u64,
+    pending_step_text: HashMap<Uuid, String>,
+    turn_had_tool_call: HashSet<Uuid>,
     #[cfg(test)]
     turn_db_lookups: usize,
 }
@@ -94,6 +99,8 @@ impl ConversationAgentEventRecorder {
             coalescer: ConversationEventCoalescer::default(),
             active_turn_cache: HashMap::new(),
             cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: HashMap::new(),
+            turn_had_tool_call: HashSet::new(),
             #[cfg(test)]
             turn_db_lookups: 0,
         }
@@ -108,6 +115,8 @@ impl ConversationAgentEventRecorder {
             coalescer: ConversationEventCoalescer::default(),
             active_turn_cache: HashMap::new(),
             cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: HashMap::new(),
+            turn_had_tool_call: HashSet::new(),
             #[cfg(test)]
             turn_db_lookups: 0,
         }
@@ -174,9 +183,33 @@ impl ConversationAgentEventRecorder {
         let Some(mut event) = map_agent_event(envelope, turn_id) else {
             return Ok(None);
         };
+        if let ConversationEvent::AgentBindingLoadFailed { reason } = &event
+            && matches!(
+                reason,
+                agents::conversation::SessionLoadFailureReason::ResourceNotFound
+                    | agents::conversation::SessionLoadFailureReason::SessionUnavailable
+            )
+            && !crate::service::binding::conversation_has_recorded_turns(
+                &self.pool,
+                conversation_id,
+            )
+            .await?
+        {
+            tracing::debug!(
+                %conversation_id,
+                code = reason.code(),
+                "skipping AgentBindingLoadFailed notice for unprompted 0-turn conversation"
+            );
+            return Ok(None);
+        }
         attach_cached_plan_usage(&self.pool, conversation_id, &mut event).await;
 
-        if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event {
+        if let AgentEvent::SessionLinked {
+            acp_session_id,
+            agent_id,
+            ..
+        } = &envelope.event
+        {
             if agents::is_placeholder_acp_session_id(acp_session_id) {
                 tracing::error!(
                     %conversation_id,
@@ -184,9 +217,16 @@ impl ConversationAgentEventRecorder {
                     "refusing to persist a placeholder ACP session id via SessionLinked"
                 );
             } else {
-                persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id)
-                    .await?;
-                if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
+                persist_session_linked_external_id(
+                    &self.pool,
+                    conversation_id,
+                    acp_session_id,
+                    agent_id,
+                )
+                .await?;
+                if let Some(binding_id) =
+                    latest_binding_id_for_agent(&self.pool, conversation_id, agent_id).await?
+                {
                     ConversationAgentBindingRecord::bind_acp_session(
                         &self.pool,
                         binding_id,
@@ -244,7 +284,11 @@ impl ConversationAgentEventRecorder {
         records: Vec<MappedConversationEventRecord>,
     ) -> Result<RecordedConversationBatch, RuntimeEventRecordError> {
         let mut batch = RecordedConversationBatch::default();
+        let mut streaming_updated_conversations = std::collections::BTreeSet::new();
         for mapped in records {
+            if self.observe_space_mid_turn(&mapped) {
+                streaming_updated_conversations.insert(mapped.conversation_id);
+            }
             let normalized_json = serde_json::to_string(&mapped.event)?;
             if is_unpersisted_conversation_event(&mapped.event) {
                 if let Some(publisher) = &self.event_publisher {
@@ -289,6 +333,7 @@ impl ConversationAgentEventRecorder {
 
             match &mapped.event {
                 ConversationEvent::QuestionRequested { request } => {
+                    let delivery_ctx = self.delivery_context();
                     if let Err(error) =
                         crate::collaboration_cards::post_elicitation_question_if_seated(
                             &self.pool,
@@ -296,7 +341,7 @@ impl ConversationAgentEventRecorder {
                             &request.question_id,
                             &request.prompt,
                             request.schema.as_ref(),
-                            &crate::collaboration::DeliveryContext::default(),
+                            &delivery_ctx,
                         )
                         .await
                     {
@@ -317,12 +362,13 @@ impl ConversationAgentEventRecorder {
                     } else {
                         response.answer.as_str()
                     };
+                    let delivery_ctx = self.delivery_context();
                     if let Err(error) =
                         crate::collaboration_cards::resolve_elicitation_question_card(
                             &self.pool,
                             question_id,
                             answer,
-                            &crate::collaboration::DeliveryContext::default(),
+                            &delivery_ctx,
                         )
                         .await
                     {
@@ -372,59 +418,76 @@ impl ConversationAgentEventRecorder {
             // must not wait on the same consumer.
             if terminal {
                 let conversation_id = mapped.conversation_id;
+                streaming_updated_conversations.remove(&conversation_id);
+                let leftover_step_text = self
+                    .pending_step_text
+                    .remove(&conversation_id)
+                    .unwrap_or_default();
+                let had_tool_call = self.turn_had_tool_call.remove(&conversation_id);
+                crate::collaboration::clear_space_turn_tool_started(conversation_id);
                 let is_completed = matches!(&mapped.event, ConversationEvent::TurnCompleted { .. });
+                if !is_completed {
+                    crate::collaboration::reset_space_turn_streaming_step(conversation_id);
+                }
                 let pool_for_collab = self.pool.clone();
+                let delivery_ctx = self.delivery_context();
                 tokio::spawn(async move {
-                    if is_completed {
-                        let reply =
-                            crate::jsonl_history::load_all_turns(&pool_for_collab, conversation_id)
-                                .await
-                                .ok()
-                                .flatten()
-                                .and_then(|turns| {
-                                    turns
-                                        .into_iter()
-                                        .rev()
-                                        .find(|turn| turn.role == agents::TurnRole::Assistant)
-                                        .map(|turn| {
-                                            turn.blocks
-                                                .into_iter()
-                                                .filter_map(|block| match block {
-                                                    agents::ContentBlock::Text { text } => {
-                                                        Some(text)
-                                                    }
-                                                    _ => None,
-                                                })
-                                                .collect::<Vec<_>>()
-                                                .join("\n")
-                                        })
-                                })
-                                .unwrap_or_default();
-                        if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
+                    let reply = if is_completed {
+                        match crate::jsonl_history::load_all_turns(
                             &pool_for_collab,
                             conversation_id,
-                            &reply,
-                            &crate::collaboration::DeliveryContext::default(),
                         )
                         .await
-                        {
-                            tracing::warn!(
-                                %conversation_id,
-                                %error,
-                                "failed to finalize collaboration space turn deliveries"
-                            );
+                        .ok()
+                        .flatten()
+                        .and_then(|turns| {
+                            let last_user_idx = turns.iter().rposition(|turn| {
+                                matches!(turn.role, agents::TurnRole::User)
+                                    && !turn.id.contains(":steer:")
+                            });
+                            let round_slice = match last_user_idx {
+                                Some(idx) => &turns[idx + 1..],
+                                None => &turns[..],
+                            };
+                            round_slice
+                                .iter()
+                                .rev()
+                                .find(|turn| turn.role == agents::TurnRole::Assistant)
+                                .cloned()
+                        }) {
+                            Some(turn) => space_turn_conclusion_text(
+                                &turn.blocks,
+                                had_tool_call,
+                                &leftover_step_text,
+                            ),
+                            None => leftover_step_text,
                         }
+                    } else {
+                        String::new()
+                    };
+                    if let Err(error) = crate::collaboration::finalize_space_turn_deliveries(
+                        &pool_for_collab,
+                        conversation_id,
+                        &reply,
+                        &delivery_ctx,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            %conversation_id,
+                            %error,
+                            "failed to finalize collaboration space turn deliveries"
+                        );
                     }
+                    crate::collaboration::reset_space_turn_streaming_step(conversation_id);
                     let _ = crate::collaboration::release_member_write(
                         &pool_for_collab,
                         conversation_id,
                     )
                     .await;
-                    if let Err(error) = crate::collaboration::redeliver_deferred(
-                        &pool_for_collab,
-                        &crate::collaboration::DeliveryContext::default(),
-                    )
-                    .await
+                    if let Err(error) =
+                        crate::collaboration::redeliver_deferred(&pool_for_collab, &delivery_ctx)
+                            .await
                     {
                         tracing::warn!(
                             %conversation_id,
@@ -468,20 +531,31 @@ impl ConversationAgentEventRecorder {
                         }
                         let conversation_id = mapped.conversation_id;
                         let memory_pool = self.pool.clone();
+                        let memory_context = context.clone();
                         tokio::spawn(async move {
-                            if let Err(error) = crate::member_memory::record_turn_activity(
+                            match crate::member_memory::record_turn_activity(
                                 &memory_pool,
                                 conversation_id,
                                 turn_id,
                             )
                             .await
                             {
-                                tracing::warn!(
-                                    %conversation_id,
-                                    %turn_id,
-                                    %error,
-                                    "failed to record member activity"
-                                );
+                                Ok(Some(_)) => {
+                                    crate::member_memory::schedule_post_turn_memory_review_with_context(
+                                        memory_context,
+                                        memory_pool,
+                                        conversation_id,
+                                    );
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    tracing::warn!(
+                                        %conversation_id,
+                                        %turn_id,
+                                        %error,
+                                        "failed to record member activity"
+                                    );
+                                }
                             }
                         });
                         tokio::spawn(async move {
@@ -508,7 +582,108 @@ impl ConversationAgentEventRecorder {
                 }
             }
         }
+        if !streaming_updated_conversations.is_empty() {
+            let pool = self.pool.clone();
+            let delivery_ctx = self.delivery_context();
+            tokio::spawn(async move {
+                for conversation_id in streaming_updated_conversations {
+                    crate::collaboration::notify_space_turn_streaming(
+                        &pool,
+                        conversation_id,
+                        &delivery_ctx,
+                    )
+                    .await;
+                }
+            });
+        }
         Ok(batch)
+    }
+
+    fn delivery_context(&self) -> crate::collaboration::DeliveryContext {
+        match &self.conversation_context {
+            Some(context) => {
+                crate::ScopedConversationControl::new(context.clone()).delivery_context()
+            }
+            None => crate::collaboration::DeliveryContext {
+                publisher: self.event_publisher.clone(),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn observe_space_mid_turn(&mut self, mapped: &MappedConversationEventRecord) -> bool {
+        match &mapped.event {
+            ConversationEvent::UserTurnCreated { .. } | ConversationEvent::UserTurnStarted => {
+                self.pending_step_text.remove(&mapped.conversation_id);
+                self.turn_had_tool_call.remove(&mapped.conversation_id);
+                crate::collaboration::reset_space_turn_streaming_step(mapped.conversation_id);
+                false
+            }
+            ConversationEvent::AssistantTextDelta { text, .. } => {
+                self.pending_step_text
+                    .entry(mapped.conversation_id)
+                    .or_default()
+                    .push_str(text);
+                crate::collaboration::append_space_turn_streaming_text(
+                    mapped.conversation_id,
+                    text,
+                    false,
+                );
+                !text.is_empty()
+            }
+            ConversationEvent::AssistantContentAppended {
+                block: agents::ContentBlock::Text { text },
+                ..
+            } => {
+                let entry = self
+                    .pending_step_text
+                    .entry(mapped.conversation_id)
+                    .or_default();
+                if !entry.is_empty() && !entry.ends_with('\n') {
+                    entry.push('\n');
+                }
+                entry.push_str(text);
+                crate::collaboration::append_space_turn_streaming_text(
+                    mapped.conversation_id,
+                    text,
+                    true,
+                );
+                !text.is_empty()
+            }
+            ConversationEvent::ToolCallUpsert { .. } => {
+                let step_text = self
+                    .pending_step_text
+                    .remove(&mapped.conversation_id)
+                    .unwrap_or_default();
+                let first_tool_in_turn = self.turn_had_tool_call.insert(mapped.conversation_id);
+                if !step_text.trim().is_empty() {
+                    crate::collaboration::advance_space_turn_streaming_step(mapped.conversation_id);
+                }
+                if !step_text.trim().is_empty() || first_tool_in_turn {
+                    let pool = self.pool.clone();
+                    let conversation_id = mapped.conversation_id;
+                    let delivery_ctx = self.delivery_context();
+                    tokio::spawn(async move {
+                        if let Err(error) = crate::collaboration::on_space_turn_tool_call(
+                            &pool,
+                            conversation_id,
+                            &step_text,
+                            &delivery_ctx,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                %conversation_id,
+                                %error,
+                                "failed to bubble collaboration space mid-turn step"
+                            );
+                        }
+                    });
+                }
+                false
+            }
+            _ => false,
+        }
     }
 
     async fn event_turn_id(
@@ -768,6 +943,53 @@ fn is_unpersisted_conversation_event(event: &ConversationEvent) -> bool {
         || matches!(event, ConversationEvent::PromptSuggestionUpdated { .. })
 }
 
+/// Assistant text that should be posted when a space turn completes.
+///
+/// After a tool call, only `ContentBlock::Text` that follows the last
+/// `ContentBlock::ToolUse` is kept so earlier mid-turn bubbles are not
+/// concatenated again. When the transcript has no tool block, fall back to
+/// leftover in-memory step text if this turn already started a tool.
+pub(crate) fn space_turn_conclusion_text(
+    blocks: &[agents::ContentBlock],
+    had_tool_call: bool,
+    leftover_step_text: &str,
+) -> String {
+    let last_tool = blocks
+        .iter()
+        .rposition(|block| matches!(block, agents::ContentBlock::ToolUse { .. }));
+    let join_text = |slice: &[agents::ContentBlock]| {
+        slice
+            .iter()
+            .filter_map(|block| match block {
+                agents::ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    match last_tool {
+        Some(idx) => {
+            let after_tool = join_text(&blocks[idx + 1..]);
+            if !after_tool.trim().is_empty() {
+                after_tool
+            } else {
+                leftover_step_text.to_string()
+            }
+        }
+        None if had_tool_call && !leftover_step_text.trim().is_empty() => {
+            leftover_step_text.to_string()
+        }
+        None => {
+            let joined = join_text(blocks);
+            if !joined.trim().is_empty() {
+                joined
+            } else {
+                leftover_step_text.to_string()
+            }
+        }
+    }
+}
+
 /// Events that only mean something *inside* a Turn. Unlike `AgentEvent::Error`, which
 /// has a conversation-level representation (`AgentBindingRecoveryFailed`), these have
 /// nowhere to go once their Turn is gone, so they are dropped instead of recorded.
@@ -1007,7 +1229,9 @@ fn merge_tool_call_patch(
     if let Some(status) = &incoming.status {
         target.status = Some(status.clone());
     }
-    if let Some(raw_input) = &incoming.raw_input {
+    if let Some(raw_input) = &incoming.raw_input
+        && (!raw_input.as_object().is_some_and(|map| map.is_empty()) || target.raw_input.is_none())
+    {
         target.raw_input = Some(raw_input.clone());
     }
     if let Some(raw_output) = &incoming.raw_output {
@@ -1156,18 +1380,21 @@ fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {
     )
 }
 
-async fn latest_binding_id(
+async fn latest_binding_id_for_agent(
     pool: &SqlitePool,
     conversation_id: Uuid,
+    agent_id: &agents::AgentId,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     sqlx::query_scalar(
         r#"SELECT id
            FROM conversation_agent_bindings
            WHERE conversation_id = ?
+             AND agent_id = ?
            ORDER BY created_at DESC
            LIMIT 1"#,
     )
     .bind(conversation_id)
+    .bind(agent_id.as_str())
     .fetch_optional(pool)
     .await
 }
@@ -1604,8 +1831,10 @@ async fn persist_session_linked_external_id(
     pool: &SqlitePool,
     conversation_id: Uuid,
     acp_session_id: &str,
+    agent_id: &agents::AgentId,
 ) -> Result<(), RuntimeEventRecordError> {
-    Session::update_external_session_id(pool, conversation_id, acp_session_id).await?;
+    Session::update_agent_metadata(pool, conversation_id, Some(acp_session_id), Some(agent_id))
+        .await?;
     if let Err(error) =
         crate::collaboration::invalidate_space_delivery_prompt_injections(pool, conversation_id)
             .await
@@ -1723,6 +1952,68 @@ mod tests {
             ready[1].event,
             ConversationEvent::TurnCompleted { .. }
         ));
+    }
+
+    #[test]
+    fn space_turn_conclusion_keeps_only_text_after_the_last_tool_use() {
+        use agents::conversation::ContentBlock;
+        let blocks = vec![
+            ContentBlock::Text {
+                text: "我先检查一下 auth.rs".to_string(),
+            },
+            ContentBlock::ToolUse {
+                tool_use_id: Some("t1".to_string()),
+                tool_name: "read".to_string(),
+                status: None,
+                kind: None,
+                input_preview: None,
+                meta: None,
+                images: Vec::new(),
+                started_at: None,
+                ended_at: None,
+            },
+            ContentBlock::Text {
+                text: "鉴权没有问题。".to_string(),
+            },
+        ];
+        assert_eq!(
+            super::space_turn_conclusion_text(&blocks, true, "unused"),
+            "鉴权没有问题。"
+        );
+    }
+
+    #[test]
+    fn space_turn_conclusion_joins_all_text_when_no_tool_ran() {
+        use agents::conversation::ContentBlock;
+        let blocks = vec![
+            ContentBlock::Text {
+                text: "hello".to_string(),
+            },
+            ContentBlock::Text {
+                text: "world".to_string(),
+            },
+        ];
+        assert_eq!(
+            super::space_turn_conclusion_text(&blocks, false, ""),
+            "hello\nworld"
+        );
+    }
+
+    #[test]
+    fn space_turn_conclusion_uses_leftover_when_tool_ran_without_a_tool_block() {
+        use agents::conversation::ContentBlock;
+        let blocks = vec![
+            ContentBlock::Text {
+                text: "我先检查一下 auth.rs".to_string(),
+            },
+            ContentBlock::Text {
+                text: "鉴权没有问题。".to_string(),
+            },
+        ];
+        assert_eq!(
+            super::space_turn_conclusion_text(&blocks, true, "鉴权没有问题。"),
+            "鉴权没有问题。"
+        );
     }
 
     #[test]
@@ -2256,9 +2547,14 @@ mod tests {
         let pool = setup_pool().await;
         let (conversation_id, _) = seed_conversation_turn(&pool, "prompt-1", "hello").await;
 
-        persist_session_linked_external_id(&pool, conversation_id, "acp-live-session-9")
-            .await
-            .expect("persist SessionLinked");
+        persist_session_linked_external_id(
+            &pool,
+            conversation_id,
+            "acp-live-session-9",
+            &agents::AgentId::parse("codex").unwrap(),
+        )
+        .await
+        .expect("persist SessionLinked");
 
         let session = Session::find_by_id(&pool, conversation_id)
             .await
@@ -2535,6 +2831,8 @@ mod tests {
                 coalescer: super::ConversationEventCoalescer::default(),
                 active_turn_cache: std::collections::HashMap::new(),
                 cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+                pending_step_text: std::collections::HashMap::new(),
+                turn_had_tool_call: std::collections::HashSet::new(),
                 turn_db_lookups: 0,
             },
             rx,
@@ -2605,6 +2903,8 @@ mod tests {
             coalescer: super::ConversationEventCoalescer::default(),
             active_turn_cache: std::collections::HashMap::new(),
             cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: std::collections::HashMap::new(),
+            turn_had_tool_call: std::collections::HashSet::new(),
             turn_db_lookups: 0,
         };
 
@@ -2680,6 +2980,8 @@ mod tests {
             coalescer: super::ConversationEventCoalescer::default(),
             active_turn_cache: std::collections::HashMap::new(),
             cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: std::collections::HashMap::new(),
+            turn_had_tool_call: std::collections::HashSet::new(),
             turn_db_lookups: 0,
         };
 
@@ -2814,6 +3116,8 @@ mod tests {
             coalescer: super::ConversationEventCoalescer::default(),
             active_turn_cache: std::collections::HashMap::new(),
             cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: std::collections::HashMap::new(),
+            turn_had_tool_call: std::collections::HashSet::new(),
             turn_db_lookups: 0,
         };
 

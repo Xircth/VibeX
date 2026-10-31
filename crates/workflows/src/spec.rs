@@ -206,6 +206,9 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
         )));
     }
     validate_policy(&definition.policy)?;
+    if let Some(schema) = &definition.input_schema {
+        validate_json_schema(schema)?;
+    }
     let mut ids = BTreeSet::new();
     for step in &definition.steps {
         if !valid_step_id(&step.id) || !ids.insert(step.id.as_str()) {
@@ -258,6 +261,9 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
                         step.id
                     )));
                 }
+                if let Some(schema) = &agent.output_schema {
+                    validate_json_schema(schema)?;
+                }
             }
             WorkflowStepSpec::Approval(approval) => {
                 if approval.title.trim().is_empty() || approval.approver_scope.trim().is_empty() {
@@ -294,21 +300,26 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
             }
         }
         for binding in step.input_bindings.values() {
-            if let WorkflowBinding::StepOutput { step_id, pointer } = binding {
-                let source = by_id.get(step_id.as_str()).ok_or_else(|| {
-                    WorkflowError::Validation(format!(
-                        "step `{}` binding references unknown step `{step_id}`",
-                        step.id
-                    ))
-                })?;
-                if !is_transitive_dependency(&by_id, &step.id, step_id) {
-                    return Err(WorkflowError::Validation(format!(
-                        "step `{}` reads `{step_id}` without depending on it",
-                        step.id
-                    )));
+            match binding {
+                WorkflowBinding::RunInput { pointer } => {
+                    validate_pointer(pointer)?;
                 }
-                let _ = source;
-                validate_pointer(pointer)?;
+                WorkflowBinding::StepOutput { step_id, pointer } => {
+                    let source = by_id.get(step_id.as_str()).ok_or_else(|| {
+                        WorkflowError::Validation(format!(
+                            "step `{}` binding references unknown step `{step_id}`",
+                            step.id
+                        ))
+                    })?;
+                    if !is_transitive_dependency(&by_id, &step.id, step_id) {
+                        return Err(WorkflowError::Validation(format!(
+                            "step `{}` reads `{step_id}` without depending on it",
+                            step.id
+                        )));
+                    }
+                    let _ = source;
+                    validate_pointer(pointer)?;
+                }
             }
         }
     }
@@ -669,7 +680,7 @@ fn validate_number_bounds(
     Ok(())
 }
 
-fn validate_policy(policy: &WorkflowPolicy) -> Result<(), WorkflowError> {
+pub fn validate_policy(policy: &WorkflowPolicy) -> Result<(), WorkflowError> {
     if !(1..=64).contains(&policy.max_concurrent_agent_steps)
         || !(1..=10_000).contains(&policy.max_agent_calls)
         || !(1..=7 * 24 * 60 * 60).contains(&policy.deadline_seconds)

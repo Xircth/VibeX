@@ -419,13 +419,37 @@ impl Repo {
 }
 
 pub(crate) fn normalize_repo_path_for_display(path: &Path) -> PathBuf {
-    let normalized = normalize_windows_extended_path_prefix(path);
+    let normalized = collapse_lexical_dot_segments(&normalize_windows_extended_path_prefix(path));
 
     if let Some(worktree_path) = gitdir_path_to_worktree_path(&normalized) {
-        return normalize_windows_extended_path_prefix(worktree_path);
+        return collapse_lexical_dot_segments(&normalize_windows_extended_path_prefix(
+            worktree_path,
+        ));
     }
 
     normalized
+}
+
+fn collapse_lexical_dot_segments(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !matches!(
+                    out.components().next_back(),
+                    Some(Component::RootDir | Component::Prefix(_)) | None
+                ) {
+                    out.pop();
+                } else {
+                    out.push(component.as_os_str());
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 fn gitdir_path_to_worktree_path(path: &Path) -> Option<PathBuf> {

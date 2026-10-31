@@ -1,44 +1,48 @@
 use super::*;
 use crate::stderr_tail::{StderrTail, sanitize_diagnostic};
 
-pub(in crate::manager) mod process;
-pub(in crate::manager) mod env;
-pub mod throttle;
-pub(in crate::manager) mod probe;
-pub(in crate::manager) mod fixture;
-pub(in crate::manager) mod in_memory;
-pub(in crate::manager) mod session;
-pub(in crate::manager) mod replay;
-pub(in crate::manager) mod controls_emit;
-pub(in crate::manager) mod goal;
-pub(in crate::manager) mod controls_apply;
-pub(in crate::manager) mod prompt;
-pub(in crate::manager) mod interactions;
-pub(in crate::manager) mod jsonl;
 pub(in crate::manager) mod acp_session;
 pub(in crate::manager) mod acp_spawn;
+pub(in crate::manager) mod controls_apply;
+pub(in crate::manager) mod controls_emit;
+pub(in crate::manager) mod env;
+pub(in crate::manager) mod fixture;
+pub(in crate::manager) mod goal;
+pub(in crate::manager) mod in_memory;
+pub(in crate::manager) mod interactions;
+pub(in crate::manager) mod jsonl;
+pub(in crate::manager) mod probe;
+pub(in crate::manager) mod process;
+pub(in crate::manager) mod prompt;
+pub(in crate::manager) mod replay;
+pub(in crate::manager) mod session;
+pub mod throttle;
 
-pub(in crate::manager) use process::*;
 pub(in crate::manager) use env::*;
-pub(in crate::manager) use crate::host_capabilities::build_client_capabilities;
+pub(in crate::manager) use jsonl::*;
+pub(in crate::manager) use probe::*;
+pub(in crate::manager) use process::*;
 pub use throttle::LeadingEdgeThrottle;
 pub(in crate::manager) use throttle::{
     EMPTY_TURN_STDERR_MAX_BYTES, EMPTY_TURN_STDERR_MAX_LINES, SessionRestoreSupport,
 };
-pub(in crate::manager) use probe::*;
-pub(in crate::manager) use jsonl::*;
 
-pub(in crate::manager) type ActiveTurnProbeSlot = Arc<std::sync::Mutex<Option<(AgentSessionId, Arc<TurnOutputProbe>)>>>;
+pub(in crate::manager) use crate::host_capabilities::build_client_capabilities;
+
+pub(in crate::manager) type ActiveTurnProbeSlot =
+    Arc<std::sync::Mutex<Option<(AgentSessionId, Arc<TurnOutputProbe>)>>>;
 
 #[derive(Debug, Clone)]
 pub(in crate::manager) struct AgentConnectionRunner {
     pub(in crate::manager) snapshot: ManagedAgentConnectionSnapshot,
     pub(in crate::manager) event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     pub(in crate::manager) session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
-    pub(in crate::manager) session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
+    pub(in crate::manager) session_controls:
+        Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pub(in crate::manager) capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     pub(in crate::manager) pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pub(in crate::manager) pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
+    pub(in crate::manager) child_pid: Arc<std::sync::Mutex<Option<u32>>>,
     pub(in crate::manager) auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     pub(in crate::manager) delegation_injector: Option<Arc<dyn DelegationInjector>>,
     // Per-session streaming-text accumulator shared with the ACP client bridge so
@@ -60,7 +64,8 @@ pub(in crate::manager) struct AgentConnectionRunner {
     pub(in crate::manager) replay_hydrate: Arc<Mutex<Option<String>>>,
     /// CodeG-style connect preferences: applied after the agent advertises
     /// controls and before the first `SessionModes` / `SessionConfigOptions` event.
-    pub(in crate::manager) preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
+    pub(in crate::manager) preferred_controls:
+        Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
     pub(in crate::manager) status: Arc<Mutex<AgentConnectionStatus>>,
     pub(in crate::manager) handshake_started: Instant,
     pub(in crate::manager) live_conn: Arc<Mutex<Option<ConnectionTo<Agent>>>>,
@@ -72,10 +77,12 @@ pub(in crate::manager) struct AgentConnectionRunner {
     pub(in crate::manager) hosted_terminal_output: Arc<Mutex<HashMap<String, String>>>,
     pub(in crate::manager) neutral_goal_channel: Arc<AtomicBool>,
     #[allow(clippy::type_complexity)]
-    pub(in crate::manager) goal_advertised_control: Arc<RwLock<Option<(Option<String>, Vec<String>)>>>,
+    pub(in crate::manager) goal_advertised_control:
+        Arc<RwLock<Option<(Option<String>, Vec<String>)>>>,
     pub(in crate::manager) handshake_completed: Arc<AtomicBool>,
     pub(in crate::manager) connection_wants_prompt_suggestions: Arc<AtomicBool>,
-    pub(in crate::manager) session_wants_prompt_suggestions: Arc<RwLock<HashMap<AgentSessionId, bool>>>,
+    pub(in crate::manager) session_wants_prompt_suggestions:
+        Arc<RwLock<HashMap<AgentSessionId, bool>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -145,7 +152,6 @@ pub(in crate::manager) struct SessionControlState {
     /// Latest ephemeral Composer prompt suggestion (`promptSuggestions`).
     pub(in crate::manager) prompt_suggestion: Option<String>,
 }
-
 
 #[derive(Debug)]
 pub(in crate::manager) struct PendingPermission {
@@ -234,7 +240,9 @@ pub(in crate::manager) struct AcpSteerResponse {
     pub(in crate::manager) reason: Option<String>,
 }
 
-pub(in crate::manager) fn map_steer_response(response: AcpSteerResponse) -> AgentResult<AgentSteerReceipt> {
+pub(in crate::manager) fn map_steer_response(
+    response: AcpSteerResponse,
+) -> AgentResult<AgentSteerReceipt> {
     let outcome = match response.outcome.as_str() {
         "injected" => AgentSteerOutcome::Injected,
         "promptRequired" => AgentSteerOutcome::PromptRequired,
@@ -251,7 +259,6 @@ pub(in crate::manager) fn map_steer_response(response: AcpSteerResponse) -> Agen
     })
 }
 
-
 impl AgentConnectionRunner {
     pub(in crate::manager) fn new(
         snapshot: ManagedAgentConnectionSnapshot,
@@ -267,6 +274,7 @@ impl AgentConnectionRunner {
             capabilities: Arc::new(RwLock::new(AcpCapabilitySnapshot::default())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             pending_elicitations: Arc::new(Mutex::new(HashMap::new())),
+            child_pid: Arc::new(std::sync::Mutex::new(None)),
             auto_approve_mode,
             delegation_injector,
             stream_dedup: Arc::new(Mutex::new(HashMap::new())),
@@ -296,7 +304,11 @@ impl AgentConnectionRunner {
         }
     }
 
-    pub(in crate::manager) async fn record_wants_prompt_suggestions(&self, session_id: AgentSessionId, wants: bool) {
+    pub(in crate::manager) async fn record_wants_prompt_suggestions(
+        &self,
+        session_id: AgentSessionId,
+        wants: bool,
+    ) {
         self.connection_wants_prompt_suggestions
             .store(wants, Ordering::SeqCst);
         self.session_wants_prompt_suggestions
@@ -305,7 +317,10 @@ impl AgentConnectionRunner {
             .insert(session_id, wants);
     }
 
-    pub(in crate::manager) async fn wants_prompt_suggestions(&self, session_id: AgentSessionId) -> bool {
+    pub(in crate::manager) async fn wants_prompt_suggestions(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
         if let Some(&wants) = self
             .session_wants_prompt_suggestions
             .read()
@@ -318,7 +333,9 @@ impl AgentConnectionRunner {
             .load(Ordering::SeqCst)
     }
 
-    pub(in crate::manager) async fn resolve_session_goal_control(&self) -> Option<(String, Vec<String>)> {
+    pub(in crate::manager) async fn resolve_session_goal_control(
+        &self,
+    ) -> Option<(String, Vec<String>)> {
         if !self.handshake_completed.load(Ordering::SeqCst) {
             return None;
         }
@@ -364,8 +381,11 @@ impl AgentConnectionRunner {
         ledger.append_subagent_chunk(kind, parent_id, field, chunk_text)
     }
 
-
-    pub(in crate::manager) fn record_turn_probe_event(&self, session_id: Option<AgentSessionId>, event: &AgentEvent) {
+    pub(in crate::manager) fn record_turn_probe_event(
+        &self,
+        session_id: Option<AgentSessionId>,
+        event: &AgentEvent,
+    ) {
         if let Some(session_id) = session_id
             && let Ok(guard) = self.active_turn_probe.lock()
             && let Some((active_session_id, probe)) = guard.as_ref()
@@ -438,20 +458,25 @@ impl AgentConnectionRunner {
             // turn (events.rs requires a session_id) and the turn spins forever.
             // `run_prompt` clears `active_prompt` whenever it emits its own
             // terminal event, so this fires only when nothing else closed the turn.
-            let (failed_session_id, failed_prompt_id) = match self.active_prompt.lock().await.take()
-            {
-                Some((session_id, prompt_id)) => (Some(session_id), Some(prompt_id)),
-                None => (None, None),
-            };
-            self.emit(
-                failed_session_id,
-                failed_prompt_id,
-                AgentEvent::Error { error: turn_error },
-            );
+            // Warmup / idle process death has no prompt: fail the connection only.
+            match self.active_prompt.lock().await.take() {
+                Some((session_id, prompt_id)) => {
+                    self.emit(
+                        Some(session_id),
+                        Some(prompt_id),
+                        AgentEvent::Error { error: turn_error },
+                    );
+                }
+                None => {
+                    tracing::warn!(
+                        agent_id = %self.snapshot.agent_id.as_str(),
+                        "ACP connection ended without an in-flight turn"
+                    );
+                }
+            }
         }
         self.cancel_all_pending_interactions().await;
     }
-
 
     pub(in crate::manager) fn emit(
         &self,
@@ -463,7 +488,7 @@ impl AgentConnectionRunner {
             let session = session_id.map(|id| id.to_string());
             let prompt = prompt_id.map(|id| id.to_string());
             let code = error.code.as_deref().unwrap_or("unknown");
-            if code == "agent_not_installed" {
+            if !agent_error_is_in_flight_turn_failure(code, session_id, prompt_id) {
                 tracing::debug!(
                     agent_id = %self.snapshot.agent_id.as_str(),
                     session_id = session.as_deref().unwrap_or("-"),

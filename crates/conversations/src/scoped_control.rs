@@ -116,7 +116,7 @@ impl ScopedConversationControl {
             .await
             .map_err(|error| ScopedConversationControlError::Internal(error.to_string()))?;
         let service = ConversationSessionService::new(self.context.clone());
-        let turn = service
+        let dispatched = service
             .dispatch_next_queued_input(conversation_id)
             .await
             .map_err(|error| ScopedConversationControlError::Internal(error.to_string()))?;
@@ -124,6 +124,14 @@ impl ScopedConversationControl {
             .find(conversation_id, submitted.id)
             .await
             .map_err(|error| ScopedConversationControlError::Internal(error.to_string()))?;
+        let turn = match (dispatched, input.turn_id) {
+            (Some(turn), Some(turn_id)) if turn.turn_id == turn_id => Some(turn),
+            (_, Some(turn_id)) => service
+                .turn_snapshot(turn_id)
+                .await
+                .map_err(|error| ScopedConversationControlError::Internal(error.to_string()))?,
+            (_, None) => None,
+        };
         Ok(ConversationInputSubmission { input, turn })
     }
 

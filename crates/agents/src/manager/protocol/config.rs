@@ -24,7 +24,10 @@ pub(in crate::manager) fn is_model_config_option(option: &AcpSessionConfigOption
 ///
 /// Only non-empty `select` options reject values; an empty select list or a
 /// boolean option rejects nothing.
-pub(in crate::manager) fn config_option_rejects_value(option: &AcpSessionConfigOption, value: &str) -> bool {
+pub(in crate::manager) fn config_option_rejects_value(
+    option: &AcpSessionConfigOption,
+    value: &str,
+) -> bool {
     let SessionConfigKind::Select(select) = &option.kind else {
         return false;
     };
@@ -59,7 +62,10 @@ pub(in crate::manager) fn strip_context_lane_suffix(value: &str) -> Option<&str>
 /// selector no longer lists — `opus[1m]` → `opus`, `sonnet[1m]` → `sonnet` —
 /// when the selector lists the twin. Never moves a plain pick onto `[1m]`, and
 /// never touches a `[1m]` pick the selector still offers.
-pub(in crate::manager) fn heal_retired_context_lane_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+pub(in crate::manager) fn heal_retired_context_lane_pick(
+    option: &AcpSessionConfigOption,
+    value: &str,
+) -> Option<String> {
     if !is_model_config_option(option) {
         return None;
     }
@@ -110,7 +116,10 @@ pub(in crate::manager) fn claude_catalog_label(id: &str) -> Option<String> {
 /// selector no longer lists the id itself: the one row whose label (or leading
 /// description segment) names that exact model (`claude-fable-5-1` → `fable`
 /// labelled `Fable 5.1`).
-pub(in crate::manager) fn heal_respelled_model_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+pub(in crate::manager) fn heal_respelled_model_pick(
+    option: &AcpSessionConfigOption,
+    value: &str,
+) -> Option<String> {
     if !is_model_config_option(option) || !config_option_rejects_value(option, value) {
         return None;
     }
@@ -149,7 +158,10 @@ pub(in crate::manager) fn heal_respelled_model_pick(option: &AcpSessionConfigOpt
 /// Heal a saved Claude model pick across retired `[1m]` context lanes, concrete
 /// id re-spellings (`claude-fable-5-1` → `fable`), or both at once
 /// (`claude-fable-5-1[1m]` → `fable`).
-pub(in crate::manager) fn heal_retired_model_pick(option: &AcpSessionConfigOption, value: &str) -> Option<String> {
+pub(in crate::manager) fn heal_retired_model_pick(
+    option: &AcpSessionConfigOption,
+    value: &str,
+) -> Option<String> {
     heal_retired_context_lane_pick(option, value)
         .or_else(|| heal_respelled_model_pick(option, value))
         .or_else(|| {
@@ -425,14 +437,19 @@ pub(in crate::manager) fn find_config_override_selection_for_agent(
     None
 }
 
-pub(in crate::manager) fn advertised_option_is_mode(options: &[AcpSessionConfigOption], config_id: &str) -> bool {
+pub(in crate::manager) fn advertised_option_is_mode(
+    options: &[AcpSessionConfigOption],
+    config_id: &str,
+) -> bool {
     options.iter().any(|option| {
         option.id.0.as_ref() == config_id
             && matches!(option.category, Some(SessionConfigOptionCategory::Mode))
     })
 }
 
-pub(in crate::manager) fn config_options_have_mode_category(options: &[AcpSessionConfigOption]) -> bool {
+pub(in crate::manager) fn config_options_have_mode_category(
+    options: &[AcpSessionConfigOption],
+) -> bool {
     options
         .iter()
         .any(|option| matches!(option.category, Some(SessionConfigOptionCategory::Mode)))
@@ -458,7 +475,9 @@ pub(in crate::manager) fn unify_session_config_options(
     (config_options, true)
 }
 
-pub(in crate::manager) fn config_option_from_session_modes(modes: &SessionModeState) -> AcpSessionConfigOption {
+pub(in crate::manager) fn config_option_from_session_modes(
+    modes: &SessionModeState,
+) -> AcpSessionConfigOption {
     let choices = modes
         .available_modes
         .iter()
@@ -544,7 +563,9 @@ pub(in crate::manager) fn apply_grok_catalog_to_stored_options(
     true
 }
 
-pub(in crate::manager) fn select_option_rows(options: &SessionConfigSelectOptions) -> Vec<(String, String)> {
+pub(in crate::manager) fn select_option_rows(
+    options: &SessionConfigSelectOptions,
+) -> Vec<(String, String)> {
     match options {
         SessionConfigSelectOptions::Ungrouped(choices) => choices
             .iter()
@@ -560,7 +581,10 @@ pub(in crate::manager) fn select_option_rows(options: &SessionConfigSelectOption
     }
 }
 
-pub(in crate::manager) fn apply_current_mode_to_config_options(options: &mut [AcpSessionConfigOption], mode_id: &str) {
+pub(in crate::manager) fn apply_current_mode_to_config_options(
+    options: &mut [AcpSessionConfigOption],
+    mode_id: &str,
+) {
     for option in options {
         if !matches!(option.category, Some(SessionConfigOptionCategory::Mode)) {
             continue;
@@ -571,13 +595,19 @@ pub(in crate::manager) fn apply_current_mode_to_config_options(options: &mut [Ac
     }
 }
 
-pub(in crate::manager) fn advertised_option_is_thought_level(options: &[AcpSessionConfigOption], config_id: &str) -> bool {
+pub(in crate::manager) fn advertised_option_is_thought_level(
+    options: &[AcpSessionConfigOption],
+    config_id: &str,
+) -> bool {
     options.iter().any(|option| {
         option.id.0.as_ref() == config_id && config_option_matches(option, "thought_level")
     })
 }
 
-pub(in crate::manager) fn config_option_matches(option: &AcpSessionConfigOption, key: &str) -> bool {
+pub(in crate::manager) fn config_option_matches(
+    option: &AcpSessionConfigOption,
+    key: &str,
+) -> bool {
     let key = normalize_config_token(key);
     let id = normalize_config_token(option.id.0.as_ref());
     let name = normalize_config_token(&option.name);
@@ -651,13 +681,19 @@ pub(in crate::manager) fn find_select_choice<'a>(
         })
 }
 
-pub(in crate::manager) fn select_choice_matches_exact(option: &SessionConfigSelectOption, aliases: &[String]) -> bool {
+pub(in crate::manager) fn select_choice_matches_exact(
+    option: &SessionConfigSelectOption,
+    aliases: &[String],
+) -> bool {
     select_choice_values(option)
         .iter()
         .any(|value| aliases.iter().any(|alias| value == alias))
 }
 
-pub(in crate::manager) fn select_choice_matches(option: &SessionConfigSelectOption, aliases: &[String]) -> bool {
+pub(in crate::manager) fn select_choice_matches(
+    option: &SessionConfigSelectOption,
+    aliases: &[String],
+) -> bool {
     select_choice_values(option).iter().any(|value| {
         aliases.iter().any(|alias| {
             let meaningful_alias = alias.len() > 3;
@@ -742,4 +778,3 @@ pub(in crate::manager) fn normalize_config_token(value: &str) -> String {
         .flat_map(|ch| ch.to_lowercase())
         .collect()
 }
-

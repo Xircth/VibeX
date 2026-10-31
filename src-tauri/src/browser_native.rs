@@ -268,6 +268,7 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
                 Err(_) => None,
             };
             if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
+                FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
                 let _ = tx.send(frame);
             }
             Ok(())
@@ -285,6 +286,7 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
     if result.is_err()
         && let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take())
     {
+        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
         let _ = tx.send(None);
     }
 }
@@ -358,6 +360,7 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
                 }
             };
             if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
+                FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
                 let _ = tx.send(frame);
             }
         },
@@ -1115,10 +1118,10 @@ fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason:
 }
 
 #[cfg(target_os = "windows")]
-static EVENT_TOKENS: OnceLock<Mutex<HashMap<String, (i64, i64)>>> = OnceLock::new();
+static EVENT_TOKENS: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
-fn event_tokens() -> &'static Mutex<HashMap<String, (i64, i64)>> {
+fn event_tokens() -> &'static Mutex<HashMap<String, i64>> {
     EVENT_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -1133,7 +1136,7 @@ fn attach_windows_popup_handler(
     opener_id: String,
 ) -> Result<(), BrowserHostError> {
     use tauri_runtime_wry::wry::WebViewExtWindows;
-    use webview2_com::{NewWindowRequestedEventHandler, WebMessageReceivedEventHandler};
+    use webview2_com::NewWindowRequestedEventHandler;
     use windows::{Win32::System::Com::CoTaskMemFree, core::PWSTR};
 
     fn take_uri(source: PWSTR) -> String {
@@ -1146,12 +1149,11 @@ fn attach_windows_popup_handler(
     }
 
     let core = webview.webview();
-    let app_popup = app.clone();
+    let app_popup = app;
     let opener_popup = opener_id.clone();
-    let token_tab_id = opener_id.clone();
-    let popup_service = service.clone();
+    let token_tab_id = opener_id;
+    let popup_service = service;
     let mut token = 0i64;
-    let mut msg_token = 0i64;
     unsafe {
         core.add_NewWindowRequested(
             &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
@@ -1178,32 +1180,9 @@ fn attach_windows_popup_handler(
             &mut token,
         )
         .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
-        core.add_WebMessageReceived(
-            &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else {
-                    return Ok(());
-                };
-                let mut raw = PWSTR::null();
-                let text = if args.TryGetWebMessageAsString(&mut raw).is_ok() {
-                    take_uri(raw)
-                } else {
-                    let mut json = PWSTR::null();
-                    if args.WebMessageAsJson(&mut json).is_err() {
-                        return Ok(());
-                    }
-                    take_uri(json)
-                };
-                if let Some(value) = parse_page_ipc(&text) {
-                    dispatch_page_ipc(&app, &service, &opener_id, &value);
-                }
-                Ok(())
-            })),
-            &mut msg_token,
-        )
-        .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
     }
     if let Ok(mut tokens) = event_tokens().lock() {
-        tokens.insert(token_tab_id, (token, msg_token));
+        tokens.insert(token_tab_id, token);
     }
     Ok(())
 }
@@ -1870,7 +1849,7 @@ impl NativeTabs for TauriNativeTabs {
                         #[cfg(target_os = "windows")]
                         {
                             use tauri_runtime_wry::wry::WebViewExtWindows;
-                            if let Some((new_win_token, msg_token)) = event_tokens()
+                            if let Some(new_win_token) = event_tokens()
                                 .lock()
                                 .ok()
                                 .and_then(|mut tokens| tokens.remove(&tab_id))
@@ -1878,7 +1857,6 @@ impl NativeTabs for TauriNativeTabs {
                                 let core = webview.webview();
                                 unsafe {
                                     let _ = core.remove_NewWindowRequested(new_win_token);
-                                    let _ = core.remove_WebMessageReceived(msg_token);
                                 }
                             }
                         }
@@ -2260,10 +2238,12 @@ impl NativeTabs for TauriNativeTabs {
                         .get(&tab_id)
                         .is_some_and(|bounds| !bounds.visible);
                     if hidden {
+                        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
                         let _ = tx.send(None);
                         return Ok(());
                     }
                     let Some(webview) = store.views.get(&tab_id) else {
+                        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
                         let _ = tx.send(None);
                         return Ok(());
                     };
@@ -2274,11 +2254,20 @@ impl NativeTabs for TauriNativeTabs {
             let frame = match started {
                 Ok(()) => match tokio::time::timeout(FREEZE_TIMEOUT, rx).await {
                     Ok(Ok(frame)) => frame,
-                    _ => None,
+                    Ok(Err(_)) => {
+                        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                        None
+                    }
+                    Err(_) => {
+                        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                        None
+                    }
                 },
-                Err(_) => None,
+                Err(_) => {
+                    FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                    None
+                }
             };
-            FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
             Ok(frame)
         }
     }
@@ -2294,32 +2283,59 @@ impl NativeTabs for TauriNativeTabs {
         }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
+            let wait_started = Instant::now();
+            while FREEZE_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+                if wait_started.elapsed() >= Duration::from_secs(3) {
+                    return Err(BrowserHostError::new(
+                        "browser_read_failed",
+                        "screenshot capture timed out waiting for an in-flight capture",
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
             let tab_id = tab_id.to_owned();
             let (tx, rx) = tokio::sync::oneshot::channel();
-            self.on_main(move || {
+            if let Err(err) = self.on_main(move || {
                 SURFACES.with(|slot| {
                     let store = slot.borrow();
-                    let webview = store.views.get(&tab_id).ok_or_else(|| {
-                        BrowserHostError::new("browser_no_such_tab", format!("no surface {tab_id}"))
-                    })?;
+                    let Some(webview) = store.views.get(&tab_id) else {
+                        FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                        return Err(BrowserHostError::new(
+                            "browser_no_such_tab",
+                            format!("no surface {tab_id}"),
+                        ));
+                    };
                     start_freeze_frame(webview, tx);
                     Ok(())
                 })
-            })?;
-            let frame = tokio::time::timeout(Duration::from_secs(3), rx)
-                .await
-                .map_err(|_| {
-                    BrowserHostError::new("browser_read_failed", "screenshot capture timed out")
-                })?
-                .map_err(|_| {
-                    BrowserHostError::new("browser_read_failed", "screenshot capture cancelled")
-                })?
-                .ok_or_else(|| {
-                    BrowserHostError::new(
+            }) {
+                FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                return Err(err);
+            }
+            let frame = match tokio::time::timeout(Duration::from_secs(3), rx).await {
+                Ok(Ok(Some(frame))) => frame,
+                Ok(Ok(None)) => {
+                    FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                    return Err(BrowserHostError::new(
                         "browser_read_failed",
                         "the browser engine could not capture a screenshot",
-                    )
-                })?;
+                    ));
+                }
+                Ok(Err(_)) => {
+                    FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                    return Err(BrowserHostError::new(
+                        "browser_read_failed",
+                        "screenshot capture cancelled",
+                    ));
+                }
+                Err(_) => {
+                    FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
+                    return Err(BrowserHostError::new(
+                        "browser_read_failed",
+                        "screenshot capture timed out",
+                    ));
+                }
+            };
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
                 frame.data.trim(),

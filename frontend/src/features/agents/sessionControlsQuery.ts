@@ -6,28 +6,40 @@ import type {
 
 import { agentsApi } from './api';
 
+function normalizeAgentType(agentType: string): string {
+  return agentType.trim().toLowerCase();
+}
+
 export function sessionControlsQueryKey(
   agentType: string,
   workspaceId: string | null
 ) {
-  return ['agent-session-controls-catalog', agentType, workspaceId] as const;
+  return [
+    'agent-session-controls-catalog',
+    normalizeAgentType(agentType),
+    workspaceId,
+  ] as const;
 }
 
 export function sessionControlsSchemaQueryKey(agentType: string) {
-  return ['agent-session-controls-schema', agentType] as const;
+  return [
+    'agent-session-controls-schema',
+    normalizeAgentType(agentType),
+  ] as const;
 }
 
 export async function loadAgentSessionControlsCatalog(
   agentType: string
 ): Promise<AgentSessionControlsSnapshot> {
-  const cached = await agentsApi.capabilityCatalog(agentType);
+  const normalized = normalizeAgentType(agentType);
+  const cached = await agentsApi.capabilityCatalog(normalized);
   if (cached) return cached;
 
-  const refreshed = await agentsApi.refreshCapabilityCatalog(agentType);
+  const refreshed = await agentsApi.refreshCapabilityCatalog(normalized);
   if (!refreshed) {
     throw new Error('Agent session controls discovery failed');
   }
-  const discovered = await agentsApi.capabilityCatalog(agentType);
+  const discovered = await agentsApi.capabilityCatalog(normalized);
   if (!discovered) {
     throw new Error('Agent session controls catalog is unavailable');
   }

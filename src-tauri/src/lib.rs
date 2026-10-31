@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use tauri::{Emitter, Manager, image::Image};
@@ -60,16 +62,117 @@ async fn release_startup_working_set(pool: &sqlx::SqlitePool) {
     }
 }
 
-fn prepare_main_window(app: &tauri::App) {
-    let Some(main_window) = app.get_webview_window("main") else {
+fn queue_debug_main_window(app: &tauri::App) {
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+    }
+    #[cfg(windows)]
+    {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        if app.get_webview_window("main").is_none() {
+            install_debug_main_window(app.handle());
+            return;
+        }
+        if let Some(window) = app.get_webview_window("main")
+            && let Err(error) = window.destroy()
+        {
+            tracing::warn!(%error, "failed to destroy the config-created debug main window");
+        }
+        let handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            while handle.get_webview_window("main").is_some() {
+                if tokio::time::Instant::now() >= deadline {
+                    tracing::warn!(
+                        "config-created debug main window is still registered after destroy"
+                    );
+                    break;
+                }
+                tokio::time::sleep(MAIN_WINDOW_REVEAL_POLL).await;
+            }
+            let handle_for_create = handle.clone();
+            if let Err(error) = handle.run_on_main_thread(move || {
+                install_debug_main_window(&handle_for_create);
+            }) {
+                tracing::error!(%error, "failed to schedule debug main webview creation");
+            }
+        });
+    }
+}
+
+#[cfg(windows)]
+fn install_debug_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(error) = window.destroy()
+    {
+        tracing::warn!(%error, "failed to destroy leftover debug main window");
+        return;
+    }
+    let primary = windows_webview2::debug_webview2_environment_dir();
+    let window = try_build_debug_main(app, primary).or_else(|| {
+        try_build_debug_main(
+            app,
+            windows_webview2::fresh_debug_webview2_user_data_dir(std::process::id()),
+        )
+    });
+    let Some(window) = window else {
+        tracing::error!("failed to create the debug main webview");
         return;
     };
-    if let Err(error) = apply_app_icon(&main_window) {
+    attach_main_window_handlers(&window, app);
+    schedule_window_reveal_fallback(window);
+}
+
+#[cfg(windows)]
+fn try_build_debug_main(app: &tauri::AppHandle, data_dir: PathBuf) -> Option<tauri::WebviewWindow> {
+    if let Err(error) = std::fs::create_dir_all(&data_dir) {
+        tracing::warn!(
+            path = %data_dir.display(),
+            %error,
+            "failed to create debug WebView2 user-data folder"
+        );
+        return None;
+    }
+    tracing::info!(
+        path = %data_dir.display(),
+        "creating debug main webview"
+    );
+    let builder = window_chrome::apply_app_window_chrome(
+        tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+            .title("VibeX Dev")
+            .inner_size(1400.0, 900.0)
+            .min_inner_size(800.0, 600.0)
+            .resizable(true)
+            .visible(false)
+            .center()
+            .data_directory(data_dir.clone()),
+    );
+    match builder.build() {
+        Ok(window) => {
+            windows_webview2::set_active_debug_webview2_environment_dir(data_dir);
+            window_chrome::apply_created_window_chrome(&window);
+            if let Err(error) = apply_app_icon(&window) {
+                tracing::warn!("Failed to apply app icon to debug main window: {error}");
+            }
+            Some(window)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "failed to create debug main webview");
+            None
+        }
+    }
+}
+
+fn attach_main_window_handlers(main_window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
+    if let Err(error) = apply_app_icon(main_window) {
         tracing::warn!("Failed to apply app icon to main window: {error}");
     }
-    window_chrome::apply_created_window_chrome(&main_window);
+    window_chrome::apply_created_window_chrome(main_window);
 
-    let app_handle = app.handle().clone();
+    let app_handle = app.clone();
     main_window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
@@ -78,10 +181,29 @@ fn prepare_main_window(app: &tauri::App) {
     });
 }
 
-fn schedule_main_window_reveal(app: &tauri::App) {
-    let Some(window) = app.get_webview_window("main") else {
+fn prepare_main_window(app: &tauri::App) {
+    #[cfg(windows)]
+    if cfg!(debug_assertions) {
+        queue_debug_main_window(app);
+        return;
+    }
+    let Some(main_window) = app.get_webview_window("main") else {
         return;
     };
+    attach_main_window_handlers(&main_window, app.handle());
+}
+
+fn schedule_main_window_reveal(app: &tauri::App) {
+    #[cfg(windows)]
+    if cfg!(debug_assertions) {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        schedule_window_reveal_fallback(window);
+    }
+}
+
+fn schedule_window_reveal_fallback(window: tauri::WebviewWindow) {
     tauri::async_runtime::spawn(async move {
         let deadline = tokio::time::Instant::now() + MAIN_WINDOW_REVEAL_FALLBACK;
         loop {
@@ -629,5 +751,17 @@ mod tests {
         install_rustls_crypto_provider();
 
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn debug_startup_creates_main_webview_on_an_isolated_user_data_folder() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("queue_debug_main_window"));
+        assert!(source.contains("install_debug_main_window"));
+        assert!(source.contains("debug_webview2_environment_dir"));
+        assert!(source.contains("creating debug main webview"));
+        assert!(source.contains(".data_directory(data_dir.clone())"));
+        assert!(source.contains("set_active_debug_webview2_environment_dir(data_dir)"));
+        assert!(source.contains("run_on_main_thread"));
     }
 }

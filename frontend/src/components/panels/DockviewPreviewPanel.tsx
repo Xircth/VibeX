@@ -1162,7 +1162,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             >
               <div ref={markdownScrollRef} className="h-full min-h-0">
                 <LazyMarkdownRichTextEditor
-                  key={`${resolvedFilePath}:${content ?? ''}`}
+                  key={resolvedFilePath ?? filePath}
                   markdown={editorContent}
                   label={resolvedDisplayPath ?? filePath}
                   workspacePath={markdownBasePath}

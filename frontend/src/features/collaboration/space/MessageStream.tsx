@@ -1,5 +1,6 @@
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import { Button } from '@/components/ui/button';
+import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { ConversationSelectionToolbar } from '@/components/NormalizedConversation/ConversationSelectionToolbar';
 import i18n from '@/i18n';
 import {
@@ -16,7 +17,11 @@ import {
   resolveMessageReceipts,
 } from '../spaceModel';
 import { MemberBotAvatar } from '../MemberBotAvatar';
-import { SpaceMessageBody, bubbleText } from '../SpaceMessageBody';
+import {
+  SpaceMessageBody,
+  approvalCardToPermissionView,
+  bubbleText,
+} from '../SpaceMessageBody';
 import { CollaborationWorkingStatus } from '../CollaborationWorkingStatus';
 import { CollaborationCrossChatNotice } from '../CollaborationCrossChatNotice';
 import { CollaborationThreadPermissionDock } from '../CollaborationThreadPermissionDock';
@@ -61,10 +66,15 @@ export function MessageStream() {
     setIsAtThreadBottom,
     spaces,
     t,
+    threadCards,
     threadLogRef,
     visibleRoster,
     workingConversationIds,
     workingMembers,
+    pendingApprovalCards,
+    pendingApprovalCardIds,
+    respondingApprovalCardId,
+    handleResolveApprovalCard,
     workspace,
     workspacePath,
   } = useCollaborationSpace();
@@ -173,11 +183,7 @@ export function MessageStream() {
                     );
                     const outcomeReceipts = messageReceipts.filter((receipt) => {
                       const state = String(receipt.state ?? '');
-                      return (
-                        state === 'passed' ||
-                        state === 'timed_out' ||
-                        state === 'cancelled'
-                      );
+                      return state === 'timed_out' || state === 'cancelled';
                     });
                     const statusReceipts = [
                       ...failedReceipts,
@@ -207,7 +213,9 @@ export function MessageStream() {
                     ) {
                       return null;
                     }
-                    const messageKey = String(message.seq);
+                    const messageKey =
+                      String(message.id ?? message.envelope?.id ?? '').trim() ||
+                      String(message.seq);
                     const cluster = messageClusters[index] ?? null;
                     const showName = showsClusterName(cluster);
                     const showAvatar = showsClusterAvatar(cluster);
@@ -248,7 +256,7 @@ export function MessageStream() {
                     );
                     return (
                       <article
-                        key={message.seq}
+                        key={messageKey}
                         ref={(node) => {
                           if (node) {
                             messageItemRefs.current.set(messageKey, node);
@@ -310,6 +318,7 @@ export function MessageStream() {
                                 workspaceId={workspace || undefined}
                                 deliveryStatus={deliveryStatus}
                                 reactions={messageReactions}
+                                cards={threadCards}
                               />
                             </div>
                           </div>
@@ -322,6 +331,7 @@ export function MessageStream() {
                             workspaceId={workspace || undefined}
                             deliveryStatus={deliveryStatus}
                             reactions={messageReactions}
+                            cards={threadCards}
                           />
                         ) : null}
                         <CollaborationCrossChatNotice
@@ -425,8 +435,26 @@ export function MessageStream() {
                   <CollaborationThreadPermissionDock
                     key={`permission-dock-${conversationId}`}
                     conversationId={conversationId}
+                    excludePermissionIds={pendingApprovalCardIds}
                   />
                 ))}
+                {pendingApprovalCards.length > 0 ? (
+                  <div
+                    className="collaboration-thread-permission-dock"
+                    data-testid="collaboration-thread-approval-dock"
+                  >
+                    {pendingApprovalCards.map((card) => (
+                      <PermissionRequestCard
+                        key={`approval-card-${card.id}`}
+                        request={approvalCardToPermissionView(card)}
+                        responding={respondingApprovalCardId === card.id}
+                        onRespond={(_permissionId, response) => {
+                          void handleResolveApprovalCard(card.id, response);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <ConversationSelectionToolbar

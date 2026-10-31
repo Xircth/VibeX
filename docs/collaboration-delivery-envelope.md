@@ -12,10 +12,10 @@
 ACP 会话重建或恢复后会清掉该记录，下一次投递重新注入。之后每次投递是
 **一行英文头 + 正文**。
 
-成员名单和更早历史不进信封。需要时调用：
+成员名单和更早历史不进信封。GroupSpace 投递信封会按时间顺序自动附带该 Bot 上次完成回合以来的群内新增上下文（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复，最多数条原文 + 超出部分单行折叠摘要）。Bot 直接基于信封内的增量上下文推进，无需每回合调用工具查看群消息；仅当信封提示更早消息「已折叠」或需查询成员/更早历史时才调用：
 
-- `list_space_members({ space_id })`
-- `list_space_messages({ space_id, since_seq?, limit? })`（`since_seq` ≥ 0，`limit` 1–200）
+- `list_spaces({ space_id? })`
+- `read_space_messages({ space_id, since_seq?, limit? })`（`since_seq` ≥ 0，`limit` 1–200）
 
 ## 每次投递
 

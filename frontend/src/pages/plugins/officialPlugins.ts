@@ -21,18 +21,12 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.workflow-creator': 'workflowCreator',
   'vibex.session-enhance': 'sessionEnhance',
   'vibex.plugin-development': 'pluginDevelopment',
-  'vibex.host-chrome': 'hostChrome',
-  'vibex.host-surface': 'hostSurface',
-  'vibex.provider-import': 'providerImport',
   'vibex.provider-switch': 'providerSwitch',
   'vibex.remote-ssh': 'remoteSsh',
   'vibex.science': 'science',
   'vibex.open-connector': 'openConnector',
   'vibex-plugin-computer-use': 'computerUse',
   'vibex.computer-use': 'computerUse',
-  'vibex.kanban-views': 'kanbanViews',
-  'vibex.notes': 'notes',
-  'vibex.prompt-enhancer': 'promptEnhancer',
 } as const;
 
 export type PluginCategoryKey =
@@ -63,20 +57,14 @@ const OFFICIAL_PLUGIN_CATEGORY_BY_KEY: Record<
   OfficialPluginI18nKey,
   PluginCategoryKey
 > = {
-  kanbanViews: 'design',
-  hostChrome: 'design',
-  hostSurface: 'design',
   pluginDevelopment: 'development',
   remoteSsh: 'development',
   openConnector: 'development',
   science: 'science',
   sessionEnhance: 'ai-enhancement',
-  promptEnhancer: 'ai-enhancement',
   providerSwitch: 'ai-enhancement',
-  providerImport: 'ai-enhancement',
   computerUse: 'ai-enhancement',
   browser: 'utilities',
-  notes: 'utilities',
   office: 'aigc',
   workflowCreator: 'aigc',
 };
@@ -87,17 +75,11 @@ const BARE_OFFICIAL_ID_TO_KEY: Record<string, OfficialPluginI18nKey> = {
   'workflow-creator': 'workflowCreator',
   'session-enhance': 'sessionEnhance',
   'plugin-development': 'pluginDevelopment',
-  'host-chrome': 'hostChrome',
-  'host-surface': 'hostSurface',
-  'provider-import': 'providerImport',
   'provider-switch': 'providerSwitch',
   'remote-ssh': 'remoteSsh',
   science: 'science',
   'open-connector': 'openConnector',
   'computer-use': 'computerUse',
-  'kanban-views': 'kanbanViews',
-  notes: 'notes',
-  'prompt-enhancer': 'promptEnhancer',
 };
 
 const CATEGORY_LABELS_ZH: Record<'all' | PluginCategoryKey, string> = {

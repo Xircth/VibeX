@@ -190,11 +190,12 @@ fn debounced_should_forward(event: &DebouncedEvent, gi: &Gitignore, canonical_ro
     }
     let kind_hint = path_kind_hint(&event.kind);
 
-    // We can check its paths field to determine if the event should be forwarded
-    event
-        .paths
-        .iter()
-        .all(|path| path_allowed(path, gi, canonical_root, kind_hint))
+    // Forward the event if at least one path is allowed (e.g., renames across gitignore boundaries)
+    !event.paths.is_empty()
+        && event
+            .paths
+            .iter()
+            .any(|path| path_allowed(path, gi, canonical_root, kind_hint))
 }
 
 /// How many created files one change batch reports. A batch that lands a whole
@@ -454,44 +455,7 @@ fn collect_watch_directories(root: &Path, gi: &Gitignore) -> Vec<WatchTarget> {
         .collect()
 }
 
-/// Helper to determine watch mode for a directory (used for dynamically added directories).
-/// This does a simple check of immediate children only, since we don't have the full
-/// allowed_dirs set at runtime.
-fn determine_watch_mode(path: &Path, gi: &Gitignore, canonical_root: &Path) -> RecursiveMode {
-    if !platform_supports_native_recursive() {
-        return RecursiveMode::NonRecursive;
-    }
-
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return RecursiveMode::Recursive;
-    };
-
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-
-        if !file_type.is_dir() {
-            continue;
-        }
-
-        let child_path = entry.path();
-
-        if let Some(name) = child_path.file_name().and_then(|n| n.to_str())
-            && should_skip_dir(name)
-        {
-            return RecursiveMode::NonRecursive;
-        }
-
-        if !path_allowed(&child_path, gi, canonical_root, None) {
-            return RecursiveMode::NonRecursive;
-        }
-    }
-
-    RecursiveMode::Recursive
-}
-
-/// Add a watch for a newly created directory
+/// Add watches for a newly created directory tree
 fn add_directory_watch(
     debouncer: &mut Debouncer<RecommendedWatcher, RecommendedCache>,
     watched_dirs: &mut WatchedDirs,
@@ -501,7 +465,7 @@ fn add_directory_watch(
 ) {
     let canonical_dir = canonicalize_lossy(dir_path);
 
-    if !path_allowed(&canonical_dir, gi, canonical_root, None) {
+    if !path_allowed(&canonical_dir, gi, canonical_root, Some(PathKindHint::Directory)) {
         return;
     }
 
@@ -509,20 +473,30 @@ fn add_directory_watch(
         return;
     }
 
-    let mode = determine_watch_mode(&canonical_dir, gi, canonical_root);
-
-    if let Err(e) = debouncer.watch(&canonical_dir, mode) {
-        tracing::warn!("Failed to watch new directory {:?}: {}", canonical_dir, e);
-    } else {
-        if matches!(mode, RecursiveMode::Recursive) {
-            watched_dirs.remove_children_only(&canonical_dir, |child| {
-                if let Err(err) = debouncer.unwatch(child) {
-                    tracing::warn!("Could not unwatch covered directory {:?}: {}", child, err);
-                }
-            });
+    for target in collect_watch_directories(&canonical_dir, gi) {
+        if !path_allowed(
+            &target.path,
+            gi,
+            canonical_root,
+            Some(PathKindHint::Directory),
+        ) {
+            continue;
         }
-
-        watched_dirs.insert(canonical_dir, mode);
+        if watched_dirs.contains(&target.path) || watched_dirs.has_recursive_cover(&target.path) {
+            continue;
+        }
+        if let Err(e) = debouncer.watch(&target.path, target.recursive) {
+            tracing::warn!("Failed to watch new directory {:?}: {}", target.path, e);
+        } else {
+            if matches!(target.recursive, RecursiveMode::Recursive) {
+                watched_dirs.remove_children_only(&target.path, |child| {
+                    if let Err(err) = debouncer.unwatch(child) {
+                        tracing::warn!("Could not unwatch covered directory {:?}: {}", child, err);
+                    }
+                });
+            }
+            watched_dirs.insert(target.path, target.recursive);
+        }
     }
 }
 

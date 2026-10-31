@@ -120,13 +120,13 @@ impl GitService {
         worktree_path: &Path,
         file_path: &str,
     ) -> Result<crate::ConflictFileDetail, GitServiceError> {
+        let worktree_file = validate_conflict_file_path(worktree_path, file_path)?;
         let git = GitCli::new();
         let conflicted = self.get_conflicted_files(worktree_path)?;
         let is_resolved = !conflicted.iter().any(|path| path == file_path);
         let base = stage_content(&git, worktree_path, file_path, 1)?;
         let ours = stage_content(&git, worktree_path, file_path, 2)?;
         let theirs = stage_content(&git, worktree_path, file_path, 3)?;
-        let worktree_file = worktree_path.join(file_path);
         let (result, is_binary) = match std::fs::read(&worktree_file) {
             Ok(bytes) if bytes.contains(&0) => (String::new(), true),
             Ok(bytes) => (String::from_utf8_lossy(&bytes).into_owned(), false),
@@ -155,12 +155,39 @@ impl GitService {
         file_path: &str,
         content: &str,
     ) -> Result<crate::WriteConflictResolutionResult, GitServiceError> {
-        let target = worktree_path.join(file_path);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&target, content)?;
+        const STAGE_OURS_SENTINEL: &str = "__VIBEX_CONFLICT_STAGE_OURS__";
+        const STAGE_THEIRS_SENTINEL: &str = "__VIBEX_CONFLICT_STAGE_THEIRS__";
+
+        let target = validate_conflict_file_path(worktree_path, file_path)?;
         let git = GitCli::new();
+        if content == STAGE_OURS_SENTINEL {
+            git.checkout_conflict_side(worktree_path, file_path, "--ours")
+                .map_err(|e| {
+                    GitServiceError::InvalidRepository(format!(
+                        "git checkout --ours failed for {file_path}: {e}"
+                    ))
+                })?;
+        } else if content == STAGE_THEIRS_SENTINEL {
+            git.checkout_conflict_side(worktree_path, file_path, "--theirs")
+                .map_err(|e| {
+                    GitServiceError::InvalidRepository(format!(
+                        "git checkout --theirs failed for {file_path}: {e}"
+                    ))
+                })?;
+        } else {
+            let existing_is_binary = std::fs::read(&target)
+                .map(|bytes| bytes.contains(&0))
+                .unwrap_or(false);
+            if existing_is_binary {
+                return Err(GitServiceError::InvalidRepository(format!(
+                    "binary conflict for {file_path} must be resolved by choosing ours or theirs"
+                )));
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&target, content)?;
+        }
         git.stage_file(worktree_path, file_path).map_err(|e| {
             GitServiceError::InvalidRepository(format!("git add failed for {file_path}: {e}"))
         })?;
@@ -173,6 +200,60 @@ impl GitService {
             is_resolved: !still_conflicted,
         })
     }
+}
+
+fn validate_conflict_file_path(
+    worktree_path: &Path,
+    file_path: &str,
+) -> Result<std::path::PathBuf, GitServiceError> {
+    if file_path.trim().is_empty() {
+        return Err(GitServiceError::InvalidRepository(
+            "conflict file path must not be empty".to_string(),
+        ));
+    }
+    let rel = Path::new(file_path);
+    let mut has_normal = false;
+    for component in rel.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                if part.eq_ignore_ascii_case(".git") {
+                    return Err(GitServiceError::InvalidRepository(format!(
+                        "invalid conflict file path: {file_path}"
+                    )));
+                }
+                has_normal = true;
+            }
+            _ => {
+                return Err(GitServiceError::InvalidRepository(format!(
+                    "invalid conflict file path: {file_path}"
+                )));
+            }
+        }
+    }
+    if !has_normal {
+        return Err(GitServiceError::InvalidRepository(format!(
+            "invalid conflict file path: {file_path}"
+        )));
+    }
+    let joined = worktree_path.join(rel);
+    if let Ok(canon_root) = worktree_path.canonicalize() {
+        let mut probe = joined.as_path();
+        while !probe.exists() {
+            let Some(parent) = probe.parent() else {
+                break;
+            };
+            probe = parent;
+        }
+        if probe.exists()
+            && let Ok(canon_probe) = probe.canonicalize()
+            && !canon_probe.starts_with(&canon_root)
+        {
+            return Err(GitServiceError::InvalidRepository(format!(
+                "conflict file path escapes worktree: {file_path}"
+            )));
+        }
+    }
+    Ok(joined)
 }
 
 fn stage_content(
@@ -327,5 +408,61 @@ mod tests {
             .unwrap();
         service.continue_conflicts(&path).unwrap();
         assert_eq!(service.detect_conflict_op(&path).unwrap(), None);
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_git_internal_paths() {
+        let service = GitService::new();
+        let (_tmp, path) = init_conflict_repo();
+        assert!(service.get_conflict_file_detail(&path, "../outside.txt").is_err());
+        assert!(
+            service
+                .write_conflict_resolution(&path, "../outside.txt", "pwn")
+                .is_err()
+        );
+        assert!(
+            service
+                .write_conflict_resolution(&path, ".git/config", "pwn")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn binary_conflict_rejects_empty_text_write_and_supports_stage_checkout() {
+        let service = GitService::new();
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        git(&path, &["init"]);
+        git(&path, &["config", "user.email", "test@example.com"]);
+        git(&path, &["config", "user.name", "Test"]);
+        fs::write(path.join("blob.bin"), [0x00, 0x01, 0x02]).unwrap();
+        git(&path, &["add", "blob.bin"]);
+        git(&path, &["commit", "-m", "base"]);
+        git(&path, &["checkout", "-b", "theirs"]);
+        fs::write(path.join("blob.bin"), [0x00, 0xFF, 0xFE]).unwrap();
+        git(&path, &["add", "blob.bin"]);
+        git(&path, &["commit", "-m", "theirs"]);
+        git(&path, &["checkout", "-"]);
+        fs::write(path.join("blob.bin"), [0x00, 0xAA, 0xBB]).unwrap();
+        git(&path, &["add", "blob.bin"]);
+        git(&path, &["commit", "-m", "ours"]);
+        let _ = Command::new("git")
+            .args(["merge", "theirs"])
+            .current_dir(&path)
+            .status();
+
+        // Attempting to write empty text to a binary conflict must be rejected.
+        assert!(
+            service
+                .write_conflict_resolution(&path, "blob.bin", "")
+                .is_err()
+        );
+
+        // Resolving via stage sentinel preserves exact binary bytes.
+        let res = service
+            .write_conflict_resolution(&path, "blob.bin", "__VIBEX_CONFLICT_STAGE_THEIRS__")
+            .unwrap();
+        assert!(res.is_resolved);
+        assert_eq!(fs::read(path.join("blob.bin")).unwrap(), vec![0x00, 0xFF, 0xFE]);
     }
 }

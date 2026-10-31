@@ -26,16 +26,18 @@ use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-pub use self::applier::{ConversationEventAppender, ConversationStateApplier};
-pub use self::cache::{
-    CachedRowProjector, ConversationRowProjectors, IncrementalRowProjector,
-    evict_least_recently_used_projectors, extend_coalesced_row_ops,
+pub use self::{
+    applier::{ConversationEventAppender, ConversationStateApplier},
+    cache::{
+        CachedRowProjector, ConversationRowProjectors, IncrementalRowProjector,
+        evict_least_recently_used_projectors, extend_coalesced_row_ops,
+    },
 };
-use self::cache::{
-    antigravity_conversation, decode_timeline_row_records, record_rebuilt_projector_fold,
+use self::{
+    cache::{antigravity_conversation, decode_timeline_row_records, record_rebuilt_projector_fold},
+    fold::ProjectedTurn,
+    rows::{annotate_fork_point_rows, message_rows},
 };
-use self::fold::ProjectedTurn;
-use self::rows::{annotate_fork_point_rows, message_rows};
 
 /// Occupancy-only usage must not erase a protocol breakdown already stored on
 /// the turn. A later `_meta.totalTokens` sample updates context fields only.
@@ -82,10 +84,10 @@ pub(super) fn merge_reported_turn_usage(
     }
 }
 
-// v21 settles Antigravity view_file (`read`) failures as `completed` with no
-// error output, matching a successful view. The bump drops snapshots folded
-// before that rule.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 21;
+// v22 folds AgentBindingRecoveryFailed into the stable connect-error notice row
+// so a subsequent AgentBindingReady / AgentBindingRecovered clears it instead of
+// leaving a permanent error banner in cached snapshots.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 22;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 16;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
@@ -197,7 +199,6 @@ pub(crate) fn emit_captured_internal_message(message: agents::CapturedInternalMe
     }
 }
 
-
 pub struct ConversationProjector;
 
 impl ConversationProjector {
@@ -267,7 +268,10 @@ impl ConversationProjector {
         Ok(window)
     }
 
-    pub(super) async fn fold(pool: &SqlitePool, conversation_id: Uuid) -> Result<ProjectionFold, sqlx::Error> {
+    pub(super) async fn fold(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<ProjectionFold, sqlx::Error> {
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
         fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
@@ -498,7 +502,6 @@ impl ConversationProjector {
         record_rebuilt_projector_fold(conversation_id, &fold);
         Ok(())
     }
-
 }
 
 #[derive(Default, Clone)]
@@ -753,7 +756,6 @@ async fn fork_capability(
     Ok((capabilities.fork_session, agent_kind))
 }
 
-
 fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
     let total_usage = turns.iter().filter_map(|turn| turn.usage.as_ref()).fold(
         TurnUsage::default(),
@@ -793,7 +795,6 @@ fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
         }),
     })
 }
-
 
 /// A stored event as seen by the read side: either a known domain event, or an
 /// `Unknown` wrapper for an event this build can't parse (e.g. one written by a
@@ -837,4 +838,3 @@ pub(super) fn conversation_event_from_record(record: &ConversationEventRecord) -
         }
     }
 }
-

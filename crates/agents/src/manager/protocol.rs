@@ -1,21 +1,20 @@
 use super::*;
 
 pub(in crate::manager) mod codec;
+pub(in crate::manager) mod config;
 pub(in crate::manager) mod content;
 pub(in crate::manager) mod errors;
 pub(in crate::manager) mod ext;
-pub(in crate::manager) mod session_update;
-pub(in crate::manager) mod config;
-pub(in crate::manager) mod vendor;
 pub(in crate::manager) mod mapping;
+pub(in crate::manager) mod session_update;
+pub(in crate::manager) mod vendor;
 
 pub(in crate::manager) use codec::*;
+pub(in crate::manager) use config::*;
 pub(in crate::manager) use content::*;
 pub(in crate::manager) use errors::*;
-pub(in crate::manager) use config::*;
-pub(in crate::manager) use vendor::*;
 pub(in crate::manager) use mapping::*;
-
+pub(in crate::manager) use vendor::*;
 
 /// Grok applies model changes through the non-standard `session/set_model`
 /// method (`{sessionId, modelId}`) — its `session/set_config_option` handler
@@ -116,7 +115,6 @@ impl KiroExecuteCommandRequest {
     }
 }
 
-
 /// Which streaming text channel a chunk belongs to. Tracked so a thought→message
 /// transition (or vice versa) restarts the snapshot accumulator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +144,11 @@ pub(in crate::manager) struct StreamDedupState {
 /// is that trailing snapshot. Dropping it stops the answer from rendering (and
 /// persisting) twice in one bubble. Agents that never replay (Claude, Gemini, …)
 /// only ever append, so this is a no-op for them.
-pub(in crate::manager) fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str) -> bool {
+pub(in crate::manager) fn dedup_stream_text(
+    state: &mut StreamDedupState,
+    kind: StreamKind,
+    text: &str,
+) -> bool {
     if state.active != Some(kind) {
         state.active = Some(kind);
         state.text.clear();
@@ -172,7 +174,8 @@ pub(in crate::manager) struct AcpClientBridge {
     // Shared with the owning runner: session-notification pushes (mode / config
     // updates) must keep the stored controls authoritative for later
     // set_mode/set_config_option matching.
-    pub(in crate::manager) session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
+    pub(in crate::manager) session_controls:
+        Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pub(in crate::manager) pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pub(in crate::manager) pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
     pub(in crate::manager) auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
@@ -230,7 +233,11 @@ impl AcpClientBridge {
         }
     }
 
-    pub(in crate::manager) async fn record_hydrated_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+    pub(in crate::manager) async fn record_hydrated_update(
+        &self,
+        acp_session_id: &str,
+        update: &SessionUpdate,
+    ) {
         let matches_target =
             self.apply.replay_hydrate.lock().await.as_deref() == Some(acp_session_id);
         if !matches_target {
@@ -248,7 +255,11 @@ impl AcpClientBridge {
         ));
     }
 
-    pub(in crate::manager) fn record_live_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+    pub(in crate::manager) fn record_live_update(
+        &self,
+        acp_session_id: &str,
+        update: &SessionUpdate,
+    ) {
         if !records_acp_jsonl(self.agent_id.as_str()) {
             return;
         }
@@ -296,7 +307,6 @@ impl AcpClientBridge {
         *self.last_activity.lock().await = Instant::now();
     }
 
-
     pub(in crate::manager) async fn handle_agent_notification(
         &self,
         notification: AgentNotification,
@@ -309,8 +319,10 @@ impl AcpClientBridge {
         }
     }
 
-
-    pub(in crate::manager) async fn agent_session_for_acp(&self, acp_session_id: String) -> Option<AgentSessionId> {
+    pub(in crate::manager) async fn agent_session_for_acp(
+        &self,
+        acp_session_id: String,
+    ) -> Option<AgentSessionId> {
         self.session_map
             .read()
             .await
@@ -323,5 +335,4 @@ impl AcpClientBridge {
                 }
             })
     }
-
 }

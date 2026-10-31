@@ -1,10 +1,9 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
-    AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentId, AgentRuntime,
-    AgentSessionConfigOverride, CompanionInjection, CompanionInjectionContext,
-    CompanionInjectionList, DelegationInjector, InjectedMcpServer, InjectedRemoteMcpServer,
-    InjectedRemoteMcpTransport,
+    AgentConnectionStatus, AgentEvent, AgentId, AgentRuntime, AgentSessionConfigOverride,
+    CompanionInjection, CompanionInjectionContext, CompanionInjectionList, DelegationInjector,
+    InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport,
     events::DelegationResultSummary,
     ids::{AgentConnectionId, AgentSessionId},
 };
@@ -19,8 +18,8 @@ use delegation::{
     DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
     DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
     DelegationOutcome, DelegationService, DelegationStartedEvent, DepthLookup,
-    InMemoryCompanionFeatures, ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry,
-    TokenPermissions, TokenRegistry, outcome_from_turn,
+    InMemoryCompanionFeatures, ParentSessionLookup, ResolverEntry, SpawnerError, TaskStatus,
+    TokenEntry, TokenPermissions, TokenRegistry, process_resolver_event,
 };
 use plugins::{
     OfficialMcpRuntime, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
@@ -33,7 +32,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentId)>>>;
+type ResolverMap = Arc<Mutex<HashMap<Uuid, ResolverEntry>>>;
 
 pub(crate) struct HeadlessDelegationRuntime {
     tasks: Vec<JoinHandle<()>>,
@@ -268,7 +267,7 @@ impl ConnectionSpawner for RuntimeSpawner {
 
     async fn send_prompt_linked(
         &self,
-        _child_connection_id: &str,
+        child_connection_id: &str,
         child_session_id: Uuid,
         task: String,
         link: DelegationLink,
@@ -281,7 +280,11 @@ impl ConnectionSpawner for RuntimeSpawner {
             .collect();
         self.map.lock().await.insert(
             child_id,
-            (link.delegation_call_id.clone(), link.agent_type.clone()),
+            ResolverEntry {
+                call_id: link.delegation_call_id.clone(),
+                agent_type: link.agent_type.clone(),
+                connection_id: child_connection_id.to_string(),
+            },
         );
         let service = ConversationSessionService::new(self.context.clone());
         if let Err(error) = service
@@ -769,38 +772,12 @@ fn spawn_resolver(
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => break,
             };
-            let Some(session_id) = envelope.session_id.map(|id| id.0) else {
-                continue;
+            let completed = {
+                let mut guard = map.lock().await;
+                process_resolver_event(&envelope, &mut guard, &mut replies)
             };
-            match envelope.event {
-                AgentEvent::MessageChunk {
-                    content: AgentContentBlock::Text { text: chunk },
-                } if map.lock().await.contains_key(&session_id) => {
-                    replies.entry(session_id).or_default().push_text(&chunk);
-                }
-                AgentEvent::ToolCall { .. } if map.lock().await.contains_key(&session_id) => {
-                    if let Some(reply) = replies.get_mut(&session_id) {
-                        reply.start_tool();
-                    }
-                }
-                AgentEvent::PromptFinished { finished } => {
-                    if let Some((call_id, agent_type)) = map.lock().await.remove(&session_id) {
-                        broker
-                            .complete_call(
-                                &call_id,
-                                outcome_from_turn(
-                                    finished.stop_reason.as_deref(),
-                                    replies.remove(&session_id).unwrap_or_default().finish(),
-                                    session_id,
-                                    agent_type,
-                                    1,
-                                    0,
-                                ),
-                            )
-                            .await;
-                    }
-                }
-                _ => {}
+            for (call_id, outcome) in completed {
+                broker.complete_call(&call_id, outcome).await;
             }
         }
     })

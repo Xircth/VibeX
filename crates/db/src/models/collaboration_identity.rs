@@ -446,9 +446,10 @@ pub async fn resolve_session_in(
         .rows_affected(),
         None => 0,
     };
-    if copied == 0 && template.is_none() {
+    if copied == 0 {
+        let mut inserted_from_role = 0;
         if let Some(role_id) = member.role_id.as_deref() {
-            sqlx::query(
+            inserted_from_role = sqlx::query(
                 "INSERT INTO conversation_personas
                    (conversation_id, role_id, name, team_name, summary, agent_id,
                     persona_prompt, snapshotted_at)
@@ -462,6 +463,24 @@ pub async fn resolve_session_in(
             .bind(&member.name)
             .bind(now())
             .bind(role_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        }
+        if inserted_from_role == 0 {
+            sqlx::query(
+                "INSERT INTO conversation_personas
+                   (conversation_id, role_id, name, team_name, summary, agent_id,
+                    persona_prompt, snapshotted_at)
+                 SELECT ?, m.role_id, m.name, NULL, '', COALESCE(NULLIF(trim(m.agent), ''), ?), COALESCE(m.persona_prompt, ''), ?
+                 FROM collaboration_members m
+                 WHERE m.id = ?
+                 ON CONFLICT(conversation_id) DO NOTHING",
+            )
+            .bind(new_id.to_string())
+            .bind(agent.as_deref().unwrap_or("codex"))
+            .bind(now())
+            .bind(member_id)
             .execute(&mut *tx)
             .await?;
         }

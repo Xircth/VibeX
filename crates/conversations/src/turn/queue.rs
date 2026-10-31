@@ -176,6 +176,34 @@ impl ConversationSessionService {
                 return Err(error);
             }
         };
+        let pool = &self.ctx.deployment.db().pool;
+        if let Some(persisted_session) = Session::find_by_id(pool, conversation_id).await? {
+            if persisted_session
+                .agent_id
+                .as_ref()
+                .is_some_and(|existing| existing != &payload.agent_id)
+                && let Err(error) = self.detach_agent_session(conversation_id).await
+            {
+                inputs
+                    .release_claim(conversation_id, input_id, claim_token)
+                    .await?;
+                return Err(error);
+            }
+            if persisted_session.agent_id.as_ref() != Some(&payload.agent_id)
+                && let Err(error) = Session::update_agent_metadata(
+                    pool,
+                    conversation_id,
+                    None,
+                    Some(&payload.agent_id),
+                )
+                .await
+            {
+                inputs
+                    .release_claim(conversation_id, input_id, claim_token)
+                    .await?;
+                return Err(error.into());
+            }
+        }
         let runtime_session_id = AgentSessionId(conversation_id);
         if !self
             .ctx
@@ -278,11 +306,19 @@ impl ConversationSessionService {
                 Ok(Some(_)) => started += 1,
                 Ok(None) => {}
                 Err(error) => {
-                    tracing::warn!(
-                        %conversation_id,
-                        %error,
-                        "failed to resume a durable conversation input"
-                    );
+                    if error.should_retry_queued_dispatch() {
+                        tracing::warn!(
+                            %conversation_id,
+                            %error,
+                            "failed to resume a durable conversation input"
+                        );
+                    } else {
+                        tracing::info!(
+                            %conversation_id,
+                            %error,
+                            "durable conversation input is waiting for session rebind"
+                        );
+                    }
                 }
             }
         }

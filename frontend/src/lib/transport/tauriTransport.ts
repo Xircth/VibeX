@@ -5,7 +5,11 @@ import type {
   SubscriptionRequest,
 } from './backendTransport';
 import type { SubscriptionBootstrap } from 'shared/types';
-import { HOST_CAPABILITY_SCOPES, HOST_COMMANDS } from 'shared/hostCommands';
+import {
+  DESKTOP_SHELL_COMMANDS,
+  HOST_CAPABILITY_SCOPES,
+  HOST_COMMANDS,
+} from 'shared/hostCommands';
 
 type ApplicationCommandResponse = {
   operation_id: string;
@@ -26,6 +30,7 @@ type WireSubscriptionBootstrap = Omit<
 };
 
 const APPLICATION_COMMANDS = new Set<string>(HOST_COMMANDS);
+const DESKTOP_SHELL_COMMAND_SET = new Set<string>(DESKTOP_SHELL_COMMANDS);
 
 function sequenceToWire(sequence: bigint): number {
   if (
@@ -53,7 +58,10 @@ export class TauriTransport implements BackendTransport {
     options?: { operationId?: string }
   ): Promise<unknown> {
     const { tauriInvoke } = await import('@/lib/tauriApi');
-    if (APPLICATION_COMMANDS.has(command)) {
+    if (
+      APPLICATION_COMMANDS.has(command) ||
+      !DESKTOP_SHELL_COMMAND_SET.has(command)
+    ) {
       const response = await tauriInvoke<ApplicationCommandResponse>(
         'application_call',
         {
@@ -121,72 +129,140 @@ export class TauriTransport implements BackendTransport {
     return this.subscribeDurable(request);
   }
 
-  private async *subscribeDurable(
+  private subscribeDurable(
     request: Exclude<
       SubscriptionRequest,
       { resource: 'patch_stream' | 'host_event' }
     >
   ): AsyncIterable<RemoteEvent> {
-    const isWorkflowRun = request.resource === 'workflow_run';
-    let dirty = true;
-    let wake: (() => void) | undefined;
-    const unlisten = await this.listen('conversation-events', () => {
-      dirty = true;
-      wake?.();
-      wake = undefined;
-    });
-    let afterSequence = request.after_sequence;
+    return {
+      [Symbol.asyncIterator]: (): AsyncIterator<RemoteEvent> => {
+        const isWorkflowRun = request.resource === 'workflow_run';
+        const queue: RemoteEvent[] = [];
+        let dirty = true;
+        let closed = false;
+        let started = false;
+        let wake: (() => void) | undefined;
+        let unlisten: (() => void) | undefined;
+        let afterSequence = request.after_sequence;
 
-    try {
-      while (true) {
-        if (!dirty) {
-          if (isWorkflowRun) {
-            await Promise.race([
-              new Promise<void>((resolve) => {
-                wake = resolve;
-              }),
-              new Promise<void>((resolve) =>
-                globalThis.setTimeout(resolve, 100)
-              ),
-            ]);
-          } else {
-            await new Promise<void>((resolve) => {
-              wake = resolve;
-            });
-          }
-        }
-        dirty = false;
-        const bootstrap = (await this.call('conversation_attach', {
-          request: {
-            ...request,
-            after_sequence: sequenceToWire(afterSequence),
+        const cleanup = () => {
+          closed = true;
+          const pendingWake = wake;
+          wake = undefined;
+          pendingWake?.();
+          const fn = unlisten;
+          unlisten = undefined;
+          fn?.();
+        };
+
+        return {
+          next: async (): Promise<IteratorResult<RemoteEvent>> => {
+            if (closed) {
+              return { value: undefined, done: true };
+            }
+            const buffered = queue.shift();
+            if (buffered) {
+              return { value: buffered, done: false };
+            }
+            if (!started) {
+              started = true;
+              // Validate cursor before registering listeners.
+              sequenceToWire(afterSequence);
+              unlisten = await this.listen('conversation-events', () => {
+                if (closed) return;
+                dirty = true;
+                const pendingWake = wake;
+                wake = undefined;
+                pendingWake?.();
+              });
+              if (closed) {
+                cleanup();
+                return { value: undefined, done: true };
+              }
+            }
+            while (!closed) {
+              const nextBuffered = queue.shift();
+              if (nextBuffered) {
+                return { value: nextBuffered, done: false };
+              }
+              if (!dirty) {
+                if (isWorkflowRun) {
+                  await Promise.race([
+                    new Promise<void>((resolve) => {
+                      wake = resolve;
+                    }),
+                    new Promise<void>((resolve) =>
+                      globalThis.setTimeout(resolve, 100)
+                    ),
+                  ]);
+                } else {
+                  await new Promise<void>((resolve) => {
+                    wake = resolve;
+                  });
+                }
+                if (closed) break;
+              }
+              dirty = false;
+              let bootstrap: WireSubscriptionBootstrap;
+              try {
+                bootstrap = (await this.call('conversation_attach', {
+                  request: {
+                    ...request,
+                    after_sequence: sequenceToWire(afterSequence),
+                  },
+                })) as WireSubscriptionBootstrap;
+              } catch (err) {
+                cleanup();
+                throw err;
+              }
+              if (closed) break;
+              if (!bootstrap.ready) {
+                cleanup();
+                throw new Error('durable subscription was not ready');
+              }
+              try {
+                if (bootstrap.snapshot) {
+                  queue.push({
+                    sequence: sequenceFromWire(
+                      bootstrap.snapshot.through_sequence
+                    ),
+                    kind: 'subscription_snapshot',
+                    payload: bootstrap.snapshot.payload,
+                  });
+                }
+                for (const event of bootstrap.replay) {
+                  const sequence = sequenceFromWire(event.sequence);
+                  if (sequence > afterSequence) {
+                    afterSequence = sequence;
+                    queue.push({ ...event, sequence });
+                  }
+                }
+                const highWaterMark = sequenceFromWire(
+                  bootstrap.high_water_mark
+                );
+                if (highWaterMark > afterSequence) {
+                  afterSequence = highWaterMark;
+                }
+              } catch (err) {
+                cleanup();
+                throw err;
+              }
+            }
+            cleanup();
+            return { value: undefined, done: true };
           },
-        })) as WireSubscriptionBootstrap;
-        if (!bootstrap.ready) {
-          throw new Error('durable subscription was not ready');
-        }
-        if (bootstrap.snapshot) {
-          yield {
-            sequence: sequenceFromWire(bootstrap.snapshot.through_sequence),
-            kind: 'subscription_snapshot',
-            payload: bootstrap.snapshot.payload,
-          };
-        }
-        for (const event of bootstrap.replay) {
-          const sequence = sequenceFromWire(event.sequence);
-          if (sequence > afterSequence) {
-            afterSequence = sequence;
-            yield { ...event, sequence };
-          }
-        }
-        const highWaterMark = sequenceFromWire(bootstrap.high_water_mark);
-        if (highWaterMark > afterSequence) {
-          afterSequence = highWaterMark;
-        }
-      }
-    } finally {
-      unlisten();
-    }
+          async return(): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            return { value: undefined, done: true };
+          },
+          async throw(err?: unknown): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            throw err;
+          },
+        };
+      },
+    };
   }
 
   private subscribePatchStream(

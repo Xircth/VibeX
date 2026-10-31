@@ -660,11 +660,32 @@ impl DelegationBroker {
             } else {
                 None
             };
-        {
+        let canceled_before_spawn = {
             let mut pending = self.pending.lock().unwrap();
             if let Some(setup) = pending.setups.get_mut(&call_id) {
                 setup.workspace_write_guard = workspace_write_guard;
             }
+            parent_setup_lease.revoked.load(Ordering::Acquire)
+                || pending.closed_parents.contains(&req.parent_connection_id)
+                || pending.early_completes.contains_key(&call_id)
+                || req.external_handle.as_ref().is_some_and(|handle| {
+                    remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
+                })
+        };
+        if canceled_before_spawn {
+            self.fail_started(
+                &call_id,
+                &req,
+                parent_tool_use_id,
+                has_real_tool_call,
+                child_session_id,
+                "canceled",
+                "canceled by MCP client",
+                &parent_setup_lease,
+                config.max_result_bytes,
+            )
+            .await;
+            return;
         }
 
         // Spawn the child connection.
@@ -701,6 +722,7 @@ impl DelegationBroker {
             let mut pending = self.pending.lock().unwrap();
             let canceled = parent_setup_lease.revoked.load(Ordering::Acquire)
                 || pending.closed_parents.contains(&req.parent_connection_id)
+                || pending.early_completes.contains_key(&call_id)
                 || req.external_handle.as_ref().is_some_and(|handle| {
                     remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
                 });

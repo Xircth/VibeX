@@ -34,6 +34,17 @@ impl GitService {
         base_branch_name: Option<&str>,
     ) -> Result<(usize, usize), GitServiceError> {
         let repo = Repository::open(repo_path)?;
+        let initial_base_ref = if let Some(bn) = base_branch_name {
+            Self::find_branch(&repo, bn)?
+        } else {
+            repo.find_branch(branch_name, BranchType::Local)?
+                .upstream()?
+        }
+        .into_reference();
+        let remote = self.get_remote_from_branch_ref(&repo, &initial_base_ref)?;
+        self.fetch_all_from_remote(&repo, &remote)?;
+
+        // Re-resolve references after fetching so updated remote tracking OIDs are used.
         let branch_ref = Self::find_branch(&repo, branch_name)?.into_reference();
         let base_branch_ref = if let Some(bn) = base_branch_name {
             Self::find_branch(&repo, bn)?
@@ -42,8 +53,6 @@ impl GitService {
                 .upstream()?
         }
         .into_reference();
-        let remote = self.get_remote_from_branch_ref(&repo, &base_branch_ref)?;
-        self.fetch_all_from_remote(&repo, &remote)?;
         self.get_branch_status_inner(&repo, &branch_ref, &base_branch_ref)
     }
 

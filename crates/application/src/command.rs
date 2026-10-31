@@ -739,13 +739,15 @@ where
                 })?
             }
             RegisteredCommand::ConversationListRecent => {
-                let args = serde_json::from_value::<ConversationListRecentArgs>(args).unwrap_or(
+                let args = if args.is_null() {
                     ConversationListRecentArgs {
                         limit: None,
                         since_days: None,
                         project_id: None,
-                    },
-                );
+                    }
+                } else {
+                    parse_args::<ConversationListRecentArgs>(command, operation_id, args)?
+                };
                 let result = self
                     .core
                     .list_recent_conversations(

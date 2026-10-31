@@ -174,6 +174,24 @@ export default function DiffCard({
   const [forcedNewContent, setForcedNewContent] = useState<string | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
+  useEffect(() => {
+    setForcedOldContent(null);
+    setForcedNewContent(null);
+    setIsLoadingContent(false);
+  }, [
+    diff.oldPath,
+    diff.newPath,
+    diff.change,
+    diff.oldContent,
+    diff.newContent,
+    diff.contentOmitted,
+    diff.additions,
+    diff.deletions,
+    diff.repoId,
+    selectedAttempt?.id,
+    selectedAttempt?.container_ref,
+  ]);
+
   const handleLoadContent = useCallback(async () => {
     if (!canForceLoadTextContent) {
       return;

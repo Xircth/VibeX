@@ -219,6 +219,10 @@ export function useShikiTokens(
       }
     }
 
+    if (!incremental) {
+      setTokens(createPlainTokenLines(value));
+    }
+
     highlightCodeToTokens(value, language, {
       cache: !incremental,
     })

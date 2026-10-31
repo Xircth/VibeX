@@ -49,7 +49,7 @@ export function BrowserToolCard({
   const isResultDetail = useToolCallResultDetail();
   const effectiveExpanded = forceExpanded || isResultDetail || expanded;
   const facts = jsonToFacts(action?.arguments, {
-    skipKeys: ['code', 'description'],
+    skipKeys: ['code', 'description', 'toolSummary', 'toolAction'],
   });
   const code = typeof args.code === 'string' ? args.code : '';
   const name = action?.tool_name || toolEntry?.tool_name || 'browser';

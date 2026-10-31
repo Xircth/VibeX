@@ -248,7 +248,6 @@ pub(crate) async fn deliver_text(
     let agent_id = AgentId::parse(&agent_raw).map_err(|error| {
         CollaborationError::new("conversation_control_failed", error.to_string())
     })?;
-    let busy = active_turn_id(pool, conversation_id).await?;
     let inputs = match &delivery.publisher {
         Some(publisher) => {
             ConversationInputControl::with_publisher(pool.clone(), publisher.clone())
@@ -286,7 +285,17 @@ pub(crate) async fn deliver_text(
             ));
         }
     };
-    let (delivered, turn_id) = receipt_delivery(conversation_id, busy, delivery).await;
+    let busy = active_turn_id(pool, conversation_id).await?;
+    let (mut delivered, mut turn_id) = receipt_delivery(conversation_id, busy, delivery).await;
+    if delivered == "queued"
+        && let Ok(current_input) = inputs.find(conversation_id, submitted.id).await
+        && current_input.status == crate::ConversationInputStatus::Dispatched
+    {
+        delivered = "dispatched".to_string();
+        if current_input.turn_id.is_some() {
+            turn_id = current_input.turn_id;
+        }
+    }
     let receipt = SendReceipt {
         delivered,
         input_id: Some(submitted.id),

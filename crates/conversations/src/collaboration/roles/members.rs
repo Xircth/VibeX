@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 use super::*;
 
+#[path = "activity.rs"]
+mod activity;
 #[path = "host_ops.rs"]
 mod host_ops;
 #[path = "lifecycle.rs"]
@@ -15,6 +17,7 @@ mod roster;
 #[path = "session_config.rs"]
 mod session_config;
 
+use activity::{attach_member_activities, attach_space_member_activities};
 pub use host_ops::*;
 pub use lifecycle::*;
 pub use roster::*;
@@ -255,6 +258,13 @@ pub(crate) async fn member_identity_context_text(
         }
     }
 
+    let is_supervisor = is_caller_workspace_supervisor(pool, conversation_id).await?;
+    let supervisor_line = if is_supervisor {
+        "- 协作权限身份：你是当前工作区的 **主管（总管）**。你可以调用 `manage_bot(create/update/delete/interrupt)` 管理全区 Bot，调用 `manage_group(create/rename/delete/add_bot/remove_bot/set_lead)` 组建和治理群组，并通过 `post_space_message` 跨会话协同（删除 Bot 或解散群组前必须先 `request_approval`）。"
+    } else {
+        "- 协作权限身份：普通成员（创建/删除 Bot、修改其他 Bot 配置、创建/解散群组等高危或全局管理操作仅限主管调用；需要时先调 `list_spaces` 查看 `supervisor_nickname` 并联系主管或 Person）。"
+    };
+
     if group_memberships.is_empty() {
         let Some((thread_label, my_nickname)) = direct_thread_and_nickname else {
             return Ok(None);
@@ -286,7 +296,8 @@ pub(crate) async fn member_identity_context_text(
             "[协作空间私聊身份]\n\
              - 你的昵称：{my_nickname} (conversation_id: {conversation_id}, thread_id: {thread_label})\n\
              - 角色说明：{role_desc}\n\
-             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。最终普通文本会自动发给 Person；不要为本条主回复调用 `post_space_message`。向 Person 提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `read_space_messages`。共享文件用文件工具读写 `~/.vibex/{{projectId}}/TeamSpaces/{{spaceId}}/Collection/`。可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
+             {supervisor_line}\n\
+             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。最终普通文本会自动发给 Person；不要为本条主回复调用 `post_space_message`。向 Person 提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `read_space_messages`。共享文件用文件工具读写 `~/.vibex/spaces/{thread_label}/collection/`。可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
         )));
     }
 
@@ -332,6 +343,7 @@ pub(crate) async fn member_identity_context_text(
     Ok(Some(format!(
         "[协作空间成员身份]\n\
          {}\n\
+         {supervisor_line}\n\
          - 多智能体协同 MCP 工具：{COLLABORATION_MCP_TOOLS_SUMMARY}\n\
          {rules}",
         sections.join("\n")
@@ -343,6 +355,10 @@ pub async fn list_collaboration_spaces_for_caller(
     caller_id: Uuid,
 ) -> Result<Value, CollaborationError> {
     let caller = live_session(load_session(pool, caller_id).await?)?;
+    let supervisor =
+        crate::collaboration_sidebar::workspace_supervisor_member(pool, caller.workspace_id)
+            .await?;
+    let is_caller_supervisor = is_caller_workspace_supervisor(pool, caller_id).await?;
     let spaces = list_workspace_spaces(pool, caller.workspace_id).await?;
     let space_ids: Vec<String> = spaces.iter().map(|s| s.space_id.clone()).collect();
     let mut members_by_space =
@@ -361,19 +377,23 @@ pub async fn list_collaboration_spaces_for_caller(
             .map(|m| m.nickname.clone());
         let mut member_views = Vec::with_capacity(members.len());
         for m in &members {
+            let identity_id =
+                identity_member_id_for_conversation(pool, m.conversation_id.as_deref()).await?;
+            let is_sup = match (&supervisor, identity_id.as_deref()) {
+                (Some((sup_id, _)), Some(id)) => sup_id == id,
+                _ => false,
+            };
             member_views.push(json!({
                 "member_id": m.member_id,
-                "identity_member_id": identity_member_id_for_conversation(
-                    pool,
-                    m.conversation_id.as_deref(),
-                )
-                .await?,
+                "identity_member_id": identity_id,
                 "nickname": m.nickname,
                 "conversation_id": m.conversation_id,
                 "kind": m.kind,
                 "is_self": m.conversation_id.as_deref() == Some(caller_str.as_str()),
                 "is_lead": lead_id.as_deref() == Some(m.member_id.as_str()),
                 "lead_bot": lead_id.as_deref() == Some(m.member_id.as_str()),
+                "is_supervisor": is_sup,
+                "supervisor_bot": is_sup,
             }));
         }
         items.push(json!({
@@ -389,11 +409,18 @@ pub async fn list_collaboration_spaces_for_caller(
             "user_recipient": "User",
         }));
     }
-    Ok(json!({
+    let mut overview = json!({
         "caller_conversation_id": caller_id,
         "workspace_id": caller.workspace_id,
+        "is_caller_supervisor": is_caller_supervisor,
+        "supervisor_member_id": supervisor.as_ref().map(|(id, _)| id),
+        "supervisor_nickname": supervisor.as_ref().map(|(_, name)| name),
         "spaces": items,
-    }))
+    });
+    if let Some(spaces) = overview.get_mut("spaces").and_then(Value::as_array_mut) {
+        attach_space_member_activities(pool, spaces).await?;
+    }
+    Ok(overview)
 }
 
 pub async fn list_space_members_detailed(
@@ -427,6 +454,11 @@ pub async fn list_space_members_detailed(
     .filter(|id| !id.trim().is_empty());
     let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
     let workspace_uuid = Uuid::parse_str(&space_row.workspace_id).ok();
+    let supervisor = match workspace_uuid {
+        Some(wid) => crate::collaboration_sidebar::workspace_supervisor_member(pool, wid).await?,
+        None => None,
+    };
+    let is_caller_supervisor = is_caller_workspace_supervisor(pool, caller_id).await?;
     let conversations = match workspace_uuid {
         Some(wid) => list_workspace_conversations(pool, wid)
             .await
@@ -489,13 +521,15 @@ pub async fn list_space_members_detailed(
             .and_then(|cid| Uuid::parse_str(cid).ok());
         let conv_opt = parsed_cid.and_then(|cid| conversations_by_id.get(&cid).copied());
         let persona = parsed_cid.and_then(|cid| personas_by_conv.get(&cid.to_string()));
+        let identity_id =
+            identity_member_id_for_conversation(pool, member.conversation_id.as_deref()).await?;
+        let is_sup = match (&supervisor, identity_id.as_deref()) {
+            (Some((sup_id, _)), Some(id)) => sup_id == id,
+            _ => false,
+        };
         detailed.push(json!({
             "member_id": member.member_id,
-            "identity_member_id": identity_member_id_for_conversation(
-                pool,
-                member.conversation_id.as_deref(),
-            )
-            .await?,
+            "identity_member_id": identity_id,
             "conversation_id": member.conversation_id,
             "nickname": member.nickname,
             "kind": member.kind,
@@ -503,6 +537,8 @@ pub async fn list_space_members_detailed(
             "is_self": member.conversation_id.as_deref() == Some(caller_str.as_str()),
             "is_lead": lead_member_id.as_deref() == Some(member.member_id.as_str()),
             "lead_bot": lead_member_id.as_deref() == Some(member.member_id.as_str()),
+            "is_supervisor": is_sup,
+            "supervisor_bot": is_sup,
             "agent_id": conv_opt.and_then(|c| c.agent_id.clone()).or_else(|| persona.map(|p| p.agent_name.clone())),
             "status": conv_opt.map(|c| c.status.clone()),
             "turn_in_flight": conv_opt.map(|c| c.turn_in_flight).unwrap_or(false),
@@ -515,18 +551,23 @@ pub async fn list_space_members_detailed(
         .find(|row| row["member_id"].as_str() == lead_member_id.as_deref())
         .and_then(|row| row["nickname"].as_str())
         .map(str::to_string);
+    let mut members_json = Value::Array(detailed);
+    attach_member_activities(pool, &mut members_json).await?;
     Ok(json!({
         "space_id": space_id,
         "space_name": space_name,
         "my_conversation_id": caller_id,
         "my_nickname": my_nickname,
+        "is_caller_supervisor": is_caller_supervisor,
+        "supervisor_member_id": supervisor.as_ref().map(|(id, _)| id),
+        "supervisor_nickname": supervisor.as_ref().map(|(_, name)| name),
         "lead_member_id": lead_member_id,
         "lead_nickname": lead_nickname,
-        "members": detailed,
+        "members": members_json,
         "user_recipient": {
             "nickname": "User",
             "aliases": ["@User", "@Person", "@你", "@用户"],
-            "usage": "在 post_space_message 的 to 中传入 \"User\" 或 \"Person\" 即可向用户汇报或提问。正文直接写内容；只有点名其他 Bot 时才以 @昵称 开头"
+            "usage": "当前 Space 对 Person 直接写正文。跨 Space 时在 post_space_message 的 to 中传入 \"User\" 或 \"Person\"。只有点名其他 Bot 时才以 @昵称 开头"
         }
     }))
 }
@@ -556,12 +597,38 @@ pub async fn list_spaces_for_caller(
     if let Some(space_id) = space_id {
         if is_bot_space(space_id) {
             let caller = live_session(load_session(pool, caller_id).await?)?;
+            let supervisor = crate::collaboration_sidebar::workspace_supervisor_member(
+                pool,
+                caller.workspace_id,
+            )
+            .await?;
+            let is_caller_supervisor = is_caller_workspace_supervisor(pool, caller_id).await?;
             let peers = workspace_direct_peers(pool, caller.workspace_id).await?;
             if let Some(peer) = peers
                 .into_iter()
                 .find(|peer| peer.dest_thread_id.as_deref() == Some(space_id))
             {
                 let is_self = peer.conversation_id == Some(caller_id);
+                let identity_id = identity_member_id_for_conversation(
+                    pool,
+                    peer.conversation_id.map(|id| id.to_string()).as_deref(),
+                )
+                .await?;
+                let is_sup = match (&supervisor, identity_id.as_deref()) {
+                    (Some((sup_id, _)), Some(id)) => sup_id == id,
+                    _ => false,
+                };
+                let mut members = json!([{
+                    "conversation_id": peer.conversation_id.map(|id| id.to_string()),
+                    "identity_member_id": identity_id,
+                    "nickname": peer.nickname.clone(),
+                    "is_self": is_self,
+                    "is_lead": false,
+                    "lead_bot": false,
+                    "is_supervisor": is_sup,
+                    "supervisor_bot": is_sup,
+                }]);
+                attach_member_activities(pool, &mut members).await?;
                 return Ok(json!({
                     "space_id": space_id,
                     "space_name": peer.nickname,
@@ -569,19 +636,16 @@ pub async fn list_spaces_for_caller(
                     "workspace_id": caller.workspace_id,
                     "my_conversation_id": caller_id,
                     "my_nickname": is_self.then(|| peer.nickname.clone()),
+                    "is_caller_supervisor": is_caller_supervisor,
+                    "supervisor_member_id": supervisor.as_ref().map(|(id, _)| id),
+                    "supervisor_nickname": supervisor.as_ref().map(|(_, name)| name),
                     "lead_member_id": Value::Null,
                     "lead_nickname": Value::Null,
-                    "members": [{
-                        "conversation_id": peer.conversation_id.map(|id| id.to_string()),
-                        "nickname": peer.nickname,
-                        "is_self": is_self,
-                        "is_lead": false,
-                        "lead_bot": false,
-                    }],
+                    "members": members,
                     "user_recipient": {
                         "nickname": "User",
                         "aliases": ["@User", "@Person", "@你", "@用户"],
-                        "usage": "在 post_space_message 的 to 中传入 \"User\" 或 \"Person\" 即可向用户汇报或提问。正文直接写内容；只有点名其他 Bot 时才以 @昵称 开头"
+                        "usage": "当前 Space 对 Person 直接写正文。跨 Space 时在 post_space_message 的 to 中传入 \"User\" 或 \"Person\"。只有点名其他 Bot 时才以 @昵称 开头"
                     }
                 }));
             }
@@ -602,6 +666,9 @@ pub async fn list_spaces_for_caller(
     }
 
     let caller = live_session(load_session(pool, caller_id).await?)?;
+    let supervisor =
+        crate::collaboration_sidebar::workspace_supervisor_member(pool, caller.workspace_id)
+            .await?;
     let mut overview = list_collaboration_spaces_for_caller(pool, caller_id).await?;
     if let Some(spaces) = overview.get_mut("spaces").and_then(Value::as_array_mut) {
         for space in spaces.iter_mut() {
@@ -618,6 +685,15 @@ pub async fn list_spaces_for_caller(
                 continue;
             };
             let is_self = peer.conversation_id == Some(caller_id);
+            let identity_id = identity_member_id_for_conversation(
+                pool,
+                peer.conversation_id.map(|id| id.to_string()).as_deref(),
+            )
+            .await?;
+            let is_sup = match (&supervisor, identity_id.as_deref()) {
+                (Some((sup_id, _)), Some(id)) => sup_id == id,
+                _ => false,
+            };
             spaces.push(json!({
                 "space_id": thread_id,
                 "name": peer.nickname,
@@ -625,19 +701,25 @@ pub async fn list_spaces_for_caller(
                 "workspace_id": caller.workspace_id,
                 "is_member": is_self,
                 "my_nickname": is_self.then(|| peer.nickname.clone()),
+                "is_supervisor": is_sup,
+                "supervisor_bot": is_sup,
                 "lead_member_id": Value::Null,
                 "lead_nickname": Value::Null,
                 "member_count": 1,
                 "members": [{
                     "conversation_id": peer.conversation_id.map(|id| id.to_string()),
+                    "identity_member_id": identity_id,
                     "nickname": peer.nickname,
                     "is_self": is_self,
                     "is_lead": false,
                     "lead_bot": false,
+                    "is_supervisor": is_sup,
+                    "supervisor_bot": is_sup,
                 }],
                 "user_recipient": "User",
             }));
         }
+        attach_space_member_activities(pool, spaces).await?;
     }
     Ok(overview)
 }

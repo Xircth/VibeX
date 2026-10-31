@@ -6,8 +6,9 @@ use uuid::Uuid;
 
 use super::*;
 
-/// Transfer the group lead to another agent member. The current lead may hand
-/// it to anyone; a group without a lead may be claimed by any agent member.
+/// Transfer the group lead to another agent member. The workspace supervisor
+/// or current group lead may hand it to anyone; a group without a lead may be
+/// claimed by any agent member.
 pub async fn transfer_space_lead(
     pool: &SqlitePool,
     caller_id: Uuid,
@@ -22,17 +23,31 @@ pub async fn transfer_space_lead(
         return Err(operation_conflict());
     }
     require_group_space(space_id)?;
-    let (seat, lead, _) = load_caller_seat_in_space(pool, caller_id, space_id).await?;
-    if let Some(lead_id) = lead.as_deref()
-        && lead_id != seat.member_id
-    {
-        return Err(CollaborationError::new(
-            "forbidden",
-            "only the group lead can transfer ownership",
-        ));
+    let space = load_space(pool, space_id).await?;
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    if caller.workspace_id.to_string() != space.workspace_id {
+        return Err(CollaborationError::new("not_found", "space was not found"));
     }
+    let is_supervisor = is_caller_workspace_supervisor(pool, caller_id).await?;
+    let caller_seat_id = if is_supervisor {
+        caller_seat(pool, space_id, caller_id)
+            .await
+            .ok()
+            .map(|s| s.member_id)
+    } else {
+        let (seat, lead, _) = load_caller_seat_in_space(pool, caller_id, space_id).await?;
+        if let Some(lead_id) = lead.as_deref()
+            && lead_id != seat.member_id
+        {
+            return Err(CollaborationError::new(
+                "forbidden",
+                "only the supervisor (主管) or group lead can transfer ownership",
+            ));
+        }
+        Some(seat.member_id)
+    };
     let target = resolve_space_agent_seat(pool, space_id, member_ref).await?;
-    if target.member_id != seat.member_id {
+    if caller_seat_id.as_deref() != Some(target.member_id.as_str()) || is_supervisor {
         set_space_lead(pool, space_id, Some(&target.member_id)).await?;
     }
     let outcome = json!({
@@ -152,18 +167,46 @@ pub async fn remove_space_member(
         return Err(operation_conflict());
     }
     require_group_space(space_id)?;
-    let (caller_seat, lead, created_by) =
-        load_caller_seat_in_space(pool, caller_id, space_id).await?;
-    require_roster_admin(
-        pool,
-        &caller_seat,
-        lead.as_deref(),
-        created_by.as_deref(),
-        caller_id,
-    )
-    .await?;
+    let space = load_space(pool, space_id).await?;
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    if caller.workspace_id.to_string() != space.workspace_id {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
+    let is_supervisor = is_caller_workspace_supervisor(pool, caller_id).await?;
+    let (caller_seat_id, lead) = if is_supervisor {
+        let lead: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT lead_member_id FROM collaboration_spaces WHERE id = ?",
+        )
+        .bind(space_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db)?;
+        let seat_id = caller_seat(pool, space_id, caller_id)
+            .await
+            .ok()
+            .map(|s| s.member_id);
+        (seat_id, lead)
+    } else {
+        let (caller_seat, lead, created_by) =
+            load_caller_seat_in_space(pool, caller_id, space_id).await?;
+        require_roster_admin(
+            pool,
+            &caller_seat,
+            lead.as_deref(),
+            created_by.as_deref(),
+            caller_id,
+        )
+        .await?;
+        (Some(caller_seat.member_id), lead)
+    };
     let target = resolve_space_agent_seat(pool, space_id, member_ref).await?;
-    if target.member_id == caller_seat.member_id {
+    let caller_identity =
+        identity_member_id_for_conversation(pool, Some(&caller_id.to_string())).await?;
+    let target_identity =
+        identity_member_id_for_conversation(pool, target.conversation_id.as_deref()).await?;
+    if caller_seat_id.as_deref() == Some(target.member_id.as_str())
+        || (caller_identity.is_some() && caller_identity == target_identity)
+    {
         return Err(CollaborationError::new(
             "invalid_argument",
             "use leave_space to remove yourself",
@@ -201,8 +244,8 @@ pub async fn remove_space_member(
 }
 
 /// Delete another bot from the workspace: every group seat, every hidden
-/// session, and the identity row. Group targets require roster admin rights;
-/// the unassigned space covers bots that were created but never invited.
+/// session, and the identity row. Only the workspace supervisor bot (主管) is
+/// allowed to delete bots, and a supervisor bot cannot be deleted.
 pub async fn delete_space_member(
     pool: &SqlitePool,
     caller_id: Uuid,
@@ -216,24 +259,30 @@ pub async fn delete_space_member(
         }
         return Err(operation_conflict());
     }
-    let unassigned = parse_unassigned_space_id(space_id).is_some();
-    // Bots created through `create_space_member` but never invited to a group
-    // only exist in the unassigned space, which has no lead or creator. There
-    // the caller's workspace membership is the gate; `require_admin_in_any_space`
-    // below still guards targets that belong to groups.
+    let space = load_space_or_unassigned(pool, space_id).await?;
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    if caller.workspace_id.to_string() != space.workspace_id {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
+    require_workspace_supervisor(pool, caller_id, "delete bots (删除其他 Bot)").await?;
+
+    let unassigned = parse_unassigned_space_id(space_id).is_some()
+        || space_id.starts_with(identity::DIRECT_PREFIX);
+    let caller_identity =
+        identity_member_id_for_conversation(pool, Some(&caller_id.to_string())).await?;
     let (target_member_id, target_nickname, identity_member_id, target_conversation) = if unassigned
     {
-        let space = load_space_or_unassigned(pool, space_id).await?;
-        let caller = live_session(load_session(pool, caller_id).await?)?;
-        if caller.workspace_id.to_string() != space.workspace_id {
-            return Err(CollaborationError::new("not_found", "space was not found"));
-        }
-        let identity_member_id = resolve_identity_member_id(pool, member_ref)
-            .await?
-            .ok_or_else(|| CollaborationError::new("not_found", "member was not found"))?;
-        let caller_identity =
-            identity_member_id_for_conversation(pool, Some(&caller_id.to_string())).await?;
-        if caller_identity.as_deref() == Some(identity_member_id.as_str()) {
+        let resolved_identity = match resolve_identity_member_id(pool, member_ref).await? {
+            Some(id) => id,
+            None => {
+                let (conv_id, _) =
+                    resolve_bot_conversation(pool, caller_id, space_id, member_ref).await?;
+                identity_member_id_for_conversation(pool, Some(&conv_id.to_string()))
+                    .await?
+                    .ok_or_else(|| CollaborationError::new("not_found", "member was not found"))?
+            }
+        };
+        if caller_identity.as_deref() == Some(resolved_identity.as_str()) {
             return Err(CollaborationError::new(
                 "invalid_argument",
                 "use leave_space to remove yourself",
@@ -241,34 +290,13 @@ pub async fn delete_space_member(
         }
         let nickname: String =
             sqlx::query_scalar("SELECT name FROM collaboration_members WHERE id = ?")
-                .bind(&identity_member_id)
+                .bind(&resolved_identity)
                 .fetch_one(pool)
                 .await
                 .map_err(db)?;
-        (
-            identity_member_id.clone(),
-            nickname,
-            identity_member_id,
-            None,
-        )
+        (resolved_identity.clone(), nickname, resolved_identity, None)
     } else {
-        let (caller_seat, lead, created_by) =
-            load_caller_seat_in_space(pool, caller_id, space_id).await?;
-        require_roster_admin(
-            pool,
-            &caller_seat,
-            lead.as_deref(),
-            created_by.as_deref(),
-            caller_id,
-        )
-        .await?;
         let target = resolve_space_agent_seat(pool, space_id, member_ref).await?;
-        if target.member_id == caller_seat.member_id {
-            return Err(CollaborationError::new(
-                "invalid_argument",
-                "use leave_space to remove yourself",
-            ));
-        }
         let target_conversation = target
             .conversation_id
             .as_deref()
@@ -290,6 +318,12 @@ pub async fn delete_space_member(
                     CollaborationError::new("not_found", "member identity was not found")
                 })?,
         };
+        if caller_identity.as_deref() == Some(identity_member_id.as_str()) {
+            return Err(CollaborationError::new(
+                "invalid_argument",
+                "use leave_space to remove yourself",
+            ));
+        }
         (
             target.member_id,
             target.nickname,
@@ -297,6 +331,12 @@ pub async fn delete_space_member(
             Some(target_conversation),
         )
     };
+    if is_member_supervisor(pool, &identity_member_id).await? {
+        return Err(CollaborationError::new(
+            "forbidden",
+            "supervisor bot cannot be deleted; step down first (主管 Bot 不能删除，请先卸任主管)",
+        ));
+    }
     let mut conversations: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT conversation_id FROM collaboration_thread_members WHERE member_id = ?",
     )
@@ -355,12 +395,6 @@ pub async fn delete_space_member(
             .push(seat_id.clone());
     }
     affected_spaces.sort();
-    // Deleting through the unassigned space must not become a way around the
-    // group roster rules: when the target still belongs to groups, the caller
-    // needs roster admin rights in at least one of them.
-    if unassigned && !affected_spaces.is_empty() {
-        require_admin_in_any_space(pool, caller_id, &affected_spaces).await?;
-    }
     let direct_thread_id = identity::direct_thread_id(&identity_member_id);
     let stamp = now_stamp();
     let mut conn = pool.acquire().await.map_err(db)?;
@@ -529,6 +563,33 @@ pub fn member_worktree_workspace_id(conversation_id: Uuid) -> Uuid {
     )
 }
 
+async fn existing_isolated_workspace_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, CollaborationError> {
+    let recorded: Option<String> = sqlx::query_scalar(
+        "SELECT isolated_workspace_id FROM member_session_workspaces WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if let Some(id) = recorded.and_then(|raw| Uuid::parse_str(&raw).ok()) {
+        return Ok(Some(id));
+    }
+    let deterministic = member_worktree_workspace_id(conversation_id);
+    let deterministic_exists: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM workspaces WHERE id = ?")
+            .bind(deterministic)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    if deterministic_exists.is_some() {
+        return Ok(Some(deterministic));
+    }
+    Ok(None)
+}
+
 /// Workspace a turn of `conversation_id` must *execute* in. Non-primary
 /// member sessions under WriteIsolated get (and keep) their own worktree;
 /// everything else runs in `session_workspace_id`. The session row keeps its
@@ -539,14 +600,18 @@ pub async fn execution_workspace_id(
     session_workspace_id: Uuid,
     provisioner: &dyn IsolatedWorkspaceProvisioner,
 ) -> Result<Uuid, CollaborationError> {
+    let existing_isolated = existing_isolated_workspace_id(pool, conversation_id).await?;
     let Some(plan) = plan_member_write(pool, conversation_id).await? else {
-        return Ok(session_workspace_id);
+        return Ok(existing_isolated.unwrap_or(session_workspace_id));
     };
-    if plan.access != MemberWriteAccess::WriteIsolated || plan.primary {
+    if plan.access != MemberWriteAccess::WriteIsolated {
         return Ok(session_workspace_id);
     }
-    if let Some(existing) = plan.isolated_workspace_id {
+    if let Some(existing) = plan.isolated_workspace_id.or(existing_isolated) {
         return Ok(existing);
+    }
+    if plan.primary {
+        return Ok(session_workspace_id);
     }
     let isolated = member_worktree_workspace_id(conversation_id);
     match provisioner

@@ -28,6 +28,10 @@ import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession'
 import { useAppContextMenu } from '@/components/context-menu';
 import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
 import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
+import {
+  filterVisibleBotSessions,
+  useHideBotSessions,
+} from '@/lib/hideBotSessions';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import { useKanbanSessionMutations } from '@/components/kanban/session-hub/useKanbanSessionMutations';
 import {
@@ -80,17 +84,22 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
+  const hideBotSessions = useHideBotSessions();
+  const listSessions = useMemo(
+    () => filterVisibleBotSessions(sessions, hideBotSessions),
+    [hideBotSessions, sessions]
+  );
   const activeSessionId = resolveWorkspaceListActiveSessionId(
     visibleRightSession?.sessionId,
     routeSessionId
   );
   const activeSessions = useMemo(
-    () => sessions.filter((session) => session.status !== 'archived'),
-    [sessions]
+    () => listSessions.filter((session) => session.status !== 'archived'),
+    [listSessions]
   );
   const archivedSessions = useMemo(
-    () => sessions.filter((session) => session.status === 'archived'),
-    [sessions]
+    () => listSessions.filter((session) => session.status === 'archived'),
+    [listSessions]
   );
   const sessionsById = useMemo(
     () => Object.fromEntries(sessions.map((session) => [session.id, session])),
@@ -107,11 +116,11 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
 
   useEffect(() => {
     setSelectedSessionIds((current) => {
-      const available = new Set(sessions.map((session) => session.id));
+      const available = new Set(listSessions.map((session) => session.id));
       const next = current.filter((sessionId) => available.has(sessionId));
       return next.length === current.length ? current : next;
     });
-  }, [sessions]);
+  }, [listSessions]);
 
   useEffect(() => {
     const trimmed = searchQuery.trim();

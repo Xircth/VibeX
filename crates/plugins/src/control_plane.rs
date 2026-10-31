@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ActionId, ActivationManager, CapabilityBroker, CapabilityGrant, ContributionCatalog,
-    PluginAction, PluginActivation, PluginError, PluginPackage, PluginSource, PromptBlock,
-    ResolvedFileOpener, SkillId, ToolId, WorkerActivation, WorkerHostError,
+    PluginAction, PluginActivation, PluginError, PluginPackage, PluginSource, PluginSourceKind,
+    PromptBlock, ResolvedFileOpener, SkillId, ToolId, WorkerActivation, WorkerHostError,
     contribution::ContributionRegistry,
 };
 
@@ -578,6 +578,20 @@ impl PluginControlPlane {
                 self.uninstall(retired_id).await?;
             } else {
                 let _ = self.registry.delete_plugin(retired_id).await;
+            }
+        }
+        for delisted_id in [
+            "vibex.kanban-views",
+            "vibex.notes",
+            "vibex.prompt-enhancer",
+        ] {
+            if let Some(installed) = self.registry.plugin(delisted_id).await?
+                && matches!(
+                    installed.source.kind,
+                    PluginSourceKind::Marketplace | PluginSourceKind::Builtin
+                )
+            {
+                self.uninstall(delisted_id).await?;
             }
         }
         Ok(())

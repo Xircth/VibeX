@@ -25,9 +25,8 @@ impl AgentConnectionRunner {
         // Prompt must never reach here: that would stuff a new Codex thread
         // into an existing VibeX Conversation.
         let acp_session_id = self
-            .new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .new_acp_session(conn, working_dir, session_id, companion_capabilities, None)
             .await?;
-        self.record_session_header(session_id, &acp_session_id);
         Ok(acp_session_id)
     }
 
@@ -71,6 +70,8 @@ impl AgentConnectionRunner {
             }
         }
 
+        let session_working_dir =
+            self.resolve_session_working_dir(working_dir, &external_session_id);
         let wants_prompt_suggestions = self.wants_prompt_suggestions(session_id).await;
         let mut resume_auth_error: Option<acp::Error> = None;
         {
@@ -81,7 +82,7 @@ impl AgentConnectionRunner {
             let resume_result = self
                 .send_resume_session_rpc(
                     conn,
-                    working_dir,
+                    &session_working_dir,
                     session_id,
                     &external_session_id,
                     companion_capabilities,
@@ -149,14 +150,15 @@ impl AgentConnectionRunner {
             let result = self
                 .send_load_session_rpc(
                     conn,
-                    working_dir,
+                    &session_working_dir,
                     session_id,
                     &external_session_id,
                     companion_capabilities,
                     wants_prompt_suggestions,
                 )
                 .await;
-            self.end_load_replay().await;
+            self.end_load_replay(&external_session_id, result.is_ok())
+                .await;
             *self.pending_session_id.lock().await = None;
             result
         } else if let Some(error) = resume_auth_error {
@@ -275,10 +277,15 @@ impl AgentConnectionRunner {
         // The previous sid is not passed to the agent (that would mix threads);
         // the Conversation event log records continues_from for UI continuity.
         let acp_session_id = self
-            .new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .new_acp_session(
+                conn,
+                working_dir,
+                session_id,
+                companion_capabilities,
+                Some(failed_sid),
+            )
             .await
             .map_err(|error| map_acp_session_error("ACP session/new after load failed", error))?;
-        self.record_continuation_header(&acp_session_id, failed_sid);
         Ok((
             acp_session_id,
             Some(crate::conversation::SessionRecoveryStrategy::CreatedNewSession),
@@ -344,6 +351,7 @@ impl AgentConnectionRunner {
         working_dir: &Path,
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
+        continues_from: Option<&str>,
     ) -> Result<String, acp::Error> {
         let mut request = NewSessionRequest::new(working_dir.to_path_buf());
         if self.capabilities.read().await.additional_directories {
@@ -375,6 +383,11 @@ impl AgentConnectionRunner {
             }
         };
         let acp_session_id = response.session_id.0.to_string();
+        if let Some(previous_sid) = continues_from {
+            self.record_continuation_header(session_id, &acp_session_id, previous_sid);
+        } else {
+            self.record_session_header(session_id, &acp_session_id);
+        }
         self.session_map
             .write()
             .await
@@ -548,5 +561,290 @@ impl AgentConnectionRunner {
             }
         }
         Err(last_contention.expect("load contention retry records an error"))
+    }
+
+    fn resolve_session_working_dir(
+        &self,
+        default_working_dir: &Path,
+        external_session_id: &str,
+    ) -> PathBuf {
+        match self.snapshot.agent_id.as_str() {
+            "grok" => {
+                let grok_home = self
+                    .snapshot
+                    .env
+                    .get("GROK_HOME")
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from)
+                    .or_else(crate::grok_usage::grok_home_dir);
+                resolve_grok_session_working_dir_in_home(
+                    grok_home.as_deref(),
+                    default_working_dir,
+                    external_session_id,
+                )
+            }
+            "claude_code" => {
+                let claude_home = self
+                    .snapshot
+                    .env
+                    .get("CLAUDE_CONFIG_DIR")
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        std::env::var_os("CLAUDE_CONFIG_DIR")
+                            .filter(|value| !value.is_empty())
+                            .map(PathBuf::from)
+                    })
+                    .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
+                resolve_claude_session_working_dir_in_home(
+                    claude_home.as_deref(),
+                    default_working_dir,
+                    external_session_id,
+                )
+            }
+            _ => default_working_dir.to_path_buf(),
+        }
+    }
+}
+
+pub(in crate::manager) fn resolve_claude_session_working_dir_in_home(
+    claude_home: Option<&Path>,
+    default_working_dir: &Path,
+    external_session_id: &str,
+) -> PathBuf {
+    let trimmed = external_session_id.trim();
+    if trimmed.is_empty() {
+        return default_working_dir.to_path_buf();
+    }
+    let Some(projects_dir) = claude_home.map(|home| home.join("projects")) else {
+        return default_working_dir.to_path_buf();
+    };
+    let Ok(entries) = std::fs::read_dir(projects_dir) else {
+        return default_working_dir.to_path_buf();
+    };
+    let file_name = format!("{trimmed}.jsonl");
+    let mut existing_dir_fallback: Option<PathBuf> = None;
+    let mut any_recorded_fallback: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let session_path = entry.path().join(&file_name);
+        if !session_path.is_file() {
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&session_path) else {
+            continue;
+        };
+        use std::io::BufRead as _;
+        let reader = std::io::BufReader::new(file);
+        for line in reader.lines().take(24).flatten() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(cwd_str) = value
+                .get("cwd")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|cwd| !cwd.is_empty())
+            else {
+                continue;
+            };
+            let candidate = PathBuf::from(cwd_str);
+            if candidate == default_working_dir {
+                return default_working_dir.to_path_buf();
+            }
+            if existing_dir_fallback.is_none() && candidate.is_dir() {
+                existing_dir_fallback = Some(candidate.clone());
+            }
+            if any_recorded_fallback.is_none() {
+                any_recorded_fallback = Some(candidate);
+            }
+            break;
+        }
+    }
+    existing_dir_fallback
+        .or(any_recorded_fallback)
+        .unwrap_or_else(|| default_working_dir.to_path_buf())
+}
+
+pub(in crate::manager) fn resolve_grok_session_working_dir_in_home(
+    grok_home: Option<&Path>,
+    default_working_dir: &Path,
+    external_session_id: &str,
+) -> PathBuf {
+    let trimmed = external_session_id.trim();
+    if trimmed.is_empty() {
+        return default_working_dir.to_path_buf();
+    }
+    let Some(sessions_dir) = grok_home.map(|home| home.join("sessions")) else {
+        return default_working_dir.to_path_buf();
+    };
+    let Ok(entries) = std::fs::read_dir(sessions_dir) else {
+        return default_working_dir.to_path_buf();
+    };
+    let mut existing_dir_fallback: Option<PathBuf> = None;
+    let mut any_recorded_fallback: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let summary_path = entry.path().join(trimmed).join("summary.json");
+        if !summary_path.is_file() {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&summary_path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let Some(cwd_str) = value
+            .get("info")
+            .and_then(|info| info.get("cwd"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|cwd| !cwd.is_empty())
+        else {
+            continue;
+        };
+        let candidate = PathBuf::from(cwd_str);
+        if candidate == default_working_dir {
+            return default_working_dir.to_path_buf();
+        }
+        if existing_dir_fallback.is_none() && candidate.is_dir() {
+            existing_dir_fallback = Some(candidate.clone());
+        }
+        if any_recorded_fallback.is_none() {
+            any_recorded_fallback = Some(candidate);
+        }
+    }
+    existing_dir_fallback
+        .or(any_recorded_fallback)
+        .unwrap_or_else(|| default_working_dir.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_grok_session_working_dir_uses_recorded_cwd_when_session_lives_elsewhere() {
+        let tmp = tempfile::tempdir().unwrap();
+        let grok_home = tmp.path().join(".grok");
+        let worktree_cwd = tmp.path().join("worktree-repo");
+        let parent_cwd = tmp.path().join("parent-repo");
+        std::fs::create_dir_all(&worktree_cwd).unwrap();
+        std::fs::create_dir_all(&parent_cwd).unwrap();
+
+        let sid = "01a18b38-1111-2222-3333-444444444444";
+        let encoded_dir = grok_home
+            .join("sessions")
+            .join("encoded-worktree")
+            .join(sid);
+        std::fs::create_dir_all(&encoded_dir).unwrap();
+        std::fs::write(
+            encoded_dir.join("summary.json"),
+            serde_json::json!({
+                "info": {
+                    "id": sid,
+                    "cwd": worktree_cwd.to_string_lossy(),
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let resolved = resolve_grok_session_working_dir_in_home(Some(&grok_home), &parent_cwd, sid);
+        assert_eq!(resolved, worktree_cwd);
+    }
+
+    #[test]
+    fn resolve_claude_session_working_dir_uses_recorded_cwd_when_session_lives_elsewhere() {
+        let tmp = tempfile::tempdir().unwrap();
+        let claude_home = tmp.path().join(".claude");
+        let worktree_cwd = tmp.path().join("worktree-repo");
+        let parent_cwd = tmp.path().join("parent-repo");
+        std::fs::create_dir_all(&worktree_cwd).unwrap();
+        std::fs::create_dir_all(&parent_cwd).unwrap();
+
+        let sid = "37b3b719-a910-4c9e-9954-2db1b05b24de";
+        let project_dir = claude_home.join("projects").join("encoded-worktree");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            project_dir.join(format!("{sid}.jsonl")),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "type": "user",
+                    "sessionId": sid,
+                    "cwd": worktree_cwd.to_string_lossy(),
+                })
+            ),
+        )
+        .unwrap();
+
+        let resolved =
+            resolve_claude_session_working_dir_in_home(Some(&claude_home), &parent_cwd, sid);
+        assert_eq!(resolved, worktree_cwd);
+    }
+
+    #[test]
+    fn read_chain_in_falls_back_across_agents_and_releases_empty_failed_replay_claim() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let s1 = "a1096fb6-7a70-4bb7-85c1-f7217f751b52";
+        let s2 = "01a18b38-10cb-77b1-9951-3efe7341ae44";
+
+        let h1 = crate::acp_transcript::TranscriptHeader::new("antigravity", s1, "/repo", 100);
+        crate::acp_transcript::claim_replay_transcript_in(root, "antigravity", s1, &h1);
+        crate::acp_transcript::append_line_in(
+            root,
+            "antigravity",
+            s1,
+            &serde_json::to_string(&crate::acp_transcript::TranscriptEntry {
+                t: 101,
+                k: crate::acp_transcript::EntryKind::Prompt,
+                p: serde_json::json!([{"type": "text", "text": "turn 1"}]),
+                steer: false,
+            })
+            .unwrap(),
+        );
+
+        // Simulate a failed session/load replay claim in `grok` for `s1`.
+        let h1_grok = crate::acp_transcript::TranscriptHeader::new("grok", s1, "/repo", 200);
+        assert!(crate::acp_transcript::claim_replay_transcript_in(
+            root, "grok", s1, &h1_grok
+        ));
+        let h2 =
+            crate::acp_transcript::TranscriptHeader::new("grok", s2, "/repo", 201).continuing(s1);
+        crate::acp_transcript::claim_replay_transcript_in(root, "grok", s2, &h2);
+        crate::acp_transcript::append_line_in(
+            root,
+            "grok",
+            s2,
+            &serde_json::to_string(&crate::acp_transcript::TranscriptEntry {
+                t: 202,
+                k: crate::acp_transcript::EntryKind::Prompt,
+                p: serde_json::json!([{"type": "text", "text": "turn 2"}]),
+                steer: false,
+            })
+            .unwrap(),
+        );
+
+        // Even while the 0-entry claim exists in `grok`, `read_chain_in` finds `antigravity/s1.jsonl`.
+        let chain = crate::acp_transcript::read_chain_in(root, "grok", s2);
+        assert_eq!(chain.entries.len(), 2);
+
+        // Releasing the failed replay claim removes `grok/s1.jsonl` but preserves `antigravity/s1.jsonl`.
+        crate::acp_transcript::release_unrecorded_replay_claim_in(root, "grok", s1);
+        assert!(
+            !crate::acp_transcript::transcript_path_in(root, "grok", s1)
+                .unwrap()
+                .exists()
+        );
+        assert!(
+            crate::acp_transcript::transcript_path_in(root, "antigravity", s1)
+                .unwrap()
+                .exists()
+        );
     }
 }

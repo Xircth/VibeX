@@ -616,6 +616,30 @@ describe('useConversationTimeline', () => {
     expect(touchMock).not.toHaveBeenCalled();
   });
 
+  it('preserves loaded turns when a mounted surface temporarily becomes inactive', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 2n,
+        rows: [userRow('t1', 'hello', 1n), assistantRow('t1', 'world', 2n)],
+      },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useConversationTimeline(CONVERSATION_ID, { active }),
+      { initialProps: { active: true } }
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline).toHaveLength(2);
+
+    rerender({ active: false });
+    expect(result.current.timeline).toHaveLength(2);
+    expect(result.current.sessionBindReady).toBe(false);
+  });
+
   it('shares one detail load across panels of the same conversation', async () => {
     detailMock.mockResolvedValue(detail());
 

@@ -1408,7 +1408,8 @@ fn resolve_vendor_cli_hits_extra_dirs_while_spawn_ignores_vendor_cli() {
         "claude binary must be recognized as vendor CLI and rejected for ACP launch"
     );
     assert!(
-        agents::discover_acp_launch_lock_in_dirs(&claude_id, &[claude_local.clone()]).is_none(),
+        agents::discover_acp_launch_lock_in_dirs(&claude_id, std::slice::from_ref(&claude_local))
+            .is_none(),
         "ACP spawn discovery must never select vendor CLI even when its directory is searched"
     );
 

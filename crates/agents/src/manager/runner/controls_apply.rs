@@ -474,7 +474,11 @@ impl AgentConnectionRunner {
         Ok(self.session_controls_snapshot(session_id).await)
     }
 
-    pub(in crate::manager) async fn drop_asserted_config(&self, session_id: AgentSessionId, config_id: &str) {
+    pub(in crate::manager) async fn drop_asserted_config(
+        &self,
+        session_id: AgentSessionId,
+        config_id: &str,
+    ) {
         let mut controls = self.session_controls.write().await;
         if let Some(stored) = controls.get_mut(&session_id) {
             stored.asserted_config_values.remove(config_id);

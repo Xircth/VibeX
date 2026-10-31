@@ -750,14 +750,14 @@
     "removeSpaceMember": "移除",
     "groupDetailsButton": "群组详情",
     "groupDetailsTab": "详情",
-    "groupCollectionTab": "群收藏",
+    "groupCollectionTab": "资产",
     "groupMembersTab": "成员",
     "spaceLeadLabel": "负责人",
     "spaceLeadSet": "设为负责人",
     "collaborationLimitNotice": "已达到自动协作上限，请 @ 助手继续",
     "assistantDetailsButton": "助手详情",
     "assistantDetailsTab": "详情",
-    "assistantCollectionTab": "收藏",
+    "assistantCollectionTab": "资产",
     "assistantCustomizeTab": "自定义",
     "saveAssistant": "保存",
     "tokenOverview": "Token 概览",
@@ -822,6 +822,8 @@
     "backToBottom": "回到消息底部"
   },
   "spaceTag": {
+    "none": "无标签",
+    "clear": "取消标签",
     "blue": "蓝色",
     "emerald": "绿色",
     "amber": "琥珀",
@@ -840,7 +842,8 @@
     "copyThreadId": "复制对话 ID",
     "hideFromSidebar": "从侧边栏隐藏",
     "showInSidebar": "在侧边栏显示",
-    "delete": "删除"
+    "delete": "删除",
+    "stepDownSupervisor": "卸任主管"
   },
   "botAvatar": {
     "color": {
@@ -1102,14 +1105,14 @@
       "collapseSavedItem": "折叠收藏记录",
       "none": "无",
       "loading": "加载中",
-      "dragAFileHereOr": "拖拽文件到此处或点击上传（单文件最大 200MB）",
+      "dragAFileHereOr": "拖拽或点击上传文件",
       "addText": "添加文本",
       "uploadFile": "上传文件",
       "copySavedItem": "复制",
       "deleteSavedItem": "删除",
       "cancel": "取消",
-      "addToGroupSaved": "添加到群收藏",
-      "nothingSavedInThisGroup": "暂无群收藏记录，助手或你添加的文本、图片和文件会显示在这里",
+      "addToGroupSaved": "保存",
+      "nothingSavedInThisGroup": "暂无收藏",
       "note": "备注：",
       "noBotReadsYet": "暂无助手读取记录",
       "createdAt": "创建时间：{{time}}",

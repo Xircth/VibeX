@@ -17,14 +17,14 @@ use conversations::{
     ConversationContext, ConversationSessionService, CreateDelegatedConversation,
     create_delegated_conversation,
 };
-use delegation::{ConnectionSpawner, DelegationLink, SpawnerError};
+use delegation::{ConnectionSpawner, DelegationLink, ResolverEntry, SpawnerError};
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-/// Shared map `child sessions.id → (delegation call_id, agent_type)` the resolver
-/// consults to route a finished child turn back to the broker.
-pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentId)>>>;
+/// Shared map `child sessions.id → ResolverEntry` the resolver consults to
+/// route a finished or failed child turn back to the broker.
+pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, ResolverEntry>>>;
 
 pub(crate) struct RuntimeSpawner {
     pub runtime: Arc<AgentRuntime>,
@@ -94,7 +94,7 @@ impl ConnectionSpawner for RuntimeSpawner {
 
     async fn send_prompt_linked(
         &self,
-        _child_connection_id: &str,
+        child_connection_id: &str,
         child_session_id: Uuid,
         task: String,
         link: DelegationLink,
@@ -107,7 +107,11 @@ impl ConnectionSpawner for RuntimeSpawner {
             .collect();
         self.map.lock().await.insert(
             child_id,
-            (link.delegation_call_id.clone(), link.agent_type.clone()),
+            ResolverEntry {
+                call_id: link.delegation_call_id.clone(),
+                agent_type: link.agent_type.clone(),
+                connection_id: child_connection_id.to_string(),
+            },
         );
         let service = ConversationSessionService::new(self.context.clone());
         if let Err(error) = service

@@ -72,6 +72,22 @@ describe('collaboration contact row chrome', () => {
     );
     expect(hiddenMeta.visibility?.value).toBe('hidden');
     expect(hiddenMeta.display).toBeUndefined();
+
+    const hoveredSpaceMain = declarationsFor(
+      '.collaboration-space-row:hover .collaboration-contact-row-main, .collaboration-space-row:focus-within .collaboration-contact-row-main'
+    );
+    const collapse = (value: string | undefined) =>
+      (value ?? '')
+        .replace(/\s+/g, ' ')
+        .replace(/\(\s+/g, '(')
+        .replace(/\s+\)/g, ')')
+        .trim();
+    expect(collapse(hoveredSpaceMain['-webkit-mask-image']?.value)).toBe(
+      'linear-gradient(to right, #000 50%, transparent calc(100% - 3.5rem))'
+    );
+    expect(collapse(hoveredSpaceMain['mask-image']?.value)).toBe(
+      'linear-gradient(to right, #000 50%, transparent calc(100% - 3.5rem))'
+    );
   });
 
   it('paints the left contact pane with the shell gray', () => {

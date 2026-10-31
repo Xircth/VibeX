@@ -188,9 +188,13 @@ async fn handle_socket<R>(
                 let matches = subscriptions
                     .iter()
                     .filter(|(_, subscription)| match subscription {
-                        ActiveSubscription::HostEvent { channel, .. } => {
-                            *channel == event.channel
-                                || event.channel.starts_with(&format!("{channel}:"))
+                        ActiveSubscription::HostEvent {
+                            channel,
+                            after_sequence,
+                        } => {
+                            event.sequence > *after_sequence
+                                && (*channel == event.channel
+                                    || event.channel.starts_with(&format!("{channel}:")))
                         }
                         _ => false,
                     })
@@ -446,11 +450,18 @@ where
                 ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
             })?;
             authorize_host_channel(principal, &channel)?;
+            let bootstrap = state
+                .events
+                .attach_bootstrap(request.subscription_id, &channel, 0)
+                .map_err(|message| {
+                    ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
+                })?;
+            let after_sequence = bootstrap.high_water_mark;
             subscriptions.insert(
                 request.subscription_id,
                 ActiveSubscription::HostEvent {
                     channel: channel.clone(),
-                    after_sequence: state.events.current_sequence(),
+                    after_sequence,
                 },
             );
             if let Err(error) = state
@@ -461,13 +472,6 @@ where
                 subscriptions.remove(&request.subscription_id);
                 return Err(error);
             }
-            let bootstrap = state
-                .events
-                .attach_bootstrap(request.subscription_id, &channel, 0)
-                .map_err(|message| {
-                    ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new())
-                })?;
-            let after_sequence = bootstrap.high_water_mark;
             Ok((
                 bootstrap,
                 ActiveSubscription::HostEvent {

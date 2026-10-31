@@ -61,7 +61,6 @@ impl AcpClientBridge {
         }
     }
 
-
     pub(in crate::manager) async fn request_permission(
         &self,
         args: RequestPermissionRequest,
@@ -232,7 +231,6 @@ impl AcpClientBridge {
         )))
     }
 
-
     pub(in crate::manager) async fn wait_for_question(
         &self,
         session_id: AgentSessionId,
@@ -288,7 +286,10 @@ pub(in crate::manager) enum MappedResume {
 /// A live ACP session may be reused on resume only when it is the session the
 /// caller asked for. Returning a sibling conversation's mapped id is how
 /// "继续" after stop picked up another session's context.
-pub(in crate::manager) fn mapped_resume_action(mapped: Option<&str>, requested: &str) -> MappedResume {
+pub(in crate::manager) fn mapped_resume_action(
+    mapped: Option<&str>,
+    requested: &str,
+) -> MappedResume {
     match mapped {
         Some(existing) if existing == requested => MappedResume::Reuse(existing.to_string()),
         Some(_) => MappedResume::LoadRequested { unbind_stale: true },
@@ -310,7 +311,8 @@ pub(in crate::manager) fn mapped_resume_action(mapped: Option<&str>, requested: 
 pub(in crate::manager) fn acp_request_must_run_off_dispatch_loop(request: &AgentRequest) -> bool {
     matches!(
         request,
-        AgentRequest::WaitForTerminalExitRequest(_)
+        AgentRequest::RequestPermissionRequest(_)
+            | AgentRequest::WaitForTerminalExitRequest(_)
             | AgentRequest::CreateElicitationRequest(_)
             | AgentRequest::ExtMethodRequest(_)
     )

@@ -88,7 +88,8 @@ fn search_repo_blocking(
         let relative = path
             .strip_prefix(repo_path)
             .map_err(|error| error.to_string())?;
-        let relative_lower = relative.to_string_lossy().to_lowercase();
+        let relative_str = relative.to_string_lossy().replace('\\', "/");
+        let relative_lower = relative_str.to_lowercase();
         let file_name = path
             .file_name()
             .map(|name| name.to_string_lossy().to_lowercase())
@@ -113,7 +114,7 @@ fn search_repo_blocking(
             SearchMatchType::FullPath => 1,
         };
         results.push(SearchResult {
-            path: relative.to_string_lossy().to_string(),
+            path: relative_str,
             is_file: path.is_file(),
             match_type,
             score,

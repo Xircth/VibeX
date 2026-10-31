@@ -791,14 +791,32 @@ export const getToolSummary = (
   }
 };
 
-function extractDescriptionFromArguments(
-  value: JsonValue | null | undefined
+const DESCRIPTION_ARGUMENT_KEYS = [
+  'description',
+  'toolSummary',
+  'toolAction',
+] as const;
+
+const DESCRIPTION_META_KEYS = [
+  'prompt',
+  'description',
+  'toolSummary',
+  'toolAction',
+] as const;
+
+function extractDescriptionFromRecord(
+  value: JsonValue | null | undefined,
+  keys: readonly string[]
 ): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const description = (value as Record<string, unknown>).description;
-  return typeof description === 'string' && description.trim().length > 0
-    ? description.trim()
-    : null;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return null;
 }
 
 export function getToolCallDescription(
@@ -806,6 +824,7 @@ export function getToolCallDescription(
     | {
         entry_type?: NormalizedEntryType;
         toolArguments?: JsonValue | null;
+        toolMeta?: JsonValue | null;
       }
     | null
     | undefined
@@ -814,14 +833,25 @@ export function getToolCallDescription(
   const actionType = entry.entry_type.action_type;
   if (actionType.action === 'task_create') return null;
 
-  const fromToolArguments = extractDescriptionFromArguments(
-    entry.toolArguments
+  const fromToolArguments = extractDescriptionFromRecord(
+    entry.toolArguments,
+    DESCRIPTION_ARGUMENT_KEYS
   );
   if (fromToolArguments) return fromToolArguments;
 
   if ('arguments' in actionType) {
-    return extractDescriptionFromArguments(actionType.arguments);
+    const fromActionArguments = extractDescriptionFromRecord(
+      actionType.arguments,
+      DESCRIPTION_ARGUMENT_KEYS
+    );
+    if (fromActionArguments) return fromActionArguments;
   }
+
+  const fromToolMeta = extractDescriptionFromRecord(
+    entry.toolMeta,
+    DESCRIPTION_META_KEYS
+  );
+  if (fromToolMeta) return fromToolMeta;
 
   return null;
 }

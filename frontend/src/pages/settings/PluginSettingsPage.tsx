@@ -1,4 +1,4 @@
-import { useSettingSections, useSettingsPages } from '@vibex/plugin-sdk';
+import { useSettingsPages } from '@vibex/plugin-sdk';
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
@@ -15,7 +15,6 @@ export function PluginSettingsPage() {
   }>();
   const pages = usePluginHostContributions('settings_page');
   const sdkPages = useSettingsPages();
-  const sdkSections = useSettingSections();
 
   const sdkPageMatch = useMemo(
     () =>
@@ -27,33 +26,21 @@ export function PluginSettingsPage() {
     [pageId, pluginId, sdkPages]
   );
 
-  const sdkSectionMatch = useMemo(
-    () =>
-      sdkSections.find(
-        (section) =>
-          section.pluginId === pluginId &&
-          (section.id === pageId || section.id === `${pluginId}:${pageId}`)
-      ) ?? null,
-    [pageId, pluginId, sdkSections]
-  );
-
   const item = useMemo<PluginContributionCatalogItem | null>(() => {
     const catalogMatch = pages.find(
       (page) => page.pluginId === pluginId && page.id === pageId
     );
     if (catalogMatch) return catalogMatch;
-    if (!pluginId || !pageId) return null;
-    const sdkEntry = sdkPageMatch ?? sdkSectionMatch;
-    if (!sdkEntry) return null;
+    if (!pluginId || !pageId || !sdkPageMatch) return null;
     return {
       pluginId,
       id: pageId,
       kind: 'settings_page',
-      label: sdkEntry.title,
+      label: sdkPageMatch.title,
       generation: 1,
-      metadata: sdkEntry.icon ? { icon: sdkEntry.icon } : {},
+      metadata: sdkPageMatch.icon ? { icon: sdkPageMatch.icon } : {},
     };
-  }, [pageId, pages, pluginId, sdkPageMatch, sdkSectionMatch]);
+  }, [pageId, pages, pluginId, sdkPageMatch]);
 
   if (!item) {
     return <PluginSurfacePlaceholder reason="missing" />;
@@ -73,21 +60,6 @@ export function PluginSettingsPage() {
             schema={sdkPageMatch.schema}
             title={sdkPageMatch.title}
             description={sdkPageMatch.description}
-          />
-        </PluginBoundary>
-      </div>
-    );
-  }
-
-  if (sdkSectionMatch?.component && !sdkPageMatch && pluginId) {
-    const SectionComponent = sdkSectionMatch.component;
-    return (
-      <div className="h-full min-h-[24rem]">
-        <PluginBoundary pluginId={pluginId} slot="app.settings.page">
-          <SectionComponent
-            pluginId={pluginId}
-            surfaceId={pageId}
-            slot="app.settings.page"
           />
         </PluginBoundary>
       </div>

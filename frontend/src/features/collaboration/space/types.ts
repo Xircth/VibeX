@@ -87,9 +87,30 @@ export type DraftSpaceMemberMeta = {
   avatar?: MemberBotAvatarConfig;
 };
 
+export type SpaceCardRecord = {
+  id: string;
+  space_id?: string;
+  kind: 'ask' | 'approval' | string;
+  status: 'pending' | 'resolved' | string;
+  payload?: {
+    action?: string;
+    command?: string;
+    reason?: string;
+    question?: string;
+    options?: string[];
+  } | null;
+  resolution?: {
+    declined?: boolean;
+    answer?: string;
+    answers?: unknown;
+    decision?: string;
+  } | null;
+};
+
 export type ThreadMessagesPage = {
   messages: SpaceMessage[];
   scheduled: ScheduledSpaceMessage[];
+  cards?: SpaceCardRecord[];
 };
 
 export type SidebarDragPayload =
@@ -107,6 +128,7 @@ export type SidebarDropTarget =
   | { kind: 'space'; spaceId: string }
   | { kind: 'blocked'; spaceId: string }
   | { kind: 'section'; sectionId: string }
+  | { kind: 'supervisor' }
   | null;
 
 export const EMPTY_MEMBERS: SpaceMember[] = [];

@@ -173,9 +173,11 @@ impl RemoteDesktopRegistry {
         operation_id: Option<OperationId>,
     ) -> Result<Value, AppError> {
         if command.is_empty()
-            || !command
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit())
+            || !command.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'_' | b'-' | b'.')
+            })
         {
             return Err(AppError::BadRequest(
                 "remote command identifier is invalid".to_string(),
@@ -283,9 +285,19 @@ impl RemoteDesktopRegistry {
         );
         let pumps = self.pumps.clone();
         tokio::spawn(async move {
-            let result =
-                pump_subscription_socket(profile, request, on_event, subscription_id, cancel_rx)
-                    .await;
+            let result = pump_subscription_socket(
+                profile,
+                request,
+                on_event.clone(),
+                subscription_id,
+                cancel_rx,
+            )
+            .await;
+            let _ = on_event.send(serde_json::json!({
+                "kind": "subscription_closed",
+                "payload": null,
+                "sequence": 0,
+            }));
             pumps.write().await.remove(&subscription_id);
             if let Err(error) = result {
                 tracing::warn!(%error, "remote desktop subscription failed");

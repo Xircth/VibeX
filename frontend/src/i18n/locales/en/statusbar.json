@@ -103,6 +103,7 @@
       "get_session_info": "Look up a session",
       "send_session_input": "Send session input",
       "cancel_session_turn": "Cancel a session turn",
+      "wait_for_session": "Wait for a session",
       "list_conversations": "List conversations",
       "create_conversation": "Create a conversation",
       "list_spaces": "List spaces",

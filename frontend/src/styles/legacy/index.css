@@ -7307,16 +7307,19 @@ html.dark {
   }
 
   .settings-nav-button.is-active {
-    color: var(--text-strong);
-    border-color: var(--border-strong);
-    background: var(--surface-content);
-    box-shadow: none;
+    color: hsl(var(--primary-foreground)) !important;
+    border-color: transparent !important;
+    background: hsl(var(--primary)) !important;
+    background-color: hsl(var(--primary)) !important;
+    font-weight: 500;
+    box-shadow: var(--shadow-xs);
   }
 
   .settings-nav-button.is-active:hover {
-    color: var(--text-strong);
-    border-color: var(--border-strong);
-    background: var(--surface-content);
+    color: hsl(var(--primary-foreground)) !important;
+    border-color: transparent !important;
+    background: hsl(var(--primary) / 0.92) !important;
+    background-color: hsl(var(--primary) / 0.92) !important;
   }
 
   /* Elevated "inset grouped" surface used by the Agent detail sections and the

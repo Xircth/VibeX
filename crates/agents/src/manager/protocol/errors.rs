@@ -160,7 +160,9 @@ impl AirSessionFailure {
     }
 }
 
-pub(in crate::manager) fn extract_session_failure(value: &serde_json::Value) -> Option<AirSessionFailure> {
+pub(in crate::manager) fn extract_session_failure(
+    value: &serde_json::Value,
+) -> Option<AirSessionFailure> {
     let candidate = value
         .pointer("/_meta/jetbrains.air/sessionFailure")
         .or_else(|| value.pointer("/_meta/jetbrains/air/sessionFailure"))
@@ -183,7 +185,9 @@ pub(in crate::manager) fn extract_session_failure_from_meta(
     extract_session_failure(&wrapped)
 }
 
-pub(in crate::manager) fn parse_session_failure_value(value: &serde_json::Value) -> Option<AirSessionFailure> {
+pub(in crate::manager) fn parse_session_failure_value(
+    value: &serde_json::Value,
+) -> Option<AirSessionFailure> {
     if let Some(text) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) {
         return Some(AirSessionFailure {
             kind: None,
@@ -362,7 +366,9 @@ pub(in crate::manager) fn format_acp_prompt_error(
 /// offer the right recovery (e.g. a `ResourceNotFound` means the agent's session
 /// file is gone → "session expired, reload"). Driven entirely by the ACP error
 /// code the agent actually returned — never guessed.
-pub(in crate::manager) fn classify_session_load_error(error: &acp::Error) -> SessionLoadFailureReason {
+pub(in crate::manager) fn classify_session_load_error(
+    error: &acp::Error,
+) -> SessionLoadFailureReason {
     match i32::from(error.code) {
         // -32002 ResourceNotFound: the agent no longer has this session.
         -32002 => SessionLoadFailureReason::ResourceNotFound,
@@ -403,7 +409,10 @@ pub(in crate::manager) fn classify_session_load_failure_fragments(
     None
 }
 
-pub(in crate::manager) fn archived_recovery_command(message: &str, failed_sid: &str) -> Option<String> {
+pub(in crate::manager) fn archived_recovery_command(
+    message: &str,
+    failed_sid: &str,
+) -> Option<String> {
     if let Some(start) = message.find('`')
         && let Some(end) = message[start + 1..].find('`')
     {

@@ -57,7 +57,7 @@ describe('ConversationStatusDock', () => {
       Array.from(dock.querySelectorAll('.astryx-badge')).map(
         (badge) => badge.textContent
       )
-    ).toEqual(['出错', '注意', '提示']);
+    ).toEqual(['Error', 'Warn', 'Notice']);
     expect(dock.querySelector('.composer-status-icon')).toBeNull();
 
     const interruptedHeader = screen
@@ -147,7 +147,7 @@ describe('ConversationStatusDock', () => {
       Array.from(dock.querySelectorAll('.astryx-badge')).map(
         (badge) => badge.textContent
       )
-    ).toEqual(['注意']);
+    ).toEqual(['Warn']);
     expect(
       screen.queryByText(/Disable unused skills or plugins/)
     ).not.toBeInTheDocument();

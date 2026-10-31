@@ -195,7 +195,7 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         let args: WorkspaceIdArgs = parse(args)?;
-        let workspace = self.require_workspace(args.workspace_id).await?;
+        let mut workspace = self.require_workspace(args.workspace_id).await?;
         let repositories = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
             .await
             .map_err(internal_error)?;
@@ -212,6 +212,7 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        workspace.container_ref = Some(container_ref.clone());
         let workspace_dir = PathBuf::from(&container_ref);
         let all_merges = Merge::find_by_workspace_id(&self.pool, workspace.id)
             .await
@@ -260,7 +261,7 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         let args: WorkspaceIdArgs = parse(args)?;
-        let workspace = self.require_workspace(args.workspace_id).await?;
+        let mut workspace = self.require_workspace(args.workspace_id).await?;
         let reason = match command {
             DomainCommand::WorkspaceRunSetupScript => ExecutionProcessRunReason::SetupScript,
             DomainCommand::WorkspaceRunCleanupScript => ExecutionProcessRunReason::CleanupScript,
@@ -283,11 +284,13 @@ impl ServerApplicationDomains {
                 error: Some(RunScriptError::ProcessAlreadyRunning),
             });
         }
-        self.deployment
+        let container_ref = self
+            .deployment
             .container()
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        workspace.container_ref = Some(container_ref);
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
             .await
             .map_err(internal_error)?;
@@ -327,7 +330,7 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         let args: CreatePrArgs = parse(args)?;
-        let workspace = self.require_workspace(args.workspace_id).await?;
+        let mut workspace = self.require_workspace(args.workspace_id).await?;
         let workspace_repo =
             WorkspaceRepo::find_by_workspace_and_repo_id(&self.pool, workspace.id, args.repo_id)
                 .await
@@ -349,6 +352,7 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        workspace.container_ref = Some(container_ref.clone());
         let workspace_path = PathBuf::from(&container_ref);
         let worktree_path = workspace
             .repo_path(&repo)

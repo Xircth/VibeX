@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type MutableRefObject,
+} from 'react';
 import {
   $getSelection,
   $isRangeSelection,
@@ -86,6 +92,31 @@ function MarkdownImagePastePlugin({
   return null;
 }
 
+function MarkdownExternalSyncPlugin({
+  markdown,
+  lastMarkdownRef,
+}: {
+  markdown: string;
+  lastMarkdownRef: MutableRefObject<string>;
+}) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    if (markdown === lastMarkdownRef.current) {
+      return;
+    }
+    lastMarkdownRef.current = markdown;
+    try {
+      const nextState = editor.parseEditorState(toEditorState(markdown));
+      editor.setEditorState(nextState);
+    } catch {
+      // Ignore malformed external markdown updates.
+    }
+  }, [editor, lastMarkdownRef, markdown]);
+
+  return null;
+}
+
 export function MarkdownRichTextEditor({
   markdown,
   label,
@@ -94,11 +125,14 @@ export function MarkdownRichTextEditor({
   onSave,
   pasteImages,
 }: MarkdownRichTextEditorProps) {
+  const lastMarkdownRef = useRef(markdown);
   const defaultValue = useRef(toEditorState(markdown)).current;
 
   const handleChange = useCallback(
     (_state: unknown, editor: LexicalEditor) => {
-      onMarkdownChange(markdownFromEditor(editor));
+      const next = markdownFromEditor(editor);
+      lastMarkdownRef.current = next;
+      onMarkdownChange(next);
     },
     [onMarkdownChange]
   );
@@ -129,7 +163,15 @@ export function MarkdownRichTextEditor({
         size="md"
         tabEscapeHint=""
         toolbar={<RichTextEditorToolbar />}
-        plugins={<MarkdownImagePastePlugin pasteImages={pasteImages} />}
+        plugins={
+          <>
+            <MarkdownImagePastePlugin pasteImages={pasteImages} />
+            <MarkdownExternalSyncPlugin
+              markdown={markdown}
+              lastMarkdownRef={lastMarkdownRef}
+            />
+          </>
+        }
         onChange={handleChange}
       />
     </div>

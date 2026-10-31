@@ -174,7 +174,14 @@ pub async fn host_create_space_member(
     if !persona_prompt.trim().is_empty() {
         append_persona_notice(pool, session_id, &persona_prompt).await?;
     }
-    let overrides = config_overrides(&config_values);
+    let mut clean_config_values = config_values.clone();
+    if let Some(obj) = clean_config_values.as_object_mut() {
+        obj.remove("avatar");
+        obj.remove("color");
+        obj.remove("is_supervisor");
+        obj.remove("isSupervisor");
+    }
+    let overrides = config_overrides(&clean_config_values);
     remember_creation_session_controls(pool, session_id, mode_id.as_deref(), overrides).await;
     let record = insert_member(
         pool,
@@ -213,13 +220,49 @@ pub async fn host_create_space_member(
             .map_err(db)?;
         }
     }
+    let explicit_supervisor = input.config_values.as_ref().and_then(|cfg| {
+        cfg.get("is_supervisor")
+            .or_else(|| cfg.get("isSupervisor"))
+            .and_then(Value::as_bool)
+    });
+    let should_make_supervisor = match explicit_supervisor {
+        Some(flag) => flag,
+        None if nickname.eq_ignore_ascii_case("master") => {
+            let member_count: i64 = sqlx::query_scalar(
+                r#"SELECT COUNT(DISTINCT tm.member_id)
+                   FROM collaboration_thread_members tm
+                   JOIN collaboration_threads t ON t.id = tm.thread_id
+                   WHERE t.workspace_id = ? AND tm.status = 'active'"#,
+            )
+            .bind(input.workspace_id.to_string())
+            .fetch_one(pool)
+            .await
+            .map_err(db)?;
+            member_count <= 1
+                && crate::collaboration_sidebar::workspace_supervisor_member(
+                    pool,
+                    input.workspace_id,
+                )
+                .await?
+                .is_none()
+        }
+        None => false,
+    };
+    if should_make_supervisor {
+        let _ = crate::collaboration_sidebar::set_workspace_supervisor(
+            pool,
+            input.workspace_id,
+            Some(&member_id),
+        )
+        .await?;
+    }
     write_member_session_config(
         pool,
         &member_id,
         &MemberSessionConfig {
             agent_id: Some(agent_raw.clone()),
             mode_id: mode_id.clone(),
-            config_values: config_values.clone(),
+            config_values: clean_config_values,
             persona_prompt: Some(persona_prompt.clone()).filter(|p| !p.trim().is_empty()),
         },
     )
@@ -475,6 +518,33 @@ pub async fn host_batch_delete_space_items(
         return decode_replay(accept_space_replay(&stored, None, &request)?);
     }
 
+    for target in &member_targets {
+        let is_direct_target = parse_unassigned_space_id(&target.space_id).is_some()
+            || target.space_id.starts_with(identity::DIRECT_PREFIX);
+        if !is_direct_target {
+            continue;
+        }
+        let pre_binding = identity::binding_of_conversation(pool, target.conversation_id)
+            .await
+            .map_err(db)?;
+        let identity_member_id = match pre_binding.as_ref() {
+            Some(b) => Some(b.member_id.clone()),
+            None => target
+                .space_id
+                .strip_prefix(identity::DIRECT_PREFIX)
+                .map(str::to_string)
+                .or_else(|| Some(identity::member_id_for_conversation(target.conversation_id))),
+        };
+        if let Some(ref mid) = identity_member_id
+            && is_member_supervisor(pool, mid).await?
+        {
+            return Err(CollaborationError::new(
+                "forbidden",
+                "supervisor bot cannot be deleted; step down first (主管 Bot 不能删除，请先卸任主管)",
+            ));
+        }
+    }
+
     let archived_set: std::collections::HashSet<Uuid> = member_targets
         .iter()
         .map(|target| target.conversation_id)
@@ -700,16 +770,22 @@ pub async fn host_batch_delete_space_items(
                     Some(candidate)
                 }),
         };
-        let affected_spaces: Vec<String> = sqlx::query_scalar(
-            r#"SELECT DISTINCT space_id FROM collaboration_space_members
-               WHERE conversation_id = ?
-                 AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
-        )
-        .bind(target.conversation_id.to_string())
-        .bind(workspace_id.to_string())
-        .fetch_all(pool)
-        .await
-        .map_err(db)?;
+        let affected_spaces: Vec<String> = if is_direct_target {
+            sqlx::query_scalar(
+                r#"SELECT DISTINCT space_id FROM collaboration_space_members
+                   WHERE conversation_id = ?
+                     AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
+            )
+            .bind(target.conversation_id.to_string())
+            .bind(workspace_id.to_string())
+            .fetch_all(pool)
+            .await
+            .map_err(db)?
+        } else if deleting_space_set.contains(&target.space_id) {
+            Vec::new()
+        } else {
+            vec![target.space_id.clone()]
+        };
         {
             let stamp = now_stamp();
             let mut conn = pool.acquire().await.map_err(db)?;
@@ -725,22 +801,24 @@ pub async fn host_batch_delete_space_items(
                 .bind(target.conversation_id.to_string())
                 .execute(&mut *conn)
                 .await?;
-                sqlx::query(
-                    "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
-                )
-                .bind(&unassigned_id)
-                .bind(target.conversation_id.to_string())
-                .execute(&mut *conn)
-                .await?;
-                sqlx::query(
-                    r#"DELETE FROM collaboration_space_members
-                       WHERE conversation_id = ?
-                         AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
-                )
-                .bind(target.conversation_id.to_string())
-                .bind(workspace_id.to_string())
-                .execute(&mut *conn)
-                .await?;
+                if is_direct_target {
+                    sqlx::query(
+                        "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
+                    )
+                    .bind(&unassigned_id)
+                    .bind(target.conversation_id.to_string())
+                    .execute(&mut *conn)
+                    .await?;
+                    sqlx::query(
+                        r#"DELETE FROM collaboration_space_members
+                           WHERE conversation_id = ?
+                             AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
+                    )
+                    .bind(target.conversation_id.to_string())
+                    .bind(workspace_id.to_string())
+                    .execute(&mut *conn)
+                    .await?;
+                }
                 for affected_sid in &affected_spaces {
                     if !deleting_space_set.contains(affected_sid) {
                         let generation = bump_space_generation_tx(&mut conn, affected_sid).await?;

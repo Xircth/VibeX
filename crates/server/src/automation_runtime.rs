@@ -472,6 +472,7 @@ impl WorkspacePreparerPort for ServerWorkspacePreparer {
     }
 
     async fn release(&self, workspace: &PreparedWorkspace) -> Result<(), WorkspaceError> {
+        let pool = &self.deployment.db().pool;
         let isolation: Option<String> = sqlx::query_scalar(
             "SELECT a.isolation
              FROM automation_runs r
@@ -481,20 +482,27 @@ impl WorkspacePreparerPort for ServerWorkspacePreparer {
              LIMIT 1",
         )
         .bind(workspace.workspace_id)
-        .fetch_optional(&self.deployment.db().pool)
+        .fetch_optional(pool)
         .await
         .map_err(adapter_error)?;
-        if isolation.as_deref() == Some("worktree_per_run")
-            && let Some(workspace) =
-                Workspace::find_by_id(&self.deployment.db().pool, workspace.workspace_id)
-                    .await
-                    .map_err(adapter_error)?
+        if let Some(db_workspace) = Workspace::find_by_id(pool, workspace.workspace_id)
+            .await
+            .map_err(adapter_error)?
         {
-            self.deployment
-                .container()
-                .delete(&workspace)
-                .await
-                .map_err(adapter_error)?;
+            let unattached_run_worktree = isolation.is_none()
+                && db_workspace.use_worktree
+                && db_workspace.branch.starts_with("automation/");
+            if isolation.as_deref() == Some("worktree_per_run") || unattached_run_worktree {
+                self.deployment
+                    .container()
+                    .delete(&db_workspace)
+                    .await
+                    .map_err(adapter_error)?;
+                if unattached_run_worktree {
+                    let _ = Workspace::delete(pool, db_workspace.id).await;
+                    let _ = Task::delete(pool, db_workspace.task_id).await;
+                }
+            }
         }
         Ok(())
     }

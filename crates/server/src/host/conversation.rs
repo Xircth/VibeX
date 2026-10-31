@@ -920,6 +920,18 @@ pub async fn load_conversation_detail(
         )
         .then(|| turn.id.to_string())
     });
+    let active_binding = active_binding_for_conversation(pool, id).await?;
+    let persona = conversations::collaboration::conversation_persona(pool, id)
+        .await
+        .map_err(internal_error)?;
+    let (session_modes, session_config_options) = load_conversation_session_controls(
+        pool,
+        id,
+        summary.agent_id.as_ref().map(|a| a.as_str()),
+        active_binding.as_ref().map(|b| b.agent_type.as_str()),
+        persona.as_ref().map(|p| p.agent_name.as_str()),
+    )
+    .await?;
     Ok(Some(HostConversationDetail {
         summary,
         turns: history.turns,
@@ -928,29 +940,14 @@ pub async fn load_conversation_detail(
         turns_total: history.total as u32,
         prefix_hash: Some(history.meta.prefix_hash),
         user_turns_before_offset: history.meta.user_before as u32,
-        active_binding: active_binding_for_conversation(pool, id).await?,
+        active_binding,
         current_turn,
         projection_version: CONVERSATION_PROJECTION_VERSION,
         session_stats,
         in_flight_user_turn_id,
-        session_modes: latest_event(pool, id, "session_mode_updated", |event| match event {
-            ConversationEvent::SessionModeUpdated { current, modes } => {
-                Some(ConversationSessionModes { current, modes })
-            }
-            _ => None,
-        })
-        .await?,
-        session_config_options: latest_event(pool, id, "session_config_options_updated", |event| {
-            match event {
-                ConversationEvent::SessionConfigOptionsUpdated { options } => Some(options),
-                _ => None,
-            }
-        })
-        .await?
-        .unwrap_or_default(),
-        persona: conversations::collaboration::conversation_persona(pool, id)
-            .await
-            .map_err(internal_error)?,
+        session_modes,
+        session_config_options,
+        persona,
         available_commands: latest_event(
             pool,
             id,
@@ -972,6 +969,145 @@ pub async fn load_conversation_detail(
         async_tasks: Vec::new(),
         prompt_suggestion: None,
     }))
+}
+
+async fn load_conversation_session_controls(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    summary_agent_id: Option<&str>,
+    binding_agent_id: Option<&str>,
+    persona_agent_id: Option<&str>,
+) -> Result<
+    (
+        Option<ConversationSessionModes>,
+        Vec<AgentSessionConfigOption>,
+    ),
+    ApplicationError,
+> {
+    let live_modes = latest_event(
+        pool,
+        conversation_id,
+        "session_mode_updated",
+        |event| match event {
+            ConversationEvent::SessionModeUpdated { current, modes } => {
+                Some(ConversationSessionModes { current, modes })
+            }
+            _ => None,
+        },
+    )
+    .await?;
+    let live_options = latest_event(
+        pool,
+        conversation_id,
+        "session_config_options_updated",
+        |event| match event {
+            ConversationEvent::SessionConfigOptionsUpdated { options } => Some(options),
+            _ => None,
+        },
+    )
+    .await?;
+    let had_live_modes = live_modes.as_ref().is_some_and(|m| !m.modes.is_empty());
+    let live_option_keys: std::collections::HashSet<String> = live_options
+        .as_ref()
+        .map(|opts| opts.iter().map(|o| o.key.clone()).collect())
+        .unwrap_or_default();
+    let mut session_modes = live_modes;
+    let mut session_config_options = live_options.unwrap_or_default();
+
+    let resolved_agent_id = summary_agent_id
+        .or(binding_agent_id)
+        .or(persona_agent_id)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|raw| {
+            agents::AgentId::parse(raw).ok().or_else(|| {
+                agents::AgentKind::from_lenient(raw)
+                    .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+            })
+        });
+
+    if let Some(agent_id) = resolved_agent_id.as_ref() {
+        let mut catalog =
+            conversations::read_matching_capability_catalog_for_defaults(pool, agent_id)
+                .await
+                .ok()
+                .flatten();
+        if catalog.is_none() {
+            let fallback_json: Option<String> = sqlx::query_scalar(
+                r#"SELECT controls_json
+                   FROM agent_capability_catalog
+                   WHERE agent_type = ?
+                   ORDER BY retrieved_at DESC, generation DESC
+                   LIMIT 1"#,
+            )
+            .bind(agent_id.as_str())
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+            catalog = fallback_json
+                .and_then(|raw| serde_json::from_str::<AgentSessionControlsSnapshot>(&raw).ok());
+        }
+        if let Some(catalog) = catalog {
+            if session_modes.as_ref().is_none_or(|m| m.modes.is_empty())
+                && !catalog.modes.is_empty()
+            {
+                let current = session_modes
+                    .and_then(|m| m.current)
+                    .or(catalog.current_mode);
+                session_modes = Some(ConversationSessionModes {
+                    current,
+                    modes: catalog.modes,
+                });
+            }
+            if session_config_options.is_empty() {
+                session_config_options = catalog.config_options;
+            } else {
+                for catalog_opt in catalog.config_options {
+                    let exists = session_config_options.iter().any(|existing| {
+                        existing.key == catalog_opt.key
+                            || (existing.category.as_deref() == Some("thought_level")
+                                && catalog_opt.category.as_deref() == Some("thought_level"))
+                    });
+                    if !exists {
+                        session_config_options.push(catalog_opt);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(Some(binding)) =
+        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+    {
+        if !had_live_modes
+            && let Some(mode) = binding
+                .current_mode
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+            && let Some(modes) = session_modes.as_mut()
+        {
+            modes.current = Some(mode.to_string());
+        }
+        if let Ok(selection) =
+            serde_json::from_str::<serde_json::Map<String, Value>>(&binding.config_selection_json)
+        {
+            for (key, value) in selection {
+                if live_option_keys.contains(&key) {
+                    continue;
+                }
+                let Some(val_str) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+                if let Some(opt) = session_config_options.iter_mut().find(|o| o.key == key) {
+                    opt.value = Some(Value::String(val_str.to_string()));
+                }
+            }
+        }
+    }
+
+    Ok((session_modes, session_config_options))
 }
 
 async fn latest_event<T>(
@@ -1036,17 +1172,7 @@ async fn current_turn_for_conversation(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<HostConversationCurrentTurn>, ApplicationError> {
-    let Some(active_turn_id) =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
-            .bind(conversation_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(internal_error)?
-            .flatten()
-    else {
-        return Ok(None);
-    };
-    let Some(turn) = ConversationTurnRecord::find_by_id(pool, active_turn_id)
+    let Some(turn) = ConversationTurnRecord::find_active_for_session(pool, conversation_id)
         .await
         .map_err(internal_error)?
     else {

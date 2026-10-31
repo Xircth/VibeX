@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{Duration, Utc};
 use db::models::collaboration_identity as identity;
 use serde::Serialize;
@@ -306,8 +308,8 @@ pub(crate) async fn resolve_seat_targets(
             .collect()
     };
 
-    let has_explicit_broadcast = nicknames.iter().any(|raw| is_broadcast_target_name(raw))
-        || contains_broadcast_mention(content);
+    let to_broadcast = nicknames.iter().any(|raw| is_broadcast_target_name(raw));
+    let has_explicit_broadcast = to_broadcast || contains_broadcast_mention(content);
 
     let non_empty_nicknames: Vec<&str> = nicknames
         .iter()
@@ -366,7 +368,7 @@ pub(crate) async fn resolve_seat_targets(
                     .iter()
                     .any(|existing| existing.dest_thread_id.as_deref() == Some(group.as_str()))
             {
-                mentioned.extend(workspace_group_targets(pool, &group).await?);
+                mentioned.extend(workspace_group_targets(pool, &group, sender, content).await?);
             }
         }
         if !mentioned.is_empty() {
@@ -379,7 +381,7 @@ pub(crate) async fn resolve_seat_targets(
     }
 
     let mut targets = Vec::new();
-    if has_explicit_broadcast {
+    if to_broadcast {
         for target in broadcast_all_agents(members.clone()) {
             if !targets
                 .iter()
@@ -425,7 +427,7 @@ pub(crate) async fn resolve_seat_targets(
             ));
             continue;
         }
-        let peers = resolve_workspace_peer(pool, space_id, nickname).await?;
+        let peers = resolve_workspace_peer(pool, space_id, nickname, sender, content).await?;
         if peers.is_empty() {
             return Err(CollaborationError::new(
                 "not_found",
@@ -495,6 +497,8 @@ pub(crate) async fn resolve_workspace_peer(
     pool: &SqlitePool,
     origin_space_id: &str,
     nickname: &str,
+    sender: Option<Uuid>,
+    content: &str,
 ) -> Result<Vec<ResolvedTarget>, CollaborationError> {
     let Ok(workspace_id) = space_workspace_id(pool, origin_space_id).await else {
         return Ok(Vec::new());
@@ -514,12 +518,66 @@ pub(crate) async fn resolve_workspace_peer(
     let Some(group_id) = group_id.filter(|id| id != origin_space_id) else {
         return Ok(Vec::new());
     };
-    workspace_group_targets(pool, &group_id).await
+    workspace_group_targets(pool, &group_id, sender, content).await
 }
 
+fn stamp_group_dest(
+    mut target: ResolvedTarget,
+    group_id: &str,
+    group_name: &str,
+) -> ResolvedTarget {
+    target.dest_thread_id = Some(group_id.to_string());
+    target.peer_kind = "group".to_string();
+    target.nickname = group_name.to_string();
+    target
+}
+
+fn group_receipt_target(group_id: &str, group_name: &str) -> ResolvedTarget {
+    ResolvedTarget {
+        conversation_id: None,
+        nickname: group_name.to_string(),
+        dest_thread_id: Some(group_id.to_string()),
+        peer_kind: "group".to_string(),
+    }
+}
+
+async fn sender_dest_conversations_to_skip(
+    pool: &SqlitePool,
+    sender: Option<Uuid>,
+) -> Result<HashSet<Uuid>, CollaborationError> {
+    let mut skip = HashSet::new();
+    let Some(sender) = sender else {
+        return Ok(skip);
+    };
+    skip.insert(sender);
+    if let Some(binding) = identity::binding_of_conversation(pool, sender)
+        .await
+        .map_err(db)?
+    {
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT conversation_id FROM collaboration_thread_members WHERE member_id = ? AND status = 'active'",
+        )
+        .bind(&binding.member_id)
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
+        for raw in rows {
+            if let Ok(id) = Uuid::parse_str(raw.trim()) {
+                skip.insert(id);
+            }
+        }
+    }
+    Ok(skip)
+}
+
+/// Recipients in a destination GroupSpace. Wakes follow `@` in `content`
+/// against that group's roster. No member `@` still delivers the group log
+/// (Person sees it) without starting a Bot turn.
 async fn workspace_group_targets(
     pool: &SqlitePool,
     group_id: &str,
+    sender: Option<Uuid>,
+    content: &str,
 ) -> Result<Vec<ResolvedTarget>, CollaborationError> {
     let group_name: String =
         sqlx::query_scalar("SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1")
@@ -529,19 +587,29 @@ async fn workspace_group_targets(
             .map_err(db)?
             .unwrap_or_else(|| group_id.to_string());
     let members = list_space_members(pool, group_id, MessageAudience::Agent).await?;
-    let mut targets = pick_default_agent_targets(pool, group_id, &members).await?;
-    for target in &mut targets {
-        target.dest_thread_id = Some(group_id.to_string());
-        target.peer_kind = "group".to_string();
-        target.nickname = group_name.clone();
-    }
+    let skip = sender_dest_conversations_to_skip(pool, sender).await?;
+    let stamp = |target: ResolvedTarget| stamp_group_dest(target, group_id, &group_name);
+    let mut targets: Vec<ResolvedTarget> = if contains_broadcast_mention(content) {
+        members
+            .iter()
+            .filter_map(member_as_target)
+            .filter(|target| target.conversation_id.is_none_or(|id| !skip.contains(&id)))
+            .map(stamp)
+            .collect()
+    } else {
+        mentioned_local_bot_nicknames(content, &members, None)
+            .into_iter()
+            .filter_map(|nickname| {
+                members
+                    .iter()
+                    .find(|member| member.nickname == nickname)
+                    .and_then(member_as_target)
+            })
+            .map(stamp)
+            .collect()
+    };
     if targets.is_empty() {
-        targets.push(ResolvedTarget {
-            conversation_id: None,
-            nickname: group_name,
-            dest_thread_id: Some(group_id.to_string()),
-            peer_kind: "group".to_string(),
-        });
+        targets.push(group_receipt_target(group_id, &group_name));
     }
     Ok(targets)
 }
@@ -1164,6 +1232,77 @@ mod tests {
         assert_eq!(from_agent.will_wake, 2);
         // Preview never delivers.
         assert!(inputs_of(&pool, b).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dest_group_in_to_wakes_members_mentioned_in_body() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let origin = space_of(&pool, a).await;
+        let dest = create_collaboration_space(&pool, a, "二群", Uuid::new_v4())
+            .await
+            .unwrap()
+            .space_id;
+        let b_seat = add_space_member(&pool, a, &dest, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let c_seat = add_space_member(&pool, a, &dest, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        set_space_lead(&pool, &dest, Some(&c_seat.member_id))
+            .await
+            .unwrap();
+        let b_dest = Uuid::parse_str(b_seat.conversation_id.as_deref().unwrap()).unwrap();
+        let c_dest = Uuid::parse_str(c_seat.conversation_id.as_deref().unwrap()).unwrap();
+
+        let mentioned = resolve_seat_targets(
+            &pool,
+            &origin,
+            Some(a),
+            &["二群".to_string()],
+            "@小B 请看登录",
+        )
+        .await
+        .unwrap();
+        let woken: Vec<Uuid> = mentioned.iter().filter_map(|t| t.conversation_id).collect();
+        assert_eq!(woken, vec![b_dest]);
+        assert!(
+            mentioned
+                .iter()
+                .all(|t| t.dest_thread_id.as_deref() == Some(dest.as_str()))
+        );
+
+        let silent =
+            resolve_seat_targets(&pool, &origin, Some(a), &["二群".to_string()], "进度同步")
+                .await
+                .unwrap();
+        assert!(silent.iter().all(|t| t.conversation_id.is_none()));
+        assert!(
+            silent
+                .iter()
+                .any(|t| t.dest_thread_id.as_deref() == Some(dest.as_str()))
+        );
+
+        let broadcast = resolve_seat_targets(
+            &pool,
+            &origin,
+            Some(a),
+            &["二群".to_string()],
+            "@所有人 请看",
+        )
+        .await
+        .unwrap();
+        let woken_all: Vec<Uuid> = broadcast.iter().filter_map(|t| t.conversation_id).collect();
+        assert!(woken_all.contains(&b_dest), "{woken_all:?}");
+        assert!(woken_all.contains(&c_dest), "{woken_all:?}");
+        assert!(!woken_all.contains(&a), "{woken_all:?}");
+        assert_eq!(woken_all.len(), 2);
     }
 
     #[tokio::test]

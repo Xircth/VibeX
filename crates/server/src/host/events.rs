@@ -90,47 +90,47 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     },
     HostEventChannel {
         prefix: "file-tree-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "projects-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "project-workspaces-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "execution-processes-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "diff-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "conversation-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "scratch-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "slash-commands-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
         prefix: "log-stream",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
@@ -209,6 +209,16 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "conversation.read",
     },
     HostEventChannel {
+        prefix: "conversation-runtime-event",
+        durability: EventDurability::BestEffort,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
+        prefix: "plugin-notify-toast",
+        durability: EventDurability::BestEffort,
+        required_scope: "plugin.read",
+    },
+    HostEventChannel {
         prefix: "provider-bind-confirm",
         durability: EventDurability::BestEffort,
         required_scope: "plugin.write",
@@ -230,6 +240,7 @@ pub struct HostEventBus {
     tx: broadcast::Sender<HostEvent>,
     sequence: Arc<AtomicI64>,
     last_invalidation: Arc<RwLock<HashMap<String, HostEvent>>>,
+    stream_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
 }
 
 impl Default for HostEventBus {
@@ -245,6 +256,35 @@ impl HostEventBus {
             tx,
             sequence: Arc::new(AtomicI64::new(0)),
             last_invalidation: Arc::new(RwLock::new(HashMap::new())),
+            stream_tasks: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Register a stream producer task for `key`, aborting any previous task
+    /// registered under the same `key` on this Host Event Bus.
+    pub fn replace_stream_task(&self, key: impl Into<String>, task: JoinHandle<()>) {
+        if let Ok(mut tasks) = self.stream_tasks.lock() {
+            tasks.retain(|_, handle| !handle.is_finished());
+            if let Some(previous) = tasks.insert(key.into(), task) {
+                previous.abort();
+            }
+        }
+    }
+
+    /// Ensure at most one active producer task is running for `key` on this
+    /// Host Event Bus. If a previous task is missing or has finished, `spawn_fn`
+    /// is invoked to start a new one.
+    pub fn ensure_stream_task<F>(&self, key: impl Into<String>, spawn_fn: F)
+    where
+        F: FnOnce() -> JoinHandle<()>,
+    {
+        if let Ok(mut tasks) = self.stream_tasks.lock() {
+            tasks.retain(|_, handle| !handle.is_finished());
+            let key = key.into();
+            if tasks.contains_key(&key) {
+                return;
+            }
+            tasks.insert(key, spawn_fn());
         }
     }
 
@@ -578,6 +618,8 @@ mod tests {
             "slash-commands-stream:codex:default:none:none",
             "terminal-output:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "terminal-exit:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "conversation-runtime-event:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "plugin-notify-toast",
         ] {
             assert!(
                 HostEventBus::channel_allowed(channel),
@@ -733,5 +775,31 @@ mod tests {
             Some("subscribe_file_tree_stream")
         );
         assert!(patch_stream_channel("unknown", &serde_json::json!({})).is_err());
+    }
+
+    #[tokio::test]
+    async fn patch_streams_do_not_poison_bootstrap_snapshot_and_replace_stream_task_aborts_previous()
+     {
+        let bus = HostEventBus::new();
+        bus.emit(
+            "projects-stream",
+            serde_json::json!({ "JsonPatch": [{ "op": "replace", "path": "", "value": {} }] }),
+        );
+        bus.emit("projects-stream", serde_json::json!({ "Ready": null }));
+        let bootstrap = bus
+            .attach_bootstrap(remote_protocol::SubscriptionId::new(), "projects-stream", 0)
+            .expect("attach projects-stream");
+        assert_eq!(bootstrap.durability, EventDurability::BestEffort);
+        assert!(bootstrap.snapshot.is_none());
+
+        let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
+        let handle1 = tokio::spawn(async move {
+            let _ = rx1.await;
+        });
+        bus.replace_stream_task("projects-stream", handle1);
+        let handle2 = tokio::spawn(async {});
+        bus.replace_stream_task("projects-stream", handle2);
+        tokio::task::yield_now().await;
+        assert!(tx1.is_closed());
     }
 }

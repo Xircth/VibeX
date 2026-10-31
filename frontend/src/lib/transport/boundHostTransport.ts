@@ -1,4 +1,4 @@
-import { HOST_COMMANDS } from 'shared/hostCommands';
+import { DESKTOP_SHELL_COMMANDS, HOST_COMMANDS } from 'shared/hostCommands';
 
 import type {
   BackendTransport,
@@ -10,6 +10,7 @@ import type { RemoteDesktopTransport } from './remoteDesktopTransport';
 import { tauriBackendTransport } from './tauriTransport';
 
 const HOST_COMMAND_SET = new Set<string>(HOST_COMMANDS);
+const DESKTOP_SHELL_COMMAND_SET = new Set<string>(DESKTOP_SHELL_COMMANDS);
 
 const HOST_PUSH_EVENT_PREFIXES = [
   'conversation-events',
@@ -31,6 +32,7 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'log-stream',
   'vibex://settings-file-changed',
   'vibex://collaboration-space-changed',
+  'vibex://collaboration-receipts-changed',
   'theme-changed',
   'log-settings://changed',
   'logs://appended',
@@ -38,9 +40,13 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'local-history-scan-progress',
   'agent-events',
   'terminal-output',
+  'terminal-exit',
   'plugin-contributions-changed',
+  'plugin-conversation-draft-insert',
   'plugin-internal-message',
   'conversation-after-turn',
+  'conversation-runtime-event',
+  'plugin-notify-toast',
   'provider-bind-confirm',
 ] as const;
 
@@ -67,7 +73,10 @@ export class BoundHostTransport implements BackendTransport {
     args?: Record<string, unknown>,
     options?: { operationId?: string }
   ): Promise<unknown> {
-    if (HOST_COMMAND_SET.has(command)) {
+    if (
+      HOST_COMMAND_SET.has(command) ||
+      !DESKTOP_SHELL_COMMAND_SET.has(command)
+    ) {
       return this.remote.call(command, args, options);
     }
     return tauriBackendTransport.call(command, args, options);
@@ -79,7 +88,11 @@ export class BoundHostTransport implements BackendTransport {
     onMessage: (message: unknown) => void
   ): Promise<T> {
     const remote: BackendTransport = this.remote;
-    if (HOST_COMMAND_SET.has(command) && remote.stream) {
+    if (
+      (HOST_COMMAND_SET.has(command) ||
+        !DESKTOP_SHELL_COMMAND_SET.has(command)) &&
+      remote.stream
+    ) {
       return remote.stream(command, args, onMessage);
     }
     if (!tauriBackendTransport.stream) {

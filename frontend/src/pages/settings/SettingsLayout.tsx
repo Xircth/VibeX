@@ -53,7 +53,6 @@ import {
   type Disposer,
   type SettingsPageContribution,
   settingsPageRegistry,
-  useSettingSections,
   useSettingsPages,
   type VibeXPluginContext,
 } from '@vibex/plugin-sdk';
@@ -291,7 +290,6 @@ export function SettingsLayout() {
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
   const sdkPages = useSettingsPages();
-  const sdkSections = useSettingSections();
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
@@ -328,21 +326,6 @@ export function SettingsLayout() {
       });
     }
 
-    for (const section of sdkSections) {
-      const pluginId = section.pluginId ?? 'plugin';
-      const rawId = section.id.startsWith(`${pluginId}:`)
-        ? section.id.slice(pluginId.length + 1)
-        : section.id;
-      const path = `/settings/plugin/${pluginId}/${rawId}`;
-      if (seenPaths.has(path)) continue;
-      seenPaths.add(path);
-      pluginNavItems.push({
-        path,
-        label: section.title,
-        icon: contributionIconComponent(section.icon, Puzzle),
-      });
-    }
-
     const pluginGroup: Omit<SettingsNavGroup, 'id'> = {
       title: 'For Plugin',
       items: pluginNavItems,
@@ -357,7 +340,7 @@ export function SettingsLayout() {
         }),
       }))
       .filter((group) => group.items.length > 0);
-  }, [pluginPages, sdkPages, sdkSections, supports]);
+  }, [pluginPages, sdkPages, supports]);
 
   const navigateTo = useCallback(
     (path: string) => {

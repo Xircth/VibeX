@@ -62,14 +62,25 @@ impl ConversationSessionService {
         )
         .await
         .map_err(|error| ConversationServiceError::Internal(error.message))?;
-        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
-            .await?
-            .ok_or_else(|| {
-                ConversationServiceError::NotFound(format!(
+        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
+            Some(workspace) => workspace,
+            None if execution_workspace_id != input.workspace_id => {
+                Workspace::find_by_id(pool, input.workspace_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Workspace {} not found",
+                            input.workspace_id
+                        ))
+                    })?
+            }
+            None => {
+                return Err(ConversationServiceError::NotFound(format!(
                     "Workspace {} not found",
                     input.workspace_id
-                ))
-            })?;
+                )));
+            }
+        };
         let container_ref = self
             .ctx
             .deployment
@@ -370,7 +381,7 @@ async fn collect_checkpoint_file_changes<D: Deployment + ?Sized>(
         .ok_or_else(|| {
             ConversationServiceError::NotFound(format!("Conversation {conversation_id} not found"))
         })?;
-    let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
+    let mut workspace = Workspace::find_by_id(pool, conversation.workspace_id)
         .await?
         .ok_or_else(|| {
             ConversationServiceError::NotFound(format!(
@@ -382,6 +393,7 @@ async fn collect_checkpoint_file_changes<D: Deployment + ?Sized>(
         .container()
         .ensure_container_exists(&workspace)
         .await?;
+    workspace.container_ref = Some(container_ref.clone());
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let checkpoints =
         SessionCheckpoint::find_by_ordinal(pool, conversation_id, checkpoint.ordinal).await?;
@@ -597,7 +609,7 @@ pub(super) async fn record_conversation_checkpoint(
         .ok_or_else(|| {
             ConversationServiceError::NotFound(format!("Conversation {conversation_id} not found"))
         })?;
-    let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
+    let mut workspace = Workspace::find_by_id(pool, conversation.workspace_id)
         .await?
         .ok_or_else(|| {
             ConversationServiceError::NotFound(format!(
@@ -610,6 +622,7 @@ pub(super) async fn record_conversation_checkpoint(
         .container()
         .ensure_container_exists(&workspace)
         .await?;
+    workspace.container_ref = Some(container_ref.clone());
     let before_snapshot_json = serde_json::json!({
         "ordinal": ordinal,
         "repos": checkpoints

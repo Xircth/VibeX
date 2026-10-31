@@ -2356,19 +2356,27 @@ function attachExportedWorkerLoop(slot, mod) {
               return volatileConfig.subscribe(listener);
             },
           };
-          if (typeof def?.setup === "function") {
-            const ret = await def.setup(registrar, workerEnv);
-            if (ret) disposables.push(ret);
-          } else if (def?.handlers && typeof def.handlers === "object") {
-            for (const [id, fn] of Object.entries(def.handlers)) {
-              if (typeof fn === "function") handlers.set(id, fn);
-            }
-          }
-          send({
-            id: msg.id,
-            ok: true,
-            result: { handlers: [...handlers.keys()].sort() },
-          });
+          Promise.resolve()
+            .then(async () => {
+              if (typeof def?.setup === "function") {
+                const ret = await def.setup(registrar, workerEnv);
+                if (ret) disposables.push(ret);
+              } else if (def?.handlers && typeof def.handlers === "object") {
+                for (const [id, fn] of Object.entries(def.handlers)) {
+                  if (typeof fn === "function") handlers.set(id, fn);
+                }
+              }
+              send({
+                id: msg.id,
+                ok: true,
+                result: { handlers: [...handlers.keys()].sort() },
+              });
+            })
+            .catch((err) => {
+              const code = err?.code || "worker_failed";
+              const message = err instanceof Error ? err.message : String(err);
+              send({ id: msg.id, ok: false, error: { code, message } });
+            });
         } else if (msg.method === "config.volatile-update") {
           const nextCfg =
             msg.params?.config && typeof msg.params.config === "object" && !Array.isArray(msg.params.config)
@@ -2401,8 +2409,14 @@ function attachExportedWorkerLoop(slot, mod) {
               send({ id: msg.id, ok: false, error: { code, message } });
             });
         } else if (msg.method === "dispose" || msg.method === "plugin.unload") {
-          await runDisposeSequence();
-          send({ id: msg.id, ok: true, result: null });
+          Promise.resolve()
+            .then(() => runDisposeSequence())
+            .then(() => send({ id: msg.id, ok: true, result: null }))
+            .catch((err) => {
+              const code = err?.code || "worker_failed";
+              const message = err instanceof Error ? err.message : String(err);
+              send({ id: msg.id, ok: false, error: { code, message } });
+            });
         } else if (msg.method === "ping") {
           send({ id: msg.id, ok: true, result: { apiVersion: "1.0" } });
         }
@@ -3153,6 +3167,9 @@ async fn exchange(
             };
             if message.get("method").and_then(Value::as_str) == Some("host.call") {
                 dispatch_host_call(process, broker, codec, &message).await?;
+                continue;
+            }
+            if message.get("method").and_then(Value::as_str) == Some("worker.log") {
                 continue;
             }
             if message.get("id").and_then(Value::as_str) != Some(&request_id) {

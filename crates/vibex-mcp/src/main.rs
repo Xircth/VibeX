@@ -1349,7 +1349,11 @@ mod tests {
             .expect("post_space_message");
         let desc = post["description"].as_str().expect("description");
         assert!(
-            desc.contains("what you are doing") || desc.contains("progress"),
+            desc.contains("ordinary assistant text") && desc.contains("in-space progress"),
+            "{desc}"
+        );
+        assert!(
+            !desc.contains("report progress during a long task"),
             "{desc}"
         );
         assert!(!desc.contains("acknowledgment/plan"), "{desc}");
@@ -1390,6 +1394,12 @@ mod tests {
         let list_desc = list["description"].as_str().expect("list description");
         assert!(
             list_desc.contains("lead_nickname") && list_desc.contains("lead_bot"),
+            "{list_desc}"
+        );
+        assert!(
+            list_desc.contains("activity")
+                && list_desc.contains("waiting_for_bot")
+                && list_desc.contains("working"),
             "{list_desc}"
         );
         assert!(
@@ -1572,10 +1582,7 @@ mod tests {
             Some(&json!({"tool_use_id": "other"})),
             Some(&json!(1)),
         );
-        assert_eq!(
-            args["operation_id"],
-            "550e8400-e29b-41d4-a716-446655440000"
-        );
+        assert_eq!(args["operation_id"], "550e8400-e29b-41d4-a716-446655440000");
     }
 
     #[test]

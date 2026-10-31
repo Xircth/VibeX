@@ -756,6 +756,16 @@ pub trait CompanionSessionPort: Send + Sync {
         response: agents::AgentElicitationResponse,
     ) -> Result<bool, ApplicationError>;
 
+    async fn answer_permission(
+        &self,
+        conversation_id: Uuid,
+        permission_id: &str,
+        response: agents::AgentPermissionResponse,
+    ) -> Result<bool, ApplicationError> {
+        let _ = (conversation_id, permission_id, response);
+        Ok(false)
+    }
+
     async fn clear_turn(&self, conversation_id: Uuid);
 }
 

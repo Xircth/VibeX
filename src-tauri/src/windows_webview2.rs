@@ -6,6 +6,8 @@
 //! without a 1.5 GB floor, and disable non-essential Edge/Chromium background
 //! features (`Translate`, `OptimizationHints`, `MediaRouter`, Edge OOUI).
 
+use std::sync::{Mutex, OnceLock};
+
 pub const ADDITIONAL_BROWSER_ARGUMENTS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 
 /// Non-essential Chromium/Edge features disabled in the main WebView2.
@@ -44,12 +46,182 @@ pub fn should_relaunch_on_interactive_desktop(
         .is_some_and(|name| name.starts_with("exebox-"))
 }
 
+/// WebView2 user-data folder identifier for this executable.
+///
+/// `pnpm run dev` uses `com.vibex.app.dev`; the installed product uses
+/// `com.vibex.app`. The two must stay distinct so a running install cannot
+/// busy-lock a debug restart.
+pub fn webview2_identifier_for_executable(exe: &std::path::Path) -> &'static str {
+    let text = exe
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    if text.contains("\\target\\debug\\") {
+        "com.vibex.app.dev"
+    } else {
+        "com.vibex.app"
+    }
+}
+
+/// PowerShell `-like` pattern for leftover `msedgewebview2.exe` command lines.
+///
+/// `com.vibex.app` is a prefix of `com.vibex.app.dev`, so the product pattern
+/// matches the `EBWebView` path segment instead of the identifier alone.
+pub fn webview2_command_line_like_pattern(identifier: &str) -> &'static str {
+    if identifier == "com.vibex.app.dev" {
+        "*com.vibex.app.dev*"
+    } else {
+        "*\\com.vibex.app\\EBWebView*"
+    }
+}
+
+/// WebView2 user-data root: `%LOCALAPPDATA%\<identifier>`.
+pub fn webview2_user_data_dir(identifier: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .filter(|value| !value.is_empty())
+        .map(|root| std::path::PathBuf::from(root).join(identifier))
+}
+
+/// Isolated debug WebView2 environment under the repo `dev_assets` tree.
+///
+/// Tauri's default is `%LOCALAPPDATA%\com.vibex.app.dev`. That folder stays
+/// busy across cargo-watch restarts (`HRESULT 0x800700AA`), and creating a
+/// nested or sibling directory there can fail with access denied while the
+/// leftover Environment still holds it. Host windows already keep profiles
+/// in `dev_assets/webview-profiles`; debug `main` uses the same tree.
+pub fn debug_webview2_environment_dir() -> std::path::PathBuf {
+    utils::assets::asset_dir()
+        .join("webview-profiles")
+        .join("main")
+}
+
+/// Sidecar profile used when `webview-profiles/main` cannot be created.
+pub fn fresh_debug_webview2_user_data_dir(pid: u32) -> std::path::PathBuf {
+    utils::assets::asset_dir()
+        .join("webview-profiles")
+        .join(format!("main-run-{pid}"))
+}
+
+static ACTIVE_DEBUG_WEBVIEW2_ENV_DIR: OnceLock<Mutex<Option<std::path::PathBuf>>> = OnceLock::new();
+
+/// Record the actual WebView2 user-data directory chosen for the debug `main`
+/// window so secondary local windows (`settings`, `app-*`, `desktop-toast`)
+/// reuse the same `WebContext` even when `main` fell back to `main-run-<pid>`.
+pub fn set_active_debug_webview2_environment_dir(dir: std::path::PathBuf) {
+    let cell = ACTIVE_DEBUG_WEBVIEW2_ENV_DIR.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = cell.lock() {
+        *guard = Some(dir);
+    }
+}
+
+/// Return the active debug WebView2 user-data directory shared by all local
+/// desktop windows (`main`, `settings`, `app-*`, `desktop-toast`).
+pub fn active_debug_webview2_environment_dir() -> std::path::PathBuf {
+    ACTIVE_DEBUG_WEBVIEW2_ENV_DIR
+        .get()
+        .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()))
+        .unwrap_or_else(debug_webview2_environment_dir)
+}
+
+/// Move the whole identifier directory aside so a new Environment can be created.
+///
+/// Tauri passes `app_local_data_dir()` (`%LOCALAPPDATA%\<identifier>`) to
+/// `CreateCoreWebView2EnvironmentWithOptions`. Killing `msedgewebview2.exe` is
+/// not enough: Windows still reports `HRESULT(0x800700AA)` until every handle
+/// on that folder is gone. Debug restarts relocate the folder instead of
+/// waiting on Defender/search indexer.
+pub fn relocate_webview2_user_data(
+    dir: &std::path::Path,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let Some(parent) = dir.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "webview2 user data dir has no parent",
+        ));
+    };
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+
+    let mut last_error = None;
+    for _ in 0..10 {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let stale = parent.join(format!("{name}.stale-{stamp}"));
+        match std::fs::rename(dir, &stale) {
+            Ok(()) => return Ok(Some(stale)),
+            Err(error) => {
+                last_error = Some(error);
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::DirectoryNotEmpty,
+            "failed to relocate WebView2 user data",
+        )
+    }))
+}
+
+/// Best-effort cleanup of previous debug relocations.
+pub fn remove_stale_webview2_user_data(dir: &std::path::Path) {
+    let Some(parent) = dir.parent() else {
+        return;
+    };
+    let Some(name) = dir.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let prefix = format!("{name}.stale-");
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let entry_name = entry.file_name();
+        let Some(entry_name) = entry_name.to_str() else {
+            continue;
+        };
+        if entry_name.starts_with(&prefix) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Drop leftover `main-run-<pid>` profiles from previous debug launches.
+pub fn remove_stale_debug_run_user_data(profiles_dir: &std::path::Path, keep_pid: u32) {
+    let Ok(entries) = std::fs::read_dir(profiles_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix("main-run-") else {
+            continue;
+        };
+        if rest.parse::<u32>().ok() == Some(keep_pid) {
+            continue;
+        }
+        let _ = std::fs::remove_dir_all(entry.path());
+    }
+}
+
 /// Install the occlusion-disable arguments before Tauri creates a WebView2
 /// environment, and escape non-interactive `exebox-*` desktops on Windows.
 pub fn install_process_arguments() {
     #[cfg(windows)]
     {
+        static INSTALLED: OnceLock<()> = OnceLock::new();
+        if INSTALLED.set(()).is_err() {
+            return;
+        }
+        win32_desktop::ensure_runtime_dirs_medium_integrity();
         win32_desktop::relaunch_on_interactive_desktop_if_sandboxed();
+        win32_desktop::reclaim_orphaned_webview2_user_data();
 
         let existing = std::env::var(ADDITIONAL_BROWSER_ARGUMENTS_ENV).ok();
         let Some(arguments) = additional_browser_arguments_to_install(existing.as_deref()) else {
@@ -62,18 +234,96 @@ pub fn install_process_arguments() {
     }
 }
 
+pub(crate) fn build_reclaim_orphaned_webview2_script(
+    exe: &std::path::Path,
+    identifier: &str,
+    self_pid: u32,
+    sandbox_parent_pid: Option<u32>,
+    wait_ms: u128,
+) -> String {
+    let like = webview2_command_line_like_pattern(identifier);
+    let exe_literal = format!("'{}'", exe.to_string_lossy().replace('\'', "''"));
+    let parent_pid = sandbox_parent_pid.unwrap_or(0);
+    let force_kill_predecessor = if identifier == "com.vibex.app.dev" {
+        "$true"
+    } else {
+        "$false"
+    };
+    format!(
+        "$self = {self_pid}; $parentPid = {parent_pid}; $exe = [System.IO.Path]::GetFullPath({exe_literal}); $force = {force_kill_predecessor}; $deadline = [DateTime]::UtcNow.AddMilliseconds({wait_ms}); $others = @(); do {{ $others = @(Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | Where-Object {{ $_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid -and $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $exe) }}); if ($others.Count -eq 0) {{ break }}; Start-Sleep -Milliseconds 200 }} while ([DateTime]::UtcNow -lt $deadline); if ($others.Count -gt 0) {{ if (-not $force) {{ exit 0 }}; $others | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }} }}; Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object {{ $_.CommandLine -and $_.CommandLine -like '{like}' }} | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }}; Start-Sleep -Milliseconds 400"
+    )
+}
+
 #[cfg(windows)]
 mod win32_desktop {
     use std::{
         ffi::OsString,
-        os::windows::ffi::OsStringExt,
+        os::windows::ffi::{OsStrExt, OsStringExt},
+        path::Path,
+        process::{Command, Stdio},
         ptr::{null, null_mut},
+        time::Duration,
     };
 
     use super::{
         INTERACTIVE_DESKTOP_RELAUNCHED_ENV, SANDBOX_PARENT_PID_ENV,
-        should_relaunch_on_interactive_desktop,
+        build_reclaim_orphaned_webview2_script, remove_stale_debug_run_user_data,
+        remove_stale_webview2_user_data, should_relaunch_on_interactive_desktop,
+        webview2_identifier_for_executable, webview2_user_data_dir,
     };
+
+    const PREVIOUS_EXE_WAIT: Duration = Duration::from_secs(3);
+
+    /// Wait for a cargo-watch predecessor to exit, then reap WebView2 children
+    /// still holding this identity's user-data folder (`0x800700AA`).
+    ///
+    /// A live copy of this executable is left alone so single-instance launch
+    /// can still forward. Task Manager's "VibeX" group does not list
+    /// `msedgewebview2.exe`; those processes keep the folder after the window
+    /// is gone.
+    pub fn reclaim_orphaned_webview2_user_data() {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let identifier = webview2_identifier_for_executable(&exe);
+        let self_pid = std::process::id();
+        let sandbox_parent_pid = std::env::var(SANDBOX_PARENT_PID_ENV)
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u32>().ok());
+        let wait_ms = PREVIOUS_EXE_WAIT.as_millis();
+        let script = build_reclaim_orphaned_webview2_script(
+            &exe,
+            identifier,
+            self_pid,
+            sandbox_parent_pid,
+            wait_ms,
+        );
+        let mut command = Command::new("powershell.exe");
+        utils::process::configure_std_command_no_window(&mut command);
+        let _ = command
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        let Some(user_data) = webview2_user_data_dir(identifier) else {
+            return;
+        };
+        remove_stale_webview2_user_data(&user_data);
+        if identifier == "com.vibex.app.dev" {
+            remove_stale_debug_run_user_data(
+                &utils::assets::asset_dir().join("webview-profiles"),
+                self_pid,
+            );
+        }
+    }
 
     type Handle = *mut core::ffi::c_void;
     type Bool = i32;
@@ -86,6 +336,17 @@ mod win32_desktop {
     const STD_ERROR_HANDLE: Dword = -12i32 as Dword;
     const SYNCHRONIZE: Dword = 0x0010_0000;
     const INFINITE: Dword = 0xFFFF_FFFF;
+    const WRITE_OWNER: Dword = 0x0008_0000;
+    const READ_CONTROL: Dword = 0x0002_0000;
+    const FILE_SHARE_READ: Dword = 0x0000_0001;
+    const FILE_SHARE_WRITE: Dword = 0x0000_0002;
+    const FILE_SHARE_DELETE: Dword = 0x0000_0004;
+    const OPEN_EXISTING: Dword = 3;
+    const FILE_FLAG_BACKUP_SEMANTICS: Dword = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: Dword = 0x0020_0000;
+    const LABEL_SECURITY_INFORMATION: Dword = 0x0000_0010;
+    const SDDL_REVISION_1: Dword = 1;
+    const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
 
     #[repr(C)]
     struct StartupInfoW {
@@ -146,6 +407,16 @@ mod win32_desktop {
             lp_startup_info: *const StartupInfoW,
             lp_process_information: *mut ProcessInformation,
         ) -> Bool;
+        fn CreateFileW(
+            lp_file_name: *const u16,
+            dw_desired_access: Dword,
+            dw_share_mode: Dword,
+            lp_security_attributes: *const core::ffi::c_void,
+            dw_creation_disposition: Dword,
+            dw_flags_and_attributes: Dword,
+            h_template_file: Handle,
+        ) -> Handle;
+        fn LocalFree(h_mem: Handle) -> Handle;
         fn WaitForSingleObject(h_handle: Handle, dw_milliseconds: Dword) -> Dword;
         fn GetExitCodeProcess(h_process: Handle, lp_exit_code: *mut Dword) -> Bool;
         fn OpenProcess(
@@ -154,6 +425,126 @@ mod win32_desktop {
             dw_process_id: Dword,
         ) -> Handle;
         fn CloseHandle(h_object: Handle) -> Bool;
+    }
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            string_security_descriptor: *const u16,
+            string_sd_revision: Dword,
+            security_descriptor: *mut Handle,
+            security_descriptor_size: *mut Dword,
+        ) -> Bool;
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtSetSecurityObject(
+            handle: Handle,
+            security_information: Dword,
+            security_descriptor: Handle,
+        ) -> i32;
+    }
+
+    fn set_path_sacl_sd(path: &Path, sd: Handle) {
+        if !path.exists() {
+            return;
+        }
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let handle = CreateFileW(
+                wide.as_ptr(),
+                WRITE_OWNER | READ_CONTROL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                null_mut(),
+            );
+            if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+                let _ = NtSetSecurityObject(handle, LABEL_SECURITY_INFORMATION, sd);
+                CloseHandle(handle);
+            }
+        }
+    }
+
+    /// Protect `dev_assets` and the executable's `target/<profile>` directory
+    /// with a non-inheriting `Medium Mandatory Level` SACL (`S:P(ML;OICI;NW;;;ME)`).
+    ///
+    /// External Windows agent sandboxes (`exebox`) can stamp `Low Mandatory Level`
+    /// onto the workspace root; without `SE_SACL_PROTECTED`, `target\debug\vibex.exe`
+    /// inherits the `Low` label, causing Windows to launch `vibex.exe` and all
+    /// ACP child agents (`codex`, `claude`, `grok`, `opencode`, `antigravity`)
+    /// with a Low Mandatory Integrity token (`S-1-16-4096`) that fails with
+    /// `os error 5` (`ERROR_ACCESS_DENIED`) when writing to `%USERPROFILE%`.
+    pub fn ensure_runtime_dirs_medium_integrity() {
+        let dir_sddl: Vec<u16> = "S:P(ML;OICI;NW;;;ME)"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let file_sddl: Vec<u16> = "S:P(ML;;NW;;;ME)"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let mut dir_sd: Handle = null_mut();
+            let mut dir_sd_size: Dword = 0;
+            if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                dir_sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut dir_sd,
+                &mut dir_sd_size,
+            ) == 0
+            {
+                return;
+            }
+            let mut file_sd: Handle = null_mut();
+            let mut file_sd_size: Dword = 0;
+            let has_file_sd = ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                file_sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut file_sd,
+                &mut file_sd_size,
+            ) != 0;
+
+            let asset_dir = utils::assets::asset_dir();
+            set_path_sacl_sd(&asset_dir, dir_sd);
+            set_path_sacl_sd(&asset_dir.join("logs"), dir_sd);
+            set_path_sacl_sd(&asset_dir.join("webview-profiles"), dir_sd);
+            if has_file_sd {
+                for db_name in ["db.sqlite", "db.sqlite-wal", "db.sqlite-shm"] {
+                    set_path_sacl_sd(&asset_dir.join(db_name), file_sd);
+                }
+            }
+
+            if let Ok(exe) = std::env::current_exe() {
+                if has_file_sd {
+                    set_path_sacl_sd(&exe, file_sd);
+                }
+                if let Some(exe_dir) = exe.parent() {
+                    let lower = exe_dir
+                        .to_string_lossy()
+                        .replace('/', "\\")
+                        .to_ascii_lowercase();
+                    if lower.ends_with("\\target\\debug") || lower.ends_with("\\target\\release") {
+                        set_path_sacl_sd(exe_dir, dir_sd);
+                        set_path_sacl_sd(&exe_dir.join("deps"), dir_sd);
+                        if let Some(target_dir) = exe_dir.parent() {
+                            set_path_sacl_sd(target_dir, dir_sd);
+                        }
+                    }
+                }
+            }
+
+            if has_file_sd {
+                LocalFree(file_sd);
+            }
+            LocalFree(dir_sd);
+        }
     }
 
     fn current_desktop_name() -> Option<String> {
@@ -287,8 +678,10 @@ mod win32_desktop {
 #[cfg(test)]
 mod tests {
     use super::{
-        ADDITIONAL_BROWSER_ARGUMENTS, additional_browser_arguments_to_install,
-        should_relaunch_on_interactive_desktop,
+        ADDITIONAL_BROWSER_ARGUMENTS, active_debug_webview2_environment_dir,
+        additional_browser_arguments_to_install, debug_webview2_environment_dir,
+        set_active_debug_webview2_environment_dir, should_relaunch_on_interactive_desktop,
+        webview2_command_line_like_pattern, webview2_identifier_for_executable,
     };
 
     #[test]
@@ -342,5 +735,139 @@ mod tests {
         assert!(!ADDITIONAL_BROWSER_ARGUMENTS.contains("CalculateNativeWinOcclusion"));
         assert!(!ADDITIONAL_BROWSER_ARGUMENTS.contains("ApplyNativeOcclusionToCompositor"));
         assert!(ADDITIONAL_BROWSER_ARGUMENTS.contains("--disk-cache-size=33554432"));
+    }
+
+    #[test]
+    fn debug_exe_uses_the_dev_webview2_identity() {
+        assert_eq!(
+            webview2_identifier_for_executable(std::path::Path::new(
+                r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"
+            )),
+            "com.vibex.app.dev"
+        );
+        assert_eq!(
+            webview2_identifier_for_executable(std::path::Path::new(
+                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+            )),
+            "com.vibex.app"
+        );
+    }
+
+    #[test]
+    fn product_webview2_filter_does_not_match_the_dev_folder() {
+        assert_eq!(
+            webview2_command_line_like_pattern("com.vibex.app.dev"),
+            "*com.vibex.app.dev*"
+        );
+        let product = webview2_command_line_like_pattern("com.vibex.app");
+        assert!(product.contains(r"\com.vibex.app\EBWebView"));
+        assert!(!product.contains("com.vibex.app.dev"));
+    }
+
+    #[test]
+    fn relocates_ebwebview_so_a_new_environment_can_be_created() {
+        let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "target/wv2-reloc-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        let dir = parent.join("com.vibex.app.dev");
+        std::fs::create_dir_all(dir.join("EBWebView").join("Default")).unwrap();
+        std::fs::write(dir.join("EBWebView").join("Default").join("LOCK"), b"busy").unwrap();
+
+        let stale = super::relocate_webview2_user_data(&dir)
+            .unwrap()
+            .expect("identifier dir should be moved aside");
+        assert!(!dir.exists());
+        assert!(
+            stale
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("com.vibex.app.dev.stale-"))
+        );
+        assert!(
+            stale
+                .join("EBWebView")
+                .join("Default")
+                .join("LOCK")
+                .exists()
+        );
+        assert!(super::relocate_webview2_user_data(&dir).unwrap().is_none());
+
+        super::remove_stale_webview2_user_data(&dir);
+        assert!(!stale.exists());
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn user_data_dir_appends_the_identifier() {
+        let Some(dir) = super::webview2_user_data_dir("com.vibex.app.dev") else {
+            return;
+        };
+        assert!(dir.ends_with("com.vibex.app.dev"));
+    }
+
+    #[test]
+    fn fresh_debug_dir_is_beside_the_stable_debug_profile() {
+        let dir = super::fresh_debug_webview2_user_data_dir(4242);
+        assert!(dir.ends_with(std::path::Path::new("webview-profiles").join("main-run-4242")));
+        assert_ne!(dir, super::debug_webview2_environment_dir());
+    }
+
+    #[test]
+    fn active_debug_dir_tracks_fallback_and_restores_default() {
+        let fallback = super::fresh_debug_webview2_user_data_dir(9876);
+        set_active_debug_webview2_environment_dir(fallback.clone());
+        assert_eq!(active_debug_webview2_environment_dir(), fallback);
+        let default = debug_webview2_environment_dir();
+        set_active_debug_webview2_environment_dir(default.clone());
+        assert_eq!(active_debug_webview2_environment_dir(), default);
+    }
+
+    #[test]
+    fn debug_env_dir_lives_in_dev_assets_webview_profiles() {
+        let dir = super::debug_webview2_environment_dir();
+        assert!(dir.ends_with(std::path::Path::new("webview-profiles").join("main")));
+        if let Some(identity) = super::webview2_user_data_dir("com.vibex.app.dev") {
+            assert_ne!(dir, identity);
+        }
+    }
+
+    #[test]
+    fn removes_stale_debug_run_dirs_except_the_live_pid() {
+        let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "target/wv2-run-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(parent.join("main-run-111")).unwrap();
+        std::fs::create_dir_all(parent.join("main-run-222")).unwrap();
+        std::fs::create_dir_all(parent.join("main")).unwrap();
+
+        super::remove_stale_debug_run_user_data(&parent, 222);
+
+        assert!(!parent.join("main-run-111").exists());
+        assert!(parent.join("main-run-222").exists());
+        assert!(parent.join("main").exists());
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn reclaim_script_excludes_sandbox_parent_pid() {
+        let script = super::build_reclaim_orphaned_webview2_script(
+            std::path::Path::new(r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"),
+            "com.vibex.app.dev",
+            2000,
+            Some(1000),
+            3000,
+        );
+        assert!(script.contains("$self = 2000; $parentPid = 1000;"));
+        assert!(script.contains("$_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid"));
     }
 }

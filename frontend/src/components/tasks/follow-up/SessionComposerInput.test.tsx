@@ -2074,4 +2074,92 @@ describe('SessionComposerInput (Astryx)', () => {
       expect(child.className).toContain('shrink-0');
     }
   });
+
+  it('renders @全体成员 in composer as bold @全体成员 without bot avatar or avatar color while keeping @Bot avatar and color', async () => {
+    const user = userEvent.setup();
+    const spaceMembers = [
+      {
+        id: '__all__',
+        nickname: '全体成员',
+        detail: '通知本群所有成员',
+        mentionAll: true,
+      },
+      {
+        id: 'm1',
+        nickname: '小A',
+        avatar: {
+          color: '#c2410c',
+          shape: 'circle' as const,
+          expression: 'neutral' as const,
+        },
+      },
+    ];
+
+    function SpaceComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <SessionComposerInput
+          value={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+          context={{ spaceMembers }}
+        />
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SpaceComposer />
+      </QueryClientProvider>
+    );
+
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '@');
+    const allOption = await screen.findByRole('option', { name: /全体成员/ });
+    await user.click(allOption);
+
+    await user.type(editor, '@');
+    const botOption = await screen.findByRole('option', { name: /小A/ });
+    await user.click(botOption);
+
+    await waitFor(() => {
+      const tokens = editor.querySelectorAll<HTMLElement>(
+        '[data-astryx-token][data-token-kind="member_mention"]'
+      );
+      expect(tokens).toHaveLength(2);
+    });
+
+    const allToken = editor.querySelector<HTMLElement>(
+      '[data-astryx-token][data-astryx-token-value="@全体成员"]'
+    );
+    expect(allToken).not.toBeNull();
+    expect(allToken).toHaveAttribute('data-mention-all', 'true');
+    expect(allToken).toHaveTextContent('@全体成员');
+    expect(
+      allToken?.querySelector('.collaboration-member-mention-avatar')
+    ).toBeNull();
+    expect(allToken?.style.getPropertyValue('--member-mention-color')).toBe('');
+    const allLabel = allToken?.querySelector<HTMLElement>(
+      '.collaboration-member-mention-name'
+    );
+    expect(allLabel?.style.getPropertyValue('--member-mention-color')).toBe('');
+
+    const botToken = editor.querySelector<HTMLElement>(
+      '[data-astryx-token][data-astryx-token-value="@小A"]'
+    );
+    expect(botToken).not.toBeNull();
+    expect(botToken).not.toHaveAttribute('data-mention-all');
+    expect(botToken).toHaveTextContent('小A');
+    expect(
+      botToken?.querySelector('.collaboration-member-mention-avatar')
+    ).not.toBeNull();
+    expect(botToken?.style.getPropertyValue('--member-mention-color')).toBe(
+      '#c2410c'
+    );
+  });
 });

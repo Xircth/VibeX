@@ -41,7 +41,9 @@ pub(in crate::manager) fn acp_tool_input_preview(
     })
 }
 
-pub(in crate::manager) fn acp_tool_images(content: &[ToolCallContent]) -> Vec<crate::conversation::ImageData> {
+pub(in crate::manager) fn acp_tool_images(
+    content: &[ToolCallContent],
+) -> Vec<crate::conversation::ImageData> {
     content
         .iter()
         .filter_map(|item| match item {
@@ -76,7 +78,6 @@ pub(in crate::manager) fn acp_tool_content_preview(content: &[ToolCallContent]) 
         .then(|| serde_json::to_string(&visible).ok().map(truncate_preview))
         .flatten()
 }
-
 
 pub(in crate::manager) fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
     match block {
@@ -121,7 +122,10 @@ pub(in crate::manager) fn acp_content_preview(block: &ContentBlock) -> String {
     }
 }
 
-pub(in crate::manager) fn bounded_ext_notification(method: &str, params: &serde_json::Value) -> serde_json::Value {
+pub(in crate::manager) fn bounded_ext_notification(
+    method: &str,
+    params: &serde_json::Value,
+) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "kind": "ext_notification",
         "method": method,
@@ -183,7 +187,9 @@ pub(in crate::manager) fn acp_meta_session_title(
     })
 }
 
-pub(in crate::manager) fn bounded_optional_meta(meta: Option<impl Serialize>) -> Option<serde_json::Value> {
+pub(in crate::manager) fn bounded_optional_meta(
+    meta: Option<impl Serialize>,
+) -> Option<serde_json::Value> {
     meta.and_then(|meta| serde_json::to_value(meta).ok())
         .filter(|meta| {
             serde_json::to_vec(meta).is_ok_and(|encoded| encoded.len() <= MAX_CONTENT_META_BYTES)
@@ -238,7 +244,9 @@ pub(in crate::manager) fn meta_u64(
     })
 }
 
-pub(in crate::manager) fn plan_entry_status_name(status: agent_client_protocol::schema::v1::PlanEntryStatus) -> String {
+pub(in crate::manager) fn plan_entry_status_name(
+    status: agent_client_protocol::schema::v1::PlanEntryStatus,
+) -> String {
     match status {
         agent_client_protocol::schema::v1::PlanEntryStatus::Pending => "pending".into(),
         agent_client_protocol::schema::v1::PlanEntryStatus::InProgress => "in_progress".into(),
@@ -257,4 +265,3 @@ pub(in crate::manager) fn plan_entry_priority_name(
         _ => "medium".into(),
     }
 }
-

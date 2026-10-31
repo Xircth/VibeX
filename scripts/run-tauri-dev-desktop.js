@@ -31,6 +31,15 @@ function applyDesktopDevIdentity(config) {
       window.title = DESKTOP_DEV_IDENTITY.productName;
     }
   }
+  // Skip config-created `main`. Tauri would give it
+  // `%LOCALAPPDATA%\com.vibex.app.dev`, which stays busy across cargo-watch
+  // restarts (HRESULT 0x800700AA). Rust setup creates main under
+  // `dev_assets/webview-profiles`.
+  if (Array.isArray(next.app?.windows)) {
+    next.app.windows = next.app.windows.filter(
+      (window) => window.label !== 'main'
+    );
+  }
   const desktop = next.plugins?.['deep-link']?.desktop;
   if (desktop) {
     desktop.schemes = [DESKTOP_DEV_IDENTITY.deepLinkScheme];
@@ -65,13 +74,34 @@ function createCargoLeanDevEnv(ports, baseEnv = process.env) {
   );
 }
 
-function clearIncrementalCacheIfDisabled(env) {
+const RM_SYNC_OPTIONS = {
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 100,
+};
+
+function isTransientFsCleanupError(error) {
+  return Boolean(
+    error &&
+      (error.code === 'ENOTEMPTY' ||
+        error.code === 'EBUSY' ||
+        error.code === 'EPERM' ||
+        error.code === 'EACCES')
+  );
+}
+
+function clearIncrementalCacheIfDisabled(
+  env,
+  rootDir = process.cwd(),
+  rmSyncImpl = fs.rmSync
+) {
   if (env.CARGO_INCREMENTAL !== '0') {
     return;
   }
 
   const incrementalPath = path.join(
-    process.cwd(),
+    rootDir,
     'target',
     'debug',
     'incremental'
@@ -80,7 +110,16 @@ function clearIncrementalCacheIfDisabled(env) {
     return;
   }
 
-  fs.rmSync(incrementalPath, { recursive: true, force: true });
+  try {
+    rmSyncImpl(incrementalPath, RM_SYNC_OPTIONS);
+  } catch (error) {
+    if (!isTransientFsCleanupError(error)) {
+      throw error;
+    }
+    console.warn(
+      `Skipping busy Cargo incremental cache cleanup (${error.code}): ${incrementalPath}`
+    );
+  }
 }
 
 function clearRelocatedCargoBuildCache() {
@@ -126,7 +165,99 @@ function clearRelocatedCargoBuildCache() {
   console.warn(
     'Detected relocated Cargo build cache; removing target/debug/build.'
   );
-  fs.rmSync(buildPath, { recursive: true, force: true });
+  try {
+    fs.rmSync(buildPath, RM_SYNC_OPTIONS);
+  } catch (error) {
+    if (!isTransientFsCleanupError(error)) {
+      throw error;
+    }
+    console.warn(
+      `Skipping busy Cargo build cache cleanup (${error.code}): ${buildPath}`
+    );
+  }
+}
+
+function windowsStaleDesktopCleanupScript() {
+  // One line: multiline -Command scripts are truncated or ignored by
+  // CreateProcess, which left a running debug exe locking vibex.exe.
+  // WebView2 children are listed as Microsoft Edge WebView2, not VibeX, and
+  // they keep %LOCALAPPDATA%\com.vibex.app.dev busy (HRESULT 0x800700AA).
+  return (
+    "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
+    'Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) } | ' +
+    'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
+    'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | " +
+    "Where-Object { $_.CommandLine -and $_.CommandLine -like '*com.vibex.app.dev*' } | " +
+    'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
+    'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
+    'Start-Sleep -Milliseconds 400'
+  );
+}
+
+function webview2DevUserDataDir(env = process.env) {
+  const root = env.LOCALAPPDATA;
+  if (!root) {
+    return null;
+  }
+  return path.join(root, DESKTOP_DEV_IDENTITY.identifier);
+}
+
+function removeStaleWebView2UserData(dir) {
+  if (!dir) {
+    return;
+  }
+  const parent = path.dirname(dir);
+  const prefix = `${path.basename(dir)}.stale-`;
+  if (!fs.existsSync(parent)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+    if (entry.name.startsWith(prefix)) {
+      try {
+        fs.rmSync(path.join(parent, entry.name), RM_SYNC_OPTIONS);
+      } catch (error) {
+        if (!isTransientFsCleanupError(error)) {
+          throw error;
+        }
+      }
+    }
+  }
+}
+
+function relocateStaleWebView2UserData(dir, now = Date.now()) {
+  if (!dir || !fs.existsSync(dir)) {
+    return null;
+  }
+
+  removeStaleWebView2UserData(dir);
+
+  const parent = path.dirname(dir);
+  const base = path.basename(dir);
+  let lastError = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const stale = path.join(parent, `${base}.stale-${now + attempt}`);
+    try {
+      fs.renameSync(dir, stale);
+      return stale;
+    } catch (error) {
+      lastError = error;
+      spawnSync(
+        process.env.ComSpec || 'cmd.exe',
+        ['/d', '/s', '/c', 'ping 127.0.0.1 -n 2 >nul'],
+        { windowsHide: true, timeout: 3000 }
+      );
+    }
+  }
+
+  if (lastError) {
+    console.warn(
+      'Could not relocate WebView2 user data:',
+      lastError.message
+    );
+  }
+  return null;
 }
 
 function terminateStaleDesktopProcess() {
@@ -141,14 +272,7 @@ function terminateStaleDesktopProcess() {
     'vibex.exe'
   );
 
-  // One line: multiline -Command scripts are truncated or ignored by
-  // CreateProcess, which left a running debug exe locking vibex.exe.
-  const powershellScript =
-    "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
-    "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
-    'Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) } | ' +
-    'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
-    'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }';
+  const powershellScript = windowsStaleDesktopCleanupScript();
 
   const result = spawnSync(
     'powershell.exe',
@@ -177,6 +301,7 @@ function terminateStaleDesktopProcess() {
   }
 
   waitUntilDebugExeWritable(executablePath);
+  relocateStaleWebView2UserData(webview2DevUserDataDir());
 }
 
 function waitUntilDebugExeWritable(executablePath) {
@@ -301,6 +426,10 @@ if (require.main === module) {
 
 module.exports = {
   applyDesktopDevIdentity,
+  clearIncrementalCacheIfDisabled,
   createCargoLeanDevEnv,
   DESKTOP_DEV_IDENTITY,
+  relocateStaleWebView2UserData,
+  webview2DevUserDataDir,
+  windowsStaleDesktopCleanupScript,
 };

@@ -12,6 +12,7 @@ import {
 import {
   getQueueIndicatorState,
   getQueueStatusQueryKey,
+  reconcileEditingQueueMessage,
   waitingQueueMessages,
   type QueuedMessage,
   type QueueStatus,
@@ -83,6 +84,33 @@ export function useSessionComposerQueue({
   useEffect(() => {
     if (sessionId) void refetch();
   }, [processCount, refetch, sessionId]);
+
+  useEffect(() => {
+    const nextEditing = reconcileEditingQueueMessage(
+      editingInputRef.current,
+      sessionId,
+      queueStatus
+    );
+    editingInputRef.current = nextEditing;
+    setEditingInput((prev) => {
+      const reconciled = reconcileEditingQueueMessage(
+        prev,
+        sessionId,
+        queueStatus
+      );
+      if (
+        prev === reconciled ||
+        (prev &&
+          reconciled &&
+          prev.id === reconciled.id &&
+          prev.revision === reconciled.revision &&
+          prev.status === reconciled.status)
+      ) {
+        return prev;
+      }
+      return reconciled;
+    });
+  }, [queueStatus, sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -181,7 +209,16 @@ export function useSessionComposerQueue({
         // text is already serialized to a bare path and would lose the refs.
         fileRefs: getSessionComposerFileRefs(message),
       };
-      const editing = editingInputRef.current;
+      const latestStatus =
+        queryClient.getQueryData<QueueStatus>(
+          getQueueStatusQueryKey(sessionId)
+        ) ?? queueStatus;
+      const editing = reconcileEditingQueueMessage(
+        editingInputRef.current,
+        sessionId,
+        latestStatus
+      );
+      editingInputRef.current = editing;
       if (
         editing?.session_id === sessionId &&
         (editing.status === 'queued' || editing.status === 'scheduled')
@@ -306,9 +343,19 @@ export function useSessionComposerQueue({
       ) {
         return;
       }
+      if (editingInputRef.current?.id === target.id) {
+        editingInputRef.current = null;
+        setEditingInput(null);
+      }
       await cancelMutation.mutateAsync(target);
     },
     [cancelMutation, queueStatus.messages]
+  );
+
+  const activeEditingInput = reconcileEditingQueueMessage(
+    editingInput,
+    sessionId,
+    queueStatus
   );
 
   const beginEditQueue = useCallback((message: QueuedMessage) => {
@@ -369,7 +416,7 @@ export function useSessionComposerQueue({
     queueMessage,
     cancelQueue,
     beginEditQueue,
-    editingInput,
+    editingInput: activeEditingInput,
     moveQueue,
     delayQueue,
     isQueueLoading:

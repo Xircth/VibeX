@@ -180,7 +180,10 @@ impl AgentConnectionRunner {
         }
     }
 
-    pub(in crate::manager) async fn emit_derived_session_controls(&self, session_id: AgentSessionId) {
+    pub(in crate::manager) async fn emit_derived_session_controls(
+        &self,
+        session_id: AgentSessionId,
+    ) {
         let snapshot = self.session_controls_snapshot(session_id).await;
         self.emit_controls_snapshot(session_id, &snapshot);
     }

@@ -319,15 +319,34 @@ export function SessionComposerInput({
 
   const commitSubmission = useCallback(
     (rawText: string, submittedText: string) => {
+      if (onSubmit(submittedText) === false) {
+        if (composerRootRef.current) {
+          restoreStructuredTokens(
+            composerRootRef.current,
+            rawText,
+            agentMentions.capability === 'supported'
+              ? agentMentions.candidates
+              : undefined,
+            rawText.length,
+            spaceMembers
+          );
+        }
+        return;
+      }
       if (rawText.trim()) {
         localSubmitsRef.current = [...localSubmitsRef.current, rawText];
       }
       historyIndexRef.current = -1;
       historyDraftRef.current = '';
-      onSubmit(submittedText);
       clearSubmittedEditor();
     },
-    [clearSubmittedEditor, onSubmit]
+    [
+      agentMentions.candidates,
+      agentMentions.capability,
+      clearSubmittedEditor,
+      onSubmit,
+      spaceMembers,
+    ]
   );
 
   const handleSubmit = useCallback(

@@ -1,5 +1,5 @@
-
 use db::models::{collaboration_identity as identity, session::Session};
+use serde_json::Value;
 
 use super::*;
 use crate::collaboration::test_support::*;
@@ -666,7 +666,7 @@ async fn member_sessions_use_stored_member_config_and_later_edits() {
         assert!(cfg.unwrap_or_default().contains("m-updated"));
     }
 
-    // Edit 2: clearing persona_prompt deletes conversation_personas rows for existing sessions and updates controls.
+    // Edit 2: clearing persona_prompt clears the prompt text while preserving the Bot's persona identity row and updating controls.
     set_member_session_config(
         &pool,
         &member,
@@ -680,14 +680,16 @@ async fn member_sessions_use_stored_member_config_and_later_edits() {
     .await
     .unwrap();
     for existing_conv in [direct, in_first] {
-        let prompt_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM conversation_personas WHERE conversation_id = ?",
+        let prompt: Option<String> = sqlx::query_scalar(
+            "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
         )
         .bind(existing_conv.to_string())
-        .fetch_one(&pool)
+        .fetch_optional(&pool)
         .await
         .unwrap();
-        assert_eq!(prompt_count, 0);
+        assert_eq!(prompt.as_deref(), Some(""));
+        let persona = conversation_persona(&pool, existing_conv).await.unwrap();
+        assert!(persona.is_some());
     }
     let second = space_of(&pool, seed).await;
     identity::ensure_thread_for_seat(&pool, &second, &member)
@@ -1447,6 +1449,19 @@ async fn two_sessions_of_one_member_write_one_repo_concurrently_without_conflict
         "collaboration still sees the session workspace"
     );
     assert_eq!(plan.isolated_workspace_id, Some(forked_ws));
+
+    // Unbinding the conversation from the space (e.g. space deleted or member left)
+    // must keep the session executing in its isolated worktree so on-disk agent
+    // sessions (such as ~/.grok/sessions/<worktree-cwd>/<sid>) still resolve.
+    identity::unbind_conversation(&pool, forked).await.unwrap();
+    assert!(plan_member_write(&pool, forked).await.unwrap().is_none());
+    let after_unbind = execution_workspace_id(&pool, forked, workspace, &provisioner)
+        .await
+        .unwrap();
+    assert_eq!(
+        after_unbind, forked_ws,
+        "unbound session must keep its isolated worktree"
+    );
 }
 
 #[tokio::test]
@@ -1584,6 +1599,8 @@ async fn direct_chat_identity_context_and_defensive_list_messages() {
         "{dm_context}"
     );
     assert!(dm_context.contains("memory_search"), "{dm_context}");
+    assert!(dm_context.contains("~/.vibex/spaces/"), "{dm_context}");
+    assert!(!dm_context.contains("TeamSpaces"), "{dm_context}");
     assert!(
         !dm_context.contains("所属协作空间：未定空间"),
         "{dm_context}"
@@ -2207,4 +2224,411 @@ async fn conversation_is_space_session_for_hidden_member_seats() {
     .unwrap();
     let hidden = Uuid::parse_str(created.conversation_id.as_deref().unwrap()).unwrap();
     assert!(conversation_is_space_session(&pool, hidden).await.unwrap());
+}
+
+fn member_named<'a>(listed: &'a Value, name: &str) -> &'a Value {
+    listed["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["nickname"] == name)
+        .unwrap_or_else(|| panic!("{name} in roster"))
+}
+
+#[tokio::test]
+async fn list_spaces_reports_idle_working_waiting_activity() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let idle = list_spaces_for_caller(&pool, a, Some(&space))
+        .await
+        .unwrap();
+    let idle_b = member_named(&idle, "小B");
+    assert_eq!(idle_b["activity"]["state"], "idle");
+    assert_eq!(idle_b["activity"]["queued"], 0);
+    let overview = list_spaces_for_caller(&pool, a, None).await.unwrap();
+    let overview_space = overview["spaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["space_id"] == space)
+        .expect("space in overview");
+    assert_eq!(
+        member_named(overview_space, "小B")["activity"]["state"],
+        "idle"
+    );
+
+    mark_running(&pool, b).await;
+    let working = list_spaces_for_caller(&pool, a, Some(&space))
+        .await
+        .unwrap();
+    let working_b = member_named(&working, "小B");
+    assert_eq!(working_b["activity"]["state"], "working");
+    assert_eq!(working_b["activity"]["at"], "BotSpace");
+}
+
+#[tokio::test]
+async fn list_spaces_reports_waiting_for_bot_and_person() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    let space = space_of(&pool, a).await;
+    add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    post_as(&pool, Some(a), &space, "@小B 请看登录", &[]).await;
+    let listed = list_spaces_for_caller(&pool, a, Some(&space))
+        .await
+        .unwrap();
+    let listed_a = member_named(&listed, "小A");
+    assert_eq!(listed_a["activity"]["state"], "waiting_for_bot");
+    let waiting_for = listed_a["activity"]["waiting_for"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(waiting_for.contains(&"小B"), "{waiting_for:?}");
+    let listed_b = member_named(&listed, "小B");
+    assert!(listed_b["activity"]["queued"].as_i64().unwrap() >= 1);
+
+    sqlx::query(
+        r#"INSERT INTO collaboration_cards
+           (id, space_id, from_conversation_id, kind, payload_json, status, created_at)
+           VALUES (?, ?, ?, 'ask', '{}', 'pending', '2026-01-01T00:00:00Z')"#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&space)
+    .bind(b.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let waiting = list_spaces_for_caller(&pool, a, Some(&space))
+        .await
+        .unwrap();
+    let waiting_b = member_named(&waiting, "小B");
+    assert_eq!(waiting_b["activity"]["state"], "waiting_for_person");
+    assert_eq!(waiting_b["activity"]["waiting_for"][0], "Person");
+}
+
+#[tokio::test]
+async fn list_spaces_activity_follows_identity_across_spaces() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    create_session(&pool, a, workspace, Some("小A")).await;
+    create_session(&pool, b, workspace, Some("小B")).await;
+    let first = space_of(&pool, a).await;
+    add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+    let second = create_collaboration_space(&pool, a, "二群", Uuid::new_v4())
+        .await
+        .unwrap()
+        .space_id;
+    add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    let second_view = list_space_members_detailed(&pool, a, &second)
+        .await
+        .unwrap();
+    let b_in_second = Uuid::parse_str(
+        member_named(&second_view, "小B")["conversation_id"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    mark_running(&pool, b_in_second).await;
+    sqlx::query(
+        r#"INSERT INTO collaboration_turns(
+               id, space_id, space_message_id, conversation_id,
+               state, deadline_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, 'running', '2099-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&second)
+    .bind(Uuid::new_v4().to_string())
+    .bind(b_in_second.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let first_view = list_spaces_for_caller(&pool, a, Some(&first))
+        .await
+        .unwrap();
+    let b_in_first = member_named(&first_view, "小B");
+    assert_ne!(
+        b_in_first["conversation_id"].as_str(),
+        Some(b_in_second.to_string().as_str()),
+        "identity-wide activity must join distinct per-space conversations"
+    );
+    assert_eq!(b_in_first["activity"]["state"], "working");
+    assert_eq!(b_in_first["activity"]["at"], "二群");
+}
+
+#[tokio::test]
+async fn supervisor_lifecycle_and_permission_gating() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+        .bind(workspace)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // 1. Default Master bot created in an empty workspace becomes Supervisor automatically
+    let master = host_create_space_member(
+        &pool,
+        HostCreateSpaceMember {
+            workspace_id: workspace,
+            space_id: None,
+            nickname: "Master".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: Some("负责统筹".to_string()),
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let master_conv = Uuid::parse_str(master.conversation_id.as_deref().unwrap()).unwrap();
+    let master_mid = identity::member_id_for_conversation(master_conv);
+    assert!(is_member_supervisor(&pool, &master_mid).await.unwrap());
+    assert!(
+        is_caller_workspace_supervisor(&pool, master_conv)
+            .await
+            .unwrap()
+    );
+
+    // 2. Normal bot created afterwards is not Supervisor
+    let worker = host_create_space_member(
+        &pool,
+        HostCreateSpaceMember {
+            workspace_id: workspace,
+            space_id: None,
+            nickname: "小A".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: Some("负责前端".to_string()),
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let worker_conv = Uuid::parse_str(worker.conversation_id.as_deref().unwrap()).unwrap();
+    let worker_mid = identity::member_id_for_conversation(worker_conv);
+    assert!(!is_member_supervisor(&pool, &worker_mid).await.unwrap());
+    assert!(
+        !is_caller_workspace_supervisor(&pool, worker_conv)
+            .await
+            .unwrap()
+    );
+
+    // 3. Identity prompt reflects Supervisor vs ordinary member
+    let master_prompt = persona_prompt_text(&pool, master_conv)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(master_prompt.contains("主管（总管）"), "{master_prompt}");
+    let worker_prompt = persona_prompt_text(&pool, worker_conv)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(worker_prompt.contains("普通成员"), "{worker_prompt}");
+
+    // 4. Non-supervisor bot cannot create or delete bots or delete group spaces
+    let create_denied = create_space_member(
+        &pool,
+        worker_conv,
+        CreateSpaceMemberRequest {
+            nickname: "私自创建".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: None,
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(create_denied.code, "forbidden");
+
+    // 5. Supervisor bot CAN create a new bot
+    let created_by_sup = create_space_member(
+        &pool,
+        master_conv,
+        CreateSpaceMemberRequest {
+            nickname: "小B".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: Some("负责测试".to_string()),
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let b_conv = Uuid::parse_str(created_by_sup["conversation_id"].as_str().unwrap()).unwrap();
+    let b_mid = identity::member_id_for_conversation(b_conv);
+
+    // 6. Non-supervisor cannot delete another bot
+    let unassigned = unassigned_space_id(workspace);
+    let del_denied = delete_space_member(&pool, worker_conv, &unassigned, &b_mid, Uuid::new_v4())
+        .await
+        .unwrap_err();
+    assert_eq!(del_denied.code, "forbidden");
+
+    // 7. Supervisor bot cannot be batch-deleted by host while still Supervisor
+    let batch_del_sup_err = host_batch_delete_space_items(
+        &pool,
+        workspace,
+        Vec::new(),
+        vec![BatchDeleteMemberTarget {
+            space_id: unassigned.clone(),
+            conversation_id: master_conv,
+        }],
+        Uuid::new_v4(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(batch_del_sup_err.code, "forbidden");
+
+    // 8. Replace Supervisor with 小A via set_workspace_supervisor -> Master becomes normal bot, 小A becomes Supervisor
+    let next_sup =
+        crate::collaboration_sidebar::set_workspace_supervisor(&pool, workspace, Some(&worker_mid))
+            .await
+            .unwrap()
+            .expect("new supervisor");
+    assert_eq!(next_sup, worker_mid);
+    assert!(!is_member_supervisor(&pool, &master_mid).await.unwrap());
+    assert!(is_member_supervisor(&pool, &worker_mid).await.unwrap());
+
+    // 9. New Supervisor (小A) cannot delete another bot if that bot were supervisor, CAN delete non-supervisor 小B
+    let del_b = delete_space_member(&pool, worker_conv, &unassigned, &b_mid, Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(del_b["deleted"], true);
+
+    // 10. User-created group default lead logic:
+    //     - Without Supervisor: first added Bot becomes lead.
+    //     - With Supervisor (even if added second): Supervisor becomes lead.
+    //     - Bot-created group: creator Bot remains lead even if Supervisor is added.
+    let c_bot = host_create_space_member(
+        &pool,
+        HostCreateSpaceMember {
+            workspace_id: workspace,
+            space_id: None,
+            nickname: "小C".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: None,
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let c_conv = Uuid::parse_str(c_bot.conversation_id.as_deref().unwrap()).unwrap();
+
+    let group_no_sup = create_workspace_space(&pool, workspace, "普通协作群", Uuid::new_v4())
+        .await
+        .unwrap()
+        .space_id;
+    let seat_master_1 =
+        host_add_space_member(&pool, &group_no_sup, master_conv, "Master", Uuid::new_v4())
+            .await
+            .unwrap();
+    let _seat_c_1 = host_add_space_member(&pool, &group_no_sup, c_conv, "小C", Uuid::new_v4())
+        .await
+        .unwrap();
+    let record_no_sup = load_space_record(&pool, &group_no_sup).await.unwrap();
+    assert_eq!(
+        record_no_sup.lead_member_id.as_deref(),
+        Some(seat_master_1.member_id.as_str()),
+        "first selected bot must become lead when Supervisor is not in the group"
+    );
+
+    let group_with_sup = create_workspace_space(&pool, workspace, "含主管协作群", Uuid::new_v4())
+        .await
+        .unwrap()
+        .space_id;
+    let _seat_master_2 = host_add_space_member(
+        &pool,
+        &group_with_sup,
+        master_conv,
+        "Master",
+        Uuid::new_v4(),
+    )
+    .await
+    .unwrap();
+    let seat_sup_2 =
+        host_add_space_member(&pool, &group_with_sup, worker_conv, "小A", Uuid::new_v4())
+            .await
+            .unwrap();
+    let record_with_sup = load_space_record(&pool, &group_with_sup).await.unwrap();
+    assert_eq!(
+        record_with_sup.lead_member_id.as_deref(),
+        Some(seat_sup_2.member_id.as_str()),
+        "Supervisor bot must become lead when included in a user-created group even if added second"
+    );
+
+    let bot_created_group =
+        create_collaboration_space(&pool, master_conv, "Bot自建群", Uuid::new_v4())
+            .await
+            .unwrap();
+    let _ = add_space_member(
+        &pool,
+        master_conv,
+        &bot_created_group.space_id,
+        worker_conv,
+        "小A",
+        Uuid::new_v4(),
+    )
+    .await
+    .unwrap();
+    let record_bot_created = load_space_record(&pool, &bot_created_group.space_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        record_bot_created.lead_member_id, bot_created_group.lead_member_id,
+        "Bot-created group must keep the creating bot as lead"
+    );
+
+    // 11. Step down Supervisor (None) -> workspace has no Supervisor
+    let cleared = crate::collaboration_sidebar::set_workspace_supervisor(&pool, workspace, None)
+        .await
+        .unwrap();
+    assert!(cleared.is_none());
+    assert!(!is_member_supervisor(&pool, &worker_mid).await.unwrap());
 }

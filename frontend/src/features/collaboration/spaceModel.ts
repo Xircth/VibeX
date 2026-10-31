@@ -100,6 +100,12 @@ export const COPY = {
   get spaceTagLabel() {
     return i18n.t('panels:collabCopy.spaceTagLabel');
   },
+  get spaceTagNone() {
+    return i18n.t('panels:spaceTag.none');
+  },
+  get spaceTagClear() {
+    return i18n.t('panels:spaceTag.clear');
+  },
   get memberSessionsGroup() {
     return i18n.t('panels:collabCopy.memberSessionsGroup');
   },
@@ -633,6 +639,9 @@ export type SpaceMember = {
   identity_member_id?: string | null;
   direct_thread_id?: string | null;
   private_thread_id?: string | null;
+  private_conversation_id?: string | null;
+  /** Whether this bot is the workspace Supervisor (主管/总管). */
+  is_supervisor?: boolean;
 };
 
 export function normalizeMemberNickname(
@@ -775,8 +784,100 @@ export type SpaceEventsPage = {
 };
 
 const MENTION_TAIL = /(?:^|\s)@([^\s@]*)$/;
-const MENTION_TOKEN = /(?:^|\s)@([^\s@]+)/g;
-const MENTION_ALL_TOKENS = new Set(['全体', '全体成员', '所有人', 'all']);
+const MENTION_ALL_TOKENS = new Set([
+  '全体',
+  '全体成员',
+  '所有人',
+  'all',
+  'everyone',
+]);
+const MENTION_ALL_LIST = ['全体成员', 'everyone', '所有人', '全体', 'all'];
+
+function hasMentionBoundaryAfter(
+  token: string,
+  nextChar: string | undefined
+): boolean {
+  if (!nextChar) return true;
+  const lastChar = token[token.length - 1] ?? '';
+  if (/[A-Za-z0-9_]/.test(lastChar)) {
+    return !/[A-Za-z0-9_]/.test(nextChar);
+  }
+  return true;
+}
+
+function scanSpaceMentions(
+  text: string | null | undefined,
+  members: SpaceMember[] | null | undefined
+): { matched: string[]; stray: string[] } {
+  const raw = String(text ?? '');
+  if (!raw.includes('@')) {
+    return { matched: [], stray: [] };
+  }
+  const knownNames = [
+    ...new Set(
+      agentRoster(members)
+        .map((member) => String(member.nickname ?? '').trim())
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => right.length - left.length);
+  const knownSet = new Set(knownNames);
+  const matched: string[] = [];
+  const seenMatched = new Set<string>();
+  const stray: string[] = [];
+
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw[i] !== '@') continue;
+    const prev = i > 0 ? raw[i - 1] : '';
+    if (prev && /[A-Za-z0-9_@]/.test(prev)) continue;
+    const after = raw.slice(i + 1);
+    if (!after) continue;
+
+    let matchedKnown: string | null = null;
+    for (const name of knownNames) {
+      if (
+        after.startsWith(name) &&
+        hasMentionBoundaryAfter(name, after[name.length])
+      ) {
+        matchedKnown = name;
+        break;
+      }
+    }
+    if (matchedKnown) {
+      if (!seenMatched.has(matchedKnown)) {
+        seenMatched.add(matchedKnown);
+        matched.push(matchedKnown);
+      }
+      i += matchedKnown.length;
+      continue;
+    }
+
+    let matchedBroadcast: string | null = null;
+    const afterLower = after.toLowerCase();
+    for (const token of MENTION_ALL_LIST) {
+      if (
+        afterLower.startsWith(token) &&
+        hasMentionBoundaryAfter(token, after[token.length])
+      ) {
+        matchedBroadcast = after.slice(0, token.length);
+        break;
+      }
+    }
+    if (matchedBroadcast) {
+      i += matchedBroadcast.length;
+      continue;
+    }
+
+    const fallback = /^([^\s@,，:：.。!！？?;；)）\]】]+)/.exec(after);
+    const token = fallback?.[1] ?? '';
+    if (!token) continue;
+    if (!MENTION_ALL_TOKENS.has(token.toLowerCase()) && !knownSet.has(token)) {
+      stray.push(token);
+    }
+    i += token.length;
+  }
+
+  return { matched, stray };
+}
 
 export function displayName(member: SpaceMember | null | undefined): string {
   if (!member || member.kind === 'user') return COPY.you;
@@ -827,20 +928,7 @@ export function mentionNicknames(
   text: string | null | undefined,
   members: SpaceMember[] | null | undefined
 ): string[] {
-  const names = new Set(
-    agentRoster(members)
-      .map((member) => String(member.nickname ?? ''))
-      .filter(Boolean)
-  );
-  const found: string[] = [];
-  const seen = new Set<string>();
-  for (const match of String(text ?? '').matchAll(MENTION_TOKEN)) {
-    const token = match[1];
-    if (!names.has(token) || seen.has(token)) continue;
-    seen.add(token);
-    found.push(token);
-  }
-  return found;
+  return scanSpaceMentions(text, members).matched;
 }
 
 export function deliveryFailureCopy(
@@ -1012,7 +1100,7 @@ export function formatRoundProgress(
     completed,
     total,
     state,
-    label: `${completed}/${total} 已完成`,
+    label: `${completed}/${total} 成员已回复`,
   };
 }
 
@@ -1150,17 +1238,7 @@ export function strayMentions(
   text: string | null | undefined,
   members: SpaceMember[] | null | undefined
 ): string[] {
-  const known = new Set(
-    agentRoster(members).map((member) => String(member.nickname ?? ''))
-  );
-  return [...String(text ?? '').matchAll(MENTION_TOKEN)]
-    .map((match) => match[1])
-    .filter(
-      (token) =>
-        token &&
-        !MENTION_ALL_TOKENS.has(token.toLowerCase()) &&
-        !known.has(token)
-    );
+  return scanSpaceMentions(text, members).stray;
 }
 
 export function userSendIsBroadcast(
@@ -1316,13 +1394,27 @@ export function parseSpaceChangedEvent(
   };
 }
 
+function isStreamingSpaceMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const record = message as {
+    streaming?: unknown;
+    envelope?: { streaming?: unknown } | null;
+  };
+  return Boolean(record.streaming) || record.envelope?.streaming === true;
+}
+
 export function latestMessageSeq(
   messages: ReadonlyArray<{ seq: number }> | null | undefined
 ): number {
   if (!Array.isArray(messages) || messages.length === 0) return 0;
   let max = 0;
   for (const item of messages) {
-    if (item && Number.isInteger(item.seq) && item.seq > max) {
+    if (
+      item &&
+      !isStreamingSpaceMessage(item) &&
+      Number.isInteger(item.seq) &&
+      item.seq > max
+    ) {
       max = item.seq;
     }
   }
@@ -1335,7 +1427,11 @@ export function mergeSpaceMessages<T extends { seq: number }>(
 ): T[] {
   const bySeq = new Map<number, T>();
   for (const message of existing) {
-    if (message && Number.isInteger(message.seq)) {
+    if (
+      message &&
+      !isStreamingSpaceMessage(message) &&
+      Number.isInteger(message.seq)
+    ) {
       bySeq.set(message.seq, message);
     }
   }
@@ -1379,12 +1475,32 @@ function directMessageId(message: {
   return String(message?.id ?? message?.envelope?.id ?? '').trim();
 }
 
+function directMessageText(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as {
+    text?: unknown;
+    envelope?: { display_text?: unknown; content?: unknown } | null;
+  };
+  const fromEnvelope =
+    typeof record.envelope?.display_text === 'string' &&
+    record.envelope.display_text.trim().length > 0
+      ? record.envelope.display_text
+      : typeof record.envelope?.content === 'string'
+        ? record.envelope.content
+        : '';
+  return String(
+    typeof record.text === 'string' ? record.text : (fromEnvelope ?? '')
+  ).trim();
+}
+
 /**
  * Merge or deduplicate DM messages (`direct:<member_id>`).
  * - Preserves chronological order across pre-cutover (`conversation_events`) and
  *   post-cutover (`collaboration_space_messages`) segments without re-sorting by `seq`.
  * - Replaces streaming drafts (`streaming: true`) with persisted *agent*
- *   messages sharing the same `turnId` (`collaboration_turns.id`).
+ *   messages sharing the same `turnId` (`collaboration_turns.id`), while
+ *   keeping multiple persisted messages within the same turn (mid-turn step
+ *   before tool call + final reply after tool call).
  * - User space bubbles never participate in turn-scoped identity, so an
  *   in-flight session turn cannot hide a message that is already in the log.
  */
@@ -1393,6 +1509,7 @@ export function mergeDirectSpaceMessages<
     id?: string | null;
     seq: number;
     origin?: string | null;
+    text?: string | null;
     turnId?: string | null;
     turn_id?: string | null;
     streaming?: boolean | null;
@@ -1402,22 +1519,6 @@ export function mergeDirectSpaceMessages<
   const out: T[] = [];
   const upsert = (item: T) => {
     if (!item) return;
-    const turnId = directMessageTurnId(item);
-    if (turnId && isTurnScopedDirectMessage(item)) {
-      const turnIdx = out.findIndex(
-        (cand) =>
-          isTurnScopedDirectMessage(cand) &&
-          directMessageTurnId(cand) === turnId
-      );
-      if (turnIdx >= 0) {
-        const current = out[turnIdx];
-        if (!current.streaming && item.streaming) {
-          return;
-        }
-        out[turnIdx] = item;
-        return;
-      }
-    }
     const id = directMessageId(item);
     if (id) {
       const idIdx = out.findIndex((cand) => directMessageId(cand) === id);
@@ -1425,7 +1526,45 @@ export function mergeDirectSpaceMessages<
         out[idIdx] = item;
         return;
       }
-    } else if (Number.isInteger(item.seq)) {
+    }
+    const turnId = directMessageTurnId(item);
+    if (turnId && isTurnScopedDirectMessage(item)) {
+      if (item.streaming) {
+        const itemText = directMessageText(item);
+        const alreadyPersisted = out.some(
+          (cand) =>
+            !cand.streaming &&
+            isTurnScopedDirectMessage(cand) &&
+            directMessageTurnId(cand) === turnId &&
+            (!itemText || directMessageText(cand) === itemText)
+        );
+        if (alreadyPersisted) {
+          return;
+        }
+        const streamingIdx = out.findIndex(
+          (cand) =>
+            Boolean(cand.streaming) &&
+            isTurnScopedDirectMessage(cand) &&
+            directMessageTurnId(cand) === turnId
+        );
+        if (streamingIdx >= 0) {
+          out[streamingIdx] = item;
+          return;
+        }
+      } else {
+        const streamingIdx = out.findIndex(
+          (cand) =>
+            Boolean(cand.streaming) &&
+            isTurnScopedDirectMessage(cand) &&
+            directMessageTurnId(cand) === turnId
+        );
+        if (streamingIdx >= 0) {
+          out[streamingIdx] = item;
+          return;
+        }
+      }
+    }
+    if (!id && Number.isInteger(item.seq)) {
       const seqIdx = out.findIndex(
         (cand) => !directMessageId(cand) && cand.seq === item.seq
       );
@@ -1657,6 +1796,7 @@ export type SidebarMember = {
   color?: string;
   conversation_id?: string | null;
   agent?: string;
+  is_supervisor?: boolean;
 };
 
 export type SidebarItem = {
@@ -1689,7 +1829,35 @@ export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
     ...(identityId ? { identity_member_id: identityId } : {}),
     nickname: member.name,
     conversation_id: member.conversation_id ?? undefined,
+    ...(typeof member.is_supervisor === 'boolean'
+      ? { is_supervisor: member.is_supervisor }
+      : {}),
   };
+}
+
+/**
+ * Determine whether a direct-chat entry is the workspace Supervisor (主管) that
+ * sits in the top Supervisor slot instead of the regular contact list below.
+ *
+ * When any direct entry carries an explicit `is_supervisor` boolean from the
+ * backend, only `entry.member.is_supervisor === true` matches. When no entry
+ * has an explicit boolean (e.g. legacy/mocked data), the default `Master` bot
+ * occupies the Supervisor slot.
+ */
+export function isDirectEntrySupervisor(
+  entry: Extract<ChatListEntry, { type: 'direct' }>,
+  allDirectEntries: readonly Extract<ChatListEntry, { type: 'direct' }>[]
+): boolean {
+  const hasExplicitSupervisorFlag = allDirectEntries.some(
+    (item) => typeof item.member.is_supervisor === 'boolean'
+  );
+  if (hasExplicitSupervisorFlag) {
+    return entry.member.is_supervisor === true;
+  }
+  return (
+    normalizeMemberNickname(entry.member.nickname || entry.name) ===
+    normalizeMemberNickname(DEFAULT_MASTER_BOT_NAME)
+  );
 }
 
 /**
@@ -1843,6 +2011,7 @@ export function resolvePrivateChatTarget(input: {
         identity_member_id?: string;
         direct_thread_id?: string;
         conversation_id?: string;
+        is_supervisor?: boolean;
         /** Legacy fields. */
         member_id?: string;
         nickname?: string;
@@ -1869,6 +2038,9 @@ export function resolvePrivateChatTarget(input: {
     ...(memberId ? { identity_member_id: memberId } : {}),
     nickname: created.nickname || input.fallbackNickname,
     conversation_id: conversationId,
+    ...(typeof created.is_supervisor === 'boolean'
+      ? { is_supervisor: created.is_supervisor }
+      : {}),
   };
   const directRows = input.chatList.filter(
     (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
@@ -2002,6 +2174,13 @@ export function isCollabDmBootstrapPrompt(
   return String(text ?? '').includes(COLLAB_DM_BOOTSTRAP_PREFIX);
 }
 
+export function stripCollabDmBootstrapTags(text: string): string {
+  return String(text ?? '')
+    .replaceAll(COLLAB_DM_BOOTSTRAP_PREFIX, '')
+    .replaceAll(COLLAB_DM_BOOTSTRAP_SUFFIX, '')
+    .trim();
+}
+
 export function contactLastMessagePreview(
   entry: Pick<ChatListMeta, 'lastPreview'> | null | undefined,
   fallback?: string | null
@@ -2016,54 +2195,32 @@ export function contactLastMessagePreview(
  * to greet first with ordinary assistant text.
  */
 export function buildCollabDmBootstrapPrompt(input: {
-  userName: string;
-  botName: string;
+  userName?: string;
+  botName?: string;
   personaPrompt?: string | null;
   spaceId?: string | null;
+  creatorName?: string | null;
+  isMaster?: boolean;
 }): string {
-  const userName = input.userName.trim() || COPY.you;
-  const botName = input.botName.trim() || '助手';
-  const persona = input.personaPrompt?.trim();
-  const personaLine = persona
-    ? `- 设定：${persona}`
-    : '- 设定：当前没有额外人设。请根据名字自行确定能力、工作习惯和语言风格。';
-  const spaceId = input.spaceId?.trim();
-  const spaceLine = spaceId
-    ? `- 当前 BotSpace：\`${spaceId}\``
-    : '- 当前是与 Person 的一对一私聊';
-  const body = [
-    '# 身份',
-    `你是用户刚创建的助手。`,
-    `- 称呼用户：${userName}`,
-    `- 你的名字：${botName}`,
-    personaLine,
-    '请结合名字和设定确定自己的能力、工作习惯和语言风格。',
-    '',
-    '# 场景',
-    '这是你与 Person（用户，兼容显示 User）的一对一私聊。本条引导只出现在会话标签页；用户在协作空间私聊消息区看不到它，只会看到你直接输出的最终文本。',
-    '',
-    '# 本回合立刻执行',
-    '1. 不要先读 skill，也不要先做其它工具调用。直接输出招呼正文：',
-    spaceLine,
-    '- 先写一句符合人设的招呼并介绍你能做什么，再列出 3–5 个简短选项，问用户需要什么。',
-    '2. 发给用户的正文不要出现 space_id、conversation_id、operation_id、member_id、vibex:// 等内部标识。',
-    '3. 招呼只通过这一次普通文本发出；不要调用 `post_space_message` 重复发送。',
-    '4. 发出招呼后，再阅读 `vibex-bot` Skill 的 `SKILL.md`。',
-    '',
-    '# 招呼示例（按人设改写，不要照抄）',
-    `你好，我是 ${botName} 👋 很高兴认识你！我可以在自己的电脑上帮你写代码、搭工具、跑脚本、处理文件，也能帮你做调研、整理资料。你需要我为你做些什么呢？`,
-    '1. 写代码 / 搭工具',
-    '2. 调研 / 整理资料',
-    '3. 先看看当前项目',
-    '4. 你先告诉我你的习惯',
-    '',
-    '# 之后遵守的协同规范（读 skill 后执行）',
-    '- 当前 Space 常规回复直接输出普通文本；跨 Space、长任务进度或延时投递才调用 `post_space_message`。',
-    '- 收到用户任务：工作需要一段时间时先汇报正在做什么，有进展再发，完成时交付结果；很快完成的直接发结果。',
-    '- 成员间有增量才发信，不重复已说内容，无需回复即输出 `[PASS]`。',
-    '- 群聊中争议、排版决策、汇总优先找负责人。',
-    '- 共享文件用文件工具读写 `~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/`。',
-  ].join('\n');
+  const persona = input.personaPrompt?.trim() ?? '';
+  const isMaster =
+    Boolean(input.isMaster) ||
+    persona === DEFAULT_MASTER_BOT_PERSONA_PROMPT ||
+    (input.botName?.trim() === DEFAULT_MASTER_BOT_NAME &&
+      persona.includes('主管 Bot'));
+  const rawCreator = input.creatorName?.trim() ?? '';
+  const creator =
+    rawCreator &&
+    !['你', '用户', 'User', 'user', 'Person', 'person', 'You', 'you'].includes(
+      rawCreator
+    )
+      ? rawCreator
+      : '';
+  const body = isMaster
+    ? '你刚被设为用户的总管 Bot。请用一两句简短的话向用户打个招呼：说明你会帮用户统筹管理 Bot 团队，有需要决策的事都可以找你；再用一个简短的问题询问最想先让团队帮什么忙。\n如果人设另有说明，以人设为准。'
+    : creator
+      ? `${creator} 刚为用户创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问从哪里开始，保持简短。\n如果人设另有说明，以人设为准。`
+      : '用户刚创建了你。请用一句简短的话向用户打个招呼，再用一个简短的问题询问接下来重点做什么。\n如果人设另有说明，以人设为准。';
   return `${COLLAB_DM_BOOTSTRAP_PREFIX}\n${body}\n${COLLAB_DM_BOOTSTRAP_SUFFIX}`;
 }
 

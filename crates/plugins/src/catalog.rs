@@ -207,7 +207,11 @@ pub fn marketplace_plugin_slug(owner: &str, plugin_id: &str) -> String {
         return id.to_string();
     }
     let prefix = format!("{owner}.");
-    if id.len() > prefix.len() && id[..prefix.len()].eq_ignore_ascii_case(&prefix) {
+    if id.len() > prefix.len()
+        && id
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(&prefix))
+    {
         id[prefix.len()..].to_string()
     } else {
         id.to_string()

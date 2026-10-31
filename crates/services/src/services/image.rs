@@ -155,10 +155,20 @@ fn sanitize_filename(name: &str) -> String {
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect();
 
-    // Truncate to reasonable length to avoid filesystem limits
+    // Truncate to reasonable byte length on a valid UTF-8 boundary to avoid filesystem limits
     let max_len = 50;
     if clean.len() > max_len {
-        clean[..max_len].to_string()
+        let end = clean
+            .char_indices()
+            .take_while(|(idx, ch)| idx + ch.len_utf8() <= max_len)
+            .map(|(idx, ch)| idx + ch.len_utf8())
+            .last()
+            .unwrap_or(0);
+        if end == 0 {
+            "file".to_string()
+        } else {
+            clean[..end].to_string()
+        }
     } else if clean.is_empty() {
         "file".to_string()
     } else {

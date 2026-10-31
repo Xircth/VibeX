@@ -519,7 +519,7 @@ describe('SettingsLayout window title', () => {
       const humanGroup = await screen.findByRole('group', {
         name: 'For Human',
       });
-      const aiGroup = screen.getByRole('group', { name: 'For SI' });
+      const aiGroup = await screen.findByRole('group', { name: 'For SI' });
       const systemGroup = screen.getByRole('group', { name: 'For System' });
       const pluginsGroup = screen.getByRole('group', { name: 'For Plugin' });
 
@@ -557,6 +557,52 @@ describe('SettingsLayout window title', () => {
       ).toEqual(['电脑控制']);
     } finally {
       usePluginHostContributions.mockReturnValue([]);
+    }
+  });
+
+  it('does not render registerSettingsSection entries as standalone pages under For Plugin', async () => {
+    const { settingRegistry, settingsPageRegistry } = await import(
+      '@vibex/plugin-sdk'
+    );
+    const disposeSection = settingRegistry.register({
+      id: 'vibex.office:office-settings',
+      pluginId: 'vibex.office',
+      title: 'VibeX Office Section',
+    });
+    const disposePage = settingsPageRegistry.register({
+      id: 'vibex.browser:browser-settings',
+      pluginId: 'vibex.browser',
+      title: 'Browser Automation',
+    });
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+    };
+
+    try {
+      render(
+        <BackendTransportProvider transport={transport}>
+          <MemoryRouter initialEntries={['/settings/general']}>
+            <Routes>
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route path="general" element={<div>General content</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </BackendTransportProvider>
+      );
+
+      const pluginsGroup = await screen.findByRole('group', {
+        name: 'For Plugin',
+      });
+      const labels = Array.from(pluginsGroup.querySelectorAll('button')).map(
+        (b) => b.textContent?.trim()
+      );
+      expect(labels).toEqual(['Browser Automation']);
+      expect(labels).not.toContain('VibeX Office Section');
+    } finally {
+      disposeSection();
+      disposePage();
     }
   });
 });

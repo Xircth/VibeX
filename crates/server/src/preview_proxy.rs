@@ -179,12 +179,14 @@ pub(crate) async fn proxy_root<R>(
     state: State<Arc<ServerState<R>>>,
     Path(lease_id): Path<Uuid>,
     query: Query<PreviewCapabilityQuery>,
+    uri: axum::http::Uri,
 ) -> Response {
     proxy(
         state,
         lease_id,
         String::new(),
         query.cap.clone().unwrap_or_default(),
+        forwarded_query_string(uri.query()),
     )
     .await
 }
@@ -193,6 +195,7 @@ pub(crate) async fn proxy_path<R>(
     state: State<Arc<ServerState<R>>>,
     Path((lease_id, path)): Path<(Uuid, String)>,
     query: Query<PreviewCapabilityQuery>,
+    uri: axum::http::Uri,
 ) -> Response {
     let (capability, upstream_path) = if let Some(capability_path) = path.strip_prefix("c/") {
         let mut parts = capability_path.splitn(2, '/');
@@ -203,7 +206,14 @@ pub(crate) async fn proxy_path<R>(
     } else {
         (query.cap.clone().unwrap_or_default(), path)
     };
-    proxy(state, lease_id, upstream_path, capability).await
+    proxy(
+        state,
+        lease_id,
+        upstream_path,
+        capability,
+        forwarded_query_string(uri.query()),
+    )
+    .await
 }
 
 async fn proxy<R>(
@@ -211,6 +221,7 @@ async fn proxy<R>(
     lease_id: Uuid,
     path: String,
     capability: String,
+    query: Option<String>,
 ) -> Response {
     if capability.is_empty() {
         return proxy_error(PreviewProxyError::WrongCapability);
@@ -221,6 +232,7 @@ async fn proxy<R>(
         lease_id,
         path,
         capability,
+        query,
     )
     .await
 }
@@ -229,6 +241,7 @@ async fn standalone_proxy_root(
     State(state): State<StandalonePreviewProxy>,
     Path(lease_id): Path<Uuid>,
     query: Query<PreviewCapabilityQuery>,
+    uri: axum::http::Uri,
 ) -> Response {
     proxy_with(
         &state.registry,
@@ -236,6 +249,7 @@ async fn standalone_proxy_root(
         lease_id,
         String::new(),
         query.cap.clone().unwrap_or_default(),
+        forwarded_query_string(uri.query()),
     )
     .await
 }
@@ -244,6 +258,7 @@ async fn standalone_proxy_path(
     State(state): State<StandalonePreviewProxy>,
     Path((lease_id, path)): Path<(Uuid, String)>,
     query: Query<PreviewCapabilityQuery>,
+    uri: axum::http::Uri,
 ) -> Response {
     let (capability, upstream_path) = capability_and_path(path, query.cap.clone());
     proxy_with(
@@ -252,8 +267,21 @@ async fn standalone_proxy_path(
         lease_id,
         upstream_path,
         capability,
+        forwarded_query_string(uri.query()),
     )
     .await
+}
+
+fn forwarded_query_string(raw_query: Option<&str>) -> Option<String> {
+    let raw = raw_query?;
+    let kept: Vec<&str> = raw
+        .split('&')
+        .filter(|pair| {
+            let key = pair.split('=').next().unwrap_or("");
+            !key.is_empty() && key != "cap"
+        })
+        .collect();
+    (!kept.is_empty()).then(|| kept.join("&"))
 }
 
 fn capability_and_path(path: String, query_capability: Option<String>) -> (String, String) {
@@ -274,6 +302,7 @@ async fn proxy_with(
     lease_id: Uuid,
     path: String,
     capability: String,
+    query: Option<String>,
 ) -> Response {
     if capability.is_empty() {
         return proxy_error(PreviewProxyError::WrongCapability);
@@ -285,7 +314,12 @@ async fn proxy_with(
     if !valid_relative_url_path(&path) {
         return proxy_error(PreviewProxyError::InvalidPath);
     }
-    let upstream = format!("http://127.0.0.1:{}/{}", registration.loopback_port, path);
+    let upstream = match query.as_deref() {
+        Some(q) if !q.is_empty() => {
+            format!("http://127.0.0.1:{}/{path}?{q}", registration.loopback_port)
+        }
+        _ => format!("http://127.0.0.1:{}/{}", registration.loopback_port, path),
+    };
     let response = match client.get(upstream).send().await {
         Ok(response) => response,
         Err(_) => return proxy_error(PreviewProxyError::UpstreamUnavailable),

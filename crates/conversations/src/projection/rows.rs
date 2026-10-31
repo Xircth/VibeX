@@ -9,13 +9,14 @@ use agents::{
     },
 };
 use db::models::conversation_event::ConversationEventRecord;
-use super::cache::{remove_side_row, upsert_stable_notice};
-use super::fold::ProjectedTurn;
+
 use super::{
     AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID, AGENT_BINDING_REBIND_NOTICE_ROW_ID,
     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID, AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
     ANNOUNCEMENT_ROW_PREFIX, AUTO_PERMISSION_NOTICE_ROW_ID, AUTO_PERMISSION_NOTICE_TITLE,
     CURRENT_EVENT_VERSION, ProjectionFold,
+    cache::{remove_side_row, upsert_stable_notice},
+    fold::ProjectedTurn,
 };
 
 impl ProjectionFold {
@@ -24,13 +25,13 @@ impl ProjectionFold {
         record: &ConversationEventRecord,
         kind: &str,
     ) -> Vec<ConversationRowOp> {
-                tracing::warn!(
-                    event_kind = %kind,
-                    sequence = record.sequence,
-                    "conversation event not renderable by this build; showing placeholder row"
-                );
-                let notice = if record.event_version > CURRENT_EVENT_VERSION {
-                    ConversationSessionNotice {
+        tracing::warn!(
+            event_kind = %kind,
+            sequence = record.sequence,
+            "conversation event not renderable by this build; showing placeholder row"
+        );
+        let notice = if record.event_version > CURRENT_EVENT_VERSION {
+            ConversationSessionNotice {
                         title: "此会话包含较新版本的记录".into(),
                         message: Some(
                             "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。"
@@ -39,22 +40,20 @@ impl ProjectionFold {
                         severity: "warning".into(),
                         ..Default::default()
                     }
-                } else {
-                    ConversationSessionNotice {
-                        title: "部分会话记录无法显示".into(),
-                        message: Some(
-                            "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into(),
-                        ),
-                        severity: "warning".into(),
-                        ..Default::default()
-                    }
-                };
-                let row = side_row(
-                    record.sequence,
-                    ConversationTimelineRow::SessionNotice { notice },
-                );
-                let op = ConversationRowOp::Upsert { row: row.clone() };
-                self.side_rows.push(row);
+        } else {
+            ConversationSessionNotice {
+                title: "部分会话记录无法显示".into(),
+                message: Some("VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into()),
+                severity: "warning".into(),
+                ..Default::default()
+            }
+        };
+        let row = side_row(
+            record.sequence,
+            ConversationTimelineRow::SessionNotice { notice },
+        );
+        let op = ConversationRowOp::Upsert { row: row.clone() };
+        self.side_rows.push(row);
         vec![op]
     }
 
@@ -413,61 +412,71 @@ impl ProjectionFold {
             ConversationEvent::AgentBindingRecovered {
                 strategy,
                 continues_from,
-            } => match strategy {
-                SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
-                    if let Some(index) = side_rows
-                        .iter()
-                        .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
-                    {
-                        side_rows.remove(index);
+            } => {
+                remove_side_row(
+                    side_rows,
+                    deleted_rows,
+                    AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+                    record.sequence,
+                );
+                match strategy {
+                    SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
+                        if let Some(index) = side_rows
+                            .iter()
+                            .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
+                        {
+                            side_rows.remove(index);
+                            deleted_rows.push(ConversationRowOp::Delete {
+                                row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
+                                revision: record.sequence,
+                            });
+                        }
+                    }
+                    SessionRecoveryStrategy::Rebound
+                    | SessionRecoveryStrategy::CreatedNewSession => {
+                        side_rows.retain(|row| {
+                            row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+                                && row.row_id != AGENT_BINDING_REBIND_NOTICE_ROW_ID
+                        });
                         deleted_rows.push(ConversationRowOp::Delete {
                             row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
                             revision: record.sequence,
                         });
+                        let message = if continues_from.as_ref().is_some_and(|sid| !sid.is_empty())
+                        {
+                            "可见历史已链接到上一线程。后续消息走新的 Agent 线程，不会混入其他会话。"
+                                .into()
+                        } else {
+                            "可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。"
+                                .into()
+                        };
+                        side_rows.push(TimelineRow {
+                            row_id: AGENT_BINDING_REBIND_NOTICE_ROW_ID.into(),
+                            revision: record.sequence,
+                            row: ConversationTimelineRow::SessionNotice {
+                                notice: ConversationSessionNotice {
+                                    title: "Agent 会话已重新绑定".into(),
+                                    message: Some(message),
+                                    severity: "warning".into(),
+                                    ..Default::default()
+                                },
+                            },
+                        });
                     }
                 }
-                SessionRecoveryStrategy::Rebound | SessionRecoveryStrategy::CreatedNewSession => {
-                    side_rows.retain(|row| {
-                        row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
-                            && row.row_id != AGENT_BINDING_REBIND_NOTICE_ROW_ID
-                    });
-                    deleted_rows.push(ConversationRowOp::Delete {
-                        row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
-                        revision: record.sequence,
-                    });
-                    let message = if continues_from.as_ref().is_some_and(|sid| !sid.is_empty()) {
-                        "可见历史已链接到上一线程。后续消息走新的 Agent 线程，不会混入其他会话。"
-                            .into()
-                    } else {
-                        "可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。"
-                            .into()
-                    };
-                    side_rows.push(TimelineRow {
-                        row_id: AGENT_BINDING_REBIND_NOTICE_ROW_ID.into(),
-                        revision: record.sequence,
-                        row: ConversationTimelineRow::SessionNotice {
-                            notice: ConversationSessionNotice {
-                                title: "Agent 会话已重新绑定".into(),
-                                message: Some(message),
-                                severity: "warning".into(),
-                                ..Default::default()
-                            },
-                        },
-                    });
-                }
-            },
+            }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
-                side_rows.push(side_row(
+                upsert_stable_notice(
+                    side_rows,
+                    AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
                     record.sequence,
-                    ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "Agent session recovery failed".into(),
-                            message: Some(reason),
-                            severity: "error".into(),
-                            ..Default::default()
-                        },
+                    ConversationSessionNotice {
+                        title: "Agent session recovery failed".into(),
+                        message: Some(reason),
+                        severity: "error".into(),
+                        ..Default::default()
                     },
-                ));
+                );
             }
             ConversationEvent::SessionConfigStale { stale, reason } => {
                 if stale {
@@ -597,7 +606,6 @@ impl ProjectionFold {
         rows.extend(self.side_rows.iter().cloned());
         rows
     }
-
 }
 
 fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
@@ -659,7 +667,6 @@ fn auto_permission_notice(count: u32) -> ConversationSessionNotice {
     }
 }
 
-
 fn reconnect_attempt_from_payload(payload: Option<&serde_json::Value>) -> (u32, u32) {
     let attempt = payload
         .and_then(|value| value.get("attempt"))
@@ -675,7 +682,6 @@ fn reconnect_attempt_from_payload(payload: Option<&serde_json::Value>) -> (u32, 
         .max(attempt);
     (attempt, max)
 }
-
 
 pub(super) fn annotate_fork_point_rows(
     rows: &mut [TimelineRow],
@@ -734,7 +740,6 @@ pub(super) fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
     }
 }
 
-
 pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
     let mut rows = Vec::with_capacity(2 + turn.prefix_segments.len());
     if !turn.user.blocks.is_empty() {
@@ -759,7 +764,6 @@ pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
     }
     rows
 }
-
 
 fn host_note_notice(
     label: &str,
@@ -852,23 +856,17 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
     Some(format!("{reason}: {requested}"))
 }
 
-
 #[cfg(test)]
 pub(super) mod tests {
-    use uuid::Uuid;
-    use super::{ConversationSessionNotice, side_row};
-    use crate::projection::ProjectionSnapshotState;
-    use db::models::conversation_relation::ConversationRelationRecord;
     use std::str::FromStr;
 
     use agents::{
         AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
         AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
-            ContentBlock, ConversationArtifactReference,
-            ConversationDelegation, ConversationDelegationResult, ConversationError,
-            ConversationEvent, ConversationFeedbackRequest, ConversationFeedbackResponse,
-            ConversationInputBlock,
+            ContentBlock, ConversationArtifactReference, ConversationDelegation,
+            ConversationDelegationResult, ConversationError, ConversationEvent,
+            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationInputBlock,
             ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
             ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
             ConversationQuestionResponse, ConversationTimelineRow, ConversationToolCallPatch,
@@ -884,6 +882,7 @@ pub(super) mod tests {
             AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
         },
         conversation_input::ConversationInputRecord,
+        conversation_relation::ConversationRelationRecord,
         conversation_snapshot::ConversationProjectionSnapshotRecord,
         conversation_tool::ConversationToolCallRecord,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
@@ -893,11 +892,14 @@ pub(super) mod tests {
         SqlitePool,
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     };
-        use crate::{
+    use uuid::Uuid;
+
+    use super::{ConversationSessionNotice, side_row};
+    use crate::{
         CreateDelegatedConversation, create_delegated_conversation,
         projection::{
             CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-            ProjectionFold,
+            ProjectionFold, ProjectionSnapshotState,
         },
     };
     pub(in crate::projection) fn record_of(
@@ -1153,7 +1155,6 @@ pub(super) mod tests {
         (input_id, turn.id)
     }
 
-
     #[tokio::test]
     async fn artifact_revision_event_projects_reference_without_file_bytes() {
         let pool = setup_pool().await;
@@ -1244,7 +1245,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn artifact_projection_rebuilds_a_v3_snapshot_that_skipped_artifacts() {
         let pool = setup_pool().await;
@@ -1308,7 +1308,6 @@ pub(super) mod tests {
             "a predecessor v3 snapshot that skipped Artifact events must be rebuilt"
         );
     }
-
 
     #[tokio::test]
     async fn unknown_event_renders_placeholder_row_and_timeline_still_loads() {
@@ -1396,7 +1395,6 @@ pub(super) mod tests {
         assert!(has_assistant_text, "surrounding events still fold");
     }
 
-
     #[tokio::test]
     async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
         let pool = setup_pool().await;
@@ -1465,7 +1463,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn legacy_capability_snapshot_does_not_render_unknown_event_notice() {
         let pool = setup_pool().await;
@@ -1520,7 +1517,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn legacy_agent_binding_field_does_not_render_unknown_event_notice() {
         let pool = setup_pool().await;
@@ -1561,7 +1557,6 @@ pub(super) mod tests {
             "renamed same-version fields should remain readable"
         );
     }
-
 
     #[tokio::test]
     async fn accepted_steering_splits_the_assistant_bubble() {
@@ -1697,7 +1692,6 @@ pub(super) mod tests {
         assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
     }
 
-
     #[tokio::test]
     async fn submitted_feedback_splits_the_assistant_bubble_like_steering() {
         let pool = setup_pool().await;
@@ -1812,7 +1806,6 @@ pub(super) mod tests {
         assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
     }
 
-
     #[tokio::test]
     async fn turn_interrupted_marks_status_and_phase() {
         // 批次B / ADR-0001: a TurnInterrupted event is the fourth terminal state. It
@@ -1876,7 +1869,6 @@ pub(super) mod tests {
         });
         assert_eq!(user_phase.as_deref(), Some("interrupted"));
     }
-
 
     #[tokio::test]
     async fn failed_and_cancelled_turns_keep_distinct_projected_phases() {
@@ -1965,7 +1957,6 @@ pub(super) mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn turn_failure_does_not_keep_error_text_as_an_assistant_message() {
         let pool = setup_pool().await;
@@ -2047,7 +2038,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn rows_since_returns_only_changed_rows() {
         // 批次C gap backfill: rows_since returns rows whose revision advanced past the
@@ -2106,7 +2096,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn project_open_keeps_the_tail_without_shipping_the_full_row_vec() {
         let pool = setup_pool().await;
@@ -2163,7 +2152,6 @@ pub(super) mod tests {
         assert_eq!(window.rows.len(), 3);
         assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
     }
-
 
     #[tokio::test]
     async fn project_open_and_row_window_read_materialized_rows_without_fold_json() {
@@ -2254,7 +2242,6 @@ pub(super) mod tests {
         assert_eq!(changed.len(), full.rows.len());
     }
 
-
     #[tokio::test]
     async fn permission_responded_folds_status_onto_row() {
         // 批次B: a responded (or recovery-voided) permission must reload as 'responded',
@@ -2312,7 +2299,6 @@ pub(super) mod tests {
         });
         assert_eq!(status.as_deref(), Some("responded"));
     }
-
 
     #[tokio::test]
     async fn auto_allowed_permissions_fold_into_a_count_notice() {
@@ -2404,7 +2390,6 @@ pub(super) mod tests {
             Some("notice:auto-permission-approved")
         );
     }
-
 
     #[tokio::test]
     async fn timeline_preserves_reported_tool_status_independently_of_output() {
@@ -2517,7 +2502,6 @@ pub(super) mod tests {
             }
         }
     }
-
 
     #[tokio::test]
     async fn antigravity_view_file_failures_settle_as_completed_reads() {
@@ -2676,7 +2660,6 @@ pub(super) mod tests {
         assert_eq!(command_status, Some("failed"));
     }
 
-
     #[tokio::test]
     async fn timeline_folds_tool_call_updates_into_one_block() {
         let pool = setup_pool().await;
@@ -2808,7 +2791,6 @@ pub(super) mod tests {
         assert!(!**is_error);
     }
 
-
     #[tokio::test]
     async fn conversation_tool_projection_replaces_metadata_on_update() {
         let pool = setup_pool().await;
@@ -2889,7 +2871,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn timeline_preserves_images_viewed_by_a_tool_call() {
         let pool = setup_pool().await;
@@ -2952,7 +2933,6 @@ pub(super) mod tests {
             |uri| uri.starts_with("vibex-image:") && uri.len() == "vibex-image:".len() + 64
         ));
     }
-
 
     #[tokio::test]
     async fn conversation_timeline_projection_covers_interaction_side_rows() {
@@ -3088,7 +3068,6 @@ pub(super) mod tests {
         assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 2);
     }
 
-
     #[tokio::test]
     async fn delegation_events_rebuild_child_binding() {
         let (_dir, pool) = setup_temp_pool().await;
@@ -3186,7 +3165,6 @@ pub(super) mod tests {
         assert_eq!(metadata["policy"]["workspaceAccess"], "write_serialized");
     }
 
-
     #[tokio::test]
     async fn canceled_delegation_remains_canceled_after_projection_rebuild() {
         let pool = setup_pool().await;
@@ -3248,7 +3226,6 @@ pub(super) mod tests {
         assert_eq!(delegation.status, "canceled");
         assert!(delegation.child_conversation_id.is_some());
     }
-
 
     #[tokio::test]
     async fn permission_view_carries_real_acp_detail_and_options() {
@@ -3317,7 +3294,6 @@ pub(super) mod tests {
         assert_eq!(detail["fields"]["kind"], "edit");
         assert_eq!(detail["fields"]["content"][0]["path"], "README.md");
     }
-
 
     #[tokio::test]
     async fn delegated_child_assistant_deltas_without_a_turn_still_render() {
@@ -3391,7 +3367,6 @@ pub(super) mod tests {
         ));
     }
 
-
     #[tokio::test]
     async fn delegated_child_identity_is_linked_before_the_first_turn() {
         let pool = setup_pool().await;
@@ -3442,7 +3417,6 @@ pub(super) mod tests {
             |block| matches!(block, ContentBlock::Text { text } if text == "Review the diff")
         ));
     }
-
 
     #[tokio::test]
     async fn conversation_timeline_projection_folds_messages_and_errors() {
@@ -3554,7 +3528,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn rebuild_projection_matches_incremental_and_repopulates_tables() {
         let pool = setup_pool().await;
@@ -3665,7 +3638,6 @@ pub(super) mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn question_and_feedback_responses_fold_onto_rows() {
         let pool = setup_pool().await;
@@ -3759,7 +3731,6 @@ pub(super) mod tests {
             "submitted feedback must carry its response after the fold"
         );
     }
-
 
     #[tokio::test]
     async fn truncate_to_turn_ordinal_drops_target_turn_and_tail() {
@@ -3877,7 +3848,6 @@ pub(super) mod tests {
         assert_eq!(after.last_sequence, 3);
     }
 
-
     #[tokio::test]
     async fn truncate_to_turn_does_not_requeue_the_truncated_turn_input() {
         let pool = setup_pool().await;
@@ -3948,7 +3918,6 @@ pub(super) mod tests {
                 .is_none()
         );
     }
-
 
     #[tokio::test]
     async fn usage_occupancy_and_plan_status_replace_the_turn_block() {
@@ -4063,7 +4032,6 @@ pub(super) mod tests {
         assert_eq!(usage.output_tokens, 0);
     }
 
-
     #[tokio::test]
     async fn turn_less_late_updates_attach_to_the_latest_turn() {
         let pool = setup_pool().await;
@@ -4137,4 +4105,56 @@ pub(super) mod tests {
         )));
     }
 
+    #[tokio::test]
+    async fn agent_binding_recovery_failed_notice_is_cleared_by_subsequent_recovery() {
+        let pool = setup_pool().await;
+        let (conversation_id, _turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentBindingRecoveryFailed {
+                reason: "Failed to load session, starting new: Path not found.".into(),
+            },
+            None,
+        )
+        .await;
+        let failed_timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline with failure");
+        assert!(failed_timeline.rows.iter().any(|row| {
+            matches!(
+                &row.row,
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title == "Agent session recovery failed"
+            )
+        }));
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentBindingRecovered {
+                strategy: agents::SessionRecoveryStrategy::CreatedNewSession,
+                continues_from: Some("old-sid".into()),
+            },
+            None,
+        )
+        .await;
+        let recovered_timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline after recovery");
+        assert!(
+            !recovered_timeline.rows.iter().any(|row| {
+                matches!(
+                    &row.row,
+                    ConversationTimelineRow::SessionNotice { notice }
+                        if notice.title == "Agent session recovery failed"
+                )
+            }),
+            "AgentBindingRecovered must clear the AgentBindingRecoveryFailed error banner"
+        );
+    }
 }

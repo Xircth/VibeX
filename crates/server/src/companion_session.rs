@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use agents::{
-    AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentSessionId,
-    conversation::ConversationEvent, ids::AgentConnectionId,
+    AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentPermissionId,
+    AgentPermissionResponse, AgentSessionId, conversation::ConversationEvent,
+    ids::AgentConnectionId,
 };
 use application::{ApplicationError, CompanionSessionPort, ConversationLiveFeedbackNote};
 use async_trait::async_trait;
@@ -282,10 +283,115 @@ impl CompanionSessionPort for CompanionSessionAdapter {
                 Some(AgentSessionId::from(pending.scope.parent_conversation_id)),
                 AgentEvent::ElicitationResponded {
                     elicitation_id,
-                    response,
+                    response: response.clone(),
                 },
             )
             .await;
+        let answer_text = response.summary();
+        let delivery_ctx =
+            conversations::ScopedConversationControl::new(self.context.clone()).delivery_context();
+        let _ = conversations::collaboration_cards::resolve_elicitation_question_card(
+            &self.context.deployment.db().pool,
+            question_id,
+            if answer_text.trim().is_empty() {
+                "已跳过"
+            } else {
+                answer_text.as_str()
+            },
+            &delivery_ctx,
+        )
+        .await;
+        Ok(true)
+    }
+
+    async fn answer_permission(
+        &self,
+        conversation_id: Uuid,
+        permission_id: &str,
+        response: AgentPermissionResponse,
+    ) -> Result<bool, ApplicationError> {
+        let decision = match &response {
+            AgentPermissionResponse::Selected { option_id, persist } => {
+                if *persist || option_id == "allow_always" {
+                    "allow_always"
+                } else if option_id == "allow_once" || option_id.starts_with("allow") {
+                    "allow_once"
+                } else {
+                    "deny"
+                }
+            }
+            AgentPermissionResponse::Cancelled => "deny",
+        };
+        let delivery_ctx =
+            conversations::ScopedConversationControl::new(self.context.clone()).delivery_context();
+        let card = conversations::collaboration_cards::resolve_approval_card_if_pending(
+            &self.context.deployment.db().pool,
+            permission_id,
+            decision,
+            &delivery_ctx,
+        )
+        .await
+        .ok()
+        .flatten();
+        let question_id = card
+            .as_ref()
+            .and_then(|c| c.payload.get("question_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(permission_id);
+        let companion_answer = json!({ "decision": decision });
+        let pending = match self
+            .memory
+            .answer_question(question_id, conversation_id, companion_answer.clone())
+            .await
+        {
+            Ok(pending) => Some(pending),
+            Err(_) if question_id != permission_id => self
+                .memory
+                .answer_question(permission_id, conversation_id, companion_answer)
+                .await
+                .ok(),
+            Err(_) => None,
+        };
+        if pending.is_none() && card.is_none() {
+            return Ok(false);
+        }
+        if pending.is_none()
+            && let Some(card) = &card
+        {
+            let _ = conversations::collaboration_cards::deliver_card_reply(
+                &self.context.deployment.db().pool,
+                &card.id,
+                None,
+                &delivery_ctx,
+            )
+            .await;
+        }
+        let connection_id = if let Some(pending) = &pending {
+            Uuid::parse_str(&pending.scope.parent_connection_id)
+                .ok()
+                .map(AgentConnectionId::from)
+        } else {
+            self.context
+                .agent_runtime
+                .live_connection_id(AgentSessionId::from(conversation_id))
+                .await
+        };
+        if let (Some(connection_id), Ok(permission_uuid)) =
+            (connection_id, Uuid::parse_str(permission_id))
+        {
+            self.context
+                .agent_runtime
+                .emit_external(
+                    connection_id,
+                    Some(AgentSessionId::from(conversation_id)),
+                    AgentEvent::PermissionResponded {
+                        permission_id: AgentPermissionId(permission_uuid),
+                        response,
+                        auto: false,
+                    },
+                )
+                .await;
+        }
         Ok(true)
     }
 

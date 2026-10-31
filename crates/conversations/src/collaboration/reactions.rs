@@ -271,15 +271,9 @@ mod tests {
             }]
         );
 
-        let replaced = toggle_space_reaction(
-            &pool,
-            &space,
-            &posted.message_id,
-            "user",
-            "🎉",
-        )
-        .await
-        .unwrap();
+        let replaced = toggle_space_reaction(&pool, &space, &posted.message_id, "user", "🎉")
+            .await
+            .unwrap();
         assert_eq!(
             replaced,
             vec![SpaceReaction {

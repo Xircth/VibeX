@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use tauri::Manager;
 
 use crate::{
@@ -53,6 +55,17 @@ fn navigate_settings_window(window: &tauri::WebviewWindow, path: &str) {
     ));
 }
 
+/// Resolve the WebView2 user-data directory for a settings window.
+///
+/// Host settings windows (`settings-host-*`) share their host window's isolated
+/// profile; the local `settings` window shares `main`'s WebView2 profile so
+/// Tauri reuses `main`'s existing `WebContext` instead of opening a second
+/// WebView2 environment on `%LOCALAPPDATA%\com.vibex.app.dev` (`0x800700AA`).
+pub(crate) fn settings_webview_data_directory(label: &str) -> Option<PathBuf> {
+    host_webview_data_directory(label)
+        .or_else(|| crate::app_windows::app_webview_data_directory(label))
+}
+
 fn open_or_focus(
     app: &tauri::AppHandle,
     label: &str,
@@ -78,7 +91,7 @@ fn open_or_focus(
             .resizable(true)
             .center(),
     );
-    if let Some(data_directory) = host_webview_data_directory(label) {
+    if let Some(data_directory) = settings_webview_data_directory(label) {
         builder = builder.data_directory(data_directory);
     }
 
@@ -127,6 +140,9 @@ pub async fn open_settings_window(
     let caller = window.label().to_string();
     let target = settings_window_label_for_caller(&caller);
     let title = resolve_window_title(&caller, resolve_settings_window_title(title)).await;
+    // Yield so Tauri can finish the invoking webview's WebMessageReceived
+    // before the UI thread constructs another WebView2 controller.
+    tokio::task::yield_now().await;
     let (tx, rx) = tokio::sync::oneshot::channel();
     let app_for_window = app.clone();
     app.run_on_main_thread(move || {
@@ -144,7 +160,9 @@ pub async fn open_settings_window(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_settings_window_title, settings_window_path};
+    use super::{
+        resolve_settings_window_title, settings_webview_data_directory, settings_window_path,
+    };
 
     #[test]
     fn uses_the_provided_localized_title() {
@@ -187,6 +205,17 @@ mod tests {
         assert_eq!(
             settings_window_path(Some("https://example.com")),
             "/settings"
+        );
+    }
+
+    #[test]
+    fn local_settings_window_shares_main_webview_profile_while_host_settings_stay_isolated() {
+        let host_dir =
+            settings_webview_data_directory("settings-host-abc").expect("host settings profile");
+        assert!(host_dir.ends_with(std::path::Path::new("webview-profiles").join("host-abc")));
+        assert_eq!(
+            settings_webview_data_directory("settings"),
+            crate::app_windows::app_webview_data_directory("settings")
         );
     }
 }

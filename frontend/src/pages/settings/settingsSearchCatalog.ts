@@ -110,6 +110,8 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'general.basicFeaturesTitle',
     'general.defaultTerminal',
     'general.externalEditorTitle',
+    'general.multiAgentTitle',
+    'general.multiAgentHideBotSessions',
     'general.utilityFeaturesTitle',
     'general.enablePromptEnhancement',
     'general.promptEnhancementAgent',

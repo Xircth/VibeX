@@ -79,4 +79,3 @@ impl Default for LeadingEdgeThrottle {
         Self::new(DEFAULT_THROTTLE_WINDOW)
     }
 }
-

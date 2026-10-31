@@ -67,6 +67,7 @@ export function GroupListPanel() {
     renameGroup,
     renamingGroupId,
     renderSectionEntry,
+    renderSupervisorSlot,
     selectedDeleteCount,
     setContactMenu,
     setListSort,
@@ -298,6 +299,7 @@ export function GroupListPanel() {
                   openContactMenu(event, [newGroupMenuItem]);
                 }}
               >
+                {renderSupervisorSlot()}
                 {contactSections ? (
                   <ContactGroupSections
                     sections={contactSections}

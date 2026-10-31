@@ -7,7 +7,8 @@
 use std::sync::Arc;
 
 use agents::{
-    AgentElicitationId, AgentElicitationResponse, AgentId, AgentSessionId,
+    AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentId, AgentPermissionId,
+    AgentPermissionResponse, AgentSessionId,
     runtime::{AgentRuntime, RespondAgentElicitationInput},
 };
 use async_trait::async_trait;
@@ -156,17 +157,72 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "card.list" | "card.list_cards") => self.list_cards(&input).await,
             ("collaboration", "card.resolve") => self.resolve_card(&input).await,
             ("collaboration", "member.memory.list" | "member.memory_list") => {
-                self.memory_list(&input).await
+                self.space_memory_op("list", &input).await
             }
-            ("collaboration", "member.memory.update" | "member.memory_update") => {
-                self.memory_update(&input).await
-            }
-            ("collaboration", "member.memory.delete" | "member.memory_delete") => {
-                self.memory_delete(&input).await
-            }
+            (
+                "collaboration",
+                "member.memory.update"
+                | "member.memory_update"
+                | "space.memory.update"
+                | "space.memory_update",
+            ) => self.space_memory_op("update", &input).await,
+            (
+                "collaboration",
+                "member.memory.delete"
+                | "member.memory_delete"
+                | "space.memory.delete"
+                | "space.memory_delete",
+            ) => self.space_memory_op("delete", &input).await,
             ("collaboration", "member.activity.list" | "member.activity_list") => {
-                self.activity_list(&input).await
+                self.space_memory_op("activity_list", &input).await
             }
+            (
+                "collaboration",
+                "space.memory.view" | "space.memory_view" | "member.memory.view"
+                | "member.memory_view",
+            ) => self.space_memory_op("view", &input).await,
+            (
+                "collaboration",
+                "space.memory.add"
+                | "space.memory_add"
+                | "member.memory.add"
+                | "member.memory_add"
+                | "member.memory.create"
+                | "member.memory_create",
+            ) => self.space_memory_op("add", &input).await,
+            (
+                "collaboration",
+                "space.memory.writeTopic" | "space.memory.write_topic" | "space.memory_write_topic",
+            ) => self.space_memory_op("write_topic", &input).await,
+            (
+                "collaboration",
+                "space.memory.readTopic" | "space.memory.read_topic" | "space.memory_read_topic",
+            ) => self.space_memory_op("read_topic", &input).await,
+            (
+                "collaboration",
+                "space.memory.deleteTopic"
+                | "space.memory.delete_topic"
+                | "space.memory_delete_topic",
+            ) => self.space_memory_op("delete_topic", &input).await,
+            (
+                "collaboration",
+                "space.memory.toggleCollectionIndex"
+                | "space.memory.toggle_collection_index"
+                | "space.memory_toggle_collection_index",
+            ) => {
+                self.space_memory_op("toggle_collection_index", &input)
+                    .await
+            }
+            (
+                "collaboration",
+                "space.memory.ask" | "space.memory_ask" | "member.memory.ask" | "member.memory_ask",
+            ) => self.space_memory_op("ask", &input).await,
+            (
+                "collaboration",
+                "space.memory.distillMessage"
+                | "space.memory.distill_message"
+                | "space.memory_distill_message",
+            ) => self.space_memory_op("distill_message", &input).await,
             ("collaboration", "member.config.get" | "member.config_get") => {
                 let member_id = required_text(&input, &["memberId", "member_id"])?;
                 let config = collaboration::load_member_session_config(&self.pool, &member_id)
@@ -208,113 +264,36 @@ impl CollaborationHost for HostCollaborationHost {
                 }))
             }
             ("collaboration", "contactGroup.list" | "contact_group.list") => {
-                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
-                let groups = sidebar::list_contact_groups(&self.pool, workspace_id)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "groups": groups }))
+                self.sidebar_op("contactGroup.list", &input).await
             }
             ("collaboration", "contactGroup.create" | "contact_group.create") => {
-                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
-                let name = required_text(&input, &["name"])?;
-                let group = sidebar::create_contact_group(&self.pool, workspace_id, &name)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "group": group }))
+                self.sidebar_op("contactGroup.create", &input).await
             }
             ("collaboration", "contactGroup.rename" | "contact_group.rename") => {
-                let group_id = required_text(&input, &["groupId", "group_id"])?;
-                let name = required_text(&input, &["name"])?;
-                let group = sidebar::rename_contact_group(&self.pool, &group_id, &name)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "group": group }))
+                self.sidebar_op("contactGroup.rename", &input).await
             }
             ("collaboration", "contactGroup.delete" | "contact_group.delete") => {
-                let group_id = required_text(&input, &["groupId", "group_id"])?;
-                let ungrouped = sidebar::delete_contact_group(&self.pool, &group_id)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "groupId": group_id, "deleted": true, "ungroupedThreadIds": ungrouped }))
+                self.sidebar_op("contactGroup.delete", &input).await
             }
             ("collaboration", "contactGroup.reorder" | "contact_group.reorder") => {
-                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
-                let group_ids = input
-                    .get("groupIds")
-                    .or_else(|| input.get("group_ids"))
-                    .and_then(Value::as_array)
-                    .map(|ids| {
-                        ids.iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect::<Vec<_>>()
-                    })
-                    .ok_or_else(|| {
-                        host_error(collaboration::CollaborationError::new(
-                            "invalid_input",
-                            "groupIds is required",
-                        ))
-                    })?;
-                let groups = sidebar::reorder_contact_groups(&self.pool, workspace_id, &group_ids)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "groups": groups }))
+                self.sidebar_op("contactGroup.reorder", &input).await
             }
             ("collaboration", "thread.setGroup" | "thread.set_group") => {
-                let thread_id = required_text(&input, &["threadId", "thread_id"])?;
-                let group_id = input
-                    .get("groupId")
-                    .or_else(|| input.get("group_id"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string);
-                sidebar::set_thread_contact_group(&self.pool, &thread_id, group_id.as_deref())
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "threadId": thread_id, "groupId": group_id }))
+                self.sidebar_op("thread.setGroup", &input).await
             }
             ("collaboration", "thread.listSidebar" | "thread.list_sidebar" | "sidebar.list") => {
-                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
-                let items = sidebar::list_sidebar(&self.pool, workspace_id)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "items": items }))
+                self.sidebar_op("thread.listSidebar", &input).await
             }
             ("collaboration", "thread.markRead" | "thread.mark_read") => {
-                let thread_id =
-                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
-                let seq = input.get("seq").and_then(Value::as_i64);
-                let last_read_seq = sidebar::mark_thread_read(&self.pool, &thread_id, seq)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }))
+                self.sidebar_op("thread.markRead", &input).await
             }
             ("collaboration", "thread.markUnread" | "thread.mark_unread") => {
-                let thread_id =
-                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
-                let last_read_seq = sidebar::mark_thread_unread(&self.pool, &thread_id)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "threadId": thread_id, "lastReadSeq": last_read_seq }))
+                self.sidebar_op("thread.markUnread", &input).await
             }
             ("collaboration", "thread.update" | "space.setTagColor" | "space.set_tag_color") => {
-                let space_id =
-                    required_text(&input, &["threadId", "thread_id", "spaceId", "space_id"])?;
-                let tag_color = optional_text(&input, &["tagColor", "tag_color"]);
-                sidebar::set_space_tag_color(&self.pool, &space_id, tag_color.as_deref())
-                    .await
-                    .map_err(host_error)?;
-                self.emit_space_changed(&space_id, None).await;
-                Ok(json!({ "threadId": space_id, "tagColor": tag_color }))
+                self.sidebar_op("thread.update", &input).await
             }
-            ("collaboration", "member.list") => {
-                let workspace_id = required_uuid(&input, &["workspaceId", "workspace_id"])?;
-                let members = sidebar::list_members(&self.pool, workspace_id)
-                    .await
-                    .map_err(host_error)?;
-                Ok(json!({ "members": members }))
-            }
+            ("collaboration", "member.list") => self.sidebar_op("member.list", &input).await,
             ("collaboration", "member.update") => {
                 let member_id = required_text(&input, &["memberId", "member_id"])?;
                 let field = |key: &str| {
@@ -352,6 +331,13 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
             }
+            (
+                "collaboration",
+                "member.setSupervisor"
+                | "member.set_supervisor"
+                | "space.setSupervisor"
+                | "space.set_supervisor",
+            ) => self.set_supervisor(&input).await,
             ("collaboration", "space.listEvents" | "space.list_events") => {
                 self.list_events(&input).await
             }
@@ -594,17 +580,35 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
+        let seat_conversation_id = member
+            .conversation_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+            .unwrap_or(conversation_id);
         if input.get("teamId").is_some() || input.get("team_id").is_some() {
             let team_id = optional_text(input, &["teamId", "team_id"]);
             let _ = collaboration::set_conversation_persona_team(
                 &self.pool,
-                conversation_id,
+                seat_conversation_id,
                 &member.nickname,
                 team_id.as_deref(),
             )
             .await
             .map_err(host_error)?;
         }
+        let identity_member_id = collaboration::identity_member_id_for_conversation(
+            &self.pool,
+            member.conversation_id.as_deref(),
+        )
+        .await
+        .map_err(host_error)?;
+        let is_supervisor = if let Some(ref mid) = identity_member_id {
+            collaboration::is_member_supervisor(&self.pool, mid)
+                .await
+                .unwrap_or(false)
+        } else {
+            false
+        };
         let workspace_id = collaboration::space_workspace_id(&self.pool, &space_id)
             .await
             .map_err(host_error)?;
@@ -616,9 +620,14 @@ impl HostCollaborationHost {
         )
         .await;
         self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
-        serde_json::to_value(member).map_err(|error| {
+        let mut value = serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
-        })
+        })?;
+        if let Some(object) = value.as_object_mut() {
+            object.insert("identity_member_id".into(), json!(identity_member_id));
+            object.insert("is_supervisor".into(), json!(is_supervisor));
+        }
+        Ok(value)
     }
 
     async fn create_member(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -644,6 +653,24 @@ impl HostCollaborationHost {
         let target_space_id = space_id
             .clone()
             .unwrap_or_else(|| collaboration::unassigned_space_id(workspace_id));
+        let mut config_values = input
+            .get("configValues")
+            .or_else(|| input.get("config_values"))
+            .cloned();
+        if let Some(is_sup) = input
+            .get("isSupervisor")
+            .or_else(|| input.get("is_supervisor"))
+            .and_then(Value::as_bool)
+        {
+            match &mut config_values {
+                Some(Value::Object(map)) => {
+                    map.insert("is_supervisor".to_string(), json!(is_sup));
+                }
+                _ => {
+                    config_values = Some(json!({ "is_supervisor": is_sup }));
+                }
+            }
+        }
         let member = collaboration::host_create_space_member(
             &self.pool,
             collaboration::HostCreateSpaceMember {
@@ -655,10 +682,7 @@ impl HostCollaborationHost {
                 team_id: optional_text(input, &["teamId", "team_id"]),
                 persona_prompt: optional_text(input, &["personaPrompt", "persona_prompt"]),
                 mode_id: optional_text(input, &["modeId", "mode_id"]),
-                config_values: input
-                    .get("configValues")
-                    .or_else(|| input.get("config_values"))
-                    .cloned(),
+                config_values,
                 operation_id,
             },
         )
@@ -707,12 +731,16 @@ impl HostCollaborationHost {
                 .await
                 .map_err(host_error)?;
             }
+            let is_supervisor = collaboration::is_member_supervisor(&self.pool, &identity_id)
+                .await
+                .unwrap_or(false);
             if let Some(object) = value.as_object_mut() {
                 object.insert("identity_member_id".into(), json!(identity_id));
                 object.insert(
                     "direct_thread_id".into(),
                     json!(format!("direct:{identity_id}")),
                 );
+                object.insert("is_supervisor".into(), json!(is_supervisor));
             }
         }
         Ok(value)
@@ -877,19 +905,37 @@ impl HostCollaborationHost {
                 .map_err(host_error)?;
         // Seats are per-space projections; the bot identity is what owns the
         // name/avatar and is stable across DM and group seats.
+        let is_group_space =
+            !space_id.starts_with("unassigned:") && !space_id.starts_with("direct:");
         let mut listed = Vec::with_capacity(members.len());
-        for member in members {
+        for mut member in members {
+            if is_group_space
+                && member.kind == "agent"
+                && let Ok(resolved) =
+                    collaboration::resolve_thread_session(&self.pool, &member.member_id, &space_id)
+                        .await
+            {
+                member.conversation_id = Some(resolved.to_string());
+            }
             let identity_member_id = collaboration::identity_member_id_for_conversation(
                 &self.pool,
                 member.conversation_id.as_deref(),
             )
             .await
             .map_err(host_error)?;
+            let is_supervisor = if let Some(ref mid) = identity_member_id {
+                collaboration::is_member_supervisor(&self.pool, mid)
+                    .await
+                    .unwrap_or(false)
+            } else {
+                false
+            };
             let mut value = serde_json::to_value(&member).map_err(|error| {
                 CollaborationHostError::new("conversation_control_failed", error.to_string())
             })?;
             if let Some(object) = value.as_object_mut() {
                 object.insert("identity_member_id".into(), json!(identity_member_id));
+                object.insert("is_supervisor".into(), json!(is_supervisor));
             }
             listed.push(value);
         }
@@ -922,7 +968,11 @@ impl HostCollaborationHost {
         let scheduled = collaboration::list_space_scheduled_messages(&self.pool, &space_id)
             .await
             .unwrap_or_default();
-        Ok(json!({ "messages": messages, "scheduled": scheduled }))
+        let cards =
+            conversations::collaboration_cards::list_cards(&self.pool, Some(&space_id), false)
+                .await
+                .unwrap_or_default();
+        Ok(json!({ "messages": messages, "scheduled": scheduled, "cards": cards }))
     }
 
     async fn list_scheduled_messages(
@@ -1062,9 +1112,14 @@ impl HostCollaborationHost {
         collaboration::attach_reactions_to_json_messages(&self.pool, thread_id, &mut messages)
             .await
             .map_err(host_error)?;
+        let cards =
+            conversations::collaboration_cards::list_cards(&self.pool, Some(thread_id), false)
+                .await
+                .unwrap_or_default();
         Ok(json!({
             "messages": messages,
             "scheduled": [],
+            "cards": cards,
             "conversationId": member.conversation_id,
         }))
     }
@@ -1264,6 +1319,39 @@ impl HostCollaborationHost {
         Ok(json!({ "memberId": member_id, "writeAccess": access.as_str() }))
     }
 
+    async fn set_supervisor(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let workspace_id = required_uuid(input, &["workspaceId", "workspace_id"])?;
+        let member_ref = optional_text(
+            input,
+            &[
+                "memberId",
+                "member_id",
+                "identityMemberId",
+                "identity_member_id",
+                "conversationId",
+                "conversation_id",
+            ],
+        );
+        let supervisor_member_id =
+            sidebar::set_workspace_supervisor(&self.pool, workspace_id, member_ref.as_deref())
+                .await
+                .map_err(host_error)?;
+        let unassigned_id = collaboration::unassigned_space_id(workspace_id);
+        let evt = collaboration::latest_space_changed_event(
+            &self.pool,
+            workspace_id,
+            &unassigned_id,
+            supervisor_member_id.clone(),
+        )
+        .await;
+        self.events.emit(COLLABORATION_SPACE_CHANGED_EVENT, evt);
+        Ok(json!({
+            "workspaceId": workspace_id,
+            "supervisorMemberId": supervisor_member_id,
+            "supervisor_member_id": supervisor_member_id,
+        }))
+    }
+
     async fn list_cards(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = optional_text(input, &["threadId", "thread_id", "spaceId", "space_id"]);
         let pending_only = input
@@ -1299,7 +1387,7 @@ impl HostCollaborationHost {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let answer = optional_text(input, &["answer", "note"]);
-        let card = conversations::collaboration_cards::resolve_card(
+        let mut card = conversations::collaboration_cards::resolve_card(
             &self.pool,
             &card_id,
             // Host/UI calls are always the user (the human owner).
@@ -1314,102 +1402,185 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        self.emit_space_changed(&card.space_id, card.member_id.as_deref())
-            .await;
         if let Some(question_id) = card
             .payload
             .get("question_id")
             .and_then(Value::as_str)
+            .map(str::to_string)
             && let Ok(from) = Uuid::parse_str(&card.from_conversation_id)
         {
-            let companion_answer = if declined {
-                json!({ "__declined": true })
-            } else if let Some(answers) = input.get("answers").cloned() {
-                answers
-            } else {
-                json!([{
-                    "questionId": "question-1",
-                    "labels": [answer.unwrap_or_default()],
-                }])
-            };
             let memory = self.companion.lock().expect("companion").clone();
-            if let Some(memory) = memory {
-                let _ = memory
-                    .answer_question(&card.id, from, companion_answer.clone())
-                    .await;
-            }
-            if let Some(runtime) = &self.runtime
-                && let Ok(elicitation_id) = Uuid::parse_str(question_id)
-                && let Some(connection_id) = runtime
-                    .live_connection_id(AgentSessionId::from(from))
-                    .await
-            {
-                let _ = runtime
-                    .respond_elicitation(RespondAgentElicitationInput {
-                        connection_id,
-                        elicitation_id: AgentElicitationId::from(elicitation_id),
-                        response: elicitation_response_from_card_answer(
-                            declined,
-                            &companion_answer,
-                        ),
-                    })
-                    .await;
+            match card.kind {
+                conversations::collaboration_cards::CardKind::Approval => {
+                    let decision = card
+                        .resolution
+                        .as_ref()
+                        .and_then(|res| res.get("decision"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| optional_text(input, &["decision"]))
+                        .unwrap_or_else(|| "deny".to_string());
+                    let companion_answer = card
+                        .resolution
+                        .clone()
+                        .unwrap_or_else(|| json!({ "decision": decision }));
+                    let mut answered_in_memory = false;
+                    if let Some(memory) = memory
+                        && (memory
+                            .answer_question(&question_id, from, companion_answer.clone())
+                            .await
+                            .is_ok()
+                            || (question_id != card.id
+                                && memory
+                                    .answer_question(&card.id, from, companion_answer)
+                                    .await
+                                    .is_ok()))
+                    {
+                        answered_in_memory = true;
+                    }
+                    if let Some(runtime) = &self.runtime
+                        && let Ok(permission_uuid) = Uuid::parse_str(&card.id)
+                        && let Some(connection_id) =
+                            runtime.live_connection_id(AgentSessionId::from(from)).await
+                    {
+                        let perm_response = match decision.as_str() {
+                            "allow_always" => {
+                                AgentPermissionResponse::selected_persist("allow_always")
+                            }
+                            "allow_once" => AgentPermissionResponse::selected("allow_once"),
+                            _ => AgentPermissionResponse::selected("deny"),
+                        };
+                        runtime
+                            .emit_external(
+                                connection_id,
+                                Some(AgentSessionId::from(from)),
+                                AgentEvent::PermissionResponded {
+                                    permission_id: AgentPermissionId(permission_uuid),
+                                    response: perm_response,
+                                    auto: false,
+                                },
+                            )
+                            .await;
+                    }
+                    if !answered_in_memory {
+                        let _ = conversations::collaboration_cards::deliver_card_reply(
+                            &self.pool, &card.id, None, &delivery,
+                        )
+                        .await;
+                        if let Ok(Some(reloaded)) =
+                            conversations::collaboration_cards::load_card(&self.pool, &card.id)
+                                .await
+                        {
+                            card = reloaded;
+                        }
+                    }
+                }
+                conversations::collaboration_cards::CardKind::Ask => {
+                    let companion_answer = if declined {
+                        json!({ "__declined": true })
+                    } else if let Some(answers) = input.get("answers").cloned() {
+                        answers
+                    } else {
+                        json!([{
+                            "questionId": "question-1",
+                            "labels": [answer.unwrap_or_default()],
+                        }])
+                    };
+                    let mut answered_live = false;
+                    let answered_in_memory = if let Some(memory) = memory {
+                        match memory
+                            .answer_question(&question_id, from, companion_answer.clone())
+                            .await
+                        {
+                            Ok(pending) => Some(pending),
+                            Err(_) if question_id != card.id => memory
+                                .answer_question(&card.id, from, companion_answer.clone())
+                                .await
+                                .ok(),
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let elicitation_response =
+                        elicitation_response_from_card_answer(declined, &companion_answer);
+                    if let Some(pending) = answered_in_memory {
+                        answered_live = true;
+                        if let Some(runtime) = &self.runtime
+                            && let (Ok(connection_id), Ok(elicitation_id)) = (
+                                Uuid::parse_str(&pending.scope.parent_connection_id),
+                                Uuid::parse_str(&pending.id),
+                            )
+                        {
+                            runtime
+                                .emit_external(
+                                    agents::AgentConnectionId::from(connection_id),
+                                    Some(AgentSessionId::from(from)),
+                                    AgentEvent::ElicitationResponded {
+                                        elicitation_id: AgentElicitationId::from(elicitation_id),
+                                        response: elicitation_response.clone(),
+                                    },
+                                )
+                                .await;
+                        }
+                    } else if let Some(runtime) = &self.runtime
+                        && let Ok(elicitation_id) = Uuid::parse_str(&question_id)
+                        && let Some(connection_id) =
+                            runtime.live_connection_id(AgentSessionId::from(from)).await
+                        && runtime
+                            .respond_elicitation(RespondAgentElicitationInput {
+                                connection_id,
+                                elicitation_id: AgentElicitationId::from(elicitation_id),
+                                response: elicitation_response,
+                            })
+                            .await
+                            .is_ok()
+                    {
+                        answered_live = true;
+                    }
+                    if !answered_live {
+                        let _ = conversations::collaboration_cards::deliver_card_reply(
+                            &self.pool, &card.id, None, &delivery,
+                        )
+                        .await;
+                        if let Ok(Some(reloaded)) =
+                            conversations::collaboration_cards::load_card(&self.pool, &card.id)
+                                .await
+                        {
+                            card = reloaded;
+                        }
+                    }
+                }
             }
         }
+        self.emit_space_changed(&card.space_id, card.member_id.as_deref())
+            .await;
         Ok(json!({ "card": card }))
     }
 
-    /// The user's own view of a member's memory: every scope, private included.
-    async fn memory_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
-        let member_id = required_text(input, &["memberId", "member_id"])?;
-        let scope = optional_text(input, &["scope"])
-            .map(|raw| parse_fact_scope(&raw))
-            .transpose()?;
-        let facts = member_memory::list_facts(&self.pool, &member_id, scope.as_ref())
+    async fn sidebar_op(&self, op: &str, input: &Value) -> Result<Value, CollaborationHostError> {
+        let (value, changed_space) = sidebar::execute_sidebar_op(&self.pool, op, input)
             .await
             .map_err(host_error)?;
-        Ok(json!({ "memberId": member_id, "facts": facts }))
+        if let Some(space_id) = changed_space {
+            self.emit_space_changed(&space_id, None).await;
+        }
+        Ok(value)
     }
 
-    async fn memory_update(&self, input: &Value) -> Result<Value, CollaborationHostError> {
-        let member_id = required_text(input, &["memberId", "member_id"])?;
-        let fact_id = fact_id(input)?;
-        let content = optional_text(input, &["content"]);
-        let scope = optional_text(input, &["scope"])
-            .map(|raw| parse_fact_scope(&raw))
-            .transpose()?;
-        let fact = member_memory::update_fact(
-            &self.pool,
-            &member_id,
-            fact_id,
-            content.as_deref(),
-            scope.as_ref(),
-        )
-        .await
-        .map_err(host_error)?;
-        Ok(json!({ "memberId": member_id, "fact": fact }))
-    }
-
-    async fn memory_delete(&self, input: &Value) -> Result<Value, CollaborationHostError> {
-        let member_id = required_text(input, &["memberId", "member_id"])?;
-        let fact_id = fact_id(input)?;
-        let deleted = member_memory::delete_fact(&self.pool, &member_id, fact_id)
+    async fn space_memory_op(
+        &self,
+        op: &str,
+        input: &Value,
+    ) -> Result<Value, CollaborationHostError> {
+        let (value, changed) = member_memory::execute_space_memory_op(&self.pool, op, input)
             .await
             .map_err(host_error)?;
-        Ok(json!({ "memberId": member_id, "factId": fact_id, "deleted": deleted }))
-    }
-
-    async fn activity_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
-        let member_id = required_text(input, &["memberId", "member_id"])?;
-        let limit = input
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(50)
-            .clamp(1, 500) as usize;
-        let activity = member_memory::list_activity(&self.pool, &member_id, true, limit)
-            .await
-            .map_err(host_error)?;
-        Ok(json!({ "memberId": member_id, "activity": activity }))
+        if let Some((space_id, member_id)) = changed {
+            self.emit_space_changed(&space_id, member_id.as_deref())
+                .await;
+        }
+        Ok(value)
     }
 
     async fn list_events(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -1446,12 +1617,14 @@ impl HostCollaborationHost {
         let turn_id = optional_text(input, &["turnId", "turn_id"]);
         let caller_id = optional_text(input, &["callerId", "caller_id", "conversationId"])
             .and_then(|raw| Uuid::parse_str(&raw).ok());
-        let cancelled = collaboration::cancel_space_turn(
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let cancelled = collaboration::cancel_space_turn_with(
             &self.pool,
             &space_id,
             message_id.as_deref(),
             turn_id.as_deref(),
             caller_id,
+            &delivery,
         )
         .await
         .map_err(host_error)?;
@@ -1798,19 +1971,6 @@ fn text(input: &Value, keys: &[&str]) -> String {
         .unwrap_or("")
         .trim()
         .to_string()
-}
-
-fn parse_fact_scope(raw: &str) -> Result<member_memory::FactScope, CollaborationHostError> {
-    member_memory::FactScope::parse(raw).map_err(host_error)
-}
-
-fn fact_id(input: &Value) -> Result<i64, CollaborationHostError> {
-    ["factId", "fact_id", "id"]
-        .iter()
-        .find_map(|key| input.get(*key).and_then(Value::as_i64))
-        .ok_or_else(|| {
-            CollaborationHostError::new("conversation_control_failed", "factId is required")
-        })
 }
 
 fn optional_text(input: &Value, keys: &[&str]) -> Option<String> {
@@ -2611,10 +2771,7 @@ mod tests {
         assert_eq!(messages[0]["origin"], json!("user"));
         assert!(messages[0].get("in_reply_to").is_none());
         assert_eq!(messages[1]["id"], second["message_id"]);
-        assert_eq!(
-            messages[1]["in_reply_to"],
-            json!(first_id)
-        );
+        assert_eq!(messages[1]["in_reply_to"], json!(first_id));
     }
 
     #[tokio::test]
@@ -3521,7 +3678,10 @@ mod tests {
         assert_eq!(listed["items"][0]["unread_count"], json!(0));
         // Existing space.list response shape is unchanged.
         let spaces = call(&host, "space.list", json!({ "workspaceId": workspace })).await;
-        assert_eq!(spaces["spaces"][0].as_object().unwrap().len(), 3);
+        let space_obj = spaces["spaces"][0].as_object().unwrap();
+        assert!(space_obj.contains_key("space_id"));
+        assert!(space_obj.contains_key("name"));
+        assert!(space_obj.contains_key("workspace_id"));
     }
 
     #[tokio::test]

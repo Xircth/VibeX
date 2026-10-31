@@ -917,24 +917,8 @@ impl GitCli {
 
     /// Return true if there are staged changes (index differs from HEAD)
     pub fn has_staged_changes(&self, repo_path: &Path) -> Result<bool, GitCliError> {
-        // `git diff --cached --quiet` returns exit code 1 if there are differences
-        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
-        let mut cmd = new_hidden_std_command(&git, std::iter::empty::<&OsStr>());
-        let out = cmd
-            .arg("-C")
-            .arg(repo_path)
-            .arg("diff")
-            .arg("--cached")
-            .arg("--quiet")
-            .output()
-            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
-        match out.status.code() {
-            Some(0) => Ok(false),
-            Some(1) => Ok(true),
-            _ => Err(GitCliError::CommandFailed(
-                String::from_utf8_lossy(&out.stderr).trim().to_string(),
-            )),
-        }
+        let out = self.git(repo_path, ["diff", "--cached", "--name-only"])?;
+        Ok(!out.trim().is_empty())
     }
 
     /// Checkout base branch, squash-merge from_branch, and commit with message. Returns new HEAD sha.
@@ -1043,6 +1027,17 @@ impl GitCli {
             Err(GitCliError::CommandFailed(_)) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// Checkout either `--ours` or `--theirs` for a conflicted file directly from the index.
+    pub fn checkout_conflict_side(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+        side_flag: &str,
+    ) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["checkout", side_flag, "--", file_path])?;
+        Ok(())
     }
 
     /// List files currently in a conflicted (unmerged) state in the worktree.
@@ -1543,10 +1538,9 @@ impl GitCli {
         cmd.arg("-c").arg("core.fsmonitor=");
         cmd.arg("-c").arg("core.useBuiltinFSMonitor=false");
         cmd.arg("-c").arg("core.longpaths=true");
+        cmd.arg("-c").arg("core.quotePath=false");
         cmd.arg("-c").arg("submodule.recurse=false");
         cmd.arg("-c").arg("gc.auto=0");
-        // Windows: allow paths > MAX_PATH (e.g. deep build output in member worktrees).
-        cmd.arg("-c").arg("core.longpaths=true");
         cmd.arg("-C").arg(repo_path);
         cmd.arg("--no-pager");
         isolate_std_process_group(&mut cmd);
@@ -1882,10 +1876,15 @@ mod tests {
             "x".repeat(80)
         );
         let relative_path = format!("dist/assets/{long_name}");
-        fs::write(nested_dir.join(&long_name), "export default 1;
-").unwrap();
+        fs::write(
+            nested_dir.join(&long_name),
+            "export default 1;
+",
+        )
+        .unwrap();
         git.git(repo.path(), ["add", &relative_path]).unwrap();
-        git.git(repo.path(), ["commit", "-m", "long filename"]).unwrap();
+        git.git(repo.path(), ["commit", "-m", "long filename"])
+            .unwrap();
 
         let wt_parent = tempfile::TempDir::new().unwrap();
         let wt_path = wt_parent
@@ -1902,7 +1901,13 @@ mod tests {
             "HEAD",
         )
         .expect("worktree_add_from_ref should succeed with long paths");
-        assert!(wt_path.join("dist").join("assets").join(&long_name).is_file());
+        assert!(
+            wt_path
+                .join("dist")
+                .join("assets")
+                .join(&long_name)
+                .is_file()
+        );
     }
 }
 

@@ -225,11 +225,21 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       viewRegistry.get('vibex.open-connector:console')?.component
     ).toBeTypeOf('function');
     expect(
-      settingsPageRegistry.get('vibex.open-connector:settings')?.component
+      viewRegistry.get('vibex.open-connector:settings')?.component
     ).toBeTypeOf('function');
     expect(
-      settingsPageRegistry.get('vibex.remote-ssh:connect-panel')?.component
+      viewRegistry.get('vibex.remote-ssh:connect-panel')?.component
     ).toBeTypeOf('function');
+    expect(
+      settingsPageRegistry
+        .getAll()
+        .filter((page) => !page.builtin && !page.id.startsWith('builtin:'))
+        .map((page) => `${page.pluginId}:${page.id}`)
+        .sort()
+    ).toEqual([
+      'vibex-plugin-computer-use:computer-use',
+      'vibex.browser:browser-settings',
+    ]);
     expect(panelRegistry.get('vibex.notes:notes')?.component).toBeTypeOf(
       'function'
     );

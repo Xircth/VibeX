@@ -1,7 +1,10 @@
 use super::*;
 
 impl AgentConnectionRunner {
-    pub(in crate::manager) async fn run_in_memory(self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
+    pub(in crate::manager) async fn run_in_memory(
+        self,
+        mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
+    ) {
         while let Some(command) = cmd_rx.recv().await {
             match command {
                 AgentConnectionCommand::PrepareSession {

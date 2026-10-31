@@ -509,7 +509,7 @@ pub trait ContainerService: Send + Sync {
     /// Silently returns Ok if no archive script is configured or if conditions aren't met.
     async fn try_run_archive_script(&self, workspace_id: Uuid) -> Result<(), ContainerError> {
         let pool = &self.db().pool;
-        let workspace = Workspace::find_by_id(pool, workspace_id)
+        let mut workspace = Workspace::find_by_id(pool, workspace_id)
             .await?
             .ok_or(ContainerError::Other(anyhow!("Workspace not found")))?;
         if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
@@ -518,9 +518,10 @@ pub trait ContainerService: Send + Sync {
         {
             return Ok(());
         }
-        if self.ensure_container_exists(&workspace).await.is_err() {
+        let Ok(container_ref) = self.ensure_container_exists(&workspace).await else {
             return Ok(());
-        }
+        };
+        workspace.container_ref = Some(container_ref);
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let Some(action) = container_actions::archive_actions_for_repos(&repos) else {
             return Ok(());
@@ -614,7 +615,7 @@ pub trait ContainerService: Send + Sync {
         let session = Session::find_by_id(pool, session_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
-        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+        let mut workspace = Workspace::find_by_id(pool, session.workspace_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
 
@@ -624,6 +625,7 @@ pub trait ContainerService: Send + Sync {
                 .await?;
 
         let container_ref = self.ensure_container_exists(&workspace).await?;
+        workspace.container_ref = Some(container_ref.clone());
         let workspace_dir = std::path::PathBuf::from(container_ref);
         let is_dirty = self
             .is_container_clean(&workspace)
@@ -692,13 +694,14 @@ pub trait ContainerService: Send + Sync {
         let session = Session::find_by_id(pool, session_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
-        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+        let mut workspace = Workspace::find_by_id(pool, session.workspace_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
 
         let ordinal = SessionCheckpoint::next_ordinal(pool, session_id).await?;
         let container_ref = self.ensure_container_exists(&workspace).await?;
+        workspace.container_ref = Some(container_ref.clone());
         let workspace_dir = std::path::PathBuf::from(container_ref);
 
         for repo in &repos {
@@ -734,7 +737,7 @@ pub trait ContainerService: Send + Sync {
         let session = Session::find_by_id(pool, session_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
-        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+        let mut workspace = Workspace::find_by_id(pool, session.workspace_id)
             .await?
             .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
@@ -746,6 +749,7 @@ pub trait ContainerService: Send + Sync {
         }
 
         let container_ref = self.ensure_container_exists(&workspace).await?;
+        workspace.container_ref = Some(container_ref.clone());
         let workspace_dir = std::path::PathBuf::from(container_ref);
         let is_dirty = self
             .is_container_clean(&workspace)

@@ -230,7 +230,7 @@ describe('TurnErrorCard', () => {
     const header = title.closest('.composer-status-header');
 
     expect(header).not.toBeNull();
-    expect(within(header as HTMLElement).getByText('出错')).toHaveClass(
+    expect(within(header as HTMLElement).getByText('Error')).toHaveClass(
       'astryx-badge'
     );
     expect(

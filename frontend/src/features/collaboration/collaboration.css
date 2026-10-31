@@ -152,7 +152,11 @@
 }
 
 .collaboration-thread-overlay {
-  background: color-mix(in srgb, var(--surface-content) 86%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--surface-content) 86%,
+    transparent
+  ) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
 }
@@ -749,8 +753,7 @@
 }
 
 .collaboration-message[data-cluster='start'] .conv-assistant-msg {
-  border-radius: var(--radius) var(--radius)
-    var(--collaboration-cluster-radius)
+  border-radius: var(--radius) var(--radius) var(--collaboration-cluster-radius)
     var(--collaboration-cluster-radius);
 }
 
@@ -868,6 +871,11 @@
 }
 
 .collaboration-message .conv-user-msg {
+  --conv-user-bg: hsl(var(--primary));
+  --conv-user-text: hsl(var(--primary-foreground));
+  --conv-user-code-bg: hsl(var(--primary-foreground) / 0.14);
+  --conv-user-code-border: hsl(var(--primary-foreground) / 0.22);
+  --conv-tool-icon: hsl(var(--primary-foreground));
   width: fit-content;
   max-width: 75%;
   margin-left: auto;
@@ -881,6 +889,8 @@
 .collaboration-message .vibex-user-message .conv-user-bubble {
   width: fit-content;
   max-width: 100%;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 .collaboration-bubble-outer-row--user .collaboration-message-ticks,
@@ -927,11 +937,19 @@
 .collaboration-member-mention-chip,
 .collaboration-composer-member-token,
 .session-composer-editor [data-astryx-token][data-token-kind='member_mention'],
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention'] span,
-.session-composer-editor [data-astryx-token]:has(.collaboration-member-mention-chip),
-.session-composer-editor [data-astryx-token]:has(.collaboration-member-mention-chip) span,
-.conv-user-markdown .session-composer-token-chip.collaboration-member-mention-chip,
-.conv-user-markdown .session-composer-token-chip.collaboration-member-mention-chip span {
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']
+  span,
+.session-composer-editor
+  [data-astryx-token]:has(.collaboration-member-mention-chip),
+.session-composer-editor
+  [data-astryx-token]:has(.collaboration-member-mention-chip)
+  span,
+.conv-user-markdown
+  .session-composer-token-chip.collaboration-member-mention-chip,
+.conv-user-markdown
+  .session-composer-token-chip.collaboration-member-mention-chip
+  span {
   display: inline !important;
   padding: 0 !important;
   margin: 0 !important;
@@ -954,16 +972,20 @@
 .collaboration-member-mention-chip,
 .collaboration-composer-member-token,
 .session-composer-editor [data-astryx-token][data-token-kind='member_mention'],
-.session-composer-editor [data-astryx-token]:has(.collaboration-member-mention-chip) {
+.session-composer-editor
+  [data-astryx-token]:has(.collaboration-member-mention-chip) {
   margin: 0 0.0625rem !important;
 }
 
 .collaboration-member-mention-chip:hover,
 .collaboration-composer-member-token:hover,
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention']:hover,
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']:hover,
 .dark .collaboration-member-mention-chip:hover,
 .dark .collaboration-composer-member-token:hover,
-.dark .session-composer-editor [data-astryx-token][data-token-kind='member_mention']:hover {
+.dark
+  .session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']:hover {
   background: transparent !important;
   background-color: transparent !important;
   box-shadow: none !important;
@@ -971,8 +993,12 @@
 
 .collaboration-member-mention-avatar,
 .collaboration-member-mention-chip .collaboration-member-mention-avatar,
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention'] svg.collaboration-member-mention-avatar,
-.session-composer-editor [data-astryx-token]:has(.collaboration-member-mention-chip) svg.collaboration-member-mention-avatar {
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']
+  svg.collaboration-member-mention-avatar,
+.session-composer-editor
+  [data-astryx-token]:has(.collaboration-member-mention-chip)
+  svg.collaboration-member-mention-avatar {
   width: 1em !important;
   height: 1em !important;
   display: inline-block !important;
@@ -982,9 +1008,15 @@
 
 .collaboration-member-mention-name,
 .collaboration-member-mention-chip .collaboration-member-mention-name,
-.conv-user-bubble .collaboration-member-mention-chip .collaboration-member-mention-name,
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention'] .collaboration-member-mention-name,
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention'] > span:last-child {
+.conv-user-bubble
+  .collaboration-member-mention-chip
+  .collaboration-member-mention-name,
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']
+  .collaboration-member-mention-name,
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']
+  > span:last-child {
   display: inline !important;
   vertical-align: baseline !important;
   font-weight: 700 !important;
@@ -1001,9 +1033,27 @@
   -webkit-text-fill-color: var(--member-mention-color) !important;
 }
 
-.session-composer-editor [data-astryx-token][data-token-kind='member_mention'] > span:last-child {
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention']
+  > span:last-child {
   color: inherit !important;
   -webkit-text-fill-color: var(--member-mention-color) !important;
+}
+
+.collaboration-member-mention-all,
+.collaboration-member-mention-chip[data-mention-all='true'],
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention'][data-mention-all='true'] {
+  --member-mention-color: currentColor;
+}
+
+.collaboration-member-mention-all .collaboration-member-mention-name,
+.collaboration-member-mention-chip[data-mention-all='true']
+  .collaboration-member-mention-name,
+.session-composer-editor
+  [data-astryx-token][data-token-kind='member_mention'][data-mention-all='true']
+  > span:last-child {
+  -webkit-text-fill-color: currentColor !important;
 }
 
 .session-composer-editor > [contenteditable] {
@@ -1065,7 +1115,9 @@
   vertical-align: middle !important;
 }
 
-.collaboration-cross-chat-notice .collaboration-cross-chat-group-chip .collaboration-group-avatar {
+.collaboration-cross-chat-notice
+  .collaboration-cross-chat-group-chip
+  .collaboration-group-avatar {
   display: block;
   flex: none;
 }
@@ -1510,6 +1562,20 @@
   pointer-events: auto;
 }
 
+.collaboration-space-row:hover .collaboration-contact-row-main,
+.collaboration-space-row:focus-within .collaboration-contact-row-main {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 50%,
+    transparent calc(100% - 3.5rem)
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 50%,
+    transparent calc(100% - 3.5rem)
+  );
+}
+
 .collaboration-tag-swatch {
   display: inline-flex;
   align-items: center;
@@ -1924,6 +1990,7 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-create-bot-name {
   min-width: 0;
+  flex: 1 1 0%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2769,13 +2836,17 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-settings-modal-overlay {
-  background: color-mix(in srgb, var(--surface-content) 56%, transparent) !important;
+  left: var(--settings-modal-overlay-left, 12.5rem);
+  background: color-mix(
+    in srgb,
+    var(--surface-shell) 56%,
+    transparent
+  ) !important;
   backdrop-filter: blur(16px) !important;
   -webkit-backdrop-filter: blur(16px) !important;
 }
 
-
-.settings-page.collaboration-settings-window-blurred {
+.settings-page.collaboration-settings-window-blurred [data-settings-content] {
   filter: blur(10px);
   transition: filter 160ms ease;
 }
@@ -3302,7 +3373,8 @@ body.is-dragging-collaboration-member * {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
   background: var(--surface-control);
 }
 
@@ -3695,6 +3767,301 @@ body.is-dragging-collaboration-member * {
   font-size: 0.75rem;
 }
 
+/* ── Unified Space Assets (Memory / Topics / Collection) ───────────────── */
+.collaboration-assets-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+}
+
+.collaboration-assets-segmented {
+  flex-shrink: 0;
+}
+
+.collaboration-assets-segmented svg {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.collaboration-assets-toolbar-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.collaboration-assets-icon-btn {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.collaboration-assets-icon-btn:hover,
+.collaboration-assets-icon-btn.is-active {
+  background: var(--surface-control-hover);
+  color: var(--text-strong);
+}
+
+.collaboration-assets-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.collaboration-memory-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-right-panel);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.collaboration-memory-scope-chip.is-active {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.collaboration-memory-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+  box-shadow: none;
+}
+
+.collaboration-memory-facts-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.collaboration-memory-budget-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.collaboration-memory-budget-badge.is-warning {
+  color: #c87619;
+}
+
+.collaboration-memory-summary-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.collaboration-memory-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.collaboration-memory-summary-section-title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.collaboration-memory-summary-bullets {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.collaboration-memory-fact-list,
+.collaboration-memory-topic-list,
+.collaboration-memory-journal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.collaboration-memory-fact-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+  transition: background-color 140ms ease;
+}
+
+.collaboration-memory-fact-main {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.collaboration-memory-fact-text {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.collaboration-memory-fact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.collaboration-memory-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background: var(--surface-right-panel);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.collaboration-memory-fact-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+  opacity: 0.65;
+  transition: opacity 140ms ease;
+}
+
+.collaboration-memory-fact-row:hover .collaboration-memory-fact-actions {
+  opacity: 1;
+}
+
+.collaboration-memory-topic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+}
+
+.collaboration-memory-topic-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.collaboration-memory-topic-title-wrap {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--text-strong);
+  font-size: 0.8125rem;
+}
+
+.collaboration-memory-topic-chip {
+  flex-shrink: 0;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background: var(--surface-right-panel);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.6875rem;
+}
+
+.collaboration-memory-topic-summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.collaboration-memory-journal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-control);
+}
+
+.collaboration-memory-index-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-right-panel);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.collaboration-memory-index-toggle.is-indexed {
+  color: var(--text-strong);
+}
+
+.collaboration-memory-index-toggle:hover {
+  background: var(--surface-control-hover);
+  color: var(--text-strong);
+}
+
 /* ── Group avatar: pinwheel-stacked member avatars ─────────────────────── */
 .collaboration-group-avatar {
   position: relative;
@@ -3813,17 +4180,14 @@ body.is-dragging-collaboration-member * {
   cursor: default;
 }
 
-.collaboration-contact-section-header
-  .collaboration-contact-group-input {
+.collaboration-contact-section-header .collaboration-contact-group-input {
   flex: 1 1 0%;
   min-width: 0;
   height: auto;
   padding: 0;
 }
 
-.collaboration-contact-section-header
-  .collaboration-contact-group-input
-  input {
+.collaboration-contact-section-header .collaboration-contact-group-input input {
   height: 22px;
   padding: 0 0.375rem;
 }
@@ -3953,10 +4317,8 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
             [preview…]                                                */
 .collaboration-contact-row-main {
   display: grid;
-  grid-template-columns: var(--collaboration-contact-avatar, 2.5rem) minmax(
-      0,
-      1fr
-    )
+  grid-template-columns:
+    var(--collaboration-contact-avatar, 2.5rem) minmax(0, 1fr)
     auto;
   grid-template-rows: auto auto;
   column-gap: 0.625rem;
@@ -4243,4 +4605,121 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   [data-testid='session-composer-input-surface']:focus-within {
   background: transparent;
   border-radius: 0;
+}
+
+/* ============================================================================
+ * Supervisor (主管) Top Slot in Left Contact Sidebar
+ * ============================================================================ */
+
+.collaboration-supervisor-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.625rem 0.5rem 0.5rem;
+  margin-bottom: 0.25rem;
+  border-radius: var(--radius);
+  transition:
+    background-color 140ms ease,
+    outline-color 140ms ease;
+}
+
+.collaboration-supervisor-slot.is-drop-target {
+  outline: 1px dashed hsl(var(--primary) / 0.55);
+  outline-offset: -1px;
+  background: hsl(var(--primary) / 0.08);
+}
+
+.collaboration-supervisor-slot.is-empty {
+  gap: 0.375rem;
+  padding: 0.75rem 0.5rem;
+  border: 1px dashed var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.collaboration-supervisor-empty-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  border: 1px dashed var(--border-subtle);
+  background: var(--surface-control);
+  color: var(--text-muted);
+}
+
+.collaboration-supervisor-empty-label {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.collaboration-supervisor-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-strong);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 140ms ease;
+}
+
+.collaboration-supervisor-card:hover,
+.collaboration-supervisor-card:focus-visible {
+  background: var(--surface-control-hover);
+  outline: none;
+}
+
+.collaboration-supervisor-slot.is-selected .collaboration-supervisor-card {
+  background: var(--surface-control);
+}
+
+.collaboration-shell .collaboration-supervisor-avatar-wrap.workspace-session-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.collaboration-supervisor-avatar {
+  width: 3.5rem;
+  height: 3.5rem;
+  transform: rotate(-12deg);
+}
+
+.collaboration-supervisor-rename-avatar {
+  transform: rotate(-12deg);
+}
+
+.collaboration-supervisor-unread {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.25rem;
+}
+
+.collaboration-supervisor-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-strong);
+  text-align: center;
 }

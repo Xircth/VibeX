@@ -1660,6 +1660,8 @@
     "multiAgentTitle": "Collaboration space",
     "multiAgentEnabled": "Collaboration space",
     "multiAgentEnabledHint": "New sessions can delegate, use roles, and open collaboration spaces.",
+    "multiAgentHideBotSessions": "Hide Bot sessions",
+    "multiAgentHideBotSessionsHint": "Hide Bot sessions from Kanban and Workspace session lists.",
     "multiAgentDepth": "Delegation depth",
     "multiAgentCache": "Completed cache (MB)",
     "multiAgentDays": "List window (days)",

@@ -48,12 +48,13 @@ impl ConversationSessionService {
             }))?)
         );
         let pool = &self.ctx.deployment.db().pool;
-        if let Some(existing) = ConversationSteeringRecord::find_by_operation(
-            pool,
-            input.conversation_id,
-            input.operation_id,
-        )
-        .await?
+        let existing_requested_id = if let Some(existing) =
+            ConversationSteeringRecord::find_by_operation(
+                pool,
+                input.conversation_id,
+                input.operation_id,
+            )
+            .await?
         {
             let principal = serde_json::from_str::<serde_json::Value>(&existing.principal_json)?;
             if existing.expected_turn_id != input.expected_turn_id
@@ -65,8 +66,13 @@ impl ConversationSessionService {
                     input.operation_id
                 )));
             }
-            return steering_receipt(existing);
-        }
+            if existing.status != "requested" {
+                return steering_receipt(existing);
+            }
+            Some(existing.id)
+        } else {
+            None
+        };
 
         let conversation = ConversationRecord::find_by_id(pool, input.conversation_id)
             .await?
@@ -96,14 +102,31 @@ impl ConversationSessionService {
             )));
         }
 
-        let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
-            .await?
-            .ok_or_else(|| {
-                ConversationServiceError::NotFound(format!(
-                    "Workspace {} not found",
-                    conversation.workspace_id
-                ))
-            })?;
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            conversation.id,
+            conversation.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
+            Some(workspace) => workspace,
+            None if execution_workspace_id != conversation.workspace_id => {
+                Workspace::find_by_id(pool, conversation.workspace_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Workspace {} not found",
+                            conversation.workspace_id
+                        ))
+                    })?
+            }
+            None => {
+                return Err(ConversationServiceError::NotFound(format!(
+                    "Workspace {execution_workspace_id} not found"
+                )));
+            }
+        };
         let container_ref = self
             .ctx
             .deployment
@@ -124,27 +147,29 @@ impl ConversationSessionService {
         let display_blocks = agent_blocks_with_display_text(&agent_blocks, &input.text);
         let visible_blocks =
             conversation_input_blocks_with_display_text(&agent_blocks, &input.text, None);
-        let steering_id = Uuid::new_v4();
-        self.append_event(
-            input.conversation_id,
-            Some(input.expected_turn_id),
-            "user",
-            ConversationEvent::ConversationSteering {
-                event: agents::ConversationSteeringEvent::Requested {
-                    steering_id,
-                    operation_id: input.operation_id,
-                    expected_turn_id: input.expected_turn_id,
-                    payload_digest,
-                    blocks: visible_blocks,
-                    principal: input.principal,
+        let steering_id = existing_requested_id.unwrap_or_else(Uuid::new_v4);
+        if existing_requested_id.is_none() {
+            self.append_event(
+                input.conversation_id,
+                Some(input.expected_turn_id),
+                "user",
+                ConversationEvent::ConversationSteering {
+                    event: agents::ConversationSteeringEvent::Requested {
+                        steering_id,
+                        operation_id: input.operation_id,
+                        expected_turn_id: input.expected_turn_id,
+                        payload_digest,
+                        blocks: visible_blocks,
+                        principal: input.principal,
+                    },
                 },
-            },
-            Some(format!(
-                "conversation-steering-operation:{}",
-                input.operation_id
-            )),
-        )
-        .await?;
+                Some(format!(
+                    "conversation-steering-operation:{}",
+                    input.operation_id
+                )),
+            )
+            .await?;
+        }
 
         let runtime_session_id = AgentSessionId(input.conversation_id);
         let runtime = self.runtime_snapshot(input.conversation_id).await;
@@ -342,7 +367,7 @@ impl ConversationSessionService {
             ConversationEvent::PermissionResponded {
                 permission_id: permission_id.clone(),
                 response: ConversationPermissionResponse {
-                    response,
+                    response: response.clone(),
                     auto: false,
                 },
             },
@@ -351,6 +376,27 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        let decision = match &response {
+            AgentPermissionResponse::Selected { option_id, persist } => {
+                if *persist || option_id == "allow_always" {
+                    "allow_always"
+                } else if option_id == "allow_once" || option_id.starts_with("allow") {
+                    "allow_once"
+                } else {
+                    "deny"
+                }
+            }
+            AgentPermissionResponse::Cancelled => "deny",
+        };
+        let delivery_ctx =
+            crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
+        let _ = crate::collaboration_cards::resolve_approval_card_if_pending(
+            &self.ctx.deployment.db().pool,
+            &permission_id,
+            decision,
+            &delivery_ctx,
+        )
+        .await;
         Ok(())
     }
 
@@ -406,6 +452,8 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        let delivery_ctx =
+            crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
         if let Err(error) = crate::collaboration_cards::resolve_elicitation_question_card(
             &self.ctx.deployment.db().pool,
             &question_id,
@@ -414,7 +462,7 @@ impl ConversationSessionService {
             } else {
                 answer.as_str()
             },
-            &crate::collaboration::DeliveryContext::default(),
+            &delivery_ctx,
         )
         .await
         {

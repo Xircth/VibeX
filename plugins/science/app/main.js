@@ -48,14 +48,6 @@ export default {
       },
     });
 
-    ctx.ui.registerSettingsSection({
-      id: 'science-domains',
-      title: '科学研究领域',
-      description: '按领域启用或停用 146 项科研技能包。',
-      category: 'Skills',
-      icon: 'flask-conical',
-    });
-
     ctx.services.provide('vibex.science', {
       domains: ['general', 'genomics', 'dataScience'],
       allDomains: [...ALL_SCIENCE_DOMAINS],

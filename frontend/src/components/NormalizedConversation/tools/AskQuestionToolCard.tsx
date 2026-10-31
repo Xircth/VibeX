@@ -89,24 +89,26 @@ export function AskQuestionToolCard({
           {title}
         </span>
         <div className="mt-2 flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-            aria-expanded={open}
-            onClick={() => {
-              onExpandedChange?.(!open);
-              setOpen(!open);
-            }}
-          >
-            <ChevronRight
-              aria-hidden
-              className={cn(
-                'h-3.5 w-3.5 transition-transform',
-                open && 'rotate-90'
-              )}
-            />
-            {t('askQuestion.viewDetails')}
-          </button>
+          {questions.length > 0 ? (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              aria-expanded={open}
+              onClick={() => {
+                onExpandedChange?.(!open);
+                setOpen(!open);
+              }}
+            >
+              <ChevronRight
+                aria-hidden
+                className={cn(
+                  'h-3.5 w-3.5 transition-transform',
+                  open && 'rotate-90'
+                )}
+              />
+              {t('askQuestion.viewDetails')}
+            </button>
+          ) : null}
           <span
             data-testid="ask-question-kind-tag"
             className="ask-question-kind-tag ml-auto"
@@ -114,7 +116,7 @@ export function AskQuestionToolCard({
             {t('askQuestion.kindTag')}
           </span>
         </div>
-        {open ? (
+        {open && questions.length > 0 ? (
           <div
             data-testid="ask-question-detail-well"
             className="ask-question-detail-well"

@@ -48,6 +48,10 @@ import { CollaborationSessionBadge } from '@/features/collaboration/Collaboratio
 import { openCollaborationSessionFromList } from '@/features/collaboration/sessionCollaboration';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
+import {
+  filterVisibleBotSessions,
+  useHideBotSessions,
+} from '@/lib/hideBotSessions';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
@@ -123,7 +127,7 @@ const STATUS_LABEL_KEY: Record<WorkspaceSessionStatusTone, string> = {
 };
 
 export function WorkspaceSessionList({
-  sessions,
+  sessions: rawSessions,
   isLoading,
   activeSessionId,
   activeWorkspaceId,
@@ -144,6 +148,11 @@ export function WorkspaceSessionList({
   sortSpecs = [],
 }: WorkspaceSessionListProps) {
   const { t } = useTranslation(['panels', 'common']);
+  const hideBotSessions = useHideBotSessions();
+  const sessions = useMemo(
+    () => filterVisibleBotSessions(rawSessions, hideBotSessions),
+    [hideBotSessions, rawSessions]
+  );
   const [orderByWorkspace, setOrderByWorkspace] = useState(
     readWorkspaceSessionOrders
   );

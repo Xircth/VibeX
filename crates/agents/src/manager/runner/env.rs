@@ -35,7 +35,9 @@ pub(in crate::manager) const PROXY_URL_FORWARD_KEYS: [&str; 6] = [
     "all_proxy",
 ];
 
-pub(in crate::manager) fn merged_agent_env(configured_env: &HashMap<String, String>) -> HashMap<String, String> {
+pub(in crate::manager) fn merged_agent_env(
+    configured_env: &HashMap<String, String>,
+) -> HashMap<String, String> {
     merge_agent_env(configured_env, forwarded_proxy_env())
 }
 
@@ -64,7 +66,9 @@ pub(in crate::manager) fn proxy_url_env_present(env: &[(String, String)]) -> boo
     })
 }
 
-pub(in crate::manager) fn proxy_env_from_detected(detected: Option<&DetectedProxy>) -> Vec<(String, String)> {
+pub(in crate::manager) fn proxy_env_from_detected(
+    detected: Option<&DetectedProxy>,
+) -> Vec<(String, String)> {
     let Some(detected) = detected else {
         return Vec::new();
     };

@@ -384,6 +384,8 @@ pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
         }
     };
     let _ = apply_official_product_runtime(state).await;
+    server::reconcile_disabled_and_uninstalled_plugin_projections(&state.plugin_control_plane)
+        .await;
     if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
         tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
     }

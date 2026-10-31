@@ -44,23 +44,32 @@ pub use collection::{
 pub use delivery::{
     DeliveryReceipt, MISSED_CONTEXT_VERBATIM, MessageAudience, MessageReceipt, PostDirectMessage,
     PostToSpace, SendReceipt, SendSessionInput, SpaceMessage, SpacePostResult, SpaceTurnInterrupt,
-    advance_round, cancel_space_turn, finalize_space_turn_deliveries, interrupt_space_member_turn,
-    list_message_receipts, list_message_receipts_batch, list_space_messages, post_direct_message,
-    post_direct_message_with, post_to_space, post_to_space_with, prepare_steer, redeliver_deferred,
+    SpaceTurnStreamingStep, advance_round, advance_space_turn_streaming_step,
+    append_space_turn_streaming_text, cancel_space_turn, cancel_space_turn_with,
+    clear_space_turn_flushing_step, clear_space_turn_tool_started, finalize_space_turn_deliveries,
+    interrupt_space_member_turn, list_message_receipts, list_message_receipts_batch,
+    list_space_messages, mark_space_turn_tool_started, notify_space_turn_streaming,
+    on_space_turn_tool_call, post_direct_message, post_direct_message_with, post_to_space,
+    post_to_space_with, prepare_steer, redeliver_deferred, reset_space_turn_streaming_step,
     send_session_input, send_session_input_with, send_user_text_to_conversation,
+    space_turn_streaming_step,
 };
 pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
-    last_completed_delivery_seq, load_stored_operation, missed_group_context, parse_space_envelope,
-    round_speaking_order_line, seat_binding, store_operation, sweep_round_grace_detach,
-    working_peers_line,
+    last_completed_delivery_seq, load_stored_operation, parse_space_envelope,
+    parse_space_envelope_str, round_speaking_order_line, seat_binding, split_missed_group_context,
+    store_operation, sweep_round_grace_detach, working_peers_line,
 };
 pub use hot_group::HotGroupTracker;
 pub(crate) use prompt::{
     COLLABORATION_MCP_TOOLS_SUMMARY, compose_space_delivery_prompt,
     format_collaboration_space_rules,
 };
-pub use prompt::{invalidate_space_delivery_prompt_injections, prefix_persona_prompt};
+pub use prompt::{
+    PRIVATE_BOOTSTRAP_CLOSE_TAG, PRIVATE_BOOTSTRAP_OPEN_TAG, build_bot_bootstrap_prompt,
+    invalidate_space_delivery_prompt_injections, prefix_persona_prompt,
+    strip_private_bootstrap_tags,
+};
 pub use reactions::{
     SPACE_REACTION_USER_ACTOR, SpaceReaction, attach_reactions_to_json_messages,
     canonical_space_message_id, list_space_reactions, list_space_reactions_batch,
@@ -79,21 +88,23 @@ pub use roles::{
     create_team, create_workspace_space, delete_collaboration_space, delete_role,
     delete_space_member, delete_team, ensure_user_member, execution_workspace_id,
     host_add_space_member, host_batch_delete_space_items, host_create_space_member,
-    host_move_space_member, identity_member_id_for_conversation, latest_space_changed_event,
-    leave_space, list_collaboration_spaces_for_caller, list_conversations, list_roles,
-    list_space_events, list_space_members, list_space_members_detailed, list_spaces_for_caller,
-    list_teams, list_workspace_conversations, list_workspace_spaces, load_member_session_config,
-    load_space_generation, member_activity_limit, member_space_context_text,
-    member_space_context_text_for, member_worktree_workspace_id, parse_unassigned_space_id,
-    persona_prompt_text, persona_prompt_text_for_turn, plan_member_write,
-    read_session_info_for_delegation, read_session_info_for_session_product,
+    host_move_space_member, identity_member_id_for_conversation, is_caller_workspace_supervisor,
+    is_member_supervisor, latest_space_changed_event, leave_space,
+    list_collaboration_spaces_for_caller, list_conversations, list_roles, list_space_events,
+    list_space_members, list_space_members_detailed, list_spaces_for_caller, list_teams,
+    list_workspace_conversations, list_workspace_spaces, load_conversation_member_session_config,
+    load_member_session_config, load_space_generation, member_activity_limit,
+    member_space_context_text, member_space_context_text_for, member_worktree_workspace_id,
+    parse_unassigned_space_id, persona_prompt_text, persona_prompt_text_for_turn,
+    plan_member_write, read_session_info_for_delegation, read_session_info_for_session_product,
     record_member_session_workspace, release_member_write, remove_space_member,
-    rename_workspace_space, resolve_bot_conversation, resolve_member_target, resolve_session,
-    resolve_thread_session, restore_space_from_archive, set_conversation_persona_team,
-    set_member_session_config, set_member_write_access, set_space_identity, set_space_lead,
-    space_event_retention_days, space_member_tool_value, space_tracks_events, space_workspace_id,
-    sweep_expired_space_events, sweep_expired_space_events_before, thread_id_for_conversation,
-    transfer_space_lead, try_acquire_member_write, unassigned_space_id, update_role, update_team,
+    rename_workspace_space, require_supervisor_or_group_admin, require_workspace_supervisor,
+    resolve_bot_conversation, resolve_member_target, resolve_session, resolve_thread_session,
+    restore_space_from_archive, set_conversation_persona_team, set_member_session_config,
+    set_member_write_access, set_space_identity, set_space_lead, space_event_retention_days,
+    space_member_tool_value, space_tracks_events, space_workspace_id, sweep_expired_space_events,
+    sweep_expired_space_events_before, thread_id_for_conversation, transfer_space_lead,
+    try_acquire_member_write, unassigned_space_id, update_role, update_team,
 };
 pub(crate) use roles::{
     append_space_event, append_space_event_pool, append_space_event_tx, caller_seat, load_space,

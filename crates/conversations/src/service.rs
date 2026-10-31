@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::{ConversationEventAppender, ConversationInputControlError};
 
 #[path = "turn/binding.rs"]
-mod binding;
+pub(crate) mod binding;
 #[path = "turn/commit.rs"]
 mod commit;
 #[path = "turn/queue.rs"]
@@ -131,21 +131,24 @@ impl From<agents::AgentError> for ConversationServiceError {
 fn session_load_failure_message(reason: &agents::SessionLoadFailureReason) -> String {
     match reason {
         agents::SessionLoadFailureReason::ResourceNotFound => {
-            "??????????????????? Agent ?????????????????????".into()
+            "代理侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。"
+                .into()
         }
         agents::SessionLoadFailureReason::AuthenticationRequired { message } => message.clone(),
         agents::SessionLoadFailureReason::Unsupported => {
-            "??????????????????????????? Agent ?????".into()
+            "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。".into()
         }
         agents::SessionLoadFailureReason::SessionArchived { recovery_command } => {
             match recovery_command {
-                Some(command) => format!("?????????? `{command}` ??????"),
-                None => "?????????????????????????".into(),
+                Some(command) => format!("代理会话已归档。运行 `{command}` 后重新加载。"),
+                None => "代理会话已归档。确认重新绑定或新建对话后才能继续。".into(),
             }
         }
-        agents::SessionLoadFailureReason::SessionBusy => "????????????????????????????????".into(),
+        agents::SessionLoadFailureReason::SessionBusy => {
+            "代理会话正被占用。关闭占用该会话的窗口后重新加载，不要新建会话。".into()
+        }
         agents::SessionLoadFailureReason::SessionUnavailable => {
-            "????????????????????? Agent ?????????".into()
+            "代理侧会话已结束或不存在。可见历史仍在，但 Agent 隐藏上下文已丢失。".into()
         }
         agents::SessionLoadFailureReason::Other { message } => message.clone(),
     }
@@ -623,7 +626,7 @@ mod tests {
         AgentContentBlock, AgentId, AgentSessionConfigOverride,
         conversation::{
             AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
-            ConversationFileChange,
+            ConversationFileChange, SessionLoadFailureReason,
         },
     };
     use db::models::{
@@ -716,6 +719,28 @@ mod tests {
                 .map(|item| (item.key.as_str(), item.value.as_str()))
                 .collect::<Vec<_>>(),
             vec![("model", "opus"), ("thought_level", "low")]
+        );
+    }
+
+    #[test]
+    fn session_load_failure_messages_keep_legible_chinese() {
+        let message =
+            super::session_load_failure_message(&SessionLoadFailureReason::ResourceNotFound);
+        assert_eq!(
+            message,
+            "代理侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。"
+        );
+        assert!(
+            !message.contains('?'),
+            "encoding must not replace Chinese with question marks"
+        );
+        let archived =
+            super::session_load_failure_message(&SessionLoadFailureReason::SessionArchived {
+                recovery_command: Some("codex unarchive abc".into()),
+            });
+        assert_eq!(
+            archived,
+            "代理会话已归档。运行 `codex unarchive abc` 后重新加载。"
         );
     }
 

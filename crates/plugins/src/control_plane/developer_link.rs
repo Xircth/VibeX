@@ -157,6 +157,36 @@ impl PluginControlPlane {
                     .ok()
                     .flatten()
                     .is_some();
+                if existing.activation == PluginActivation::Enabled {
+                    let restore = self.worker_restore.read().await.clone();
+                    if let Some(restore) =
+                        restore.filter(|restore| !restore.candidate_root.as_os_str().is_empty())
+                    {
+                        let mut candidate = package.clone();
+                        if candidate
+                            .freeze_execution_root(&restore.candidate_root, &digest)
+                            .is_err()
+                        {
+                            continue;
+                        }
+                        let Ok(grants) = candidate_capability_grants(&candidate, &[], &[]) else {
+                            continue;
+                        };
+                        if self
+                            .update_and_activate(
+                                &restore.node_executable,
+                                candidate,
+                                &grants,
+                                restore.broker,
+                            )
+                            .await
+                            .is_ok()
+                        {
+                            discovered.push(plugin_id);
+                        }
+                        continue;
+                    }
+                }
                 if self
                     .import(package.clone(), ConflictDecision::Replace)
                     .await
@@ -171,12 +201,24 @@ impl PluginControlPlane {
                 continue;
             }
 
+            let mut candidate = package.clone();
+            if has_worker
+                && let Ok(digest) = crate::package_content_digest(&path)
+                && let Some(restore) = self
+                    .worker_restore
+                    .read()
+                    .await
+                    .clone()
+                    .filter(|restore| !restore.candidate_root.as_os_str().is_empty())
+            {
+                let _ = candidate.freeze_execution_root(&restore.candidate_root, &digest);
+            }
             if self
-                .import(package.clone(), ConflictDecision::KeepInstalled)
+                .import(candidate.clone(), ConflictDecision::KeepInstalled)
                 .await
                 .is_ok()
             {
-                self.activate_discovered_user_plugin(&package, &plugin_id, has_worker)
+                self.activate_discovered_user_plugin(&candidate, &plugin_id, has_worker)
                     .await;
                 discovered.push(plugin_id);
             }

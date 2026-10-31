@@ -47,6 +47,28 @@ const OPAQUE_TOOL_ID =
  */
 const PLACEHOLDER_TOOL_NAMES = new Set(['tool', 'usetool', 'function', 'call']);
 
+function unwrapMcpArguments(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return parsed;
+  }
+  const record = parsed as Record<string, unknown>;
+  const inner = record.arguments;
+  if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
+    return parsed;
+  }
+  const innerRecord = inner as Record<string, unknown>;
+  const outerKeys = Object.keys(record).filter((key) => key !== 'arguments');
+  const innerKeys = Object.keys(innerRecord);
+  if (
+    outerKeys.length === 0 ||
+    (outerKeys.length === innerKeys.length &&
+      innerKeys.every((key) => key in record))
+  ) {
+    return innerRecord;
+  }
+  return parsed;
+}
+
 function parseInput(use: ToolUseBlock): unknown {
   if (!use.input_preview) return null;
   try {
@@ -63,12 +85,12 @@ function parseInput(use: ToolUseBlock): unknown {
     ) {
       const inner = (parsed as Record<string, string>).preview;
       try {
-        return JSON.parse(inner);
+        return unwrapMcpArguments(JSON.parse(inner));
       } catch {
         return inner;
       }
     }
-    return parsed;
+    return unwrapMcpArguments(parsed);
   } catch {
     return use.input_preview;
   }
@@ -785,6 +807,82 @@ function displayToolName(
   return i18n.t('app:turnTool.toolCall');
 }
 
+type McpToolMeta = {
+  isAntigravityMcp: boolean;
+  server: string | null;
+  tool: string | null;
+  prompt: string | null;
+};
+
+function extractMcpToolMeta(meta: JsonValue | null | undefined): McpToolMeta {
+  const metaRecord = asRecord(meta);
+  const mcpRecord = asRecord(metaRecord.mcp);
+  const airMcpRecord = asRecord(
+    asRecord(asRecord(metaRecord.jetbrains).air).mcp
+  );
+  const server =
+    firstString(mcpRecord, 'server', 'server_name', 'serverName') ??
+    firstString(airMcpRecord, 'server', 'server_name', 'serverName');
+  const tool =
+    firstString(mcpRecord, 'tool', 'tool_name', 'toolName') ??
+    firstString(airMcpRecord, 'tool', 'tool_name', 'toolName');
+  const prompt = firstString(
+    metaRecord,
+    'prompt',
+    'description',
+    'toolSummary',
+    'toolAction'
+  );
+  const isAntigravityMcp =
+    metaRecord.is_mcp_tool_call === true ||
+    (firstString(mcpRecord, 'tool') != null &&
+      firstString(mcpRecord, 'server') != null);
+  return { isAntigravityMcp, server, tool, prompt };
+}
+
+function isAntigravityMcpActionSummary(
+  mcpMeta: McpToolMeta,
+  statusKind: 'created' | 'success' | 'failed',
+  output: string | null
+): boolean {
+  if (!mcpMeta.isAntigravityMcp || statusKind === 'failed' || !output) {
+    return false;
+  }
+  const trimmed = output.trim();
+  if (!trimmed) return false;
+  if (mcpMeta.prompt) {
+    return trimmed === mcpMeta.prompt.trim();
+  }
+  // Antigravity's live StepUpdate.mcp_tool stream puts the model's toolSummary
+  // into step.content and emits it as rawOutput on completion without setting
+  // _meta.prompt.
+  return (
+    !/[\r\n]/.test(trimmed) &&
+    !trimmed.startsWith('{') &&
+    !trimmed.startsWith('[')
+  );
+}
+
+function resolveMcpToolName(toolName: string, mcpMeta: McpToolMeta): string {
+  const trimmed = toolName.trim();
+  if (mcpMeta.tool) {
+    if (
+      !trimmed ||
+      (mcpMeta.server &&
+        (trimmed === `${mcpMeta.server}_${mcpMeta.tool}` ||
+          trimmed === `${mcpMeta.server}__${mcpMeta.tool}` ||
+          trimmed === `mcp__${mcpMeta.server}__${mcpMeta.tool}`))
+    ) {
+      return mcpMeta.tool;
+    }
+  }
+  const mcpMatch = trimmed.match(/^mcp__[^_].*?__(.+)$/i);
+  if (mcpMatch?.[1]) {
+    return mcpMatch[1];
+  }
+  return toolName;
+}
+
 type CachedToolEntry = {
   status: string | null | undefined;
   toolName: string;
@@ -844,8 +942,8 @@ export function toolBlockToNormalizedEntry(
     }
   }
 
-  const toolResult = toolResultFromPreview(outputPreview);
-  const output = extractOutputText(outputPreview, toolResult);
+  const rawToolResult = toolResultFromPreview(outputPreview);
+  const rawOutput = extractOutputText(outputPreview, rawToolResult);
   const statusKind: 'created' | 'success' | 'failed' =
     use.status != null
       ? use.status === 'completed'
@@ -865,12 +963,32 @@ export function toolBlockToNormalizedEntry(
         ? ({ status: 'failed' } as const)
         : ({ status: 'success' } as const);
 
+  const mcpMeta = extractMcpToolMeta(use.meta);
+  const outputIsActionSummary = isAntigravityMcpActionSummary(
+    mcpMeta,
+    statusKind,
+    rawOutput
+  );
+  const inferredDescription = outputIsActionSummary
+    ? (mcpMeta.prompt ?? rawOutput?.trim() ?? null)
+    : mcpMeta.prompt;
+  const toolResult = outputIsActionSummary ? null : rawToolResult;
+  const output = outputIsActionSummary ? null : rawOutput;
+  const effectiveMeta: JsonValue | null =
+    inferredDescription && !mcpMeta.prompt
+      ? ({
+          ...asRecord(use.meta),
+          prompt: inferredDescription,
+        } as JsonValue)
+      : ((use.meta ?? null) as JsonValue);
+  const effectiveToolName = resolveMcpToolName(use.tool_name, mcpMeta);
+
   const parsed = parseInput(use);
   let editPreviews: FileEditPreview[] | null = null;
   const getFileEdits = () =>
     (editPreviews ??= fileEditPreviews(parsed, use.input_preview ?? null));
   const actionType = toolActionType(
-    use.tool_name,
+    effectiveToolName,
     use.kind ?? null,
     parsed,
     output,
@@ -893,7 +1011,7 @@ export function toolBlockToNormalizedEntry(
             ? actionType.url
             : actionType.action === 'tool'
               ? ''
-              : use.tool_name;
+              : effectiveToolName;
 
   const entry: ToolDisplayEntry = {
     timestamp,
@@ -902,10 +1020,10 @@ export function toolBlockToNormalizedEntry(
     toolResult,
     toolArguments: (parsed ?? null) as JsonValue,
     toolUseId: use.tool_use_id ?? null,
-    toolMeta: (use.meta ?? null) as JsonValue,
+    toolMeta: effectiveMeta,
     entry_type: {
       type: 'tool_use',
-      tool_name: use.tool_name,
+      tool_name: effectiveToolName,
       action_type: actionType,
       status,
     },

@@ -84,15 +84,19 @@ function atReferenceItemToToken(
 ): ChatComposerToken {
   if (item.tab === 'member') {
     const cleanName = item.label.replace(/^@+/, '').trim();
+    const mentionAll =
+      Boolean(item.mentionAll) ||
+      (!item.memberAvatar && (cleanName === '全体成员' || cleanName === '全体'));
     return toSessionComposerChatToken({
       kind: 'member_mention',
       type: '@',
       key: cleanName,
-      label: cleanName,
+      label: mentionAll ? `@${cleanName}` : cleanName,
       value: cleanName,
       raw: item.insertText.startsWith('@') ? item.insertText : `@${cleanName}`,
       title: cleanName,
-      memberAvatar: item.memberAvatar,
+      memberAvatar: mentionAll ? undefined : item.memberAvatar,
+      ...(mentionAll ? { mentionAll: true } : {}),
     });
   }
   const token = getSessionComposerStructuredTokenSegments(item.insertText, {

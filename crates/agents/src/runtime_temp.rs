@@ -255,7 +255,7 @@ mod tests {
         fs::create_dir(&marker).expect("PyInstaller mkdir in bound TEMP");
         fs::remove_dir(&marker).unwrap();
         assert!(
-            !dir.starts_with(&std::env::temp_dir()),
+            !dir.starts_with(std::env::temp_dir()),
             "ACP temp {} must not live under process TEMP",
             dir.display()
         );
@@ -296,7 +296,7 @@ mod tests {
         )
         .expect("must fall back to a writable ACP temp base");
 
-        assert!(dir.starts_with(&fallback.join("VibeX").join("acp-tmp")));
+        assert!(dir.starts_with(fallback.join("VibeX").join("acp-tmp")));
         assert!(!dir.starts_with(&blocked));
         fs::create_dir(dir.join("_MEIprobe")).unwrap();
     }

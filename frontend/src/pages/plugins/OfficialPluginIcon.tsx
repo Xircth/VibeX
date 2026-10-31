@@ -308,48 +308,6 @@ function PluginArtworkHostChrome(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function PluginArtworkHostSurface(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
-      <path d="M18 10L26.5 14.2L18 18.4L9.5 14.2L18 10Z" fill="#3B82F6" />
-      <path
-        d="M9.5 18.2L18 22.4L26.5 18.2"
-        stroke="#60A5FA"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9.5 22L18 26.2L26.5 22"
-        stroke="#93C5FD"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PluginArtworkProviderImport(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
-      <path
-        d="M18 10V20.5M18 20.5L14 16.5M18 20.5L22 16.5"
-        stroke="#2563EB"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M11 23V24.5C11 25.6 11.9 26.5 13 26.5H23C24.1 26.5 25 25.6 25 24.5V23"
-        stroke="#60A5FA"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function PluginArtworkProviderSwitch(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
@@ -531,18 +489,12 @@ export const OFFICIAL_GLYPHS: Record<
   workflowCreator: PluginArtworkWorkflowCreator,
   sessionEnhance: PluginArtworkSessionEnhance,
   pluginDevelopment: PluginArtworkDevTools,
-  hostChrome: PluginArtworkHostChrome,
-  hostSurface: PluginArtworkHostSurface,
-  providerImport: PluginArtworkProviderImport,
   providerSwitch: PluginArtworkProviderSwitch,
   remoteSsh: PluginArtworkTerminal,
   science: PluginArtworkScience,
   browser: PluginArtworkWebSearch,
   openConnector: PluginArtworkOpenConnector,
   computerUse: PluginArtworkComputerUse,
-  kanbanViews: PluginArtworkKanbanViews,
-  notes: PluginArtworkNotes,
-  promptEnhancer: PluginArtworkPromptEnhancer,
 };
 
 const CORE_PLUGIN_ARTWORK_BY_ID: Record<string, CoreFoundationArtworkKey> = {

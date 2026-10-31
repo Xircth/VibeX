@@ -63,10 +63,7 @@ impl SqliteConversationRepository {
         &self.pool
     }
 
-    pub async fn workspace_root(
-        &self,
-        workspace_id: Uuid,
-    ) -> Result<Option<String>, sqlx::Error> {
+    pub async fn workspace_root(&self, workspace_id: Uuid) -> Result<Option<String>, sqlx::Error> {
         let row = sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
             r#"SELECT w.agent_working_dir,
                       w.container_ref,
@@ -217,7 +214,9 @@ impl SqliteConversationRepository {
             r#"SELECT id, project_id, name, branch
                FROM workspaces
                WHERE archived = 0 AND project_id = ?
-               ORDER BY updated_at DESC
+               ORDER BY is_system ASC,
+                        EXISTS(SELECT 1 FROM workspace_repos wr WHERE wr.workspace_id = workspaces.id) DESC,
+                        updated_at DESC
                LIMIT 1"#,
         )
         .bind(project_id)
@@ -232,13 +231,17 @@ impl SqliteConversationRepository {
         branch: &str,
         name: &str,
     ) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"INSERT INTO workspaces (
                    id, project_id, task_id, parent_workspace_id, container_ref, branch,
                    use_worktree, agent_working_dir, setup_completed_at, name
                )
-               SELECT ?, project_id, task_id, id, container_ref, ?, use_worktree,
-                      agent_working_dir, setup_completed_at, ?
+               SELECT ?, project_id, task_id, id,
+                      CASE WHEN use_worktree = 1 THEN NULL ELSE container_ref END,
+                      ?, use_worktree, agent_working_dir,
+                      CASE WHEN use_worktree = 1 THEN NULL ELSE setup_completed_at END,
+                      ?
                FROM workspaces
                WHERE id = ?"#,
         )
@@ -246,9 +249,30 @@ impl SqliteConversationRepository {
         .bind(branch)
         .bind(name)
         .bind(source_id)
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
+        .execute(&mut *tx)
+        .await?;
+
+        let source_repos: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT repo_id, target_branch FROM workspace_repos WHERE workspace_id = ?",
+        )
+        .bind(source_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (repo_id, target_branch) in source_repos {
+            sqlx::query(
+                "INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(id)
+            .bind(repo_id)
+            .bind(target_branch)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await
     }
 
     pub async fn set_session_agent(
@@ -258,11 +282,16 @@ impl SqliteConversationRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE sessions
-             SET agent_id = ?, agent_type = ?, executor = ?, updated_at = datetime('now', 'subsec')
-             WHERE id = ?",
+             SET external_session_id = CASE
+                     WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
+                     ELSE external_session_id
+                 END,
+                 agent_id = ?1,
+                 agent_type = ?1,
+                 executor = ?1,
+                 updated_at = datetime('now', 'subsec')
+             WHERE id = ?2",
         )
-        .bind(agent_id)
-        .bind(agent_id)
         .bind(agent_id)
         .bind(conversation_id)
         .execute(&self.pool)
@@ -270,10 +299,7 @@ impl SqliteConversationRepository {
         .map(|_| ())
     }
 
-    pub async fn max_event_sequence(
-        &self,
-        conversation_id: Uuid,
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn max_event_sequence(&self, conversation_id: Uuid) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar(
             "SELECT COALESCE(MAX(sequence), 0)
              FROM conversation_events WHERE conversation_id = ?",
@@ -329,12 +355,14 @@ impl SqliteConversationRepository {
         .fetch_optional(&self.pool)
         .await
         .map(|row| {
-            row.map(|(id, event_kind, normalized_json, created_at)| TerminalEventRow {
-                id,
-                event_kind,
-                normalized_json,
-                created_at,
-            })
+            row.map(
+                |(id, event_kind, normalized_json, created_at)| TerminalEventRow {
+                    id,
+                    event_kind,
+                    normalized_json,
+                    created_at,
+                },
+            )
         })
     }
 

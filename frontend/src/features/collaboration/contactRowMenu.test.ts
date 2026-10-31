@@ -124,5 +124,40 @@ describe('contact row menu', () => {
   it('keeps screenshot copy as the default', () => {
     expect(CONTACT_ROW_MENU_COPY.renameAssistant).toBe('重命名助手');
     expect(CONTACT_ROW_MENU_COPY.moveTo).toBe('移至');
+    expect(CONTACT_ROW_MENU_COPY.stepDownSupervisor).toBe('卸任主管');
+  });
+
+  it('omits delete/pin/move/hide and shows 卸任主管 for the Supervisor bot', () => {
+    const onStepDownSupervisor = vi.fn();
+    const items = buildContactRowMenuItems({
+      entry: dm,
+      pinned: false,
+      hidden: false,
+      unread: false,
+      isSupervisor: true,
+      moveTargets: [{ id: 'g1', name: '核心' }],
+      ...handlers(),
+      onStepDownSupervisor,
+    });
+    expect(labels(items)).toEqual([
+      '标为未读',
+      '---',
+      '重命名助手',
+      '---',
+      '复制对话 ID',
+      '---',
+      '卸任主管',
+    ]);
+    expect(
+      items.find((item) => item.type !== 'separator' && item.id === 'delete')
+    ).toBeUndefined();
+    const stepDown = items.find(
+      (item) => item.type !== 'separator' && item.id === 'step-down-supervisor'
+    );
+    expect(stepDown).toBeDefined();
+    if (stepDown && 'onSelect' in stepDown) {
+      stepDown.onSelect?.();
+    }
+    expect(onStepDownSupervisor).toHaveBeenCalledTimes(1);
   });
 });

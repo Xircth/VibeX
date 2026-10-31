@@ -305,6 +305,51 @@ function modernize(params, result) {
   };
 }
 
+async function isHostAuthorized() {
+  const hostUrl = (process.env.VIBEX_HOST_CALL_URL || '').trim();
+  const hostToken = (process.env.VIBEX_HOST_CALL_TOKEN || '').trim();
+  const hasProjectedEnv = Boolean(
+    hostUrl ||
+      hostToken ||
+      process.env.VIBEX_PLUGIN_MCP_TOKEN ||
+      process.env.VIBEX_PLUGIN_ID
+  );
+  if (!hasProjectedEnv) {
+    return Boolean(
+      process.env.NODE_TEST_CONTEXT ||
+        process.env.VITEST ||
+        process.env.VIBEX_COMPUTER_USE_STANDALONE_TEST === '1'
+    );
+  }
+  if (!hostUrl || !hostToken) {
+    return false;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(hostUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${hostToken}`,
+      },
+      body: JSON.stringify({
+        capability: 'host',
+        operation: 'ping',
+        input: {},
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.status === 401 || res.status === 403) {
+      return false;
+    }
+    return res.ok || res.status === 400;
+  } catch {
+    return false;
+  }
+}
+
 async function handle(message) {
   if (!message || typeof message !== 'object') return;
   const { id, method, params } = message;
@@ -347,6 +392,10 @@ async function handle(message) {
   }
 
   if (method === 'tools/list') {
+    if (!(await isHostAuthorized())) {
+      send({ jsonrpc: '2.0', id, result: modernize(params, { tools: [] }) });
+      return;
+    }
     try {
       const res = await callDaemon(null, 'mcp.listTools', {});
       const tools =
@@ -365,6 +414,22 @@ async function handle(message) {
   }
 
   if (method === 'tools/call') {
+    if (!(await isHostAuthorized())) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: modernize(params, {
+          content: [
+            {
+              type: 'text',
+              text: 'computer_use_disabled: Computer Use plugin is not installed or enabled in VibeX.',
+            },
+          ],
+          isError: true,
+        }),
+      });
+      return;
+    }
     const toolName = params && typeof params.name === 'string' ? params.name : '';
     const args =
       params && params.arguments && typeof params.arguments === 'object'

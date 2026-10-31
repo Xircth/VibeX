@@ -375,12 +375,18 @@ mod tests {
         embedded.dedup();
         assert_eq!(embedded, on_disk);
         assert!(embedded.contains(&20261024100000));
-        assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs").exists());
+        assert!(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("build.rs")
+                .exists()
+        );
     }
 
     #[tokio::test]
     async fn member_session_config_columns_exist_after_migration() {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:").unwrap().foreign_keys(false);
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)

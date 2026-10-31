@@ -1188,8 +1188,20 @@ impl WorkflowStore {
                 "SELECT DISTINCT workspace_id FROM workflow_step_runs
                  WHERE run_id = ? AND workspace_id IS NOT NULL
                    AND workspace_id <> (SELECT workspace_id FROM workflow_runs WHERE id = ?)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM workflow_runs other_run
+                       WHERE other_run.id <> ?
+                         AND other_run.workspace_id = workflow_step_runs.workspace_id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM workflow_step_runs other_step
+                       WHERE other_step.run_id <> ?
+                         AND other_step.workspace_id = workflow_step_runs.workspace_id
+                   )
                  ORDER BY workspace_id",
             )
+            .bind(run_id)
+            .bind(run_id)
             .bind(run_id)
             .bind(run_id)
             .fetch_all(&self.pool)
@@ -3025,6 +3037,7 @@ impl WorkflowStore {
                  JOIN workflow_runs run ON run.id = step.run_id
                  WHERE step.status = 'running' AND run.status IN ('running', 'waiting')
                    AND run.control_state = 'active' AND step.awaiting_input = 0
+                   AND step.awaiting_acceptance = 0
                  ORDER BY step.run_id, step.step_id",
             )
             .fetch_all(&mut *conn)
@@ -3097,6 +3110,11 @@ impl WorkflowStore {
                  FROM workflow_step_runs step
                  JOIN workflow_runs run ON run.id = step.run_id
                  WHERE step.status = 'completed' AND run.status IN ('running', 'waiting')
+                   AND step.attempt = (
+                       SELECT MAX(latest.attempt)
+                       FROM workflow_step_runs latest
+                       WHERE latest.run_id = step.run_id AND latest.step_id = step.step_id
+                   )
                  ORDER BY step.run_id, step.step_id, step.attempt",
             )
             .fetch_all(&mut *conn)
@@ -3111,6 +3129,26 @@ impl WorkflowStore {
                 let workspace_id: Option<Uuid> = row.try_get("workspace_id")?;
                 let definition_version_id: Uuid = row.try_get("definition_version_id")?;
                 let version = version_on_connection(&mut conn, definition_version_id).await?;
+                let definition = version.definition()?;
+                let Some(definition_step) =
+                    definition.steps.iter().find(|step| step.id == step_id)
+                else {
+                    continue;
+                };
+                if !matches!(definition_step.spec, WorkflowStepSpec::Agent(_)) {
+                    continue;
+                }
+                let accepted_via_review: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM workflow_review_decisions
+                     WHERE run_id = ? AND step_id = ? AND decision_kind = 'accept'",
+                )
+                .bind(run_id)
+                .bind(&step_id)
+                .fetch_one(&mut *conn)
+                .await?;
+                if accepted_via_review > 0 && evidence_json.is_none() {
+                    continue;
+                }
                 let evidence = evidence_json
                     .as_deref()
                     .map(serde_json::from_str::<serde_json::Value>)
@@ -3910,7 +3948,8 @@ async fn restore_running_if_not_waiting(
     let waiting: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM workflow_step_runs
          WHERE run_id = ? AND (
-           status = 'waiting_approval' OR waiting_interaction = 1 OR awaiting_input = 1
+           status = 'waiting_approval' OR waiting_interaction = 1
+           OR awaiting_input = 1 OR awaiting_acceptance = 1
          )",
     )
     .bind(run_id)
@@ -4209,7 +4248,10 @@ async fn settle_if_complete(
              WHERE run_id = ?
                AND attempt = (SELECT MAX(latest.attempt) FROM workflow_step_runs latest
                               WHERE latest.run_id = step.run_id AND latest.step_id = step.step_id)
-               AND status = 'waiting_approval'",
+               AND (
+                 status = 'waiting_approval' OR waiting_interaction = 1
+                 OR awaiting_input = 1 OR awaiting_acceptance = 1
+               )",
         )
         .bind(run_id)
         .fetch_one(&mut *conn)

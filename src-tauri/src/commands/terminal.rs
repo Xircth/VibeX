@@ -169,8 +169,11 @@ fn open_warp_terminal(working_dir: &Path) -> Result<(), AppError> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         Command::new("cmd")
             .args(["/C", "start", "", &warp_uri])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|err| AppError::Internal(format!("Failed to launch Warp: {err}")))?;
         Ok(())

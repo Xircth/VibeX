@@ -515,48 +515,6 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
       content: 'Scientific Writing',
     },
   ],
-  kanbanViews: [
-    {
-      path: 'app/commands/kanban-filter-command.md',
-      kind: 'command',
-      title: 'Filter Kanban Tasks',
-      content: 'Filter Kanban Tasks',
-    },
-    {
-      path: 'contents/skills/kanban-triage/SKILL.md',
-      kind: 'skill',
-      title: 'Kanban Task Triage',
-      content: 'Kanban Task Triage',
-    },
-  ],
-  notes: [
-    {
-      path: 'app/commands/open-notes.md',
-      kind: 'command',
-      title: 'Open Workspace Notes',
-      content: 'Open Workspace Notes',
-    },
-    {
-      path: 'contents/skills/session-notes/SKILL.md',
-      kind: 'skill',
-      title: 'Workspace & Session Notes',
-      content: 'Workspace & Session Notes',
-    },
-  ],
-  promptEnhancer: [
-    {
-      path: 'app/commands/enhance-prompt-command.md',
-      kind: 'command',
-      title: 'Enhance Composer Prompt',
-      content: 'Enhance Composer Prompt',
-    },
-    {
-      path: 'contents/skills/prompt-refinement/SKILL.md',
-      kind: 'skill',
-      title: 'Prompt Refinement & Context Structuring',
-      content: 'Prompt Refinement & Context Structuring',
-    },
-  ],
 };
 
 function normalizeDocumentPath(value: string): string {

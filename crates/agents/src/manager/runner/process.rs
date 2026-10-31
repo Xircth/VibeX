@@ -25,10 +25,12 @@ pub(in crate::manager) const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration
 pub(in crate::manager) const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(8);
 pub(in crate::manager) const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 pub(in crate::manager) const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
-pub(in crate::manager) const CONNECTION_CLOSED_TURN_MESSAGE: &str = "Agent connection closed before the turn completed.";
+pub(in crate::manager) const CONNECTION_CLOSED_TURN_MESSAGE: &str =
+    "Agent connection closed before the turn completed.";
 /// Stdout EOF is only a death hint. Codeg never kills a Prompting connection on
 /// a pipe stall; wait this long for the child or protocol loop to settle first.
 pub(in crate::manager) const STDOUT_EOF_EXIT_GRACE: Duration = Duration::from_millis(750);
+pub(in crate::manager) const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_millis(50);
 
 /// How the ACP child/stdio watch ended relative to the protocol loop.
 #[derive(Debug)]
@@ -56,13 +58,38 @@ pub(in crate::manager) async fn wait_for_acp_or_process_death<T, E>(
     tokio::pin!(stdout_closed);
     tokio::select! {
         biased;
-        status = &mut child_exited => AcpProcessStop::ChildExited(status),
+        status = &mut child_exited => {
+            tokio::select! {
+                biased;
+                result = &mut acp => AcpProcessStop::Connection(result),
+                () = async {
+                    let _ = tokio::time::timeout(CHILD_EXIT_DRAIN_GRACE, &mut stdout_closed).await;
+                    tokio::task::yield_now().await;
+                } => {
+                    tokio::select! {
+                        biased;
+                        result = &mut acp => AcpProcessStop::Connection(result),
+                        () = tokio::time::sleep(CHILD_EXIT_DRAIN_GRACE) => {
+                            AcpProcessStop::ChildExited(status)
+                        }
+                    }
+                }
+            }
+        }
         result = &mut acp => AcpProcessStop::Connection(result),
         () = &mut stdout_closed => {
             tokio::select! {
                 biased;
-                status = &mut child_exited => AcpProcessStop::ChildExited(status),
                 result = &mut acp => AcpProcessStop::Connection(result),
+                status = &mut child_exited => {
+                    tokio::select! {
+                        biased;
+                        result = &mut acp => AcpProcessStop::Connection(result),
+                        () = tokio::time::sleep(CHILD_EXIT_DRAIN_GRACE) => {
+                            AcpProcessStop::ChildExited(status)
+                        }
+                    }
+                }
                 () = tokio::time::sleep(STDOUT_EOF_EXIT_GRACE) => {
                     AcpProcessStop::StdoutClosed
                 }
@@ -100,7 +127,10 @@ pub(in crate::manager) fn resolve_acp_process_stop<T, E: std::fmt::Display>(
     }
 }
 
-pub(in crate::manager) fn connection_closed_error(detail: impl Into<String>, stderr: Option<String>) -> AgentError {
+pub(in crate::manager) fn connection_closed_error(
+    detail: impl Into<String>,
+    stderr: Option<String>,
+) -> AgentError {
     let detail = detail.into();
     AgentError::ConnectionClosed(match stderr.filter(|text| !text.is_empty()) {
         Some(stderr) => format!("{detail}. Recent stderr: {stderr}"),
@@ -115,7 +145,24 @@ pub(in crate::manager) fn format_child_exit_detail(status: std::io::Result<ExitS
     }
 }
 
-pub(in crate::manager) fn turn_error_event_from_connection_failure(error: &AgentError) -> AgentErrorEvent {
+/// Warmup and idle ACP deaths must not look like a failed in-flight turn.
+pub(in crate::manager) fn agent_error_is_in_flight_turn_failure(
+    code: &str,
+    session_id: Option<AgentSessionId>,
+    prompt_id: Option<AgentPromptId>,
+) -> bool {
+    if code == "agent_not_installed" {
+        return false;
+    }
+    if code == "connection_closed" && (session_id.is_none() || prompt_id.is_none()) {
+        return false;
+    }
+    true
+}
+
+pub(in crate::manager) fn turn_error_event_from_connection_failure(
+    error: &AgentError,
+) -> AgentErrorEvent {
     if error.is_connection_death() {
         AgentErrorEvent {
             message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
@@ -170,7 +217,9 @@ pub(in crate::manager) fn prompt_idle_timeout_from_env(value: Option<&str>) -> O
     }
 }
 
-pub(in crate::manager) fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Option<Duration> {
+pub(in crate::manager) fn prompt_idle_timeout_from_env_value(
+    value: Option<&str>,
+) -> Option<Duration> {
     positive_timeout_secs(value)
 }
 
@@ -182,7 +231,10 @@ pub(in crate::manager) fn prompt_idle_watchdog_blocked(
     pending_permission || pending_elicitation || running_terminal
 }
 
-pub(in crate::manager) fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> String {
+pub(in crate::manager) fn format_handshake_timeout_error(
+    timeout: Duration,
+    stderr: Option<String>,
+) -> String {
     let seconds = timeout.as_secs().max(1);
     match stderr {
         Some(stderr) => {

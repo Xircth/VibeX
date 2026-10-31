@@ -348,10 +348,23 @@ impl PtyService {
             closed: false,
         };
 
-        self.sessions
-            .lock()
-            .map_err(|e| PtyError::CreateFailed(e.to_string()))?
-            .insert(session_id, session);
+        {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+            if sessions.contains_key(&session_id) {
+                let mut child = session.child;
+                tokio::task::spawn_blocking(move || {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                });
+                return Err(PtyError::CreateFailed(format!(
+                    "terminal id '{session_id}' already exists"
+                )));
+            }
+            sessions.insert(session_id, session);
+        }
 
         thread::Builder::new()
             .name(format!("pty-reader-{short_id}"))
@@ -384,9 +397,11 @@ impl PtyService {
                         Err(_) => break,
                     }
                 }
-                if let Ok(mut sessions) = sessions_for_reader.lock()
-                    && let Some(mut session) = sessions.remove(&session_id)
-                {
+                let removed = sessions_for_reader
+                    .lock()
+                    .ok()
+                    .and_then(|mut sessions| sessions.remove(&session_id));
+                if let Some(mut session) = removed {
                     session.closed = true;
                     if let Ok(mut subscribers) = session.subscribers.lock() {
                         for subscriber in subscribers.drain(..) {
@@ -394,6 +409,7 @@ impl PtyService {
                         }
                     }
                     let _ = session.child.kill();
+                    let _ = session.child.wait();
                 }
             })
             .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
@@ -492,20 +508,24 @@ impl PtyService {
     }
 
     pub async fn close_session(&self, session_id: Uuid) -> Result<(), PtyError> {
-        if let Some(mut session) = self
+        let removed = self
             .sessions
             .lock()
             .map_err(|_| PtyError::SessionClosed)?
-            .remove(&session_id)
-        {
+            .remove(&session_id);
+        if let Some(mut session) = removed {
             session.closed = true;
-            let _ = session.child.kill();
-            let _ = session.child.wait();
             if let Ok(mut subscribers) = session.subscribers.lock() {
                 for subscriber in subscribers.drain(..) {
                     subscriber.close();
                 }
             }
+            let mut child = session.child;
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+            })
+            .await;
         }
         Ok(())
     }

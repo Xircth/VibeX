@@ -1230,7 +1230,14 @@ fn upsert_tool_call(
         hosted_emitted.insert(id.to_string(), true);
     }
     let meta = folded_map.map(serde_json::Value::Object);
-    let own_input = json_value_to_text(&raw_input.cloned()).filter(|t| !t.trim().is_empty());
+    let (title, raw_input_owned) = match crate::grok_mcp::unwrap_grok_use_tool(raw_input) {
+        Some((inner_name, inner_input)) => (Some(inner_name), Some(inner_input)),
+        None => (
+            title.map(|name| crate::grok_mcp::mcp_bare_tool_name(&name).to_string()),
+            raw_input.cloned(),
+        ),
+    };
+    let own_input = json_value_to_text(&raw_input_owned).filter(|t| !t.trim().is_empty());
     let synthesized_edit = if own_input.is_none() {
         synthesize_edit_input_from_diffs(content)
     } else {
@@ -1241,6 +1248,7 @@ fn upsert_tool_call(
         hosted_chunk
     } else {
         serialize_tool_call_content(content, synthesized_edit.is_none())
+            .or_else(|| raw_output.and_then(crate::grok_mcp::grok_mcp_output_text))
             .or_else(|| json_value_to_text(&raw_output.cloned()))
     };
     let images: Vec<ImageData> = extract_tool_call_images(content).unwrap_or_default();
@@ -1269,7 +1277,10 @@ fn upsert_tool_call(
                 if let Some(k) = kind.filter(|k| !k.is_empty()) {
                     *existing_kind = Some(k.to_string());
                 }
-                if input_preview.is_some() {
+                if input_preview
+                    .as_deref()
+                    .is_some_and(|next| next.trim() != "{}" || existing_input.is_none())
+                {
                     *existing_input = input_preview;
                 }
                 if meta.is_some() {

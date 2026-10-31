@@ -138,6 +138,7 @@ export function splitDisplayContentImages(content: string): {
 } {
   const attachments: UserMessageImage[] = [];
   const text = content
+    .replace(/<\/?vibex-private-bootstrap>/g, '')
     .replace(VIBE_IMAGE_MARKDOWN_PATTERN, (_match, altText, imagePath) => {
       const path = String(imagePath ?? '').trim();
       if (!path) return '';

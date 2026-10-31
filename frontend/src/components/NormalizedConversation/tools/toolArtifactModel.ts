@@ -12,6 +12,8 @@ const SEARCH_SKIP_KEYS = new Set([
   'search',
   'text',
   'description',
+  'toolSummary',
+  'toolAction',
 ]);
 
 export function splitCodeLines(content: string): string[] {

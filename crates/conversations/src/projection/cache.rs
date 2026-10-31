@@ -1,5 +1,7 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex as StdMutex, OnceLock},
+};
 
 use agents::conversation::{
     ContentBlock, ConversationEvent, ConversationRowOp, ConversationSessionNotice,
@@ -16,13 +18,13 @@ use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
-use super::fold::{ProjectedTurn, append_thinking_block, ensure_turn};
-use super::rows::{message_row, message_rows};
 use super::{
     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID, AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
     CONVERSATION_PROJECTION_VERSION, ConversationProjector, ConversationRowWindow,
     OpenConversationProjection, ParsedEvent, ProjectionFold, ProjectionSnapshotState,
     conversation_event_from_record, emit_captured_internal_message,
+    fold::{ProjectedTurn, append_thinking_block, ensure_turn},
+    rows::{message_row, message_rows},
 };
 
 pub(super) enum TouchedTurnRows {
@@ -45,122 +47,122 @@ impl ProjectionFold {
         event: &ConversationEvent,
         text: &str,
     ) -> Vec<ConversationRowOp> {
-            let turn_id = self
-                .resolved_turn_id(record)
-                .unwrap_or(record.conversation_id);
-            let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
-                TimelineTextStream::Reasoning
-            } else {
-                TimelineTextStream::Text
-            };
-            ensure_turn(&mut self.turns, &mut self.turn_order, turn_id, record);
-            let turn: &mut ProjectedTurn = self.turns.get_mut(&turn_id).expect("turn exists");
-            if let ConversationEvent::AssistantTextDelta {
-                message_id: Some(message_id),
-                ..
-            } = &event
-                && turn.assistant.agent_message_id.is_none()
-            {
-                turn.assistant.agent_message_id = Some(message_id.clone());
-            }
-            match stream {
-                TimelineTextStream::Text => {
-                    if !turn.assistant.blocks.is_empty()
-                        && !matches!(
-                            turn.assistant.blocks.last(),
-                            Some(ContentBlock::Text { .. })
-                        )
-                    {
-                        turn.trailing_raw_text.clear();
-                        turn.emitted_internal_count = 0;
-                    }
-                    let prev_visible = match turn.assistant.blocks.last() {
-                        Some(ContentBlock::Text { text }) => text.to_string(),
-                        _ => String::new(),
-                    };
-                    turn.trailing_raw_text.push_str(text);
-                    let extracted = agents::extract_and_strip_internal_messages(
-                        &turn.trailing_raw_text,
-                        Some(record.conversation_id),
-                        Some(turn_id),
-                        true,
-                    );
-                    for captured in extracted
-                        .captured
-                        .iter()
-                        .skip(turn.emitted_internal_count)
-                        .cloned()
-                    {
-                        emit_captured_internal_message(captured);
-                    }
-                    turn.emitted_internal_count = extracted.captured.len();
-
-                    if !extracted.visible_text.is_empty() {
-                        if let Some(ContentBlock::Text { text: existing }) =
-                            turn.assistant.blocks.last_mut()
-                        {
-                            *existing = extracted.visible_text.to_string();
-                        } else {
-                            turn.assistant.blocks.push(ContentBlock::Text {
-                                text: extracted.visible_text.to_string(),
-                            });
-                        }
-                    }
-
-                    let visible_delta = extracted
-                        .visible_text
-                        .strip_prefix(&prev_visible)
-                        .unwrap_or(&extracted.visible_text)
-                        .to_string();
-                    turn.revision = record.sequence;
-                    let mut ops = Vec::new();
-                    if !visible_delta.is_empty() {
-                        ops.push(ConversationRowOp::AppendText {
-                            row_id: turn.assistant.id.clone(),
-                            revision: record.sequence,
-                            stream,
-                            delta: visible_delta,
-                        });
-                    }
-                    if turn.assistant.usage.is_some() && !turn.usage_announced {
-                        ops.push(ConversationRowOp::PatchBlocks {
-                            row_id: turn.assistant.id.clone(),
-                            revision: record.sequence,
-                            phase: turn.phase.clone(),
-                            blocks: Vec::new(),
-                            usage: turn.assistant.usage.clone(),
-                        });
-                        turn.usage_announced = true;
-                    }
-                    return ops;
-                }
-                TimelineTextStream::Reasoning => {
+        let turn_id = self
+            .resolved_turn_id(record)
+            .unwrap_or(record.conversation_id);
+        let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
+            TimelineTextStream::Reasoning
+        } else {
+            TimelineTextStream::Text
+        };
+        ensure_turn(&mut self.turns, &mut self.turn_order, turn_id, record);
+        let turn: &mut ProjectedTurn = self.turns.get_mut(&turn_id).expect("turn exists");
+        if let ConversationEvent::AssistantTextDelta {
+            message_id: Some(message_id),
+            ..
+        } = &event
+            && turn.assistant.agent_message_id.is_none()
+        {
+            turn.assistant.agent_message_id = Some(message_id.clone());
+        }
+        match stream {
+            TimelineTextStream::Text => {
+                if !turn.assistant.blocks.is_empty()
+                    && !matches!(
+                        turn.assistant.blocks.last(),
+                        Some(ContentBlock::Text { .. })
+                    )
+                {
                     turn.trailing_raw_text.clear();
                     turn.emitted_internal_count = 0;
-                    append_thinking_block(&mut turn.assistant.blocks, text.to_string())
                 }
+                let prev_visible = match turn.assistant.blocks.last() {
+                    Some(ContentBlock::Text { text }) => text.to_string(),
+                    _ => String::new(),
+                };
+                turn.trailing_raw_text.push_str(text);
+                let extracted = agents::extract_and_strip_internal_messages(
+                    &turn.trailing_raw_text,
+                    Some(record.conversation_id),
+                    Some(turn_id),
+                    true,
+                );
+                for captured in extracted
+                    .captured
+                    .iter()
+                    .skip(turn.emitted_internal_count)
+                    .cloned()
+                {
+                    emit_captured_internal_message(captured);
+                }
+                turn.emitted_internal_count = extracted.captured.len();
+
+                if !extracted.visible_text.is_empty() {
+                    if let Some(ContentBlock::Text { text: existing }) =
+                        turn.assistant.blocks.last_mut()
+                    {
+                        *existing = extracted.visible_text.to_string();
+                    } else {
+                        turn.assistant.blocks.push(ContentBlock::Text {
+                            text: extracted.visible_text.to_string(),
+                        });
+                    }
+                }
+
+                let visible_delta = extracted
+                    .visible_text
+                    .strip_prefix(&prev_visible)
+                    .unwrap_or(&extracted.visible_text)
+                    .to_string();
+                turn.revision = record.sequence;
+                let mut ops = Vec::new();
+                if !visible_delta.is_empty() {
+                    ops.push(ConversationRowOp::AppendText {
+                        row_id: turn.assistant.id.clone(),
+                        revision: record.sequence,
+                        stream,
+                        delta: visible_delta,
+                    });
+                }
+                if turn.assistant.usage.is_some() && !turn.usage_announced {
+                    ops.push(ConversationRowOp::PatchBlocks {
+                        row_id: turn.assistant.id.clone(),
+                        revision: record.sequence,
+                        phase: turn.phase.clone(),
+                        blocks: Vec::new(),
+                        usage: turn.assistant.usage.clone(),
+                    });
+                    turn.usage_announced = true;
+                }
+                return ops;
             }
-            turn.revision = record.sequence;
-            let mut ops = vec![ConversationRowOp::AppendText {
+            TimelineTextStream::Reasoning => {
+                turn.trailing_raw_text.clear();
+                turn.emitted_internal_count = 0;
+                append_thinking_block(&mut turn.assistant.blocks, text.to_string())
+            }
+        }
+        turn.revision = record.sequence;
+        let mut ops = vec![ConversationRowOp::AppendText {
+            row_id: turn.assistant.id.clone(),
+            revision: record.sequence,
+            stream,
+            delta: text.to_string(),
+        }];
+        // A usage sample that landed before any block is already on the fold.
+        // The first text delta is the moment the live assistant row appears,
+        // so the token count has to ride along or the footer never sees it.
+        if turn.assistant.usage.is_some() && !turn.usage_announced {
+            ops.push(ConversationRowOp::PatchBlocks {
                 row_id: turn.assistant.id.clone(),
                 revision: record.sequence,
-                stream,
-                delta: text.to_string(),
-            }];
-            // A usage sample that landed before any block is already on the fold.
-            // The first text delta is the moment the live assistant row appears,
-            // so the token count has to ride along or the footer never sees it.
-            if turn.assistant.usage.is_some() && !turn.usage_announced {
-                ops.push(ConversationRowOp::PatchBlocks {
-                    row_id: turn.assistant.id.clone(),
-                    revision: record.sequence,
-                    phase: turn.phase.clone(),
-                    blocks: Vec::new(),
-                    usage: turn.assistant.usage.clone(),
-                });
-                turn.usage_announced = true;
-            }
-            ops
+                phase: turn.phase.clone(),
+                blocks: Vec::new(),
+                usage: turn.assistant.usage.clone(),
+            });
+            turn.usage_announced = true;
+        }
+        ops
     }
 
     pub(super) fn collect_step_row_ops(
@@ -283,7 +285,6 @@ where
     .await?;
     Ok(agent_id.as_deref() == Some("antigravity"))
 }
-
 
 struct RebuiltProjectorEntry {
     generation: u64,
@@ -408,12 +409,11 @@ impl IncrementalRowProjector {
     }
 }
 
-
 ///
 /// `db_cursor` is the last SQLite sequence folded into this process. Transcript
 /// deltas advance `projector.last_sequence()` without moving `db_cursor`, so the
 /// next durable event (turn completed, checkpoint) is still applied.
-const MAX_CACHED_ROW_PROJECTORS: usize = 8;
+const MAX_CACHED_ROW_PROJECTORS: usize = 32;
 
 pub struct CachedRowProjector {
     pub projector: IncrementalRowProjector,
@@ -483,7 +483,6 @@ impl CachedRowProjector {
             ) {
                 self.db_cursor = record.sequence.saturating_sub(1);
                 self.last_emitted_sequence = self.db_cursor;
-                self.projector.fold.last_sequence = self.db_cursor;
             } else {
                 return Ok(None);
             }
@@ -786,7 +785,6 @@ async fn latest_event_sequence(
     .await
 }
 
-
 #[cfg(test)]
 impl IncrementalRowProjector {
     pub(super) fn at_sequence(sequence: i64) -> Self {
@@ -803,23 +801,18 @@ impl IncrementalRowProjector {
 
 #[cfg(test)]
 mod tests {
-    use agents::conversation::AcpCapabilitySnapshot;
-    use crate::projection::AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID;
     use agents::conversation::{
-            ContentBlock, ConversationError, ConversationEvent, ConversationInputBlock,
-            ConversationRowOp,
-            ConversationTerminalPatch, ConversationTimelineRow, ConversationToolCallPatch,
-            ConversationUsage, SessionLoadFailureReason, SessionRecoveryStrategy,
-            TimelineTextStream, TurnRole,
-        };
-    use db::models::{
-        conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        AcpCapabilitySnapshot, ContentBlock, ConversationError, ConversationEvent,
+        ConversationInputBlock, ConversationRowOp, ConversationTerminalPatch,
+        ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage,
+        SessionLoadFailureReason, SessionRecoveryStrategy, TimelineTextStream, TurnRole,
     };
+    use db::models::conversation_turn::{ConversationTurnRecord, CreateConversationTurn};
     use uuid::Uuid;
 
     use super::{CachedRowProjector, IncrementalRowProjector, extend_coalesced_row_ops};
     use crate::projection::{
-        ConversationProjector,
+        AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID, ConversationProjector,
         rows::tests::{append_event, record_of, seed_turn, setup_pool},
     };
     #[test]
@@ -851,7 +844,6 @@ mod tests {
         assert_eq!(cached.projector.last_sequence(), 6);
         assert!(!cached.has_unpersisted());
     }
-
 
     #[test]
     fn intermediate_persisted_events_do_not_clear_has_unpersisted() {
@@ -897,7 +889,6 @@ mod tests {
             .expect("completed");
         assert!(!cached.has_unpersisted());
     }
-
 
     #[tokio::test]
     async fn cached_row_projector_recovers_after_truncate_to_turn_ordinal() {
@@ -1044,7 +1035,6 @@ mod tests {
         assert_eq!(cached.db_cursor, 11);
     }
 
-
     #[tokio::test]
     async fn successful_load_clears_the_recoverable_load_failure_notice() {
         let pool = setup_pool().await;
@@ -1130,7 +1120,6 @@ mod tests {
                 .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
         );
     }
-
 
     #[tokio::test]
     async fn row_ops_text_deltas_append_and_terminal_upserts_full_row() {
@@ -1234,7 +1223,6 @@ mod tests {
             other => panic!("expected MessageTurn, got {other:?}"),
         }
     }
-
 
     /// Regression: each Turn's stream stays on its own assistant row. Deltas are
     /// attributed by the recorder from the authoritative active-turn pointer, so the
@@ -1400,7 +1388,6 @@ mod tests {
             ]
         );
     }
-
 
     #[tokio::test]
     async fn incremental_projector_skips_turn_reemission_on_non_turn_events_and_coalesces_batches()
@@ -1582,7 +1569,6 @@ mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn tool_update_after_text_patches_only_the_changed_blocks() {
         let pool = setup_pool().await;
@@ -1686,7 +1672,6 @@ mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn usage_before_the_first_block_is_still_pushed_live() {
         let pool = setup_pool().await;
@@ -1766,7 +1751,6 @@ mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn projector_strips_internal_messages_across_streaming_deltas_and_emits_captured_messages()
      {
@@ -1837,7 +1821,6 @@ mod tests {
         assert_eq!(captured.parsed_payload, serde_json::json!({"key": "val"}));
     }
 
-
     #[tokio::test]
     async fn projector_handles_multibyte_utf8_streaming_deltas_without_panicking() {
         let pool = setup_pool().await;
@@ -1891,5 +1874,4 @@ mod tests {
             }]
         );
     }
-
 }

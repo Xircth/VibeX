@@ -38,12 +38,7 @@ pub(crate) fn parse_space_envelope(value: &Value) -> ParsedSpaceEnvelope {
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
-    let sender = normalize_stored_sender(
-        value
-            .get("sender")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    );
+    let sender = normalize_stored_sender(&parse_envelope_sender(value));
     let to = value
         .get("to")
         .and_then(Value::as_array)
@@ -61,12 +56,7 @@ pub(crate) fn parse_space_envelope(value: &Value) -> ParsedSpaceEnvelope {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let reply_to = value
-        .get("reply_to")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(str::to_string);
+    let reply_to = first_nonempty_str(value, &["reply_to", "inReplyTo"]);
     let published = value
         .get("published")
         .and_then(Value::as_str)
@@ -105,6 +95,61 @@ fn normalize_stored_sender(raw: &str) -> String {
     envelope_member_name(raw)
 }
 
+fn parse_envelope_sender(value: &Value) -> String {
+    if let Some(sender) = first_nonempty_str(value, &["sender"]) {
+        return decode_legacy_actor(&sender);
+    }
+    value
+        .get("actor")
+        .and_then(legacy_actor_value)
+        .unwrap_or_default()
+}
+
+fn first_nonempty_str(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        let Some(raw) = value.get(*key).and_then(Value::as_str) else {
+            continue;
+        };
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn legacy_actor_value(value: &Value) -> Option<String> {
+    let raw = match value {
+        Value::String(text) => text.clone(),
+        Value::Object(obj) => obj
+            .get("name")
+            .or_else(|| obj.get("preferredUsername"))
+            .or_else(|| obj.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        _ => return None,
+    };
+    let decoded = decode_legacy_actor(&raw);
+    let trimmed = decoded.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn decode_legacy_actor(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix("agent:") {
+        let rest = rest.trim();
+        if !rest.is_empty() {
+            return rest.to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
 /// Fields written for a new space message. Extra keys (cross-chat, i18n) merge in.
 pub(crate) struct NewSpaceEnvelope<'a> {
     pub id: &'a str,
@@ -130,11 +175,7 @@ pub(crate) fn build_space_envelope(input: NewSpaceEnvelope<'_>) -> Value {
         "content": input.content,
         "published": input.published,
     });
-    if let Some(reply_to) = input
-        .reply_to
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
+    if let Some(reply_to) = input.reply_to.map(str::trim).filter(|id| !id.is_empty()) {
         envelope["reply_to"] = json!(reply_to);
     }
     if let Some(summary) = input
@@ -171,13 +212,13 @@ pub(crate) fn project_listed_envelope(
     if let Some(published) = &parsed.published {
         envelope["published"] = json!(published);
     }
-    envelope.as_object_mut().map(|obj| {
+    if let Some(obj) = envelope.as_object_mut() {
         obj.remove("actor");
         obj.remove("attributedTo");
         obj.remove("inReplyTo");
         obj.remove("@context");
         obj.remove("type");
-    });
+    }
     if audience == MessageAudience::Agent {
         if let Some(to) = envelope.get_mut("to").and_then(Value::as_array_mut) {
             to.retain(|item| item.as_str().is_none_or(|value| !is_person_ref(value)));
@@ -230,7 +271,51 @@ mod tests {
     }
 
     #[test]
-    fn parse_ignores_activitystreams_fields() {
+    fn parse_falls_back_to_legacy_activitystreams_actor_and_in_reply_to() {
+        let legacy = json!({
+            "actor": "User",
+            "to": ["小A"],
+            "content": "你好",
+            "inReplyTo": "msg-0",
+        });
+        let parsed = parse_space_envelope(&legacy);
+        assert_eq!(parsed.sender, "Person");
+        assert_eq!(parsed.to, vec!["小A".to_string()]);
+        assert_eq!(parsed.content, "你好");
+        assert_eq!(parsed.reply_to.as_deref(), Some("msg-0"));
+    }
+
+    #[test]
+    fn parse_falls_back_to_legacy_agent_prefixed_actor() {
+        let legacy = json!({
+            "sender": "",
+            "actor": "agent:小A",
+            "to": ["User"],
+            "content": "ok",
+            "inReplyTo": "parent",
+        });
+        let parsed = parse_space_envelope(&legacy);
+        assert_eq!(parsed.sender, "小A");
+        assert_eq!(parsed.reply_to.as_deref(), Some("parent"));
+    }
+
+    #[test]
+    fn parse_prefers_flat_sender_and_reply_to_over_legacy_fields() {
+        let mixed = json!({
+            "sender": "小A",
+            "actor": "User",
+            "to": ["小B"],
+            "content": "hi",
+            "reply_to": "new",
+            "inReplyTo": "old",
+        });
+        let parsed = parse_space_envelope(&mixed);
+        assert_eq!(parsed.sender, "小A");
+        assert_eq!(parsed.reply_to.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn parse_reads_legacy_activitystreams_wrapper_without_using_attributed_to() {
         let legacy = json!({
             "@context": "https://www.w3.org/ns/activitystreams",
             "type": "Note",
@@ -242,9 +327,9 @@ mod tests {
             "content": "hello",
         });
         let parsed = parse_space_envelope(&legacy);
-        assert!(parsed.sender.is_empty());
+        assert_eq!(parsed.sender, "Person");
         assert_eq!(parsed.to, vec!["小A".to_string()]);
-        assert_eq!(parsed.reply_to, None);
+        assert_eq!(parsed.reply_to.as_deref(), Some("parent"));
         assert_eq!(parsed.conversation_id, None);
     }
 

@@ -8,7 +8,7 @@ test('v4 manifest, session skill, and gated host-family MCP', () => {
   assert.equal(ROUNDTRIP.manifest.apiVersion, '2.0');
   assert.equal(ROUNDTRIP.manifest.id, 'vibex.session-enhance');
   assert.equal(ROUNDTRIP.manifest.publisher, 'vibex');
-  assert.equal(ROUNDTRIP.manifest.version, '1.0.0');
+  assert.equal(ROUNDTRIP.manifest.version, '2.0.0');
   assert.equal(ROUNDTRIP.config.feedback, true);
   assert.equal(ROUNDTRIP.config.question, true);
   assert.equal(ROUNDTRIP.config.sessionInfo, true);

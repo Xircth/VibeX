@@ -53,7 +53,13 @@ export function isAskQuestionTool(use: ToolUseBlock): boolean {
   if (vendorKind.replace(/[\s._-]/g, '').toLowerCase() === 'askuser') {
     return true;
   }
-  return isQuestionToolName(use.tool_name);
+  if (isQuestionToolName(use.tool_name)) return true;
+  const input = asObject(parseJson(use.input_preview));
+  const nestedToolName =
+    readString(input?.tool_name) ||
+    readString(input?.tool) ||
+    readString(input?.name);
+  return Boolean(nestedToolName && isQuestionToolName(nestedToolName));
 }
 
 export function questionTabsFromRequest(
@@ -119,13 +125,20 @@ export function questionTabsFromRequest(
     });
   }
 
+  const fallbackPrompt = isQuestionToolName(request.prompt)
+    ? ''
+    : request.prompt.trim();
+  if (!fallbackPrompt && request.options.length === 0) {
+    return [];
+  }
+
   return [
     {
       id: 'answer',
       fieldName: 'answer',
       customFieldName: null,
-      header: request.prompt,
-      question: request.prompt,
+      header: fallbackPrompt,
+      question: fallbackPrompt,
       multiSelect: false,
       valueType: 'string',
       choices: request.options.map((label) =>
@@ -135,12 +148,44 @@ export function questionTabsFromRequest(
   ];
 }
 
+function unwrapQuestionToolRecord(
+  value: unknown
+): Record<string, unknown> | null {
+  let current = asObject(typeof value === 'string' ? parseJson(value) : value);
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (
+      Array.isArray(current.questions) ||
+      typeof current.questions === 'string' ||
+      readString(current.question) ||
+      readString(current.prompt) ||
+      readString(current.message)
+    ) {
+      return current;
+    }
+    const nestedRaw =
+      current.arguments ??
+      current.tool_input ??
+      current.input ??
+      current.params ??
+      current.preview;
+    const nested = asObject(
+      typeof nestedRaw === 'string' ? parseJson(nestedRaw) : nestedRaw
+    );
+    if (!nested) break;
+    current = nested;
+  }
+  return current;
+}
+
 export function questionRequestFromToolUse(
   use: ToolUseBlock
 ): ConversationQuestionRequest {
-  const input = parseJson(use.input_preview);
-  const record = asObject(input);
-  const questions = Array.isArray(record?.questions) ? record.questions : [];
+  const record = unwrapQuestionToolRecord(parseJson(use.input_preview));
+  const rawQuestions =
+    typeof record?.questions === 'string'
+      ? parseJson(record.questions)
+      : record?.questions;
+  const questions = Array.isArray(rawQuestions) ? rawQuestions : [];
   const parsedQuestions = questions.flatMap((rawQuestion, index) => {
     const question = asObject(rawQuestion);
     if (!question) return [];
@@ -162,7 +207,7 @@ export function questionRequestFromToolUse(
       readString(record.question) ||
       readString(record.prompt) ||
       readString(record.message);
-    if (prompt) {
+    if (prompt && !isQuestionToolName(prompt)) {
       parsedQuestions.push({
         id: 'answer',
         header: prompt,
@@ -172,9 +217,9 @@ export function questionRequestFromToolUse(
       });
     }
   }
-  const prompt =
-    parsedQuestions.map((question) => question.question).join('\n') ||
-    use.tool_name;
+  const prompt = parsedQuestions
+    .map((question) => question.question)
+    .join('\n');
   return {
     question_id: use.tool_use_id || use.tool_name,
     prompt,
@@ -249,7 +294,8 @@ export function answerStateFromToolResult(
 }
 
 export function firstQuestionTitle(questions: QuestionTab[]): string {
-  return questions[0]?.question || questions[0]?.header || '';
+  const candidate = questions[0]?.question || questions[0]?.header || '';
+  return isQuestionToolName(candidate) ? '' : candidate;
 }
 
 export function responseContent(

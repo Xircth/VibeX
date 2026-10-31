@@ -153,17 +153,7 @@ export class WebTransport implements BackendTransport {
     event: string,
     handler: (payload: T) => void
   ): Promise<() => void> {
-    const prefix = 'terminal-output:';
-    if (!event.startsWith(prefix)) {
-      return this.listenHostEvent(event, handler);
-    }
-    const controller = new AbortController();
-    void this.consumeTerminalOutput(
-      event.slice(prefix.length),
-      handler as (payload: string) => void,
-      controller.signal
-    );
-    return () => controller.abort();
+    return this.listenHostEvent(event, handler);
   }
 
   async createDevicePairing(
@@ -185,36 +175,65 @@ export class WebTransport implements BackendTransport {
     )}/c/${encodeURIComponent(lease.capabilityToken)}/`;
   }
 
-  async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
-    const subscription: ActiveSubscription = {
-      request,
-      cursor: 'after_sequence' in request ? request.after_sequence : 0n,
-      queue: new AsyncEventQueue(),
+  subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+    return {
+      [Symbol.asyncIterator]: (): AsyncIterator<RemoteEvent> => {
+        let subscription: ActiveSubscription | undefined;
+        let closed = false;
+
+        const cleanup = () => {
+          if (closed) return;
+          closed = true;
+          if (!subscription) return;
+          subscription.queue.close();
+          if (this.subscriptions.get(request.subscription_id) === subscription) {
+            this.subscriptions.delete(request.subscription_id);
+            if (this.socket?.readyState === WebSocket.OPEN) {
+              this.socket.send(
+                JSON.stringify({
+                  type: 'detach',
+                  subscription_id: request.subscription_id,
+                })
+              );
+            }
+          }
+        };
+
+        return {
+          next: async (): Promise<IteratorResult<RemoteEvent>> => {
+            if (closed) {
+              return { value: undefined, done: true };
+            }
+            if (!subscription) {
+              subscription = {
+                request,
+                cursor: 'after_sequence' in request ? request.after_sequence : 0n,
+                queue: new AsyncEventQueue(),
+              };
+              this.subscriptions.set(request.subscription_id, subscription);
+              this.connectSocket();
+              if (this.socket?.readyState === WebSocket.OPEN) {
+                this.sendAttach(subscription);
+              }
+            }
+            const next = await subscription.queue.next();
+            if (next.done || closed) {
+              cleanup();
+              return { value: undefined, done: true };
+            }
+            return next;
+          },
+          async return(): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            return { value: undefined, done: true };
+          },
+          async throw(err?: unknown): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            throw err;
+          },
+        };
+      },
     };
-    this.subscriptions.set(request.subscription_id, subscription);
-    this.connectSocket();
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.sendAttach(subscription);
-    }
-    try {
-      while (true) {
-        const next = await subscription.queue.next();
-        if (next.done) {
-          return;
-        }
-        yield next.value;
-      }
-    } finally {
-      this.subscriptions.delete(request.subscription_id);
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        this.socket.send(
-          JSON.stringify({
-            type: 'detach',
-            subscription_id: request.subscription_id,
-          })
-        );
-      }
-    }
   }
 
   destroy(): void {
@@ -397,46 +416,6 @@ export class WebTransport implements BackendTransport {
       stopped = true;
       void iterator.return?.();
     };
-  }
-
-  private async consumeTerminalOutput(
-    sessionId: string,
-    handler: (payload: string) => void,
-    signal: AbortSignal
-  ): Promise<void> {
-    try {
-      const response = await this.request(
-        `/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
-        { signal }
-      );
-      if (!response.body) {
-        return;
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (!signal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split('\n\n');
-        buffer = frames.pop() ?? '';
-        for (const frame of frames) {
-          const data = frame
-            .split('\n')
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trimStart())
-            .join('\n');
-          if (data.length > 0) {
-            handler(data);
-          }
-        }
-      }
-    } catch {
-      // Abort and disconnect are expected when the panel closes.
-    }
   }
 
   private startKeepalive(): void {

@@ -423,6 +423,157 @@ pub async fn resolve_elicitation_question_card(
     }
 }
 
+/// Settle a matching Approval card when the user responds through the
+/// conversation permission dock (`conversation.respondPermission`). Missing or
+/// already-resolved cards return the current card state without error.
+pub async fn resolve_approval_card_if_pending(
+    pool: &SqlitePool,
+    card_id: &str,
+    decision: &str,
+    delivery: &DeliveryContext,
+) -> Result<Option<Card>, CollaborationError> {
+    match resolve_card(
+        pool,
+        card_id,
+        CardActor::User,
+        Some(decision),
+        None,
+        delivery,
+    )
+    .await
+    {
+        Ok(card) => Ok(Some(card)),
+        Err(error) if error.code == "not_found" => Ok(None),
+        Err(error) if error.message.contains("already resolved") => load_card(pool, card_id).await,
+        Err(error) => Err(error),
+    }
+}
+
+fn card_reply_text(card: &Card, resolution: &Value) -> Option<String> {
+    match card.kind {
+        CardKind::Ask => {
+            let answer = resolution.get("answer").and_then(Value::as_str)?;
+            Some(format!("[回复问题 {}] {answer}", card.id))
+        }
+        CardKind::Approval => {
+            let decision = resolution.get("decision").and_then(Value::as_str)?;
+            let label = match decision {
+                "allow_once" => "允许一次",
+                // The grant is recorded on this card's thread only; there is
+                // no per-member grant, so a direct chat says "this chat".
+                "allow_always" if card.space_id.starts_with("direct:") => "此私聊始终允许",
+                "allow_always" => "本群始终允许",
+                _ => "拒绝",
+            };
+            let mut text = format!("[审批 {}] {label}（{decision}）", card.id);
+            if let Some(note) = resolution
+                .get("note")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+            {
+                text.push_str(&format!("：{note}"));
+            }
+            Some(text)
+        }
+    }
+}
+
+async fn resolve_card_author_nickname(
+    pool: &SqlitePool,
+    card: &Card,
+) -> Result<Option<String>, CollaborationError> {
+    let members = collaboration::list_space_members(
+        pool,
+        &card.space_id,
+        collaboration::MessageAudience::User,
+    )
+    .await?;
+    let from_space = members
+        .iter()
+        .find(|member| {
+            member.conversation_id.as_deref() == Some(card.from_conversation_id.as_str())
+        })
+        .map(|member| member.nickname.clone());
+    if from_space.is_some() {
+        return Ok(from_space);
+    }
+    if let Ok(from_uuid) = Uuid::parse_str(&card.from_conversation_id)
+        && let Ok(seat) = caller_seat(pool, &card.space_id, from_uuid).await
+    {
+        return Ok(Some(seat.nickname));
+    }
+    Ok(None)
+}
+
+/// Deliver a resolved card's formatted reply message (`@nickname [审批/回复问题 ...]`)
+/// into its thread and record `reply_message_id`. Used directly for non-blocking
+/// cards and as a fallback when a blocking MCP wait is no longer active.
+pub async fn deliver_card_reply(
+    pool: &SqlitePool,
+    card_id: &str,
+    reply_as: Option<Uuid>,
+    delivery: &DeliveryContext,
+) -> Result<Option<String>, CollaborationError> {
+    let card = load_card(pool, card_id)
+        .await?
+        .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))?;
+    if card.reply_message_id.is_some() {
+        return Ok(card.reply_message_id);
+    }
+    let Some(resolution) = card.resolution.as_ref() else {
+        return Ok(None);
+    };
+    let Some(reply) = card_reply_text(&card, resolution) else {
+        return Ok(None);
+    };
+    let operation_id = Uuid::new_v5(
+        &Uuid::parse_str(card_id).unwrap_or_else(|_| Uuid::new_v4()),
+        b"card-reply",
+    );
+    let posted_message_id = if card.space_id.starts_with("direct:") && reply_as.is_none() {
+        let (posted, _, _) = collaboration::post_direct_message_with(
+            pool,
+            collaboration::PostDirectMessage {
+                thread_id: card.space_id.clone(),
+                content: reply,
+                summary: None,
+                in_reply_to: card.message_id.clone(),
+                operation_id,
+            },
+            delivery,
+        )
+        .await?;
+        posted.message_id
+    } else {
+        let Some(nickname) = resolve_card_author_nickname(pool, &card).await? else {
+            return Ok(None);
+        };
+        let posted = collaboration::post_to_space_with(
+            pool,
+            PostToSpace {
+                caller_id: reply_as,
+                space_id: card.space_id.clone(),
+                content: format!("@{nickname} {reply}"),
+                summary: None,
+                to: vec![nickname],
+                in_reply_to: card.message_id.clone(),
+                operation_id,
+            },
+            delivery,
+        )
+        .await?;
+        posted.message_id
+    };
+    sqlx::query("UPDATE collaboration_cards SET reply_message_id = ? WHERE id = ?")
+        .bind(&posted_message_id)
+        .bind(card_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    Ok(Some(posted_message_id))
+}
+
 pub async fn load_card(pool: &SqlitePool, id: &str) -> Result<Option<Card>, CollaborationError> {
     Ok(sqlx::query_as::<_, CardRow>(&format!(
         "SELECT {COLUMNS} FROM collaboration_cards WHERE id = ?"
@@ -472,31 +623,16 @@ pub async fn resolve_card(
         return Err(bad("card was already resolved"));
     }
     let answer = answer.map(str::trim).filter(|text| !text.is_empty());
-    let (resolution, reply) = match card.kind {
+    let resolution = match card.kind {
         CardKind::Ask => {
             let answer = answer.ok_or_else(|| bad("answer is required"))?;
-            (
-                json!({ "answer": answer }),
-                format!("[回复问题 {card_id}] {answer}"),
-            )
+            json!({ "answer": answer })
         }
         CardKind::Approval => {
             let decision = decision
                 .filter(|d| APPROVAL_DECISIONS.contains(d))
                 .ok_or_else(|| bad("decision must be allow_once, allow_always or deny"))?;
-            let label = match decision {
-                "allow_once" => "允许一次",
-                // The grant is recorded on this card's thread only; there is
-                // no per-member grant, so a direct chat says "this chat".
-                "allow_always" if card.space_id.starts_with("direct:") => "此私聊始终允许",
-                "allow_always" => "本群始终允许",
-                _ => "拒绝",
-            };
-            let mut text = format!("[审批 {card_id}] {label}（{decision}）");
-            if let Some(note) = answer {
-                text.push_str(&format!("：{note}"));
-            }
-            (json!({ "decision": decision, "note": answer }), text)
+            json!({ "decision": decision, "note": answer })
         }
     };
     {
@@ -538,51 +674,32 @@ pub async fn resolve_card(
         .await;
         finish_tx(&mut conn, res_outcome).await?;
     }
-    let members = collaboration::list_space_members(
-        pool,
-        &card.space_id,
-        collaboration::MessageAudience::User,
-    )
-    .await?;
-    let nickname = members
-        .iter()
-        .find(|member| {
-            member.conversation_id.as_deref() == Some(card.from_conversation_id.as_str())
-        })
-        .map(|member| member.nickname.clone());
     let skip_member_delivery = card
         .payload
         .get("question_id")
         .and_then(Value::as_str)
         .is_some();
-    if let Some(nickname) = nickname.filter(|_| !skip_member_delivery) {
-        let posted = collaboration::post_to_space_with(
-            pool,
-            PostToSpace {
-                caller_id: reply_as,
-                space_id: card.space_id.clone(),
-                content: format!("@{nickname} {reply}"),
-                summary: None,
-                to: vec![nickname],
-                in_reply_to: card.message_id.clone(),
-                operation_id: Uuid::new_v5(
-                    &Uuid::parse_str(card_id).unwrap_or_else(|_| Uuid::new_v4()),
-                    b"card-reply",
-                ),
-            },
-            delivery,
-        )
-        .await?;
-        sqlx::query("UPDATE collaboration_cards SET reply_message_id = ? WHERE id = ?")
-            .bind(&posted.message_id)
-            .bind(card_id)
-            .execute(pool)
-            .await
-            .map_err(db)?;
+    if !skip_member_delivery {
+        deliver_card_reply(pool, card_id, reply_as, delivery).await?;
     }
-    load_card(pool, card_id)
+    let resolved = load_card(pool, card_id)
         .await?
-        .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))
+        .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))?;
+    if skip_member_delivery
+        && let Ok(workspace_id) =
+            crate::collaboration::space_workspace_id(pool, &resolved.space_id).await
+    {
+        delivery.notify_space_changed(
+            crate::collaboration::latest_space_changed_event(
+                pool,
+                workspace_id,
+                &resolved.space_id,
+                resolved.member_id.clone(),
+            )
+            .await,
+        );
+    }
+    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -1114,4 +1231,98 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn approval_card_in_direct_space_keeps_delivery_open_and_resolves_dm_nickname() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let created = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: None,
+                nickname: "Faker".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let bot_conv = Uuid::parse_str(created.conversation_id.as_deref().unwrap()).unwrap();
+        let direct_space = collaboration::thread_id_for_conversation(&pool, bot_conv)
+            .await
+            .unwrap()
+            .expect("bot has direct thread");
+        let d = DeliveryContext::default();
+
+        // Simulate user message delivered to the bot in its direct space.
+        let (user_post, _, _) = collaboration::post_direct_message_with(
+            &pool,
+            collaboration::PostDirectMessage {
+                thread_id: direct_space.clone(),
+                content: "请删除旧Bot".to_string(),
+                summary: None,
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+            &d,
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE collaboration_space_deliveries SET receipt_state = 'processing', status = 'dispatched' WHERE space_message_id = ?",
+        )
+        .bind(&user_post.message_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Bot posts an approval card mid-turn: the processing delivery MUST remain open!
+        let card = post_card(&pool, approval(bot_conv, &direct_space), &d)
+            .await
+            .unwrap();
+        let receipt_state: String = sqlx::query_scalar(
+            "SELECT receipt_state FROM collaboration_space_deliveries WHERE space_message_id = ?",
+        )
+        .bind(&user_post.message_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            receipt_state, "processing",
+            "posting an approval card mid-turn must not close the active delivery"
+        );
+
+        // Resolving the card in a direct:<member_id> space must find the DM nickname ("Faker")
+        // and post the reply message.
+        let resolved = resolve_card(
+            &pool,
+            &card.id,
+            CardActor::User,
+            Some("allow_once"),
+            None,
+            &d,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolved.status, "resolved");
+        assert!(
+            resolved.reply_message_id.is_some(),
+            "direct space approval resolution must deliver reply message to DM bot"
+        );
+    }
 }

@@ -107,15 +107,19 @@ impl PluginHostCall {
                 "plugin host.call loopback is not listening",
             )
         })?;
-        self.revoke_plugin(plugin_id);
         let token = Uuid::new_v4().to_string();
-        self.tokens.lock().expect("host.call tokens").insert(
+        let mut tokens = self.tokens.lock().expect("host.call tokens");
+        tokens.retain(|_, issued| {
+            issued.plugin_id != plugin_id || issued.generation == generation
+        });
+        tokens.insert(
             token.clone(),
             IssuedToken {
                 plugin_id: plugin_id.to_owned(),
                 generation,
             },
         );
+        drop(tokens);
         Ok(PluginHostCallContext {
             url,
             token,
@@ -269,6 +273,14 @@ async fn handle_host_call(
             })),
         )
             .into_response();
+    }
+    if capability == "host" && operation == "ping" {
+        return Json(json!({
+            "ok": true,
+            "pluginId": issued.plugin_id,
+            "generation": issued.generation,
+        }))
+        .into_response();
     }
     match gateway
         .broker
@@ -519,5 +531,37 @@ mod tests {
         )
         .await;
         assert_eq!(status, 403);
+    }
+
+    #[tokio::test]
+    async fn host_ping_validates_issued_token_until_revoked() {
+        let broker = Arc::new(RecordingBroker {
+            calls: Mutex::new(Vec::new()),
+        });
+        let gateway = PluginHostCall::new(broker)
+            .bind_loopback()
+            .await
+            .expect("listen");
+        let issued = gateway
+            .issue("vibex-plugin-computer-use", 1)
+            .expect("issue");
+        let (status, body) = post_host_call(
+            &issued.url,
+            &issued.token,
+            r#"{"capability":"host","operation":"ping"}"#,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["pluginId"], "vibex-plugin-computer-use");
+
+        gateway.revoke_plugin("vibex-plugin-computer-use");
+        let (revoked_status, _) = post_host_call(
+            &issued.url,
+            &issued.token,
+            r#"{"capability":"host","operation":"ping"}"#,
+        )
+        .await;
+        assert_eq!(revoked_status, 403);
     }
 }

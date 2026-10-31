@@ -78,54 +78,103 @@ const tauriBridge: RemoteDesktopBridge = {
   },
 };
 
-async function* subscribeRemoteDesktop(
+function subscribeRemoteDesktop(
   profileId: string,
   request: SubscriptionRequest
 ): AsyncIterable<RemoteEvent> {
-  const [{ Channel }, { tauriInvoke }] = await Promise.all([
-    import('@tauri-apps/api/core'),
-    import('@/lib/tauriApi'),
-  ]);
-  const queue: RemoteEvent[] = [];
-  let wake: (() => void) | undefined;
-  let closed = false;
-  const channel = new Channel<RemoteEvent>();
-  channel.onmessage = (event) => {
-    queue.push(event);
-    wake?.();
-    wake = undefined;
-  };
-  const subscriptionId = globalThis.crypto.randomUUID();
-  await tauriInvoke('remote_desktop_subscribe', {
-    profileId,
-    subscriptionId,
-    request: {
-      ...request,
-      subscription_id: subscriptionId,
-      ...('after_sequence' in request
-        ? { after_sequence: Number(request.after_sequence) }
-        : {}),
-    },
-    onEvent: channel,
-  });
-  try {
-    while (!closed) {
-      if (queue.length === 0) {
-        await new Promise<void>((resolve) => {
-          wake = resolve;
+  return {
+    [Symbol.asyncIterator]: (): AsyncIterator<RemoteEvent> => {
+      const queue: RemoteEvent[] = [];
+      let wake: (() => void) | undefined;
+      let closed = false;
+      let started = false;
+      let cancelled = false;
+      const subscriptionId = globalThis.crypto.randomUUID();
+
+      const cancelSubscription = async () => {
+        if (cancelled) return;
+        cancelled = true;
+        closed = true;
+        const pendingWake = wake;
+        wake = undefined;
+        pendingWake?.();
+        if (!started) return;
+        const { tauriInvoke } = await import('@/lib/tauriApi');
+        await tauriInvoke('remote_desktop_cancel_subscription', {
+          subscriptionId,
         });
-      }
-      const next = queue.shift();
-      if (next) {
-        yield next;
-      }
-    }
-  } finally {
-    closed = true;
-    await tauriInvoke('remote_desktop_cancel_subscription', {
-      subscriptionId,
-    });
-  }
+      };
+
+      return {
+        next: async (): Promise<IteratorResult<RemoteEvent>> => {
+          if (closed && queue.length === 0) {
+            return { value: undefined, done: true };
+          }
+          if (!started) {
+            started = true;
+            const [{ Channel }, { tauriInvoke }] = await Promise.all([
+              import('@tauri-apps/api/core'),
+              import('@/lib/tauriApi'),
+            ]);
+            if (closed) {
+              return { value: undefined, done: true };
+            }
+            const channel = new Channel<RemoteEvent>();
+            channel.onmessage = (event) => {
+              if (event.kind === 'subscription_closed') {
+                closed = true;
+                const pendingWake = wake;
+                wake = undefined;
+                pendingWake?.();
+                return;
+              }
+              if (closed) return;
+              queue.push(event);
+              const pendingWake = wake;
+              wake = undefined;
+              pendingWake?.();
+            };
+            await tauriInvoke('remote_desktop_subscribe', {
+              profileId,
+              subscriptionId,
+              request: {
+                ...request,
+                subscription_id: subscriptionId,
+                ...('after_sequence' in request
+                  ? { after_sequence: Number(request.after_sequence) }
+                  : {}),
+              },
+              onEvent: channel,
+            });
+            if (closed) {
+              await cancelSubscription();
+              return { value: undefined, done: true };
+            }
+          }
+          while (!closed || queue.length > 0) {
+            const next = queue.shift();
+            if (next) {
+              return { value: next, done: false };
+            }
+            if (closed) break;
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
+          }
+          await cancelSubscription();
+          return { value: undefined, done: true };
+        },
+        async return(): Promise<IteratorResult<RemoteEvent>> {
+          await cancelSubscription();
+          return { value: undefined, done: true };
+        },
+        async throw(err?: unknown): Promise<IteratorResult<RemoteEvent>> {
+          await cancelSubscription();
+          throw err;
+        },
+      };
+    },
+  };
 }
 
 /**

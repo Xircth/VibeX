@@ -150,3 +150,22 @@ export function getEditorChangeSideEffects({
     shouldClearError: hasFollowUpError,
   };
 }
+
+export function reconcileEditingQueueMessage(
+  editing: QueuedMessage | null,
+  sessionId: string | undefined,
+  status: QueueStatus | undefined
+): QueuedMessage | null {
+  if (!editing || !sessionId || editing.session_id !== sessionId) {
+    return null;
+  }
+  const messages = status?.status === 'queued' ? status.messages : [];
+  const current = messages.find((candidate) => candidate.id === editing.id);
+  if (
+    !current ||
+    (current.status !== 'queued' && current.status !== 'scheduled')
+  ) {
+    return null;
+  }
+  return current;
+}

@@ -19,7 +19,11 @@ pub fn default_host_data_dir() -> PathBuf {
 
 pub fn asset_dir() -> PathBuf {
     let path = if cfg!(debug_assertions) {
-        PathBuf::from(PROJECT_ROOT).join("../../dev_assets")
+        Path::new(PROJECT_ROOT)
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or_else(|| Path::new(PROJECT_ROOT))
+            .join("dev_assets")
     } else {
         default_host_data_dir()
     };

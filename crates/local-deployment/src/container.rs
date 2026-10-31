@@ -1420,11 +1420,15 @@ impl ContainerService for LocalContainerService {
 
         let mut streams = Vec::new();
 
-        let _container_ref = self.ensure_container_exists(workspace).await?;
-        let workspace_root = Self::normalized_workspace_base_dir(workspace, &repositories);
+        let container_ref = self.ensure_container_exists(workspace).await?;
+        let mut resolved_workspace = workspace.clone();
+        resolved_workspace.container_ref = Some(container_ref);
+        let workspace_root =
+            Self::normalized_workspace_base_dir(&resolved_workspace, &repositories);
 
         for repo in repositories {
-            let worktree_path = Self::workspace_repo_path(workspace, &workspace_root, &repo.name);
+            let worktree_path =
+                Self::workspace_repo_path(&resolved_workspace, &workspace_root, &repo.name);
             let branch = &workspace.branch;
 
             let Some(target_branch) = target_branches.get(&repo.id) else {

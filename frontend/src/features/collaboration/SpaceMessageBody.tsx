@@ -7,7 +7,13 @@ import { Input } from '@/components/ui/input';
 
 import { AgentQuestionCard } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
-import type { AgentElicitationResponse, JsonValue } from 'shared/types';
+import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import type {
+  AgentElicitationResponse,
+  AgentPermissionResponse,
+  ConversationPermissionView,
+  JsonValue,
+} from 'shared/types';
 import {
   CollaborationMemberMentionContext,
   useCollaborationMemberMention,
@@ -17,6 +23,7 @@ import { UserMessageMarkdown } from '@/components/NormalizedConversation/UserMes
 import { splitDisplayContentImages } from '@/components/NormalizedConversation/userMessageImages';
 
 import { collaborationCall } from './collaborationApi';
+import type { SpaceCardRecord } from './space/types';
 import {
   reactionBadgeEmojis,
   type SpaceReaction,
@@ -30,6 +37,9 @@ export type ParsedCard = {
   body: string;
   options: string[];
   questions?: unknown[];
+  action?: string;
+  command?: string;
+  reason?: string;
 };
 
 const CARD_RE = /<card kind="(ask|approval)" id="([^"]+)">([\s\S]*?)<\/card>/;
@@ -81,16 +91,96 @@ export function parseCard(text: string): ParsedCard | null {
       questions,
     };
   }
+  const action = cardField(inner, 'action');
   const command = cardField(inner, 'command');
   const reason = cardField(inner, 'reason');
   const body = [
-    cardField(inner, 'action'),
+    action,
     command ? `\`\`\`\n${command}\n\`\`\`` : '',
     reason,
   ]
     .filter(Boolean)
     .join('\n\n');
-  return { kind, id: match[2], before, body, options: [] };
+  return {
+    kind,
+    id: match[2],
+    before,
+    body,
+    options: [],
+    action,
+    command,
+    reason,
+  };
+}
+
+export function approvalCardToPermissionView(
+  card: Pick<ParsedCard, 'id' | 'action' | 'command' | 'reason' | 'body'>,
+  status: 'pending' | 'responded' = 'pending'
+): ConversationPermissionView {
+  const action = (card.action ?? card.body ?? '').trim();
+  const command = (card.command ?? '').trim();
+  const reason = (card.reason ?? '').trim();
+  const content: Array<{ text: string }> = [];
+  if (command && reason) {
+    content.push({ text: command }, { text: reason });
+  } else if (reason) {
+    content.push({ text: reason });
+  }
+  const rawInput = command
+    ? { command, ...(reason ? { description: reason } : {}) }
+    : reason
+      ? { description: reason }
+      : {};
+  return {
+    permission_id: card.id,
+    title: action,
+    details: {
+      fields: {
+        kind: command ? 'execute' : 'tool',
+        title: action,
+        rawInput,
+        content,
+      },
+    } as unknown as JsonValue,
+    options: [
+      {
+        id: 'allow_once',
+        label: i18n.t('conversation:permissionRequestCard.allowOnce'),
+        kind: 'allow_once',
+        description: null,
+      },
+      {
+        id: 'allow_always',
+        label: i18n.t('conversation:permissionRequestCard.allowAlways'),
+        kind: 'allow_always',
+        description: null,
+      },
+      {
+        id: 'deny',
+        label: i18n.t('conversation:permissionRequestCard.reject'),
+        kind: 'reject_once',
+        description: null,
+      },
+    ],
+    status,
+  };
+}
+
+export function mapPermissionResponseToApprovalDecision(
+  response: AgentPermissionResponse
+): 'allow_once' | 'allow_always' | 'deny' {
+  if (response.kind === 'selected') {
+    if (response.persist || response.option_id === 'allow_always') {
+      return 'allow_always';
+    }
+    if (
+      response.option_id === 'allow_once' ||
+      response.option_id.startsWith('allow')
+    ) {
+      return 'allow_once';
+    }
+  }
+  return 'deny';
 }
 
 export type ParsedHandoff = {
@@ -166,11 +256,44 @@ export function messagePreviewText(text: string): string {
   return result.replace(/\s+/g, ' ').trim();
 }
 
-export function SpaceCardActions({ card }: { card: ParsedCard }) {
+function resolvedCardLabel(
+  cardRecord: SpaceCardRecord | null | undefined
+): string | null {
+  if (!cardRecord || !cardRecord.status || cardRecord.status === 'pending') {
+    return null;
+  }
+  const resolution = cardRecord.resolution;
+  if (resolution && typeof resolution === 'object') {
+    const decision =
+      typeof resolution.decision === 'string' ? resolution.decision.trim() : '';
+    if (decision) {
+      return decision === 'deny'
+        ? i18n.t('panels:ui.spaceMessage.rejected')
+        : i18n.t('panels:ui.spaceMessage.approved');
+    }
+    const answerText =
+      typeof resolution.answer === 'string' ? resolution.answer.trim() : '';
+    if (answerText) {
+      return i18n.t('panels:ui.spaceMessage.answeredValue', {
+        value: answerText,
+      });
+    }
+  }
+  return i18n.t('panels:ui.spaceMessage.handled');
+}
+
+export function SpaceCardActions({
+  card,
+  cardRecord = null,
+}: {
+  card: ParsedCard;
+  cardRecord?: SpaceCardRecord | null;
+}) {
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const resolvedText = done ?? resolvedCardLabel(cardRecord);
   const resolve = async (input: Record<string, unknown>, label: string) => {
     setBusy(true);
     setError('');
@@ -227,13 +350,13 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
         : i18n.t('panels:ui.spaceMessage.handled')
     );
   };
-  if (done) {
+  if (resolvedText) {
     return (
       <p
         className="collaboration-card-resolved text-xs text-muted-foreground"
         data-testid="collaboration-card-resolved"
       >
-        {done}
+        {resolvedText}
       </p>
     );
   }
@@ -264,89 +387,80 @@ export function SpaceCardActions({ card }: { card: ParsedCard }) {
       </div>
     );
   }
+  if (card.kind === 'approval') {
+    return (
+      <div
+        className="collaboration-card-actions mt-2"
+        data-testid="collaboration-card-actions"
+      >
+        <PermissionRequestCard
+          request={approvalCardToPermissionView(card)}
+          responding={busy}
+          onRespond={(_permissionId, response) => {
+            const decision = mapPermissionResponseToApprovalDecision(response);
+            void resolve(
+              { decision },
+              decision === 'deny'
+                ? i18n.t('panels:ui.spaceMessage.rejected')
+                : i18n.t('panels:ui.spaceMessage.approved')
+            );
+          }}
+        />
+        {error ? (
+          <span className="text-xs text-destructive">{error}</span>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       className="collaboration-card-actions mt-2 flex flex-wrap items-center gap-2"
       data-testid="collaboration-card-actions"
     >
-      {card.kind === 'approval' ? (
-        <>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void resolve(
-                { decision: 'allow_once' },
-                i18n.t('panels:ui.spaceMessage.approved')
-              )
-            }
-          >
-            {i18n.t('panels:ui.spaceMessage.approve')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              void resolve(
-                { decision: 'deny' },
-                i18n.t('panels:ui.spaceMessage.rejected')
-              )
-            }
-          >
-            {i18n.t('panels:ui.spaceMessage.reject')}
-          </Button>
-        </>
-      ) : (
-        <>
-          {card.options.map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void resolve(
-                  { answer: option },
-                  i18n.t('panels:ui.spaceMessage.answeredOption', {
-                    option: option,
-                  })
-                )
-              }
-            >
-              {option}
-            </Button>
-          ))}
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (answer.trim())
-                void resolve(
-                  { answer: answer.trim() },
-                  i18n.t('panels:ui.spaceMessage.answeredValue', {
-                    value: answer.trim(),
-                  })
-                );
-            }}
-          >
-            <Input
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
-              placeholder={i18n.t('panels:ui.spaceMessage.typeAnAnswer')}
-              aria-label={i18n.t('panels:ui.spaceMessage.answer')}
-              className="h-8 w-56"
-              disabled={busy}
-            />
-            <Button type="submit" size="sm" disabled={busy || !answer.trim()}>
-              {i18n.t('panels:ui.spaceMessage.answer')}
-            </Button>
-          </form>
-        </>
-      )}
+      {card.options.map((option) => (
+        <Button
+          key={option}
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() =>
+            void resolve(
+              { answer: option },
+              i18n.t('panels:ui.spaceMessage.answeredOption', {
+                option: option,
+              })
+            )
+          }
+        >
+          {option}
+        </Button>
+      ))}
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (answer.trim())
+            void resolve(
+              { answer: answer.trim() },
+              i18n.t('panels:ui.spaceMessage.answeredValue', {
+                value: answer.trim(),
+              })
+            );
+        }}
+      >
+        <Input
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={i18n.t('panels:ui.spaceMessage.typeAnAnswer')}
+          aria-label={i18n.t('panels:ui.spaceMessage.answer')}
+          className="h-8 w-56"
+          disabled={busy}
+        />
+        <Button type="submit" size="sm" disabled={busy || !answer.trim()}>
+          {i18n.t('panels:ui.spaceMessage.answer')}
+        </Button>
+      </form>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>
   );
@@ -472,6 +586,7 @@ export function SpaceMessageBody({
   deliveryStatus = null,
   deliveryTickTestId,
   reactions,
+  cards,
 }: {
   fromYou: boolean;
   text: string;
@@ -480,12 +595,15 @@ export function SpaceMessageBody({
   deliveryStatus?: MessageDeliveryTickStatus;
   deliveryTickTestId?: string;
   reactions?: readonly SpaceReaction[] | null;
+  cards?: readonly SpaceCardRecord[] | null;
 }) {
   const memberMentionCtx = useCollaborationMemberMention();
   const effectiveMentionCtx = memberMentionCtx.enableMemberMentions
     ? memberMentionCtx
     : { ...memberMentionCtx, enableMemberMentions: true };
   const card = parseCard(text);
+  const cardRecord =
+    card && cards ? (cards.find((item) => item.id === card.id) ?? null) : null;
   const handoff = parseHandoff(text);
   if (fromYou) {
     const source = handoff ? handoffSurroundingText(handoff) : text;
@@ -550,7 +668,10 @@ export function SpaceMessageBody({
   const markdownValue = card
     ? [
         card.before,
-        card.questions && card.questions.length > 0 ? '' : card.body,
+        (card.questions && card.questions.length > 0) ||
+        card.kind === 'approval'
+          ? ''
+          : card.body,
       ]
         .filter(Boolean)
         .join('\n\n')
@@ -578,7 +699,9 @@ export function SpaceMessageBody({
                   workspacePath={workspacePath}
                 />
               ) : null}
-              {card ? <SpaceCardActions card={card} /> : null}
+              {card ? (
+                <SpaceCardActions card={card} cardRecord={cardRecord} />
+              ) : null}
             </div>
             <SpaceMessageReactionBadge reactions={reactions} />
           </div>

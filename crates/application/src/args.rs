@@ -57,9 +57,15 @@ pub fn decode_command_args<T: DeserializeOwned>(value: Value) -> Result<T, Strin
         let nested_is_wrapper = inner
             .as_object()
             .is_some_and(|nested| nested.contains_key(key));
+        let missing_wrapper_field = format!("missing field `{key}`");
         match serde_json::from_value::<T>(inner) {
             Ok(parsed) => return Ok(parsed),
-            Err(error) => wrapper_error = Some(error.to_string()),
+            Err(error) => {
+                let msg = error.to_string();
+                if !msg.contains(&missing_wrapper_field) {
+                    wrapper_error = Some(msg);
+                }
+            }
         }
         if nested_is_wrapper {
             continue;
@@ -67,7 +73,12 @@ pub fn decode_command_args<T: DeserializeOwned>(value: Value) -> Result<T, Strin
         if let Some(merged) = merge_nested_object(&value, key) {
             match serde_json::from_value::<T>(merged) {
                 Ok(parsed) => return Ok(parsed),
-                Err(error) => wrapper_error = Some(error.to_string()),
+                Err(error) => {
+                    let msg = error.to_string();
+                    if !msg.contains(&missing_wrapper_field) {
+                        wrapper_error = Some(msg);
+                    }
+                }
             }
         }
     }

@@ -25,7 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { ExecutorProfileId } from 'shared/types';
+import type { AgentPermissionResponse, ExecutorProfileId } from 'shared/types';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -114,6 +114,7 @@ import {
   postDirectMessage,
   reactToSpaceMessage,
   resolveMemberSession,
+  setWorkspaceSupervisor,
   updateThreadTagColor,
 } from '../threadApi';
 import { buildCollaborationUserMessageNavEntries } from '../collaborationMessageNav';
@@ -211,6 +212,8 @@ import {
   type ChatListEntry,
   type SidebarItem,
   directThreadIdFor,
+  isDirectEntrySupervisor,
+  normalizeMemberNickname,
   reconcilePendingDirectMessages,
   type PendingDirectMessage,
   isPrivateChatKind,
@@ -246,6 +249,7 @@ import {
   type SidebarDragPayload,
   type SidebarDropTarget,
   type Space,
+  type SpaceCardRecord,
   type SpaceMessage,
 } from './types';
 import {
@@ -270,7 +274,13 @@ import {
   groupAvatarMemberSlotPx,
 } from '../GroupAvatar';
 import { memberMessageClusters } from '../messageCluster';
-import { bubbleText, messagePreviewText } from '../SpaceMessageBody';
+import {
+  bubbleText,
+  mapPermissionResponseToApprovalDecision,
+  messagePreviewText,
+  parseCard,
+  type ParsedCard,
+} from '../SpaceMessageBody';
 import { buildMemberMentionContextValue } from '../MemberMentionChip';
 import {
   collabQueryKeys,
@@ -464,7 +474,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   const [createOpen, setCreateOpen] = useState(false);
   const [spaceName, setSpaceName] = useState('');
   const [spaceTagColorId, setSpaceTagColorId] = useState('');
-  const [spaceTagCustomLabel, setSpaceTagCustomLabel] = useState('');
   const [selectedSpaceMemberConvIds, setSelectedSpaceMemberConvIds] = useState<
     Set<string>
   >(() => new Set());
@@ -523,6 +532,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     fromSpaceId: string;
     conversationId: string;
     nickname: string;
+    memberId?: string;
   } | null>(null);
   const [pointerDragCursor, setPointerDragCursor] = useState<{
     x: number;
@@ -530,6 +540,12 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   } | null>(null);
   const suppressNextMemberClickRef = useRef(false);
   const [dropTargetSpaceId, setDropTargetSpaceId] = useState('');
+  const [isSupervisorDropTarget, setIsSupervisorDropTarget] = useState(false);
+  const [supervisorOverride, setSupervisorOverride] = useState<{
+    workspace: string;
+    active: boolean;
+    memberRef: string | null;
+  }>({ workspace: '', active: false, memberRef: null });
   // Pointer drag of sidebar rows (members and group chats).
   const [sidebarDropTarget, setSidebarDropTarget] =
     useState<SidebarDropTarget>(null);
@@ -702,6 +718,17 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         if (workspaceRef.current !== requestedWorkspace) return;
         sidebarItemsRef.current = items;
         setSidebarItems(items);
+        if (
+          items?.some(
+            (item) => typeof item.member?.is_supervisor === 'boolean'
+          )
+        ) {
+          setSupervisorOverride((current) =>
+            current.active
+              ? { workspace: '', active: false, memberRef: null }
+              : current
+          );
+        }
         if (items) {
           setMembersBySpace((current) => {
             const next: Record<string, SpaceMember[]> = {};
@@ -908,21 +935,40 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     PendingDirectMessage[]
   >([]);
   const activeDirectThreadId =
-    activeDirect &&
-    activeDirect.spaceId === selectedId &&
-    activeDirect.memberKey === selectedMemberKey
+    activeDirect && activeDirect.spaceId === selectedId
       ? activeDirect.threadId
       : null;
   const threadQueryId = activeDirectThreadId || selectedId;
   const threadQuery = useCollaborationThreadQuery(threadQueryId);
   const messages = threadQuery.data?.messages ?? EMPTY_MESSAGES;
   const scheduledMessages = threadQuery.data?.scheduled ?? EMPTY_SCHEDULED;
+  const threadCards = threadQuery.data?.cards;
   const messagesRef = useRef<SpaceMessage[]>([]);
   messagesRef.current = messages;
-  const setMessages = useCallback(
-    (updater: SpaceMessage[] | ((current: SpaceMessage[]) => SpaceMessage[])) => {
+  const setThreadCardsFor = useCallback(
+    (targetThreadId: string, cards: SpaceCardRecord[] | undefined) => {
+      if (!targetThreadId || !Array.isArray(cards)) return;
       queryClient.setQueryData<ThreadMessagesPage>(
-        collabQueryKeys.thread(threadQueryId),
+        collabQueryKeys.thread(targetThreadId),
+        (current) => {
+          const prev = current ?? {
+            messages: EMPTY_MESSAGES,
+            scheduled: EMPTY_SCHEDULED,
+          };
+          return { ...prev, cards };
+        }
+      );
+    },
+    [queryClient]
+  );
+  const setThreadMessagesFor = useCallback(
+    (
+      targetThreadId: string,
+      updater: SpaceMessage[] | ((current: SpaceMessage[]) => SpaceMessage[])
+    ) => {
+      if (!targetThreadId) return;
+      queryClient.setQueryData<ThreadMessagesPage>(
+        collabQueryKeys.thread(targetThreadId),
         (current) => {
           const prev = current ?? {
             messages: EMPTY_MESSAGES,
@@ -934,16 +980,18 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         }
       );
     },
-    [queryClient, threadQueryId]
+    [queryClient]
   );
-  const setScheduledMessages = useCallback(
+  const setThreadScheduledFor = useCallback(
     (
+      targetThreadId: string,
       updater:
         | ScheduledSpaceMessage[]
         | ((current: ScheduledSpaceMessage[]) => ScheduledSpaceMessage[])
     ) => {
+      if (!targetThreadId) return;
       queryClient.setQueryData<ThreadMessagesPage>(
-        collabQueryKeys.thread(threadQueryId),
+        collabQueryKeys.thread(targetThreadId),
         (current) => {
           const prev = current ?? {
             messages: EMPTY_MESSAGES,
@@ -955,14 +1003,30 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         }
       );
     },
-    [queryClient, threadQueryId]
+    [queryClient]
+  );
+  const setMessages = useCallback(
+    (updater: SpaceMessage[] | ((current: SpaceMessage[]) => SpaceMessage[])) => {
+      setThreadMessagesFor(threadQueryId, updater);
+    },
+    [setThreadMessagesFor, threadQueryId]
+  );
+  const setScheduledMessages = useCallback(
+    (
+      updater:
+        | ScheduledSpaceMessage[]
+        | ((current: ScheduledSpaceMessage[]) => ScheduledSpaceMessage[])
+    ) => {
+      setThreadScheduledFor(threadQueryId, updater);
+    },
+    [setThreadScheduledFor, threadQueryId]
   );
   const directThreadRef = useRef<string | null>(null);
   directThreadRef.current = activeDirectThreadId;
   const applyDirectMessages = useCallback(
     (threadId: string, incoming: SpaceMessage[], merge: boolean) => {
-      setScheduledMessages([]);
-      setMessages((current) => {
+      setThreadScheduledFor(threadId, []);
+      setThreadMessagesFor(threadId, (current) => {
         const next = mergeDirectSpaceMessages(current, incoming, merge);
         setMessagesBySpace((bySpace) => ({ ...bySpace, [threadId]: next }));
         return next;
@@ -973,7 +1037,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       const seq = latestMessageSeq(incoming);
       void markThreadRead(collaborationCall, threadId, seq || undefined);
     },
-    [setMessages, setMessagesBySpace, setScheduledMessages]
+    [setMessagesBySpace, setThreadMessagesFor, setThreadScheduledFor]
   );
   useEffect(() => {
     // Groups address their thread by space id; DMs are marked in openPrivateChat.
@@ -1204,7 +1268,23 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       );
       if (matched) return [matched];
     }
-    return agentRoster(members);
+    const roster = agentRoster(members);
+    if (
+      roster.length === 0 &&
+      selectedId &&
+      selectedId !== unassignedId &&
+      !activeDirectThreadId
+    ) {
+      const sidebarGroup = sidebarItems?.find(
+        (item) =>
+          item.kind === 'group' &&
+          (item.space_id === selectedId || item.thread_id === selectedId)
+      );
+      if (sidebarGroup?.members_preview?.length) {
+        return sidebarGroup.members_preview.map(sidebarMemberToSpaceMember);
+      }
+    }
+    return roster;
   }, [
     activeDirectThreadId,
     members,
@@ -1487,7 +1567,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             const next = current.filter((tab) => tab.id !== removedPanel.id);
             if (next.length === 0) {
               previewDockviewApiRef.current = null;
-              setSelectedMemberKey('');
+              setSelectedMemberKey((current) =>
+                directThreadRef.current ? current : ''
+              );
               setActivePreviewTabId('');
             }
             return next;
@@ -1532,7 +1614,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   }, [setConversations, workspace]);
 
   const reloadSpaceMembers = useCallback(async (spaceId: string) => {
-    if (!spaceId || spaceId.startsWith('direct:')) return;
+    if (!spaceId || spaceId.startsWith('direct:')) return [] as SpaceMember[];
     const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
       'collaboration',
       'space.listMembers',
@@ -1546,6 +1628,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ...current,
       [spaceId]: enriched,
     }));
+    return enriched;
   }, [setMembersBySpace]);
 
   useEffect(() => {
@@ -1992,6 +2075,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                 botName: finalNickname,
                 personaPrompt: DEFAULT_MASTER_BOT_PERSONA_PROMPT,
                 spaceId: target.threadId,
+                isMaster: true,
               }),
               crypto.randomUUID()
             )
@@ -2040,10 +2124,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ])
     );
     if (memberIds.length === 0) return;
-    const nextMemberSpaceKey = `${workspace}:${memberIds.join('\n')}`;
+    const nextMemberSpaceKey = `${workspace}:${[...memberIds].sort().join('\n')}`;
     const shouldLoadMembers =
       loadedMemberSpaceKeyRef.current !== nextMemberSpaceKey;
     let cancelled = false;
+    const targetSpaceId = selectedId;
     const load = async () => {
       if (shouldLoadMembers) {
         const memberPages = await Promise.all(
@@ -2070,7 +2155,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           return next;
         });
       }
-      if (!selectedId || selectedId === VIRTUAL_DEFAULT_SPACE_ID) return;
+      if (!targetSpaceId || targetSpaceId === VIRTUAL_DEFAULT_SPACE_ID) return;
       const directThreadId = directThreadRef.current;
       if (directThreadId) {
         const page = await loadDirectMessages<SpaceMessage>(
@@ -2080,29 +2165,36 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         if (cancelled) return;
         if (page) {
           applyDirectMessages(directThreadId, page.messages, false);
+          if (Array.isArray(page.cards)) {
+            setThreadCardsFor(directThreadId, page.cards as SpaceCardRecord[]);
+          }
           return;
         }
-        if (selectedId.startsWith('direct:')) return;
+        if (targetSpaceId.startsWith('direct:')) return;
         // Older backend without direct threads: fall back to the space log.
       }
-      if (selectedId.startsWith('direct:')) return;
+      if (targetSpaceId.startsWith('direct:')) return;
       const messagePage = await collaborationCall<{
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
+        cards?: SpaceCardRecord[];
       }>('collaboration', 'space.listMessages', {
-        spaceId: selectedId,
+        spaceId: targetSpaceId,
         latest: true,
         limit: 200,
       });
       if (cancelled) return;
       const nextMessages = messagePage.messages ?? [];
-      setMessages(nextMessages);
+      setThreadMessagesFor(targetSpaceId, nextMessages);
       if (Array.isArray(messagePage.scheduled)) {
-        setScheduledMessages(messagePage.scheduled);
+        setThreadScheduledFor(targetSpaceId, messagePage.scheduled);
+      }
+      if (Array.isArray(messagePage.cards)) {
+        setThreadCardsFor(targetSpaceId, messagePage.cards);
       }
       setMessagesBySpace((current) => ({
         ...current,
-        [selectedId]: nextMessages,
+        [targetSpaceId]: nextMessages,
       }));
     };
     void load().catch((cause: unknown) => {
@@ -2117,25 +2209,31 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     openSpaceKey,
     selectedId,
     setMembersBySpace,
-    setMessages,
     setMessagesBySpace,
-    setScheduledMessages,
+    setThreadCardsFor,
+    setThreadMessagesFor,
+    setThreadScheduledFor,
     spaces,
     unassignedId,
     workspace,
   ]);
 
+  const spacesRef = useRef(spaces);
+  spacesRef.current = spaces;
+
   useEffect(() => {
     if (!workspace) return;
-    const ids = openSpaceKey ? openSpaceKey.split('\n').filter(Boolean) : [];
-    const activeSpaceIds = new Set([
-      ...ids,
-      ...spaces.map((space) => space.space_id),
-      ...(selectedId && selectedId !== VIRTUAL_DEFAULT_SPACE_ID
-        ? [selectedId]
-        : []),
-      ...(unassignedId ? [unassignedId] : []),
-    ]);
+    const getActiveSpaceIds = () => {
+      const ids = openSpaceKey ? openSpaceKey.split('\n').filter(Boolean) : [];
+      return new Set([
+        ...ids,
+        ...spacesRef.current.map((space) => space.space_id),
+        ...(selectedId && selectedId !== VIRTUAL_DEFAULT_SPACE_ID
+          ? [selectedId]
+          : []),
+        ...(unassignedId ? [unassignedId] : []),
+      ]);
+    };
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let unlistenWorkspaceSessions: (() => void) | undefined;
@@ -2161,11 +2259,16 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       spaceId: string,
       forceFullReload = false
     ) => {
-      const sinceSeq = forceFullReload
-        ? 0
-        : latestMessageSeq(messagesRef.current);
+      const existingMessages =
+        queryClient.getQueryData<ThreadMessagesPage>(
+          collabQueryKeys.thread(spaceId)
+        )?.messages ?? messagesRef.current;
+      const sinceSeq = forceFullReload ? 0 : latestMessageSeq(existingMessages);
       const directThreadId = directThreadRef.current;
-      if (directThreadId) {
+      if (
+        directThreadId &&
+        (spaceId === directThreadId || spaceId === selectedIdRef.current)
+      ) {
         const direct = await loadDirectMessages<SpaceMessage>(
           collaborationCall,
           directThreadId
@@ -2173,6 +2276,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         if (cancelled) return;
         if (direct) {
           applyDirectMessages(directThreadId, direct.messages, false);
+          if (Array.isArray(direct.cards)) {
+            setThreadCardsFor(directThreadId, direct.cards as SpaceCardRecord[]);
+          }
           return;
         }
         if (spaceId.startsWith('direct:')) return;
@@ -2181,6 +2287,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       const page = await collaborationCall<{
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
+        cards?: SpaceCardRecord[];
       }>(
         'collaboration',
         'space.listMessages',
@@ -2190,10 +2297,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       );
       if (cancelled) return;
       if (Array.isArray(page.scheduled)) {
-        setScheduledMessages(page.scheduled);
+        setThreadScheduledFor(spaceId, page.scheduled);
+      }
+      if (Array.isArray(page.cards)) {
+        setThreadCardsFor(spaceId, page.cards);
       }
       const incoming = page.messages ?? [];
-      setMessages((current) => {
+      setThreadMessagesFor(spaceId, (current) => {
         const merged =
           sinceSeq > 0 ? mergeSpaceMessages(current, incoming) : incoming;
         setMessagesBySpace((bySpace) => ({
@@ -2221,7 +2331,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         });
         if (cancelled || !Array.isArray(receiptPage?.receipts)) return;
         const nextReceipts = receiptPage.receipts;
-        setMessages((current) => {
+        setThreadMessagesFor(spaceId, (current) => {
           let matchedSeq: number | null = null;
           const updated = current.map((msg) => {
             if (stableSpaceMessageId(msg) === messageId) {
@@ -2257,18 +2367,40 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       if (cancelled) return;
       const next = page.spaces ?? [];
       setSpaces(next);
-      setSelectedId((current) =>
-        next.some((item) => item.space_id === current)
-          ? current
-          : (next[0]?.space_id ?? '')
-      );
+      sessionDispatch({
+        type: 'apply',
+        apply: (state) => {
+          const current = state.selectedId;
+          if (
+            current.startsWith('direct:') ||
+            current.startsWith('unassigned:') ||
+            current === VIRTUAL_DEFAULT_SPACE_ID ||
+            Boolean(state.activeDirect) ||
+            next.some((item) => item.space_id === current)
+          ) {
+            return state;
+          }
+          return {
+            ...state,
+            selectedId: next[0]?.space_id ?? '',
+            selectedMemberKey: '',
+            activeDirect: null,
+          };
+        },
+      });
     };
 
     const applyLegacySpaceEventFallback = (
       event: CollaborationSpaceChangedPayload
     ) => {
+      const isNonGroupSpaceEvent =
+        event.spaceId.startsWith('session:') ||
+        event.spaceId.startsWith('unassigned:') ||
+        event.spaceId.startsWith('direct:');
       if (
-        (event.seq === undefined && event.memberId === undefined) ||
+        (!isNonGroupSpaceEvent &&
+          event.seq === undefined &&
+          event.memberId === undefined) ||
         event.memberId === 'batch_delete' ||
         event.kind === 'space'
       ) {
@@ -2276,23 +2408,26 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
       }
+      const currentSelectedId = selectedIdRef.current;
       if (
         (event.memberId || event.kind === 'roster') &&
-        activeSpaceIds.has(event.spaceId)
+        getActiveSpaceIds().has(event.spaceId)
       ) {
         void refreshSpaceMembers(event.spaceId).catch((cause: unknown) => {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
         void loadConversations();
         if (
-          selectedId &&
-          selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
-          (event.spaceId === selectedId ||
+          currentSelectedId &&
+          currentSelectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          (event.spaceId === currentSelectedId ||
             event.spaceId === directThreadRef.current)
         ) {
-          void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
-            if (!cancelled) setError(surfaceErrorCopy(cause));
-          });
+          void syncIncrementalMessages(currentSelectedId).catch(
+            (cause: unknown) => {
+              if (!cancelled) setError(surfaceErrorCopy(cause));
+            }
+          );
         }
       }
       if (
@@ -2302,15 +2437,17 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ) {
         void loadConversations();
         if (
-          selectedId &&
-          selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
-          (event.spaceId === selectedId ||
+          currentSelectedId &&
+          currentSelectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          (event.spaceId === currentSelectedId ||
             (Boolean(directThreadRef.current) &&
               event.spaceId === directThreadRef.current))
         ) {
-          void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
-            if (!cancelled) setError(surfaceErrorCopy(cause));
-          });
+          void syncIncrementalMessages(currentSelectedId).catch(
+            (cause: unknown) => {
+              if (!cancelled) setError(surfaceErrorCopy(cause));
+            }
+          );
         }
       }
     };
@@ -2370,10 +2507,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         };
         setSpaceCursor(spaceId, nextCursorState);
 
+        const currentSelectedId = selectedIdRef.current;
         const isCurrentSelected =
-          selectedId &&
-          selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
-          (spaceId === selectedId ||
+          currentSelectedId &&
+          currentSelectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          (spaceId === currentSelectedId ||
             (Boolean(directThreadRef.current) &&
               spaceId === directThreadRef.current));
 
@@ -2381,7 +2519,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           void refreshSpaces().catch((cause: unknown) => {
             if (!cancelled) setError(surfaceErrorCopy(cause));
           });
-          if (activeSpaceIds.has(spaceId)) {
+          if (getActiveSpaceIds().has(spaceId)) {
             void refreshSpaceMembers(spaceId).catch((cause: unknown) => {
               if (!cancelled) setError(surfaceErrorCopy(cause));
             });
@@ -2389,7 +2527,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           void loadConversations();
           if (isCurrentSelected) {
             setReceiptsBySeq({});
-            void syncIncrementalMessages(selectedId, true).catch(
+            void syncIncrementalMessages(currentSelectedId, true).catch(
               (cause: unknown) => {
                 if (!cancelled) setError(surfaceErrorCopy(cause));
               }
@@ -2404,7 +2542,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           return;
         }
 
-        let needMessages = false;
+        let needMessages =
+          hintEvent?.kind === 'turn' || hintEvent?.kind === 'message';
         let needRoster = false;
         let needSpace = false;
         const turnMessageIds = new Set<string>();
@@ -2422,9 +2561,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               item?.messageId ?? item?.message_id ?? ''
             ).trim();
             if (msgId) turnMessageIds.add(msgId);
-            if (spaceId.startsWith('direct:')) {
-              needMessages = true;
-            }
+            needMessages = true;
           }
         }
 
@@ -2433,7 +2570,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             if (!cancelled) setError(surfaceErrorCopy(cause));
           });
         }
-        if (needRoster && activeSpaceIds.has(spaceId)) {
+        if (needRoster && getActiveSpaceIds().has(spaceId)) {
           void refreshSpaceMembers(spaceId).catch((cause: unknown) => {
             if (!cancelled) setError(surfaceErrorCopy(cause));
           });
@@ -2443,9 +2580,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         }
         if (isCurrentSelected) {
           if (needMessages || (needRoster && hintEvent?.memberId)) {
-            void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
-              if (!cancelled) setError(surfaceErrorCopy(cause));
-            });
+            void syncIncrementalMessages(currentSelectedId).catch(
+              (cause: unknown) => {
+                if (!cancelled) setError(surfaceErrorCopy(cause));
+              }
+            );
           }
           for (const msgId of turnMessageIds) {
             void refreshMessageReceipts(spaceId, msgId);
@@ -2497,7 +2636,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         if (!cancelled) setError(surfaceErrorCopy(cause));
       });
       void loadConversations();
-      for (const spaceId of activeSpaceIds) {
+      for (const spaceId of getActiveSpaceIds()) {
         void refreshSpaceMembers(spaceId).catch((cause: unknown) => {
           if (!cancelled) setError(surfaceErrorCopy(cause));
         });
@@ -2523,16 +2662,18 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   }, [
     applyDirectMessages,
     loadConversations,
-    refreshSidebar,
     openSpaceKey,
+    queryClient,
+    refreshSidebar,
     selectedId,
+    sessionDispatch,
     setMembersBySpace,
-    setMessages,
     setMessagesBySpace,
-    setScheduledMessages,
     setSpaceCursor,
     setSpaces,
-    spaces,
+    setThreadCardsFor,
+    setThreadMessagesFor,
+    setThreadScheduledFor,
     unassignedId,
     workspace,
   ]);
@@ -2687,6 +2828,15 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       return next;
     });
     if (sidebarItems) {
+      setSidebarItems((items) =>
+        items
+          ? items.map((item) =>
+              item.thread_id === spaceId || item.space_id === spaceId
+                ? { ...item, tag_color: config?.colorId || null }
+                : item
+            )
+          : items
+      );
       void updateThreadTagColor(
         collaborationCall,
         spaceId,
@@ -2744,7 +2894,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     ensureMessageAreaOpenForOverlay();
     setSpaceName('');
     setSpaceTagColorId('');
-    setSpaceTagCustomLabel('');
     setSelectedSpaceMemberConvIds(new Set());
     setDraftMemberMetaByConvId({});
     setCreateError('');
@@ -2864,19 +3013,43 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         (entry) => entry.type === 'group' && entry.spaceId === spaceId
       )?.threadId ||
       spaceId;
-    const openWith = (conversationId: string) => {
+    const openWith = (
+      conversationId: string,
+      resolvedMember: SpaceMember = member
+    ) => {
       if (!conversationId) return;
       setSelectedMemberKey(memberKey);
-      openMemberPreview(spaceId, member, conversationId);
+      openMemberPreview(spaceId, resolvedMember, conversationId);
     };
-    if (member.member_id && threadId) {
-      void resolveMemberSession(
-        collaborationCall,
-        member.member_id,
-        threadId
-      ).then((resolved) => {
-        openWith(resolved || member.conversation_id || '');
-      });
+    const memberRef =
+      member.member_id ||
+      member.identity_member_id ||
+      member.conversation_id ||
+      '';
+    if (memberRef && threadId) {
+      void resolveMemberSession(collaborationCall, memberRef, threadId).then(
+        (resolved) => {
+          const nextConversationId = resolved || member.conversation_id || '';
+          const nextMember =
+            resolved && resolved !== member.conversation_id
+              ? { ...member, conversation_id: resolved }
+              : member;
+          if (resolved && resolved !== member.conversation_id) {
+            setMembersBySpace((current) => {
+              const existing = current[spaceId];
+              if (!existing) return current;
+              const nextList = existing.map((item) =>
+                item.member_id === member.member_id ||
+                (item.nickname && item.nickname === member.nickname)
+                  ? { ...item, conversation_id: resolved }
+                  : item
+              );
+              return { ...current, [spaceId]: nextList };
+            });
+          }
+          openWith(nextConversationId, nextMember);
+        }
+      );
       return;
     }
     openWith(member.conversation_id || '');
@@ -3173,15 +3346,37 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     if (createdSpaceId && spaceTagColorId) {
       updateSpaceTag(createdSpaceId, {
         colorId: spaceTagColorId,
-        ...(spaceTagCustomLabel.trim()
-          ? { label: spaceTagCustomLabel.trim() }
-          : {}),
       });
     }
 
-    if (createdSpaceId && selectedSpaceMemberConvIds.size > 0) {
+    const selectedConvIds = [...selectedSpaceMemberConvIds];
+    const isSupervisorConv = (convId: string): boolean => {
+      if (!convId) return false;
+      if (
+        supervisorEntry &&
+        (supervisorEntry.member.conversation_id === convId ||
+          supervisorEntry.member.private_conversation_id === convId)
+      ) {
+        return true;
+      }
+      return allWorkspaceMembers.some(
+        (member) =>
+          Boolean(member.is_supervisor) &&
+          (member.conversation_id === convId ||
+            member.private_conversation_id === convId)
+      );
+    };
+    const supervisorSelected = selectedConvIds.some((convId) =>
+      isSupervisorConv(convId)
+    );
+    const firstSelectedName = memberNames[0] ?? '';
+    let resolvedLeadMemberId = '';
+
+    if (createdSpaceId && selectedConvIds.length > 0) {
       const usedNames = new Set(allExistingNicknames);
-      for (const convId of selectedSpaceMemberConvIds) {
+      let firstAddedSeatId = '';
+      let supervisorAddedSeatId = '';
+      for (const convId of selectedConvIds) {
         const draftMeta = draftMemberMetaByConvId[convId];
         const existingNick =
           draftMeta?.nickname || memberNicknameByConversationId.get(convId);
@@ -3189,35 +3384,91 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         usedNames.add(nick);
         // Joining a group keeps the member's private chat: the backend
         // creates a separate group session for the new seat.
-        await collaborationCall('collaboration', 'space.addMember', {
+        const added = await collaborationCall<{
+          member_id?: string;
+          is_supervisor?: boolean;
+        }>('collaboration', 'space.addMember', {
           spaceId: createdSpaceId,
           conversationId: convId,
           nickname: nick,
           operationId: crypto.randomUUID(),
         });
+        const seatId = String(added?.member_id ?? '').trim();
+        if (!firstAddedSeatId && seatId) {
+          firstAddedSeatId = seatId;
+        }
+        if (
+          !supervisorAddedSeatId &&
+          seatId &&
+          (Boolean(added?.is_supervisor) || isSupervisorConv(convId))
+        ) {
+          supervisorAddedSeatId = seatId;
+        }
       }
+      resolvedLeadMemberId = supervisorAddedSeatId || firstAddedSeatId;
     }
 
     setSpaceName('');
     setSpaceTagColorId('');
-    setSpaceTagCustomLabel('');
     setSelectedSpaceMemberConvIds(new Set());
     setDraftMemberMetaByConvId({});
     setCreateError('');
     setCreateOpen(false);
 
     if (createdSpaceId) {
+      const loadedMembers = await reloadSpaceMembers(createdSpaceId);
+      if (!resolvedLeadMemberId && loadedMembers.length > 0) {
+        const supName = supervisorEntry ? displayName(supervisorEntry.member) : '';
+        const supIdentityId =
+          supervisorEntry?.member.identity_member_id ||
+          supervisorEntry?.member.member_id ||
+          '';
+        const supSeat = supervisorSelected
+          ? loadedMembers.find(
+              (m) =>
+                Boolean(m.is_supervisor) ||
+                (Boolean(supIdentityId) &&
+                  (m.identity_member_id === supIdentityId ||
+                    m.member_id === supIdentityId)) ||
+                (Boolean(supName) &&
+                  normalizeMemberNickname(displayName(m)) ===
+                    normalizeMemberNickname(supName))
+            )
+          : undefined;
+        const firstSeat =
+          loadedMembers.find(
+            (m) =>
+              Boolean(firstSelectedName) &&
+              normalizeMemberNickname(displayName(m)) ===
+                normalizeMemberNickname(firstSelectedName)
+          ) ?? loadedMembers[0];
+        resolvedLeadMemberId = String(
+          (supSeat ?? firstSeat)?.member_id ?? ''
+        ).trim();
+      }
+      if (resolvedLeadMemberId) {
+        await collaborationCall('collaboration', 'space.update', {
+          spaceId: createdSpaceId,
+          leadMemberId: resolvedLeadMemberId,
+        });
+      }
       const nextCreated: Space = {
         space_id: createdSpaceId,
         name: created?.name || trimmedName,
+        ...(resolvedLeadMemberId
+          ? { lead_member_id: resolvedLeadMemberId }
+          : {}),
       };
       setSpaces((current) =>
         current.some((item) => item.space_id === nextCreated.space_id)
-          ? current
+          ? current.map((item) =>
+              item.space_id === nextCreated.space_id && resolvedLeadMemberId
+                ? { ...item, lead_member_id: resolvedLeadMemberId }
+                : item
+            )
           : [...current, nextCreated]
       );
       selectSpace(createdSpaceId);
-      await reloadSpaceMembers(createdSpaceId);
     }
     const page = await collaborationCall<{ spaces?: Space[] }>(
       'collaboration',
@@ -3225,7 +3476,15 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       { workspaceId: workspace }
     );
     if (Array.isArray(page.spaces)) {
-      setSpaces(page.spaces);
+      setSpaces(
+        page.spaces.map((space) =>
+          space.space_id === createdSpaceId &&
+          !space.lead_member_id &&
+          resolvedLeadMemberId
+            ? { ...space, lead_member_id: resolvedLeadMemberId }
+            : space
+        )
+      );
       if (!createdSpaceId && page.spaces[0]?.space_id) {
         selectSpace(page.spaces[0].space_id);
       }
@@ -3613,8 +3872,12 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     );
     setMembersBySpace((current) => ({
       ...current,
-      [renameSpaceId]: memberPage.members ?? [],
+      [renameSpaceId]: attachSidebarIdentityIds(
+        memberPage.members ?? [],
+        sidebarItemsRef.current
+      ),
     }));
+    void refreshSidebar();
   };
 
   const handleToggleDeleteMode = () => {
@@ -3681,13 +3944,49 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       );
       const nextSpaces = spacePage.spaces ?? [];
       setSpaces(nextSpaces);
-      setSelectedId((current) =>
-        nextSpaces.some((item) => item.space_id === current)
-          ? current
-          : (nextSpaces[0]?.space_id ?? '')
+      const deletedSpaceSet = new Set(spaceIds);
+      const deletedConvSet = new Set(
+        memberTargets.map((item) => item.conversationId)
       );
+      sessionDispatch({
+        type: 'apply',
+        apply: (state) => {
+          const current = state.selectedId;
+          const activeDirectDeleted =
+            Boolean(state.activeDirect) &&
+            (deletedSpaceSet.has(state.activeDirect?.spaceId ?? '') ||
+              deletedSpaceSet.has(state.activeDirect?.threadId ?? '') ||
+              Array.from(deletedConvSet).some((convId) =>
+                state.selectedMemberKey.endsWith(`:${convId}`)
+              ));
+          const directSelectedDeleted =
+            current.startsWith('direct:') &&
+            (deletedSpaceSet.has(current) ||
+              Array.from(deletedConvSet).some((convId) =>
+                state.selectedMemberKey.endsWith(`:${convId}`)
+              ));
+          if (
+            !activeDirectDeleted &&
+            !directSelectedDeleted &&
+            (current.startsWith('direct:') ||
+              current.startsWith('unassigned:') ||
+              current === VIRTUAL_DEFAULT_SPACE_ID ||
+              Boolean(state.activeDirect) ||
+              nextSpaces.some((item) => item.space_id === current))
+          ) {
+            return state;
+          }
+          return {
+            ...state,
+            selectedId: nextSpaces[0]?.space_id ?? '',
+            selectedMemberKey: '',
+            activeDirect: null,
+          };
+        },
+      });
       // Do not force-open create space dialog when spaces become empty.
       await loadConversations();
+      void refreshSidebar();
 
       const refreshIds = [
         ...nextSpaces.map((item) => item.space_id),
@@ -3707,7 +4006,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setMembersBySpace(() => {
         const next: Record<string, SpaceMember[]> = {};
         for (const [spaceId, list] of memberPages) {
-          next[spaceId] = list;
+          next[spaceId] = attachSidebarIdentityIds(
+            list,
+            sidebarItemsRef.current
+          );
         }
         return next;
       });
@@ -4025,7 +4327,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               message.envelope.reactions
             );
             const optimistic = toggleSpaceReaction(current, emoji);
-            setMessages((msgs) =>
+            setThreadMessagesFor(spaceId, (msgs) =>
               msgs.map((item) =>
                 item.seq === message.seq
                   ? {
@@ -4045,7 +4347,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                 id,
                 emoji
               );
-              setMessages((msgs) =>
+              setThreadMessagesFor(spaceId, (msgs) =>
                 msgs.map((item) =>
                   item.seq === message.seq
                     ? {
@@ -4056,7 +4358,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                 )
               );
             } catch (cause) {
-              setMessages((msgs) =>
+              setThreadMessagesFor(spaceId, (msgs) =>
                 msgs.map((item) =>
                   item.seq === message.seq
                     ? {
@@ -4084,6 +4386,53 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           if (!id) return;
           void writeClipboardViaBridge(id);
         },
+        onSaveToCollection: text.trim()
+          ? () => {
+              void (async () => {
+                const spaceId =
+                  directThreadRef.current || selectedIdRef.current;
+                if (!spaceId || !text.trim()) return;
+                try {
+                  await collaborationCall(
+                    'collaboration',
+                    'space.addCollectionItem',
+                    {
+                      spaceId,
+                      projectId: projectContext?.projectId ?? undefined,
+                      kind: 'text',
+                      content: text.trim(),
+                      creatorNickname: 'User',
+                    }
+                  );
+                  toast.success(i18n.t('panels:ui.collabPage.addedToGroupSaved'));
+                } catch (cause) {
+                  setError(surfaceErrorCopy(cause));
+                }
+              })();
+            }
+          : undefined,
+        onDistillMemory: text.trim()
+          ? () => {
+              void (async () => {
+                const spaceId =
+                  directThreadRef.current || selectedIdRef.current;
+                if (!spaceId || !text.trim()) return;
+                try {
+                  await collaborationCall(
+                    'collaboration',
+                    'space.memory.distillMessage',
+                    {
+                      spaceId,
+                      content: text.trim(),
+                    }
+                  );
+                  toast.success('已提炼为空间长期记忆');
+                } catch (cause) {
+                  setError(surfaceErrorCopy(cause));
+                }
+              })();
+            }
+          : undefined,
       }),
     });
   };
@@ -4130,12 +4479,22 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setError(COPY.nicknameMissing);
       return;
     }
+    const sendingSelectedId = selectedIdRef.current;
+    const sendingDirectThreadId = directThreadRef.current;
     const beforeSend = beginCollaborationComposerSend(sendingAttachments);
     sentAttachmentsRef.current = beforeSend.sentAttachments;
     setDraft(beforeSend.message);
     replaceDraftRef.current?.('');
     setAttachedImages(beforeSend.attachments);
     const restoreComposer = () => {
+      if (
+        selectedIdRef.current !== sendingSelectedId ||
+        directThreadRef.current !== sendingDirectThreadId
+      ) {
+        revokeCollaborationSendAttachments(sentAttachmentsRef.current);
+        sentAttachmentsRef.current = [];
+        return;
+      }
       restoreDraft(rawText);
       setAttachedImages((current) => {
         const restored = restoreCollaborationComposerAfterSendFailure({
@@ -4214,6 +4573,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       );
       const op = operationId;
       const spaceId = selected.space_id;
+      const baseMessages =
+        queryClient.getQueryData<ThreadMessagesPage>(
+          collabQueryKeys.thread(spaceId)
+        )?.messages ?? messagesRef.current;
       setPendingDirectMessages((current) => [
         ...current.filter((item) => item.operationId !== op),
         {
@@ -4247,7 +4610,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       const nextSeq =
         typeof posted.seq === 'number' && Number.isInteger(posted.seq)
           ? posted.seq
-          : latestMessageSeq(messagesRef.current) + 1;
+          : latestMessageSeq(baseMessages) + 1;
       const optimisticMessage: SpaceMessage = {
         seq: nextSeq,
         envelope: {
@@ -4256,7 +4619,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           ...(recipients.length > 0 ? { to: recipients } : {}),
         },
       };
-      setMessages((current) =>
+      setThreadMessagesFor(spaceId, (current) =>
         mergeSpaceMessages(current, [optimisticMessage])
       );
       setPendingDirectMessages((current) =>
@@ -4276,7 +4639,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       }
       finishSuccessfulSend();
       void loadConversations();
-      const sinceSeq = latestMessageSeq(messagesRef.current);
+      const currentTargetMessages =
+        queryClient.getQueryData<ThreadMessagesPage>(
+          collabQueryKeys.thread(spaceId)
+        )?.messages ?? [optimisticMessage];
+      const sinceSeq = latestMessageSeq(currentTargetMessages);
       const messagePage = await collaborationCall<{
         messages?: SpaceMessage[];
         scheduled?: ScheduledSpaceMessage[];
@@ -4288,13 +4655,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           : { spaceId, latest: true, limit: 200 }
       );
       if (Array.isArray(messagePage.scheduled)) {
-        setScheduledMessages(messagePage.scheduled);
+        setThreadScheduledFor(spaceId, messagePage.scheduled);
       }
       const incoming = messagePage.messages ?? [];
       setPendingDirectMessages((current) =>
         reconcilePendingDirectMessages(current, incoming)
       );
-      setMessages((current) =>
+      setThreadMessagesFor(spaceId, (current) =>
         sinceSeq > 0
           ? mergeSpaceMessages(current, incoming)
           : mergeSpaceMessages([optimisticMessage], incoming)
@@ -4419,7 +4786,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         current.filter((item) => item.id !== message.id)
       );
       try {
-        const recipients = postRecipients(message.data.message, members);
+        const recipients = postRecipients(
+          message.data.message,
+          allWorkspaceMembers
+        );
         const posted = await collaborationCall<{
           message_id?: string;
           scheduled?: ScheduledSpaceMessage;
@@ -4453,7 +4823,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         setError(surfaceErrorCopy(cause));
       }
     },
-    [members, selected, setScheduledMessages]
+    [allWorkspaceMembers, selected, setScheduledMessages]
   );
 
   const receiptLabels = useMemo(
@@ -4552,12 +4922,122 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     return ids;
   }, [conversationById, visibleRoster]);
 
+  const [resolvedApprovalCardIds, setResolvedApprovalCardIds] = useState<
+    string[]
+  >([]);
+  const [respondingApprovalCardId, setRespondingApprovalCardId] = useState<
+    string | null
+  >(null);
+
+  const resolvedApprovalCardSet = useMemo(() => {
+    const set = new Set<string>(resolvedApprovalCardIds);
+    for (const card of threadCards ?? []) {
+      if (card.status && card.status !== 'pending') {
+        set.add(card.id);
+      }
+    }
+    for (const message of messages) {
+      const text = bubbleText(message.envelope ?? {});
+      const match = text.match(/\[审批\s+([^\]]+)\]/);
+      if (match?.[1]) {
+        set.add(match[1].trim());
+      }
+    }
+    return set;
+  }, [messages, resolvedApprovalCardIds, threadCards]);
+
+  const pendingApprovalCards = useMemo<ParsedCard[]>(() => {
+    const result: ParsedCard[] = [];
+    const seen = new Set<string>();
+    for (const message of messages) {
+      const text = bubbleText(message.envelope ?? {});
+      const parsed = parseCard(text);
+      if (
+        parsed &&
+        parsed.kind === 'approval' &&
+        !parsed.before.trim() &&
+        !resolvedApprovalCardSet.has(parsed.id) &&
+        !seen.has(parsed.id)
+      ) {
+        seen.add(parsed.id);
+        result.push(parsed);
+      }
+    }
+    for (const record of threadCards ?? []) {
+      if (
+        record.kind === 'approval' &&
+        record.status === 'pending' &&
+        !resolvedApprovalCardSet.has(record.id) &&
+        !seen.has(record.id)
+      ) {
+        seen.add(record.id);
+        const action = String(record.payload?.action ?? '').trim();
+        const command = String(record.payload?.command ?? '').trim();
+        const reason = String(record.payload?.reason ?? '').trim();
+        result.push({
+          kind: 'approval',
+          id: record.id,
+          before: '',
+          body: action,
+          options: [],
+          action,
+          command,
+          reason,
+        });
+      }
+    }
+    return result;
+  }, [messages, resolvedApprovalCardSet, threadCards]);
+
+  const pendingApprovalCardIds = useMemo(
+    () => new Set(pendingApprovalCards.map((card) => card.id)),
+    [pendingApprovalCards]
+  );
+
+  const handleResolveApprovalCard = useCallback(
+    async (cardId: string, response: AgentPermissionResponse) => {
+      const decision = mapPermissionResponseToApprovalDecision(response);
+      setRespondingApprovalCardId(cardId);
+      try {
+        await collaborationCall('collaboration', 'card.resolve', {
+          cardId,
+          decision,
+        });
+        setResolvedApprovalCardIds((current) =>
+          current.includes(cardId) ? current : [...current, cardId]
+        );
+      } catch (err) {
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+        if (/already|resolved/i.test(message)) {
+          setResolvedApprovalCardIds((current) =>
+            current.includes(cardId) ? current : [...current, cardId]
+          );
+        } else {
+          setError(surfaceErrorCopy(err));
+        }
+      } finally {
+        setRespondingApprovalCardId((current) =>
+          current === cardId ? null : current
+        );
+      }
+    },
+    []
+  );
+
   const filteredMessages = useMemo(
     () =>
-      messages.filter(
-        (message) =>
-          !isCollabDmBootstrapPrompt(bubbleText(message.envelope ?? {}))
-      ),
+      messages.filter((message) => {
+        const text = bubbleText(message.envelope ?? {});
+        if (isCollabDmBootstrapPrompt(text)) return false;
+        const card = parseCard(text);
+        if (card?.kind === 'approval' && !card.before.trim()) {
+          return false;
+        }
+        return true;
+      }),
     [messages]
   );
 
@@ -4643,6 +5123,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     pendingThreadCount,
     workingMembers.length,
     workingConversationIds.length,
+    pendingApprovalCards.length,
   ]);
 
   const selectedTagConfig = useMemo(() => {
@@ -4921,6 +5402,119 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ? groupId
       : UNGROUPED_SECTION_ID;
   };
+  const assignSupervisor = useCallback(
+    async (memberRef: string | null) => {
+      if (!workspace) return;
+      const normalizedRef = memberRef?.trim() || null;
+      const matchesTarget = (member: {
+        identity_member_id?: string | null;
+        member_id?: string | null;
+        conversation_id?: string | null;
+        nickname?: string | null;
+        name?: string | null;
+      }) => {
+        if (!normalizedRef) return false;
+        return (
+          member.identity_member_id === normalizedRef ||
+          member.member_id === normalizedRef ||
+          member.conversation_id === normalizedRef ||
+          normalizeMemberNickname(member.nickname ?? member.name) ===
+            normalizeMemberNickname(normalizedRef)
+        );
+      };
+
+      let backendMemberRef = normalizedRef;
+      if (normalizedRef) {
+        for (const entry of chatListRef.current) {
+          if (entry.type === 'direct' && matchesTarget(entry.member)) {
+            backendMemberRef =
+              entry.member.identity_member_id ||
+              entry.member.member_id ||
+              entry.member.conversation_id ||
+              normalizedRef;
+            break;
+          }
+        }
+      }
+
+      setSupervisorOverride({
+        workspace,
+        active: true,
+        memberRef: backendMemberRef,
+      });
+
+      setSidebarItems((current) =>
+        current
+          ? current.map((item) => ({
+              ...item,
+              member: item.member
+                ? {
+                    ...item.member,
+                    is_supervisor: matchesTarget(item.member),
+                  }
+                : item.member,
+              members_preview: item.members_preview?.map((preview) => ({
+                ...preview,
+                is_supervisor: matchesTarget(preview),
+              })),
+            }))
+          : current
+      );
+
+      setMembersBySpace((current) => {
+        const next: Record<string, SpaceMember[]> = {};
+        for (const [spaceId, list] of Object.entries(current)) {
+          next[spaceId] = list.map((member) =>
+            member.kind && member.kind !== 'agent'
+              ? member
+              : {
+                  ...member,
+                  is_supervisor: matchesTarget(member),
+                }
+          );
+        }
+        return next;
+      });
+
+      if (normalizedRef) {
+        setSelectedDeleteMemberKeys((current) => {
+          if (current.size === 0) return current;
+          const next = new Set<string>();
+          for (const key of current) {
+            const parsed = parseMemberSelectionKey(key);
+            if (
+              parsed &&
+              (parsed.conversationId === normalizedRef ||
+                parsed.conversationId === backendMemberRef)
+            ) {
+              continue;
+            }
+            next.add(key);
+          }
+          return next;
+        });
+      }
+
+      try {
+        await setWorkspaceSupervisor(
+          collaborationCall,
+          workspace,
+          backendMemberRef
+        );
+        await refreshSidebar();
+      } catch (cause) {
+        setSupervisorOverride({
+          workspace: '',
+          active: false,
+          memberRef: null,
+        });
+        void refreshSidebar();
+        setError(surfaceErrorCopy(cause));
+      }
+    },
+    [refreshSidebar, setMembersBySpace, setSidebarItems, workspace]
+  );
+
   const resolveSidebarDrop = (
     payload: SidebarDragPayload,
     clientX: number,
@@ -4928,12 +5522,19 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   ): SidebarDropTarget => {
     let spaceId = '';
     let sectionId = '';
+    let isSupervisorSlot = false;
     const els =
       typeof document.elementsFromPoint === 'function'
         ? document.elementsFromPoint(clientX, clientY)
         : [];
     for (const el of els) {
       const node = el as HTMLElement;
+      if (
+        !isSupervisorSlot &&
+        node.closest?.('[data-supervisor-slot="true"]')
+      ) {
+        isSupervisorSlot = true;
+      }
       if (!spaceId)
         spaceId =
           (node.closest?.('[data-space-id]') as HTMLElement | null)?.dataset
@@ -4944,6 +5545,20 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             ?.dataset.contactSectionId ?? '';
     }
     if (els.length === 0) {
+      const supervisorEl = document.querySelector<HTMLElement>(
+        '[data-supervisor-slot="true"]'
+      );
+      if (supervisorEl) {
+        const rect = supervisorEl.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          isSupervisorSlot = true;
+        }
+      }
       for (const spaceEl of document.querySelectorAll<HTMLElement>(
         '[data-space-id]'
       )) {
@@ -4958,6 +5573,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           break;
         }
       }
+    }
+    if (payload.kind === 'member' && isSupervisorSlot) {
+      return { kind: 'supervisor' };
     }
     // Member onto a group-chat row: add to that group (unless already in).
     if (payload.kind === 'member' && spaceId) {
@@ -5004,6 +5622,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             fromSpaceId: payload.fromSpaceId,
             conversationId: payload.conversationId,
             nickname: payload.nickname,
+            memberId: payload.memberId,
           });
           ensureGroupMembersLoaded();
         } else {
@@ -5018,6 +5637,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         moveEvent.clientY
       );
       setSidebarDropTarget(currentTarget);
+      setIsSupervisorDropTarget(currentTarget?.kind === 'supervisor');
       setBodyBlocked(currentTarget?.kind === 'blocked');
     };
 
@@ -5035,6 +5655,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setDraggingThreadName(null);
       setSidebarDropTarget(null);
       setDropTargetSpaceId('');
+      setIsSupervisorDropTarget(false);
     };
 
     const handlePointerUp = (upEvent: PointerEvent) => {
@@ -5048,7 +5669,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         suppressNextMemberClickRef.current = false;
       }, 0);
       if (!target) return;
-      if (target.kind === 'section') {
+      if (target.kind === 'supervisor') {
+        if (payload.kind === 'member') {
+          void assignSupervisor(
+            payload.memberId || payload.conversationId || payload.nickname
+          );
+        }
+      } else if (target.kind === 'section') {
         if (payload.threadId)
           void moveContactToSection(payload.threadId, target.sectionId);
       } else if (payload.kind === 'member') {
@@ -5180,7 +5807,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               fromSpaceId: spaceId,
               conversationId,
               nickname: String(member.nickname ?? name),
-              memberId: member.member_id ?? undefined,
+              memberId:
+                member.identity_member_id ?? member.member_id ?? undefined,
               threadId: directThreadIdForMember(member),
             });
           }}
@@ -5190,6 +5818,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               fromSpaceId: spaceId,
               conversationId,
               nickname: String(member.nickname ?? name),
+              memberId:
+                member.identity_member_id ?? member.member_id ?? undefined,
             };
             setDraggingMember(payload);
             const serialized = JSON.stringify(payload);
@@ -5206,6 +5836,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             setDraggingMember(null);
             setPointerDragCursor(null);
             setDropTargetSpaceId('');
+            setIsSupervisorDropTarget(false);
           }}
         >
           {isEditingMemberName ? (
@@ -5649,8 +6280,40 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     }
     return [...memberResults, ...groupResults];
   })();
+  const directEntries = chatList.filter(
+    (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
+      entry.type === 'direct'
+  );
+  const supervisorEntry: Extract<ChatListEntry, { type: 'direct' }> | null =
+    (() => {
+      if (
+        supervisorOverride.active &&
+        supervisorOverride.workspace === workspace
+      ) {
+        const ref = supervisorOverride.memberRef?.trim() || null;
+        if (!ref) return null;
+        return (
+          directEntries.find(
+            (entry) =>
+              entry.member.identity_member_id === ref ||
+              entry.member.member_id === ref ||
+              entry.member.conversation_id === ref ||
+              normalizeMemberNickname(entry.member.nickname || entry.name) ===
+                normalizeMemberNickname(ref)
+          ) ?? null
+        );
+      }
+      return (
+        directEntries.find((entry) =>
+          isDirectEntrySupervisor(entry, directEntries)
+        ) ?? null
+      );
+    })();
+  const listChatEntries = supervisorEntry
+    ? chatList.filter((entry) => entry.key !== supervisorEntry.key)
+    : chatList;
   const { visible: visibleChatList, hidden: hiddenChatList } =
-    applyContactListView(chatList, contactChrome, listSort, typeFilter);
+    applyContactListView(listChatEntries, contactChrome, listSort, typeFilter);
   const contactSections = sidebarAvailable
     ? buildContactSections(
         visibleChatList,
@@ -5691,6 +6354,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   const deleteChatEntry = async (entry: ChatListEntry) => {
     if (!workspace) return;
     try {
+      const deletedSpaceId = entry.type === 'group' ? entry.spaceId : '';
+      const deletedConvId =
+        entry.type === 'direct'
+          ? String(entry.member.conversation_id ?? '').trim()
+          : '';
       if (entry.type === 'group') {
         await collaborationCall('collaboration', 'space.batchDelete', {
           workspaceId: workspace,
@@ -5699,14 +6367,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           operationId: crypto.randomUUID(),
         });
       } else {
-        const conversationId = String(
-          entry.member.conversation_id ?? ''
-        ).trim();
-        if (!conversationId) return;
+        if (!deletedConvId) return;
         await collaborationCall('collaboration', 'space.batchDelete', {
           workspaceId: workspace,
           spaceIds: [],
-          memberTargets: [{ spaceId: entry.spaceId, conversationId }],
+          memberTargets: [
+            { spaceId: entry.spaceId, conversationId: deletedConvId },
+          ],
           operationId: crypto.randomUUID(),
         });
       }
@@ -5716,20 +6383,51 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         'space.list',
         { workspaceId: workspace }
       );
-      setSpaces(spacePage.spaces ?? []);
+      const nextSpaces = spacePage.spaces ?? [];
+      setSpaces(nextSpaces);
+      sessionDispatch({
+        type: 'apply',
+        apply: (state) => {
+          const current = state.selectedId;
+          const activeDirectDeleted =
+            entry.type === 'direct' &&
+            ((Boolean(entry.threadId) &&
+              (current === entry.threadId ||
+                state.activeDirect?.threadId === entry.threadId)) ||
+              (Boolean(deletedConvId) &&
+                state.selectedMemberKey.endsWith(`:${deletedConvId}`)));
+          const groupDeleted =
+            entry.type === 'group' && current === deletedSpaceId;
+          if (!activeDirectDeleted && !groupDeleted) {
+            return state;
+          }
+          return {
+            ...state,
+            selectedId: nextSpaces[0]?.space_id ?? '',
+            selectedMemberKey: '',
+            activeDirect: null,
+          };
+        },
+      });
+      if (entry.type === 'direct' && entry.spaceId) {
+        await reloadSpaceMembers(entry.spaceId);
+      }
+      await loadConversations();
     } catch (cause) {
       setError(surfaceErrorCopy(cause));
     }
   };
   const openRowContactMenu = (
     event: React.MouseEvent,
-    entry: ChatListEntry
+    entry: ChatListEntry,
+    options?: { isSupervisor?: boolean }
   ) => {
     const threadId = chatEntryThreadId(entry);
     if (!threadId) return;
     const pinned = contactChrome.pinned.includes(threadId);
     const hidden = contactChrome.hidden.includes(threadId);
     const unread = (entry.unreadCount ?? 0) > 0;
+    const isSupervisor = Boolean(options?.isSupervisor);
     openContactMenu(
       event,
       buildContactRowMenuItems({
@@ -5737,6 +6435,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         pinned,
         hidden,
         unread,
+        isSupervisor,
         moveTargets: moveTargetsForEntry(entry, contactSections),
         onPin: () =>
           persistContactChrome(togglePinnedThread(contactChrome, threadId)),
@@ -5777,6 +6476,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         onHide: () =>
           persistContactChrome(toggleHiddenThread(contactChrome, threadId)),
         onDelete: () => void deleteChatEntry(entry),
+        onStepDownSupervisor: isSupervisor
+          ? () => void assignSupervisor(null)
+          : undefined,
       })
     );
   };
@@ -5877,6 +6579,271 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     </div>
   );
 
+  const renderSupervisorSlot = () => {
+    const isDropTarget =
+      isSupervisorDropTarget || sidebarDropTarget?.kind === 'supervisor';
+    const handleSupervisorDragOver = (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+      if (!isSupervisorDropTarget) {
+        setIsSupervisorDropTarget(true);
+      }
+    };
+    const handleSupervisorDragLeave = (
+      event: React.DragEvent<HTMLDivElement>
+    ) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        setIsSupervisorDropTarget(false);
+      }
+    };
+    const handleSupervisorDrop = (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsSupervisorDropTarget(false);
+      let payload = draggingMember;
+      const raw =
+        event.dataTransfer?.getData('application/x-vibex-space-member') ||
+        event.dataTransfer?.getData('text/plain');
+      if (raw) {
+        try {
+          payload = JSON.parse(raw) as {
+            fromSpaceId: string;
+            conversationId: string;
+            nickname: string;
+            memberId?: string;
+          };
+        } catch {
+          // Use state fallback
+        }
+      }
+      setDraggingMember(null);
+      setPointerDragCursor(null);
+      if (payload) {
+        void assignSupervisor(
+          payload.memberId || payload.conversationId || payload.nickname
+        );
+      }
+    };
+
+    if (!supervisorEntry) {
+      return (
+        <div
+          className={cn(
+            'collaboration-supervisor-slot is-empty',
+            isDropTarget && 'is-drop-target'
+          )}
+          data-supervisor-slot="true"
+          data-supervisor-empty="true"
+          data-testid="collaboration-supervisor-slot"
+          data-drop-state={isDropTarget ? 'target' : undefined}
+          onDragOver={handleSupervisorDragOver}
+          onDragLeave={handleSupervisorDragLeave}
+          onDrop={handleSupervisorDrop}
+        >
+          <span
+            className="collaboration-supervisor-empty-avatar"
+            aria-hidden="true"
+          >
+            <Bot className="h-5 w-5" />
+          </span>
+          <span className="collaboration-supervisor-empty-label">
+            {t(
+              'collaborationSpace.supervisorEmptyHint',
+              '拖动助手到此设为主管'
+            )}
+          </span>
+        </div>
+      );
+    }
+
+    const { member, spaceId, threadId } = supervisorEntry;
+    const conversationId = member.conversation_id ?? '';
+    const memberKey = previewMemberKey(spaceId, member);
+    const tabId = conversationId ? memberPreviewPanelId(conversationId) : '';
+    const memberDirectId = directThreadIdFor(member, threadId);
+    const directSelected =
+      Boolean(activeDirectThreadId) &&
+      Boolean(memberDirectId) &&
+      activeDirectThreadId === memberDirectId;
+    const active =
+      selectedMemberKey === memberKey ||
+      directSelected ||
+      (tabId !== '' && activePreviewTabId === tabId);
+    const name = displayName(member);
+    const conv = conversationId
+      ? conversationById.get(conversationId)
+      : undefined;
+    const isRunning = Boolean(conv?.turn_in_flight);
+    const tone = workspaceSessionStatusTone({
+      status: conv?.status ?? 'todo',
+      isRunning,
+    });
+    const isEditingMemberName =
+      renameOpen &&
+      renameSpaceId === spaceId &&
+      renameConversationId === conversationId &&
+      Boolean(conversationId);
+
+    return (
+      <div
+        className={cn(
+          'collaboration-supervisor-slot',
+          active && 'is-selected',
+          isDropTarget && 'is-drop-target'
+        )}
+        data-supervisor-slot="true"
+        data-supervisor-empty="false"
+        data-testid="collaboration-supervisor-slot"
+        data-drop-state={isDropTarget ? 'target' : undefined}
+        onContextMenu={(event) =>
+          openRowContactMenu(event, supervisorEntry, { isSupervisor: true })
+        }
+        onDragOver={handleSupervisorDragOver}
+        onDragLeave={handleSupervisorDragLeave}
+        onDrop={handleSupervisorDrop}
+      >
+        {isEditingMemberName ? (
+          <div className="flex w-full flex-col gap-1.5 py-1">
+            <form
+              className="workspace-session-row-main is-editing flex items-center gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void renameMember().catch((cause: unknown) =>
+                  setRenameError(surfaceErrorCopy(cause))
+                );
+              }}
+            >
+              <span
+                className="workspace-session-icon shrink-0"
+                style={{
+                  width: CONTACT_AVATAR_PX,
+                  height: CONTACT_AVATAR_PX,
+                }}
+                aria-hidden="true"
+              >
+                <MemberBotAvatar
+                  config={renameAvatar}
+                  gaze="up-right"
+                  sessionActive={Boolean(
+                    isRunning || conv?.status === 'inprogress'
+                  )}
+                  className="collaboration-supervisor-rename-avatar"
+                  data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
+                />
+              </span>
+              <Input
+                aria-label={t('collaborationSpace.nickname', '昵称')}
+                value={renameNickname}
+                onChange={(event) => {
+                  setRenameNickname(event.target.value);
+                  setRenameOperationId(crypto.randomUUID());
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setRenameOpen(false);
+                    setRenameError('');
+                  }
+                }}
+                placeholder={t('collaborationSpace.nickname', '昵称')}
+                className="workspace-session-title-input h-6 min-w-0 flex-1 px-1.5 text-[12px]"
+                autoFocus
+              />
+              <Button
+                type="button"
+                variant="icon"
+                size="icon"
+                className="collaboration-expand h-6 w-6 shrink-0"
+                aria-label={i18n.t('panels:ui.collabPage.cancelNicknameEdit')}
+                onClick={() => {
+                  setRenameOpen(false);
+                  setRenameError('');
+                }}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                type="submit"
+                variant="icon"
+                size="icon"
+                className="collaboration-expand h-6 w-6 shrink-0"
+                aria-label={t(
+                  'collaborationSpace.renameMember',
+                  COPY.renameMember
+                )}
+                disabled={!renameNickname.trim()}
+              >
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </form>
+            <div className="px-2 pb-1">
+              <MemberBotAvatarPicker
+                value={renameAvatar}
+                onChange={setRenameAvatar}
+                compact
+              />
+            </div>
+            {renameError ? (
+              <p className="collaboration-error px-2 text-xs">{renameError}</p>
+            ) : null}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="collaboration-supervisor-card"
+            aria-label={name}
+            data-testid="collaboration-supervisor-button"
+            onClick={() => {
+              if (suppressNextMemberClickRef.current) {
+                suppressNextMemberClickRef.current = false;
+                return;
+              }
+              openPrivateChat(spaceId, member, threadId);
+            }}
+          >
+            <span
+              className="collaboration-supervisor-avatar-wrap workspace-session-icon"
+              aria-hidden="true"
+            >
+              <MemberBotAvatar
+                config={getMemberAvatar(conversationId, name)}
+                gaze="up-right"
+                sessionActive={Boolean(
+                  isRunning || conv?.status === 'inprogress'
+                )}
+                className="collaboration-supervisor-avatar"
+                data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
+              />
+              <span
+                className={cn(
+                  'workspace-session-status',
+                  `workspace-session-status--${tone}`
+                )}
+                data-status={tone}
+                title={t('conversation:children.status.' + tone, {
+                  defaultValue: tone,
+                })}
+              />
+              {supervisorEntry.unreadCount ? (
+                <span
+                  className="collaboration-supervisor-unread collaboration-chat-unread"
+                  data-testid={`collaboration-chat-meta-${supervisorEntry.key}`}
+                >
+                  {supervisorEntry.unreadCount}
+                </span>
+              ) : null}
+            </span>
+            <span className="collaboration-supervisor-name">{name}</span>
+          </button>
+        )}
+      </div>
+    );
+  };
+
   // Unread badge only; last-message text lives under the name.
   const renderChatMeta = (entry: ChatListEntry) =>
     entry.unreadCount ? (
@@ -5942,7 +6909,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         isSpaceMember(
           space.space_id,
           draggingMember.conversationId,
-          undefined,
+          draggingMember.memberId,
           draggingMember.nickname
         )
     );
@@ -6001,6 +6968,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                 fromSpaceId: string;
                 conversationId: string;
                 nickname: string;
+                memberId?: string;
               };
             } catch {
               // Use state fallback
@@ -6013,7 +6981,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               isSpaceMember(
                 space.space_id,
                 payload.conversationId,
-                undefined,
+                payload.memberId,
                 payload.nickname
               )
             ) {
@@ -6029,7 +6997,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               payload.fromSpaceId,
               space.space_id,
               payload.conversationId,
-              payload.nickname
+              payload.nickname,
+              payload.memberId
             );
           }
         }}
@@ -6182,9 +7151,20 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                       </PopoverTrigger>
                       <PopoverContent align="end" className="w-52 p-2.5">
                         <div className="flex flex-col gap-2">
-                          <span className="text-xs font-medium text-[var(--text-strong)]">
-                            {COPY.spaceTagLabel}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-[var(--text-strong)]">
+                              {COPY.spaceTagLabel}
+                            </span>
+                            <button
+                              type="button"
+                              className="cursor-pointer text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text-strong)]"
+                              onClick={() =>
+                                updateSpaceTag(space.space_id, null)
+                              }
+                            >
+                              {COPY.spaceTagClear}
+                            </button>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
                             {SPACE_TAG_PRESETS.map((preset) => {
                               const selectedTag =
@@ -6320,6 +7300,16 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               <div className="space-y-1.5">
                 <Label>{COPY.spaceTagLabel}</Label>
                 <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      'collaboration-tag-swatch',
+                      !spaceTagColorId && 'is-selected'
+                    )}
+                    onClick={() => setSpaceTagColorId('')}
+                  >
+                    <span>{COPY.spaceTagNone}</span>
+                  </button>
                   {SPACE_TAG_PRESETS.map((preset) => {
                     const active = spaceTagColorId === preset.id;
                     return (
@@ -6345,17 +7335,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                     );
                   })}
                 </div>
-                {spaceTagColorId ? (
-                  <Input
-                    aria-label={i18n.t('panels:ui.collabPage.tagName')}
-                    value={spaceTagCustomLabel}
-                    onChange={(event) =>
-                      setSpaceTagCustomLabel(event.target.value)
-                    }
-                    placeholder={i18n.t('panels:ui.collabPage.tagNameOptional')}
-                    className="h-8 px-2.5 text-[13px]"
-                  />
-                ) : null}
               </div>
 
               <div className="space-y-1.5">
@@ -6608,6 +7587,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     applyPrivateChatRef,
     applySelectSpaceRef,
     applySessionFocusRef,
+    assignSupervisor,
     attachedImages,
     attachedImagesRef,
     bootstrappedDefaultBotWorkspaceRef,
@@ -6818,6 +7798,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     renderMessageAreaOverlay,
     renderSectionEntry,
     renderSpaceGroup,
+    renderSupervisorSlot,
     replaceDraftRef,
     replyingTo,
     repoIds,
@@ -6936,7 +7917,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     setSpaceName,
     setSpaceQueuedMessages,
     setSpaceTagColorId,
-    setSpaceTagCustomLabel,
     setSpaceTags,
     setSpaces,
     setSpacesPaneWidth,
@@ -6958,7 +7938,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     spaceName,
     spaceQueuedMessages,
     spaceTagColorId,
-    spaceTagCustomLabel,
     spaceTags,
     spaces,
     spacesOrder,
@@ -6967,9 +7946,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     spacesResizerSide,
     spacesResizerSideRef,
     startSidebarPointerDrag,
+    supervisorEntry,
     suppressNextMemberClickRef,
     syncingDockviewRef,
     t,
+    threadCards,
     threadLogRef,
     threadOrder,
     threadQueryId,
@@ -6990,6 +7971,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     warmupCooldownRef,
     workingConversationIds,
     workingMembers,
+    pendingApprovalCards,
+    pendingApprovalCardIds,
+    respondingApprovalCardId,
+    handleResolveApprovalCard,
     workspace,
     workspaceId,
     workspacePath,

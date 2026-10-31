@@ -87,7 +87,26 @@ pub(crate) async fn connect_and_open_window(
     request: ConnectHostRequest,
 ) -> Result<ConnectHostResult, AppError> {
     let result = runtime().connect(caller_window, registry, request).await?;
-    if let Err(error) = super::host_window::open_or_focus_host_window(app, &result.profile) {
+    tokio::task::yield_now().await;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let app_for_ui = app.clone();
+    let profile_for_ui = result.profile.clone();
+    let open_result = match app.run_on_main_thread(move || {
+        let _ = tx.send(super::host_window::open_or_focus_host_window(
+            &app_for_ui,
+            &profile_for_ui,
+        ));
+    }) {
+        Ok(()) => rx.await.unwrap_or_else(|_| {
+            Err(AppError::Internal(
+                "Host window UI thread task cancelled".to_string(),
+            ))
+        }),
+        Err(err) => Err(AppError::Internal(format!(
+            "Failed to schedule host window creation on UI thread: {err}"
+        ))),
+    };
+    if let Err(error) = open_result {
         let label = host_window_label(&result.profile.id);
         let _ = runtime().disconnect_window(registry, &label).await;
         return Err(error);

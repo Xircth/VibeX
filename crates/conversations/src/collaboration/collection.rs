@@ -47,9 +47,11 @@ pub(crate) async fn purge_space_collection(
     let canonical = space_collection_dir(space_id);
     if canonical.exists() {
         let _ = std::fs::remove_dir_all(&canonical);
-        if let Some(parent) = canonical.parent() {
-            let _ = std::fs::remove_dir(parent);
-        }
+    }
+    if let Some(parent) = canonical.parent()
+        && parent.exists()
+    {
+        let _ = std::fs::remove_dir_all(parent);
     }
     for pid in project_ids {
         let dir = legacy_space_collection_dir(&pid, space_id);
@@ -1186,6 +1188,7 @@ pub async fn add_to_space_collection_with(
         let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
         delivery.notify_space_changed(ev);
     }
+    let _ = crate::member_memory::sync_space_memory_files(pool, space_id, None).await;
 
     Ok(record)
 }
@@ -1395,6 +1398,7 @@ pub async fn update_space_collection_item_note_with(
 
     let mut updated = row;
     updated.note = trimmed_note.to_string();
+    let _ = crate::member_memory::sync_space_memory_files(pool, space_id, None).await;
     hydrate_collection_item(pool, updated, audience).await
 }
 
@@ -1463,6 +1467,7 @@ pub async fn remove_space_collection_item_with(
         let ev = latest_space_changed_event(pool, workspace_uuid, space_id, None).await;
         delivery.notify_space_changed(ev);
     }
+    let _ = crate::member_memory::sync_space_memory_files(pool, space_id, None).await;
 
     Ok(())
 }

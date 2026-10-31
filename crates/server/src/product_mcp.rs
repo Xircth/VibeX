@@ -83,11 +83,12 @@ async fn companion(
     {
         let ephemeral = Uuid::new_v4().to_string();
         let permissions = if product == "session" {
+            let bits = state.gate.session_features();
             TokenPermissions {
-                feedback: true,
-                ask: true,
-                session_info: true,
-                session_control: true,
+                feedback: bits & plugins::SESSION_FEAT_FEEDBACK != 0,
+                ask: bits & plugins::SESSION_FEAT_ASK != 0,
+                session_info: bits & plugins::SESSION_FEAT_SESSIONS != 0,
+                session_control: bits & plugins::SESSION_FEAT_SESSION_CONTROL != 0,
                 ..TokenPermissions::default()
             }
         } else {

@@ -133,8 +133,16 @@ export function MemberSessionConfigControls({
         pending={configOverrides}
         onSelectMode={onModeId}
         onSelectConfigOption={(key, value) => {
+          if (!modeId && catalog.current_mode) {
+            onModeId(catalog.current_mode);
+          }
           onValues(
-            selectConfigOptionValue(visibleConfigOptions, values, key, value)
+            selectConfigOptionValue(
+              visibleConfigOptions,
+              configOverrides,
+              key,
+              value
+            )
           );
         }}
       />

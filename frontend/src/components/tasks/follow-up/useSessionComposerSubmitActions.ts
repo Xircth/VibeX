@@ -15,6 +15,7 @@ export function useSessionComposerSubmitActions({
   isAttemptRunning,
   isQueued,
   isEditingQueued = false,
+  canSendFollowUp = true,
   clearStopping,
   cancelDebouncedSave,
   saveToScratch,
@@ -30,6 +31,7 @@ export function useSessionComposerSubmitActions({
   isAttemptRunning: boolean;
   isQueued: boolean;
   isEditingQueued?: boolean;
+  canSendFollowUp?: boolean;
   clearStopping: () => void;
   cancelDebouncedSave: () => void;
   saveToScratch: (
@@ -85,22 +87,41 @@ export function useSessionComposerSubmitActions({
   );
 
   const handleComposerSubmit = useCallback(
-    (submittedMessage: string) => {
+    (submittedMessage: string): boolean => {
       const action = getSubmitShortcutAction({ isAttemptRunning, isQueued });
       if (isEditingQueued || action === 'queue') {
+        const queuedFollowUp = buildQueuedFollowUp({
+          message: submittedMessage,
+          conflictMarkdown: conflictResolutionInstructions,
+          reviewMarkdown,
+          images: attachedImagePaths,
+          executorProfile: effectiveExecutorProfile,
+        });
+        if (!queuedFollowUp) return false;
         void handleQueueMessage(submittedMessage);
-        return;
+        queueMicrotask(() => cancelDebouncedSave());
+        return true;
       }
       if (action === 'send') {
+        if (!canSendFollowUp) return false;
         onSubmitFollowUp(submittedMessage);
+        queueMicrotask(() => cancelDebouncedSave());
+        return true;
       }
+      return false;
     },
     [
+      attachedImagePaths,
+      canSendFollowUp,
+      cancelDebouncedSave,
+      conflictResolutionInstructions,
+      effectiveExecutorProfile,
       handleQueueMessage,
       isAttemptRunning,
       isEditingQueued,
       isQueued,
       onSubmitFollowUp,
+      reviewMarkdown,
     ]
   );
 

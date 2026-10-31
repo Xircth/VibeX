@@ -1,19 +1,18 @@
 use std::collections::BTreeMap;
 
 use agents::conversation::{
-    ContentBlock, ConversationError, ConversationErrorView, ConversationEvent,
-    ConversationRowOp, ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole,
-    cap_json_value, cap_preview_bytes,
+    ContentBlock, ConversationError, ConversationErrorView, ConversationEvent, ConversationRowOp,
+    ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole, cap_json_value, cap_preview_bytes,
 };
 use db::models::conversation_event::ConversationEventRecord;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::cache::{AssistantEmit, TouchedTurnRows, clear_session_connect_notices};
-use super::rows::side_row;
 use super::{
-    ParsedEvent, ProjectionFold, conversation_event_from_record, emit_captured_internal_message,
-    merge_reported_turn_usage,
+    ParsedEvent, ProjectionFold,
+    cache::{AssistantEmit, TouchedTurnRows, clear_session_connect_notices},
+    conversation_event_from_record, emit_captured_internal_message, merge_reported_turn_usage,
+    rows::side_row,
 };
 
 impl ProjectionFold {
@@ -258,7 +257,10 @@ impl ProjectionFold {
                             if reported_status.is_some() {
                                 *status = reported_status.clone();
                             }
-                            if let Some(raw) = tool_call.raw_input {
+                            if let Some(raw) = tool_call.raw_input
+                                && (!raw.as_object().is_some_and(|map| map.is_empty())
+                                    || input_preview.is_none())
+                            {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
                             }
                             if let Some(metadata) = tool_call.metadata.clone() {
@@ -797,10 +799,12 @@ pub(super) fn append_thinking_block(blocks: &mut Vec<ContentBlock>, text: String
 
 #[cfg(test)]
 mod tests {
-    use agents::AgentId;
-    use agents::conversation::{
-        ConversationAgentConnectionStatus, ConversationEvent, ConversationSessionNotice,
-        ConversationTimelineRow, ConversationUsage, TurnUsage,
+    use agents::{
+        AgentId,
+        conversation::{
+            ConversationAgentConnectionStatus, ConversationEvent, ConversationSessionNotice,
+            ConversationTimelineRow, ConversationUsage, TurnUsage,
+        },
     };
     use db::models::conversation_event::{CURRENT_EVENT_VERSION, ConversationEventRecord};
     use uuid::Uuid;
@@ -847,7 +851,6 @@ mod tests {
                 .is_some_and(|message| message.contains("更新 VibeX"))
         );
     }
-
 
     #[test]
     fn unrecognized_ext_notifications_are_not_timeline_notices() {
@@ -913,7 +916,6 @@ mod tests {
         }));
     }
 
-
     #[test]
     fn prompt_cancel_requested_is_not_a_timeline_notice() {
         let conversation_id = Uuid::new_v4();
@@ -947,7 +949,6 @@ mod tests {
             "stopping a turn must not surface a session notice"
         );
     }
-
 
     #[test]
     fn agent_session_notices_project_as_warning_cards() {
@@ -984,7 +985,6 @@ mod tests {
             other => panic!("expected session notice, got {other:?}"),
         }
     }
-
 
     #[test]
     fn announcement_updates_replace_previous_banners() {
@@ -1075,7 +1075,6 @@ mod tests {
         assert!(cleared_timeline.rows.is_empty());
     }
 
-
     #[test]
     fn host_note_stays_when_announcements_clear() {
         let conversation_id = Uuid::new_v4();
@@ -1124,7 +1123,6 @@ mod tests {
             other => panic!("expected host note, got {other:?}"),
         }
     }
-
 
     #[test]
     fn reconnect_progress_notice_replaces_itself_and_clears_on_ready() {
@@ -1188,7 +1186,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn connecting_warning_is_visible_until_the_turn_settles() {
         let conversation_id = Uuid::new_v4();
@@ -1230,7 +1227,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn conversation_projection_fixtures_are_present_and_parse() {
         let fixtures = [
@@ -1246,7 +1242,9 @@ mod tests {
             ),
             (
                 "permission-blocked",
-                include_str!("../../../db/fixtures/conversation-projection/permission-blocked.json"),
+                include_str!(
+                    "../../../db/fixtures/conversation-projection/permission-blocked.json"
+                ),
             ),
             (
                 "tool-heavy",
@@ -1278,7 +1276,6 @@ mod tests {
             );
         }
     }
-
 
     #[test]
     fn occupancy_update_keeps_reported_protocol_buckets() {
@@ -1312,5 +1309,4 @@ mod tests {
         assert_eq!(merged.context_used, Some(12_000));
         assert_eq!(merged.context_window_max, Some(200_000));
     }
-
 }

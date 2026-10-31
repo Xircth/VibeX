@@ -7,6 +7,7 @@ import {
   getQueueSnapshot,
   getQueueStatusQueryKey,
   inputViewToQueuedMessage,
+  reconcileEditingQueueMessage,
   waitingQueueMessages,
   type QueueStatus,
 } from './sessionComposerQueue';
@@ -132,5 +133,32 @@ describe('durable session composer queue projection', () => {
         hasFollowUpError: true,
       })
     ).toEqual({ shouldPersistDraft: false, shouldClearError: true });
+  });
+
+  it('clears or refreshes editingInput when the queued message is dispatched, cancelled, reordered, or session changes', () => {
+    const original = inputViewToQueuedMessage(input);
+    // Dispatched / cancelled (queue becomes empty) -> clears editing state so Enter can send normally
+    expect(
+      reconcileEditingQueueMessage(original, 'session-1', {
+        status: 'empty',
+        messages: [],
+      })
+    ).toBeNull();
+    // Session switched -> clears editing state
+    expect(
+      reconcileEditingQueueMessage(original, 'session-2', queuedStatus())
+    ).toBeNull();
+    // Reordered / delayed (revision incremented on server) -> updates editing state with latest revision
+    const reordered = inputViewToQueuedMessage({
+      ...input,
+      revision: 3n,
+      sortKey: 2048n,
+    });
+    expect(
+      reconcileEditingQueueMessage(original, 'session-1', {
+        status: 'queued',
+        messages: [reordered],
+      })
+    ).toEqual(reordered);
   });
 });

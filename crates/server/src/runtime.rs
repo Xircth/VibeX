@@ -833,11 +833,24 @@ where
 
 async fn terminal_output<R>(
     State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
     Path(session_id): Path<uuid::Uuid>,
 ) -> Response
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
+    if !credential.grants_capability("workspace.terminal") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorEnvelope::new(
+                ErrorCode::Forbidden,
+                "credential does not grant workspace.terminal",
+                false,
+                OperationId::new(),
+            )),
+        )
+            .into_response();
+    }
     if !state.pty.session_exists(&session_id) {
         return (
             StatusCode::NOT_FOUND,

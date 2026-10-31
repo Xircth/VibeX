@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { Workspace } from 'shared/types';
@@ -715,5 +715,63 @@ describe('WorkspaceSessionList', () => {
     expect(badge).toHaveTextContent('小A');
     fireEvent.click(badge);
     expect(onSessionClick).not.toHaveBeenCalled();
+  });
+
+  it('hides Bot sessions from the Workspace session list when hideBotSessions is enabled', () => {
+    act(() => {
+      localStorage.setItem('vibex:hide-bot-sessions', 'true');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'vibex:hide-bot-sessions',
+          newValue: 'true',
+        })
+      );
+    });
+
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 'session-user',
+            name: 'User workspace session',
+            fullName: 'User workspace session',
+            collaboration: null,
+          }),
+          session({
+            id: 'session-bot',
+            name: 'Bot workspace session',
+            fullName: 'Bot workspace session',
+            collaboration: {
+              memberId: 'mem-a',
+              memberName: '小A',
+              threadId: 'direct:mem-a',
+              threadKind: 'dm',
+              threadName: '小A',
+            },
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /User workspace session/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Bot workspace session/ })
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      localStorage.setItem('vibex:hide-bot-sessions', 'false');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'vibex:hide-bot-sessions',
+          newValue: 'false',
+        })
+      );
+    });
   });
 });

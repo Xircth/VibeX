@@ -156,7 +156,11 @@ export function CommandToolCard({
             'script',
             'shell_command',
             'commandLine',
+            'command_line',
+            'CommandLine',
             'description',
+            'toolSummary',
+            'toolAction',
           ],
         })}
       />

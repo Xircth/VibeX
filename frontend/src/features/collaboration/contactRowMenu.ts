@@ -9,6 +9,7 @@ import {
   Pin,
   PinOff,
   Trash2,
+  UserMinus,
 } from 'lucide-react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { UNGROUPED_SECTION_ID } from './contactGroups';
@@ -32,6 +33,7 @@ export type ContactRowMenuCopy = {
   hideFromSidebar: string;
   showInSidebar: string;
   delete: string;
+  stepDownSupervisor?: string;
 };
 
 export const CONTACT_ROW_MENU_COPY: ContactRowMenuCopy = {
@@ -68,6 +70,9 @@ export const CONTACT_ROW_MENU_COPY: ContactRowMenuCopy = {
   get delete() {
     return i18n.t('panels:contactRowMenu.delete');
   },
+  get stepDownSupervisor() {
+    return i18n.t('panels:contactRowMenu.stepDownSupervisor', '卸任主管');
+  },
 };
 
 export type BuildContactRowMenuInput = {
@@ -77,6 +82,7 @@ export type BuildContactRowMenuInput = {
   unread: boolean;
   moveTargets: readonly ContactMoveTarget[];
   copy?: ContactRowMenuCopy;
+  isSupervisor?: boolean;
   onPin: () => void;
   onMove?: (sectionId: string) => void;
   onToggleUnread: () => void;
@@ -84,6 +90,7 @@ export type BuildContactRowMenuInput = {
   onCopyId: () => void;
   onHide: () => void;
   onDelete: () => void;
+  onStepDownSupervisor?: () => void;
 };
 
 export function buildContactRowMenuItems({
@@ -93,6 +100,7 @@ export function buildContactRowMenuItems({
   unread,
   moveTargets,
   copy = CONTACT_ROW_MENU_COPY,
+  isSupervisor = false,
   onPin,
   onMove,
   onToggleUnread,
@@ -100,28 +108,31 @@ export function buildContactRowMenuItems({
   onCopyId,
   onHide,
   onDelete,
+  onStepDownSupervisor,
 }: BuildContactRowMenuInput): ProductContextMenuItem[] {
-  const items: ProductContextMenuItem[] = [
-    {
+  const items: ProductContextMenuItem[] = [];
+
+  if (!isSupervisor) {
+    items.push({
       id: 'pin',
       label: pinned ? copy.unpin : copy.pin,
       icon: pinned ? PinOff : Pin,
       onSelect: onPin,
-    },
-  ];
-
-  if (onMove && moveTargets.length > 0) {
-    items.push({
-      type: 'submenu',
-      id: 'move',
-      label: copy.moveTo,
-      icon: FolderInput,
-      children: moveTargets.map((target) => ({
-        id: `move-${target.id}`,
-        label: target.name,
-        onSelect: () => onMove(target.id),
-      })),
     });
+
+    if (onMove && moveTargets.length > 0) {
+      items.push({
+        type: 'submenu',
+        id: 'move',
+        label: copy.moveTo,
+        icon: FolderInput,
+        children: moveTargets.map((target) => ({
+          id: `move-${target.id}`,
+          label: target.name,
+          onSelect: () => onMove(target.id),
+        })),
+      });
+    }
   }
 
   items.push(
@@ -144,7 +155,25 @@ export function buildContactRowMenuItems({
       label: copy.copyThreadId,
       icon: Copy,
       onSelect: onCopyId,
-    },
+    }
+  );
+
+  if (isSupervisor) {
+    if (onStepDownSupervisor) {
+      items.push(
+        { type: 'separator', id: 'sep-step-down' },
+        {
+          id: 'step-down-supervisor',
+          label: copy.stepDownSupervisor ?? '卸任主管',
+          icon: UserMinus,
+          onSelect: onStepDownSupervisor,
+        }
+      );
+    }
+    return items;
+  }
+
+  items.push(
     { type: 'separator', id: 'sep-hide' },
     {
       id: 'hide',

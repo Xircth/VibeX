@@ -608,6 +608,7 @@ pub fn parse_unassigned_space_id(space_id: &str) -> Option<Uuid> {
 }
 
 /// Delete a group. Members keep their identities and private chats.
+/// Only the workspace supervisor bot (主管) is allowed to delete a group space.
 pub async fn delete_collaboration_space(
     pool: &SqlitePool,
     caller_id: Uuid,
@@ -627,16 +628,12 @@ pub async fn delete_collaboration_space(
         return Err(operation_conflict());
     }
     require_group_space(space_id)?;
-    let (seat, lead, created_by) = load_caller_seat_in_space(pool, caller_id, space_id).await?;
-    require_roster_admin(
-        pool,
-        &seat,
-        lead.as_deref(),
-        created_by.as_deref(),
-        caller_id,
-    )
-    .await?;
     let space = load_space(pool, space_id).await?;
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    if caller.workspace_id.to_string() != space.workspace_id {
+        return Err(CollaborationError::new("not_found", "space was not found"));
+    }
+    require_workspace_supervisor(pool, caller_id, "delete group spaces (解散群组)").await?;
     let workspace_id = Uuid::parse_str(&space.workspace_id)
         .map_err(|_| CollaborationError::new("not_found", "space was not found"))?;
     let result = host_batch_delete_space_items(

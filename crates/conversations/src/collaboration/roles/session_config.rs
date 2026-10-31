@@ -58,6 +58,19 @@ pub async fn load_member_session_config(
     Ok(row.map(MemberSessionConfigRow::into_config))
 }
 
+pub async fn load_conversation_member_session_config(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<MemberSessionConfig>, CollaborationError> {
+    let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    load_member_session_config(pool, &binding.member_id).await
+}
+
 pub(crate) async fn write_member_session_config(
     pool: &SqlitePool,
     member_id: &str,
@@ -123,35 +136,54 @@ pub(crate) async fn write_member_session_config(
         }
     }
 
+    let prompt_value = prompt_trimmed.as_deref().unwrap_or("");
     for cid in conv_ids {
-        match prompt_trimmed.as_deref() {
-            Some(prompt) => {
-                sqlx::query(
-                    r#"INSERT INTO conversation_personas
-                       (conversation_id, role_id, name, team_name, summary, agent_id,
-                        persona_prompt, snapshotted_at)
-                       VALUES (?, ?, ?, NULL, '', ?, ?, ?)
-                       ON CONFLICT(conversation_id) DO UPDATE SET
-                         persona_prompt = excluded.persona_prompt,
-                         agent_id = CASE WHEN trim(excluded.agent_id) != '' THEN excluded.agent_id ELSE conversation_personas.agent_id END"#,
-                )
-                .bind(cid.to_string())
-                .bind(member_role_id.as_deref())
-                .bind(&member_name)
-                .bind(&resolved_agent)
-                .bind(prompt)
-                .bind(now_stamp())
-                .execute(pool)
+        sqlx::query(
+            r#"INSERT INTO conversation_personas
+               (conversation_id, role_id, name, team_name, summary, agent_id,
+                persona_prompt, snapshotted_at)
+               VALUES (?, ?, ?, NULL, '', ?, ?, ?)
+               ON CONFLICT(conversation_id) DO UPDATE SET
+                 name = CASE WHEN trim(excluded.name) != '' THEN excluded.name ELSE conversation_personas.name END,
+                 persona_prompt = excluded.persona_prompt,
+                 agent_id = CASE WHEN trim(excluded.agent_id) != '' THEN excluded.agent_id ELSE conversation_personas.agent_id END"#,
+        )
+        .bind(cid.to_string())
+        .bind(member_role_id.as_deref())
+        .bind(&member_name)
+        .bind(&resolved_agent)
+        .bind(prompt_value)
+        .bind(now_stamp())
+        .execute(pool)
+        .await
+        .map_err(db)?;
+        if !resolved_agent.is_empty()
+            && let Ok(parsed_agent) = AgentId::parse(&resolved_agent)
+            && let Some(existing_session) = db::models::session::Session::find_by_id(pool, cid)
                 .await
-                .map_err(db)?;
+                .map_err(db)?
+            && existing_session.agent_id.as_ref() != Some(&parsed_agent)
+        {
+            if existing_session.agent_id.is_some() {
+                let _ = crate::jsonl_history::preserve_transcript_before_detach(pool, cid).await;
             }
-            None => {
-                sqlx::query("DELETE FROM conversation_personas WHERE conversation_id = ?")
-                    .bind(cid.to_string())
-                    .execute(pool)
-                    .await
-                    .map_err(db)?;
-            }
+            sqlx::query(
+                r#"UPDATE sessions
+                   SET external_session_id = CASE
+                           WHEN agent_id IS NOT NULL AND agent_id != ?1 THEN NULL
+                           ELSE external_session_id
+                       END,
+                       agent_id = ?1,
+                       agent_type = ?1,
+                       executor = ?1,
+                       updated_at = datetime('now', 'subsec')
+                   WHERE id = ?2"#,
+            )
+            .bind(parsed_agent.as_str())
+            .bind(cid)
+            .execute(pool)
+            .await
+            .map_err(db)?;
         }
         remember_creation_session_controls(pool, cid, mode_trimmed.as_deref(), overrides.clone())
             .await;
@@ -207,12 +239,51 @@ pub async fn resolve_thread_session(
     member_id: &str,
     thread_id: &str,
 ) -> Result<Uuid, CollaborationError> {
-    let member_id = member_id.trim();
-    let mut thread_id = thread_id.trim().to_string();
+    let raw_member_ref = member_id.trim();
+    let raw_thread_id = thread_id.trim();
+    let member_id = identity_id_for_member_ref(pool, raw_member_ref, raw_thread_id).await?;
+    let mut thread_id = raw_thread_id.to_string();
     if parse_unassigned_space_id(&thread_id).is_some() {
-        thread_id = identity::direct_thread_id(member_id);
+        thread_id = identity::direct_thread_id(&member_id);
+    } else if !thread_id.starts_with(identity::DIRECT_PREFIX)
+        && identity::load_thread(pool, &thread_id)
+            .await
+            .map_err(db)?
+            .is_none()
+    {
+        identity::ensure_thread_for_seat(pool, &thread_id, &member_id)
+            .await
+            .map_err(identity_error)?;
     }
-    resolve_session(pool, member_id, &thread_id).await
+    let resolved = resolve_session(pool, &member_id, &thread_id).await?;
+    if !thread_id.starts_with(identity::DIRECT_PREFIX) {
+        if raw_member_ref != member_id {
+            sqlx::query(
+                r#"UPDATE collaboration_space_members
+                   SET conversation_id = ?
+                   WHERE space_id = ? AND member_id = ? AND kind = 'agent'"#,
+            )
+            .bind(resolved.to_string())
+            .bind(&thread_id)
+            .bind(raw_member_ref)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        } else if let Some(member) = identity::load_member(pool, &member_id).await.map_err(db)? {
+            sqlx::query(
+                r#"UPDATE collaboration_space_members
+                   SET conversation_id = ?
+                   WHERE space_id = ? AND nickname = ? AND kind = 'agent'"#,
+            )
+            .bind(resolved.to_string())
+            .bind(&thread_id)
+            .bind(&member.name)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        }
+    }
+    Ok(resolved)
 }
 
 pub(crate) async fn prepare_member_conversation(
@@ -236,29 +307,40 @@ pub(crate) async fn prepare_member_conversation(
     let member = identity::load_member(pool, member_id).await.map_err(db)?;
     let stored = load_member_session_config(pool, member_id).await?;
     if let (Some(member), Some(config)) = (member.as_ref(), stored.as_ref()) {
-        if let Some(prompt) = config
+        let resolved_prompt = config
             .persona_prompt
             .as_deref()
-            .filter(|p| !p.trim().is_empty())
-            && persona_prompt.as_deref().map(str::trim) != Some(prompt.trim())
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        let resolved_agent = config
+            .agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .or(member.agent.as_deref())
+            .unwrap_or("codex");
+        sqlx::query(
+            r#"INSERT INTO conversation_personas
+               (conversation_id, role_id, name, team_name, summary, agent_id,
+                persona_prompt, snapshotted_at)
+               VALUES (?, ?, ?, NULL, '', ?, ?, ?)
+               ON CONFLICT(conversation_id) DO UPDATE SET
+                 name = CASE WHEN trim(excluded.name) != '' THEN excluded.name ELSE conversation_personas.name END,
+                 agent_id = CASE WHEN trim(excluded.agent_id) != '' THEN excluded.agent_id ELSE conversation_personas.agent_id END,
+                 persona_prompt = CASE WHEN trim(excluded.persona_prompt) != '' THEN excluded.persona_prompt ELSE conversation_personas.persona_prompt END"#,
+        )
+        .bind(conversation_id.to_string())
+        .bind(member.role_id.as_deref())
+        .bind(&member.name)
+        .bind(resolved_agent)
+        .bind(resolved_prompt.unwrap_or(""))
+        .bind(now_stamp())
+        .execute(pool)
+        .await
+        .map_err(db)?;
+        if let Some(prompt) = resolved_prompt
+            && persona_prompt.as_deref().map(str::trim) != Some(prompt)
         {
-            sqlx::query(
-                r#"INSERT INTO conversation_personas
-                   (conversation_id, role_id, name, team_name, summary, agent_id,
-                    persona_prompt, snapshotted_at)
-                   VALUES (?, ?, ?, NULL, '', ?, ?, ?)
-                   ON CONFLICT(conversation_id) DO UPDATE SET
-                     persona_prompt = excluded.persona_prompt"#,
-            )
-            .bind(conversation_id.to_string())
-            .bind(member.role_id.as_deref())
-            .bind(&member.name)
-            .bind(config.agent_id.as_deref().unwrap_or_default())
-            .bind(prompt)
-            .bind(now_stamp())
-            .execute(pool)
-            .await
-            .map_err(db)?;
             append_persona_notice(pool, conversation_id, prompt).await?;
         }
         if config.has_session_controls() {
@@ -302,8 +384,8 @@ pub(crate) async fn identity_id_for_member_ref(
     {
         return Ok(member_id.to_string());
     }
-    let seats: Vec<(String, Option<String>)> = sqlx::query_as(
-        r#"SELECT space_id, conversation_id
+    let seats: Vec<(String, Option<String>, String)> = sqlx::query_as(
+        r#"SELECT space_id, conversation_id, nickname
            FROM collaboration_space_members
            WHERE member_id = ?"#,
     )
@@ -313,15 +395,19 @@ pub(crate) async fn identity_id_for_member_ref(
     .map_err(db)?;
     let seat = seats
         .iter()
-        .find(|(space_id, _)| space_id == thread_id)
+        .find(|(space_id, _, _)| space_id == thread_id)
         .or(seats.first());
-    let Some((_, conversation_id)) = seat else {
-        return Err(CollaborationError::new("not_found", "member was not found"));
-    };
-    let Some(conversation_id) = conversation_id
-        .as_deref()
-        .and_then(|raw| Uuid::parse_str(raw).ok())
-    else {
+    let (conversation_id, fallback_nickname) = if let Some((_, conversation_id, nickname)) = seat {
+        let Some(conversation_id) = conversation_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+        else {
+            return Err(CollaborationError::new("not_found", "member was not found"));
+        };
+        (conversation_id, Some(nickname.as_str()))
+    } else if let Ok(conversation_id) = Uuid::parse_str(member_id) {
+        (conversation_id, None)
+    } else {
         return Err(CollaborationError::new("not_found", "member was not found"));
     };
     if let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
@@ -337,6 +423,11 @@ pub(crate) async fn identity_id_for_member_ref(
         .is_some()
     {
         return Ok(derived);
+    }
+    if load_session(pool, conversation_id).await?.is_some() {
+        return identity::ensure_member_for_conversation(pool, conversation_id, fallback_nickname)
+            .await
+            .map_err(identity_error);
     }
     Err(CollaborationError::new("not_found", "member was not found"))
 }
@@ -445,7 +536,8 @@ pub(crate) async fn attach_seat(
         .fetch_optional(pool)
         .await
         .map_err(db)?;
-        let orphaned = other_seat.is_none();
+        let orphaned =
+            !binding.thread_id.starts_with(identity::DIRECT_PREFIX) && other_seat.is_none();
         match mode {
             SeatMode::Transfer => {
                 identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))

@@ -409,8 +409,12 @@ export function McpSettings() {
 
   /* ── marketplace actions ──────────────────────────────── */
 
+  const searchReqIdRef = useRef(0);
+  const detailReqIdRef = useRef(0);
+
   const executeSearch = useCallback(async () => {
     if (!selectedProvider) return;
+    const reqId = ++searchReqIdRef.current;
     setSearching(true);
     setError(null);
     try {
@@ -418,12 +422,16 @@ export function McpSettings() {
         providerId: selectedProvider,
         query: marketQuery,
       });
+      if (reqId !== searchReqIdRef.current) return;
       setSearchResults(results);
     } catch (err) {
+      if (reqId !== searchReqIdRef.current) return;
       setError(errorMessage(err));
       setSearchResults([]);
     } finally {
-      setSearching(false);
+      if (reqId === searchReqIdRef.current) {
+        setSearching(false);
+      }
     }
   }, [selectedProvider, marketQuery]);
 
@@ -440,6 +448,7 @@ export function McpSettings() {
   const openMarketDetail = useCallback(
     async (serverId: string) => {
       if (!selectedProvider) return;
+      const reqId = ++detailReqIdRef.current;
       setSelection({ kind: 'market', id: serverId });
       setMarketDetail(null);
       setMarketDetailError(null);
@@ -449,6 +458,7 @@ export function McpSettings() {
           providerId: selectedProvider,
           serverId,
         });
+        if (reqId !== detailReqIdRef.current) return;
         setMarketDetail(detail);
         const optionId =
           detail.default_option_id ?? detail.install_options[0]?.id ?? '';
@@ -460,9 +470,12 @@ export function McpSettings() {
         setMarketSpecText(JSON.stringify(option?.spec ?? detail.spec, null, 2));
         setMarketSpecDirty(false);
       } catch (err) {
+        if (reqId !== detailReqIdRef.current) return;
         setMarketDetailError(errorMessage(err));
       } finally {
-        setMarketDetailLoading(false);
+        if (reqId === detailReqIdRef.current) {
+          setMarketDetailLoading(false);
+        }
       }
     },
     [selectedProvider]

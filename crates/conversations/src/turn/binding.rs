@@ -307,14 +307,14 @@ impl ConversationSessionService {
         }
 
         let pool = &self.ctx.deployment.db().pool;
-        let persisted_session = Session::find_by_id(pool, conversation_id)
+        let mut persisted_session = Session::find_by_id(pool, conversation_id)
             .await?
             .ok_or_else(|| {
                 ConversationServiceError::NotFound(format!(
                     "Conversation session {conversation_id} was not found"
                 ))
             })?;
-        let agent_id = persisted_session
+        let mut agent_id = persisted_session
             .agent_id
             .clone()
             .or_else(|| {
@@ -329,6 +329,54 @@ impl ConversationSessionService {
                     "Conversation {conversation_id} has no supported coding agent"
                 ))
             })?;
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
+        if restorable_agent_binding(&bindings, &agent_id).is_none()
+            && let Some(ext) = persisted_session
+                .external_session_id
+                .clone()
+                .filter(|id| !is_placeholder_acp_session_id(id))
+            && let Some(linked_agent) =
+                linked_agent_for_external_session(pool, conversation_id, &ext, &bindings).await
+            && linked_agent != agent_id
+        {
+            let member_prefers_linked_agent =
+                crate::collaboration::load_conversation_member_session_config(
+                    pool,
+                    conversation_id,
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|cfg| cfg.agent_id)
+                .and_then(|raw| AgentId::parse(&raw).ok())
+                .is_some_and(|member_agent| member_agent == linked_agent);
+            if member_prefers_linked_agent {
+                agent_id = linked_agent;
+                persisted_session.agent_id = Some(agent_id.clone());
+                let _ = Session::update_agent_metadata(
+                    pool,
+                    conversation_id,
+                    Some(&ext),
+                    Some(&agent_id),
+                )
+                .await;
+            } else {
+                let _ =
+                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                        .await;
+                persisted_session.external_session_id = None;
+                let _ = sqlx::query(
+                    r#"UPDATE sessions
+                       SET external_session_id = NULL,
+                           updated_at = datetime('now', 'subsec')
+                       WHERE id = ?"#,
+                )
+                .bind(conversation_id)
+                .execute(pool)
+                .await;
+            }
+        }
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
             &self.ctx,
             conversation_id,
@@ -336,14 +384,25 @@ impl ConversationSessionService {
         )
         .await
         .map_err(|error| ConversationServiceError::Internal(error.message))?;
-        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
-            .await?
-            .ok_or_else(|| {
-                ConversationServiceError::NotFound(format!(
+        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
+            Some(workspace) => workspace,
+            None if execution_workspace_id != persisted_session.workspace_id => {
+                Workspace::find_by_id(pool, persisted_session.workspace_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Workspace {} for conversation {conversation_id} was not found",
+                            persisted_session.workspace_id
+                        ))
+                    })?
+            }
+            None => {
+                return Err(ConversationServiceError::NotFound(format!(
                     "Workspace {} for conversation {conversation_id} was not found",
                     persisted_session.workspace_id
-                ))
-            })?;
+                )));
+            }
+        };
         let container_ref = self
             .ctx
             .deployment
@@ -366,8 +425,6 @@ impl ConversationSessionService {
             &working_dir,
         );
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
-        let bindings =
-            ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
         let latest_binding = bindings.last().cloned();
         let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
         let mut preferences = self
@@ -396,7 +453,7 @@ impl ConversationSessionService {
         let restored_existing_session = external_session_id.is_some();
         let mut restore_strategy = None;
         let runtime_snapshot = if let Some(external_session_id) = external_session_id {
-            let (snapshot, strategy) = self
+            let resume_outcome = self
                 .ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
@@ -406,13 +463,66 @@ impl ConversationSessionService {
                     working_dir: PathBuf::from(&working_dir),
                     additional_directories: additional_directories.clone(),
                     session_id: runtime_session_id,
-                    external_session_id,
+                    external_session_id: external_session_id.clone(),
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env.clone(),
                     preferences: preferences.clone(),
                 })
-                .await?;
+                .await;
+            let (snapshot, strategy) = match resume_outcome {
+                Ok(pair) => pair,
+                Err(agents::AgentError::SessionLoadFailed(reason))
+                    if matches!(
+                        reason,
+                        agents::SessionLoadFailureReason::ResourceNotFound
+                            | agents::SessionLoadFailureReason::SessionUnavailable
+                    ) && !conversation_has_recorded_turns(pool, conversation_id).await? =>
+                {
+                    tracing::info!(
+                        %conversation_id,
+                        %agent_id,
+                        %external_session_id,
+                        "unprompted pre-bound ACP session was not persisted by agent; opening a fresh session"
+                    );
+                    let prepared = self
+                        .ctx
+                        .agent_runtime
+                        .prepare_session(EnsureAgentSessionInput {
+                            agent_id: agent_id.clone(),
+                            launch_lock: launch_settings.launch_lock.clone(),
+                            workspace_id: workspace.id,
+                            working_dir: PathBuf::from(&working_dir),
+                            additional_directories,
+                            session_id: runtime_session_id,
+                            acp_session_id: String::new(),
+                            auto_approve_mode: launch_settings.auto_approve_mode,
+                            env: launch_settings.env,
+                            preferences,
+                        })
+                        .await?;
+                    (
+                        prepared.session,
+                        Some(agents::SessionRecoveryStrategy::CreatedNewSession),
+                    )
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if matches!(
+                strategy,
+                Some(agents::SessionRecoveryStrategy::CreatedNewSession)
+            ) {
+                let _ =
+                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                        .await;
+            }
             restore_strategy = strategy;
+            Session::update_agent_metadata(
+                pool,
+                conversation_id,
+                Some(&snapshot.acp_session_id),
+                Some(&agent_id),
+            )
+            .await?;
             snapshot
         } else {
             if restorable_binding.is_some() {
@@ -420,6 +530,18 @@ impl ConversationSessionService {
                     "conversation already has a restorable ACP session; resume instead of session/new"
                         .into(),
                 ));
+            }
+            if persisted_session
+                .agent_id
+                .as_ref()
+                .is_some_and(|prev| prev != &agent_id)
+                || latest_binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.agent_id != agent_id)
+            {
+                let _ =
+                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                        .await;
             }
             let prepared = self
                 .ctx
@@ -656,6 +778,68 @@ pub(super) async fn persist_confirmed_session_controls(
     }
 }
 
+pub(crate) async fn conversation_has_recorded_turns(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    if !db::models::conversation_turn::ConversationTurnRecord::list_for_conversation(
+        pool,
+        conversation_id,
+    )
+    .await?
+    .is_empty()
+    {
+        return Ok(true);
+    }
+    Ok(crate::jsonl_history::load_all_turns(pool, conversation_id)
+        .await?
+        .is_some_and(|turns| !turns.is_empty()))
+}
+
+async fn linked_agent_for_external_session(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    external_session_id: &str,
+    bindings: &[ConversationAgentBindingRecord],
+) -> Option<AgentId> {
+    if let Some(agent_id) = bindings
+        .iter()
+        .rev()
+        .find(|binding| binding.acp_session_id.as_deref() == Some(external_session_id))
+        .map(|binding| binding.agent_id.clone())
+    {
+        return Some(agent_id);
+    }
+    let raw_rows: Vec<String> = sqlx::query_scalar(
+        r#"SELECT raw_json
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'agent_binding_ready'
+             AND raw_json IS NOT NULL
+           ORDER BY sequence DESC
+           LIMIT 8"#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .ok()?;
+    for raw in raw_rows {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        if value
+            .get("acp_session_id")
+            .and_then(serde_json::Value::as_str)
+            == Some(external_session_id)
+            && let Some(raw_agent) = value.get("agent_id").and_then(serde_json::Value::as_str)
+            && let Ok(agent_id) = AgentId::parse(raw_agent)
+        {
+            return Some(agent_id);
+        }
+    }
+    None
+}
+
 /// Open the conversation's binding when a confirmed selection arrives before any
 /// other writer. Resume resolves the workspace itself, so this row only has to
 /// carry the agent and the ACP id the session already stored.
@@ -663,18 +847,18 @@ async fn ensure_conversation_binding_for_controls(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    if ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
-        .await?
-        .is_some()
-    {
-        return Ok(());
-    }
     let Some(session) = Session::find_by_id(pool, conversation_id).await? else {
         return Ok(());
     };
     let Some(agent_id) = session.agent_id else {
         return Ok(());
     };
+    if ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+        .await?
+        .is_some_and(|latest| latest.agent_id == agent_id)
+    {
+        return Ok(());
+    }
     let acp_session_id = session
         .external_session_id
         .filter(|id| !is_placeholder_acp_session_id(id));

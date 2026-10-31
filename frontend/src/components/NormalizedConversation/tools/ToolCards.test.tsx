@@ -387,6 +387,136 @@ describe('conversation tool cards', () => {
     expect(screen.getAllByText('检查 Git 工作区状态')).toHaveLength(1);
   });
 
+  it('uses Antigravity MCP action summary as the tool call title instead of rendering it as the result or raw MCP tool name', () => {
+    const turn: MessageTurn = {
+      id: 'antigravity-mcp-tool:assistant',
+      role: 'assistant',
+      timestamp: '2026-10-10T00:00:00.000Z',
+      blocks: [
+        {
+          type: 'tool_use',
+          tool_use_id: 'c566d487-6400-46c5-a6ec-acb1ee68e1ef:4',
+          tool_name: 'vibex-delegation-mcp_read_space_messages',
+          kind: 'other',
+          status: 'completed',
+          input_preview: JSON.stringify({
+            arguments: {
+              since_seq: 4,
+              space_id: '087a1e5d-43cd-5415-adf8-bc6bc8e45997',
+            },
+            since_seq: 4,
+            space_id: '087a1e5d-43cd-5415-adf8-bc6bc8e45997',
+          }),
+          meta: {
+            mcp: {
+              tool: 'read_space_messages',
+              server: 'vibex-delegation-mcp',
+            },
+            is_mcp_tool_call: true,
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'c566d487-6400-46c5-a6ec-acb1ee68e1ef:4',
+          output_preview: 'Read latest group messages',
+          is_error: false,
+        },
+      ],
+    };
+
+    render(
+      <MessageTurnView
+        turn={turn}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const row = screen.getByRole('button', {
+      name: 'Read latest group messages',
+    });
+    expect(row).toBeInTheDocument();
+    expect(
+      screen.queryByText('vibex-delegation-mcp_read_space_messages')
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(screen.getByText('参数')).toBeInTheDocument();
+    expect(screen.getByText('since_seq')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('space_id')).toBeInTheDocument();
+    expect(
+      screen.getByText('087a1e5d-43cd-5415-adf8-bc6bc8e45997')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('arguments')).not.toBeInTheDocument();
+    expect(screen.queryByText('结果')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Read latest group messages')).toHaveLength(1);
+  });
+
+  it('unwraps empty Antigravity MCP arguments and strips server prefix while in progress', () => {
+    const inProgressEntry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'mcp-in-progress',
+        tool_name: 'vibex-delegation-mcp_list_collaboration_spaces',
+        kind: 'other',
+        status: 'in_progress',
+        input_preview: JSON.stringify({ arguments: {} }),
+        meta: {
+          mcp: {
+            tool: 'list_collaboration_spaces',
+            server: 'vibex-delegation-mcp',
+          },
+          is_mcp_tool_call: true,
+        },
+      },
+      null,
+      null
+    );
+    expect(inProgressEntry.entry_type.type === 'tool_use' && inProgressEntry.entry_type.tool_name).toBe(
+      'list_collaboration_spaces'
+    );
+    expect(inProgressEntry.toolArguments).toEqual({});
+
+    const completedEntry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'mcp-completed-empty-args',
+        tool_name: 'vibex-delegation-mcp_list_collaboration_spaces',
+        kind: 'other',
+        status: 'completed',
+        input_preview: JSON.stringify({ arguments: {} }),
+        meta: {
+          mcp: {
+            tool: 'list_collaboration_spaces',
+            server: 'vibex-delegation-mcp',
+          },
+          is_mcp_tool_call: true,
+        },
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'mcp-completed-empty-args',
+        output_preview: 'List existing spaces and bots',
+        is_error: false,
+      },
+      null
+    );
+
+    render(
+      <GenericToolCard
+        entry={completedEntry}
+        expansionKey="mcp-empty-args"
+      />
+    );
+    expect(
+      screen.getByText('List existing spaces and bots')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('参数')).not.toBeInTheDocument();
+    expect(screen.queryByText('结果')).not.toBeInTheDocument();
+  });
+
   it('renders command output inside an expandable command card', () => {
     render(
       <CommandToolCard
@@ -1436,8 +1566,11 @@ describe('conversation tool cards', () => {
       />
     );
 
-    expect(screen.getAllByText('Finish Phase 2')[0]).toBeInTheDocument();
-    expect(screen.getByText('active')).toBeInTheDocument();
+    expect(screen.getByText(/Finish Phase 2/)).toBeInTheDocument();
+    expect(screen.getByTestId('goal-tool-call')).toHaveAttribute(
+      'data-goal-status',
+      'active'
+    );
   });
 
   it('routes structured timeline goal results to the existing goal component', () => {

@@ -83,4 +83,3 @@ pub(in crate::manager) enum EmptyTurnCause {
     AgentStderr,
     SilentEndTurn,
 }
-

@@ -134,7 +134,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
-        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
+        spawn_turn_end_collaboration_cleanup(self.ctx.clone(), conversation_id, false, None);
         self.update_runtime_state(conversation_id, |state| {
             state.turn_in_flight = false;
             state.active_turn_id = None;
@@ -322,7 +322,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
-        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
+        spawn_turn_end_collaboration_cleanup(self.ctx.clone(), conversation_id, false, None);
         self.drop_live_agent_connection(conversation_id).await;
         self.update_runtime_state(conversation_id, |state| {
             state.turn_in_flight = false;
@@ -371,7 +371,7 @@ impl ConversationSessionService {
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
-        spawn_turn_end_collaboration_cleanup(pool.clone(), conversation_id, false, None);
+        spawn_turn_end_collaboration_cleanup(self.ctx.clone(), conversation_id, false, None);
         self.forget_conversation_runtime(conversation_id).await;
         Ok(())
     }

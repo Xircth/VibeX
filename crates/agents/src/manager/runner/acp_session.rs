@@ -11,8 +11,7 @@ impl AgentConnectionRunner {
     ) -> Result<(), acp::Error> {
         let working_dir = self.snapshot.working_dir.clone();
         *self.live_conn.lock().await = Some(conn.clone());
-        let client_capabilities =
-            build_client_capabilities(&self.snapshot.agent_id);
+        let client_capabilities = build_client_capabilities(&self.snapshot.agent_id);
         let initialize = AcpAuthStatusAdapter::initialize(
             &conn,
             InitializeRequest::new(ProtocolVersion::LATEST)
@@ -50,8 +49,7 @@ impl AgentConnectionRunner {
             initialize_response.agent_info.as_ref(),
         );
         if capability_snapshot.steering {
-            capability_snapshot.delivery_channel =
-                crate::conversation::DeliveryChannel::Native;
+            capability_snapshot.delivery_channel = crate::conversation::DeliveryChannel::Native;
         }
         capability_snapshot.authentication = AcpAuthStatusAdapter::observe_if_advertised(
             &conn,
@@ -115,12 +113,7 @@ impl AgentConnectionRunner {
                 } = &command
             {
                 crate::session_bind_metrics::record_prompt_unbound(session_id.0);
-                self
-                    .fail_active_turn(
-                        *session_id,
-                        *prompt_id,
-                        AgentError::AcpSessionNotBound,
-                    )
+                self.fail_active_turn(*session_id, *prompt_id, AgentError::AcpSessionNotBound)
                     .await;
                 continue;
             }
@@ -130,27 +123,18 @@ impl AgentConnectionRunner {
                     preferences,
                     result_tx,
                 } => {
-                    self
-                        .record_wants_prompt_suggestions(
-                            session_id,
-                            preferences.wants_prompt_suggestions,
-                        )
-                        .await;
-                    self
-                        .store_preferred_controls(session_id, preferences)
-                        .await;
+                    self.record_wants_prompt_suggestions(
+                        session_id,
+                        preferences.wants_prompt_suggestions,
+                    )
+                    .await;
+                    self.store_preferred_controls(session_id, preferences).await;
                     let result = match self
-                        .ensure_acp_session(
-                            &conn,
-                            &working_dir,
-                            session_id,
-                            companion_capabilities,
-                        )
+                        .ensure_acp_session(&conn, &working_dir, session_id, companion_capabilities)
                         .await
                     {
                         Ok(acp_session_id) => {
-                            let controls =
-                                self.session_controls_snapshot(session_id).await;
+                            let controls = self.session_controls_snapshot(session_id).await;
                             // `PrepareSession` is also called when the prepared
                             // session is adopted by the conversation service. Re-emit
                             // the authoritative state here so those events enter the
@@ -171,8 +155,7 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     self.cancel_pending_interactions(session_id).await;
-                    let acp_session_id =
-                        self.session_map.read().await.get(&session_id).cloned();
+                    let acp_session_id = self.session_map.read().await.get(&session_id).cloned();
                     let result = if supports_close_session {
                         if let Some(acp_session_id) = acp_session_id.as_ref() {
                             conn.send_request(CloseSessionRequest::new(SessionId::new(
@@ -182,9 +165,7 @@ impl AgentConnectionRunner {
                             .await
                             .map(|_| ())
                             .map_err(|error| {
-                                AgentError::Runtime(format!(
-                                    "session/close failed: {error}"
-                                ))
+                                AgentError::Runtime(format!("session/close failed: {error}"))
                             })
                         } else {
                             Ok(())
@@ -204,15 +185,12 @@ impl AgentConnectionRunner {
                     preferences,
                     result_tx,
                 } => {
-                    self
-                        .record_wants_prompt_suggestions(
-                            session_id,
-                            preferences.wants_prompt_suggestions,
-                        )
-                        .await;
-                    self
-                        .store_preferred_controls(session_id, preferences)
-                        .await;
+                    self.record_wants_prompt_suggestions(
+                        session_id,
+                        preferences.wants_prompt_suggestions,
+                    )
+                    .await;
+                    self.store_preferred_controls(session_id, preferences).await;
                     let result = self
                         .load_or_new_acp_session(
                             &conn,
@@ -248,18 +226,17 @@ impl AgentConnectionRunner {
                     // prepare still fails this prompt instead of hanging
                     // the conversation at "生成中".
                     *self.active_prompt.lock().await = Some((session_id, prompt_id));
-                    self
-                        .store_preferred_controls(
-                            session_id,
-                            crate::SessionControlPreferences {
-                                mode: mode_override.clone(),
-                                config: config_overrides.clone(),
-                                wants_prompt_suggestions: self
-                                    .wants_prompt_suggestions(session_id)
-                                    .await,
-                            },
-                        )
-                        .await;
+                    self.store_preferred_controls(
+                        session_id,
+                        crate::SessionControlPreferences {
+                            mode: mode_override.clone(),
+                            config: config_overrides.clone(),
+                            wants_prompt_suggestions: self
+                                .wants_prompt_suggestions(session_id)
+                                .await,
+                        },
+                    )
+                    .await;
                     // Prompt must not call session/new. A Conversation
                     // already owns a thread; the host binds it with
                     // PrepareSession (first turn) or ResumeSession
@@ -275,16 +252,13 @@ impl AgentConnectionRunner {
                     {
                         Some(acp_session_id) => acp_session_id,
                         None => {
-                            crate::session_bind_metrics::record_prompt_unbound(
-                                session_id.0,
-                            );
-                            self
-                                .fail_active_turn(
-                                    session_id,
-                                    prompt_id,
-                                    AgentError::AcpSessionNotBound,
-                                )
-                                .await;
+                            crate::session_bind_metrics::record_prompt_unbound(session_id.0);
+                            self.fail_active_turn(
+                                session_id,
+                                prompt_id,
+                                AgentError::AcpSessionNotBound,
+                            )
+                            .await;
                             continue;
                         }
                     };
@@ -323,24 +297,14 @@ impl AgentConnectionRunner {
                             // `run_prompt` already wrote the user prompt.
                             // Close that transcript turn before the error
                             // event, or a reopen shows an unfinished send.
-                            self
-                                .record_turn_end(
-                                    &acp_session_id,
-                                    session_id,
-                                    "error",
-                                    0,
-                                    None,
-                                )
+                            self.record_turn_end(&acp_session_id, session_id, "error", 0, None)
                                 .await;
-                            self
-                                .fail_active_turn(
-                                    session_id,
-                                    prompt_id,
-                                    AgentError::Runtime(format!(
-                                        "ACP prompt drive failed: {error}"
-                                    )),
-                                )
-                                .await;
+                            self.fail_active_turn(
+                                session_id,
+                                prompt_id,
+                                AgentError::Runtime(format!("ACP prompt drive failed: {error}")),
+                            )
+                            .await;
                         }
                     }
                 }
@@ -359,20 +323,17 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     let result = if supports_fork {
-                        self
-                            .fork_acp_session(
-                                &conn,
-                                &working_dir,
-                                session_id,
-                                companion_capabilities,
-                                fork_point,
-                            )
-                            .await
-                            .map_err(|error| {
-                                AgentError::Runtime(format!(
-                                    "ACP session fork failed: {error}"
-                                ))
-                            })
+                        self.fork_acp_session(
+                            &conn,
+                            &working_dir,
+                            session_id,
+                            companion_capabilities,
+                            fork_point,
+                        )
+                        .await
+                        .map_err(|error| {
+                            AgentError::Runtime(format!("ACP session fork failed: {error}"))
+                        })
                     } else {
                         Err(AgentError::Runtime(
                             "agent does not support session/fork".into(),
@@ -387,9 +348,7 @@ impl AgentConnectionRunner {
                 } => {
                     let result = if supports_list {
                         let response = conn
-                            .send_request(
-                                ListSessionsRequest::new().cwd(cwd).cursor(cursor),
-                            )
+                            .send_request(ListSessionsRequest::new().cwd(cwd).cursor(cursor))
                             .block_task()
                             .await
                             .map_err(|error| {
@@ -463,16 +422,14 @@ impl AgentConnectionRunner {
                     permission_id,
                     response,
                 } => {
-                    self
-                        .respond_pending_permission(&permission_id, response)
+                    self.respond_pending_permission(&permission_id, response)
                         .await;
                 }
                 AgentConnectionCommand::RespondElicitation {
                     elicitation_id,
                     response,
                 } => {
-                    self
-                        .respond_pending_elicitation(&elicitation_id, response)
+                    self.respond_pending_elicitation(&elicitation_id, response)
                         .await;
                 }
                 AgentConnectionCommand::SetSessionMode {

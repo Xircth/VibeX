@@ -6,11 +6,20 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
 import { type IDockviewPanelProps } from 'dockview-react';
 import {
+  Bookmark,
+  BookOpen,
+  Brain,
   Check,
   ChevronDown,
   Copy,
+  History,
+  Link2,
   Pencil,
   Plus,
   Trash2,
@@ -59,7 +68,6 @@ import {
   COPY,
   SPACE_TAG_PRESETS,
   agentRoster,
-  collectionDirFromHostPayload,
   displayName,
   isHumanPersonLabel,
   parseSpaceChangedEvent,
@@ -177,6 +185,76 @@ export type SpaceCollectionItemRecord = {
   reads?: SpaceCollectionReadRecord[];
 };
 
+export type SpaceMemoryFactRecord = {
+  id: number;
+  memberId?: string;
+  member_id?: string;
+  content: string;
+  scope: string;
+  sourceThreadId?: string | null;
+  source_thread_id?: string | null;
+  origin: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+export type SpaceMemoryTopicRecord = {
+  topic: string;
+  title: string;
+  summary?: string;
+  preview?: string;
+  content?: string;
+  charCount?: number;
+  char_count?: number;
+  byteSize?: number;
+  byte_size?: number;
+  updatedAt?: string;
+  updated_at?: string;
+  filePath?: string;
+  file_path?: string;
+};
+
+export type SpaceMemoryJournalRecord = {
+  id: string;
+  ts: string;
+  spaceId?: string;
+  actor: string;
+  op: string;
+  scope: string;
+  target: string;
+  before?: string | null;
+  after?: string | null;
+};
+
+export type SpaceMemorySummarySection = {
+  id: string;
+  title: string;
+  items: string[];
+};
+
+export type SpaceMemorySummaryCard = {
+  sections: SpaceMemorySummarySection[];
+  charCount?: number;
+  char_count?: number;
+  budgetChars?: number;
+  budget_chars?: number;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+export type SpaceMemoryViewPayload = {
+  spaceId?: string;
+  memberId?: string | null;
+  memoryFilePath?: string;
+  memory_file_path?: string;
+  summary?: SpaceMemorySummaryCard;
+  facts?: SpaceMemoryFactRecord[];
+  topics?: SpaceMemoryTopicRecord[];
+  journal?: SpaceMemoryJournalRecord[];
+  excludedCollectionIds?: string[];
+  excluded_collection_ids?: string[];
+};
+
 export type SpaceCollectionPanelParams = {
   spaceId: string;
   spaceName?: string;
@@ -215,6 +293,13 @@ export function fileToBase64(file: File): Promise<string> {
       reject(reader.error ?? new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+}
+
+function formatScopeLabel(scope: string): string {
+  if (scope === 'global') return '全局';
+  if (scope === 'private') return '私聊';
+  if (scope.startsWith('thread:')) return '本群';
+  return scope;
 }
 
 export function SpaceCollectionImagePreview({
@@ -293,8 +378,6 @@ export function CollaborationSpaceCollectionDockviewPanel(
   }, [memberAvatar]);
   const panelActions = useOptionalPanelActionsContext();
   const [items, setItems] = useState<SpaceCollectionItemRecord[]>([]);
-  const [collectionDir, setCollectionDir] = useState('');
-  const [pathCopied, setPathCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [addFormOpen, setAddFormOpen] = useState(false);
@@ -316,10 +399,42 @@ export function CollaborationSpaceCollectionDockviewPanel(
   const [editingNoteDraft, setEditingNoteDraft] = useState('');
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pathCopiedTimerRef = useRef<number | null>(null);
   const [liveSpaceAvatars, setLiveSpaceAvatars] = useState<
     MemberBotAvatarConfig[] | null
   >(null);
+
+  // Unified Assets state (memory | topics | collection)
+  const [assetTab, setAssetTab] = useState<'memory' | 'topics' | 'collection'>(
+    'memory'
+  );
+  const [showJournal, setShowJournal] = useState(false);
+  const [memorySummary, setMemorySummary] =
+    useState<SpaceMemorySummaryCard | null>(null);
+  const [memoryFacts, setMemoryFacts] = useState<SpaceMemoryFactRecord[]>([]);
+  const [memoryTopics, setMemoryTopics] = useState<SpaceMemoryTopicRecord[]>(
+    []
+  );
+  const [memoryJournal, setMemoryJournal] = useState<
+    SpaceMemoryJournalRecord[]
+  >([]);
+  const [excludedCollectionIds, setExcludedCollectionIds] = useState<string[]>(
+    []
+  );
+  const [addFactOpen, setAddFactOpen] = useState(false);
+  const [newFactContent, setNewFactContent] = useState('');
+  const [newFactScope, setNewFactScope] = useState<string>(
+    isAssistant ? 'private' : 'thread'
+  );
+  const [editingFactId, setEditingFactId] = useState<number | null>(null);
+  const [editingFactDraft, setEditingFactDraft] = useState('');
+  const [addTopicOpen, setAddTopicOpen] = useState(false);
+  const [topicSlugInput, setTopicSlugInput] = useState('');
+  const [topicTitleInput, setTopicTitleInput] = useState('');
+  const [topicContentInput, setTopicContentInput] = useState('');
+  const [expandedTopicSlugs, setExpandedTopicSlugs] = useState<Set<string>>(
+    () => new Set()
+  );
+
   const spaceTagPreset = useMemo(() => {
     const colorId = paramTagColorId ?? readSpaceTags()[spaceId]?.colorId;
     return colorId
@@ -329,12 +444,12 @@ export function CollaborationSpaceCollectionDockviewPanel(
 
   const getAvatar = useCallback(
     (
-      conversationId?: string | null,
+      cid?: string | null,
       nickname?: string,
       identityMemberId?: string | null
     ): MemberBotAvatarConfig =>
       resolveMemberBotAvatar({
-        conversationId,
+        conversationId: cid,
         nickname,
         identityMemberId,
       }),
@@ -389,17 +504,44 @@ export function CollaborationSpaceCollectionDockviewPanel(
     return [deriveMemberBotAvatar(spaceId || spaceName || 'space')];
   }, [liveSpaceAvatars, paramSpaceAvatars, spaceId, spaceName]);
 
+  const applyMemoryViewPayload = useCallback(
+    (view: SpaceMemoryViewPayload | null | undefined) => {
+      if (!view || typeof view !== 'object') return;
+      if (view.summary) setMemorySummary(view.summary);
+      if (Array.isArray(view.facts)) setMemoryFacts(view.facts);
+      if (Array.isArray(view.topics)) setMemoryTopics(view.topics);
+      if (Array.isArray(view.journal)) setMemoryJournal(view.journal);
+      const excluded =
+        view.excludedCollectionIds ?? view.excluded_collection_ids;
+      if (Array.isArray(excluded)) setExcludedCollectionIds(excluded);
+    },
+    []
+  );
+
+  const loadMemory = useCallback(async () => {
+    if (!spaceId) return;
+    try {
+      const view = await collaborationCall<SpaceMemoryViewPayload>(
+        'collaboration',
+        'space.memory.view',
+        {
+          spaceId,
+          memberId: memberId || undefined,
+        }
+      );
+      applyMemoryViewPayload(view);
+    } catch {
+      // Silently ignore when backend / test mock does not implement space.memory.view
+    }
+  }, [applyMemoryViewPayload, memberId, spaceId]);
+
   const loadCollection = useCallback(async () => {
     if (!spaceId) return;
     try {
       const response = await collaborationCall<{
         items?: SpaceCollectionItemRecord[];
-        collectionDir?: string | null;
-        collection_dir?: string | null;
       }>('collaboration', 'space.listCollection', { spaceId });
-      setItems(response.items ?? []);
-      const nextDir = collectionDirFromHostPayload(response);
-      if (nextDir) setCollectionDir(nextDir);
+      setItems(response?.items ?? []);
     } catch (cause) {
       setError(surfaceErrorCopy(cause));
     } finally {
@@ -410,40 +552,17 @@ export function CollaborationSpaceCollectionDockviewPanel(
   useEffect(() => {
     setLoading(true);
     void loadCollection();
-  }, [loadCollection]);
+    void loadMemory();
+  }, [loadCollection, loadMemory]);
 
   useEffect(() => {
     if (detailsTab !== 'collection' || !spaceId) return;
     const timer = window.setInterval(() => {
       void loadCollection();
+      void loadMemory();
     }, COLLECTION_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [detailsTab, loadCollection, spaceId]);
-
-  useEffect(() => {
-    return () => {
-      if (pathCopiedTimerRef.current != null) {
-        window.clearTimeout(pathCopiedTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopyCollectionDir = useCallback(async () => {
-    if (!collectionDir) return;
-    try {
-      await navigator.clipboard.writeText(collectionDir);
-      setPathCopied(true);
-      if (pathCopiedTimerRef.current != null) {
-        window.clearTimeout(pathCopiedTimerRef.current);
-      }
-      pathCopiedTimerRef.current = window.setTimeout(() => {
-        setPathCopied(false);
-        pathCopiedTimerRef.current = null;
-      }, 1500);
-    } catch (cause) {
-      setError(surfaceErrorCopy(cause));
-    }
-  }, [collectionDir]);
+  }, [detailsTab, loadCollection, loadMemory, spaceId]);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -453,6 +572,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
       const event = parseSpaceChangedEvent(payload);
       if (!active || !event || event.spaceId !== spaceId) return;
       void loadCollection();
+      void loadMemory();
     }).then((stop) => {
       if (!active) stop();
       else unlisten = stop;
@@ -461,7 +581,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
       active = false;
       unlisten?.();
     };
-  }, [loadCollection, spaceId]);
+  }, [loadCollection, loadMemory, spaceId]);
 
   const toggleItemCollapsed = useCallback((itemId: string) => {
     setCollapsedItemIds((current) => {
@@ -487,6 +607,18 @@ export function CollaborationSpaceCollectionDockviewPanel(
     });
   }, []);
 
+  const toggleTopicExpanded = useCallback((topicSlug: string) => {
+    setExpandedTopicSlugs((current) => {
+      const next = new Set(current);
+      if (next.has(topicSlug)) {
+        next.delete(topicSlug);
+      } else {
+        next.add(topicSlug);
+      }
+      return next;
+    });
+  }, []);
+
   const handleSaveNote = useCallback(
     async (itemId: string, rawNote: string) => {
       if (!spaceId || !itemId || savingNoteItemId === itemId) return;
@@ -506,13 +638,36 @@ export function CollaborationSpaceCollectionDockviewPanel(
         );
         setEditingNoteItemId(null);
         await loadCollection();
+        await loadMemory();
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
       } finally {
         setSavingNoteItemId(null);
       }
     },
-    [loadCollection, savingNoteItemId, spaceId]
+    [loadCollection, loadMemory, savingNoteItemId, spaceId]
+  );
+
+  const handleToggleCollectionIndexed = useCallback(
+    async (itemId: string) => {
+      if (!spaceId || !itemId) return;
+      try {
+        const res = await collaborationCall<{
+          excludedCollectionIds?: string[];
+        }>('collaboration', 'space.memory.toggleCollectionIndex', {
+          spaceId,
+          memberId: memberId || undefined,
+          itemId,
+        });
+        if (res && Array.isArray(res.excludedCollectionIds)) {
+          setExcludedCollectionIds(res.excludedCollectionIds);
+        }
+        await loadMemory();
+      } catch (cause) {
+        setError(surfaceErrorCopy(cause));
+      }
+    },
+    [loadMemory, memberId, spaceId]
   );
 
   const handleCopyItem = useCallback(
@@ -538,13 +693,14 @@ export function CollaborationSpaceCollectionDockviewPanel(
         });
         setItems((current) => current.filter((entry) => entry.id !== itemId));
         setSelectedItemId((current) => (current === itemId ? null : current));
+        await loadMemory();
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
       } finally {
         setSubmitting(false);
       }
     },
-    [spaceId, submitting]
+    [loadMemory, spaceId, submitting]
   );
 
   const handleAddTextSubmit = async () => {
@@ -567,6 +723,124 @@ export function CollaborationSpaceCollectionDockviewPanel(
       setNoteInput('');
       setAddFormOpen(false);
       await loadCollection();
+      await loadMemory();
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddFactSubmit = async () => {
+    const trimmed = newFactContent.trim();
+    if (!trimmed || !spaceId || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await collaborationCall<{
+        fact?: SpaceMemoryFactRecord;
+        view?: SpaceMemoryViewPayload;
+      }>('collaboration', 'space.memory.add', {
+        spaceId,
+        memberId: memberId || undefined,
+        content: trimmed,
+        scope: newFactScope,
+      });
+      if (res?.view) {
+        applyMemoryViewPayload(res.view);
+      } else {
+        await loadMemory();
+      }
+      setNewFactContent('');
+      setAddFactOpen(false);
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveFactEdit = async (factId: number) => {
+    const trimmed = editingFactDraft.trim();
+    if (!trimmed || !spaceId || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await collaborationCall('collaboration', 'space.memory.update', {
+        spaceId,
+        memberId: memberId || undefined,
+        factId,
+        content: trimmed,
+      });
+      setEditingFactId(null);
+      setEditingFactDraft('');
+      await loadMemory();
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteFact = async (factId: number) => {
+    if (!spaceId || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await collaborationCall('collaboration', 'space.memory.delete', {
+        spaceId,
+        memberId: memberId || undefined,
+        factId,
+      });
+      setMemoryFacts((current) => current.filter((f) => f.id !== factId));
+      await loadMemory();
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddTopicSubmit = async () => {
+    const slug = topicSlugInput.trim();
+    const body = topicContentInput.trim();
+    if (!slug || !body || !spaceId || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await collaborationCall('collaboration', 'space.memory.writeTopic', {
+        spaceId,
+        memberId: memberId || undefined,
+        topic: slug,
+        title: topicTitleInput.trim() || undefined,
+        content: body,
+      });
+      setTopicSlugInput('');
+      setTopicTitleInput('');
+      setTopicContentInput('');
+      setAddTopicOpen(false);
+      await loadMemory();
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteTopic = async (topicSlug: string) => {
+    if (!spaceId || !topicSlug || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await collaborationCall('collaboration', 'space.memory.deleteTopic', {
+        spaceId,
+        memberId: memberId || undefined,
+        topic: topicSlug,
+      });
+      setMemoryTopics((current) =>
+        current.filter((t) => t.topic !== topicSlug)
+      );
+      await loadMemory();
     } catch (cause) {
       setError(surfaceErrorCopy(cause));
     } finally {
@@ -627,23 +901,24 @@ export function CollaborationSpaceCollectionDockviewPanel(
           }
         }
         await loadCollection();
+        await loadMemory();
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
       } finally {
         setSubmitting(false);
       }
     },
-    [loadCollection, noteInput, projectId, spaceId]
+    [loadCollection, loadMemory, noteInput, projectId, spaceId]
   );
 
   const handleAddSourcePath = useCallback(
-    async (fullPath: string, displayName?: string) => {
+    async (fullPath: string, displayNameValue?: string) => {
       if (!spaceId || !fullPath) return;
       setSubmitting(true);
       setError('');
       try {
         const name =
-          displayName ||
+          displayNameValue ||
           fullPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ||
           'file';
         const kind = attachmentPreviewKind(name) === 'image' ? 'image' : 'file';
@@ -657,14 +932,23 @@ export function CollaborationSpaceCollectionDockviewPanel(
           creatorNickname: 'User',
         });
         await loadCollection();
+        await loadMemory();
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
       } finally {
         setSubmitting(false);
       }
     },
-    [loadCollection, noteInput, projectId, spaceId]
+    [loadCollection, loadMemory, noteInput, projectId, spaceId]
   );
+
+  const charCount =
+    memorySummary?.charCount ??
+    memorySummary?.char_count ??
+    memoryFacts.reduce((acc, f) => acc + f.content.length, 0);
+  const budgetChars =
+    memorySummary?.budgetChars ?? memorySummary?.budget_chars ?? 4000;
+  const isNearBudget = charCount >= budgetChars * 0.85;
 
   return (
     <div
@@ -690,6 +974,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
         setIsDragOver(false);
         const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
         if (droppedFiles.length > 0) {
+          setAssetTab('collection');
           void handleAddFiles(droppedFiles);
           return;
         }
@@ -699,6 +984,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
           parseFileReferencePayload(rawRef) ?? getCurrentDraggedFileReference();
         clearCurrentDraggedFileReference();
         if (fileRef && fileRef.kind === 'file' && workspacePath) {
+          setAssetTab('collection');
           void handleAddSourcePath(
             joinLocalPath(workspacePath, fileRef.relativePath),
             fileRef.fileName
@@ -810,164 +1096,157 @@ export function CollaborationSpaceCollectionDockviewPanel(
       {detailsTab === 'collection' ? (
         <div
           className={cn(
-            'collaboration-group-details-body',
+            'collaboration-group-details-body collaboration-assets-body',
             isAssistant && 'collaboration-assistant-details-body'
           )}
         >
-          {collectionDir ? (
-            <div
-              className="collaboration-collection-pathbar"
-              data-testid="collaboration-collection-pathbar"
-              aria-label={i18n.t('panels:ui.collection.folderPath')}
-            >
-              <div className="collaboration-collection-path-row">
-                <code
-                  className="collaboration-collection-path-value"
-                  title={collectionDir}
-                  data-testid="collaboration-collection-path"
-                >
-                  {collectionDir}
-                </code>
-                <button
-                  type="button"
-                  className="collaboration-collection-path-copy"
-                  data-testid="collaboration-collection-copy-path"
-                  aria-label={
-                    pathCopied
-                      ? i18n.t('panels:ui.collection.pathCopied')
-                      : i18n.t('panels:ui.collection.copyFolderPath')
-                  }
-                  onClick={() => {
-                    void handleCopyCollectionDir();
-                  }}
-                >
-                  {pathCopied ? (
-                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-              <p className="collaboration-collection-path-hint">
-                {i18n.t('panels:ui.collection.folderHint')}
-              </p>
-            </div>
-          ) : null}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            data-testid="collaboration-collection-file-input"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = '';
+              if (files.length > 0) {
+                setAssetTab('collection');
+                void handleAddFiles(files);
+              }
+            }}
+          />
 
-          <div className="collaboration-collection-header">
-            <div className="collaboration-collection-title-group">
-              <span className="workspace-session-group-count">
-                {items.length}
-              </span>
-            </div>
-            <div className="collaboration-collection-actions">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                data-testid="collaboration-collection-file-input"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  event.target.value = '';
-                  if (files.length > 0) {
-                    void handleAddFiles(files);
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                disabled={submitting}
-                className="collaboration-collection-action-btn"
-                data-testid="collaboration-collection-add-text-toggle"
-                onClick={() => setAddFormOpen((current) => !current)}
-              >
-                <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
-                {i18n.t('panels:ui.collection.addText')}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                disabled={submitting}
-                className="collaboration-collection-action-btn"
-                data-testid="collaboration-collection-upload-file-btn"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
-                {i18n.t('panels:ui.collection.uploadFile')}
-              </Button>
-              <button
-                type="button"
-                className="collaboration-collection-delete-btn"
-                data-testid="collaboration-collection-delete-btn"
-                aria-label={i18n.t('panels:ui.collection.deleteSavedItem')}
-                disabled={submitting || !selectedItemId}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (selectedItemId) {
-                    void handleDeleteItem(selectedItemId);
-                  }
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-
-          {addFormOpen ? (
-            <div
-              className="collaboration-collection-add-form"
-              data-testid="collaboration-collection-add-form"
+          <div
+            className="collaboration-assets-toolbar"
+            data-testid="collaboration-assets-toolbar"
+          >
+            <SegmentedControl
+              value={assetTab}
+              onChange={(val) => {
+                setAssetTab(val as 'memory' | 'topics' | 'collection');
+                setShowJournal(false);
+              }}
+              label="资产分类"
+              size="sm"
+              className="collaboration-compact-segmented collaboration-assets-segmented"
+              data-testid="collaboration-assets-segmented"
             >
-              <Input
-                aria-label={i18n.t('panels:ui.collection.savedItemName')}
-                value={textName}
-                onChange={(event) => setTextName(event.target.value)}
-                placeholder={i18n.t('panels:ui.collection.nameOptionalEGApi')}
-                className="h-7 px-2 text-xs"
+              <SegmentedControlItem
+                value="memory"
+                label="记忆"
+                icon={<Brain className="h-3.5 w-3.5" aria-hidden="true" />}
+                data-testid="collaboration-assets-tab-memory"
               />
-              <Textarea
-                aria-label={i18n.t('panels:ui.collection.savedTextContent')}
-                value={textContent}
-                onChange={(event) => setTextContent(event.target.value)}
-                placeholder={i18n.t('panels:ui.collection.enterTextToSave')}
-                rows={3}
-                className="text-xs"
+              <SegmentedControlItem
+                value="topics"
+                label="主题"
+                icon={<BookOpen className="h-3.5 w-3.5" aria-hidden="true" />}
+                data-testid="collaboration-assets-tab-topics"
               />
-              <Input
-                aria-label={i18n.t('panels:ui.collection.savedItemNote')}
-                value={noteInput}
-                onChange={(event) => setNoteInput(event.target.value)}
-                placeholder={i18n.t('panels:ui.collection.noteOptional')}
-                className="h-7 px-2 text-xs"
+              <SegmentedControlItem
+                value="collection"
+                label="收藏"
+                icon={<Bookmark className="h-3.5 w-3.5" aria-hidden="true" />}
+                data-testid="collaboration-assets-tab-collection"
               />
-              <div className="flex justify-end gap-1.5">
+            </SegmentedControl>
+
+            <div className="collaboration-assets-toolbar-actions">
+              {assetTab === 'memory' ? (
+                <>
+                  <span
+                    className={cn(
+                      'collaboration-memory-budget-badge',
+                      isNearBudget && 'is-warning'
+                    )}
+                    data-testid="collaboration-memory-budget"
+                  >
+                    {charCount} / {budgetChars}
+                  </span>
+                  <button
+                    type="button"
+                    className={cn(
+                      'collaboration-assets-icon-btn',
+                      showJournal && 'is-active'
+                    )}
+                    data-testid="collaboration-memory-journal-toggle"
+                    aria-label="变更记录"
+                    title="变更记录"
+                    onClick={() => setShowJournal((current) => !current)}
+                  >
+                    <History className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={submitting}
+                    className="collaboration-collection-action-btn"
+                    data-testid="collaboration-memory-add-fact-toggle"
+                    onClick={() => setAddFactOpen((current) => !current)}
+                  >
+                    <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
+                    添加
+                  </Button>
+                </>
+              ) : assetTab === 'topics' ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  onClick={() => setAddFormOpen(false)}
+                  disabled={submitting}
+                  className="collaboration-collection-action-btn"
+                  data-testid="collaboration-memory-add-topic-toggle"
+                  onClick={() => setAddTopicOpen((current) => !current)}
                 >
-                  {i18n.t('panels:ui.collection.cancel')}
+                  <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
+                  新建
                 </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="xs"
-                  disabled={!textContent.trim() || submitting}
-                  data-testid="collaboration-collection-submit-text-btn"
-                  onClick={() => {
-                    void handleAddTextSubmit();
-                  }}
-                >
-                  {i18n.t('panels:ui.collection.addToGroupSaved')}
-                </Button>
-              </div>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={submitting}
+                    className="collaboration-collection-action-btn"
+                    data-testid="collaboration-collection-add-text-toggle"
+                    onClick={() => setAddFormOpen((current) => !current)}
+                  >
+                    <Plus className="mr-1 h-3 w-3" aria-hidden="true" />
+                    {i18n.t('panels:ui.collection.addText')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={submitting}
+                    className="collaboration-collection-action-btn"
+                    data-testid="collaboration-collection-upload-file-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="mr-1 h-3 w-3" aria-hidden="true" />
+                    {i18n.t('panels:ui.collection.uploadFile')}
+                  </Button>
+                  <button
+                    type="button"
+                    className="collaboration-collection-delete-btn"
+                    data-testid="collaboration-collection-delete-btn"
+                    aria-label={i18n.t('panels:ui.collection.deleteSavedItem')}
+                    disabled={submitting || !selectedItemId}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (selectedItemId) {
+                        void handleDeleteItem(selectedItemId);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </>
+              )}
             </div>
-          ) : null}
+          </div>
 
           {error ? (
             <p
@@ -982,19 +1261,517 @@ export function CollaborationSpaceCollectionDockviewPanel(
             className="collaboration-collection-list"
             data-testid="collaboration-collection-list"
           >
-            {loading ? (
+            {assetTab === 'memory' && addFactOpen ? (
+              <div
+                className="collaboration-collection-add-form"
+                data-testid="collaboration-memory-add-fact-form"
+              >
+                <Textarea
+                  aria-label="记忆内容"
+                  value={newFactContent}
+                  onChange={(event) => setNewFactContent(event.target.value)}
+                  placeholder="输入长期记忆或协作偏好…"
+                  rows={2}
+                  className="min-h-[64px] px-2.5 py-1.5 text-xs"
+                  data-testid="collaboration-memory-fact-input"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  {isAssistant ? (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        className={cn(
+                          'collaboration-memory-scope-chip',
+                          newFactScope === 'private' && 'is-active'
+                        )}
+                        onClick={() => setNewFactScope('private')}
+                      >
+                        私聊
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          'collaboration-memory-scope-chip',
+                          newFactScope === 'global' && 'is-active'
+                        )}
+                        onClick={() => setNewFactScope('global')}
+                      >
+                        全局
+                      </button>
+                    </div>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setAddFactOpen(false)}
+                    >
+                      {i18n.t('panels:ui.collection.cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="xs"
+                      disabled={!newFactContent.trim() || submitting}
+                      data-testid="collaboration-memory-submit-fact-btn"
+                      onClick={() => {
+                        void handleAddFactSubmit();
+                      }}
+                    >
+                      保存
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {assetTab === 'topics' && addTopicOpen ? (
+              <div
+                className="collaboration-collection-add-form"
+                data-testid="collaboration-memory-add-topic-form"
+              >
+                <div className="flex gap-1.5">
+                  <Input
+                    aria-label="主题标识"
+                    value={topicSlugInput}
+                    onChange={(event) => setTopicSlugInput(event.target.value)}
+                    placeholder="标识 (如 mail-templates)"
+                    className="h-7 flex-1 px-2 text-xs"
+                    data-testid="collaboration-memory-topic-slug-input"
+                  />
+                  <Input
+                    aria-label="主题标题"
+                    value={topicTitleInput}
+                    onChange={(event) => setTopicTitleInput(event.target.value)}
+                    placeholder="标题 (可选)"
+                    className="h-7 flex-1 px-2 text-xs"
+                    data-testid="collaboration-memory-topic-title-input"
+                  />
+                </div>
+                <Textarea
+                  aria-label="主题内容"
+                  value={topicContentInput}
+                  onChange={(event) =>
+                    setTopicContentInput(event.target.value)
+                  }
+                  placeholder="输入主题内容…"
+                  rows={4}
+                  className="text-xs"
+                  data-testid="collaboration-memory-topic-content-input"
+                />
+                <div className="flex justify-end gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setAddTopicOpen(false)}
+                  >
+                    {i18n.t('panels:ui.collection.cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="xs"
+                    disabled={
+                      !topicSlugInput.trim() ||
+                      !topicContentInput.trim() ||
+                      submitting
+                    }
+                    data-testid="collaboration-memory-submit-topic-btn"
+                    onClick={() => {
+                      void handleAddTopicSubmit();
+                    }}
+                  >
+                    保存
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {assetTab === 'collection' && addFormOpen ? (
+              <div
+                className="collaboration-collection-add-form"
+                data-testid="collaboration-collection-add-form"
+              >
+                <Input
+                  aria-label={i18n.t('panels:ui.collection.savedItemName')}
+                  value={textName}
+                  onChange={(event) => setTextName(event.target.value)}
+                  placeholder={i18n.t(
+                    'panels:ui.collection.nameOptionalEGApi'
+                  )}
+                  className="h-7 px-2 text-xs"
+                />
+                <Textarea
+                  aria-label={i18n.t('panels:ui.collection.savedTextContent')}
+                  value={textContent}
+                  onChange={(event) => setTextContent(event.target.value)}
+                  placeholder={i18n.t('panels:ui.collection.enterTextToSave')}
+                  rows={3}
+                  className="text-xs"
+                />
+                <Input
+                  aria-label={i18n.t('panels:ui.collection.savedItemNote')}
+                  value={noteInput}
+                  onChange={(event) => setNoteInput(event.target.value)}
+                  placeholder={i18n.t('panels:ui.collection.noteOptional')}
+                  className="h-7 px-2 text-xs"
+                />
+                <div className="flex justify-end gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setAddFormOpen(false)}
+                  >
+                    {i18n.t('panels:ui.collection.cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="xs"
+                    disabled={!textContent.trim() || submitting}
+                    data-testid="collaboration-collection-submit-text-btn"
+                    onClick={() => {
+                      void handleAddTextSubmit();
+                    }}
+                  >
+                    {i18n.t('panels:ui.collection.addToGroupSaved')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {assetTab === 'memory' ? (
+              showJournal ? (
+                <section
+                  className="collaboration-memory-facts-card"
+                  data-testid="collaboration-memory-journal-section"
+                >
+                  {memoryJournal.length === 0 ? (
+                    <div className="collaboration-assets-empty">
+                      <History
+                        className="h-5 w-5 opacity-40"
+                        aria-hidden="true"
+                      />
+                      <span>暂无变更记录</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="collaboration-memory-journal-list"
+                      data-testid="collaboration-memory-journal-list"
+                    >
+                      {memoryJournal.map((entry, idx) => (
+                        <div
+                          key={entry.id ?? `${entry.ts}-${idx}`}
+                          className="collaboration-memory-journal-row"
+                        >
+                          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>
+                              {entry.op.toUpperCase()}
+                              {entry.target ? ` · ${entry.target}` : ''}
+                            </span>
+                            <span className="tabular-nums">
+                              {formatCollectionTime(entry.ts)}
+                            </span>
+                          </div>
+                          {entry.before ? (
+                            <div className="text-xs text-muted-foreground line-through">
+                              {entry.before}
+                            </div>
+                          ) : null}
+                          {entry.after ? (
+                            <div className="text-xs text-foreground">
+                              {entry.after}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ) : memoryFacts.length > 0 ? (
+                <section
+                  className="collaboration-memory-facts-card"
+                  data-testid="collaboration-memory-facts-section"
+                >
+                  <div
+                    className="collaboration-memory-fact-list"
+                    data-testid="collaboration-memory-fact-list"
+                  >
+                    {memoryFacts.map((fact) => {
+                      const isEditing = editingFactId === fact.id;
+                      return (
+                        <div
+                          key={fact.id}
+                          className="collaboration-memory-fact-row"
+                          data-testid={`memory-fact-item-${fact.id}`}
+                        >
+                          {isEditing ? (
+                            <div className="collaboration-collection-note-editor">
+                              <Input
+                                aria-label="编辑记忆内容"
+                                data-testid={`memory-fact-edit-input-${fact.id}`}
+                                value={editingFactDraft}
+                                autoFocus
+                                className="h-6 flex-1 px-2 text-xs"
+                                onChange={(event) =>
+                                  setEditingFactDraft(event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    void handleSaveFactEdit(fact.id);
+                                  } else if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    setEditingFactId(null);
+                                  }
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                aria-label="保存记忆修改"
+                                data-testid={`memory-fact-save-${fact.id}`}
+                                onClick={() => {
+                                  void handleSaveFactEdit(fact.id);
+                                }}
+                              >
+                                <Check
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                aria-label="取消修改"
+                                onClick={() => setEditingFactId(null)}
+                              >
+                                <X
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="collaboration-memory-fact-main">
+                                <p className="collaboration-memory-fact-text">
+                                  {fact.content}
+                                </p>
+                                <div className="collaboration-memory-fact-meta">
+                                  <span className="collaboration-memory-scope-badge">
+                                    {formatScopeLabel(fact.scope)}
+                                  </span>
+                                  <span>
+                                    {formatCollectionTime(
+                                      fact.updatedAt ?? fact.updated_at ?? ''
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="collaboration-memory-fact-actions">
+                                <button
+                                  type="button"
+                                  className="collaboration-collection-copy-btn"
+                                  aria-label="编辑记忆"
+                                  data-testid={`memory-fact-edit-${fact.id}`}
+                                  onClick={() => {
+                                    setEditingFactId(fact.id);
+                                    setEditingFactDraft(fact.content);
+                                  }}
+                                >
+                                  <Pencil
+                                    className="h-3 w-3"
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="collaboration-collection-delete-btn"
+                                  aria-label="删除记忆"
+                                  data-testid={`memory-fact-delete-${fact.id}`}
+                                  onClick={() => {
+                                    void handleDeleteFact(fact.id);
+                                  }}
+                                >
+                                  <Trash2
+                                    className="h-3 w-3"
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : memorySummary && memorySummary.sections.length > 0 ? (
+                <section
+                  className="collaboration-memory-summary-card"
+                  data-testid="collaboration-memory-summary-card"
+                >
+                  <div className="collaboration-memory-summary-sections">
+                    {memorySummary.sections.map((sec) => (
+                      <div
+                        key={sec.id}
+                        className="collaboration-memory-summary-section"
+                      >
+                        <h4 className="collaboration-memory-summary-section-title">
+                          {sec.title}
+                        </h4>
+                        <ul className="collaboration-memory-summary-bullets">
+                          {sec.items.map((bullet, idx) => (
+                            <li key={idx}>{bullet}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <div className="collaboration-assets-empty">
+                  <Brain className="h-5 w-5 opacity-40" aria-hidden="true" />
+                  <span>暂无记忆</span>
+                </div>
+              )
+            ) : assetTab === 'topics' ? (
+              memoryTopics.length > 0 ? (
+                <section
+                  className="collaboration-memory-facts-card"
+                  data-testid="collaboration-memory-topics-section"
+                >
+                  <div
+                    className="collaboration-memory-topic-list"
+                    data-testid="collaboration-memory-topic-list"
+                  >
+                    {memoryTopics.map((topicItem) => {
+                      const isExpanded = expandedTopicSlugs.has(
+                        topicItem.topic
+                      );
+                      const topicSummary =
+                        topicItem.summary ?? topicItem.preview ?? '';
+                      const topicBody = topicItem.content ?? topicSummary;
+                      return (
+                        <div
+                          key={topicItem.topic}
+                          className="collaboration-memory-topic-card"
+                          data-testid={`memory-topic-item-${topicItem.topic}`}
+                        >
+                          <div
+                            className="collaboration-memory-topic-header"
+                            onClick={() =>
+                              toggleTopicExpanded(topicItem.topic)
+                            }
+                          >
+                            <div className="collaboration-memory-topic-title-wrap">
+                              <span className="truncate font-medium">
+                                {topicItem.title}
+                              </span>
+                              <span className="collaboration-memory-topic-chip">
+                                #{topicItem.topic}
+                              </span>
+                            </div>
+                            <div className="collaboration-collection-card-header-right">
+                              <span className="text-[11px] text-muted-foreground tabular-nums">
+                                {topicItem.charCount ??
+                                  topicItem.char_count ??
+                                  topicBody.length}{' '}
+                                字
+                              </span>
+                              <button
+                                type="button"
+                                className="collaboration-collection-copy-btn"
+                                aria-label="编辑主题"
+                                data-testid={`memory-topic-edit-${topicItem.topic}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setTopicSlugInput(topicItem.topic);
+                                  setTopicTitleInput(topicItem.title);
+                                  setTopicContentInput(topicBody);
+                                  setAddTopicOpen(true);
+                                }}
+                              >
+                                <Pencil
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                className="collaboration-collection-delete-btn"
+                                aria-label="删除主题"
+                                data-testid={`memory-topic-delete-${topicItem.topic}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteTopic(topicItem.topic);
+                                }}
+                              >
+                                <Trash2
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <ChevronDown
+                                className={cn(
+                                  'h-3.5 w-3.5 transition-transform text-muted-foreground',
+                                  !isExpanded && '-rotate-90'
+                                )}
+                                aria-hidden="true"
+                              />
+                            </div>
+                          </div>
+                          {!isExpanded ? (
+                            <p className="collaboration-memory-topic-summary">
+                              {topicSummary}
+                            </p>
+                          ) : (
+                            <div
+                              className="collaboration-collection-text-content mt-1.5"
+                              data-testid={`memory-topic-content-${topicItem.topic}`}
+                            >
+                              {topicBody}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : (
+                <div className="collaboration-assets-empty">
+                  <BookOpen className="h-5 w-5 opacity-40" aria-hidden="true" />
+                  <span>暂无主题</span>
+                </div>
+              )
+            ) : loading ? (
               <p className="collaboration-preview-empty">
                 {i18n.t('panels:ui.collection.loading')}
               </p>
             ) : items.length === 0 ? (
-              <p className="collaboration-preview-empty">
-                {i18n.t('panels:ui.collection.nothingSavedInThisGroup')}
-              </p>
+              <div className="collaboration-assets-empty">
+                <Bookmark className="h-5 w-5 opacity-40" aria-hidden="true" />
+                <span>
+                  {i18n.t('panels:ui.collection.nothingSavedInThisGroup')}
+                </span>
+              </div>
             ) : (
               items.map((item) => {
                 const isCollapsed = collapsedItemIds.has(item.id);
                 const isReadsExpanded = expandedReadItemIds.has(item.id);
                 const isEditingNote = editingNoteItemId === item.id;
+                const isIndexedInMemory = !excludedCollectionIds.includes(
+                  item.id
+                );
                 const itemKind = item.item_kind ?? item.kind ?? 'file';
                 const itemName = item.file_name ?? item.name ?? '';
                 const itemReads = item.read_receipts ?? item.reads ?? [];
@@ -1066,7 +1843,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
                               void handleCopyItem(item);
                             }}
                           >
-                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                            <Copy
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
                           </button>
                         ) : null}
                         <button
@@ -1082,7 +1862,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
                             void handleDeleteItem(item.id);
                           }}
                         >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          <Trash2
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
                         </button>
                         <button
                           type="button"
@@ -1092,7 +1875,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           aria-label={
                             isCollapsed
                               ? i18n.t('panels:ui.collection.expandSavedItem')
-                              : i18n.t('panels:ui.collection.collapseSavedItem')
+                              : i18n.t(
+                                  'panels:ui.collection.collapseSavedItem'
+                                )
                           }
                           onClick={(event) => {
                             event.stopPropagation();
@@ -1208,7 +1993,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => setEditingNoteItemId(null)}
                               >
-                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                                <X
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
                               </Button>
                             </div>
                           ) : (
@@ -1240,31 +2028,57 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         </div>
 
                         <div className="collaboration-collection-card-footer">
-                          <span data-testid={`collection-item-time-${item.id}`}>
-                            {i18n.t('panels:ui.collection.createdAt', {
-                              time: formatCollectionTime(item.created_at),
-                            })}
-                          </span>
-                          <button
-                            type="button"
-                            className="collaboration-collection-reads-toggle"
-                            data-testid={`collection-item-reads-toggle-${item.id}`}
-                            aria-expanded={isReadsExpanded}
-                            onClick={() => toggleReadLog(item.id)}
+                          <span
+                            data-testid={`collection-item-time-${item.id}`}
                           >
-                            <span>
-                              {i18n.t('panels:ui.collection.readsCount', {
-                                count: itemReads.length,
-                              })}
-                            </span>
-                            <ChevronDown
+                            {formatCollectionTime(item.created_at)}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
                               className={cn(
-                                'h-3 w-3 transition-transform',
-                                isReadsExpanded && 'rotate-180'
+                                'collaboration-memory-index-toggle',
+                                isIndexedInMemory && 'is-indexed'
                               )}
-                              aria-hidden="true"
-                            />
-                          </button>
+                              data-testid={`collection-item-index-toggle-${item.id}`}
+                              title={
+                                isIndexedInMemory
+                                  ? '已同步至记忆索引，点击取消'
+                                  : '点击加入记忆索引'
+                              }
+                              onClick={() => {
+                                void handleToggleCollectionIndexed(item.id);
+                              }}
+                            >
+                              <Link2
+                                className="h-3 w-3 shrink-0"
+                                aria-hidden="true"
+                              />
+                              <span>
+                                {isIndexedInMemory ? '已索引' : '索引'}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="collaboration-collection-reads-toggle"
+                              data-testid={`collection-item-reads-toggle-${item.id}`}
+                              aria-expanded={isReadsExpanded}
+                              onClick={() => toggleReadLog(item.id)}
+                            >
+                              <span>
+                                {i18n.t('panels:ui.collection.readsCount', {
+                                  count: itemReads.length,
+                                })}
+                              </span>
+                              <ChevronDown
+                                className={cn(
+                                  'h-3 w-3 transition-transform',
+                                  isReadsExpanded && 'rotate-180'
+                                )}
+                                aria-hidden="true"
+                              />
+                            </button>
+                          </div>
                         </div>
 
                         {isReadsExpanded ? (
@@ -1306,7 +2120,9 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                       )}{' '}
                                       ·{' '}
                                       {formatCollectionTime(
-                                        read.last_read_at ?? read.read_at ?? ''
+                                        read.last_read_at ??
+                                          read.read_at ??
+                                          ''
                                       )}
                                     </span>
                                   </li>
@@ -1323,22 +2139,24 @@ export function CollaborationSpaceCollectionDockviewPanel(
             )}
           </div>
 
-          <div
-            role="button"
-            tabIndex={0}
-            className="collaboration-collection-dropzone"
-            data-testid="collaboration-collection-dropzone"
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-          >
-            <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>{i18n.t('panels:ui.collection.dragAFileHereOr')}</span>
-          </div>
+          {assetTab === 'collection' ? (
+            <div
+              role="button"
+              tabIndex={0}
+              className="collaboration-collection-dropzone"
+              data-testid="collaboration-collection-dropzone"
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+            >
+              <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>{i18n.t('panels:ui.collection.dragAFileHereOr')}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

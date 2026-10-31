@@ -438,13 +438,16 @@ export function TaskFollowUpSection({
     executorProfileRef,
     localMessage,
   });
+  const resolvedSessionExecutor = (session?.agent_id ??
+    session?.executor ??
+    storedPersona?.agent_name) as AgentKind | null | undefined;
   const defaultExecutorProfile = useMemo(() => {
     return getDefaultExecutorProfile({
       scratchExecutorProfile,
       latestProfileId: null,
       createdSessionProfiles,
       sessionId: session?.id,
-      sessionExecutor: session?.executor as AgentKind | null | undefined,
+      sessionExecutor: resolvedSessionExecutor,
       configExecutorProfile: config?.executor_profile,
       profiles,
     });
@@ -452,7 +455,7 @@ export function TaskFollowUpSection({
     scratchExecutorProfile,
     createdSessionProfiles,
     session?.id,
-    session?.executor,
+    resolvedSessionExecutor,
     config?.executor_profile,
     profiles,
   ]);
@@ -595,7 +598,8 @@ export function TaskFollowUpSection({
     isNewSessionMode,
     workspaceId,
   ]);
-  const executor = effectiveExecutorProfile?.executor ?? null;
+  const executor =
+    resolvedSessionExecutor ?? effectiveExecutorProfile?.executor ?? null;
   const catalogQuery = useQuery({
     queryKey: sessionControlsQueryKey(executor!, null),
     queryFn: () => loadAgentSessionControlsCatalog(executor!),
@@ -767,6 +771,7 @@ export function TaskFollowUpSection({
   }, [cancelDebouncedSave, clearStopping, setAttachedImages, setLocalMessage]);
   const handleSendFailure = useCallback(
     (failedMessage: string) => {
+      cancelDebouncedSave();
       setLocalMessage((current) => (current ? current : failedMessage));
       setAttachedImages((current) => {
         const restored = restoreComposerAttachmentsAfterSendFailure({
@@ -777,7 +782,7 @@ export function TaskFollowUpSection({
         return restored;
       });
     },
-    [setAttachedImages, setLocalMessage]
+    [cancelDebouncedSave, setAttachedImages, setLocalMessage]
   );
   const codexGoalState = useMemo(() => {
     const liveGoal = codexGoalStateFromSessionGoal(storedSessionGoal);
@@ -842,7 +847,7 @@ export function TaskFollowUpSection({
     onSubmitFollowUp,
   } = useFollowUpSend({
     sessionId,
-    sessionExecutor: session?.executor,
+    sessionExecutor: resolvedSessionExecutor,
     workspaceId: workspaceIdValue,
     isNewSessionMode,
     newSessionName: '',
@@ -1010,6 +1015,7 @@ export function TaskFollowUpSection({
     isAttemptRunning: isComposerExecutionRunning,
     isQueued,
     isEditingQueued: Boolean(editingInput),
+    canSendFollowUp,
     clearStopping,
     cancelDebouncedSave,
     saveToScratch,
@@ -1242,7 +1248,7 @@ export function TaskFollowUpSection({
           {showTopbar && (
             <SessionComposerTopbar
               executorProfile={effectiveExecutorProfile}
-              sessionExecutor={session?.executor}
+              sessionExecutor={resolvedSessionExecutor}
               composerIdentity={composerIdentity}
               showChangedFileSummary={showChangedFileSummary}
               changedFileCount={fileCount}

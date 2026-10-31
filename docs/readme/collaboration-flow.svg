@@ -1,11 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320">
   <title>VibeX multi-agent collaboration flow</title>
   <desc>A task moves from a session through an isolated worktree and multi-agent orchestration into review and delivery.</desc>
-  <rect width="1200" height="360" fill="#ffffff"/>
-  <g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
-    <text x="600" y="48" text-anchor="middle" fill="#000" font-size="18" font-weight="700">Multi-Agent Collaboration</text>
-    <text x="600" y="74" text-anchor="middle" fill="#000" font-size="12">session / worktree / delegation / graph workflow / review</text>
-    <g><rect x="130" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="148" cy="128" r="3" fill="#fff"/><circle cx="160" cy="128" r="3" fill="#fff"/><circle cx="172" cy="128" r="3" fill="#fff"/><path d="M150 148 h16 v20 h-16 z M154 144 h8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="200" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">创建会话</text><text x="200" y="228" text-anchor="middle" fill="#fff" font-size="11">Goal and Agent</text></g><g><rect x="355" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="373" cy="128" r="3" fill="#fff"/><circle cx="385" cy="128" r="3" fill="#fff"/><circle cx="397" cy="128" r="3" fill="#fff"/><path d="M375 146 h10 v22 h-10 z M389 146 h10 v22 h-10 z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="425" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">隔离 Worktree</text><text x="425" y="228" text-anchor="middle" fill="#fff" font-size="11">Branch isolation</text></g><g><rect x="580" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="598" cy="128" r="3" fill="#fff"/><circle cx="610" cy="128" r="3" fill="#fff"/><circle cx="622" cy="128" r="3" fill="#fff"/><path d="M592 152 a8 8 0 1 1 0.1 0 M616 146 a8 8 0 1 1 0.1 0 M616 168 a8 8 0 1 1 0.1 0" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="650" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Multi-Agent</text><text x="650" y="228" text-anchor="middle" fill="#fff" font-size="11">Delegate and Graph</text></g><g><rect x="805" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="823" cy="128" r="3" fill="#fff"/><circle cx="835" cy="128" r="3" fill="#fff"/><circle cx="847" cy="128" r="3" fill="#fff"/><path d="M817 158 l8 8 16-18" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="875" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">检查与审查</text><text x="875" y="228" text-anchor="middle" fill="#fff" font-size="11">Git / Diff / Test</text></g><g><rect x="1030" y="110" width="140" height="150" rx="28" fill="#000"/><circle cx="1048" cy="128" r="3" fill="#fff"/><circle cx="1060" cy="128" r="3" fill="#fff"/><circle cx="1072" cy="128" r="3" fill="#fff"/><path d="M1046 158 h24 M1058 148 l12 10 -12 10" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="1100" y="206" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">合并与交付</text><text x="1100" y="228" text-anchor="middle" fill="#fff" font-size="11">Commit and ship</text></g>
+  
+  <defs>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F8FAFC"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+    <linearGradient id="acp-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="50%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="host-header-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#EFF6FF"/>
+      <stop offset="50%" stop-color="#F5F3FF"/>
+      <stop offset="100%" stop-color="#ECFDF5"/>
+    </linearGradient>
+    <linearGradient id="codex-grad" x1="12" y1="3" x2="12" y2="21" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818CF8"/>
+      <stop offset="50%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="gemini-grad" x1="24" y1="6.587" x2="0" y2="16.494" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EE4D5D"/>
+      <stop offset="32.8%" stop-color="#B381DD"/>
+      <stop offset="47.6%" stop-color="#207CFE"/>
+    </linearGradient>
+    <linearGradient id="openclaw-grad" x1="0" y1="2" x2="24" y2="23" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF5A5A"/>
+      <stop offset="100%" stop-color="#991B1B"/>
+    </linearGradient>
+    <linearGradient id="antigravity-grad" x1="0" y1="1" x2="16" y2="15" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4285F4"/>
+      <stop offset="50%" stop-color="#1A73E8"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="pi-grad" x1="1" y1="1" x2="15" y2="15" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#EA580C"/>
+    </linearGradient>
+    <linearGradient id="cursor-grad" x1="3.5" y1="3" x2="12.5" y2="13" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.06"/>
+    </filter>
+    <filter id="host-shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#0F172A" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" rx="20" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.2"/>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="600" y="46" text-anchor="middle" fill="#0F172A" font-size="18" font-weight="800">Multi-Agent 协同研发闭环</text>
+    <text x="600" y="70" text-anchor="middle" fill="#475569" font-size="12" font-weight="500">需求发起 · Worktree 隔离 · VibeX-Bot 群聊接力与 DAG 编排 · Diff 审查 · 合并交付</text>
+    <g filter="url(#card-shadow)"><rect x="80" y="104" width="150" height="156" rx="22" fill="#FFFFFF" stroke="#BFDBFE" stroke-width="1.5"/><rect x="127" y="126" width="56" height="56" rx="16" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.2"/><path d="M147 144 h16 v20 h-16 z M151 140 h8" fill="none" stroke="#2563EB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="155" y="210" text-anchor="middle" fill="#0F172A" font-size="13.5" font-weight="800">01 · 提出需求</text><text x="155" y="232" text-anchor="middle" fill="#475569" font-size="11" font-weight="500">选择项目与 Agent</text></g><g filter="url(#card-shadow)"><rect x="310" y="104" width="150" height="156" rx="22" fill="#FFFFFF" stroke="#C7D2FE" stroke-width="1.5"/><rect x="357" y="126" width="56" height="56" rx="16" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1.2"/><path d="M373 143 h10 v22 h-10 z M387 143 h10 v22 h-10 z" fill="none" stroke="#4F46E5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="385" y="210" text-anchor="middle" fill="#0F172A" font-size="13.5" font-weight="800">02 · Worktree 隔离</text><text x="385" y="232" text-anchor="middle" fill="#475569" font-size="11" font-weight="500">独立分支并行改码</text></g><g filter="url(#card-shadow)"><rect x="540" y="104" width="150" height="156" rx="22" fill="#FFFFFF" stroke="#DDD6FE" stroke-width="1.5"/><rect x="587" y="126" width="56" height="56" rx="16" fill="#F5F3FF" stroke="#DDD6FE" stroke-width="1.2"/><path d="M603 150 a7 7 0 1 1 0.1 0 M625 144 a7 7 0 1 1 0.1 0 M625 164 a7 7 0 1 1 0.1 0" fill="none" stroke="#7C3AED" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="615" y="210" text-anchor="middle" fill="#0F172A" font-size="13.5" font-weight="800">03 · 多 Agent 协同</text><text x="615" y="232" text-anchor="middle" fill="#475569" font-size="11" font-weight="500">VibeX-Bot / 委派 / DAG</text></g><g filter="url(#card-shadow)"><rect x="770" y="104" width="150" height="156" rx="22" fill="#FFFFFF" stroke="#FED7AA" stroke-width="1.5"/><rect x="817" y="126" width="56" height="56" rx="16" fill="#FFF7ED" stroke="#FED7AA" stroke-width="1.2"/><path d="M833 155 l8 8 16-18" fill="none" stroke="#EA580C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="845" y="210" text-anchor="middle" fill="#0F172A" font-size="13.5" font-weight="800">04 · 验证与审查</text><text x="845" y="232" text-anchor="middle" fill="#475569" font-size="11" font-weight="500">Diff / 终端 / 内置浏览器</text></g><g filter="url(#card-shadow)"><rect x="1000" y="104" width="150" height="156" rx="22" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="1.5"/><rect x="1047" y="126" width="56" height="56" rx="16" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1.2"/><path d="M1063 154 h24 M1075 144 l12 10 -12 10" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="1075" y="210" text-anchor="middle" fill="#0F172A" font-size="13.5" font-weight="800">05 · 合并与交付</text><text x="1075" y="232" text-anchor="middle" fill="#475569" font-size="11" font-weight="500">一键回基 / Commit &amp; PR</text></g>
   </g>
-  <g><path d="M270 185 H355" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.00s" repeatCount="indefinite"/></path><path d="M495 185 H580" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.12s" repeatCount="indefinite"/></path><path d="M720 185 H805" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.24s" repeatCount="indefinite"/></path><path d="M945 185 H1030" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 7"><animate attributeName="stroke-dashoffset" values="24;0" dur="1.35s" begin="0.36s" repeatCount="indefinite"/></path></g>
+  <g><path d="M230 182 H310" fill="none" stroke="#4F46E5" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.00s" repeatCount="indefinite"/></path><path d="M460 182 H540" fill="none" stroke="#4F46E5" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.12s" repeatCount="indefinite"/></path><path d="M690 182 H770" fill="none" stroke="#4F46E5" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.24s" repeatCount="indefinite"/></path><path d="M920 182 H1000" fill="none" stroke="#4F46E5" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.36s" repeatCount="indefinite"/></path></g>
 </svg>

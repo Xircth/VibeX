@@ -11,6 +11,7 @@ export type ProductContextMenuItem =
       type?: 'item';
       id: string;
       label: string;
+      labelNode?: ReactNode;
       icon?: LucideIcon;
       iconNode?: ReactNode;
       labelStyle?: CSSProperties;

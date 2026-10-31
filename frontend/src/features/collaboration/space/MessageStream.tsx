@@ -25,6 +25,7 @@ import {
 import { CollaborationWorkingStatus } from '../CollaborationWorkingStatus';
 import { CollaborationCrossChatNotice } from '../CollaborationCrossChatNotice';
 import { CollaborationThreadPermissionDock } from '../CollaborationThreadPermissionDock';
+import { spaceMessageRefKey } from '../collaborationMessageNav';
 import { isCollabThreadLogAtBottom } from '../collaborationThreadLog';
 import { EMPTY_RECEIPTS } from './types';
 import { reactionsFromUnknown } from '../spaceReactions';
@@ -63,6 +64,7 @@ export function MessageStream() {
     scrollToMessage,
     selectMemberForPreview,
     selected,
+    setActiveNavIndex,
     setIsAtThreadBottom,
     spaces,
     t,
@@ -105,6 +107,29 @@ export function MessageStream() {
                   setIsAtThreadBottom((current) =>
                     current === atBottom ? current : atBottom
                   );
+                  if (atBottom) {
+                    setActiveNavIndex((current) =>
+                      current === null ? current : null
+                    );
+                    return;
+                  }
+                  if (navEntries.length > 0) {
+                    const anchorY = el.scrollTop + el.clientHeight * 0.4;
+                    let nextActive = navEntries[0]!.index;
+                    for (const entry of navEntries) {
+                      const target = filteredMessages[entry.index];
+                      if (!target) continue;
+                      const node =
+                        messageItemRefs.current.get(spaceMessageRefKey(target)) ??
+                        messageItemRefs.current.get(String(target.seq));
+                      if (node && node.offsetTop <= anchorY) {
+                        nextActive = entry.index;
+                      }
+                    }
+                    setActiveNavIndex((current) =>
+                      current === nextActive ? current : nextActive
+                    );
+                  }
                 }}
                 onKeyDownCapture={() => {
                   if (selected) {
@@ -213,9 +238,7 @@ export function MessageStream() {
                     ) {
                       return null;
                     }
-                    const messageKey =
-                      String(message.id ?? message.envelope?.id ?? '').trim() ||
-                      String(message.seq);
+                    const messageKey = spaceMessageRefKey(message);
                     const cluster = messageClusters[index] ?? null;
                     const showName = showsClusterName(cluster);
                     const showAvatar = showsClusterAvatar(cluster);
@@ -285,7 +308,8 @@ export function MessageStream() {
                                       event,
                                       authorMember,
                                       name,
-                                      avatar.color
+                                      avatar.color,
+                                      avatar
                                     )
                                   }
                                 >

@@ -20,7 +20,10 @@ use crate::{
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const DAILY_BASE: &str = "https://daily-cloudcode-pa.googleapis.com";
 const PROD_BASE: &str = "https://cloudcode-pa.googleapis.com";
-const USER_AGENT: &str = "antigravity/acp";
+/// Cloud Code omits the `Gemini Models` group from `retrieveUserQuotaSummary`
+/// when the User-Agent lacks a modern Antigravity client version (such as bare
+/// `antigravity/acp`). Match the desktop hub client User-Agent prefix.
+const USER_AGENT: &str = "antigravity/hub/2.28.2";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 pub(crate) async fn probe_antigravity_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
@@ -119,6 +122,15 @@ pub(crate) async fn probe_antigravity_plan_usage(context: &PlanProbeContext) -> 
                         continue;
                     }
                     windows.push(window);
+                }
+                if windows
+                    .iter()
+                    .any(|window| window.id.starts_with("gemini_"))
+                    && windows
+                        .iter()
+                        .any(|window| window.id.starts_with("claude_gpt_"))
+                {
+                    break;
                 }
             }
             Err(result) => {
@@ -379,16 +391,17 @@ fn windows_from_quota_summary(payload: &Value) -> Vec<PlanUsageWindow> {
     };
     let mut windows = Vec::new();
     for group in groups {
+        let Some(buckets) = group.get("buckets").and_then(Value::as_array) else {
+            continue;
+        };
         let group_name = quota_group_name(
             group
                 .get("displayName")
                 .or_else(|| group.get("display_name"))
                 .and_then(Value::as_str)
                 .unwrap_or(""),
+            buckets,
         );
-        let Some(buckets) = group.get("buckets").and_then(Value::as_array) else {
-            continue;
-        };
         for bucket in buckets {
             let Some(kind) = quota_bucket_kind(bucket) else {
                 continue;
@@ -459,16 +472,32 @@ fn windows_from_model_buckets(payload: &Value) -> Vec<PlanUsageWindow> {
         .collect()
 }
 
-fn quota_group_name(display_name: &str) -> String {
+fn quota_group_name(display_name: &str, buckets: &[Value]) -> String {
     let lower = display_name.trim().to_ascii_lowercase();
-    if lower == "gemini" || lower == "gemini models" {
+    if lower.contains("argon") {
+        return "Gemini 4 Argon".to_string();
+    }
+    if lower == "gemini" || lower == "gemini models" || lower.starts_with("gemini") {
         return "Gemini".to_string();
     }
     if lower.contains("claude") || lower.contains("gpt") {
         return "Claude/GPT".to_string();
     }
-    if lower.contains("argon") {
-        return "Gemini 4 Argon".to_string();
+    for bucket in buckets {
+        let bucket_id = bucket
+            .get("bucketId")
+            .or_else(|| bucket.get("bucket_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if bucket_id.starts_with("gemini") {
+            return "Gemini".to_string();
+        }
+        if bucket_id.starts_with("3p") || bucket_id.contains("claude") || bucket_id.contains("gpt")
+        {
+            return "Claude/GPT".to_string();
+        }
     }
     if display_name.trim().is_empty() {
         "Quota".to_string()
@@ -660,23 +689,42 @@ mod tests {
         assert!(windows[2].resets_at_ms.is_some());
 
         let live_shape = json!({
-            "groups": [{
-                "displayName": "Gemini Models",
-                "buckets": [
-                    {
-                        "window": "weekly",
-                        "bucketId": "gemini-weekly",
-                        "displayName": "Weekly Limit Remaining",
-                        "remainingFraction": 0.92
-                    },
-                    {
-                        "window": "5h",
-                        "bucketId": "gemini-5h",
-                        "displayName": "Five Hour Limit Remaining",
-                        "remainingFraction": 1
-                    }
-                ]
-            }]
+            "groups": [
+                {
+                    "displayName": "Gemini Models",
+                    "buckets": [
+                        {
+                            "window": "weekly",
+                            "bucketId": "gemini-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "remainingFraction": 0.92
+                        },
+                        {
+                            "window": "5h",
+                            "bucketId": "gemini-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "remainingFraction": 0.87
+                        }
+                    ]
+                },
+                {
+                    "displayName": "Claude and GPT models",
+                    "buckets": [
+                        {
+                            "window": "weekly",
+                            "bucketId": "3p-weekly",
+                            "displayName": "Weekly Limit Remaining",
+                            "remainingFraction": 0.5
+                        },
+                        {
+                            "window": "5h",
+                            "bucketId": "3p-5h",
+                            "displayName": "Five Hour Limit Remaining",
+                            "remainingFraction": 1
+                        }
+                    ]
+                }
+            ]
         });
         let live_windows = windows_from_quota_summary(&live_shape);
         assert_eq!(
@@ -684,7 +732,17 @@ mod tests {
                 .iter()
                 .map(|window| window.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["gemini_five_hour", "gemini_weekly"]
+            vec![
+                "gemini_five_hour",
+                "gemini_weekly",
+                "claude_gpt_five_hour",
+                "claude_gpt_weekly"
+            ]
+        );
+        assert!(
+            USER_AGENT.starts_with("antigravity/hub/2.")
+                || USER_AGENT.starts_with("antigravity/2."),
+            "Cloud Code omits Gemini Models unless User-Agent carries a modern client version"
         );
     }
 

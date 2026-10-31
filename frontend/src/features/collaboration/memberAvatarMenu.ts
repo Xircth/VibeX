@@ -1,7 +1,12 @@
 import { AtSign, MessageCircle, PanelsTopLeft } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { Fragment, createElement, type CSSProperties } from 'react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import i18n from '@/i18n';
+import {
+  MemberBotAvatar,
+  deriveMemberBotAvatar,
+  type MemberBotAvatarConfig,
+} from './MemberBotAvatar';
 
 export type MemberAvatarMenuCopy = {
   openPrivateChat: string;
@@ -20,6 +25,7 @@ export const MEMBER_AVATAR_MENU_COPY: MemberAvatarMenuCopy = {
 export type BuildMemberAvatarMenuInput = {
   nickname: string;
   color: string;
+  avatar?: MemberBotAvatarConfig;
   copy?: MemberAvatarMenuCopy;
   onMention: () => void;
   onOpenPrivateChat: () => void;
@@ -27,7 +33,7 @@ export type BuildMemberAvatarMenuInput = {
 };
 
 export function memberMentionMenuLabel(nickname: string): string {
-  return `@${nickname}`;
+  return nickname.replace(/^@+/, '').trim();
 }
 
 export function memberMentionLabelStyle(color: string): CSSProperties {
@@ -37,18 +43,35 @@ export function memberMentionLabelStyle(color: string): CSSProperties {
 export function buildMemberAvatarMenuItems({
   nickname,
   color,
+  avatar,
   copy = MEMBER_AVATAR_MENU_COPY,
   onMention,
   onOpenPrivateChat,
   onOpenSession,
 }: BuildMemberAvatarMenuInput): ProductContextMenuItem[] {
-  const name = nickname.trim();
+  const name = memberMentionMenuLabel(nickname);
+  const baseAvatar = avatar ?? deriveMemberBotAvatar(name);
+  const resolvedAvatar: MemberBotAvatarConfig = {
+    ...baseAvatar,
+    color: color || baseAvatar.color,
+  };
   return [
     {
       id: 'mention',
-      label: memberMentionMenuLabel(name),
+      label: name,
+      labelNode: createElement(
+        Fragment,
+        null,
+        createElement(MemberBotAvatar, {
+          config: resolvedAvatar,
+          animated: false,
+          sessionActive: false,
+          className: 'collaboration-member-mention-avatar',
+        }),
+        name
+      ),
       icon: AtSign,
-      labelStyle: memberMentionLabelStyle(color),
+      labelStyle: memberMentionLabelStyle(resolvedAvatar.color),
       onSelect: onMention,
     },
     { type: 'separator', id: 'mention-sep' },

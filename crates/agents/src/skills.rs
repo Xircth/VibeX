@@ -2839,12 +2839,22 @@ mod tests {
         );
         assert!(
             playbook.contains("[上次发言后的群内新消息]")
-                && playbook.contains("严禁播报查看群消息的过渡话术"),
-            "playbook must document envelope incremental context and forbid group-message peek announcements"
+                && (playbook.contains("严禁播报查看群消息")
+                    || playbook.contains("严禁播报琐碎单步")),
+            "playbook must document envelope incremental context and forbid group-message peek / trivial step-by-step announcements"
         );
         assert!(
-            skill.contains("[上次发言后的群内新消息]"),
-            "skill must note that GroupSpace envelopes already carry incremental context"
+            playbook.contains("绝口不提协作规则")
+                && playbook.contains("严禁复述已有结论")
+                && playbook.contains("初步结论与长内容一律走「群收藏」")
+                && playbook.contains("按受众定制内容")
+                && playbook.contains("冲突"),
+            "playbook must forbid rule meta-talk, repeating peer conclusions, require collection for long/preliminary outputs, tailor content to audience, and alert on conflicts/critical steps"
+        );
+        assert!(
+            skill.contains("[上次发言后的群内新消息]")
+                && skill.contains("按受众定制内容"),
+            "skill must note that GroupSpace envelopes already carry incremental context and state audience-aware principles"
         );
         assert!(
             playbook.contains("interrupt"),

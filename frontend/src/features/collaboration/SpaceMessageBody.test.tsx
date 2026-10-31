@@ -194,6 +194,32 @@ describe('SpaceMessageBody cards', () => {
       '已回答：dev'
     );
   });
+
+  it('keeps the question card visible and formats JSON answers when an ask_user_question card is resolved', () => {
+    render(
+      <SpaceMessageBody
+        fromYou={false}
+        text={askUserQuestion}
+        cards={[
+          {
+            id: 'card-3',
+            kind: 'ask',
+            status: 'resolved',
+            resolution: {
+              answer: '{"questionId":"question-1","labels":["仅会话界面可见"]}',
+            },
+          },
+        ]}
+      />
+    );
+    expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
+    expect(screen.getByTestId('ask-question-title')).toHaveTextContent(
+      '用哪个方案？'
+    );
+    expect(screen.getByTestId('collaboration-card-resolved')).toHaveTextContent(
+      '已回答：仅会话界面可见'
+    );
+  });
 });
 
 describe('messagePreviewText', () => {
@@ -272,24 +298,89 @@ describe('messagePreviewText', () => {
     );
   });
 
-  it('renders markdown images and live HTML previews in member bubbles', () => {
+  it('renders markdown images and splits live HTML previews into standalone blocks between prose bubbles', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SpaceMessageBody
           fromYou={false}
           text={
-            '![截图](https://example.com/shot.png)\n\n```html\n<p>hi</p>\n```'
+            '![截图](https://example.com/shot.png)\n\n```html\n<!DOCTYPE html><html><head><title>Liquid Glass</title></head><body><p>hi</p></body></html>\n```\n\n后半段说明文字'
           }
         />
       </QueryClientProvider>
     );
     const image = screen.getByRole('img', { name: '截图' });
     expect(image).toHaveAttribute('src', 'https://example.com/shot.png');
+    const standaloneBlock = screen.getByTestId(
+      'collaboration-standalone-html-block'
+    );
+    expect(standaloneBlock.closest('.collaboration-member-bubble')).toBeNull();
     const frame = screen.getByTitle('HTML 预览');
     expect(frame).toHaveAttribute(
       'srcdoc',
       expect.stringContaining('<p>hi</p>')
     );
+    expect(screen.queryByRole('button', { name: '源码' })).toBeNull();
+    expect(screen.getByTestId('html-preview-open-tab')).toHaveTextContent(
+      /liquid-glass.*\.html/
+    );
+    expect(
+      screen.getByTestId('collaboration-member-bubble-2')
+    ).toHaveTextContent('后半段说明文字');
+  });
+
+  it('caps overly long user and member messages with a lower-half fade and expands when clicking 展开全部', () => {
+    const longText = Array.from(
+      { length: 14 },
+      (_, idx) => `第 ${idx + 1} 行：这是一段用于测试单条消息最大高度限制与渐隐展开胶囊的长文本内容。`
+    ).join('\n');
+
+    const { unmount } = render(
+      <SpaceMessageBody fromYou={false} text={longText} />
+    );
+    const memberCollapsible = screen.getByTestId(
+      'collaboration-bubble-collapsible'
+    );
+    expect(memberCollapsible).toHaveAttribute('data-collapsed', 'true');
+    expect(
+      screen.getByTestId('collaboration-bubble-collapsible-fade')
+    ).toBeTruthy();
+    const memberExpandPill = screen.getByTestId(
+      'collaboration-bubble-expand-pill'
+    );
+    expect(memberExpandPill).toHaveTextContent('展开全部');
+
+    fireEvent.click(memberExpandPill);
+    expect(memberCollapsible).toHaveAttribute('data-collapsed', 'false');
+    expect(
+      screen.queryByTestId('collaboration-bubble-expand-pill')
+    ).toBeNull();
+    unmount();
+
+    render(<SpaceMessageBody fromYou text={longText} />);
+    const userCollapsible = screen.getByTestId(
+      'collaboration-bubble-collapsible'
+    );
+    expect(userCollapsible).toHaveAttribute('data-collapsed', 'true');
+    const userExpandPill = screen.getByTestId(
+      'collaboration-bubble-expand-pill'
+    );
+    expect(userExpandPill).toHaveTextContent('展开全部');
+
+    fireEvent.click(userExpandPill);
+    expect(userCollapsible).toHaveAttribute('data-collapsed', 'false');
+    expect(
+      screen.queryByTestId('collaboration-bubble-expand-pill')
+    ).toBeNull();
+  });
+
+  it('does not collapse short messages', () => {
+    render(<SpaceMessageBody fromYou={false} text="短消息无需折叠" />);
+    const collapsible = screen.getByTestId('collaboration-bubble-collapsible');
+    expect(collapsible).toHaveAttribute('data-collapsed', 'false');
+    expect(
+      screen.queryByTestId('collaboration-bubble-expand-pill')
+    ).toBeNull();
   });
 });
 

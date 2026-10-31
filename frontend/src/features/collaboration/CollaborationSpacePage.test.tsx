@@ -4404,9 +4404,13 @@ describe('CollaborationSpacePage', () => {
       'collaboration-message-bot-avatar-1'
     );
     fireEvent.contextMenu(avatar);
-    const mention = screen.getByRole('menuitem', { name: '@小A' });
-    expect(mention).toHaveTextContent('@小A');
-    expect(within(mention).getByText('@小A')).toHaveStyle({
+    const mention = screen.getByRole('menuitem', { name: '小A' });
+    expect(mention).toHaveTextContent('小A');
+    expect(mention).not.toHaveTextContent('@小A');
+    expect(
+      mention.querySelector('svg.collaboration-member-mention-avatar')
+    ).toBeTruthy();
+    expect(within(mention).getByText('小A')).toHaveStyle({
       color: deriveMemberBotAvatar('小A').color,
       fontWeight: '600',
     });
@@ -4429,7 +4433,8 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
-  it('only draws piano-key ticks for user messages', async () => {
+  it('only draws piano-key ticks for user messages and scrolls to messages with UUID ids on click', async () => {
+    const user = userEvent.setup();
     const defaultImpl = collaborationCall.getMockImplementation();
     collaborationCall.mockImplementation(
       async (
@@ -4441,16 +4446,31 @@ describe('CollaborationSpacePage', () => {
           return {
             messages: [
               {
+                id: 'msg-uuid-1',
                 seq: 1,
-                envelope: { sender: 'Person', content: '用户第一条' },
+                envelope: {
+                  id: 'msg-uuid-1',
+                  sender: 'Person',
+                  content: '用户第一条',
+                },
               },
               {
+                id: 'msg-uuid-2',
                 seq: 2,
-                envelope: { sender: '小A', content: '助手回复' },
+                envelope: {
+                  id: 'msg-uuid-2',
+                  sender: '小A',
+                  content: '助手回复',
+                },
               },
               {
+                id: 'msg-uuid-3',
                 seq: 3,
-                envelope: { sender: 'Person', content: '用户第二条' },
+                envelope: {
+                  id: 'msg-uuid-3',
+                  sender: 'Person',
+                  content: '用户第二条',
+                },
               },
             ],
           };
@@ -4461,12 +4481,28 @@ describe('CollaborationSpacePage', () => {
 
     renderPage();
     expect(await screen.findByText('用户第一条')).toBeTruthy();
-    expect(
-      screen.getAllByRole('button', { name: /跳转到第 \d+ 条消息/ })
-    ).toHaveLength(2);
+    const ticks = screen.getAllByRole('button', {
+      name: /跳转到第 \d+ 条消息/,
+    });
+    expect(ticks).toHaveLength(2);
     expect(
       screen.queryByRole('button', { name: '跳转到第 3 条消息' })
     ).toBeNull();
+
+    const firstMsgEl = screen.getByTestId('collaboration-message-1');
+    const scrollIntoViewSpy = vi.fn();
+    firstMsgEl.scrollIntoView = scrollIntoViewSpy;
+
+    await user.click(
+      screen.getByRole('button', { name: '跳转到第 1 条消息' })
+    );
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'center',
+    });
+    expect(
+      screen.getByRole('button', { name: '跳转到第 1 条消息' })
+    ).toHaveAttribute('aria-current', 'true');
   });
 
   it('pins the message log to the bottom on enter and offers a back-to-bottom control', async () => {

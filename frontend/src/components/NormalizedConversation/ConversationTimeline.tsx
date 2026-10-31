@@ -55,6 +55,7 @@ import { QuestionRequestCard } from '@/components/NormalizedConversation/convers
 import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
 import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import { isGoalToolUse } from '@/components/NormalizedConversation/tools/GoalToolCall';
+import { hasMatchingAskQuestionTool } from '@/components/NormalizedConversation/TurnActivity';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import {
   appendChildConversationStack,
@@ -733,16 +734,25 @@ const AgentTimelineConversation = forwardRef<
             hidePersonaHostNotes,
           });
         }
-        if (
-          usesComposerStatusDock &&
-          item.row.row.kind === 'question_request' &&
-          !item.row.row.response
-        ) {
-          return false;
+        if (item.row.row.kind === 'question_request') {
+          if (!item.row.row.response && usesComposerStatusDock) {
+            return false;
+          }
+          if (
+            item.row.row.response &&
+            hasMatchingAskQuestionTool(item.row.row.request, timeline)
+          ) {
+            return false;
+          }
         }
         return true;
       }),
-    [conversation.items, hidePersonaHostNotes, usesComposerStatusDock]
+    [
+      conversation.items,
+      hidePersonaHostNotes,
+      timeline,
+      usesComposerStatusDock,
+    ]
   );
   useEffect(() => {
     if (conversationError) toast.error(conversationError);

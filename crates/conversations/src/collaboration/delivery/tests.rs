@@ -4558,3 +4558,41 @@ async fn user_mention_during_open_round_queues_delivery_for_currently_speaking_b
     );
     assert_eq!(follow_up.receipts[0].conversation_id, bot_a);
 }
+
+#[tokio::test]
+async fn direct_space_card_post_does_not_mirror_raw_card_into_assistant_events() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let bot = Uuid::new_v4();
+    create_session(&pool, bot, workspace, Some("Hana")).await;
+    let direct_space = space_of(&pool, bot).await;
+
+    crate::collaboration_cards::post_card(
+        &pool,
+        crate::collaboration_cards::PostCard {
+            caller_id: bot,
+            space_id: direct_space,
+            kind: crate::collaboration_cards::CardKind::Ask,
+            payload: json!({
+                "question": "请问你在 BotSpace 中能看到这张提问卡片吗？",
+                "options": ["能看到", "仅会话界面可见"],
+            }),
+            operation_id: Uuid::new_v4(),
+        },
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let (assistant_delta_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ? AND event_kind = 'assistant_text_delta' AND normalized_json LIKE '%<card%'",
+    )
+    .bind(bot)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        assistant_delta_count, 0,
+        "direct-space card posts must not leak raw <card> XML into conversation_events as AssistantTextDelta"
+    );
+}

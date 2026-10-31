@@ -153,6 +153,39 @@ function escapeRegExp(value: string): string {
 
 const CODE_PLACEHOLDER_PATTERN = /CODE(\d+)/g;
 
+function findInlineCodeClose(
+  value: string,
+  startIndex: number,
+  targetRun: number
+): number {
+  let cursor = startIndex;
+  while (cursor < value.length) {
+    const ch = value[cursor];
+    if (ch === '\n') {
+      const nextLineStart = cursor + 1;
+      if (
+        value[nextLineStart] === '\n' ||
+        (value[nextLineStart] === '\r' && value[nextLineStart + 1] === '\n')
+      ) {
+        return -1;
+      }
+      cursor += 1;
+      continue;
+    }
+    if (ch === '`') {
+      let run = 1;
+      while (value[cursor + run] === '`') run += 1;
+      if (run === targetRun) {
+        return cursor;
+      }
+      cursor += run;
+      continue;
+    }
+    cursor += 1;
+  }
+  return -1;
+}
+
 /** Replace fenced code blocks and inline code spans with opaque placeholders. */
 function maskCode(value: string): { text: string; code: string[] } {
   const code: string[] = [];
@@ -193,8 +226,7 @@ function maskCode(value: string): { text: string; code: string[] } {
       if (char === '`') {
         let run = 1;
         while (value[index + run] === '`') run += 1;
-        const tickRun = '`'.repeat(run);
-        const closing = value.indexOf(tickRun, index + run);
+        const closing = findInlineCodeClose(value, index + run, run);
         if (closing >= 0) {
           const end = closing + run;
           pushCodePlaceholder(value.slice(index, end));
@@ -202,6 +234,10 @@ function maskCode(value: string): { text: string; code: string[] } {
           lineStart = false;
           continue;
         }
+        out.push('`'.repeat(run));
+        index += run;
+        lineStart = false;
+        continue;
       }
 
       out.push(char);

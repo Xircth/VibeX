@@ -278,7 +278,13 @@ function MarkdownCodeSwitch({
     return <MermaidDiagram value={code} />;
   }
   if (isHtmlPreviewLanguage(language)) {
-    return <HtmlPreviewBlock code={code} isStreaming={isStreaming} />;
+    return (
+      <HtmlPreviewBlock
+        code={code}
+        workspacePath={workspacePath}
+        isStreaming={isStreaming}
+      />
+    );
   }
   const className =
     language && language !== 'plaintext' ? `language-${language}` : undefined;

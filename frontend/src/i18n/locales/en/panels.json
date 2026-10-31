@@ -1058,7 +1058,8 @@
       "handoffDone": "Done",
       "handoffConstraints": "Constraints",
       "handoffAsk": "Continue: {{ask}}",
-      "handoffAskLabel": "Continue"
+      "handoffAskLabel": "Continue",
+      "expandAll": "Expand all"
     },
     "globalSearch": {
       "searchSpacesOrBots": "Search spaces or Bots",

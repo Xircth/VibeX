@@ -15,7 +15,10 @@ function declarationsFor(
   parse(css).walkRules((rule: Rule) => {
     if (rule.parent?.type === 'atrule') return;
     const normalized = rule.selector.replace(/\s+/g, ' ').trim();
-    if (normalized !== selector) return;
+    const selectors = rule.selectors.map((item) =>
+      item.replace(/\s+/g, ' ').trim()
+    );
+    if (normalized !== selector && !selectors.includes(selector)) return;
     rule.walkDecls((declaration) => {
       declarations[declaration.prop] = {
         value: declaration.value,
@@ -234,11 +237,20 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(rail['max-height']?.value).toBe('100%');
   });
 
-  it('caps user bubbles to content width so they do not fill the log', () => {
+  it('caps user bubbles to content width and right-aligns attachments above the bubble', () => {
     const userMsg = declarationsFor('.collaboration-message .conv-user-msg');
+    expect(userMsg.display?.value).toBe('flex');
+    expect(userMsg['flex-direction']?.value).toBe('column');
+    expect(userMsg['align-items']?.value).toBe('flex-end');
     expect(userMsg.width?.value).toBe('fit-content');
     expect(userMsg['max-width']?.value).toBe('75%');
     expect(userMsg['margin-left']?.value).toBe('auto');
+
+    const attachments = declarationsFor(
+      ".collaboration-message .conv-user-msg [data-testid='user-message-attachments']"
+    );
+    expect(attachments['margin-left']?.value).toBe('auto');
+    expect(attachments['align-self']?.value).toBe('flex-end');
 
     const bubble = declarationsFor(
       '.collaboration-message .vibex-user-message .conv-user-bubble'
@@ -303,5 +315,41 @@ describe('collaboration assistant list and message cluster chrome', () => {
       'var(--member-mention-color)'
     );
     expect(name['-webkit-text-fill-color']?.important).toBe(true);
+  });
+
+  it('keeps inline ask_user_question cards in normal flow inside space bubbles', () => {
+    const card = declarationsFor(
+      '.collaboration-card-actions .agent-question-card'
+    );
+    expect(card.position?.value).toBe('relative');
+    expect(card.bottom?.value).toBe('auto');
+    expect(card.left?.value).toBe('auto');
+    expect(card.right?.value).toBe('auto');
+    expect(card.transform?.value).toBe('none');
+    expect(card.width?.value).toBe('min(26rem, calc(100vw - 7rem))');
+  });
+
+  it('caps collapsed message bubbles with a lower-half fade and centered expand-all capsule', () => {
+    const collapsedBody = declarationsFor(
+      ".collaboration-bubble-collapsible[data-collapsed='true'] .collaboration-bubble-collapsible-body"
+    );
+    expect(collapsedBody['max-height']?.value).toBe(
+      'var(--collaboration-bubble-max-height, 15rem)'
+    );
+    expect(collapsedBody.overflow?.value).toBe('hidden');
+    expect(collapsedBody['mask-image']?.value).toContain('linear-gradient');
+
+    const fade = declarationsFor('.collaboration-bubble-collapsible-fade');
+    expect(fade.position?.value).toBe('absolute');
+    expect(fade.height?.value).toBe('50%');
+    expect(fade.display?.value).toBe('flex');
+    expect(fade['align-items']?.value).toBe('center');
+    expect(fade['justify-content']?.value).toBe('center');
+    expect(fade['pointer-events']?.value).toBe('none');
+
+    const pill = declarationsFor('.collaboration-bubble-expand-pill');
+    expect(pill['pointer-events']?.value).toBe('auto');
+    expect(pill['border-radius']?.value).toBe('999px');
+    expect(pill.display?.value).toBe('inline-flex');
   });
 });

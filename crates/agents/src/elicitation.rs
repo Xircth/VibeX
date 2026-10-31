@@ -54,11 +54,8 @@ impl AgentElicitationResponse {
                         serde_json::Value::String(text) => text.clone(),
                         serde_json::Value::Array(items) => items
                             .iter()
-                            .map(|item| {
-                                item.as_str()
-                                    .map(str::to_string)
-                                    .unwrap_or_else(|| item.to_string())
-                            })
+                            .filter_map(format_elicitation_array_item)
+                            .filter(|s| !s.is_empty())
                             .collect::<Vec<_>>()
                             .join(", "),
                         other => other.to_string(),
@@ -71,6 +68,39 @@ impl AgentElicitationResponse {
             Self::Cancel => "cancelled".to_string(),
         }
     }
+}
+
+fn format_elicitation_array_item(item: &serde_json::Value) -> Option<String> {
+    if let Some(text) = item.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(obj) = item.as_object() {
+        for key in ["labels", "selected"] {
+            if let Some(labels) = obj.get(key).and_then(serde_json::Value::as_array) {
+                let parts = labels
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>();
+                if !parts.is_empty() {
+                    return Some(parts.join(", "));
+                }
+            }
+        }
+        if let Some(label) = obj
+            .get("label")
+            .or_else(|| obj.get("answer"))
+            .or_else(|| obj.get("value"))
+            .and_then(serde_json::Value::as_str)
+        {
+            let trimmed = label.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    Some(item.to_string())
 }
 
 #[cfg(test)]
@@ -98,5 +128,20 @@ mod tests {
         };
         assert_eq!(response.summary(), "x · y, z");
         assert_eq!(AgentElicitationResponse::Decline.summary(), "declined");
+    }
+
+    #[test]
+    fn summary_extracts_question_answer_labels() {
+        let response = AgentElicitationResponse::Accept {
+            content: serde_json::json!({
+                "answers": [
+                    {
+                        "questionId": "question-1",
+                        "labels": ["仅会话界面可见"]
+                    }
+                ]
+            }),
+        };
+        assert_eq!(response.summary(), "仅会话界面可见");
     }
 }

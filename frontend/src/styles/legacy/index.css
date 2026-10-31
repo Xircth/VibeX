@@ -1821,7 +1821,13 @@ html.dark {
 
   .settings-page .settings-sections {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
+    min-width: 0;
+  }
+
+  .settings-page .settings-section {
+    min-width: 0;
   }
 
   .settings-page .settings-section h3 {
@@ -6636,9 +6642,12 @@ html.dark {
     min-height: 40px;
   }
 
-  .agent-question-timeline-fallback .agent-question-card {
+  .agent-question-timeline-fallback .agent-question-card,
+  .collaboration-card-actions .agent-question-card {
     position: relative;
+    right: auto;
     bottom: auto;
+    left: auto;
     max-height: none;
     transform: none;
   }

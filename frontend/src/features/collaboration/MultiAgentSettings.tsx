@@ -387,7 +387,7 @@ export function MultiAgentSettings({
     roleAgentId;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <div
         className="multi-agent-default-picker"
         data-testid="multi-agent-default-picker"
@@ -429,7 +429,7 @@ export function MultiAgentSettings({
         />
       </div>
 
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <div className="settings-row">
           <div>
             <Label>{i18n.t('panels:ui.multiAgent.customRoles')}</Label>
@@ -447,7 +447,7 @@ export function MultiAgentSettings({
         </div>
 
         <div
-          className="rounded-lg border border-border bg-background/50"
+          className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
           data-testid="custom-roles-list-container"
         >
           {roles.length === 0 ? (
@@ -475,21 +475,21 @@ export function MultiAgentSettings({
                   <div
                     key={role.id}
                     data-testid={`custom-role-row-${role.id}`}
-                    className="flex min-h-10 items-center justify-between gap-3 px-3 py-2"
+                    className="flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                       <AgentIcon
                         agent={role.agent_id as ExecutorProfileId['executor']}
                         className="h-4 w-4 shrink-0"
                       />
-                      <span className="truncate text-xs font-medium text-foreground">
+                      <span className="max-w-[12rem] shrink-0 truncate text-xs font-medium text-foreground">
                         {role.name}
                       </span>
                       <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                         {agentLabel}
                       </span>
                       {role.persona_prompt ? (
-                        <span className="truncate text-xs text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                           {role.persona_prompt}
                         </span>
                       ) : null}

@@ -68,7 +68,7 @@ export function SettingsSection({
   if (headerless) return content;
 
   return (
-    <section className="settings-section space-y-3">
+    <section className="settings-section min-w-0 space-y-3">
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -112,7 +112,7 @@ export function SettingsDisclosure({
   const bodyId = useId();
 
   return (
-    <section className="settings-section">
+    <section className="settings-section min-w-0">
       <div className="settings-card overflow-hidden rounded-lg border">
         <button
           type="button"

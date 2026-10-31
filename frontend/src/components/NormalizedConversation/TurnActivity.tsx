@@ -45,10 +45,11 @@ import {
   getToolSummary,
 } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
-import type {
-  ToolResultBlock,
-  ToolUseBlock,
-  TurnRenderItem,
+import {
+  planTurnBlocks,
+  type ToolResultBlock,
+  type ToolUseBlock,
+  type TurnRenderItem,
 } from './messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
@@ -125,6 +126,7 @@ type ActivityEntry =
       index: number;
       content: ReactNode;
       category?: ToolSummaryCategory | null;
+      alwaysVisible?: boolean;
     }
   | {
       kind: 'thinking';
@@ -673,10 +675,11 @@ export function TurnActivity({
   );
   const askQuestionEntries = useMemo(
     () =>
-      entries.filter(
-        (entry) =>
-          entry.isAskQuestion && !matchTimelineQuestion(entry.use, questions)
-      ),
+      entries.filter((entry) => {
+        if (!entry.isAskQuestion) return false;
+        const matched = matchTimelineQuestion(entry.use, questions);
+        return !(matched && !matched.response && !entry.result);
+      }),
     [entries, questions]
   );
   const hostDelegationEntries = useMemo(
@@ -879,6 +882,7 @@ export function TurnActivity({
           kind: 'visible',
           key: `tool-batch:${turnId}:${toolUseId || index}`,
           index,
+          alwaysVisible: true,
           content: (
             <AskQuestionToolCard
               use={use}
@@ -1054,7 +1058,9 @@ export function TurnActivity({
   }[] = [];
   let batch: ActivityEntry[] = [];
   for (const entry of activityEntries) {
-    const keepVisible = isStreaming && entry.index >= recentStart;
+    const keepVisible =
+      (entry.kind === 'visible' && entry.alwaysVisible) ||
+      (isStreaming && entry.index >= recentStart);
     if (keepVisible) {
       if (batch.length > 0)
         activityUnits.push({ kind: 'batch', entries: batch });
@@ -1126,23 +1132,60 @@ export function TurnActivity({
   );
 }
 
+export function doesToolUseMatchQuestionRequest(
+  use: ToolUseBlock,
+  request: ConversationQuestionRequest
+): boolean {
+  if (!isAskQuestionTool(use)) return false;
+  if (use.tool_use_id && use.tool_use_id === request.question_id) return true;
+  const title = firstQuestionTitle(
+    questionTabsFromRequest(questionRequestFromToolUse(use))
+  );
+  if (!title) return false;
+  const prompt = request.prompt;
+  const headers = questionTabsFromRequest(request).map(
+    (question) => question.question
+  );
+  return prompt.includes(title) || headers.includes(title);
+}
+
+export function hasMatchingAskQuestionTool(
+  request: ConversationQuestionRequest,
+  turns: readonly { turn: MessageTurn }[]
+): boolean {
+  const askToolUses: ToolUseBlock[] = [];
+  for (const { turn } of turns) {
+    if (turn.role !== 'assistant') continue;
+    for (const item of planTurnBlocks(turn.blocks)) {
+      if (item.kind === 'tool' && item.use && isAskQuestionTool(item.use)) {
+        askToolUses.push(item.use);
+      }
+    }
+  }
+  if (askToolUses.length === 0) return false;
+  if (askToolUses.some((use) => doesToolUseMatchQuestionRequest(use, request))) {
+    return true;
+  }
+  return (
+    askToolUses.length === 1 &&
+    !firstQuestionTitle(
+      questionTabsFromRequest(questionRequestFromToolUse(askToolUses[0]!))
+    )
+  );
+}
+
 function matchTimelineQuestion(
   use: ToolUseBlock,
   questions: TimelineQuestion[]
 ): TimelineQuestion | null {
   if (questions.length === 0) return null;
-  if (questions.length === 1) return questions[0] ?? null;
+  const exact = questions.find((item) =>
+    doesToolUseMatchQuestionRequest(use, item.request)
+  );
+  if (exact) return exact;
   const title = firstQuestionTitle(
     questionTabsFromRequest(questionRequestFromToolUse(use))
   );
-  if (!title) return questions[0] ?? null;
-  return (
-    questions.find((item) => {
-      const prompt = item.request.prompt;
-      const headers = questionTabsFromRequest(item.request).map(
-        (question) => question.question
-      );
-      return prompt.includes(title) || headers.includes(title);
-    }) ?? null
-  );
+  if (!title && questions.length === 1) return questions[0] ?? null;
+  return null;
 }

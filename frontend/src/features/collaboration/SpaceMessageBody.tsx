@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Check } from 'lucide-react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
 import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 
 import { Button } from '@/components/ui/button';
@@ -7,11 +7,15 @@ import { Input } from '@/components/ui/input';
 
 import { AgentQuestionCard } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
+import { HtmlPreviewBlock } from '@/components/NormalizedConversation/HtmlPreviewBlock';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import { AskQuestionToolCard } from '@/components/NormalizedConversation/tools/AskQuestionToolCard';
+import { splitMessageHtmlSegments } from '@/lib/conversation-rendering/splitMessageHtmlBlocks';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
   ConversationPermissionView,
+  ConversationQuestionResponse,
   JsonValue,
 } from 'shared/types';
 import {
@@ -256,6 +260,81 @@ export function messagePreviewText(text: string): string {
   return result.replace(/\s+/g, ' ').trim();
 }
 
+function extractAnswerItemLabels(item: unknown): string[] {
+  if (typeof item === 'string') {
+    const trimmed = item.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const nested = extractReadableAnswerLabels(parsed);
+        if (nested.length > 0) return nested;
+      } catch {
+        // Keep raw text when not valid JSON.
+      }
+    }
+    return [trimmed];
+  }
+  if (!item || typeof item !== 'object') return [];
+  const obj = item as Record<string, unknown>;
+  for (const key of ['labels', 'selected'] as const) {
+    if (Array.isArray(obj[key])) {
+      const labels = (obj[key] as unknown[])
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (labels.length > 0) return labels;
+    }
+  }
+  for (const key of ['label', 'answer', 'value'] as const) {
+    if (typeof obj[key] === 'string' && (obj[key] as string).trim()) {
+      return [(obj[key] as string).trim()];
+    }
+  }
+  return [];
+}
+
+function extractReadableAnswerLabels(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.flatMap(extractAnswerItemLabels);
+  }
+  if (raw && typeof raw === 'object' && 'answers' in raw) {
+    return extractReadableAnswerLabels((raw as { answers: unknown }).answers);
+  }
+  return extractAnswerItemLabels(raw);
+}
+
+function formatResolutionAnswerText(
+  resolution: Record<string, unknown> | null | undefined
+): string {
+  if (!resolution || typeof resolution !== 'object') return '';
+  const fromAnswers = extractReadableAnswerLabels(resolution.answers);
+  if (fromAnswers.length > 0) return fromAnswers.join('；');
+  const fromAnswer = extractReadableAnswerLabels(resolution.answer);
+  if (fromAnswer.length > 0) return fromAnswer.join('；');
+  return typeof resolution.answer === 'string' ? resolution.answer.trim() : '';
+}
+
+function resolvedQuestionResponse(
+  cardRecord: SpaceCardRecord | null | undefined,
+  localAnswers: unknown,
+  localSummary: string
+): ConversationQuestionResponse {
+  const resolution =
+    cardRecord?.resolution && typeof cardRecord.resolution === 'object'
+      ? (cardRecord.resolution as Record<string, unknown>)
+      : null;
+  const answer = localSummary || formatResolutionAnswerText(resolution);
+  const rawAnswers = localAnswers ?? resolution?.answers;
+  const content: JsonValue | null = Array.isArray(rawAnswers)
+    ? ({ answers: rawAnswers } as unknown as JsonValue)
+    : null;
+  return {
+    answer,
+    content,
+  };
+}
+
 function resolvedCardLabel(
   cardRecord: SpaceCardRecord | null | undefined
 ): string | null {
@@ -271,8 +350,9 @@ function resolvedCardLabel(
         ? i18n.t('panels:ui.spaceMessage.rejected')
         : i18n.t('panels:ui.spaceMessage.approved');
     }
-    const answerText =
-      typeof resolution.answer === 'string' ? resolution.answer.trim() : '';
+    const answerText = formatResolutionAnswerText(
+      resolution as Record<string, unknown>
+    );
     if (answerText) {
       return i18n.t('panels:ui.spaceMessage.answeredValue', {
         value: answerText,
@@ -292,6 +372,8 @@ export function SpaceCardActions({
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [localAnswers, setLocalAnswers] = useState<unknown>(null);
+  const [localSummary, setLocalSummary] = useState('');
   const [error, setError] = useState('');
   const resolvedText = done ?? resolvedCardLabel(cardRecord);
   const resolve = async (input: Record<string, unknown>, label: string) => {
@@ -331,18 +413,10 @@ export function SpaceCardActions({
       'answers' in content
         ? (content as { answers: unknown }).answers
         : content;
-    const labels = Array.isArray(answers)
-      ? answers.flatMap((item) => {
-          if (!item || typeof item !== 'object' || !('labels' in item)) {
-            return [];
-          }
-          const raw = (item as { labels: unknown }).labels;
-          return Array.isArray(raw)
-            ? raw.filter((label): label is string => typeof label === 'string')
-            : [];
-        })
-      : [];
+    const labels = extractReadableAnswerLabels(answers);
     const summary = labels.join('；');
+    setLocalAnswers(answers);
+    setLocalSummary(summary);
     await resolve(
       { answers, answer: summary },
       summary
@@ -350,32 +424,46 @@ export function SpaceCardActions({
         : i18n.t('panels:ui.spaceMessage.handled')
     );
   };
-  if (resolvedText) {
-    return (
-      <p
-        className="collaboration-card-resolved text-xs text-muted-foreground"
-        data-testid="collaboration-card-resolved"
-      >
-        {resolvedText}
-      </p>
-    );
-  }
   if (card.kind === 'ask' && card.questions && card.questions.length > 0) {
+    const request = {
+      question_id: card.id,
+      prompt: card.body,
+      options: card.options,
+      schema: {
+        type: 'object',
+        'x-vibex-questions': card.questions as unknown as JsonValue,
+      },
+    };
+    if (resolvedText) {
+      return (
+        <div
+          className="collaboration-card-actions space-y-1.5"
+          data-testid="collaboration-card-actions"
+        >
+          <AskQuestionToolCard
+            request={request}
+            response={resolvedQuestionResponse(
+              cardRecord,
+              localAnswers,
+              localSummary
+            )}
+          />
+          <p
+            className="collaboration-card-resolved text-xs text-muted-foreground"
+            data-testid="collaboration-card-resolved"
+          >
+            {resolvedText}
+          </p>
+        </div>
+      );
+    }
     return (
       <div
-        className="collaboration-card-actions mt-2"
+        className="collaboration-card-actions"
         data-testid="collaboration-card-actions"
       >
         <AgentQuestionCard
-          request={{
-            question_id: card.id,
-            prompt: card.body,
-            options: card.options,
-            schema: {
-              type: 'object',
-              'x-vibex-questions': card.questions as unknown as JsonValue,
-            },
-          }}
+          request={request}
           responding={busy}
           onRespond={(_questionId, response) => {
             void respondQuestion(response);
@@ -387,10 +475,20 @@ export function SpaceCardActions({
       </div>
     );
   }
+  if (resolvedText) {
+    return (
+      <p
+        className="collaboration-card-resolved text-xs text-muted-foreground"
+        data-testid="collaboration-card-resolved"
+      >
+        {resolvedText}
+      </p>
+    );
+  }
   if (card.kind === 'approval') {
     return (
       <div
-        className="collaboration-card-actions mt-2"
+        className="collaboration-card-actions"
         data-testid="collaboration-card-actions"
       >
         <PermissionRequestCard
@@ -414,7 +512,7 @@ export function SpaceCardActions({
   }
   return (
     <div
-      className="collaboration-card-actions mt-2 flex flex-wrap items-center gap-2"
+      className="collaboration-card-actions flex flex-wrap items-center gap-2"
       data-testid="collaboration-card-actions"
     >
       {card.options.map((option) => (
@@ -578,6 +676,100 @@ function SpaceHandoffCard({
   );
 }
 
+export const SPACE_MESSAGE_MAX_HEIGHT_PX = 240;
+export const SPACE_MESSAGE_OVERFLOW_LINE_THRESHOLD = 10;
+export const SPACE_MESSAGE_OVERFLOW_CHAR_THRESHOLD = 420;
+
+export function estimateSpaceMessageOverflows(text: string): boolean {
+  const normalized = text.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return false;
+  if (normalized.length > SPACE_MESSAGE_OVERFLOW_CHAR_THRESHOLD) {
+    return true;
+  }
+  return normalized.split('\n').length > SPACE_MESSAGE_OVERFLOW_LINE_THRESHOLD;
+}
+
+function CollapsibleSpaceBubbleContent({
+  measureText,
+  children,
+}: {
+  measureText: string;
+  children: ReactNode;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [needsCollapse, setNeedsCollapse] = useState(() =>
+    estimateSpaceMessageOverflows(measureText)
+  );
+  const isExpanded = expandedKey === measureText;
+
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const check = () => {
+      if (element.scrollHeight > 0 || element.clientHeight > 0) {
+        setNeedsCollapse(element.scrollHeight > SPACE_MESSAGE_MAX_HEIGHT_PX);
+      } else {
+        setNeedsCollapse(estimateSpaceMessageOverflows(measureText));
+      }
+    };
+
+    check();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      check();
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [measureText]);
+
+  const isCollapsed = needsCollapse && !isExpanded;
+  const expandLabel = i18n.t('panels:ui.spaceMessage.expandAll');
+
+  return (
+    <div
+      className="collaboration-bubble-collapsible"
+      data-collapsed={isCollapsed ? 'true' : 'false'}
+      data-testid="collaboration-bubble-collapsible"
+    >
+      <div
+        ref={contentRef}
+        className="collaboration-bubble-collapsible-body"
+        data-testid="collaboration-bubble-collapsible-body"
+      >
+        {children}
+      </div>
+      {isCollapsed ? (
+        <div
+          className="collaboration-bubble-collapsible-fade"
+          data-testid="collaboration-bubble-collapsible-fade"
+        >
+          <button
+            type="button"
+            className="collaboration-bubble-expand-pill"
+            data-testid="collaboration-bubble-expand-pill"
+            aria-label={expandLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpandedKey(measureText);
+            }}
+          >
+            <span>{expandLabel}</span>
+            <ChevronDown
+              className="collaboration-bubble-expand-pill-icon"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SpaceMessageBody({
   fromYou,
   text,
@@ -614,7 +806,7 @@ export function SpaceMessageBody({
       (images.length === 0 && files.length === 0);
     return (
       <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
-        <div className="conv-entry-item conv-user-msg">
+        <div className="conv-entry-item conv-user-msg flex flex-col items-end gap-1.5">
           {images.length > 0 || files.length > 0 ? (
             <UserMessageAttachments
               images={images}
@@ -632,18 +824,20 @@ export function SpaceMessageBody({
               <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
                 <div className="collaboration-bubble-shell">
                   <ChatMessageBubble className="conv-user-bubble">
-                    {cleanText.trim() ? (
-                      <UserMessageMarkdown
-                        value={cleanText}
-                        workspacePath={workspacePath}
-                      />
-                    ) : null}
-                    {handoff ? (
-                      <SpaceHandoffCard
-                        handoff={handoff}
-                        workspacePath={workspacePath}
-                      />
-                    ) : null}
+                    <CollapsibleSpaceBubbleContent measureText={source}>
+                      {cleanText.trim() ? (
+                        <UserMessageMarkdown
+                          value={cleanText}
+                          workspacePath={workspacePath}
+                        />
+                      ) : null}
+                      {handoff ? (
+                        <SpaceHandoffCard
+                          handoff={handoff}
+                          workspacePath={workspacePath}
+                        />
+                      ) : null}
+                    </CollapsibleSpaceBubbleContent>
                   </ChatMessageBubble>
                   <SpaceMessageReactionBadge reactions={reactions} />
                 </div>
@@ -678,6 +872,114 @@ export function SpaceMessageBody({
     : handoff
       ? handoffSurroundingText(handoff)
       : text;
+  const segments = markdownValue
+    ? splitMessageHtmlSegments(markdownValue, { workspacePath })
+    : [];
+  const hasHtmlSegment = segments.some((seg) => seg.kind === 'html');
+  if (hasHtmlSegment) {
+    let firstMarkdownSeen = false;
+    return (
+      <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
+        <div
+          className="collaboration-split-message-blocks"
+          data-testid="collaboration-split-message-blocks"
+        >
+          {segments.map((seg, idx) => {
+            const isLast = idx === segments.length - 1;
+            if (seg.kind === 'html') {
+              return (
+                <div
+                  key={`seg-html-${idx}`}
+                  className="collaboration-standalone-html-block px-4 py-1 text-sm"
+                  data-testid="collaboration-standalone-html-block"
+                >
+                  <HtmlPreviewBlock
+                    code={seg.code}
+                    filePath={seg.filePath}
+                    displayPath={seg.displayPath}
+                    title={seg.title}
+                    workspacePath={workspacePath}
+                    standalone
+                  />
+                  {isLast &&
+                  (handoff || card || reactions?.length || deliveryStatus) ? (
+                    <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member mt-1">
+                      <div className="collaboration-bubble-shell">
+                        {handoff ? (
+                          <SpaceHandoffCard
+                            handoff={handoff}
+                            workspacePath={workspacePath}
+                          />
+                        ) : null}
+                        {card ? (
+                          <SpaceCardActions
+                            card={card}
+                            cardRecord={cardRecord}
+                          />
+                        ) : null}
+                        <SpaceMessageReactionBadge reactions={reactions} />
+                      </div>
+                      <MessageDeliveryTicks
+                        status={deliveryStatus}
+                        testId={deliveryTickTestId}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            }
+
+            const bubbleTestId = !firstMarkdownSeen
+              ? 'collaboration-member-bubble'
+              : `collaboration-member-bubble-${idx}`;
+            firstMarkdownSeen = true;
+            return (
+              <div
+                key={`seg-md-${idx}`}
+                className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm"
+              >
+                <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member">
+                  <div className="collaboration-bubble-shell">
+                    <div
+                      className="conv-assistant-body collaboration-member-bubble"
+                      data-testid={bubbleTestId}
+                    >
+                      <CollapsibleSpaceBubbleContent measureText={seg.text}>
+                        <AstryxMarkdown
+                          value={seg.text}
+                          workspacePath={workspacePath}
+                        />
+                        {isLast && handoff ? (
+                          <SpaceHandoffCard
+                            handoff={handoff}
+                            workspacePath={workspacePath}
+                          />
+                        ) : null}
+                      </CollapsibleSpaceBubbleContent>
+                      {isLast && card ? (
+                        <SpaceCardActions card={card} cardRecord={cardRecord} />
+                      ) : null}
+                    </div>
+                    {isLast ? (
+                      <SpaceMessageReactionBadge reactions={reactions} />
+                    ) : null}
+                  </div>
+                  {isLast ? (
+                    <MessageDeliveryTicks
+                      status={deliveryStatus}
+                      testId={deliveryTickTestId}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CollaborationMemberMentionContext.Provider>
+    );
+  }
+
+  const hasMemberProse = Boolean(markdownValue) || Boolean(handoff);
   return (
     <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
       <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
@@ -687,17 +989,23 @@ export function SpaceMessageBody({
               className="conv-assistant-body collaboration-member-bubble"
               data-testid="collaboration-member-bubble"
             >
-              {markdownValue ? (
-                <AstryxMarkdown
-                  value={markdownValue}
-                  workspacePath={workspacePath}
-                />
-              ) : null}
-              {handoff ? (
-                <SpaceHandoffCard
-                  handoff={handoff}
-                  workspacePath={workspacePath}
-                />
+              {hasMemberProse ? (
+                <CollapsibleSpaceBubbleContent
+                  measureText={handoff ? text : markdownValue}
+                >
+                  {markdownValue ? (
+                    <AstryxMarkdown
+                      value={markdownValue}
+                      workspacePath={workspacePath}
+                    />
+                  ) : null}
+                  {handoff ? (
+                    <SpaceHandoffCard
+                      handoff={handoff}
+                      workspacePath={workspacePath}
+                    />
+                  ) : null}
+                </CollapsibleSpaceBubbleContent>
               ) : null}
               {card ? (
                 <SpaceCardActions card={card} cardRecord={cardRecord} />

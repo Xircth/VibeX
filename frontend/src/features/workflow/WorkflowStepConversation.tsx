@@ -14,6 +14,7 @@ import { PermissionRequestCard } from '@/components/NormalizedConversation/conve
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { hasMatchingAskQuestionTool } from '@/components/NormalizedConversation/TurnActivity';
 import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { toast } from '@/components/ui/toast';
@@ -133,6 +134,12 @@ export function WorkflowStepConversation({
             );
           }
           if (entry.row.kind === 'question_request') {
+            if (
+              entry.row.response &&
+              hasMatchingAskQuestionTool(entry.row.request, messages)
+            ) {
+              return null;
+            }
             return (
               <QuestionRequestCard
                 key={entry.row_id}

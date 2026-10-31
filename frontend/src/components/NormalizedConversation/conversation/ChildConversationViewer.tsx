@@ -18,6 +18,7 @@ import { QuestionRequestCard } from '@/components/NormalizedConversation/convers
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { hasMatchingAskQuestionTool } from '@/components/NormalizedConversation/TurnActivity';
 import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
 import { toast } from '@/components/ui/toast';
 import {
@@ -205,6 +206,16 @@ export function ChildConversationViewer({
                           />
                         );
                       }
+                      if (
+                        entry.row.row.kind === 'question_request' &&
+                        entry.row.row.response &&
+                        hasMatchingAskQuestionTool(
+                          entry.row.row.request,
+                          messages
+                        )
+                      ) {
+                        return null;
+                      }
                       return (
                         <ChildInlineSideRow
                           key={entry.row.row_id}
@@ -228,6 +239,15 @@ export function ChildConversationViewer({
                         );
                       }
                       if (entry.row.kind === 'question_request') {
+                        if (
+                          entry.row.response &&
+                          hasMatchingAskQuestionTool(
+                            entry.row.request,
+                            messages
+                          )
+                        ) {
+                          return null;
+                        }
                         return (
                           <ChildInlineSideRow
                             key={entry.row_id}

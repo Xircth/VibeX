@@ -111,9 +111,22 @@ async fn companion(
             },
             permissions,
         );
+        struct EphemeralTokenGuard<'a> {
+            tokens: &'a TokenRegistry,
+            token: String,
+        }
+        impl Drop for EphemeralTokenGuard<'_> {
+            fn drop(&mut self) {
+                self.tokens.revoke(&self.token);
+            }
+        }
+        let guard = EphemeralTokenGuard {
+            tokens: &state.tokens,
+            token: ephemeral.clone(),
+        };
         rewrite_token(&mut message, &ephemeral, &connection_id);
         let response = state.listener.handle_message(message).await;
-        state.tokens.revoke(&ephemeral);
+        drop(guard);
         return Ok(Json(response));
     }
 

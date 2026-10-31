@@ -117,7 +117,10 @@ import {
   setWorkspaceSupervisor,
   updateThreadTagColor,
 } from '../threadApi';
-import { buildCollaborationUserMessageNavEntries } from '../collaborationMessageNav';
+import {
+  buildCollaborationUserMessageNavEntries,
+  spaceMessageRefKey,
+} from '../collaborationMessageNav';
 import { scrollCollabThreadLogToBottom } from '../collaborationThreadLog';
 import { buildMemberAvatarMenuItems } from '../memberAvatarMenu';
 import { buildMessageBubbleMenuItems } from '../messageBubbleMenu';
@@ -409,6 +412,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   );
   useEffect(() => {
     setReplyingTo(null);
+    setActiveNavIndex(null);
     followThreadBottomRef.current = true;
     setIsAtThreadBottom(true);
   }, [selectedId]);
@@ -4441,10 +4445,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     event: React.MouseEvent,
     member: SpaceMember,
     name: string,
-    color: string
+    color: string,
+    avatar?: MemberBotAvatarConfig
   ) => {
     event.preventDefault();
     event.stopPropagation();
+    const resolvedAvatar =
+      avatar ?? getMemberAvatar(member.conversation_id ?? undefined, name);
     setContactMenu(null);
     setMessageMenu({
       x: event.clientX,
@@ -4452,6 +4459,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       items: buildMemberAvatarMenuItems({
         nickname: name,
         color,
+        avatar: resolvedAvatar,
         onMention: () => insertMemberMention(name),
         onOpenPrivateChat: () => {
           openPrivateChat(selectedIdRef.current, member);
@@ -5086,7 +5094,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setIsAtThreadBottom(false);
       const target = filteredMessages[index];
       if (!target) return;
-      const el = messageItemRefs.current.get(String(target.seq));
+      const el =
+        messageItemRefs.current.get(spaceMessageRefKey(target)) ??
+        messageItemRefs.current.get(String(target.seq));
       if (el && typeof el.scrollIntoView === 'function') {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -5100,6 +5110,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       if (!el) return;
       followThreadBottomRef.current = true;
       setIsAtThreadBottom(true);
+      setActiveNavIndex(null);
       ignoreThreadScrollRef.current = true;
       scrollCollabThreadLogToBottom(el, behavior);
       requestAnimationFrame(() => {

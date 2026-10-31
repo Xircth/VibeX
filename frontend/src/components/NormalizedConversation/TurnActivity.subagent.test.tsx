@@ -357,12 +357,12 @@ describe('TurnActivity subagent expansion', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /1 次其他工具调用/ }));
     expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
     expect(screen.getByText('Pick a tracker')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: '查看详情' })
     ).toBeInTheDocument();
+    expect(screen.getByText('ls')).toBeInTheDocument();
     expect(
       capturedNames().some((name) =>
         /ask_user_question|问题|Question/i.test(name)
@@ -370,9 +370,50 @@ describe('TurnActivity subagent expansion', () => {
     ).toBe(false);
   });
 
-  it('skips the tool-use question card when a matching elicitation row exists', () => {
+  it('skips the tool-use question card while a matching elicitation row is pending and renders it in-place once answered', () => {
     captured.groups = [];
-    render(
+    const { rerender } = render(
+      <TurnActivity
+        turnId="turn-ask"
+        timestamp="2026-08-18T00:00:00.000Z"
+        items={[
+          toolItem(
+            'ask_user_question',
+            {
+              questions: [
+                {
+                  id: 'tracker',
+                  question: 'Pick a tracker',
+                  options: [{ label: 'Local markdown' }],
+                },
+              ],
+            },
+            null,
+            0
+          ),
+          toolItem('bash', { command: 'ls' }, 'ok', 1),
+        ]}
+        questions={[
+          {
+            request: {
+              question_id: 'q-tracker',
+              prompt: 'Pick a tracker',
+              options: ['Local markdown'],
+            },
+            response: null,
+          },
+        ]}
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(
+      screen.queryByTestId('ask-question-tool-card')
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('ls')).toBeInTheDocument();
+
+    rerender(
       <TurnActivity
         turnId="turn-ask"
         timestamp="2026-08-18T00:00:00.000Z"
@@ -411,10 +452,8 @@ describe('TurnActivity subagent expansion', () => {
       />
     );
 
-    expect(
-      screen.queryByTestId('ask-question-tool-card')
-    ).not.toBeInTheDocument();
-    expect(screen.getByText('ls')).toBeInTheDocument();
+    expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
+    expect(screen.getByText('Pick a tracker')).toBeInTheDocument();
   });
 
   it('nests Claude child tool calls inside SubagentCard and excludes them from top-level tool rows', () => {

@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|
 | **L1 核心记忆** | `~/.vibex/spaces/<space_id>/MEMORY.md`（每个 Space 独立文件、唯一事实源） | 单条 ≤ 300 字；整页 ≤ 4,000 字 | 一句话定论：Person 偏好、项目工程约定、已拍板决策、纠偏规则、稳定职责边界 | `memory_write`（不传 `topic`），或回合后模型自动审查（`add` / `edit` / `remove`） | 每回合自动按相关性注入 `[成员记忆]`；或 `memory_search(query)` |
 | **L2 主题知识库** | `~/.vibex/spaces/<space_id>/topics/<topic>.md` | 单篇 ≤ 16,000 字 | 体系化专项笔记：模块架构说明、接口契约汇总、复杂链路排查手册、领域规范 | `memory_write`（传 `topic` 与 `title`） | `[成员记忆]` 的 `## Index` 露出 `[[topic:<slug>]]` 指针；按需调 `memory_search(query: "", topic: "<slug>")` 读全文 |
-| **L3 共享收藏库** | `~/.vibex/spaces/<space_id>/collection/` | 不限长度（含二进制） | 完整设计方案、长报告、代码快照、日志、截图或外部附件 | 会话文件读写工具，或 Person 在 UI「收藏到本空间」 | `[成员记忆]` 的 `## Index` 露出已纳入索引的 `[[collection:<file>]]` 指针；按需用文件读取工具打开对应文件 |
+| **L3 共享收藏库** | `~/.vibex/spaces/<space_id>/collection/` | 不限长度（含二进制） | 工作的初步结论、根因排查报告、完整设计方案、接口契约、代码快照、日志、截图或外部附件（避免长文在聊天框刷屏，供群成员共同查阅与原位修改迭代） | 会话文件读写工具，或 Person 在 UI「收藏到本空间」 | `[成员记忆]` 的 `## Index` 露出已纳入索引的 `[[collection:<file>]]` 指针；按需用文件读取工具打开对应文件并基于此修改完善 |
 
 ---
 
@@ -26,9 +26,9 @@
    - `- [[topic:<slug>]] — 标题（首行摘要）`
    - `- [[collection:<file>]] — 标题（内容摘要）`
 
-**按需深读纪律（Progressive Recall）：**
-- 看到 `## Index` 中的某个 `[[topic:<slug>]]` 与当前任务相关时，先调用 `memory_search(query: "", topic: "<slug>")` 拉取该主题文档全文，再动手执行。
-- 看到 `## Index` 中的某个 `[[collection:<file>]]` 与当前任务相关时，用文件读取工具读取 `~/.vibex/spaces/<space_id>/collection/<file>`。
+**按需深读与群收藏协同纪律（Progressive Recall & Collection Collaboration）：**
+- 看到 `## Index` 中的某个 `[[topic:<slug>]]` 与当前任务相关时，先静默调用 `memory_search(query: "", topic: "<slug>")` 拉取该主题文档全文，再动手执行。
+- 看到 `## Index` 中的某个 `[[collection:<file>]]` 或前序成员提到某份群收藏文件与当前任务相关时，先静默用文件读取工具读取 `~/.vibex/spaces/<space_id>/collection/<file>`；若你有新增结论、补充验证或修正，**直接修改更新该收藏文件**，并在聊天消息中用一两句话说明增量结论与已更新的文件名，不要把长篇内容重复发到聊天里。
 - Person 问起「你在另一个 Space 做了什么」或过往背景时，先根据 `[成员记忆]` 回答；区块没有的细节再调用 `memory_search(query: "关键词")` 检索，**严禁凭印象编造**。
 
 ---

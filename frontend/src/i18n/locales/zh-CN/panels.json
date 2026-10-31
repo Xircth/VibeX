@@ -1058,7 +1058,8 @@
       "handoffDone": "已完成",
       "handoffConstraints": "约束",
       "handoffAsk": "请继续：{{ask}}",
-      "handoffAskLabel": "请继续"
+      "handoffAskLabel": "请继续",
+      "expandAll": "展开全部"
     },
     "globalSearch": {
       "searchSpacesOrBots": "搜索协作空间或助手",

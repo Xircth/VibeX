@@ -4,11 +4,25 @@ import { isCollabThreadUserBubble } from './collaborationThreadLog';
 import { bubbleText } from './SpaceMessageBody';
 import type { SpaceEnvelopeParties } from './spaceModel';
 
+export type SpaceMessageRefTarget = {
+  seq: number;
+  id?: string | null;
+  envelope?: { id?: unknown } | null;
+};
+
+export function spaceMessageRefKey(message: SpaceMessageRefTarget): string {
+  return (
+    String(message.id ?? message.envelope?.id ?? '').trim() ||
+    String(message.seq)
+  );
+}
+
 export function buildCollaborationUserMessageNavEntries(
   messages: ReadonlyArray<{
     seq: number;
+    id?: string | null;
     origin?: string;
-    envelope?: (SpaceEnvelopeParties & { content?: string }) | null;
+    envelope?: (SpaceEnvelopeParties & { id?: unknown; content?: string }) | null;
   }>
 ): ConversationMessageNavEntry[] {
   const entries: ConversationMessageNavEntry[] = [];
@@ -31,3 +45,4 @@ export function buildCollaborationUserMessageNavEntries(
   });
   return entries;
 }
+

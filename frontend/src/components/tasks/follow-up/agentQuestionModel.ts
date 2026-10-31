@@ -44,6 +44,21 @@ export function isQuestionToolName(toolName: string): boolean {
   return QUESTION_TOOL_NAME.test(toolName);
 }
 
+function hasStructuredQuestions(
+  record: Record<string, unknown> | null
+): boolean {
+  if (!record) return false;
+  const rawQuestions =
+    typeof record.questions === 'string'
+      ? parseJson(record.questions)
+      : record.questions;
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return false;
+  const first = asObject(rawQuestions[0]);
+  return Boolean(
+    first && readString(first.question) && Array.isArray(first.options)
+  );
+}
+
 export function isAskQuestionTool(use: ToolUseBlock): boolean {
   const meta = asObject(use.meta);
   const vendor = asObject(meta?.['x.ai/tool']);
@@ -54,12 +69,16 @@ export function isAskQuestionTool(use: ToolUseBlock): boolean {
     return true;
   }
   if (isQuestionToolName(use.tool_name)) return true;
-  const input = asObject(parseJson(use.input_preview));
+  const parsedInput = parseJson(use.input_preview);
+  const input = asObject(parsedInput);
   const nestedToolName =
     readString(input?.tool_name) ||
+    readString(input?.toolName) ||
+    readString(input?.ToolName) ||
     readString(input?.tool) ||
     readString(input?.name);
-  return Boolean(nestedToolName && isQuestionToolName(nestedToolName));
+  if (nestedToolName && isQuestionToolName(nestedToolName)) return true;
+  return hasStructuredQuestions(unwrapQuestionToolRecord(parsedInput));
 }
 
 export function questionTabsFromRequest(
@@ -81,7 +100,9 @@ export function questionTabsFromRequest(
           header: readString(question.header) || `Question ${index + 1}`,
           question: prompt,
           multiSelect:
-            question.multiSelect === true || question.multi_select === true,
+            question.multiSelect === true ||
+            question.multi_select === true ||
+            question.is_multi_select === true,
           valueType: 'string' as const,
           choices,
         },
@@ -164,6 +185,7 @@ function unwrapQuestionToolRecord(
     }
     const nestedRaw =
       current.arguments ??
+      current.Arguments ??
       current.tool_input ??
       current.input ??
       current.params ??
@@ -197,7 +219,9 @@ export function questionRequestFromToolUse(
         header: readString(question.header) || prompt,
         question: prompt,
         multiSelect:
-          question.multiSelect === true || question.multi_select === true,
+          question.multiSelect === true ||
+          question.multi_select === true ||
+          question.is_multi_select === true,
         options: Array.isArray(question.options) ? question.options : [],
       },
     ];
@@ -456,18 +480,38 @@ function matchesChoice(choice: QuestionChoice, label: string): boolean {
 
 function labelsByQuestionId(content: unknown): Map<string, string[]> {
   const labels = new Map<string, string[]>();
+  if (typeof content === 'string') {
+    const arrowMatches = [...content.matchAll(/^\s*→\s*(.+)$/gm)];
+    arrowMatches.forEach((match, index) => {
+      const selected = match[1]?.trim();
+      if (selected && selected !== '(no selection)') {
+        labels.set(
+          `question-${index + 1}`,
+          selected
+            .split(/\s*,\s*/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+        );
+      }
+    });
+    return labels;
+  }
   const root = asObject(content);
   if (!root) return labels;
 
   if (Array.isArray(root.answers)) {
-    for (const item of root.answers) {
+    root.answers.forEach((item, index) => {
       const answer = asObject(item);
-      if (!answer) continue;
+      if (!answer) return;
       const id =
-        readString(answer.questionId) || readString(answer.question_id);
-      const values = stringList(answer.labels) || stringList(answer.selected);
+        readString(answer.questionId) ||
+        readString(answer.question_id) ||
+        `question-${index + 1}`;
+      const labelValues = stringList(answer.labels);
+      const values =
+        labelValues.length > 0 ? labelValues : stringList(answer.selected);
       if (id && values.length > 0) labels.set(id, values);
-    }
+    });
     if (labels.size > 0) return labels;
   }
 

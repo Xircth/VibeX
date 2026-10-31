@@ -15,7 +15,6 @@ fn http_client() -> std::io::Result<reqwest::Client> {
     install_rustls_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(2))
-        .timeout(Duration::from_secs(8))
         .no_proxy()
         .build()
         .map_err(|error| std::io::Error::other(error.to_string()))

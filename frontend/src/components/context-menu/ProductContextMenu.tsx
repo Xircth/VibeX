@@ -333,6 +333,7 @@ function MenuItems({
             key={item.id}
             id={item.id}
             label={item.label}
+            labelNode={item.labelNode}
             icon={item.icon}
             iconNode={item.iconNode}
             labelStyle={item.labelStyle}
@@ -403,6 +404,7 @@ function EmojiRow({
 function MenuButton({
   id,
   label,
+  labelNode,
   icon,
   iconNode,
   labelStyle,
@@ -418,6 +420,7 @@ function MenuButton({
 }: {
   id: string;
   label: string;
+  labelNode?: ReactNode;
   icon?: LucideIcon;
   iconNode?: ReactNode;
   labelStyle?: CSSProperties;
@@ -483,7 +486,7 @@ function MenuButton({
         <span className={CONTEXT_MENU_ICON_CLASS} aria-hidden="true" />
       ) : null}
       <span className="min-w-0 flex-1" style={labelStyle}>
-        {label}
+        {labelNode ?? label}
       </span>
       {trailing}
     </button>

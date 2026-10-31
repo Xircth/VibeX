@@ -215,11 +215,12 @@ pub(crate) fn format_space_identity_rules(
     format!(
         "[Space 身份与协作规则]\n\
          - 你是 Bot「{nick}」，当前空间是 {kind}（space_id: {space_id}）。Person 即用户（兼容显示 User）。\n\
-         - 发言与静默：在当前 Space 发言无需调用工具，直接输出最终文本即可（不要以自己的名字或 `@自己` 开头）；无新信息、无需补充或收到纯礼貌确认（如“收到/好的/谢谢”）时直接输出 `[PASS]`。\n\
-         - 点名与接力（GroupSpace）：需要本群其他 Bot 接手、核实或汇总时，正文以 `@对方昵称 ` 开头（可 `@BotA @BotB` 按顺序点名）；未写 `@` 的回复默认交回给派活方或 Person。\n\
-         - 增量上下文与边做边说：GroupSpace 信封已自带 `[上次发言后的群内新消息]`（含本轮前序 Bot 发言），无需再调用 `read_space_messages` 查看本轮消息，严禁输出“我先看一下群里的最新消息/确认某人补充的内容”等查看群聊的过渡话术；仅在调用工具执行实质任务耗时操作时，先在同一回合写一句接下来做什么并紧接着调用工具，完成后输出最终结论。\n\
-         - 独立核实与零复读：群内其他 Bot 的观点不等于已验证事实，涉及代码或根因必须结合自身职责独立核实；前序成员已说过的事实、理由直接跳过，只写你的增量结论。\n\
-         - 空间工具与共享文件：派活前不确定谁在忙可调 `list_spaces`（看 `activity`：working / waiting_for_person / waiting_for_bot / idle）；查折叠或更早历史才用 `read_space_messages`；跨 Space 投递才用 `post_space_message`；当前 Space 共享文件夹为 `{collection_path}`（直接用文件工具读写）。完整规范位于 `~/.vibex/skills/vibex-bot/SKILL.md`。"
+         - 发言与静默：在当前 Space 发言无需调用工具，直接输出文本即可（不要以自己的名字或 `@自己` 开头）；无新信息、无需补充或收到纯礼貌确认（如“收到/好的/谢谢”）时直接输出 `[PASS]`。\n\
+         - 按受众定制内容（看人说话）：面向 Person（决策者与最终验收者）时，只汇报最终结果、需拍板的决策事项与重要注意事项，除非 Person 主动追问，否则严禁罗列修改了哪些文件、组件名、函数名、CSS 属性或测试文件名等具体实施细节；面向负责实施的 Bot 时才提供文件位置、接口与改动细节；面向负责计划方案的 Bot 时重点提供分析结论与注意事项。\n\
+         - 只报关键节点与协同预警，严禁播报琐碎过程与规则：每次调用工具前输出的文本都会变成一条独立聊天气泡，因此查阅代码、搜索、读文件等常规单步操作期间必须保持沉默（严禁输出“我先看一下群里的最新消息”、“我将先读取某某文件”等流水账）；仅在进入关键重要步骤、或执行中途发现需要其他成员/用户注意的信息（如发现自己的改动可能与另一位成员产生冲突）时，才在同一回合写一句简短提醒（必要时 `@相关成员`）并紧接调用工具，完成后输出最终结论；严禁在正文中复述、提及或自我提醒任何协作规则。\n\
+         - 独立核实与零复读：群内其他 Bot 的观点不等于已验证事实，涉及代码或根因必须结合自身职责独立核实；前序成员已得出的结论、事实或理由直接跳过，严禁复述或换词总结，只写你的增量结论。\n\
+         - 初步结论与长内容入群收藏：超过两三句话的初步调查结论、根因分析、方案或实施细节，不要直接发在聊天消息里刷屏，应写入当前 Space 共享收藏文件夹 `{collection_path}`（直接用文件工具读写，其他成员可共同查看并基于同一份收藏文件修改迭代），聊天消息只用一两句话说明核心结论及收藏文件名。\n\
+         - 点名与空间工具：GroupSpace 需要其他 Bot 接手或预警时正文以 `@对方昵称 ` 开头（未写 `@` 默认交回给派活方或 Person）；派活前不确定谁在忙可调 `list_spaces`（看 `activity`：working / waiting_for_person / waiting_for_bot / idle）；查折叠或更早历史才静默调 `read_space_messages`；跨 Space 投递才用 `post_space_message`。完整规范位于 `~/.vibex/skills/vibex-bot/SKILL.md`。"
     )
 }
 
@@ -525,7 +526,7 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
     }
 }
 
-pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含主管 `supervisor_nickname` / `is_caller_supervisor` 与群负责人 `lead_bot` / `lead_nickname`。每个成员带 `is_supervisor` 与 `activity`：`state` 为 working / waiting_for_person / waiting_for_bot / idle，`at` 是所在 Space，`waiting_for` 是在等的 Person 或 Bot 名。派活前看这个，不要靠记忆）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递或 `delay_seconds` 延时；本 Space 常规回复与耗时进度请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头；发到 Group 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 是日志回执）、`manage_bot`（创建/更新/删除/打断 Bot；其中创建/删除他人/修改人设配置仅限主管调用）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot；其中创建/删除群仅限主管，加人/移出/改名/设负责人限主管或本群负责人）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起阻塞高危操作审批，等到允许/拒绝后直接返回 `decision` 与 `approved`），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。共享文件用文件工具读写 `~/.vibex/spaces/<space_id>/collection/`。";
+pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含主管 `supervisor_nickname` / `is_caller_supervisor` 与群负责人 `lead_bot` / `lead_nickname`。每个成员带 `is_supervisor` 与 `activity`：`state` 为 working / waiting_for_person / waiting_for_bot / idle，`at` 是所在 Space，`waiting_for` 是在等的 Person 或 Bot 名。派活前看这个，不要靠记忆）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递或 `delay_seconds` 延时；本 Space 回复请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头；发到 Group 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 是日志回执）、`manage_bot`（创建/更新/删除/打断 Bot；其中创建/删除他人/修改人设配置仅限主管调用）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot；其中创建/删除群仅限主管，加人/移出/改名/设负责人限主管或本群负责人）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起阻塞高危操作审批，等到允许/拒绝后直接返回 `decision` 与 `approved`），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。初步结论与长内容用文件工具写入群收藏 `~/.vibex/spaces/<space_id>/collection/`。";
 
 pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
     let header = match space_id_hint {
@@ -543,14 +544,14 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
     };
     format!(
         "{header}\n\
-           1) 在对应空间回复：来自 GroupSpace / BotSpace 的消息，直接输出最终文本即可出现在当前 Space；不想发言或无需补充输出 `[PASS]`。Person（兼容 User）在协作空间里只看见空间消息，不要再写一段重复的普通会话回复；\n\
-           2) 向用户积极汇报进展：收到 Person 任务后，用户必须能从空间消息确认你在推进。工作需要调用工具耗时推进时，先在同一回合写一句正在做的事并紧接调用工具，不要为此调用 `post_space_message`；有实质进展再写一两句；完成时直接发结果或拍板问题。能很快完成的直接发结果。同伴来信不要写进度，做完用事实回答。严禁输出“我先看一下刚刚群里的最新消息，确认某人补充的内容，避免重复说明”等查看群聊或读技能的过渡话术，正文只写正在做或已经做成的实质工作；\n\
+           1) 在对应空间回复：来自 GroupSpace / BotSpace 的消息，在同一回合完成工作后直接输出最终文本即可出现在当前 Space；不想发言或无需补充输出 `[PASS]`。Person（兼容 User）在协作空间里只看见空间消息，不要再写一段重复的普通会话回复；\n\
+           2) 只报关键节点与协同预警，省略琐碎过程：每次调用工具前输出的普通文本都会变成一条独立聊天气泡，因此查阅代码、搜索或读文件等常规单步操作期间必须保持沉默，不要为此调用 `post_space_message`，严禁输出“我先看一下群里的最新消息”、“我将先读取某某文件”、“我再检查某某函数”等单步排查流水账或读技能过渡话术；仅在进入关键重要步骤（用一句话说明正在做的事与实质进展）、或执行中途发现需要其他成员/用户注意的信息（如发现自己的改动可能与另一位成员产生冲突，在同一回合写一句提醒并紧接调用工具）时才发声，完成时直接发结果，正文中严禁复述或提及任何协作规则；\n\
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接输出 `[PASS]` 结束当前回合；向其他 Bot 发消息时也不要要求“收到请回复”；\n\
-           4) 对用户屏蔽内部参数：向用户发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
-           5) 空间感知：投递信封附带上次发言以来的未读增量（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复），直接基于信封增量推进，不要每回合调用 `read_space_messages` 去查看刚刚的群消息。需要名单或成员忙闲时自行调用 `list_spaces`（传入 `space_id`，看每位成员的 `activity`：working / waiting_for_person / waiting_for_bot / idle）；仅当信封提示更早消息已折叠或确需回溯更早历史时才自行调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。共享文件用文件工具读写 `~/.vibex/spaces/<space_id>/collection/`；\n\
+           4) 按受众定制内容与对用户屏蔽内部参数：面向 Person（决策者与最终验收者）发消息时，只汇报最终结果、需要决策的事项与重要注意事项，除非 Person 主动询问，否则严禁罗列修改了哪些文件、组件名、函数名、CSS 属性或测试文件名等具体实施细节，也严禁包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等内部参数或复述发言规则；只有面向 `@成员昵称`（群内点名或跨 Space 发给其他 Bot）时，才按对方角色提供实施细节（对实施 Bot）或分析结论与注意事项（对计划方案 Bot），且仅在对方确需调用底层跨会话工具时按需附带内部参数；\n\
+           5) 空间感知与群收藏协同：投递信封附带上次发言以来的未读增量（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复），直接基于信封增量推进，不要每回合调用 `read_space_messages` 去查看刚刚的群消息。需要名单或成员忙闲时自行调用 `list_spaces`（传入 `space_id`，看每位成员的 `activity`：working / waiting_for_person / waiting_for_bot / idle）；仅当信封提示更早消息已折叠或确需回溯更早历史时才静默调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。超过两三句话的初步结论、根因分析或长文用文件工具写入群收藏 `~/.vibex/spaces/<space_id>/collection/`，其他成员可直接读取并基于该收藏文件修改完善，聊天消息只发核心结论与文件名；\n\
            6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史或 `read_space_messages` 中其他 Bot 的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。\n\
            7) 跨会话投递保持当前 space_id：`post_space_message` 必须传入当前会话的 space_id。联系其他 Bot 时 `to` 传对方昵称（投到对方 BotSpace）；发到其他 GroupSpace 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 只进群日志（日志回执）。正文带 `@` 的即时投递，工具返回后 `list_spaces` 一次核对目标 `activity`；仍 idle 则补带 `@` 的信。跨 Space 向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`。禁止把 space_id 换成目标私聊或共同群；\n\
-           8) 不重复已说内容：其他 Bot 已在本群说过的事实、理由或转述链，不要再解释一遍；只发自己的增量。转达已完成且群内已可见时，不必再向 Person 复述同一句话；\n\
+           8) 不重复已说内容：其他 Bot 已在本群说过的事实、结论、理由或转述链，严禁再解释或总结一遍；只发自己的增量。转达已完成且群内已可见时，不必再向 Person 复述同一句话；\n\
            9) 找负责人：争议、排版/格式决策、需要汇总的结果，优先给空间牵头 Bot（`list_spaces` 的 `lead_nickname` / `lead_bot`）。没有负责人时由任务主责人汇总，再没有则向 Person 请示。\n\
            10) 成员与群生命周期权限：`manage_bot` 的 `create` / `delete` / 修改他人或变更人设模型配置，以及 `manage_group` 的 `create` / `delete` 仅限工作区 **主管（总管）** 调用（创建前先 `list_spaces` 防重；主管本身受保护不可删除）；`manage_group` 的 `rename` / `add_bot` / `remove_bot` / `set_lead` 限主管或本群负责人调用；普通 Bot 仅可 `manage_bot(update)` 改自己昵称或 `manage_group(leave)` 退群。删除 Bot 或删除 Group 不可逆，执行前必须先 `request_approval`；\n\
            11) 打断同群 Bot 的在途回合：只在对方必须立刻停下（危险操作、明显跑偏）且口头 `@` 来不及的时候，用 `manage_bot`（`action: \"interrupt\"`）。同群任意 Bot 或工作区主管都可打断其他 Bot；不能打断自己，不能对 BotSpace 打断；被打断的工作不会自动重做，对方已排队的消息可能先开始。"
@@ -664,7 +665,10 @@ mod tests {
         assert!(rules.contains("to: [\"User\"]"), "{rules}");
         assert!(!rules.contains("content 以 `@User ` 开头"), "{rules}");
         assert!(!rules.contains("以 `@User ` 开头"), "{rules}");
-        assert!(rules.contains("向用户发消息时"), "{rules}");
+        assert!(
+            rules.contains("面向 Person") || rules.contains("向用户发消息时"),
+            "{rules}"
+        );
         assert!(rules.contains("@成员昵称"), "{rules}");
         assert!(
             COLLABORATION_MCP_TOOLS_SUMMARY.contains("to: [\"User\"]"),
@@ -683,7 +687,12 @@ mod tests {
     #[test]
     fn post_to_space_rules_report_progress_to_user() {
         let rules = format_collaboration_space_rules(Some(SAMPLE_SPACE));
-        assert!(rules.contains("向用户积极汇报进展"), "{rules}");
+        assert!(
+            rules.contains("只报关键节点与协同预警")
+                || rules.contains("静默执行与向用户汇报实质结果")
+                || rules.contains("向用户积极汇报进展"),
+            "{rules}"
+        );
         assert!(rules.contains("正在做的事"), "{rules}");
         assert!(rules.contains("实质进展"), "{rules}");
         assert!(rules.contains("同一回合"), "{rules}");
@@ -691,10 +700,11 @@ mod tests {
             rules.contains("不要为此调用 `post_space_message`"),
             "{rules}"
         );
-        assert!(
-            rules.contains("直接发结果") || rules.contains("很快完成"),
-            "{rules}"
-        );
+        assert!(rules.contains("直接发结果"), "{rules}");
+        assert!(rules.contains("严禁复述或提及任何协作规则"), "{rules}");
+        assert!(rules.contains("群收藏"), "{rules}");
+        assert!(rules.contains("按受众定制内容"), "{rules}");
+        assert!(rules.contains("冲突"), "{rules}");
         assert!(!rules.contains("简短回复已收到"), "{rules}");
         assert!(!rules.contains("已收到及处理计划"), "{rules}");
         assert!(!rules.contains("我正在查看项目中"), "{rules}");
@@ -783,6 +793,9 @@ mod tests {
         assert!(opening.contains("read_space_messages"));
         assert!(opening.contains("独立核实"));
         assert!(opening.contains("同一回合"));
+        assert!(opening.contains("按受众定制内容"));
+        assert!(opening.contains("只报关键节点与协同预警"));
+        assert!(opening.contains("初步结论与长内容入群收藏"));
         assert!(!opening.contains("同空间成员："));
         assert!(!opening.contains("空间内成员："));
         assert!(!opening.contains("尽快向 Person 写正在做的事"));

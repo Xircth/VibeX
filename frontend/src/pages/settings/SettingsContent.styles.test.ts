@@ -78,10 +78,15 @@ describe('desktop window chrome insets', () => {
 describe('settings page alignment', () => {
   it('keeps form pages flush with the sidebar instead of adding extra top inset', () => {
     const content = declarationsFor('.settings-page .settings-content');
+    const sections = declarationsFor('.settings-page .settings-sections');
+    const section = declarationsFor('.settings-page .settings-section');
 
     expect(content.get('width')).toBe('min(100%, 860px)');
     expect(content.get('margin')).toBe('0 auto');
     expect(content.get('padding')).toBe('0 0 1.5rem');
+    expect(sections.get('grid-template-columns')).toBe('minmax(0, 1fr)');
+    expect(sections.get('min-width')).toBe('0');
+    expect(section.get('min-width')).toBe('0');
   });
 
   it('uses the same content width for the product plugin catalog', () => {

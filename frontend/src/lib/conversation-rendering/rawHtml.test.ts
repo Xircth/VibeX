@@ -73,6 +73,7 @@ describe('protectRawHtml', () => {
       '```\n<div>x</div>\n```',
       '`<div>x</div>`',
       'before ```html\n<div>y</div>\n``` after',
+      '[:quote](`现在直接用````html` 代码块)\n\n```html\n<!DOCTYPE html>\n<html><body><nav><button>ok</button></nav><section><div>hi</div></section></body></html>\n```',
     ]) {
       expect(protectRawHtml(input)).toEqual({ text: input, html: [] });
     }

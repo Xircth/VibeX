@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildCollaborationUserMessageNavEntries } from './collaborationMessageNav';
+import {
+  buildCollaborationUserMessageNavEntries,
+  spaceMessageRefKey,
+} from './collaborationMessageNav';
 
 describe('buildCollaborationUserMessageNavEntries', () => {
   it('keeps only user bubbles and preserves their log indexes', () => {
@@ -59,4 +62,27 @@ describe('buildCollaborationUserMessageNavEntries', () => {
       },
     ]);
   });
+
+  it('resolves the canonical message ref key from message.id, envelope.id, or seq', () => {
+    expect(
+      spaceMessageRefKey({
+        seq: 1,
+        id: 'msg-uuid-1',
+        envelope: { id: 'env-uuid-1' },
+      })
+    ).toBe('msg-uuid-1');
+    expect(
+      spaceMessageRefKey({
+        seq: 2,
+        envelope: { id: 'env-uuid-2' },
+      })
+    ).toBe('env-uuid-2');
+    expect(
+      spaceMessageRefKey({
+        seq: 3,
+        envelope: {},
+      })
+    ).toBe('3');
+  });
 });
+

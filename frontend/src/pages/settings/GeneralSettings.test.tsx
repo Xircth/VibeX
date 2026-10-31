@@ -537,4 +537,42 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(toggle).toBeChecked();
     expect(localStorage.getItem('vibex:hide-bot-sessions')).toBe('true');
   });
+
+  it('truncates long custom role persona prompts without overflowing the settings width or crushing the role name', async () => {
+    const collaborationApi = await import(
+      '@/features/collaboration/collaborationApi'
+    );
+    const spy = vi
+      .spyOn(collaborationApi, 'collaborationCall')
+      .mockResolvedValue({
+        roles: [
+          {
+            id: 'role-anber',
+            name: 'Anber',
+            agent_id: 'claude-code',
+            persona_prompt:
+              '你是 Anber，一名产品调研专家。你的职责是用证据回答产品决策问题，而不是复述行业常识。【擅长】- 竞品分析：功能矩阵、定位差异、迭代节奏、商业模式与用户评价',
+          },
+        ],
+      });
+
+    try {
+      renderSettings('opencode/minimax-m2.5-free', {
+        multi_agent_enabled: true,
+      });
+
+      const row = await screen.findByTestId('custom-role-row-role-anber');
+      expect(row).toHaveClass('min-w-0');
+      const listContainer = screen.getByTestId('custom-roles-list-container');
+      expect(listContainer).toHaveClass('min-w-0', 'overflow-hidden');
+
+      const nameSpan = screen.getByText('Anber');
+      expect(nameSpan).toHaveClass('shrink-0', 'truncate');
+
+      const personaSpan = screen.getByText(/你是 Anber，一名产品调研专家/);
+      expect(personaSpan).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

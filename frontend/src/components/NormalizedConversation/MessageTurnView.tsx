@@ -36,9 +36,11 @@ import {
   resolveHideModelThinking,
 } from '@/lib/conversationCollapsePreferences';
 import { AstryxMarkdown } from './AstryxMarkdown';
+import { HtmlPreviewBlock } from './HtmlPreviewBlock';
 import { UserMessageAttachments } from './UserMessageImageAttachment';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { splitUserTurnContent } from './userMessageImages';
+import { splitMessageHtmlSegments } from '@/lib/conversation-rendering/splitMessageHtmlBlocks';
 import {
   collaborationSpaceOriginFromBlocks,
   shouldShowGroupMemberSender,
@@ -189,7 +191,40 @@ function renderItem(
   isStreaming: boolean
 ): ReactNode {
   switch (item.kind) {
-    case 'markdown':
+    case 'markdown': {
+      const segments = splitMessageHtmlSegments(item.text, {
+        workspacePath: context.workspacePath,
+        isStreaming,
+      });
+      if (segments.some((seg) => seg.kind === 'html')) {
+        return (
+          <Fragment key={key}>
+            {segments.map((seg, idx) =>
+              seg.kind === 'html' ? (
+                <HtmlPreviewBlock
+                  key={`${key}:html:${idx}`}
+                  code={seg.code}
+                  filePath={seg.filePath}
+                  displayPath={seg.displayPath}
+                  title={seg.title}
+                  workspacePath={context.workspacePath}
+                  isStreaming={isStreaming}
+                  standalone
+                />
+              ) : (
+                <AstryxMarkdown
+                  key={`${key}:md:${idx}`}
+                  value={seg.text}
+                  taskAttemptId={context.taskAttemptId}
+                  taskId={context.taskId}
+                  workspacePath={context.workspacePath}
+                  isStreaming={isStreaming}
+                />
+              )
+            )}
+          </Fragment>
+        );
+      }
       return (
         <AstryxMarkdown
           key={key}
@@ -200,6 +235,7 @@ function renderItem(
           isStreaming={isStreaming}
         />
       );
+    }
     case 'thinking':
       return (
         <ThinkingEntry

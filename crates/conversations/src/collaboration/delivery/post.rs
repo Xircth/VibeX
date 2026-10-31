@@ -508,13 +508,14 @@ pub(crate) async fn post_to_space_inner(
     if hop_exceeded || concurrency_held {
         insert_collaboration_limit_notice(pool, &input.space_id).await?;
     }
+    let is_card_post = content.starts_with("<card kind=\"");
     if mirror_direct_to_events
+        && !is_card_post
         && input.space_id.starts_with(identity::DIRECT_PREFIX)
         && let Some(sender) = sender
     {
         project_direct_space_post(pool, sender, &message_id, content).await?;
     }
-    let is_card_post = content.starts_with("<card kind=\"");
     if sender.is_some() && !is_card_post {
         advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await?;
     }

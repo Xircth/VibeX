@@ -58,15 +58,18 @@ export const attemptsApi = {
   getTauriInspectorStatus: async (
     attemptId: string
   ): Promise<TauriInspectorStatus> => {
-    return backendCall<TauriInspectorStatus>('get_tauri_inspector_status', {
-      workspaceId: attemptId,
-    });
+    return desktopShellCall<TauriInspectorStatus>(
+      'get_tauri_inspector_status',
+      {
+        workspaceId: attemptId,
+      }
+    );
   },
 
   installTauriInspector: async (
     attemptId: string
   ): Promise<TauriInspectorStatus> => {
-    return backendCall<TauriInspectorStatus>('install_tauri_inspector', {
+    return desktopShellCall<TauriInspectorStatus>('install_tauri_inspector', {
       workspaceId: attemptId,
     });
   },
@@ -75,7 +78,7 @@ export const attemptsApi = {
     attemptId: string,
     action: 'activate' | 'deactivate'
   ): Promise<void> => {
-    return backendCall<void>('control_tauri_inspector', {
+    return desktopShellCall<void>('control_tauri_inspector', {
       workspaceId: attemptId,
       action,
     });
@@ -84,9 +87,12 @@ export const attemptsApi = {
   takeTauriInspectorCapture: async (
     attemptId: string
   ): Promise<RedlineDocument | null> => {
-    return backendCall<RedlineDocument | null>('take_tauri_inspector_capture', {
-      workspaceId: attemptId,
-    });
+    return desktopShellCall<RedlineDocument | null>(
+      'take_tauri_inspector_capture',
+      {
+        workspaceId: attemptId,
+      }
+    );
   },
 
   getChildren: async (attemptId: string): Promise<TaskRelationships> => {

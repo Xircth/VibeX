@@ -4762,7 +4762,9 @@ describe('CollaborationSpacePage', () => {
     const supervisorSlot = await screen.findByTestId(
       'collaboration-supervisor-slot'
     );
-    expect(supervisorSlot).toHaveAttribute('data-supervisor-empty', 'false');
+    await waitFor(() => {
+      expect(supervisorSlot).toHaveAttribute('data-supervisor-empty', 'false');
+    });
     expect(
       within(supervisorSlot).getByRole('button', { name: '大总管' })
     ).toBeTruthy();

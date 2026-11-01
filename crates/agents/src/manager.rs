@@ -851,12 +851,12 @@ impl AgentConnectionManager {
                 if let Some(pid) = connection.child_pid.lock().unwrap().take() {
                     #[cfg(unix)]
                     {
-                        use nix::{
-                            sys::signal::{Signal, killpg},
-                            unistd::{Pid, getpgid},
-                        };
-                        if let Ok(pgid) = getpgid(Some(Pid::from_raw(pid as i32))) {
-                            let _ = killpg(pgid, Signal::SIGKILL);
+                        // SAFETY: `getpgid` and `killpg` are standard POSIX syscalls; negative return indicates error.
+                        unsafe {
+                            let pgid = libc::getpgid(pid as libc::pid_t);
+                            if pgid > 0 {
+                                let _ = libc::killpg(pgid, libc::SIGKILL);
+                            }
                         }
                     }
                     #[cfg(windows)]

@@ -125,6 +125,12 @@ export function createManualChunks(id: string): string | undefined {
 }
 
 function isStartupReactModule(normalizedId: string): boolean {
+  if (
+    normalizedId.includes('/node_modules/react-dom/server') ||
+    normalizedId.includes('react-dom-server')
+  ) {
+    return false;
+  }
   return (
     normalizedId.includes('/node_modules/react/') ||
     normalizedId.includes('/node_modules/react-dom/') ||

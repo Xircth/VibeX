@@ -9,14 +9,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { toast } from '@/components/ui/toast';
 
-import {
-  loadPluginRuntime,
-  unloadPluginRuntime,
-  type PluginRuntimeSource,
-} from '@/features/plugins/PluginRuntimeLoader';
-import { getMonorepoPluginBundle } from '@/features/plugins/monorepoPluginBootstrap';
-import { ensureCoreFoundationPluginsBootstrapped } from '@/features/plugins/coreFoundationPlugins';
-import { ensureHostProviderServicesRegistered } from '@/features/plugins/providers/hostProviderServices';
+import type { PluginRuntimeSource } from '@/features/plugins/PluginRuntimeLoader';
 import { backendListen } from '@/lib/backendTransport';
 import {
   createPluginControlApi,
@@ -50,8 +43,13 @@ export function usePluginContributionCatalogSync() {
   const loadedGenerationByPluginRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
-    ensureHostProviderServicesRegistered();
-    ensureCoreFoundationPluginsBootstrapped();
+    void Promise.all([
+      import('@/features/plugins/providers/hostProviderServices'),
+      import('@/features/plugins/coreFoundationPlugins'),
+    ]).then(([providerServices, coreFoundation]) => {
+      providerServices.ensureHostProviderServicesRegistered();
+      coreFoundation.ensureCoreFoundationPluginsBootstrapped();
+    });
   }, []);
 
   useEffect(() => {
@@ -178,65 +176,80 @@ export function usePluginContributionCatalogSync() {
   }, [queryClient]);
 
   useEffect(() => {
-    const activeIds = new Set<string>();
-    for (const item of items) {
-      activeIds.add(item.pluginId);
-      const monorepoBundle = getMonorepoPluginBundle(item.pluginId);
-      if (monorepoBundle) {
-        if (
-          loadedGenerationByPluginRef.current.get(item.pluginId) !==
-          item.generation
-        ) {
-          loadedGenerationByPluginRef.current.set(
-            item.pluginId,
+    if (items.length === 0 && knownHostPluginIdsRef.current.size === 0) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      import('@/features/plugins/monorepoPluginBootstrap'),
+      import('@/features/plugins/PluginRuntimeLoader'),
+    ]).then(([monorepoBootstrap, runtimeLoader]) => {
+      if (cancelled) return;
+      const activeIds = new Set<string>();
+      for (const item of items) {
+        activeIds.add(item.pluginId);
+        const monorepoBundle = monorepoBootstrap.getMonorepoPluginBundle(
+          item.pluginId
+        );
+        if (monorepoBundle) {
+          if (
+            loadedGenerationByPluginRef.current.get(item.pluginId) !==
             item.generation
-          );
-          void loadPluginRuntime(
-            item.pluginId,
-            {
-              kind: 'module',
-              module: monorepoBundle.module,
-              spec: monorepoBundle.spec,
-            },
-            {
+          ) {
+            loadedGenerationByPluginRef.current.set(
+              item.pluginId,
+              item.generation
+            );
+            void runtimeLoader.loadPluginRuntime(
+              item.pluginId,
+              {
+                kind: 'module',
+                module: monorepoBundle.module,
+                spec: monorepoBundle.spec,
+              },
+              {
+                generation: item.generation,
+              }
+            );
+          }
+          continue;
+        }
+
+        const meta = contributionMetadata(item);
+        const runtimeSource = meta.runtimeSource as
+          | PluginRuntimeSource
+          | undefined;
+        if (
+          runtimeSource &&
+          typeof runtimeSource === 'object' &&
+          'kind' in runtimeSource
+        ) {
+          if (
+            loadedGenerationByPluginRef.current.get(item.pluginId) !==
+            item.generation
+          ) {
+            loadedGenerationByPluginRef.current.set(
+              item.pluginId,
+              item.generation
+            );
+            void runtimeLoader.loadPluginRuntime(item.pluginId, runtimeSource, {
               generation: item.generation,
-            }
-          );
-        }
-        continue;
-      }
-
-      const meta = contributionMetadata(item);
-      const runtimeSource = meta.runtimeSource as
-        | PluginRuntimeSource
-        | undefined;
-      if (
-        runtimeSource &&
-        typeof runtimeSource === 'object' &&
-        'kind' in runtimeSource
-      ) {
-        if (
-          loadedGenerationByPluginRef.current.get(item.pluginId) !==
-          item.generation
-        ) {
-          loadedGenerationByPluginRef.current.set(
-            item.pluginId,
-            item.generation
-          );
-          void loadPluginRuntime(item.pluginId, runtimeSource, {
-            generation: item.generation,
-          });
+            });
+          }
         }
       }
-    }
 
-    for (const previousId of knownHostPluginIdsRef.current) {
-      if (!activeIds.has(previousId)) {
-        loadedGenerationByPluginRef.current.delete(previousId);
-        unloadPluginRuntime(previousId);
+      for (const previousId of knownHostPluginIdsRef.current) {
+        if (!activeIds.has(previousId)) {
+          loadedGenerationByPluginRef.current.delete(previousId);
+          runtimeLoader.unloadPluginRuntime(previousId);
+        }
       }
-    }
-    knownHostPluginIdsRef.current = activeIds;
+      knownHostPluginIdsRef.current = activeIds;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [items]);
 }
 

@@ -22,8 +22,13 @@ import '@/i18n';
 import './types/modals';
 import { isTauriDesktopShell } from '@/utils/platform';
 import { DesktopHostBootstrap } from './DesktopHostBootstrap';
-import { WebTransportBootstrap } from './WebTransportBootstrap';
 import { getAppRouteMode } from './appRouteMode';
+
+const WebTransportBootstrap = React.lazy(() =>
+  import('./WebTransportBootstrap').then((module) => ({
+    default: module.WebTransportBootstrap,
+  }))
+);
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({

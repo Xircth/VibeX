@@ -226,6 +226,7 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
       SCCACHE_CACHE_SIZE: "10G"
+      SCCACHE_IDLE_TIMEOUT: "0"
       VIBEX_SKIP_FRONTEND_BUILD: "1"
     strategy:
       fail-fast: true
@@ -261,6 +262,13 @@ jobs:
 
       - name: Disable sccache on Windows
         if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+
+      - name: Disable sccache on macOS
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"

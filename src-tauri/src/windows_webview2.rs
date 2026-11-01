@@ -234,6 +234,7 @@ pub fn install_process_arguments() {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn build_reclaim_orphaned_webview2_script(
     exe: &std::path::Path,
     identifier: &str,

@@ -62,45 +62,39 @@ async fn release_startup_working_set(pool: &sqlx::SqlitePool) {
     }
 }
 
+#[cfg(windows)]
 fn queue_debug_main_window(app: &tauri::App) {
-    #[cfg(not(windows))]
-    {
-        let _ = app;
+    if !cfg!(debug_assertions) {
+        return;
     }
-    #[cfg(windows)]
-    {
-        if !cfg!(debug_assertions) {
-            return;
-        }
-        if app.get_webview_window("main").is_none() {
-            install_debug_main_window(app.handle());
-            return;
-        }
-        if let Some(window) = app.get_webview_window("main")
-            && let Err(error) = window.destroy()
-        {
-            tracing::warn!(%error, "failed to destroy the config-created debug main window");
-        }
-        let handle = app.handle().clone();
-        tauri::async_runtime::spawn(async move {
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-            while handle.get_webview_window("main").is_some() {
-                if tokio::time::Instant::now() >= deadline {
-                    tracing::warn!(
-                        "config-created debug main window is still registered after destroy"
-                    );
-                    break;
-                }
-                tokio::time::sleep(MAIN_WINDOW_REVEAL_POLL).await;
-            }
-            let handle_for_create = handle.clone();
-            if let Err(error) = handle.run_on_main_thread(move || {
-                install_debug_main_window(&handle_for_create);
-            }) {
-                tracing::error!(%error, "failed to schedule debug main webview creation");
-            }
-        });
+    if app.get_webview_window("main").is_none() {
+        install_debug_main_window(app.handle());
+        return;
     }
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(error) = window.destroy()
+    {
+        tracing::warn!(%error, "failed to destroy the config-created debug main window");
+    }
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while handle.get_webview_window("main").is_some() {
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!(
+                    "config-created debug main window is still registered after destroy"
+                );
+                break;
+            }
+            tokio::time::sleep(MAIN_WINDOW_REVEAL_POLL).await;
+        }
+        let handle_for_create = handle.clone();
+        if let Err(error) = handle.run_on_main_thread(move || {
+            install_debug_main_window(&handle_for_create);
+        }) {
+            tracing::error!(%error, "failed to schedule debug main webview creation");
+        }
+    });
 }
 
 #[cfg(windows)]

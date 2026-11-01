@@ -24,7 +24,19 @@ function rustcHost() {
 }
 
 function sidecarBuildArgs({ debug, target }) {
-  const args = ["build", "-p", "vibex-mcp", "-p", "vibex-workflow-mcp"];
+  const args = [
+    "build",
+    "-p",
+    "vibex",
+    "-p",
+    "vibex-mcp",
+    "-p",
+    "vibex-workflow-mcp",
+    "--bin",
+    "vibex-mcp",
+    "--bin",
+    "vibex-workflow-mcp",
+  ];
   if (!debug) {
     args.push("--release");
   }

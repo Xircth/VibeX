@@ -59,8 +59,7 @@ regex = "1"
 url = "2.5"
 
 [profile.release]
-debug = 1
-split-debuginfo = "packed"
+debug = 0
 strip = true
 
 [profile.dev]

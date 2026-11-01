@@ -500,7 +500,10 @@ export function MultiAgentSettings({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        aria-label={i18n.t('panels:ui.multiAgent.editRoleName', { name: role.name })}
+                        aria-label={i18n.t(
+                          'panels:ui.multiAgent.editRoleName',
+                          { name: role.name }
+                        )}
                         onClick={() => openEditRoleDialog(role)}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -510,7 +513,10 @@ export function MultiAgentSettings({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        aria-label={i18n.t('panels:ui.multiAgent.deleteRoleName', { name: role.name })}
+                        aria-label={i18n.t(
+                          'panels:ui.multiAgent.deleteRoleName',
+                          { name: role.name }
+                        )}
                         onClick={() => void handleDeleteRole(role.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -543,12 +549,18 @@ export function MultiAgentSettings({
               <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={editingRoleId ? i18n.t('panels:ui.multiAgent.editRole') : i18n.t('panels:ui.multiAgent.newRole')}
+                aria-label={
+                  editingRoleId
+                    ? i18n.t('panels:ui.multiAgent.editRole')
+                    : i18n.t('panels:ui.multiAgent.newRole')
+                }
                 className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[440px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h3 className="text-[14px] font-semibold text-foreground">
-                    {editingRoleId ? i18n.t('panels:ui.multiAgent.editRole') : i18n.t('panels:ui.multiAgent.newRole')}
+                    {editingRoleId
+                      ? i18n.t('panels:ui.multiAgent.editRole')
+                      : i18n.t('panels:ui.multiAgent.newRole')}
                   </h3>
                   <Button
                     type="button"
@@ -570,13 +582,17 @@ export function MultiAgentSettings({
                   }}
                 >
                   <div className="space-y-1.5">
-                    <Label htmlFor="custom-role-name-input">{i18n.t('panels:ui.multiAgent.roleName')}</Label>
+                    <Label htmlFor="custom-role-name-input">
+                      {i18n.t('panels:ui.multiAgent.roleName')}
+                    </Label>
                     <Input
                       id="custom-role-name-input"
                       aria-label={i18n.t('panels:ui.multiAgent.roleName')}
                       value={roleName}
                       onChange={(event) => setRoleName(event.target.value)}
-                      placeholder={i18n.t('panels:ui.multiAgent.frontendEngineer')}
+                      placeholder={i18n.t(
+                        'panels:ui.multiAgent.frontendEngineer'
+                      )}
                       className="h-8 px-2.5 text-[13px]"
                       autoFocus
                     />
@@ -590,7 +606,9 @@ export function MultiAgentSettings({
                           type="button"
                           variant="outline"
                           role="combobox"
-                          aria-label={i18n.t('panels:ui.multiAgent.chooseRoleAgent')}
+                          aria-label={i18n.t(
+                            'panels:ui.multiAgent.chooseRoleAgent'
+                          )}
                           data-value={roleAgentId}
                           className="custom-role-agent-trigger raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
                         >
@@ -604,7 +622,8 @@ export function MultiAgentSettings({
                               />
                             ) : null}
                             <span className="truncate">
-                              {selectedRoleAgentLabel || i18n.t('panels:ui.multiAgent.chooseAgent')}
+                              {selectedRoleAgentLabel ||
+                                i18n.t('panels:ui.multiAgent.chooseAgent')}
                             </span>
                           </span>
                           <ChevronDown
@@ -655,7 +674,9 @@ export function MultiAgentSettings({
                     className="space-y-1.5"
                     data-testid="custom-role-session-config"
                   >
-                    <Label>{i18n.t('panels:ui.multiAgent.sessionSettings')}</Label>
+                    <Label>
+                      {i18n.t('panels:ui.multiAgent.sessionSettings')}
+                    </Label>
                     <CustomRoleSessionControls
                       agentId={roleAgentId}
                       modeId={roleModeId}
@@ -672,8 +693,12 @@ export function MultiAgentSettings({
                     <Textarea
                       ref={personaTextareaRef}
                       id="custom-role-persona-input"
-                      aria-label={i18n.t('panels:ui.multiAgent.personaPromptOptional')}
-                      placeholder={i18n.t('panels:ui.multiAgent.personaPromptOptional')}
+                      aria-label={i18n.t(
+                        'panels:ui.multiAgent.personaPromptOptional'
+                      )}
+                      placeholder={i18n.t(
+                        'panels:ui.multiAgent.personaPromptOptional'
+                      )}
                       rows={3}
                       value={rolePersonaPrompt}
                       onChange={(event) =>
@@ -704,7 +729,9 @@ export function MultiAgentSettings({
                         !roleName.trim() || !roleAgentId || isSavingRole
                       }
                     >
-                      {editingRoleId ? i18n.t('panels:ui.multiAgent.save') : i18n.t('panels:ui.multiAgent.newRole')}
+                      {editingRoleId
+                        ? i18n.t('panels:ui.multiAgent.save')
+                        : i18n.t('panels:ui.multiAgent.newRole')}
                     </Button>
                   </div>
                 </form>

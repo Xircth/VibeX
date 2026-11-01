@@ -63,7 +63,9 @@ export function CollaborationGlobalSearchModal({
                 }
               }}
               placeholder={COPY.globalSearchPlaceholder}
-              aria-label={i18n.t('panels:ui.globalSearch.searchSpacesOrBotsInput')}
+              aria-label={i18n.t(
+                'panels:ui.globalSearch.searchSpacesOrBotsInput'
+              )}
               data-testid="collaboration-global-search-input"
               className="collaboration-global-search-input"
             />

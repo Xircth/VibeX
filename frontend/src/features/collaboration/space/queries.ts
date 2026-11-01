@@ -38,8 +38,7 @@ export const collabQueryKeys = {
     ['collaboration', 'membersBySpace', workspaceId] as const,
   messagesBySpace: (workspaceId: string) =>
     ['collaboration', 'messagesBySpace', workspaceId] as const,
-  thread: (threadId: string) =>
-    ['collaboration', 'thread', threadId] as const,
+  thread: (threadId: string) => ['collaboration', 'thread', threadId] as const,
 };
 
 export function setQueryDataValue<T>(

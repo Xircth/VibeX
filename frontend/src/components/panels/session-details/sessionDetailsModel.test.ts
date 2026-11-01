@@ -79,9 +79,9 @@ describe('resolveSessionStatus', () => {
   });
 
   it('treats other in-flight turns as in progress', () => {
-    expect(
-      resolveSessionStatus({ status: 'todo', turnInFlight: true })
-    ).toBe('inprogress');
+    expect(resolveSessionStatus({ status: 'todo', turnInFlight: true })).toBe(
+      'inprogress'
+    );
   });
 });
 

@@ -38,8 +38,12 @@ describe('hardcoded string i18n', () => {
 
   it('maps backend notice titles to the current language', async () => {
     await i18n.changeLanguage('en');
-    expect(localizeBackendNoticeTitle('正在连接 Agent…', t)).not.toMatch(/[\u4e00-\u9fff]/);
-    expect(localizeBackendNoticeTitle('unrelated title', t)).toBe('unrelated title');
+    expect(localizeBackendNoticeTitle('正在连接 Agent…', t)).not.toMatch(
+      /[\u4e00-\u9fff]/
+    );
+    expect(localizeBackendNoticeTitle('unrelated title', t)).toBe(
+      'unrelated title'
+    );
     await i18n.changeLanguage('zh-CN');
     expect(localizeBackendNoticeTitle('正在连接 Agent…', t)).toMatch(/Agent/);
   });
@@ -57,9 +61,20 @@ describe('hardcoded string i18n', () => {
   });
 
   it('en and zh-CN panels locales define the same new keys', () => {
-    for (const section of ['ui', 'collabCopy', 'contactRowMenu', 'spaceTag', 'botAvatar', 'panelRegistry'] as const) {
-      const en = leafPaths((enPanels as Record<string, unknown>)[section]).sort();
-      const zh = leafPaths((zhPanels as Record<string, unknown>)[section]).sort();
+    for (const section of [
+      'ui',
+      'collabCopy',
+      'contactRowMenu',
+      'spaceTag',
+      'botAvatar',
+      'panelRegistry',
+    ] as const) {
+      const en = leafPaths(
+        (enPanels as Record<string, unknown>)[section]
+      ).sort();
+      const zh = leafPaths(
+        (zhPanels as Record<string, unknown>)[section]
+      ).sort();
       expect(zh, section).toEqual(en);
     }
   });

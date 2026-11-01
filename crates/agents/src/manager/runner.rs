@@ -395,6 +395,19 @@ impl AgentConnectionRunner {
         }
     }
 
+    pub(in crate::manager) fn note_adapter_turn_error(
+        &self,
+        session_id: Option<AgentSessionId>,
+        error: String,
+    ) {
+        if let Ok(guard) = self.active_turn_probe.lock()
+            && let Some((active_session_id, probe)) = guard.as_ref()
+            && session_id.is_none_or(|sid| sid == *active_session_id)
+        {
+            probe.note_adapter_turn_error(error);
+        }
+    }
+
     pub(in crate::manager) fn note_dropped_update(
         &self,
         session_id: Option<AgentSessionId>,

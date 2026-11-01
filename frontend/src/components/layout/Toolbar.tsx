@@ -573,7 +573,9 @@ export function WorkspaceBranchControls({
     <div
       className="flex min-w-0 shrink-0 items-center gap-2"
       role="group"
-      aria-label={i18n.t('panels:shellA11y.workspaceBranches', { defaultValue: 'Workspace and target branches' })}
+      aria-label={i18n.t('panels:shellA11y.workspaceBranches', {
+        defaultValue: 'Workspace and target branches',
+      })}
     >
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
       {isWorkspaceTab && isGitProject ? <WorktreeSelector /> : null}
@@ -1124,7 +1126,10 @@ export function Toolbar() {
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={handleCreateSession}
-                      aria-label={t('workspaceSessionList.newSession', 'New session')}
+                      aria-label={t(
+                        'workspaceSessionList.newSession',
+                        'New session'
+                      )}
                       data-basic-guide="toolbar-new-session"
                     >
                       <Plus className="h-3.5 w-3.5" />

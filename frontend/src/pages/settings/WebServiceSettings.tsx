@@ -318,9 +318,7 @@ export function WebServiceSettings({
   );
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   const focusRole = (next: RemoteRoleTab) => {

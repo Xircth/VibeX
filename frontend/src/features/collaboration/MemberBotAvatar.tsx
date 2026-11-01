@@ -73,58 +73,269 @@ export const BOT_AVATAR_COLOR_PRESETS: ReadonlyArray<{
   label: string;
   hex: string;
 }> = [
-  { id: 'ink', get label() { return i18n.t('panels:botAvatar.color.ink'); }, hex: '#000000' },
-  { id: 'brown', get label() { return i18n.t('panels:botAvatar.color.brown'); }, hex: '#9a6433' },
-  { id: 'red', get label() { return i18n.t('panels:botAvatar.color.red'); }, hex: '#fa2d37' },
-  { id: 'orange', get label() { return i18n.t('panels:botAvatar.color.orange'); }, hex: '#ff6b0a' },
-  { id: 'amber', get label() { return i18n.t('panels:botAvatar.color.amber'); }, hex: '#f99408' },
-  { id: 'green', get label() { return i18n.t('panels:botAvatar.color.green'); }, hex: '#09b866' },
-  { id: 'turquoise', get label() { return i18n.t('panels:botAvatar.color.turquoise'); }, hex: '#0db49b' },
-  { id: 'blue', get label() { return i18n.t('panels:botAvatar.color.blue'); }, hex: '#1584ff' },
-  { id: 'purple', get label() { return i18n.t('panels:botAvatar.color.purple'); }, hex: '#8b52ff' },
-  { id: 'pink', get label() { return i18n.t('panels:botAvatar.color.pink'); }, hex: '#ff2994' },
-  { id: 'grey', get label() { return i18n.t('panels:botAvatar.color.grey'); }, hex: '#8c8c8c' },
+  {
+    id: 'ink',
+    get label() {
+      return i18n.t('panels:botAvatar.color.ink');
+    },
+    hex: '#000000',
+  },
+  {
+    id: 'brown',
+    get label() {
+      return i18n.t('panels:botAvatar.color.brown');
+    },
+    hex: '#9a6433',
+  },
+  {
+    id: 'red',
+    get label() {
+      return i18n.t('panels:botAvatar.color.red');
+    },
+    hex: '#fa2d37',
+  },
+  {
+    id: 'orange',
+    get label() {
+      return i18n.t('panels:botAvatar.color.orange');
+    },
+    hex: '#ff6b0a',
+  },
+  {
+    id: 'amber',
+    get label() {
+      return i18n.t('panels:botAvatar.color.amber');
+    },
+    hex: '#f99408',
+  },
+  {
+    id: 'green',
+    get label() {
+      return i18n.t('panels:botAvatar.color.green');
+    },
+    hex: '#09b866',
+  },
+  {
+    id: 'turquoise',
+    get label() {
+      return i18n.t('panels:botAvatar.color.turquoise');
+    },
+    hex: '#0db49b',
+  },
+  {
+    id: 'blue',
+    get label() {
+      return i18n.t('panels:botAvatar.color.blue');
+    },
+    hex: '#1584ff',
+  },
+  {
+    id: 'purple',
+    get label() {
+      return i18n.t('panels:botAvatar.color.purple');
+    },
+    hex: '#8b52ff',
+  },
+  {
+    id: 'pink',
+    get label() {
+      return i18n.t('panels:botAvatar.color.pink');
+    },
+    hex: '#ff2994',
+  },
+  {
+    id: 'grey',
+    get label() {
+      return i18n.t('panels:botAvatar.color.grey');
+    },
+    hex: '#8c8c8c',
+  },
 ];
 
 export const BOT_AVATAR_SHAPE_PRESETS: ReadonlyArray<{
   id: BotAvatarShape;
   label: string;
 }> = [
-  { id: 'circle', get label() { return i18n.t('panels:botAvatar.shape.circle'); }, },
-  { id: 'cloud', get label() { return i18n.t('panels:botAvatar.shape.cloud'); }, },
-  { id: 'squircle', get label() { return i18n.t('panels:botAvatar.shape.squircle'); }, },
-  { id: 'sparkle', get label() { return i18n.t('panels:botAvatar.shape.sparkle'); }, },
-  { id: 'clover', get label() { return i18n.t('panels:botAvatar.shape.clover'); }, },
-  { id: 'heart', get label() { return i18n.t('panels:botAvatar.shape.heart'); }, },
-  { id: 'pebble', get label() { return i18n.t('panels:botAvatar.shape.pebble'); }, },
-  { id: 'droplet', get label() { return i18n.t('panels:botAvatar.shape.droplet'); }, },
-  { id: 'capsule', get label() { return i18n.t('panels:botAvatar.shape.capsule'); }, },
-  { id: 'triangle', get label() { return i18n.t('panels:botAvatar.shape.triangle'); }, },
-  { id: 'pentagon', get label() { return i18n.t('panels:botAvatar.shape.pentagon'); }, },
-  { id: 'star', get label() { return i18n.t('panels:botAvatar.shape.star'); }, },
-  { id: 'hexagon', get label() { return i18n.t('panels:botAvatar.shape.hexagon'); }, },
+  {
+    id: 'circle',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.circle');
+    },
+  },
+  {
+    id: 'cloud',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.cloud');
+    },
+  },
+  {
+    id: 'squircle',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.squircle');
+    },
+  },
+  {
+    id: 'sparkle',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.sparkle');
+    },
+  },
+  {
+    id: 'clover',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.clover');
+    },
+  },
+  {
+    id: 'heart',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.heart');
+    },
+  },
+  {
+    id: 'pebble',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.pebble');
+    },
+  },
+  {
+    id: 'droplet',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.droplet');
+    },
+  },
+  {
+    id: 'capsule',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.capsule');
+    },
+  },
+  {
+    id: 'triangle',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.triangle');
+    },
+  },
+  {
+    id: 'pentagon',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.pentagon');
+    },
+  },
+  {
+    id: 'star',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.star');
+    },
+  },
+  {
+    id: 'hexagon',
+    get label() {
+      return i18n.t('panels:botAvatar.shape.hexagon');
+    },
+  },
 ];
 
 export const BOT_AVATAR_EXPRESSION_PRESETS: ReadonlyArray<{
   id: BotAvatarExpression;
   label: string;
 }> = [
-  { id: 'neutral', get label() { return i18n.t('panels:botAvatar.expression.neutral'); }, },
-  { id: 'attentive', get label() { return i18n.t('panels:botAvatar.expression.attentive'); }, },
-  { id: 'happy', get label() { return i18n.t('panels:botAvatar.expression.happy'); }, },
-  { id: 'laughing', get label() { return i18n.t('panels:botAvatar.expression.laughing'); }, },
-  { id: 'excited', get label() { return i18n.t('panels:botAvatar.expression.excited'); }, },
-  { id: 'surprised', get label() { return i18n.t('panels:botAvatar.expression.surprised'); }, },
-  { id: 'confused', get label() { return i18n.t('panels:botAvatar.expression.confused'); }, },
-  { id: 'curious', get label() { return i18n.t('panels:botAvatar.expression.curious'); }, },
-  { id: 'suspicious', get label() { return i18n.t('panels:botAvatar.expression.suspicious'); }, },
-  { id: 'sleepy', get label() { return i18n.t('panels:botAvatar.expression.sleepy'); }, },
-  { id: 'sad', get label() { return i18n.t('panels:botAvatar.expression.sad'); }, },
-  { id: 'scared', get label() { return i18n.t('panels:botAvatar.expression.scared'); }, },
-  { id: 'angry', get label() { return i18n.t('panels:botAvatar.expression.angry'); }, },
-  { id: 'proud', get label() { return i18n.t('panels:botAvatar.expression.proud'); }, },
-  { id: 'shy', get label() { return i18n.t('panels:botAvatar.expression.shy'); }, },
-  { id: 'unimpressed', get label() { return i18n.t('panels:botAvatar.expression.unimpressed'); }, },
+  {
+    id: 'neutral',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.neutral');
+    },
+  },
+  {
+    id: 'attentive',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.attentive');
+    },
+  },
+  {
+    id: 'happy',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.happy');
+    },
+  },
+  {
+    id: 'laughing',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.laughing');
+    },
+  },
+  {
+    id: 'excited',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.excited');
+    },
+  },
+  {
+    id: 'surprised',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.surprised');
+    },
+  },
+  {
+    id: 'confused',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.confused');
+    },
+  },
+  {
+    id: 'curious',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.curious');
+    },
+  },
+  {
+    id: 'suspicious',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.suspicious');
+    },
+  },
+  {
+    id: 'sleepy',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.sleepy');
+    },
+  },
+  {
+    id: 'sad',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.sad');
+    },
+  },
+  {
+    id: 'scared',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.scared');
+    },
+  },
+  {
+    id: 'angry',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.angry');
+    },
+  },
+  {
+    id: 'proud',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.proud');
+    },
+  },
+  {
+    id: 'shy',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.shy');
+    },
+  },
+  {
+    id: 'unimpressed',
+    get label() {
+      return i18n.t('panels:botAvatar.expression.unimpressed');
+    },
+  },
 ];
 
 function hashSeed(input: string): number {
@@ -899,8 +1110,14 @@ export function MemberBotAvatarPicker({
           layout="hug"
           className="collaboration-compact-segmented"
         >
-          <SegmentedControlItem value="color" label={i18n.t('panels:botAvatar.ui.color')} />
-          <SegmentedControlItem value="shape" label={i18n.t('panels:botAvatar.ui.shape')} />
+          <SegmentedControlItem
+            value="color"
+            label={i18n.t('panels:botAvatar.ui.color')}
+          />
+          <SegmentedControlItem
+            value="shape"
+            label={i18n.t('panels:botAvatar.ui.shape')}
+          />
         </SegmentedControl>
       </div>
 

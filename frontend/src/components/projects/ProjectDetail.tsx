@@ -94,7 +94,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
               <AlertCircle className="h-6 w-6 text-muted-foreground" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">{i18n.t('panels:ui.projectDetail.projectNotFound')}</h3>
+            <h3 className="mt-4 text-lg font-semibold">
+              {i18n.t('panels:ui.projectDetail.projectNotFound')}
+            </h3>
             <p className="mt-2 text-sm text-muted-foreground">{errorMsg}</p>
             <Button className="mt-4" onClick={onBack}>
               {i18n.t('panels:ui.projectDetail.backToProjects')}
@@ -186,7 +188,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
           <CardHeader>
             <CardTitle>Project Details</CardTitle>
             <CardDescription>
-              {i18n.t('panels:ui.projectDetail.technicalInformationAboutThisProject')}
+              {i18n.t(
+                'panels:ui.projectDetail.technicalInformationAboutThisProject'
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

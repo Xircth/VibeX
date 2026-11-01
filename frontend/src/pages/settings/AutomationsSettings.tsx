@@ -1280,10 +1280,7 @@ function AutomationList({
   }
 
   return (
-    <ul
-      aria-label={t('automations.listAria')}
-      className="flex flex-col gap-3"
-    >
+    <ul aria-label={t('automations.listAria')} className="flex flex-col gap-3">
       {automations.map((automation) => (
         <li
           key={automation.id}
@@ -1426,9 +1423,7 @@ function RunHistory({
 }) {
   if (runs.length === 0) {
     return (
-      <p className="mt-2 text-xs text-foreground">
-        {t('automations.noRuns')}
-      </p>
+      <p className="mt-2 text-xs text-foreground">{t('automations.noRuns')}</p>
     );
   }
   return (

@@ -134,13 +134,13 @@ impl ConversationTurnRecord {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error> {
-        let Some(active_turn_id) =
-            sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
-                .bind(conversation_id)
-                .fetch_optional(pool)
-                .await?
-                .flatten()
-        else {
+        let Some(active_turn_id) = sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT active_turn_id FROM sessions WHERE id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten() else {
             return Ok(None);
         };
         Self::find_by_id(pool, active_turn_id).await

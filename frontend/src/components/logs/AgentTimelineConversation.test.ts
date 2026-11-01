@@ -248,7 +248,7 @@ describe('AgentTimelineConversation context compaction projection', () => {
 });
 
 describe('buildLiveTurnStats', () => {
-  it('populates model from session config and only uses this turn\'s usage', () => {
+  it("populates model from session config and only uses this turn's usage", () => {
     const streaming = row('turn-1', 'assistant', 'streaming');
     expect(
       buildLiveTurnStats({

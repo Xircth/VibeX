@@ -414,7 +414,11 @@ mod tests {
     fn rejects_path_traversal_and_git_internal_paths() {
         let service = GitService::new();
         let (_tmp, path) = init_conflict_repo();
-        assert!(service.get_conflict_file_detail(&path, "../outside.txt").is_err());
+        assert!(
+            service
+                .get_conflict_file_detail(&path, "../outside.txt")
+                .is_err()
+        );
         assert!(
             service
                 .write_conflict_resolution(&path, "../outside.txt", "pwn")
@@ -463,6 +467,9 @@ mod tests {
             .write_conflict_resolution(&path, "blob.bin", "__VIBEX_CONFLICT_STAGE_THEIRS__")
             .unwrap();
         assert!(res.is_resolved);
-        assert_eq!(fs::read(path.join("blob.bin")).unwrap(), vec![0x00, 0xFF, 0xFE]);
+        assert_eq!(
+            fs::read(path.join("blob.bin")).unwrap(),
+            vec![0x00, 0xFF, 0xFE]
+        );
     }
 }

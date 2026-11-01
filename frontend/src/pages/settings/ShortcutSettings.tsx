@@ -276,9 +276,7 @@ export function ShortcutSettings() {
   );
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   if (!draft) {

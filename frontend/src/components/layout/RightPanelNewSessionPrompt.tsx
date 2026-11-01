@@ -14,7 +14,7 @@ export function RightPanelNewSessionPrompt({
   return (
     <div
       className={cn(
-        'flex h-full min-h-0 flex-col items-center justify-start gap-3 px-4 pt-12 text-center',
+        'flex h-full min-h-0 flex-col items-center justify-center gap-3 px-4 text-center',
         className
       )}
     >

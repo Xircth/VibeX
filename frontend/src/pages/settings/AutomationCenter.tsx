@@ -170,7 +170,10 @@ export function AutomationCenter() {
                 className="flex flex-col gap-1.5 p-3"
               >
                 {Array.from({ length: 3 }, (_, index) => (
-                  <Skeleton key={index} className="h-14 w-full rounded-[var(--radius)]" />
+                  <Skeleton
+                    key={index}
+                    className="h-14 w-full rounded-[var(--radius)]"
+                  />
                 ))}
               </div>
             ) : automations.length === 0 ? (

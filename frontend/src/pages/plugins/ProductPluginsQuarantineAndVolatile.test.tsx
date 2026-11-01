@@ -116,10 +116,10 @@ describe('Plugin Auto-Quarantine recovery and Volatile<T> hot config updates', (
       sourceKind: 'snapshot',
       enabled: false,
       quarantined: true,
-      quarantineReason: (
-        'Plugin "crashy-worker" automatically quarantined after 3 crashes within 60 seconds') as
-        | string
-        | null,
+      quarantineReason:
+        'Plugin "crashy-worker" automatically quarantined after 3 crashes within 60 seconds' as
+          | string
+          | null,
     };
     let currentCatalogPlugin = quarantinedPlugin;
     const call = vi.fn(async (command: string) => {

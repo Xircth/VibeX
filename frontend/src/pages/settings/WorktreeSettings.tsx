@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AlertTriangle,
-  FolderGit2,
-  GitFork,
-} from 'lucide-react';
+import { AlertTriangle, FolderGit2, GitFork } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from 'shared/types';
 

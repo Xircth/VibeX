@@ -1,8 +1,5 @@
 import { resolveMarkdownWorkspacePathTarget } from '@/components/NormalizedConversation/MarkdownResourceLink';
-import {
-  deriveRelativeFilePath,
-  normalizeFilePath,
-} from '@/utils/filePaths';
+import { deriveRelativeFilePath, normalizeFilePath } from '@/utils/filePaths';
 
 export type MessageHtmlPreviewSegment = {
   kind: 'html';

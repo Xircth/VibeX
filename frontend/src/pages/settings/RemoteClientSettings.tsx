@@ -547,9 +547,7 @@ export function RemoteClientSettings() {
   );
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   const openProvisioner = provisioners.panels.find(

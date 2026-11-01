@@ -83,7 +83,9 @@ function GroupMemberUsageCard({
     };
   }, []);
 
-  const shouldRetainTimeline = Boolean(conversationId && expanded && inViewport);
+  const shouldRetainTimeline = Boolean(
+    conversationId && expanded && inViewport
+  );
   const conversation = useConversationTimeline(
     shouldRetainTimeline ? conversationId : null,
     { active: shouldRetainTimeline }

@@ -7,9 +7,7 @@ import {
   memberMentionMenuLabel,
 } from './memberAvatarMenu';
 
-const labels = (
-  items: ReturnType<typeof buildMemberAvatarMenuItems>
-) =>
+const labels = (items: ReturnType<typeof buildMemberAvatarMenuItems>) =>
   items.map((item) =>
     item.type === 'separator'
       ? '---'

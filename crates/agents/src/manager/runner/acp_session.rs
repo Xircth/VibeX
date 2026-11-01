@@ -405,6 +405,7 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::Cancel {
                     session_id,
                     prompt_id,
+                    result_tx,
                 } => {
                     self.emit(
                         Some(session_id),
@@ -417,6 +418,7 @@ impl AgentConnectionRunner {
                             },
                         },
                     );
+                    let _ = result_tx.send(true);
                 }
                 AgentConnectionCommand::RespondPermission {
                     permission_id,

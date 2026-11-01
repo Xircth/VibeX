@@ -121,8 +121,8 @@ pub use routing::{
 pub(crate) use routing::{
     actor_display_name, env_i64, hold_over_wake_cap, is_bot_space, is_group_space, is_pass_token,
     is_person_ref, mentioned_local_bot_nicknames, recipient_display_name, reserve_wake,
-    resolve_targets, session_is_asleep, strip_own_nickname_prefix, touch_session_activity,
-    wake_turn_in_flight, wake_turn_key, workspace_direct_peers,
+    resolve_targets, session_is_asleep, strip_own_nickname_prefix, strip_stray_pass_tokens,
+    touch_session_activity, wake_turn_in_flight, wake_turn_key, workspace_direct_peers,
 };
 pub use scheduled::{
     ScheduledSpaceMessage, cancel_space_scheduled_message, list_space_scheduled_messages,

@@ -3209,9 +3209,9 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(textOf(assistant?.turn.blocks ?? [])).toBe(
       'Streamed reply before eviction.'
     );
-    expect(
-      assistant?.turn.blocks.some((b) => b.type === 'tool_use')
-    ).toBe(true);
+    expect(assistant?.turn.blocks.some((b) => b.type === 'tool_use')).toBe(
+      true
+    );
   });
 
   it('clears stale prefixHash and preserves tail optimistic turns when prepending an older history page', () => {

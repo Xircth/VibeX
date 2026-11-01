@@ -2,13 +2,7 @@ import { BookmarkPlus, Brain, Copy, CornerUpLeft } from 'lucide-react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import i18n from '@/i18n';
 
-export const MESSAGE_REACTION_EMOJIS = [
-  '👍',
-  '👎',
-  '❤️',
-  '😄',
-  '🎉',
-] as const;
+export const MESSAGE_REACTION_EMOJIS = ['👍', '👎', '❤️', '😄', '🎉'] as const;
 
 export const MESSAGE_REACTION_EXTRA_EMOJIS = [
   '👏',

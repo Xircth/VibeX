@@ -469,10 +469,13 @@ function matchesChoice(choice: QuestionChoice, label: string): boolean {
   if (!trimmed) return false;
   if (String(choice.value) === trimmed) return true;
   if (choice.label === trimmed) return true;
-  if (choice.recommended && `${choice.label} (Recommended)` === trimmed) {
-    return true;
-  }
-  if (choice.recommended && `${choice.label} (推荐)` === trimmed) {
+  if (
+    choice.recommended &&
+    (`${choice.label} (Recommended)` === trimmed ||
+      `(Recommended) ${choice.label}` === trimmed ||
+      `${choice.label} (推荐)` === trimmed ||
+      `(推荐) ${choice.label}` === trimmed)
+  ) {
     return true;
   }
   return false;
@@ -596,10 +599,9 @@ function choiceFromLabel(
   rawLabel: string,
   description: string
 ): QuestionChoice {
-  const recommendedMatch = rawLabel.match(
-    /^(.*?)\s*\((?:recommended|推荐)\)\s*$/i
-  );
-  const visibleLabel = recommendedMatch?.[1]?.trim();
+  const suffixMatch = rawLabel.match(/^(.*?)\s*\((?:recommended|推荐)\)\s*$/i);
+  const prefixMatch = rawLabel.match(/^\s*\((?:recommended|推荐)\)\s*(.+)$/i);
+  const visibleLabel = (suffixMatch?.[1] ?? prefixMatch?.[1])?.trim();
   return {
     value,
     label: visibleLabel || rawLabel,

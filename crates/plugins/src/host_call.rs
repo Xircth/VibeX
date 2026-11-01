@@ -109,9 +109,7 @@ impl PluginHostCall {
         })?;
         let token = Uuid::new_v4().to_string();
         let mut tokens = self.tokens.lock().expect("host.call tokens");
-        tokens.retain(|_, issued| {
-            issued.plugin_id != plugin_id || issued.generation == generation
-        });
+        tokens.retain(|_, issued| issued.plugin_id != plugin_id || issued.generation == generation);
         tokens.insert(
             token.clone(),
             IssuedToken {

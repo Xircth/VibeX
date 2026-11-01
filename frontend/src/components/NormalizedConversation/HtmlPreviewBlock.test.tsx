@@ -27,8 +27,11 @@ describe('HtmlPreviewBlock', () => {
     ).toBe('<!DOCTYPE html><html><body>ok</body></html>');
   });
 
-  it('renders a sandboxed preview iframe and can toggle source', () => {
+  it('renders a sandboxed preview iframe and opens context menu actions on right click', () => {
     render(<HtmlPreviewBlock code="<p>hello preview</p>" />);
+
+    const container = screen.getByTestId('standalone-html-preview');
+    expect(container).toHaveAttribute('data-expanded', 'false');
 
     const frame = screen.getByTitle('HTML 预览');
     expect(frame.tagName).toBe('IFRAME');
@@ -41,10 +44,17 @@ describe('HtmlPreviewBlock', () => {
       expect.stringContaining('<p>hello preview</p>')
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '源码' }));
-    expect(screen.getByTestId('html-source')).toHaveTextContent(
-      '<p>hello preview</p>'
-    );
-    expect(screen.queryByTitle('HTML 预览')).toBeNull();
+    fireEvent.contextMenu(container);
+    expect(screen.getByTestId('html-preview-context-menu')).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '在标签页打开' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '复制绝对路径' })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '展开' }));
+    expect(container).toHaveAttribute('data-expanded', 'true');
+    expect(screen.queryByTestId('html-preview-context-menu')).toBeNull();
   });
 });

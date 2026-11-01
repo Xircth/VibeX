@@ -121,11 +121,15 @@ function effortLabel(value: string, fallback: string): string {
 
   if (/(ultrathink|ultra)/.test(normalized)) return 'Ultra';
   if (/(maximum|max)/.test(normalized)) return 'Max';
-  if (/(xhigh|extrahigh|veryhigh)/.test(normalized)) return i18n.t('panels:ui.effort.extraHigh');
-  if (/(default|auto)/.test(normalized)) return i18n.t('panels:ui.effort.default');
+  if (/(xhigh|extrahigh|veryhigh)/.test(normalized))
+    return i18n.t('panels:ui.effort.extraHigh');
+  if (/(default|auto)/.test(normalized))
+    return i18n.t('panels:ui.effort.default');
   if (/high/.test(normalized)) return i18n.t('panels:ui.effort.high');
-  if (/(medium|med|mid)/.test(normalized)) return i18n.t('panels:ui.effort.medium');
-  if (/(minimal|min|low)/.test(normalized)) return i18n.t('panels:ui.effort.low');
+  if (/(medium|med|mid)/.test(normalized))
+    return i18n.t('panels:ui.effort.medium');
+  if (/(minimal|min|low)/.test(normalized))
+    return i18n.t('panels:ui.effort.low');
   return fallback;
 }
 

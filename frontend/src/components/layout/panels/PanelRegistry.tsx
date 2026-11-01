@@ -129,13 +129,15 @@ function lazyPanel(
 }
 
 /** Registry mapping panel component IDs to their React components. */
-const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> =
-  Object.fromEntries(
-    BUILTIN_PANEL_MANIFESTS.map((manifest) => [
-      manifest.id,
-      lazyPanel(manifest.component),
-    ])
-  ) as Record<PanelId, React.FC<IDockviewPanelProps>>;
+const PANEL_COMPONENT_MAP: Record<
+  PanelId,
+  React.FC<IDockviewPanelProps>
+> = Object.fromEntries(
+  BUILTIN_PANEL_MANIFESTS.map((manifest) => [
+    manifest.id,
+    lazyPanel(manifest.component),
+  ])
+) as Record<PanelId, React.FC<IDockviewPanelProps>>;
 
 /**
  * The dockview component resolver.
@@ -296,11 +298,31 @@ export function usePanelMeta(): PanelMeta[] {
       title: t('panelRegistry.fileExplorer'),
       defaultPosition: 'left',
     },
-    { id: PANEL_IDS.KANBAN, title: builtinPanelTitle(PANEL_IDS.KANBAN), defaultPosition: 'center' },
-    { id: PANEL_IDS.PREVIEW, title: builtinPanelTitle(PANEL_IDS.PREVIEW), defaultPosition: 'center' },
-    { id: PANEL_IDS.DIFFS, title: builtinPanelTitle(PANEL_IDS.DIFFS), defaultPosition: 'center' },
-    { id: PANEL_IDS.MERGE, title: builtinPanelTitle(PANEL_IDS.MERGE), defaultPosition: 'center' },
-    { id: PANEL_IDS.TERMINAL, title: builtinPanelTitle(PANEL_IDS.TERMINAL), defaultPosition: 'bottom' },
+    {
+      id: PANEL_IDS.KANBAN,
+      title: builtinPanelTitle(PANEL_IDS.KANBAN),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.PREVIEW,
+      title: builtinPanelTitle(PANEL_IDS.PREVIEW),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.DIFFS,
+      title: builtinPanelTitle(PANEL_IDS.DIFFS),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.MERGE,
+      title: builtinPanelTitle(PANEL_IDS.MERGE),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.TERMINAL,
+      title: builtinPanelTitle(PANEL_IDS.TERMINAL),
+      defaultPosition: 'bottom',
+    },
     {
       id: PANEL_IDS.GIT,
       title: t('panelRegistry.gitManager'),
@@ -311,7 +333,11 @@ export function usePanelMeta(): PanelMeta[] {
       title: t('panelRegistry.welcome'),
       defaultPosition: 'center',
     },
-    { id: PANEL_IDS.LOGS, title: builtinPanelTitle(PANEL_IDS.LOGS), defaultPosition: 'center' },
+    {
+      id: PANEL_IDS.LOGS,
+      title: builtinPanelTitle(PANEL_IDS.LOGS),
+      defaultPosition: 'center',
+    },
     {
       id: PANEL_IDS.NOTES,
       title: t('panelRegistry.notes'),

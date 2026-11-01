@@ -6,9 +6,7 @@ import {
   buildMessageBubbleMenuItems,
 } from './messageBubbleMenu';
 
-const labels = (
-  items: ReturnType<typeof buildMessageBubbleMenuItems>
-) =>
+const labels = (items: ReturnType<typeof buildMessageBubbleMenuItems>) =>
   items.map((item) => {
     if (item.type === 'separator') return '---';
     if (item.type === 'emoji-row') return item.emojis.join('');

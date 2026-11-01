@@ -216,9 +216,7 @@ describe('GeneralSettings Agent model catalogs', () => {
       { multi_agent_enabled: false }
     );
 
-    await user.click(
-      await screen.findByRole('switch', { name: '协作空间' })
-    );
+    await user.click(await screen.findByRole('switch', { name: '协作空间' }));
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith({

@@ -89,10 +89,10 @@ import i18n from '@/i18n';
 const LazyMarkdownRichTextEditor = lazy(
   () => import('@/components/previews/MarkdownRichTextEditor')
 );
-const LazyMarkdown = lazy(
-  () => import('@/components/NormalizedConversation/AstryxMarkdown').then((m) => ({
-      default: m.AstryxMarkdown,
-    }))
+const LazyMarkdown = lazy(() =>
+  import('@/components/NormalizedConversation/AstryxMarkdown').then((m) => ({
+    default: m.AstryxMarkdown,
+  }))
 );
 const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')
@@ -254,7 +254,10 @@ class PreviewSubviewErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <PreviewPlaceholder icon={FileWarning} title={i18n.t('panels:ui.preview.filePreviewFailed')} />
+        <PreviewPlaceholder
+          icon={FileWarning}
+          title={i18n.t('panels:ui.preview.filePreviewFailed')}
+        />
       );
     }
     return this.props.children;

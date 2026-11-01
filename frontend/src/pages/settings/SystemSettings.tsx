@@ -456,9 +456,7 @@ export function SystemSettings() {
   }, [confirmClearLocalData, t]);
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   if (!config || !draft) {

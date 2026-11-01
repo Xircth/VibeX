@@ -75,7 +75,6 @@ const INLINE_SIDE_ROW_KINDS = new Set([
   'session_notice',
 ]);
 
-
 export function defaultInlineSideRow(row: TimelineRow): boolean {
   return INLINE_SIDE_ROW_KINDS.has(row.row.kind);
 }

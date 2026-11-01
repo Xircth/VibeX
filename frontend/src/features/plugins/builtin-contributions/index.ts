@@ -49,9 +49,9 @@ export const BUILTIN_PANEL_MANIFESTS: readonly BuiltinPanelManifestEntry[] =
 /** Panel ids that still have no builtin manifest. */
 export type UnmanifestedPanelId = Exclude<PanelId, BuiltinPanelManifestId>;
 /** Compile-time guard: `true` only while every `PANEL_IDS` member is declared. */
-export type BuiltinPanelManifestsCoverPanelIds = [
-  UnmanifestedPanelId,
-] extends [never]
+export type BuiltinPanelManifestsCoverPanelIds = [UnmanifestedPanelId] extends [
+  never,
+]
   ? true
   : false;
 

@@ -149,7 +149,9 @@ export const GitPRsView = memo(function GitPRsView({
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <GitPullRequest className="h-6 w-6 opacity-30 mb-2" />
-            <span className="text-xs">{i18n.t('panels:ui.gitPrs.noOpenPullRequests')}</span>
+            <span className="text-xs">
+              {i18n.t('panels:ui.gitPrs.noOpenPullRequests')}
+            </span>
           </div>
         )}
       </div>

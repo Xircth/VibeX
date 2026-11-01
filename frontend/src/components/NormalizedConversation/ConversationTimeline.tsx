@@ -194,9 +194,7 @@ export function shouldLoadOlderTimelinePage(input: {
   const scrolledUpIntoOrWithinTopZone =
     input.scrollTop <= LOAD_OLDER_THRESHOLD_PX &&
     input.scrollTop < input.previousScrollTop;
-  return (
-    input.hasEarlier && !input.isAtBottom && scrolledUpIntoOrWithinTopZone
-  );
+  return input.hasEarlier && !input.isAtBottom && scrolledUpIntoOrWithinTopZone;
 }
 
 interface AgentTimelineConversationProps {
@@ -747,12 +745,7 @@ const AgentTimelineConversation = forwardRef<
         }
         return true;
       }),
-    [
-      conversation.items,
-      hidePersonaHostNotes,
-      timeline,
-      usesComposerStatusDock,
-    ]
+    [conversation.items, hidePersonaHostNotes, timeline, usesComposerStatusDock]
   );
   useEffect(() => {
     if (conversationError) toast.error(conversationError);

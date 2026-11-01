@@ -270,10 +270,7 @@ function MenuItems({
       item.type !== 'emoji-row' &&
       Boolean(
         item.iconNode ||
-          contextMenuIcon(
-            item.id,
-            'icon' in item ? item.icon : undefined
-          )
+          contextMenuIcon(item.id, 'icon' in item ? item.icon : undefined)
       )
   );
 
@@ -290,13 +287,7 @@ function MenuItems({
           );
         }
         if (item.type === 'emoji-row') {
-          return (
-            <EmojiRow
-              key={item.id}
-              item={item}
-              onClose={onClose}
-            />
-          );
+          return <EmojiRow key={item.id} item={item} onClose={onClose} />;
         }
         if (
           item.type === 'submenu' ||

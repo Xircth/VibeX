@@ -3130,8 +3130,7 @@ impl WorkflowStore {
                 let definition_version_id: Uuid = row.try_get("definition_version_id")?;
                 let version = version_on_connection(&mut conn, definition_version_id).await?;
                 let definition = version.definition()?;
-                let Some(definition_step) =
-                    definition.steps.iter().find(|step| step.id == step_id)
+                let Some(definition_step) = definition.steps.iter().find(|step| step.id == step_id)
                 else {
                     continue;
                 };

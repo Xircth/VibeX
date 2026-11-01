@@ -34,9 +34,8 @@ vi.mock('@/lib/transport', () => ({
 vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({
     config: { multi_agent_enabled: true },
-    updateAndSaveConfig: (
-      updates: { multi_agent_enabled: boolean }
-    ) => updateAndSaveConfig(updates),
+    updateAndSaveConfig: (updates: { multi_agent_enabled: boolean }) =>
+      updateAndSaveConfig(updates),
   }),
 }));
 

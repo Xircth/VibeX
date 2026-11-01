@@ -2368,6 +2368,41 @@ impl AgentRuntime {
                     self.connection_manager
                         .cancel_prompt(input.connection_id, input.session_id, input.prompt_id)
                         .await?;
+                    let mut state = self.state.write().await;
+                    let can_settle_now =
+                        state
+                            .sessions
+                            .get(&input.session_id)
+                            .is_some_and(|session| {
+                                session.queue.active() == Some(input.prompt_id)
+                                    && session.queue.queued().is_empty()
+                            });
+                    if can_settle_now {
+                        let now = Utc::now();
+                        if let Some(prompt) = state.prompts.get_mut(&input.prompt_id)
+                            && !matches!(prompt.status, AgentPromptStatus::Failed { .. })
+                        {
+                            prompt.status = AgentPromptStatus::Completed {
+                                stop_reason: Some("cancelled".to_string()),
+                            };
+                            prompt.updated_at = now;
+                        }
+                        if let Some(session) = state.sessions.get_mut(&input.session_id) {
+                            let _ = session.queue.complete(input.prompt_id);
+                            session.snapshot.active_prompt_id = session.queue.active();
+                            session.snapshot.queued_prompt_ids = session.queue.queued();
+                            session.snapshot.status = if session.snapshot.active_prompt_id.is_some()
+                            {
+                                AgentSessionStatus::Running
+                            } else {
+                                AgentSessionStatus::Ready
+                            };
+                            session.snapshot.updated_at = now;
+                        }
+                        state.prompt_blocks.remove(&input.prompt_id);
+                        state.prompt_display_blocks.remove(&input.prompt_id);
+                        state.prompt_options.remove(&input.prompt_id);
+                    }
                 }
 
                 Ok(())
@@ -2788,8 +2823,10 @@ fn session_has_cancelling_prompt(state: &RuntimeState, session_id: AgentSessionI
 }
 
 fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
-    matches!(error, AgentError::ConnectionNotFound(_))
-        || error.is_connection_death()
+    matches!(
+        error,
+        AgentError::ConnectionNotFound(_) | AgentError::AcpSessionNotBound
+    ) || error.is_connection_death()
         || matches!(
             error,
             AgentError::Runtime(message)

@@ -2,10 +2,7 @@ import {
   configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
-import {
-  notifyPluginConfigUpdated,
-  type JsonValue,
-} from '@vibex/plugin-sdk';
+import { notifyPluginConfigUpdated, type JsonValue } from '@vibex/plugin-sdk';
 
 export interface PluginControlSkill {
   id: string;

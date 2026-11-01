@@ -217,6 +217,11 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  overflow: hidden;
+}
+
+.collaboration-top-toolbar {
+  flex-shrink: 0;
 }
 
 .collaboration-empty-actions {
@@ -933,9 +938,7 @@
   margin-left: auto;
 }
 
-.collaboration-message
-  .conv-user-msg
-  [data-testid='user-message-attachments'],
+.collaboration-message .conv-user-msg [data-testid='user-message-attachments'],
 .collaboration-message
   .conv-user-msg
   [data-testid='user-message-image-attachments'],
@@ -982,12 +985,21 @@
   position: absolute;
   inset: auto 0 0 0;
   height: 50%;
-  min-height: 3.5rem;
+  min-height: 2.75rem;
+  padding-bottom: 0.25rem;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   pointer-events: none;
   z-index: 2;
+}
+
+.collaboration-bubble-collapsible-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.5rem;
+  padding-bottom: 0.125rem;
 }
 
 .collaboration-bubble-expand-pill {
@@ -1496,8 +1508,12 @@
 
 .collaboration-space-list {
   display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
   flex-direction: column;
   gap: 0.25rem;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .collaboration-space {
@@ -4758,6 +4774,7 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 
 .collaboration-supervisor-slot {
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -4829,7 +4846,8 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   background: var(--surface-control);
 }
 
-.collaboration-shell .collaboration-supervisor-avatar-wrap.workspace-session-icon {
+.collaboration-shell
+  .collaboration-supervisor-avatar-wrap.workspace-session-icon {
   position: relative;
   display: inline-flex;
   align-items: center;

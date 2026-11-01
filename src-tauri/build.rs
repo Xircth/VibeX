@@ -216,10 +216,7 @@ fn ensure_windows_medium_integrity_labels() {
         if has_file_sd {
             stamp_exes_in_dir(&manifest_dir.join("binaries"), file_sd);
             stamp_exes_in_dir(&target_dir.join(".tauri").join("NSIS"), file_sd);
-            stamp_exes_in_dir(
-                &target_dir.join(".tauri").join("NSIS").join("Bin"),
-                file_sd,
-            );
+            stamp_exes_in_dir(&target_dir.join(".tauri").join("NSIS").join("Bin"), file_sd);
             stamp_exes_in_dir(&target_dir.join("debug"), file_sd);
             stamp_exes_in_dir(&target_dir.join("debug").join("deps"), file_sd);
             stamp_exes_in_dir(&target_dir.join("release"), file_sd);

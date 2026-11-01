@@ -41,10 +41,7 @@ import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
 import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
 import { MultiAgentSettings } from '@/features/collaboration/MultiAgentSettings';
-import {
-  setHideBotSessions,
-  useHideBotSessions,
-} from '@/lib/hideBotSessions';
+import { setHideBotSessions, useHideBotSessions } from '@/lib/hideBotSessions';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
@@ -141,9 +138,7 @@ export function GeneralSettings() {
   void setMultiAgentRevision;
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   if (!draft) {

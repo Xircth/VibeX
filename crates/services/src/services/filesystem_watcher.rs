@@ -465,7 +465,12 @@ fn add_directory_watch(
 ) {
     let canonical_dir = canonicalize_lossy(dir_path);
 
-    if !path_allowed(&canonical_dir, gi, canonical_root, Some(PathKindHint::Directory)) {
+    if !path_allowed(
+        &canonical_dir,
+        gi,
+        canonical_root,
+        Some(PathKindHint::Directory),
+    ) {
         return;
     }
 

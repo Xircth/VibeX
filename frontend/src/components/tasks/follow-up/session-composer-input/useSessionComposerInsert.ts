@@ -166,8 +166,7 @@ export function useSessionComposerInsert({
       }
       const text = detail.text.trim();
       if (!text) return;
-      const current =
-        composerHandleRef.current?.getValue() ?? valueRef.current;
+      const current = composerHandleRef.current?.getValue() ?? valueRef.current;
       onChange(current.trim() ? `${current.trim()}\n\n${text}` : text);
     };
     window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);

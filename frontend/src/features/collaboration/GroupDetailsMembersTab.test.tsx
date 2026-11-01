@@ -101,12 +101,8 @@ describe('GroupDetailsMembersTab', () => {
     expect(
       rowA.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
     ).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: '设为负责人 小B' })
-    ).toBeNull();
-    expect(
-      screen.getByRole('button', { name: '设为负责人 小A' })
-    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '设为负责人 小B' })).toBeNull();
+    expect(screen.getByRole('button', { name: '设为负责人 小A' })).toBeTruthy();
     const remove = screen.getByRole('button', { name: '移除 小A' });
     expect(remove).toHaveAttribute('data-variant', 'destructive');
     expect(remove.className).toMatch(/bg-destructive\/10/);
@@ -188,9 +184,7 @@ describe('GroupDetailsMembersTab', () => {
     expect(
       rowA.querySelector('[data-testid="collaboration-bot-avatar-lead-star"]')
     ).toBeTruthy();
-    expect(
-      screen.queryByRole('button', { name: '设为负责人 小A' })
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: '设为负责人 小A' })).toBeNull();
   });
 
   it('shows Master with the identity avatar in a group seat', async () => {

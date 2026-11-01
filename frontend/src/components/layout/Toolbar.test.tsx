@@ -70,9 +70,9 @@ describe('BranchStatusBadge', () => {
       </TooltipProvider>
     );
 
-    expect(
-      screen.getByRole('group', { name: '工作区与目标分支' })
-    ).toHaveClass('gap-2');
+    expect(screen.getByRole('group', { name: '工作区与目标分支' })).toHaveClass(
+      'gap-2'
+    );
     const badge = screen.getByText('main').closest('div');
     expect(badge).toHaveClass('raised-control', 'h-7', 'gap-1', 'rounded-lg');
     expect(badge).not.toHaveClass('ml-2');

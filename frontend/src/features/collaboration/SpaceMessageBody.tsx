@@ -1,5 +1,12 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import {
+  memo,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 
 import { Button } from '@/components/ui/button';
@@ -28,10 +35,7 @@ import { splitDisplayContentImages } from '@/components/NormalizedConversation/u
 
 import { collaborationCall } from './collaborationApi';
 import type { SpaceCardRecord } from './space/types';
-import {
-  reactionBadgeEmojis,
-  type SpaceReaction,
-} from './spaceReactions';
+import { reactionBadgeEmojis, type SpaceReaction } from './spaceReactions';
 import i18n from '@/i18n';
 
 export type ParsedCard = {
@@ -47,8 +51,7 @@ export type ParsedCard = {
 };
 
 const CARD_RE = /<card kind="(ask|approval)" id="([^"]+)">([\s\S]*?)<\/card>/;
-const HANDOFF_RE =
-  /<handoff\b([^>]*)>([\s\S]*?)<\/handoff>/i;
+const HANDOFF_RE = /<handoff\b([^>]*)>([\s\S]*?)<\/handoff>/i;
 
 function unescapeCard(value: string): string {
   return value
@@ -98,11 +101,7 @@ export function parseCard(text: string): ParsedCard | null {
   const action = cardField(inner, 'action');
   const command = cardField(inner, 'command');
   const reason = cardField(inner, 'reason');
-  const body = [
-    action,
-    command ? `\`\`\`\n${command}\n\`\`\`` : '',
-    reason,
-  ]
+  const body = [action, command ? `\`\`\`\n${command}\n\`\`\`` : '', reason]
     .filter(Boolean)
     .join('\n\n');
   return {
@@ -198,9 +197,7 @@ export type ParsedHandoff = {
 };
 
 function handoffAttr(attrs: string, name: string): string {
-  const match = attrs.match(
-    new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, 'i')
-  );
+  const match = attrs.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, 'i'));
   return match ? unescapeCard(match[1].trim()) : '';
 }
 
@@ -728,7 +725,11 @@ function CollapsibleSpaceBubbleContent({
   }, [measureText]);
 
   const isCollapsed = needsCollapse && !isExpanded;
-  const expandLabel = i18n.t('panels:ui.spaceMessage.expandAll');
+  const expandLabel = i18n.t('panels:ui.spaceMessage.expandAll', '展开全部');
+  const collapseLabel = i18n.t(
+    'panels:ui.spaceMessage.collapseAll',
+    '收起全部'
+  );
 
   return (
     <div
@@ -765,12 +766,34 @@ function CollapsibleSpaceBubbleContent({
             />
           </button>
         </div>
+      ) : needsCollapse && isExpanded ? (
+        <div
+          className="collaboration-bubble-collapsible-footer"
+          data-testid="collaboration-bubble-collapsible-footer"
+        >
+          <button
+            type="button"
+            className="collaboration-bubble-expand-pill collaboration-bubble-collapse-pill"
+            data-testid="collaboration-bubble-collapse-pill"
+            aria-label={collapseLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpandedKey(null);
+            }}
+          >
+            <span>{collapseLabel}</span>
+            <ChevronUp
+              className="collaboration-bubble-expand-pill-icon"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
       ) : null}
     </div>
   );
 }
 
-export function SpaceMessageBody({
+export const SpaceMessageBody = memo(function SpaceMessageBody({
   fromYou,
   text,
   workspacePath,
@@ -790,16 +813,24 @@ export function SpaceMessageBody({
   cards?: readonly SpaceCardRecord[] | null;
 }) {
   const memberMentionCtx = useCollaborationMemberMention();
-  const effectiveMentionCtx = memberMentionCtx.enableMemberMentions
-    ? memberMentionCtx
-    : { ...memberMentionCtx, enableMemberMentions: true };
-  const card = parseCard(text);
+  const effectiveMentionCtx = useMemo(
+    () =>
+      memberMentionCtx.enableMemberMentions
+        ? memberMentionCtx
+        : { ...memberMentionCtx, enableMemberMentions: true },
+    [memberMentionCtx]
+  );
+  const card = useMemo(() => parseCard(text), [text]);
   const cardRecord =
     card && cards ? (cards.find((item) => item.id === card.id) ?? null) : null;
-  const handoff = parseHandoff(text);
+  const handoff = useMemo(() => parseHandoff(text), [text]);
   if (fromYou) {
     const source = handoff ? handoffSurroundingText(handoff) : text;
-    const { text: cleanText, images, files } = splitDisplayContentImages(source);
+    const {
+      text: cleanText,
+      images,
+      files,
+    } = splitDisplayContentImages(source);
     const hasText =
       cleanText.trim().length > 0 ||
       Boolean(handoff) ||
@@ -1021,4 +1052,4 @@ export function SpaceMessageBody({
       </div>
     </CollaborationMemberMentionContext.Provider>
   );
-}
+});

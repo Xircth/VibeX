@@ -255,4 +255,57 @@ describe('AgentQuestionCard', () => {
       });
     });
   });
+
+  it('recognizes Antigravity prefix (Recommended) option labels and pre-selects them', () => {
+    const onRespond = vi.fn();
+    const request: ConversationQuestionRequest = {
+      question_id: 'interaction-question',
+      prompt: '您倾向于哪种 HTML 课件视觉风格？',
+      options: [],
+      schema: {
+        type: 'object',
+        'x-vibex-questions': [
+          {
+            id: 'interaction_b8486ad3',
+            header: '您倾向于哪种 HTML 课件视…',
+            question: '您倾向于哪种 HTML 课件视觉风格？',
+            multiSelect: false,
+            options: [
+              {
+                id: '1',
+                label: '(Recommended) 方案 A：极夜极客风',
+                description: '',
+              },
+              {
+                id: '2',
+                label: '方案 B：现代学术白',
+                description: '',
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(<AgentQuestionCard request={request} onRespond={onRespond} />);
+
+    expect(screen.getByText('推荐')).toBeInTheDocument();
+    expect(
+      screen.getByRole('radio', { name: /方案 A：极夜极客风/ })
+    ).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+
+    expect(onRespond).toHaveBeenCalledWith('interaction-question', {
+      action: 'accept',
+      content: {
+        answers: [
+          {
+            questionId: 'interaction_b8486ad3',
+            labels: ['方案 A：极夜极客风 (Recommended)'],
+          },
+        ],
+      },
+    });
+  });
 });

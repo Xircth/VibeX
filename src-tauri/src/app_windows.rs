@@ -111,7 +111,10 @@ mod tests {
             let expected = crate::windows_webview2::active_debug_webview2_environment_dir();
             assert_eq!(app_webview_data_directory(label), Some(expected.clone()));
             assert_eq!(app_webview_data_directory("main"), Some(expected.clone()));
-            assert_eq!(app_webview_data_directory("settings"), Some(expected.clone()));
+            assert_eq!(
+                app_webview_data_directory("settings"),
+                Some(expected.clone())
+            );
             assert_eq!(app_webview_data_directory("desktop-toast"), Some(expected));
         }
         #[cfg(not(all(windows, debug_assertions)))]

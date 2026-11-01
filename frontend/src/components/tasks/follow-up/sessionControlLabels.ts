@@ -11,5 +11,7 @@ export function compactSessionControlLabel(
   const isAgentFullAccess =
     normalizedControlLabel(value) === 'agentfullaccess' ||
     normalizedControlLabel(advertisedLabel) === 'agentfullaccess';
-  return isAgentFullAccess ? i18n.t('panels:ui.sessionControl.fullAccess') : advertisedLabel;
+  return isAgentFullAccess
+    ? i18n.t('panels:ui.sessionControl.fullAccess')
+    : advertisedLabel;
 }

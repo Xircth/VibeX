@@ -274,7 +274,10 @@
   background: var(--conv-user-action-button-hover-bg);
 }
 
-.conv-user-bubble [contenteditable='false']:not(.session-composer-token-chip):not(.collaboration-member-mention-chip),
+.conv-user-bubble
+  [contenteditable='false']:not(.session-composer-token-chip):not(
+    .collaboration-member-mention-chip
+  ),
 .conv-user-bubble
   [class*='text-foreground']:not(.session-composer-token-chip):not(
     .session-composer-token-chip *

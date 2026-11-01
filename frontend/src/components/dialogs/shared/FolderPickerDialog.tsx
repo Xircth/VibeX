@@ -212,7 +212,9 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                   isLabelHidden
                   value={searchTerm}
                   onChange={setSearchTerm}
-                  placeholder={i18n.t('panels:ui.folderPicker.filterFoldersAndFiles')}
+                  placeholder={i18n.t(
+                    'panels:ui.folderPicker.filterFoldersAndFiles'
+                  )}
                   startIcon={
                     <Search className="h-4 w-4 text-muted-foreground" />
                   }

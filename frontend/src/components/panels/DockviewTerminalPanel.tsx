@@ -355,7 +355,9 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
         <TerminalIcon className="h-8 w-8 opacity-40" />
         <div className="text-center space-y-1">
           <p className="font-medium">Terminal</p>
-          <p className="text-xs">{i18n.t('panels:ui.terminal.selectAWorkspaceToOpen')}</p>
+          <p className="text-xs">
+            {i18n.t('panels:ui.terminal.selectAWorkspaceToOpen')}
+          </p>
         </div>
       </div>
     );

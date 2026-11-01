@@ -410,7 +410,9 @@ export function GitPanel() {
               onValueChange={setGitChildId}
             >
               <SelectTrigger className="h-7 w-[140px] text-xs">
-                <SelectValue placeholder={i18n.t('panels:ui.git.gitRepository')} />
+                <SelectValue
+                  placeholder={i18n.t('panels:ui.git.gitRepository')}
+                />
               </SelectTrigger>
               <SelectContent>
                 {gitChildren.map((child) => (

@@ -19,7 +19,7 @@ const BACKEND_NOTICES: Record<
   { title: string; message?: { source: string; key: string } }
 > = {
   '正在连接 Agent…': { title: 'connectingAgent' },
-  '代理会话已过期': {
+  代理会话已过期: {
     title: 'sessionExpired',
     message: {
       source:
@@ -27,8 +27,8 @@ const BACKEND_NOTICES: Record<
       key: 'sessionExpiredDescription',
     },
   },
-  '需要重新认证': { title: 'reauthRequired' },
-  '代理不支持会话恢复': {
+  需要重新认证: { title: 'reauthRequired' },
+  代理不支持会话恢复: {
     title: 'resumeUnsupported',
     message: {
       source:
@@ -36,14 +36,14 @@ const BACKEND_NOTICES: Record<
       key: 'resumeUnsupportedDescription',
     },
   },
-  '代理会话已归档': {
+  代理会话已归档: {
     title: 'sessionArchived',
     message: {
       source: '会话已归档。重新加载或新建对话。',
       key: 'sessionArchivedDescription',
     },
   },
-  '代理会话正被占用': {
+  代理会话正被占用: {
     title: 'sessionBusy',
     message: {
       source:
@@ -51,7 +51,7 @@ const BACKEND_NOTICES: Record<
       key: 'sessionBusyDescription',
     },
   },
-  '代理会话不可用': {
+  代理会话不可用: {
     title: 'sessionUnavailable',
     message: {
       source:
@@ -59,17 +59,20 @@ const BACKEND_NOTICES: Record<
       key: 'sessionUnavailableDescription',
     },
   },
-  '加载代理会话失败': { title: 'sessionLoadFailed' },
+  加载代理会话失败: { title: 'sessionLoadFailed' },
   'Agent 会话已重新绑定': { title: 'sessionRebound' },
   'Agent session recovery failed': { title: 'sessionRecoveryFailed' },
   'Agent configuration changed': { title: 'agentConfigChanged' },
-  '会话出错': { title: 'sessionError' },
-  '会话配置未应用': { title: 'configOverrideSkipped' },
-  '未识别的会话更新': { title: 'unrecognizedUpdate' },
+  会话出错: { title: 'sessionError' },
+  会话配置未应用: { title: 'configOverrideSkipped' },
+  未识别的会话更新: { title: 'unrecognizedUpdate' },
 };
 
 /** Localize a fixed backend notice title; unknown titles pass through. */
-export function localizeBackendNoticeTitle(title: string, t: Translate): string {
+export function localizeBackendNoticeTitle(
+  title: string,
+  t: Translate
+): string {
   const entry = BACKEND_NOTICES[title];
   return entry ? t(`conversation:backendNotice.${entry.title}`) : title;
 }

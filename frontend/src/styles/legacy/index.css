@@ -734,9 +734,21 @@
     vertical-align: -0.14em;
   }
 
-  .legacy-design .session-composer-editor .astryx-badge:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip),
-  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip),
-  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) {
+  .legacy-design
+    .session-composer-editor
+    .astryx-badge:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    ),
+  .legacy-design
+    .session-composer-editor
+    [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    ),
+  .legacy-design
+    .conv-user-markdown
+    .session-composer-token-chip:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    ) {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -750,10 +762,30 @@
     vertical-align: -0.14em;
   }
 
-  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) svg,
-  .legacy-design .session-composer-editor [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) img,
-  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) svg,
-  .legacy-design .conv-user-markdown .session-composer-token-chip:not([data-token-kind='member_mention']):not(.collaboration-member-mention-chip) img {
+  .legacy-design
+    .session-composer-editor
+    [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    )
+    svg,
+  .legacy-design
+    .session-composer-editor
+    [data-astryx-restored-token]:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    )
+    img,
+  .legacy-design
+    .conv-user-markdown
+    .session-composer-token-chip:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    )
+    svg,
+  .legacy-design
+    .conv-user-markdown
+    .session-composer-token-chip:not([data-token-kind='member_mention']):not(
+      .collaboration-member-mention-chip
+    )
+    img {
     width: 12px;
     height: 12px;
     flex-shrink: 0;
@@ -5943,14 +5975,24 @@ html.dark {
 
   .session-status-running-pill,
   .session-status-inprogress-pill {
-    border: 1px solid color-mix(in srgb, var(--session-status-inprogress) 32%, transparent);
-    background: color-mix(in srgb, var(--session-status-inprogress) 10%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--session-status-inprogress) 32%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 10%,
+      transparent
+    );
     color: var(--session-status-inprogress);
   }
 
   .session-status-inreview-pill {
-    border: 1px solid color-mix(in srgb, var(--session-status-inreview) 38%, transparent);
-    background: color-mix(in srgb, var(--session-status-inreview) 12%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--session-status-inreview) 38%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--session-status-inreview) 12%,
+      transparent
+    );
     color: var(--session-status-inreview);
   }
 
@@ -5985,28 +6027,52 @@ html.dark {
 
   .session-status-todo-pill,
   .session-status-todo-count {
-    border-color: color-mix(in srgb, var(--session-status-todo) 30%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-todo) 30%,
+      transparent
+    );
     background: color-mix(in srgb, var(--session-status-todo) 12%, transparent);
     color: var(--session-status-todo);
   }
 
   .session-status-inprogress-pill,
   .session-status-inprogress-count {
-    border-color: color-mix(in srgb, var(--session-status-inprogress) 30%, transparent);
-    background: color-mix(in srgb, var(--session-status-inprogress) 10%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 30%,
+      transparent
+    );
+    background: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 10%,
+      transparent
+    );
     color: var(--session-status-inprogress);
   }
 
   .session-status-inreview-pill,
   .session-status-inreview-count {
-    border-color: color-mix(in srgb, var(--session-status-inreview) 34%, transparent);
-    background: color-mix(in srgb, var(--session-status-inreview) 10%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inreview) 34%,
+      transparent
+    );
+    background: color-mix(
+      in srgb,
+      var(--session-status-inreview) 10%,
+      transparent
+    );
     color: var(--session-status-inreview);
   }
 
   .session-status-done-pill,
   .session-status-done-count {
-    border-color: color-mix(in srgb, var(--session-status-done) 30%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-done) 30%,
+      transparent
+    );
     background: color-mix(in srgb, var(--session-status-done) 10%, transparent);
     color: var(--session-status-done);
   }
@@ -16152,8 +16218,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
       transparent
     );
     box-shadow:
-      0 0 0 0 color-mix(in srgb, var(--session-status-inprogress) 55%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--session-status-inprogress) 28%, transparent);
+      0 0 0 0
+        color-mix(in srgb, var(--session-status-inprogress) 55%, transparent),
+      0 0 0 0
+        color-mix(in srgb, var(--session-status-inprogress) 28%, transparent);
   }
   50% {
     border-color: var(--session-status-inprogress);
@@ -16174,8 +16242,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
       transparent
     );
     box-shadow:
-      0 0 0 0 color-mix(in srgb, var(--session-status-inreview) 55%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--session-status-inreview) 28%, transparent);
+      0 0 0 0
+        color-mix(in srgb, var(--session-status-inreview) 55%, transparent),
+      0 0 0 0
+        color-mix(in srgb, var(--session-status-inreview) 28%, transparent);
   }
   50% {
     border-color: var(--session-status-inreview);

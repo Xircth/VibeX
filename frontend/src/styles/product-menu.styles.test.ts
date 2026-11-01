@@ -140,9 +140,9 @@ describe('product option menus', () => {
 
     expect(drawer.position?.value).toBe('relative');
     expect(Number.parseInt(drawer['z-index']?.value ?? '', 10)).toBe(1);
-    expect(
-      Number.parseInt(menu['z-index']?.value ?? '', 10)
-    ).toBeGreaterThan(1);
+    expect(Number.parseInt(menu['z-index']?.value ?? '', 10)).toBeGreaterThan(
+      1
+    );
   });
 
   it('restores the composer send button fill over ghost button resets', () => {

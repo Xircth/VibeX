@@ -717,16 +717,16 @@ async fn dm_space_messages_since(
     let rows = sqlx::query_as::<_, SpaceDmRow>(
         r#"SELECT m.id, m.seq, m.envelope_json, m.origin, m.created_at,
                   d.status, d.receipt_state,
-                  COALESCE(
-                    d.turn_id,
-                    (SELECT ct.id FROM collaboration_turns ct
-                     WHERE ct.space_id = m.space_id
-                       AND ct.space_message_id = COALESCE(
-                         json_extract(m.envelope_json, '$.reply_to'),
-                         ''
-                       )
-                     ORDER BY ct.created_at DESC LIMIT 1)
-                  ) AS resolved_turn_id
+                  CASE
+                    WHEN m.origin = 'user' THEN NULL
+                    ELSE COALESCE(
+                      d.turn_id,
+                      (SELECT ct.id FROM collaboration_turns ct
+                       WHERE ct.space_id = m.space_id
+                         AND ct.space_message_id = json_extract(m.envelope_json, '$.reply_to')
+                       ORDER BY ct.created_at DESC LIMIT 1)
+                    )
+                  END AS resolved_turn_id
            FROM collaboration_space_messages m
            LEFT JOIN collaboration_space_deliveries d
              ON d.space_message_id = m.id
@@ -1523,10 +1523,11 @@ pub async fn list_sidebar(
     for item in &mut items {
         item.group_id = assigned.get(&item.thread_id).cloned();
     }
-    items.sort_by(|a, b| {
-        normalize(&b.last_activity_at)
-            .cmp(&normalize(&a.last_activity_at))
-            .then_with(|| a.thread_id.cmp(&b.thread_id))
+    items.sort_by_cached_key(|item| {
+        (
+            std::cmp::Reverse(normalize(&item.last_activity_at)),
+            item.thread_id.clone(),
+        )
     });
     Ok(items)
 }

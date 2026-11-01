@@ -209,7 +209,9 @@ describe('product plugin experience', () => {
     renderRoute('/plugins?tab=marketplace', call);
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/无法加载插件市场|Couldn't load the marketplace/i);
+    expect(alert).toHaveTextContent(
+      /无法加载插件市场|Couldn't load the marketplace/i
+    );
     expect(
       screen.queryByText(/没有可安装的包|No installable packages/i)
     ).toBeNull();

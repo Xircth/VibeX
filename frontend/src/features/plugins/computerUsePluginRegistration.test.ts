@@ -44,9 +44,13 @@ describe('computer-use plugin registration', () => {
     expect(status?.render).toBeUndefined();
 
     // Popover view still available for the status button.
-    expect(views.some((v) => v.id === 'computer-use-status' && v.component)).toBe(true);
+    expect(
+      views.some((v) => v.id === 'computer-use-status' && v.component)
+    ).toBe(true);
     // No tab view that IDELayout could render as a full-screen overlay.
-    expect(views.some((v) => v.kind === 'tab' || v.slot === 'tab.main')).toBe(false);
+    expect(views.some((v) => v.kind === 'tab' || v.slot === 'tab.main')).toBe(
+      false
+    );
     expect(settingsPages.some((p) => p.id === 'computer-use')).toBe(true);
   });
 });

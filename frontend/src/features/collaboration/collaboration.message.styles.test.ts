@@ -343,13 +343,36 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(fade.position?.value).toBe('absolute');
     expect(fade.height?.value).toBe('50%');
     expect(fade.display?.value).toBe('flex');
-    expect(fade['align-items']?.value).toBe('center');
+    expect(fade['align-items']?.value).toBe('flex-end');
     expect(fade['justify-content']?.value).toBe('center');
+    expect(fade['padding-bottom']?.value).toBe('0.25rem');
     expect(fade['pointer-events']?.value).toBe('none');
 
     const pill = declarationsFor('.collaboration-bubble-expand-pill');
     expect(pill['pointer-events']?.value).toBe('auto');
     expect(pill['border-radius']?.value).toBe('999px');
     expect(pill.display?.value).toBe('inline-flex');
+
+    const footer = declarationsFor('.collaboration-bubble-collapsible-footer');
+    expect(footer.display?.value).toBe('flex');
+    expect(footer['justify-content']?.value).toBe('center');
+  });
+
+  it('keeps the left sidebar top toolbar and supervisor slot fixed while only the space list scrolls', () => {
+    const container = declarationsFor('.collaboration-pane-list-container');
+    expect(container.display?.value).toBe('flex');
+    expect(container['flex-direction']?.value).toBe('column');
+    expect(container.overflow?.value).toBe('hidden');
+
+    const toolbar = declarationsFor('.collaboration-top-toolbar');
+    expect(toolbar['flex-shrink']?.value).toBe('0');
+
+    const supervisor = declarationsFor('.collaboration-supervisor-slot');
+    expect(supervisor['flex-shrink']?.value).toBe('0');
+
+    const spaceList = declarationsFor('.collaboration-space-list');
+    expect(spaceList.flex?.value).toBe('1 1 0%');
+    expect(spaceList['min-height']?.value).toBe('0');
+    expect(spaceList['overflow-y']?.value).toBe('auto');
   });
 });

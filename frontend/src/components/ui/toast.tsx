@@ -177,11 +177,17 @@ function looksLikeDiagnosticBody(text: string): boolean {
   if (!candidate) return false;
   if (candidate.includes('\n')) return true;
   if (candidate.length > 48) return true;
-  if (/---\s*stderr\b|\bfatal:|\berror:|\bstderr\b|\bstdout\b/i.test(candidate)) {
+  if (
+    /---\s*stderr\b|\bfatal:|\berror:|\bstderr\b|\bstdout\b/i.test(candidate)
+  ) {
     return true;
   }
   if (/[\\/]/.test(candidate)) return true;
-  if (/\b(?:git|sqlx|sqlite|enoent|eacces|eperm|etimedout|econnrefused)\b/i.test(candidate)) {
+  if (
+    /\b(?:git|sqlx|sqlite|enoent|eacces|eperm|etimedout|econnrefused)\b/i.test(
+      candidate
+    )
+  ) {
     return true;
   }
   if (/:/.test(candidate)) return true;

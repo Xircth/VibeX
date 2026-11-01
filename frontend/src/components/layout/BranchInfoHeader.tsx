@@ -152,13 +152,18 @@ export function BranchInfoHeader() {
                     <span
                       className="branch-info-current-branch"
                       tabIndex={0}
-                      aria-label={i18n.t('panels:ui.branch.currentBranchBranch', { branch: workspace?.branch ?? 'HEAD' })}
+                      aria-label={i18n.t(
+                        'panels:ui.branch.currentBranchBranch',
+                        { branch: workspace?.branch ?? 'HEAD' }
+                      )}
                     >
                       {workspace?.branch ?? 'HEAD'}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    {i18n.t('panels:ui.branch.currentBranchLabel', { branch: workspace?.branch ?? 'HEAD' })}
+                    {i18n.t('panels:ui.branch.currentBranchLabel', {
+                      branch: workspace?.branch ?? 'HEAD',
+                    })}
                   </TooltipContent>
                 </Tooltip>
                 {(repo.commits_ahead ?? 0) > 0 && (
@@ -305,7 +310,10 @@ function TargetBranchDropdown({
             <DropdownMenuTrigger asChild>
               <button
                 className="branch-info-branch-button"
-                aria-label={i18n.t('panels:ui.branch.targetBranchTargetBranchName', { target_branch_name: repo.target_branch_name })}
+                aria-label={i18n.t(
+                  'panels:ui.branch.targetBranchTargetBranchName',
+                  { target_branch_name: repo.target_branch_name }
+                )}
               >
                 <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
                 <span className="max-w-28 truncate">
@@ -316,7 +324,9 @@ function TargetBranchDropdown({
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {i18n.t('panels:ui.branch.targetBranchLabel', { branch: repo.target_branch_name })}
+            {i18n.t('panels:ui.branch.targetBranchLabel', {
+              branch: repo.target_branch_name,
+            })}
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start">

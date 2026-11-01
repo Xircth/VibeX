@@ -41,8 +41,10 @@ pub(in crate::manager) fn merged_agent_env(
     merge_agent_env(configured_env, forwarded_proxy_env())
 }
 
+pub(in crate::manager) const DEFAULT_NO_PROXY: &str = "localhost,127.0.0.1,::1";
+
 pub(in crate::manager) fn forwarded_proxy_env() -> Vec<(String, String)> {
-    let from_process: Vec<(String, String)> = std::env::vars()
+    let mut from_process: Vec<(String, String)> = std::env::vars()
         .filter(|(key, _)| PROXY_ENV_KEYS.contains(&key.as_str()))
         .filter(|(_, value)| !value.trim().is_empty())
         .collect();
@@ -51,10 +53,12 @@ pub(in crate::manager) fn forwarded_proxy_env() -> Vec<(String, String)> {
     // HTTP client (reqwest) treat the proxy as misconfigured and fail the
     // request outright — so a blank proxy must not be propagated.
     if proxy_url_env_present(&from_process) {
+        ensure_no_proxy_loopback(&mut from_process);
         return from_process;
     }
     let mut env = proxy_env_from_detected(detect_proxy().as_ref());
     env.extend(from_process);
+    ensure_no_proxy_loopback(&mut env);
     env
 }
 
@@ -66,6 +70,47 @@ pub(in crate::manager) fn proxy_url_env_present(env: &[(String, String)]) -> boo
     })
 }
 
+pub(in crate::manager) fn with_loopback_no_proxy(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed == "*" {
+        return "*".to_string();
+    }
+    let mut entries: Vec<String> = trimmed
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    for host in ["localhost", "127.0.0.1", "::1"] {
+        if !entries
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(host))
+        {
+            entries.push(host.to_string());
+        }
+    }
+    entries.join(",")
+}
+
+pub(in crate::manager) fn ensure_no_proxy_loopback(env: &mut Vec<(String, String)>) {
+    if !proxy_url_env_present(env) {
+        return;
+    }
+    let seed = env
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("NO_PROXY"))
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| DEFAULT_NO_PROXY.to_string());
+    let normalized_seed = with_loopback_no_proxy(&seed);
+    for key in ["NO_PROXY", "no_proxy"] {
+        if let Some((_, value)) = env.iter_mut().find(|(k, _)| k == key) {
+            *value = with_loopback_no_proxy(value);
+        } else {
+            env.push((key.to_string(), normalized_seed.clone()));
+        }
+    }
+}
+
 pub(in crate::manager) fn proxy_env_from_detected(
     detected: Option<&DetectedProxy>,
 ) -> Vec<(String, String)> {
@@ -74,15 +119,17 @@ pub(in crate::manager) fn proxy_env_from_detected(
     };
     if !detected.source.applies_to_process() {
         return Vec::new();
-    }
+    };
     let url = detected.url.trim();
     if url.is_empty() {
         return Vec::new();
-    }
-    PROXY_URL_FORWARD_KEYS
+    };
+    let mut env: Vec<(String, String)> = PROXY_URL_FORWARD_KEYS
         .iter()
         .map(|key| ((*key).to_string(), url.to_string()))
-        .collect()
+        .collect();
+    ensure_no_proxy_loopback(&mut env);
+    env
 }
 
 pub(in crate::manager) fn merge_agent_env(

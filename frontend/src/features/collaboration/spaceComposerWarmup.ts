@@ -22,10 +22,7 @@ export class SpaceWarmupCooldown {
   tryAcquire(spaceId: string, to: string[], now = Date.now()): boolean {
     const key = spaceWarmupKey(spaceId, to);
     const previous = this.lastSentAt.get(key);
-    if (
-      previous !== undefined &&
-      now - previous < SPACE_WARMUP_COOLDOWN_MS
-    ) {
+    if (previous !== undefined && now - previous < SPACE_WARMUP_COOLDOWN_MS) {
       return false;
     }
     this.lastSentAt.set(key, now);

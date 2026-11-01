@@ -13,7 +13,8 @@ export function reactionsFromUnknown(value: unknown): SpaceReaction[] {
     if (!item || typeof item !== 'object') continue;
     const record = item as { emoji?: unknown; actor?: unknown };
     const emoji = String(record.emoji ?? '').trim();
-    const actor = String(record.actor ?? '').trim() || SPACE_REACTION_USER_ACTOR;
+    const actor =
+      String(record.actor ?? '').trim() || SPACE_REACTION_USER_ACTOR;
     if (!emoji) continue;
     const key = `${actor}\0${emoji}`;
     if (seen.has(key)) continue;

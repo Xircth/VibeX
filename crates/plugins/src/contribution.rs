@@ -946,9 +946,8 @@ mod tests {
         )
         .expect("write manifest");
 
-        let package =
-            crate::PluginPackage::inspect(dir.path(), crate::PluginSourceKind::Snapshot)
-                .expect("inspect");
+        let package = crate::PluginPackage::inspect(dir.path(), crate::PluginSourceKind::Snapshot)
+            .expect("inspect");
         let descriptors = descriptors_for_package(&package, 1);
         let runtime = descriptors
             .iter()

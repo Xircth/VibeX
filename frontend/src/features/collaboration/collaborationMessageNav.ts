@@ -22,7 +22,9 @@ export function buildCollaborationUserMessageNavEntries(
     seq: number;
     id?: string | null;
     origin?: string;
-    envelope?: (SpaceEnvelopeParties & { id?: unknown; content?: string }) | null;
+    envelope?:
+      | (SpaceEnvelopeParties & { id?: unknown; content?: string })
+      | null;
   }>
 ): ConversationMessageNavEntry[] {
   const entries: ConversationMessageNavEntry[] = [];
@@ -45,4 +47,3 @@ export function buildCollaborationUserMessageNavEntries(
   });
   return entries;
 }
-

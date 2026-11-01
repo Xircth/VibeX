@@ -73,9 +73,7 @@ describe('CollaborationThreadPermissionDock', () => {
     expect(
       screen.getByTestId('collaboration-thread-permission-dock-conv-1')
     ).toBeTruthy();
-    expect(
-      screen.getByRole('heading', { name: '权限申请' })
-    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '权限申请' })).toBeTruthy();
     expect(screen.getByText('Edit README.md')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '允许' }));

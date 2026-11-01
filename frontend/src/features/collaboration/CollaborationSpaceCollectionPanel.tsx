@@ -558,6 +558,12 @@ export function CollaborationSpaceCollectionDockviewPanel(
   useEffect(() => {
     if (detailsTab !== 'collection' || !spaceId) return;
     const timer = window.setInterval(() => {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
+      }
       void loadCollection();
       void loadMemory();
     }, COLLECTION_POLL_MS);
@@ -637,8 +643,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
           )
         );
         setEditingNoteItemId(null);
-        await loadCollection();
-        await loadMemory();
+        await Promise.all([loadCollection(), loadMemory()]);
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
       } finally {
@@ -722,8 +727,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
       setTextContent('');
       setNoteInput('');
       setAddFormOpen(false);
-      await loadCollection();
-      await loadMemory();
+      await Promise.all([loadCollection(), loadMemory()]);
     } catch (cause) {
       setError(surfaceErrorCopy(cause));
     } finally {
@@ -1354,9 +1358,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 <Textarea
                   aria-label="主题内容"
                   value={topicContentInput}
-                  onChange={(event) =>
-                    setTopicContentInput(event.target.value)
-                  }
+                  onChange={(event) => setTopicContentInput(event.target.value)}
                   placeholder="输入主题内容…"
                   rows={4}
                   className="text-xs"
@@ -1400,9 +1402,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                   aria-label={i18n.t('panels:ui.collection.savedItemName')}
                   value={textName}
                   onChange={(event) => setTextName(event.target.value)}
-                  placeholder={i18n.t(
-                    'panels:ui.collection.nameOptionalEGApi'
-                  )}
+                  placeholder={i18n.t('panels:ui.collection.nameOptionalEGApi')}
                   className="h-7 px-2 text-xs"
                 />
                 <Textarea
@@ -1554,10 +1554,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 aria-label="取消修改"
                                 onClick={() => setEditingFactId(null)}
                               >
-                                <X
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                />
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
                               </Button>
                             </div>
                           ) : (
@@ -1669,9 +1666,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         >
                           <div
                             className="collaboration-memory-topic-header"
-                            onClick={() =>
-                              toggleTopicExpanded(topicItem.topic)
-                            }
+                            onClick={() => toggleTopicExpanded(topicItem.topic)}
                           >
                             <div className="collaboration-memory-topic-title-wrap">
                               <span className="truncate font-medium">
@@ -1843,10 +1838,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                               void handleCopyItem(item);
                             }}
                           >
-                            <Copy
-                              className="h-3.5 w-3.5"
-                              aria-hidden="true"
-                            />
+                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         ) : null}
                         <button
@@ -1862,10 +1854,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                             void handleDeleteItem(item.id);
                           }}
                         >
-                          <Trash2
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
@@ -1875,9 +1864,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           aria-label={
                             isCollapsed
                               ? i18n.t('panels:ui.collection.expandSavedItem')
-                              : i18n.t(
-                                  'panels:ui.collection.collapseSavedItem'
-                                )
+                              : i18n.t('panels:ui.collection.collapseSavedItem')
                           }
                           onClick={(event) => {
                             event.stopPropagation();
@@ -1993,10 +1980,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                 disabled={savingNoteItemId === item.id}
                                 onClick={() => setEditingNoteItemId(null)}
                               >
-                                <X
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                />
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
                               </Button>
                             </div>
                           ) : (
@@ -2028,9 +2012,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         </div>
 
                         <div className="collaboration-collection-card-footer">
-                          <span
-                            data-testid={`collection-item-time-${item.id}`}
-                          >
+                          <span data-testid={`collection-item-time-${item.id}`}>
                             {formatCollectionTime(item.created_at)}
                           </span>
                           <div className="flex items-center gap-1.5">
@@ -2120,9 +2102,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                       )}{' '}
                                       ·{' '}
                                       {formatCollectionTime(
-                                        read.last_read_at ??
-                                          read.read_at ??
-                                          ''
+                                        read.last_read_at ?? read.read_at ?? ''
                                       )}
                                     </span>
                                   </li>

@@ -1309,9 +1309,7 @@ function LocalDetail({
             )}
           </div>
         )}
-        <p className="break-all text-xs text-muted-foreground">
-          {skill.path}
-        </p>
+        <p className="break-all text-xs text-muted-foreground">{skill.path}</p>
       </div>
     </div>
   );

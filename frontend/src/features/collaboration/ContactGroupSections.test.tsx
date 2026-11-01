@@ -47,8 +47,7 @@ describe('ContactGroupSections rename chrome', () => {
     expect(chevron).not.toBeNull();
     expect(header.contains(input)).toBe(true);
     expect(
-      chevron!.compareDocumentPosition(input) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+      chevron!.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 

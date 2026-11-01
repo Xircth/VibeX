@@ -29,7 +29,9 @@ export function CollaborationSessionBadge({
     <button
       type="button"
       data-testid="collaboration-session-badge"
-      aria-label={i18n.t('panels:ui.collab.openBotMembername', { memberName: memberName })}
+      aria-label={i18n.t('panels:ui.collab.openBotMembername', {
+        memberName: memberName,
+      })}
       className={cn(
         'inline-flex min-w-0 max-w-[7rem] shrink-0 items-center gap-1',
         className

@@ -195,7 +195,11 @@ export function CollaborationMemberSessionDockviewPanel(
     <div className="collaboration-preview-frame h-full w-full">
       <SessionSurfaceChromeProvider value={surfaceChrome}>
         <Suspense
-          fallback={<p className="collaboration-preview-empty">{i18n.t('panels:ui.collabPreview.loading')}</p>}
+          fallback={
+            <p className="collaboration-preview-empty">
+              {i18n.t('panels:ui.collabPreview.loading')}
+            </p>
+          }
         >
           <SessionPreview {...sessionPreviewProps} />
         </Suspense>
@@ -210,7 +214,11 @@ export function CollaborationFileDockviewPanel(
   return (
     <div className="collaboration-preview-frame h-full w-full">
       <Suspense
-        fallback={<p className="collaboration-preview-empty">{i18n.t('panels:ui.collabPreview.loading')}</p>}
+        fallback={
+          <p className="collaboration-preview-empty">
+            {i18n.t('panels:ui.collabPreview.loading')}
+          </p>
+        }
       >
         <FilePreviewPanel {...props} />
       </Suspense>
@@ -488,7 +496,10 @@ export function CollaborationPreviewDockviewTab(
         className="dv-default-tab-action rounded-full"
         onPointerDown={(event) => event.preventDefault()}
         onClick={closeTab}
-        aria-label={i18n.t('panels:shellA11y.closeTab', { title, defaultValue: `Close ${title}` })}
+        aria-label={i18n.t('panels:shellA11y.closeTab', {
+          title,
+          defaultValue: `Close ${title}`,
+        })}
         role="button"
       >
         <X className="h-3 w-3" />

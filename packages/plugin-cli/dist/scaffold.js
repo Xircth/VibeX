@@ -637,6 +637,12 @@ function send(message) {
 function handle(message) {
   if (!message || typeof message !== 'object') return;
   const { id, method, params } = message;
+  const serverInfo = { name: 'hello', version: '1.0.0' };
+  const modern = '2026-07-28';
+  const isModern = params && params._meta && params._meta['io.modelcontextprotocol/protocolVersion'] === modern;
+  const modernize = (result) => isModern
+    ? { resultType: 'complete', ...result, _meta: { 'io.modelcontextprotocol/serverInfo': serverInfo } }
+    : result;
   if (method === 'initialize') {
     const requested = params && params.protocolVersion;
     const protocolVersion = [
@@ -654,7 +660,7 @@ function handle(message) {
       result: {
         protocolVersion,
         capabilities: { tools: {} },
-        serverInfo: { name: 'hello', version: '1.0.0' },
+        serverInfo,
       },
     });
     return;
@@ -666,15 +672,15 @@ function handle(message) {
       id,
       result: {
         resultType: 'complete',
-        supportedVersions: ['2026-07-28'],
+        supportedVersions: [modern],
         capabilities: { tools: {} },
-        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'hello', version: '1.0.0' } },
+        _meta: { 'io.modelcontextprotocol/serverInfo': serverInfo },
       },
     });
     return;
   }
   if (method === 'tools/list') {
-    send({ jsonrpc: '2.0', id, result: { tools } });
+    send({ jsonrpc: '2.0', id, result: modernize({ tools }) });
     return;
   }
   if (method === 'tools/call') {
@@ -682,7 +688,7 @@ function handle(message) {
     send({
       jsonrpc: '2.0',
       id,
-      result: { content: [{ type: 'text', text: 'hello ' + name }] },
+      result: modernize({ content: [{ type: 'text', text: 'hello ' + name }] }),
     });
     return;
   }

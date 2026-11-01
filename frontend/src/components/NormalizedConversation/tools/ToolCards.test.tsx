@@ -474,9 +474,10 @@ describe('conversation tool cards', () => {
       null,
       null
     );
-    expect(inProgressEntry.entry_type.type === 'tool_use' && inProgressEntry.entry_type.tool_name).toBe(
-      'list_collaboration_spaces'
-    );
+    expect(
+      inProgressEntry.entry_type.type === 'tool_use' &&
+        inProgressEntry.entry_type.tool_name
+    ).toBe('list_collaboration_spaces');
     expect(inProgressEntry.toolArguments).toEqual({});
 
     const completedEntry = toolBlockToNormalizedEntry(
@@ -505,10 +506,7 @@ describe('conversation tool cards', () => {
     );
 
     render(
-      <GenericToolCard
-        entry={completedEntry}
-        expansionKey="mcp-empty-args"
-      />
+      <GenericToolCard entry={completedEntry} expansionKey="mcp-empty-args" />
     );
     expect(
       screen.getByText('List existing spaces and bots')

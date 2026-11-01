@@ -30,18 +30,14 @@ function declarationsFor(
 
 describe('session status colors', () => {
   it('assigns gray, yellow, red, and blue workbench tokens', () => {
-    expect(legacyCss).toContain(
-      '--session-status-todo: var(--text-muted);'
-    );
+    expect(legacyCss).toContain('--session-status-todo: var(--text-muted);');
     expect(legacyCss).toContain(
       '--session-status-inprogress: hsl(var(--warning));'
     );
     expect(legacyCss).toContain(
       '--session-status-inreview: hsl(var(--destructive));'
     );
-    expect(legacyCss).toContain(
-      '--session-status-done: var(--usage-blue-fg);'
-    );
+    expect(legacyCss).toContain('--session-status-done: var(--usage-blue-fg);');
   });
 
   it('paints status dots from those tokens', () => {
@@ -62,12 +58,8 @@ describe('session status colors', () => {
   });
 
   it('paints collaboration review dots red instead of warning yellow', () => {
-    expect(collaborationCss).toContain(
-      'var(--session-status-inreview)'
-    );
-    expect(collaborationCss).toContain(
-      'var(--session-status-inprogress)'
-    );
+    expect(collaborationCss).toContain('var(--session-status-inreview)');
+    expect(collaborationCss).toContain('var(--session-status-inprogress)');
     expect(collaborationCss).toContain('var(--session-status-done)');
   });
 });

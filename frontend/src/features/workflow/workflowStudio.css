@@ -194,7 +194,8 @@
     box-shadow: 0 0 0 0 color-mix(in srgb, hsl(var(--warning)) 28%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, hsl(var(--warning)) 0%, transparent);
+    box-shadow: 0 0 0 7px
+      color-mix(in srgb, hsl(var(--warning)) 0%, transparent);
   }
 }
 

@@ -19,10 +19,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { openSettingsSurface } from '@/lib/api/settingsWindow';
-import {
-  HOST_MULTI_AGENT_ID,
-  createPluginControlApi,
-} from '@/lib/api/plugins';
+import { HOST_MULTI_AGENT_ID, createPluginControlApi } from '@/lib/api/plugins';
 import type {
   PluginMcpPluginStatus,
   PluginMcpStatusReport,

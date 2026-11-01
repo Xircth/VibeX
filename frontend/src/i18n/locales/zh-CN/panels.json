@@ -1059,7 +1059,8 @@
       "handoffConstraints": "约束",
       "handoffAsk": "请继续：{{ask}}",
       "handoffAskLabel": "请继续",
-      "expandAll": "展开全部"
+      "expandAll": "展开全部",
+      "collapseAll": "收起全部"
     },
     "globalSearch": {
       "searchSpacesOrBots": "搜索协作空间或助手",

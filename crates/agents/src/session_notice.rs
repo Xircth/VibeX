@@ -119,6 +119,57 @@ pub fn matches_pi_startup_banner(pending: Option<&str>, text: &str) -> bool {
     pending.is_some_and(|banner| banner == text.trim())
 }
 
+const ANTIGRAVITY_CANCELLED_TEXT: &str = "The request was cancelled by the client.";
+const ANTIGRAVITY_EXECUTION_ERROR_PREFIX: &str = "Agent execution error:";
+const ANTIGRAVITY_CONNECTION_LOST_PREFIX: &str =
+    "Agent connection was lost and could not be re-established:";
+
+/// Antigravity (`agy_acp_server`) emits `"The request was cancelled by the client."`
+/// as an untagged `agent_message_chunk` right before returning `StopReason::Cancelled`.
+/// Dropping it keeps cancelled turns from appending synthetic English prose to the
+/// assistant transcript.
+pub fn is_adapter_cancelled_chunk(
+    agent_kind: Option<api_types::AgentKind>,
+    chunk: &ContentChunk,
+) -> bool {
+    if !matches!(agent_kind, None | Some(api_types::AgentKind::Antigravity))
+        || chunk.message_id.is_some()
+    {
+        return false;
+    }
+    let ContentBlock::Text(text) = &chunk.content else {
+        return false;
+    };
+    text.text.trim() == ANTIGRAVITY_CANCELLED_TEXT
+}
+
+/// Antigravity (`agy_acp_server`) catches `AntigravityExecutionError` and
+/// `AntigravityConnectionError` inside `prompt()`, sends the error text as an
+/// untagged `agent_message_chunk`, and returns `PromptResponse(stop_reason="end_turn")`.
+/// Peeling that chunk out lets the runner fail the turn with `AgentEvent::Error`
+/// instead of recording the error string as a completed assistant reply.
+pub fn adapter_turn_error_from_chunk(
+    agent_kind: Option<api_types::AgentKind>,
+    chunk: &ContentChunk,
+) -> Option<String> {
+    if !matches!(agent_kind, None | Some(api_types::AgentKind::Antigravity))
+        || chunk.message_id.is_some()
+    {
+        return None;
+    }
+    let ContentBlock::Text(text) = &chunk.content else {
+        return None;
+    };
+    let trimmed = text.text.trim();
+    if trimmed.starts_with(ANTIGRAVITY_EXECUTION_ERROR_PREFIX)
+        || trimmed.starts_with(ANTIGRAVITY_CONNECTION_LOST_PREFIX)
+    {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
 fn from_adapter_message(text: &str) -> Option<ConversationSessionNotice> {
     let text = text.trim_end_matches(['\r', '\n']);
     if let Some(body) = text.strip_prefix(CODEX_WARNING_PREFIX) {

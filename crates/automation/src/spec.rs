@@ -92,10 +92,17 @@ impl AutomationSpec {
             }
             PortableAutomationTarget::Workflow(spec) => {
                 let source = std::path::Path::new(&spec.source_path);
-                if source.is_absolute() || source.has_root() || spec.source_path.starts_with('/') || spec.source_path.starts_with('\\') || spec.source_path.contains(':')
-                    || source
-                        .components()
-                        .any(|component| !matches!(component, std::path::Component::Normal(_) | std::path::Component::CurDir))
+                if source.is_absolute()
+                    || source.has_root()
+                    || spec.source_path.starts_with('/')
+                    || spec.source_path.starts_with('\\')
+                    || spec.source_path.contains(':')
+                    || source.components().any(|component| {
+                        !matches!(
+                            component,
+                            std::path::Component::Normal(_) | std::path::Component::CurDir
+                        )
+                    })
                     || !spec.source_path.ends_with(".vibex-workflow.json")
                     || spec.version_digest.trim().is_empty()
                 {

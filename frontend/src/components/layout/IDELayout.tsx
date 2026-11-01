@@ -461,7 +461,17 @@ export function IDELayout({
     null
   );
   const isResettingRef = useRef(false);
-  const prevSerializedLayoutRef = useRef(serializedLayout);
+  const currentLayoutProject = useLayoutStore(
+    (state) => state.currentProjectKey
+  );
+  const isLayoutScopeReady = currentLayoutProject === projectKey;
+  const prevSerializedLayoutRef = useRef<{
+    projectKey: string;
+    serializedLayout: typeof serializedLayout;
+  }>({
+    projectKey: currentLayoutProject,
+    serializedLayout,
+  });
   const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
   const lastSelfHealAtRef = useRef(0);
   // Detached element hosting the session (C zone) content; the workspace
@@ -474,6 +484,9 @@ export function IDELayout({
   });
 
   const { setDockviewApi } = usePanelActionsContext();
+  if (!isLayoutScopeReady && apiRef.current !== null) {
+    apiRef.current = null;
+  }
 
   const autoOpenCreatedPreviews = useAutoOpenCreatedPreviews();
   useAutoOpenCreatedFilePreviews({
@@ -1040,6 +1053,13 @@ export function IDELayout({
     ]
   );
 
+  useLayoutEffect(() => {
+    if (!isLayoutScopeReady) {
+      apiRef.current = null;
+      setDockviewApi(null);
+    }
+  }, [isLayoutScopeReady, setDockviewApi]);
+
   useEffect(() => {
     return () => {
       apiRef.current = null;
@@ -1048,15 +1068,22 @@ export function IDELayout({
   }, [setDockviewApi]);
 
   useEffect(() => {
-    const previousSerializedLayout = prevSerializedLayoutRef.current;
-    prevSerializedLayoutRef.current = serializedLayout;
+    const previous = prevSerializedLayoutRef.current;
+    prevSerializedLayoutRef.current = {
+      projectKey: currentLayoutProject,
+      serializedLayout,
+    };
 
-    if (previousSerializedLayout !== null && serializedLayout === null) {
+    if (
+      previous.projectKey === currentLayoutProject &&
+      previous.serializedLayout !== null &&
+      serializedLayout === null
+    ) {
       const api = apiRef.current;
       if (!api) return;
       rebuildDefaultLayout(api);
     }
-  }, [rebuildDefaultLayout, serializedLayout]);
+  }, [currentLayoutProject, rebuildDefaultLayout, serializedLayout]);
 
   useLayoutEffect(() => {
     const api = apiRef.current;

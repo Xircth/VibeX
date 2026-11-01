@@ -130,7 +130,10 @@ export function PluginSchemaSettingsForm({
             ? loaded
             : {}),
         };
-        notifyPluginConfigUpdated(pluginId, merged as Record<string, JsonValue>);
+        notifyPluginConfigUpdated(
+          pluginId,
+          merged as Record<string, JsonValue>
+        );
         setValues(merged);
         setSavedValues(merged);
         setLoading(false);

@@ -460,9 +460,12 @@ describe('session composer structured commands', () => {
       }),
     ]);
 
-    const fallbackBroadcast = getSessionComposerStructuredTokens('@全体成员 收到', {
-      spaceMembers: [{ id: '__all__', nickname: '全体成员' }],
-    });
+    const fallbackBroadcast = getSessionComposerStructuredTokens(
+      '@全体成员 收到',
+      {
+        spaceMembers: [{ id: '__all__', nickname: '全体成员' }],
+      }
+    );
     expect(fallbackBroadcast).toEqual([
       expect.objectContaining({
         kind: 'member_mention',

@@ -32,6 +32,9 @@ const spaceEventListeners = vi.hoisted(
 const workspaceSessionsListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
+const agentEventListeners = vi.hoisted(
+  () => new Set<(payload: unknown) => void>()
+);
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -56,6 +59,12 @@ vi.mock('@/lib/backendTransport', async (importOriginal) => {
           workspaceSessionsListeners.add(handler);
           return () => {
             workspaceSessionsListeners.delete(handler);
+          };
+        }
+        if (event === 'agent-events') {
+          agentEventListeners.add(handler);
+          return () => {
+            agentEventListeners.delete(handler);
           };
         }
         return () => undefined;
@@ -208,6 +217,7 @@ describe('CollaborationSpacePage', () => {
     });
     spaceEventListeners.clear();
     workspaceSessionsListeners.clear();
+    agentEventListeners.clear();
     collaborationCall.mockImplementation(
       async (
         _capability: string,
@@ -624,9 +634,7 @@ describe('CollaborationSpacePage', () => {
       'collaboration-space-member-chip-conv-2'
     );
     expect(chipB).toHaveTextContent('小B');
-    await user.click(
-      within(chipB).getByRole('button', { name: /小B/ })
-    );
+    await user.click(within(chipB).getByRole('button', { name: /小B/ }));
     expect(
       within(createBotList).getByRole('button', { name: '小B' })
     ).toBeTruthy();
@@ -1538,9 +1546,9 @@ describe('CollaborationSpacePage', () => {
     expect(filterActivityItem).toHaveTextContent('按活跃时间');
     expect(filterNameItem.querySelector('svg')).toBeTruthy();
     expect(filterTypeItem.querySelector('svg')).toBeTruthy();
-    expect(filterActivityItem.querySelectorAll('svg').length).toBeGreaterThanOrEqual(
-      2
-    );
+    expect(
+      filterActivityItem.querySelectorAll('svg').length
+    ).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByTestId('collaboration-filter-type'));
     expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '小A' })).toBeNull();
@@ -2575,9 +2583,7 @@ describe('CollaborationSpacePage', () => {
     );
     expect(groupMeta).toHaveTextContent('2');
     expect(groupMeta).not.toHaveTextContent('最新进展');
-    const groupNameLine = groupMeta.closest(
-      '.collaboration-contact-name-line'
-    );
+    const groupNameLine = groupMeta.closest('.collaboration-contact-name-line');
     expect(groupNameLine).toBeTruthy();
     expect(groupNameLine).toHaveTextContent('设计');
     expect(groupNameLine).toHaveTextContent('2');
@@ -2610,7 +2616,7 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
-  it('hides 已回复 receipts and still shows failed or skipped outcomes', async () => {
+  it('hides 已回复 and 已跳过 receipts and still shows failed or cancelled outcomes', async () => {
     const defaultImpl = collaborationCall.getMockImplementation();
     collaborationCall.mockImplementation(
       async (
@@ -2649,6 +2655,11 @@ describe('CollaborationSpacePage', () => {
                     nickname: '小D',
                     state: 'passed',
                   },
+                  {
+                    conversation_id: 'conv-5',
+                    nickname: '小E',
+                    state: 'cancelled',
+                  },
                 ],
               },
             ],
@@ -2665,8 +2676,9 @@ describe('CollaborationSpacePage', () => {
     expect(screen.queryByText('已回复')).toBeNull();
     expect(screen.queryByText('小A 已回复')).toBeNull();
     expect(screen.queryByText('小B 已回复')).toBeNull();
+    expect(screen.queryByText('小D 已跳过')).toBeNull();
     expect(screen.getByText('小C 失败')).toBeTruthy();
-    expect(screen.getByText('小D 已跳过')).toBeTruthy();
+    expect(screen.getByText('小E 已取消')).toBeTruthy();
   });
 
   it('titles a member tab opened from a group chat with the group name', async () => {
@@ -3419,9 +3431,9 @@ describe('CollaborationSpacePage', () => {
       'collaboration-chat-meta-direct:direct:mem-a'
     );
     expect(dmUnread).toHaveTextContent('1');
-    expect(dmUnread.closest('.collaboration-contact-name-line')).toHaveTextContent(
-      '小A'
-    );
+    expect(
+      dmUnread.closest('.collaboration-contact-name-line')
+    ).toHaveTextContent('小A');
     await user.click(await screen.findByRole('button', { name: '小A' }));
     expect(
       await screen.findByTestId('collaboration-top-member-bar')
@@ -4248,7 +4260,10 @@ describe('CollaborationSpacePage', () => {
           };
         }
         if (method === 'thread.markRead') return {};
-        if (method === 'space.listMessages' && String(input?.spaceId ?? '').startsWith('direct:')) {
+        if (
+          method === 'space.listMessages' &&
+          String(input?.spaceId ?? '').startsWith('direct:')
+        ) {
           return { messages: [] };
         }
         return defaultImpl?.(capability, method, input);
@@ -4493,9 +4508,7 @@ describe('CollaborationSpacePage', () => {
     const scrollIntoViewSpy = vi.fn();
     firstMsgEl.scrollIntoView = scrollIntoViewSpy;
 
-    await user.click(
-      screen.getByRole('button', { name: '跳转到第 1 条消息' })
-    );
+    await user.click(screen.getByRole('button', { name: '跳转到第 1 条消息' }));
     expect(scrollIntoViewSpy).toHaveBeenCalledWith({
       behavior: 'smooth',
       block: 'center',
@@ -4545,9 +4558,7 @@ describe('CollaborationSpacePage', () => {
       await user.click(backToBottom);
       expect(log.scrollTop).toBeGreaterThanOrEqual(1600);
       await waitFor(() => {
-        expect(
-          screen.queryByTestId('collaboration-back-to-bottom')
-        ).toBeNull();
+        expect(screen.queryByTestId('collaboration-back-to-bottom')).toBeNull();
       });
     } finally {
       if (originalScrollHeight) {
@@ -4609,7 +4620,10 @@ describe('CollaborationSpacePage', () => {
           };
         }
         if (method === 'thread.markRead') return {};
-        if (method === 'space.listMessages' && input?.spaceId === 'direct:mem-a') {
+        if (
+          method === 'space.listMessages' &&
+          input?.spaceId === 'direct:mem-a'
+        ) {
           return {
             messages: [
               {
@@ -4766,9 +4780,7 @@ describe('CollaborationSpacePage', () => {
     // Entering delete mode shows no checkbox on the Supervisor bot, but shows one on 小A
     await user.click(screen.getByRole('button', { name: '批量删除' }));
     expect(within(supervisorSlot).queryByRole('checkbox')).toBeNull();
-    expect(
-      screen.getByRole('checkbox', { name: '选择助手 小A' })
-    ).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: '选择助手 小A' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '取消' }));
 
     // Right-clicking Supervisor slot shows 卸任主管 and no 删除
@@ -5044,7 +5056,9 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '创建' }));
     await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
     const dialog1 = await screen.findByRole('dialog', { name: '创建群聊' });
-    const botList1 = within(dialog1).getByTestId('collaboration-create-bot-list');
+    const botList1 = within(dialog1).getByTestId(
+      'collaboration-create-bot-list'
+    );
     await user.click(within(botList1).getByRole('button', { name: '小A' }));
     await user.click(within(botList1).getByRole('button', { name: '大总管' }));
     await user.click(
@@ -5066,7 +5080,9 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '创建' }));
     await user.click(await screen.findByRole('menuitem', { name: '创建群聊' }));
     const dialog2 = await screen.findByRole('dialog', { name: '创建群聊' });
-    const botList2 = within(dialog2).getByTestId('collaboration-create-bot-list');
+    const botList2 = within(dialog2).getByTestId(
+      'collaboration-create-bot-list'
+    );
     await user.click(within(botList2).getByRole('button', { name: '小B' }));
     await user.click(within(botList2).getByRole('button', { name: '小A' }));
     await user.click(
@@ -5153,9 +5169,13 @@ describe('CollaborationSpacePage', () => {
     renderPage();
     expect(await screen.findByText('准备执行删除')).toBeTruthy();
     expect(screen.queryByTestId('collaboration-message-2')).toBeNull();
-    const dock = await screen.findByTestId('collaboration-thread-approval-dock');
+    const dock = await screen.findByTestId(
+      'collaboration-thread-approval-dock'
+    );
     expect(dock).toBeTruthy();
-    expect(within(dock).getByRole('heading', { name: '权限申请' })).toBeTruthy();
+    expect(
+      within(dock).getByRole('heading', { name: '权限申请' })
+    ).toBeTruthy();
     expect(within(dock).getByText('删除旧 Bot')).toBeTruthy();
 
     fireEvent.click(within(dock).getByRole('button', { name: '允许' }));
@@ -5174,5 +5194,142 @@ describe('CollaborationSpacePage', () => {
         screen.queryByTestId('collaboration-thread-approval-dock')
       ).toBeNull()
     );
+  });
+
+  it('shows 正在加载Bot会话... Notice in BotSpace Composer when an inactive Bot session is re-spinning up, keeps input editable, and disables only the send button until ready', async () => {
+    const user = userEvent.setup();
+    let timelineConnecting = true;
+    useConversationTimeline.mockImplementation((id: string | null) => ({
+      timeline: [],
+      items: [],
+      sideRows: [],
+      sessionConfigOptions: [],
+      currentTurnId: null,
+      respondPermission: vi.fn(),
+      connecting: id === 'conv-1' ? timelineConnecting : false,
+      loading: false,
+      sessionBindReady: id === 'conv-1' ? !timelineConnecting : true,
+    }));
+
+    renderPage();
+
+    const supervisorSlot = await screen.findByTestId(
+      'collaboration-supervisor-slot'
+    );
+    expect(supervisorSlot.closest('.collaboration-space-list')).toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: '小A' }));
+
+    // When a Bot session is merely inactive (not yet actively connecting), the Composer remains editable.
+    expect(screen.queryByText('正在加载Bot会话...')).toBeNull();
+    expect(getComposerEditor().getAttribute('contenteditable')).toBe('true');
+
+    await act(async () => {
+      for (const listener of agentEventListeners) {
+        listener({
+          session_id: 'conv-1',
+          event: {
+            kind: 'connection_status_changed',
+            snapshot: { status: 'connecting' },
+          },
+        });
+      }
+    });
+
+    const statusDock = await screen.findByTestId('conversation-status-dock');
+    expect(within(statusDock).getByText('正在加载Bot会话...')).toBeTruthy();
+
+    // Input remains editable even while loading, only the Send button is disabled
+    const editor = getComposerEditor();
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+    await user.click(editor);
+    await user.type(editor, '测试在加载期间输入文字');
+    const sendButton = screen.getByRole('button', { name: '发送' });
+    expect(sendButton).toBeDisabled();
+
+    timelineConnecting = false;
+    await act(async () => {
+      for (const listener of agentEventListeners) {
+        listener({
+          session_id: 'conv-1',
+          event: {
+            kind: 'session_bind_ready',
+          },
+        });
+      }
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText('正在加载Bot会话...')).toBeNull()
+    );
+    expect(getComposerEditor().getAttribute('contenteditable')).toBe('true');
+    expect(screen.getByRole('button', { name: '发送' })).not.toBeDisabled();
+  });
+
+  it('shows 正在加载Bot会话... Notice in BotSpace Composer when a newly created Bot is bootstrapping, keeps input editable, and enables send once ready', async () => {
+    const user = userEvent.setup();
+    let resolveBootstrapPost: ((value: unknown) => void) | null = null;
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return { spaces: [] };
+        }
+        if (method === 'space.unassignedSpace') {
+          return {
+            space: { space_id: 'unassigned:workspace-1', name: '待分配' },
+          };
+        }
+        if (method === 'space.listSidebar') {
+          return { items: [], supervisor_member_id: null };
+        }
+        if (method === 'space.listMembers') {
+          return { members: [] };
+        }
+        if (method === 'space.createMember') {
+          return {
+            member_id: 'member-new-1',
+            identity_member_id: 'member-new-1',
+            conversation_id: 'conv-new-1',
+            private_conversation_id: 'conv-new-1',
+            nickname: 'Master',
+          };
+        }
+        if (
+          method === 'space.post' &&
+          input?.spaceId === 'direct:member-new-1'
+        ) {
+          return await new Promise((resolve) => {
+            resolveBootstrapPost = resolve;
+          });
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+
+    const statusDock = await screen.findByTestId('conversation-status-dock');
+    expect(within(statusDock).getByText('正在加载Bot会话...')).toBeTruthy();
+    const editor = getComposerEditor();
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+    await user.click(editor);
+    await user.type(editor, '新Bot初始化期间输入草稿');
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+
+    expect(resolveBootstrapPost).not.toBeNull();
+    await act(async () => {
+      resolveBootstrapPost?.({ seq: 1, receipts: [] });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText('正在加载Bot会话...')).toBeNull()
+    );
+    expect(getComposerEditor().getAttribute('contenteditable')).toBe('true');
+    expect(screen.getByRole('button', { name: '发送' })).not.toBeDisabled();
   });
 });

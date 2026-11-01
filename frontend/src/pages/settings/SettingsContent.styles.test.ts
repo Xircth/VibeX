@@ -508,9 +508,7 @@ describe('settings page alignment', () => {
     expect(activeNav.get('color')).toBe('hsl(var(--primary-foreground))');
     expect(activeNav.get('border-color')).toBe('transparent');
     expect(activeNav.get('font-weight')).toBe('500');
-    expect(activeNavHover.get('background')).toBe(
-      'hsl(var(--primary) / 0.92)'
-    );
+    expect(activeNavHover.get('background')).toBe('hsl(var(--primary) / 0.92)');
     expect(activeNavHover.get('color')).toBe('hsl(var(--primary-foreground))');
     expect(activeNavHover.get('border-color')).toBe('transparent');
   });

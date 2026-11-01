@@ -376,9 +376,7 @@ export function VersionControlSettings() {
   };
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   if (!draft) {

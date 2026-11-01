@@ -240,12 +240,47 @@ pub(in crate::manager) fn parse_session_failure_value(
     })
 }
 
+pub(in crate::manager) fn classify_adapter_turn_error_code(message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("model unreachable") || lower.contains("502 bad gateway") {
+        "model_unreachable"
+    } else if lower.contains("agent connection was lost") {
+        "agent_connection_lost"
+    } else {
+        "agent_execution_error"
+    }
+}
+
+pub(in crate::manager) fn format_adapter_turn_error(message: &str) -> String {
+    let sanitized = sanitize_diagnostic(message.trim());
+    let lower = sanitized.to_ascii_lowercase();
+    if lower.contains("model unreachable")
+        && (lower.contains("502") || lower.contains("failed to connect to backend api"))
+    {
+        format!(
+            "{sanitized}（Antigravity 本地 OAuth 代理连接 Google Cloud Code 后端 cloudcode-pa.googleapis.com 失败或超时，请检查针对 googleapis.com 的系统代理/TUN 分流规则与网络连通性后重试）"
+        )
+    } else {
+        sanitized
+    }
+}
+
 pub(in crate::manager) fn turn_failure_error_event(
     response: &acp::schema::v1::PromptResponse,
     probe: &TurnOutputProbe,
     stderr_tail: &StderrTail,
     stderr_mark: u64,
 ) -> Option<AgentErrorEvent> {
+    if let Some(adapter_error) = probe.adapter_turn_error() {
+        return Some(AgentErrorEvent {
+            message: format_adapter_turn_error(&adapter_error),
+            code: Some(classify_adapter_turn_error_code(&adapter_error).to_string()),
+            raw: Some(serde_json::json!({
+                "cause": "adapter_turn_error",
+                "adapterError": adapter_error,
+            })),
+        });
+    }
     let meta = response.meta.as_ref();
     let finish_reason = finish_turn_reason(&response.stop_reason, probe.has_output(), false);
     let air_failure = extract_session_failure_from_meta(meta);

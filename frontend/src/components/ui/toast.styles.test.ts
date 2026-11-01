@@ -15,7 +15,9 @@ describe('toast surface contract', () => {
     expect(css).toMatch(
       /\.vu-toast-viewport \.vu-toast-surface \{[\s\S]*?background: var\(--surface-dialog\);/
     );
-    expect(css).toContain('box-shadow: var(--toast-shadow), var(--vu-toast-inner);');
+    expect(css).toContain(
+      'box-shadow: var(--toast-shadow), var(--vu-toast-inner);'
+    );
     expect(css).not.toMatch(/^\s*(?:-webkit-)?backdrop-filter:\s*blur/m);
     expect(css).not.toContain('--vu-toast-glass');
     expect(css).not.toContain('#fafafa');

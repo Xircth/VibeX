@@ -55,9 +55,10 @@ describe('SpaceComposerDraftStore', () => {
     expect(
       store.switchThread('s2', { text: 'caption', images: [shot] })
     ).toEqual({ text: '', images: [] });
-    expect(
-      store.switchThread('s1', { text: '', images: [] })
-    ).toEqual({ text: 'caption', images: [shot] });
+    expect(store.switchThread('s1', { text: '', images: [] })).toEqual({
+      text: 'caption',
+      images: [shot],
+    });
     expect(store.allImages()).toEqual([shot]);
   });
 });

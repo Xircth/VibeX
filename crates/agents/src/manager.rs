@@ -166,6 +166,7 @@ pub enum AgentConnectionCommand {
     Cancel {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
+        result_tx: oneshot::Sender<bool>,
     },
     Steer {
         session_id: AgentSessionId,
@@ -495,14 +496,21 @@ impl AgentConnectionManager {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
     ) -> AgentResult<()> {
+        let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
             AgentConnectionCommand::Cancel {
                 session_id,
                 prompt_id,
+                result_tx,
             },
         )
-        .await
+        .await?;
+        let acknowledged = result_rx.await.unwrap_or(false);
+        if !acknowledged {
+            let _ = self.disconnect(connection_id).await;
+        }
+        Ok(())
     }
 
     pub async fn steer_prompt(
@@ -2717,7 +2725,43 @@ mod tests {
                 .map(|(_, value)| value.as_str()),
             Some("http://127.0.0.1:7897")
         );
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "NO_PROXY")
+                .map(|(_, value)| value.as_str()),
+            Some("localhost,127.0.0.1,::1")
+        );
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "no_proxy")
+                .map(|(_, value)| value.as_str()),
+            Some("localhost,127.0.0.1,::1")
+        );
         assert!(proxy_url_env_present(&env));
+    }
+
+    #[test]
+    fn ensure_no_proxy_loopback_preserves_custom_hosts_and_adds_loopback() {
+        let mut env = vec![
+            (
+                "HTTPS_PROXY".to_string(),
+                "http://127.0.0.1:7897".to_string(),
+            ),
+            ("NO_PROXY".to_string(), "corp.internal,10.0.0.1".to_string()),
+        ];
+        ensure_no_proxy_loopback(&mut env);
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "NO_PROXY")
+                .map(|(_, value)| value.as_str()),
+            Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1")
+        );
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "no_proxy")
+                .map(|(_, value)| value.as_str()),
+            Some("corp.internal,10.0.0.1,localhost,127.0.0.1,::1")
+        );
     }
 
     #[test]
@@ -4747,5 +4791,75 @@ mod tests {
             !clear_when_paused.should_interrupt_turn,
             "clearing a non-active goal must not cancel a user-initiated turn"
         );
+    }
+
+    #[tokio::test]
+    async fn antigravity_synthetic_turn_error_and_cancel_chunks_are_not_emitted_as_assistant_prose()
+    {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
+        let probe = Arc::new(TurnOutputProbe::default());
+        // Even if the agent already emitted thoughts or tool calls earlier in the turn,
+        // a terminal AntigravityExecutionError chunk must still fail the turn.
+        probe.note_rendered();
+        *runner.active_turn_probe.lock().unwrap() = Some((session_id, Arc::clone(&probe)));
+
+        let bridge = AcpClientBridge::new(
+            AgentConnectionId::new(),
+            AgentId::parse("antigravity").unwrap(),
+            event_tx,
+            Arc::new(RwLock::new(HashMap::from([(session_id, "acp-agy".into())]))),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(AgentAutoApproveMode::default())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(Instant::now())),
+            Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            Arc::new(Mutex::new(GrokMcpTracker::default())),
+            Arc::new(Mutex::new(None)),
+            PathBuf::from("C:/workspace"),
+            HashMap::new(),
+            runner,
+        );
+
+        bridge
+            .session_notification(SessionNotification::new(
+                SessionId::new("acp-agy"),
+                SessionUpdate::AgentMessageChunk(acp::schema::v1::ContentChunk::new(
+                    ContentBlock::from("The request was cancelled by the client."),
+                )),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            event_rx.try_recv().is_err(),
+            "synthetic cancellation chunk must not emit AgentEvent::MessageChunk"
+        );
+
+        let raw_502 = "Agent execution error: model unreachable: Error 502, Message: Bad Gateway: Failed to connect to backend API, Status: 502 Bad Gateway";
+        bridge
+            .session_notification(SessionNotification::new(
+                SessionId::new("acp-agy"),
+                SessionUpdate::AgentMessageChunk(acp::schema::v1::ContentChunk::new(
+                    ContentBlock::from(raw_502),
+                )),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            event_rx.try_recv().is_err(),
+            "synthetic execution error chunk must not emit AgentEvent::MessageChunk"
+        );
+
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        let response = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::EndTurn);
+        let failure = turn_failure_error_event(&response, &probe, &tail, mark)
+            .expect("EndTurn after Antigravity execution error chunk must produce AgentErrorEvent");
+        assert_eq!(failure.code.as_deref(), Some("model_unreachable"));
+        assert!(failure.message.contains("502 Bad Gateway"));
+        assert!(failure.message.contains("cloudcode-pa.googleapis.com"));
     }
 }

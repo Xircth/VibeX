@@ -86,7 +86,8 @@ function atReferenceItemToToken(
     const cleanName = item.label.replace(/^@+/, '').trim();
     const mentionAll =
       Boolean(item.mentionAll) ||
-      (!item.memberAvatar && (cleanName === '全体成员' || cleanName === '全体'));
+      (!item.memberAvatar &&
+        (cleanName === '全体成员' || cleanName === '全体'));
     return toSessionComposerChatToken({
       kind: 'member_mention',
       type: '@',

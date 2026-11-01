@@ -49,7 +49,15 @@ impl AcpClientBridge {
         }
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => {
-                if self.take_pi_startup_banner(session_id, &chunk).await {
+                if self.take_pi_startup_banner(session_id, &chunk).await
+                    || session_notice::is_adapter_cancelled_chunk(self.apply.agent_kind(), &chunk)
+                {
+                    None
+                } else if let Some(adapter_error) =
+                    session_notice::adapter_turn_error_from_chunk(self.apply.agent_kind(), &chunk)
+                {
+                    self.apply
+                        .note_adapter_turn_error(session_id, adapter_error);
                     None
                 } else if let Some(notice) = session_notice::from_agent_message_chunk(&chunk) {
                     Some(AgentEvent::RawAcpDiagnostic {

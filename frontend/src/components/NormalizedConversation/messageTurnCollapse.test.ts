@@ -230,7 +230,11 @@ describe('collapseTurnSegments', () => {
     ];
     expect(collapseTurnSegments(items, { isStreaming: false })).toEqual([
       { kind: 'fold', startIndex: 0, items: [tool('bash')] },
-      { kind: 'items', startIndex: 1, items: [markdown('我现在发送提问卡片：')] },
+      {
+        kind: 'items',
+        startIndex: 1,
+        items: [markdown('我现在发送提问卡片：')],
+      },
       { kind: 'items', startIndex: 2, items: [tool('ask_user_question')] },
       { kind: 'fold', startIndex: 3, items: [tool('grep')] },
       {

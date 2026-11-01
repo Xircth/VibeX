@@ -863,6 +863,12 @@ fn apply_update(
         }
         SessionUpdate::AgentMessageChunk(chunk) => {
             *prompt_just_recorded = false;
+            if crate::session_notice::is_adapter_cancelled_chunk(agent_kind, &chunk)
+                || crate::session_notice::adapter_turn_error_from_chunk(agent_kind, &chunk)
+                    .is_some()
+            {
+                return;
+            }
             if let Some(parent_id) =
                 crate::air_contract::chunk_parent_tool_use_id(agent_kind, chunk.meta.as_ref())
             {

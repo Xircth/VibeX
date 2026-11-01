@@ -269,9 +269,7 @@ export function AppearanceSettings() {
   );
 
   if (loading) {
-    return (
-      <SurfaceLoading />
-    );
+    return <SurfaceLoading />;
   }
 
   if (!draft) {

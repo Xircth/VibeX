@@ -293,12 +293,12 @@ describe('messagePreviewText', () => {
         ]}
       />
     );
-    expect(screen.getByTestId('collaboration-bubble-reaction')).toHaveTextContent(
-      '😄🎉'
-    );
+    expect(
+      screen.getByTestId('collaboration-bubble-reaction')
+    ).toHaveTextContent('😄🎉');
   });
 
-  it('renders markdown images and splits live HTML previews into standalone blocks between prose bubbles', () => {
+  it('renders markdown images and splits live HTML previews into standalone blocks with a right-click context menu', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SpaceMessageBody
@@ -315,24 +315,49 @@ describe('messagePreviewText', () => {
       'collaboration-standalone-html-block'
     );
     expect(standaloneBlock.closest('.collaboration-member-bubble')).toBeNull();
+    const previewContainer = screen.getByTestId('standalone-html-preview');
+    expect(
+      previewContainer.querySelector('.conv-md-html-preview-bar')
+    ).toBeNull();
+    expect(screen.queryByTestId('html-preview-context-menu')).toBeNull();
+
     const frame = screen.getByTitle('HTML 预览');
     expect(frame).toHaveAttribute(
       'srcdoc',
       expect.stringContaining('<p>hi</p>')
     );
-    expect(screen.queryByRole('button', { name: '源码' })).toBeNull();
+
+    fireEvent.contextMenu(previewContainer, { clientX: 48, clientY: 48 });
+    const menu = screen.getByTestId('html-preview-context-menu');
+    expect(menu).toBeTruthy();
     expect(screen.getByTestId('html-preview-open-tab')).toHaveTextContent(
-      /liquid-glass.*\.html/
+      '在标签页打开'
     );
+    expect(screen.getByTestId('html-preview-copy-path')).toHaveTextContent(
+      '复制绝对路径'
+    );
+    const expandItem = screen.getByTestId('html-preview-toggle-expand');
+    expect(expandItem).toHaveTextContent('展开');
+
+    fireEvent.click(expandItem);
+    expect(screen.queryByTestId('html-preview-context-menu')).toBeNull();
+    expect(previewContainer).toHaveAttribute('data-expanded', 'true');
+
+    fireEvent.contextMenu(previewContainer, { clientX: 48, clientY: 48 });
+    expect(screen.getByTestId('html-preview-toggle-expand')).toHaveTextContent(
+      '收起'
+    );
+
     expect(
       screen.getByTestId('collaboration-member-bubble-2')
     ).toHaveTextContent('后半段说明文字');
   });
 
-  it('caps overly long user and member messages with a lower-half fade and expands when clicking 展开全部', () => {
+  it('caps overly long user and member messages with a lower-half fade, expands on 展开全部, and collapses back on 收起全部', () => {
     const longText = Array.from(
       { length: 14 },
-      (_, idx) => `第 ${idx + 1} 行：这是一段用于测试单条消息最大高度限制与渐隐展开胶囊的长文本内容。`
+      (_, idx) =>
+        `第 ${idx + 1} 行：这是一段用于测试单条消息最大高度限制与渐隐展开胶囊的长文本内容。`
     ).join('\n');
 
     const { unmount } = render(
@@ -352,9 +377,17 @@ describe('messagePreviewText', () => {
 
     fireEvent.click(memberExpandPill);
     expect(memberCollapsible).toHaveAttribute('data-collapsed', 'false');
+    expect(screen.queryByTestId('collaboration-bubble-expand-pill')).toBeNull();
+    const memberCollapsePill = screen.getByTestId(
+      'collaboration-bubble-collapse-pill'
+    );
+    expect(memberCollapsePill).toHaveTextContent('收起全部');
+
+    fireEvent.click(memberCollapsePill);
+    expect(memberCollapsible).toHaveAttribute('data-collapsed', 'true');
     expect(
-      screen.queryByTestId('collaboration-bubble-expand-pill')
-    ).toBeNull();
+      screen.getByTestId('collaboration-bubble-expand-pill')
+    ).toHaveTextContent('展开全部');
     unmount();
 
     render(<SpaceMessageBody fromYou text={longText} />);
@@ -369,18 +402,21 @@ describe('messagePreviewText', () => {
 
     fireEvent.click(userExpandPill);
     expect(userCollapsible).toHaveAttribute('data-collapsed', 'false');
-    expect(
-      screen.queryByTestId('collaboration-bubble-expand-pill')
-    ).toBeNull();
+    expect(screen.queryByTestId('collaboration-bubble-expand-pill')).toBeNull();
+    const userCollapsePill = screen.getByTestId(
+      'collaboration-bubble-collapse-pill'
+    );
+    expect(userCollapsePill).toHaveTextContent('收起全部');
+
+    fireEvent.click(userCollapsePill);
+    expect(userCollapsible).toHaveAttribute('data-collapsed', 'true');
   });
 
   it('does not collapse short messages', () => {
     render(<SpaceMessageBody fromYou={false} text="短消息无需折叠" />);
     const collapsible = screen.getByTestId('collaboration-bubble-collapsible');
     expect(collapsible).toHaveAttribute('data-collapsed', 'false');
-    expect(
-      screen.queryByTestId('collaboration-bubble-expand-pill')
-    ).toBeNull();
+    expect(screen.queryByTestId('collaboration-bubble-expand-pill')).toBeNull();
   });
 });
 

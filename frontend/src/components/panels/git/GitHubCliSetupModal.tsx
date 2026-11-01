@@ -59,7 +59,9 @@ export function GitHubCliSetupModal({
           setAwaitingLogin(false);
           setActionMessage(
             nextStatus.username
-              ? i18n.t('panels:ui.ghSetup.signedInToGithubUsername', { username: nextStatus.username })
+              ? i18n.t('panels:ui.ghSetup.signedInToGithubUsername', {
+                  username: nextStatus.username,
+                })
               : i18n.t('panels:ui.ghSetup.signedInToGithub')
           );
           onConfigured?.();
@@ -68,7 +70,9 @@ export function GitHubCliSetupModal({
       } catch (err) {
         if (!silent) {
           setActionError(
-            err instanceof Error ? err.message : i18n.t('panels:ui.ghSetup.failedToCheckGithubCli')
+            err instanceof Error
+              ? err.message
+              : i18n.t('panels:ui.ghSetup.failedToCheckGithubCli')
           );
         }
         return null;
@@ -118,7 +122,9 @@ export function GitHubCliSetupModal({
         await versionControlApi.installGithubCli(effectiveHost);
       setStatus(nextStatus);
       if (nextStatus.gh_installed) {
-        setActionMessage(i18n.t('panels:ui.ghSetup.githubCliGhInstalledContinue'));
+        setActionMessage(
+          i18n.t('panels:ui.ghSetup.githubCliGhInstalledContinue')
+        );
       } else {
         setActionError(
           nextStatus.message ||
@@ -144,9 +150,7 @@ export function GitHubCliSetupModal({
       const effectiveHost = host.trim() || 'github.com';
       await versionControlApi.openGithubCliLogin(effectiveHost);
       setAwaitingLogin(true);
-      setActionMessage(
-        i18n.t('panels:ui.ghSetup.aSignInTerminalIs')
-      );
+      setActionMessage(i18n.t('panels:ui.ghSetup.aSignInTerminalIs'));
     } catch (err) {
       setActionError(
         err instanceof Error
@@ -231,14 +235,18 @@ export function GitHubCliSetupModal({
                     ) : (
                       <Download className="mr-1 h-3 w-3" />
                     )}
-                    {installing ? i18n.t('panels:ui.ghSetup.installing') : i18n.t('panels:ui.ghSetup.installGh')}
+                    {installing
+                      ? i18n.t('panels:ui.ghSetup.installing')
+                      : i18n.t('panels:ui.ghSetup.installGh')}
                   </Button>
                 )}
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground break-all">
               {ghInstalled
-                ? i18n.t('panels:ui.ghSetup.installedGhPath', { gh_path: status?.gh_path ?? 'gh' })
+                ? i18n.t('panels:ui.ghSetup.installedGhPath', {
+                    gh_path: status?.gh_path ?? 'gh',
+                  })
                 : i18n.t('panels:ui.ghSetup.githubCliNotFoundClick')}
             </p>
           </div>
@@ -271,13 +279,19 @@ export function GitHubCliSetupModal({
                 ) : (
                   <LogIn className="mr-1 h-3 w-3" />
                 )}
-                {authenticated ? i18n.t('panels:ui.ghSetup.signInAgain') : i18n.t('panels:ui.ghSetup.signInToGithub')}
+                {authenticated
+                  ? i18n.t('panels:ui.ghSetup.signInAgain')
+                  : i18n.t('panels:ui.ghSetup.signInToGithub')}
               </Button>
             </div>
 
             <p className="text-[11px] text-muted-foreground">
               {authenticated
-                ? i18n.t('panels:ui.ghSetup.signedInAsUsername', { username: status?.username ?? i18n.t('panels:ui.ghSetup.authorized') })
+                ? i18n.t('panels:ui.ghSetup.signedInAsUsername', {
+                    username:
+                      status?.username ??
+                      i18n.t('panels:ui.ghSetup.authorized'),
+                  })
                 : i18n.t('panels:ui.ghSetup.clickSignInToGithub')}
             </p>
 

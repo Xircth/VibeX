@@ -71,7 +71,9 @@ export function FollowUpConflictSection({
       {conflictResolutionInstructions && enableResolve && (
         <div className="text-sm mb-4">
           <div className="text-xs font-medium text-warning-foreground dark:text-warning mb-1">
-            {i18n.t('panels:ui.followUpConflict.conflictResolutionInstructions')}
+            {i18n.t(
+              'panels:ui.followUpConflict.conflictResolutionInstructions'
+            )}
           </div>
           <div className="whitespace-pre-wrap">
             {conflictResolutionInstructions}

@@ -93,6 +93,14 @@ impl AcpClientBridge {
             details.as_ref(),
             args.tool_call.fields.title.as_deref(),
         );
+        if let Some(question_schema) = interaction_question_from_permission(&args, &title) {
+            let elicitation = self
+                .wait_for_question(session_id, title, question_schema)
+                .await;
+            return Ok(RequestPermissionResponse::new(
+                interaction_permission_outcome_from_elicitation(elicitation, &args.options),
+            ));
+        }
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
@@ -109,6 +117,12 @@ impl AcpClientBridge {
                 })
                 .collect(),
         };
+
+        if let Some(response) = decide_companion_mcp_permission_response(&request) {
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
 
         let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
@@ -316,4 +330,314 @@ pub(in crate::manager) fn acp_request_must_run_off_dispatch_loop(request: &Agent
             | AgentRequest::CreateElicitationRequest(_)
             | AgentRequest::ExtMethodRequest(_)
     )
+}
+
+pub(in crate::manager) fn interaction_question_from_permission(
+    args: &RequestPermissionRequest,
+    title: &str,
+) -> Option<serde_json::Value> {
+    let call_id = args.tool_call.tool_call_id.0.as_ref().trim();
+    if !call_id.starts_with("interaction_") || args.options.is_empty() {
+        return None;
+    }
+    let prompt = {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            args.tool_call
+                .fields
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("请选择一个选项")
+        } else {
+            trimmed
+        }
+    };
+    let options = args
+        .options
+        .iter()
+        .map(|option| {
+            serde_json::json!({
+                "id": option.option_id.0.as_ref(),
+                "label": option.name,
+                "description": "",
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(crate::ext_question::question_schema([serde_json::json!({
+        "id": call_id,
+        "header": crate::ext_question::question_header(prompt, 0),
+        "question": prompt,
+        "multiSelect": false,
+        "options": options,
+    })]))
+}
+
+pub(in crate::manager) fn interaction_permission_outcome_from_elicitation(
+    response: AgentElicitationResponse,
+    options: &[acp::schema::v1::PermissionOption],
+) -> RequestPermissionOutcome {
+    match response {
+        AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel => {
+            RequestPermissionOutcome::Cancelled
+        }
+        AgentElicitationResponse::Accept { content } => {
+            let mut candidates: Vec<String> = crate::ext_question::answer_entries(&content)
+                .into_iter()
+                .flat_map(|(_, labels)| labels)
+                .map(|label| label.trim().to_string())
+                .filter(|label| !label.is_empty())
+                .collect();
+            if candidates.is_empty()
+                && let Some(obj) = content.as_object()
+            {
+                for (key, value) in obj {
+                    if key == "answers" || key == "outcome" || key == "declined" {
+                        continue;
+                    }
+                    match value {
+                        serde_json::Value::String(text) if !text.trim().is_empty() => {
+                            candidates.push(text.trim().to_string());
+                        }
+                        serde_json::Value::Array(items) => {
+                            for item in items {
+                                if let Some(text) = item.as_str()
+                                    && !text.trim().is_empty()
+                                {
+                                    candidates.push(text.trim().to_string());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            for candidate in &candidates {
+                if let Some(option) = options.iter().find(|option| {
+                    option.option_id.0.as_ref() == candidate
+                        || option.name.trim() == candidate
+                        || strip_recommended_affix(&option.name)
+                            == strip_recommended_affix(candidate)
+                }) {
+                    return RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                        option.option_id.clone(),
+                    ));
+                }
+            }
+
+            if let Some(custom_answer) = candidates.into_iter().next() {
+                return RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                    custom_answer,
+                ));
+            }
+
+            options
+                .first()
+                .map(|option| {
+                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                        option.option_id.clone(),
+                    ))
+                })
+                .unwrap_or(RequestPermissionOutcome::Cancelled)
+        }
+    }
+}
+
+fn strip_recommended_affix(label: &str) -> &str {
+    let trimmed = label.trim();
+    for prefix in ["(Recommended)", "(recommended)", "(推荐)"] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            let cleaned = rest.trim();
+            if !cleaned.is_empty() {
+                return cleaned;
+            }
+        }
+    }
+    for suffix in ["(Recommended)", "(recommended)", "(推荐)"] {
+        if let Some(rest) = trimmed.strip_suffix(suffix) {
+            let cleaned = rest.trim();
+            if !cleaned.is_empty() {
+                return cleaned;
+            }
+        }
+    }
+    trimmed
+}
+
+pub(in crate::manager) fn decide_companion_mcp_permission_response(
+    request: &AgentPermissionRequest,
+) -> Option<AgentPermissionResponse> {
+    if !is_companion_or_question_mcp_permission(request) {
+        return None;
+    }
+    request
+        .options
+        .iter()
+        .find(|option| option.kind == AgentPermissionOptionKind::AllowOnce)
+        .or_else(|| request.options.iter().find(|option| option.kind.is_allow()))
+        .map(|option| AgentPermissionResponse::selected(&option.id))
+}
+
+fn is_companion_or_question_mcp_permission(request: &AgentPermissionRequest) -> bool {
+    let title_lower = request.title.trim().to_ascii_lowercase();
+    if title_lower == "ask_user_question"
+        || title_lower == "ask_question"
+        || title_lower.ends_with("_ask_user_question")
+        || title_lower.ends_with("/ask_user_question")
+        || title_lower.starts_with("vibex-session-mcp_")
+        || title_lower.starts_with("vibex-delegation-mcp_")
+        || title_lower.starts_with("vibex-workflow-mcp_")
+    {
+        return true;
+    }
+
+    let Some(details) = request.details.as_ref() else {
+        return false;
+    };
+
+    for server_ptr in [
+        "/rawInput/ServerName",
+        "/rawInput/server_name",
+        "/rawInput/serverName",
+        "/_meta/mcp/server",
+    ] {
+        if let Some(server) = details.pointer(server_ptr).and_then(|v| v.as_str()) {
+            let normalized = server.trim().to_ascii_lowercase();
+            if matches!(
+                normalized.as_str(),
+                "vibex-session-mcp" | "vibex-delegation-mcp" | "vibex-workflow-mcp"
+            ) {
+                return true;
+            }
+        }
+    }
+
+    for tool_ptr in [
+        "/rawInput/ToolName",
+        "/rawInput/tool_name",
+        "/rawInput/toolName",
+        "/_meta/mcp/tool",
+        "/_meta/toolName",
+    ] {
+        if let Some(tool) = details.pointer(tool_ptr).and_then(|v| v.as_str()) {
+            let normalized = tool.trim().to_ascii_lowercase();
+            if normalized == "ask_user_question"
+                || normalized == "ask_question"
+                || normalized.ends_with("_ask_user_question")
+                || normalized.ends_with("/ask_user_question")
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_client_protocol::schema::v1::{
+        PermissionOption, ToolCallUpdate, ToolCallUpdateFields,
+    };
+
+    use super::*;
+
+    #[test]
+    fn interaction_permission_converts_into_question_schema_and_maps_selected_option() {
+        let mut fields = ToolCallUpdateFields::new();
+        fields = fields.title("您倾向于哪种 HTML 课件视觉风格？".to_string());
+        let tool_call = ToolCallUpdate::new("interaction_b8486ad3", fields);
+        let options = vec![
+            PermissionOption::new(
+                "1",
+                "(Recommended) 方案 A：极夜极客风",
+                PermissionOptionKind::AllowOnce,
+            ),
+            PermissionOption::new("2", "方案 B：现代学术白", PermissionOptionKind::AllowOnce),
+        ];
+        let req = RequestPermissionRequest::new("session-1", tool_call, options.clone());
+
+        let schema = interaction_question_from_permission(&req, "您倾向于哪种 HTML 课件视觉风格？")
+            .expect("interaction_ permission should convert to question schema");
+        let questions = schema["x-vibex-questions"]
+            .as_array()
+            .expect("x-vibex-questions array");
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0]["id"], "interaction_b8486ad3");
+        assert_eq!(questions[0]["question"], "您倾向于哪种 HTML 课件视觉风格？");
+        assert_eq!(questions[0]["options"].as_array().unwrap().len(), 2);
+
+        // User selects option 1 whose UI label stripped `(Recommended)` prefix and appended `(Recommended)` suffix:
+        let response = AgentElicitationResponse::Accept {
+            content: serde_json::json!({
+                "interaction_b8486ad3": "方案 A：极夜极客风",
+                "answers": [{
+                    "questionId": "interaction_b8486ad3",
+                    "selected": ["1"],
+                    "labels": ["方案 A：极夜极客风 (Recommended)"]
+                }]
+            }),
+        };
+        let outcome = interaction_permission_outcome_from_elicitation(response, &options);
+        assert_eq!(
+            outcome,
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new("1"))
+        );
+
+        // User enters custom write-in answer:
+        let custom_response = AgentElicitationResponse::Accept {
+            content: serde_json::json!({
+                "interaction_b8486ad3": "自定义深色主题",
+                "answers": [{
+                    "questionId": "interaction_b8486ad3",
+                    "selected": [],
+                    "labels": ["自定义深色主题"]
+                }]
+            }),
+        };
+        let custom_outcome =
+            interaction_permission_outcome_from_elicitation(custom_response, &options);
+        assert_eq!(
+            custom_outcome,
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new("自定义深色主题"))
+        );
+    }
+
+    #[test]
+    fn companion_mcp_and_ask_user_question_permissions_auto_approve_once() {
+        let request = AgentPermissionRequest {
+            id: AgentPermissionId::new(),
+            session_id: AgentSessionId::new(),
+            title: "Calling MCP tool".to_string(),
+            details: Some(serde_json::json!({
+                "toolCallId": "call_1",
+                "rawInput": {
+                    "ServerName": "vibex-delegation-mcp",
+                    "ToolName": "ask_user_question",
+                    "Arguments": { "questions": [] }
+                }
+            })),
+            options: vec![
+                AgentPermissionOption {
+                    id: "approve".to_string(),
+                    label: "Approve".to_string(),
+                    kind: AgentPermissionOptionKind::AllowOnce,
+                    description: None,
+                },
+                AgentPermissionOption {
+                    id: "deny".to_string(),
+                    label: "Deny".to_string(),
+                    kind: AgentPermissionOptionKind::RejectOnce,
+                    description: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            decide_companion_mcp_permission_response(&request),
+            Some(AgentPermissionResponse::selected("approve"))
+        );
+    }
 }

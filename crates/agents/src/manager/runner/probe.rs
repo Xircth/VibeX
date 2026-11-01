@@ -9,11 +9,25 @@ pub(in crate::manager) struct TurnOutputProbe {
     dropped_updates: std::sync::atomic::AtomicU64,
     first_dropped_tag: std::sync::Mutex<Option<String>>,
     first_dropped_error: std::sync::Mutex<Option<String>>,
+    adapter_turn_error: std::sync::Mutex<Option<String>>,
 }
 
 impl TurnOutputProbe {
     pub(in crate::manager) fn note_rendered(&self) {
         self.produced.store(true, Ordering::Release);
+    }
+
+    pub(in crate::manager) fn note_adapter_turn_error(&self, error: impl Into<String>) {
+        if let Ok(mut guard) = self.adapter_turn_error.lock() {
+            *guard = Some(sanitize_diagnostic(&error.into()));
+        }
+    }
+
+    pub(in crate::manager) fn adapter_turn_error(&self) -> Option<String> {
+        self.adapter_turn_error
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     pub(in crate::manager) fn record_agent_event(&self, event: &AgentEvent) {

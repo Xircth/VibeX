@@ -569,7 +569,11 @@ export function envelopeSenderRaw(
 }
 
 export function isSystemPartyName(value: string | null | undefined): boolean {
-  return String(value ?? '').trim().toLowerCase() === 'system';
+  return (
+    String(value ?? '')
+      .trim()
+      .toLowerCase() === 'system'
+  );
 }
 
 export function parseEnvelopePartyName(raw: unknown): string {
@@ -2332,4 +2336,3 @@ export function spaceSessionReducer(
       return state;
   }
 }
-

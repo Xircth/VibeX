@@ -85,4 +85,3 @@ describe('buildCollaborationUserMessageNavEntries', () => {
     ).toBe('3');
   });
 });
-

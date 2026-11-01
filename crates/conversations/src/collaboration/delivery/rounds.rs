@@ -123,17 +123,19 @@ pub fn space_turn_streaming_step(conversation_id: Uuid) -> Option<SpaceTurnStrea
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let entry = map.get(&conversation_id)?;
-    if !entry.text.trim().is_empty() {
+    let clean_text = strip_stray_pass_tokens(&entry.text);
+    if !clean_text.is_empty() && !is_pass_token(clean_text) {
         return Some(SpaceTurnStreamingStep {
             step_index: entry.step_index,
-            text: entry.text.clone(),
+            text: clean_text.to_string(),
             updated_at: entry.updated_at.clone(),
         });
     }
-    if !entry.flushing_text.trim().is_empty() {
+    let clean_flushing = strip_stray_pass_tokens(&entry.flushing_text);
+    if !clean_flushing.is_empty() && !is_pass_token(clean_flushing) {
         return Some(SpaceTurnStreamingStep {
             step_index: entry.flushing_step_index,
-            text: entry.flushing_text.clone(),
+            text: clean_flushing.to_string(),
             updated_at: entry.flushing_updated_at.clone(),
         });
     }

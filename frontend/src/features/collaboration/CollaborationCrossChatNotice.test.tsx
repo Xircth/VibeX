@@ -65,7 +65,9 @@ describe('CollaborationCrossChatNotice', () => {
     );
 
     expect(screen.getByText('已发送给')).toBeTruthy();
-    expect(screen.getByTestId('collaboration-cross-chat-peer-设计')).toBeTruthy();
+    expect(
+      screen.getByTestId('collaboration-cross-chat-peer-设计')
+    ).toBeTruthy();
     const avatar = screen.getByTestId(
       'collaboration-cross-chat-group-avatar-设计'
     );

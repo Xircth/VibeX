@@ -14,9 +14,7 @@ describe('builtin panel manifests', () => {
   it('declares exactly one app.panel manifest per builtin panel id', () => {
     const ids = BUILTIN_PANEL_MANIFESTS.map((manifest) => manifest.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(
-      [...Object.values(PANEL_IDS)].sort()
-    );
+    expect([...ids].sort()).toEqual([...Object.values(PANEL_IDS)].sort());
   });
 
   it('keeps ids, dock zones, multi-instance flags and titles unchanged', () => {
@@ -51,7 +49,10 @@ describe('builtin panel manifests', () => {
       expect(manifest.titleKey.startsWith('panelRegistry.')).toBe(true);
       const key = manifest.titleKey.slice('panelRegistry.'.length);
       for (const table of PANEL_REGISTRY_TABLES) {
-        expect(table[key], `${manifest.id} -> ${manifest.titleKey}`).toBeTruthy();
+        expect(
+          table[key],
+          `${manifest.id} -> ${manifest.titleKey}`
+        ).toBeTruthy();
       }
     }
   });

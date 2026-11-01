@@ -1064,7 +1064,10 @@ function LocalListPanel({
             className="flex flex-col gap-1.5 p-1"
           >
             {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className="h-11 w-full rounded-[var(--radius)]" />
+              <Skeleton
+                key={index}
+                className="h-11 w-full rounded-[var(--radius)]"
+              />
             ))}
           </div>
         ) : servers.length === 0 ? (
@@ -1209,7 +1212,10 @@ function MarketListPanel({
             className="flex flex-col gap-1.5 p-1"
           >
             {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className="h-11 w-full rounded-[var(--radius)]" />
+              <Skeleton
+                key={index}
+                className="h-11 w-full rounded-[var(--radius)]"
+              />
             ))}
           </div>
         ) : results.length === 0 ? (

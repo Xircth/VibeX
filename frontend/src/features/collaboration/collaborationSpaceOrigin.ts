@@ -23,19 +23,25 @@ export function collaborationSpaceOriginFromBlocks(
     const record = content as Record<string, unknown>;
     if (record.kind !== COLLABORATION_SPACE_ORIGIN_KIND) continue;
     const senderNickname =
-      typeof record.senderNickname === 'string' ? record.senderNickname.trim() : '';
+      typeof record.senderNickname === 'string'
+        ? record.senderNickname.trim()
+        : '';
     if (!senderNickname) continue;
     return {
       spaceId: typeof record.spaceId === 'string' ? record.spaceId : '',
-      threadKind: typeof record.threadKind === 'string' ? record.threadKind : '',
-      senderKind: typeof record.senderKind === 'string' ? record.senderKind : '',
+      threadKind:
+        typeof record.threadKind === 'string' ? record.threadKind : '',
+      senderKind:
+        typeof record.senderKind === 'string' ? record.senderKind : '',
       senderNickname,
       senderConversationId:
         typeof record.senderConversationId === 'string'
           ? record.senderConversationId
           : null,
       senderMemberId:
-        typeof record.senderMemberId === 'string' ? record.senderMemberId : null,
+        typeof record.senderMemberId === 'string'
+          ? record.senderMemberId
+          : null,
     };
   }
   return null;

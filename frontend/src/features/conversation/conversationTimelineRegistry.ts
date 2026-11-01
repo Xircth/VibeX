@@ -183,6 +183,7 @@ export type ConversationTimelineView = {
 };
 
 const listeners = new Set<() => void>();
+const listenersByConversation = new Map<string, Set<() => void>>();
 const slots = new Map<string, Slot>();
 const inflightBinds = new Map<string, Promise<unknown>>();
 const viewCache = new Map<
@@ -277,20 +278,55 @@ const EMPTY_VIEW: ConversationTimelineView = {
   connecting: false,
 };
 
-function notify(): void {
+function notify(conversationId?: string): void {
+  if (conversationId) {
+    const scoped = listenersByConversation.get(conversationId);
+    if (scoped) {
+      for (const listener of scoped) listener();
+    }
+  } else {
+    for (const scoped of listenersByConversation.values()) {
+      for (const listener of scoped) listener();
+    }
+  }
   for (const listener of listeners) listener();
+}
+
+function actionConversationId(
+  action: Parameters<typeof conversationStoreReducer>[1]
+): string | undefined {
+  return action.type === 'row_ops'
+    ? action.batch.conversation_id
+    : action.conversationId;
 }
 
 function dispatch(
   action: Parameters<typeof conversationStoreReducer>[1]
 ): void {
   state = conversationStoreReducer(state, action);
-  notify();
+  notify(actionConversationId(action));
 }
 
 export function subscribeConversationTimeline(
-  listener: () => void
+  listener: () => void,
+  conversationId?: string | null
 ): () => void {
+  if (conversationId) {
+    let bucket = listenersByConversation.get(conversationId);
+    if (!bucket) {
+      bucket = new Set();
+      listenersByConversation.set(conversationId, bucket);
+    }
+    bucket.add(listener);
+    return () => {
+      const current = listenersByConversation.get(conversationId);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        listenersByConversation.delete(conversationId);
+      }
+    };
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -467,6 +503,8 @@ export function retainConversationTimeline(conversationId: string): () => void {
     startController(conversationId, slot);
   } else if (slot.bindReady) {
     startKeepalive(conversationId, slot);
+  } else if (slot.controller) {
+    scheduleBind(conversationId, slot.controller);
   }
   let released = false;
   return () => {
@@ -484,6 +522,7 @@ export function resetConversationTimelineRegistryForTests(): void {
   factsCache.clear();
   state = emptyConversationStoreState;
   listeners.clear();
+  listenersByConversation.clear();
 }
 
 function releaseConversationTimeline(conversationId: string): void {
@@ -492,7 +531,7 @@ function releaseConversationTimeline(conversationId: string): void {
   slot.refs = Math.max(0, slot.refs - 1);
   if (slot.refs > 0) return;
   stopController(slot);
-  notify();
+  notify(conversationId);
   if (slot.surfaceRefs > 0) return;
   slots.delete(conversationId);
   viewCache.delete(conversationId);
@@ -547,12 +586,36 @@ function startController(conversationId: string, slot: Slot): void {
   );
   void listenToAgentEvents((envelope) => {
     if (controller.stopped || envelope.session_id !== conversationId) return;
-    if (envelope.event.kind !== 'session_bind_ready') return;
     const current = slots.get(conversationId);
     if (!current || current.refs <= 0) return;
-    current.bindReady = true;
-    notify();
-    startKeepalive(conversationId, current);
+    if (envelope.event.kind === 'session_bind_ready') {
+      current.bindReady = true;
+      notify(conversationId);
+      startKeepalive(conversationId, current);
+      return;
+    }
+    if (
+      (envelope.event.kind === 'session_created' &&
+        envelope.event.snapshot?.status === 'creating') ||
+      (envelope.event.kind === 'connection_status_changed' &&
+        envelope.event.snapshot?.status === 'connecting')
+    ) {
+      if (current.bindReady) {
+        current.bindReady = false;
+        notify(conversationId);
+      }
+      return;
+    }
+    if (
+      envelope.event.kind === 'session_created' &&
+      envelope.event.snapshot?.status === 'ready'
+    ) {
+      if (!current.bindReady) {
+        current.bindReady = true;
+        notify(conversationId);
+        startKeepalive(conversationId, current);
+      }
+    }
   }).then((unsubscribe) => {
     if (controller.stopped) {
       unsubscribe();
@@ -562,7 +625,7 @@ function startController(conversationId: string, slot: Slot): void {
   });
   controller.unsubscribeStore = subscribeConversationTimeline(() => {
     watchGap(conversationId, controller);
-  });
+  }, conversationId);
   void loadDetail(conversationId, controller);
 }
 
@@ -702,7 +765,7 @@ function flushPendingBatches(
     });
     watchGap(conversationId, controller);
   }
-  notify();
+  notify(conversationId);
   if (shouldReloadWindow && !controller.stopped) {
     void loadDetail(conversationId, controller);
   }
@@ -810,7 +873,7 @@ function beginBind(conversationId: string): void {
         controls,
       });
       current.bindReady = true;
-      notify();
+      notify(conversationId);
       startKeepalive(conversationId, current);
     })
     .catch((error: unknown) => {
@@ -818,7 +881,7 @@ function beginBind(conversationId: string): void {
       if (!current || current.refs <= 0) return;
       if (isStaleAgentConnectionError(error)) return;
       current.bindReady = false;
-      notify();
+      notify(conversationId);
       report(conversationId, error);
     })
     .finally(() => {
@@ -887,7 +950,7 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
   const slot = slots.get(conversationId);
   if (!slot?.controller) return;
   slot.bindReady = false;
-  notify();
+  notify(conversationId);
   try {
     const controls = await conversationApi.ensureSessionControls(
       conversationId,
@@ -901,7 +964,7 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
       controls,
     });
     current.bindReady = true;
-    notify();
+    notify(conversationId);
     startKeepalive(conversationId, current);
     if (current.controller)
       await loadDetail(conversationId, current.controller);
@@ -909,7 +972,7 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
     const current = slots.get(conversationId);
     if (!current || current.refs <= 0) return;
     current.bindReady = false;
-    notify();
+    notify(conversationId);
     report(conversationId, error);
   }
 }

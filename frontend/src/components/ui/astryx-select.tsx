@@ -293,7 +293,13 @@ export function AstryxSelect({
           <span
             role="button"
             tabIndex={disabled ? -1 : 0}
-            aria-label={ariaLabel ? i18n.t('panels:ui.select.arialabelClear', { ariaLabel: ariaLabel }) : i18n.t('panels:ui.select.clear')}
+            aria-label={
+              ariaLabel
+                ? i18n.t('panels:ui.select.arialabelClear', {
+                    ariaLabel: ariaLabel,
+                  })
+                : i18n.t('panels:ui.select.clear')
+            }
             className="astryx-select-clear"
             onClick={(event) => {
               event.stopPropagation();

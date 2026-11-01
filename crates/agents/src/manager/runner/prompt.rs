@@ -135,7 +135,9 @@ impl AgentConnectionRunner {
                                 &self.stderr_tail,
                                 stderr_mark,
                             );
-                            let stop_label = if turn_failure.is_some() {
+                            let stop_label = if turn_probe.adapter_turn_error().is_some() {
+                                "error".to_string()
+                            } else if turn_failure.is_some() {
                                 finish_turn_reason(
                                     &response.stop_reason,
                                     turn_probe.has_output(),
@@ -277,10 +279,13 @@ impl AgentConnectionRunner {
                 }
                 command = cmd_rx.recv() => {
                     match command {
-                        Some(AgentConnectionCommand::Cancel { session_id: cancel_session, prompt_id: cancel_prompt })
-                            if cancel_session == session_id && cancel_prompt == prompt_id =>
-                        {
+                        Some(AgentConnectionCommand::Cancel {
+                            session_id: cancel_session,
+                            prompt_id: cancel_prompt,
+                            result_tx,
+                        }) if cancel_session == session_id && cancel_prompt == prompt_id => {
                             self.cancel_pending_interactions(session_id).await;
+                            let mut extra_cancel_txs: Vec<oneshot::Sender<bool>> = Vec::new();
                             let acknowledged = if conn
                                 .send_notification(CancelNotification::new(SessionId::new(
                                     acp_session_id.clone(),
@@ -298,7 +303,7 @@ impl AgentConnectionRunner {
                                 tokio::pin!(cancel_deadline);
                                 loop {
                                     tokio::select! {
-                                        result = &mut prompt_future => break result.is_ok(),
+                                        _ = &mut prompt_future => break true,
                                         _ = &mut cancel_deadline => break false,
                                         command = cmd_rx.recv() => {
                                             match command {
@@ -326,9 +331,18 @@ impl AgentConnectionRunner {
                                                             },
                                                         },
                                                     );
+                                                    let _ = result_tx.send(false);
+                                                    for tx in extra_cancel_txs {
+                                                        let _ = tx.send(false);
+                                                    }
                                                     return Ok(RunPromptOutcome::Closed);
                                                 }
-                                                Some(AgentConnectionCommand::Cancel { .. }) => {}
+                                                Some(AgentConnectionCommand::Cancel {
+                                                    result_tx: extra_tx,
+                                                    ..
+                                                }) => {
+                                                    extra_cancel_txs.push(extra_tx);
+                                                }
                                                 Some(AgentConnectionCommand::Prompt {
                                                     session_id: rejected_session,
                                                     prompt_id: rejected_prompt,
@@ -424,6 +438,10 @@ impl AgentConnectionRunner {
                                     timeout_secs = CANCEL_ACKNOWLEDGEMENT_TIMEOUT.as_secs(),
                                     "session/cancel was not acknowledged; relaunching the agent connection"
                                 );
+                            }
+                            let _ = result_tx.send(acknowledged);
+                            for tx in extra_cancel_txs {
+                                let _ = tx.send(acknowledged);
                             }
                             return Ok(if acknowledged {
                                 RunPromptOutcome::Settled
@@ -621,14 +639,20 @@ impl AgentConnectionRunner {
                                 .await;
                             let _ = result_tx.send(result);
                         }
-                        Some(other) => {
+                        Some(AgentConnectionCommand::Cancel {
+                            session_id: cancel_session,
+                            prompt_id: cancel_prompt,
+                            result_tx,
+                        }) => {
+                            let _ = result_tx.send(true);
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
                                 AgentEvent::RawAcpDiagnostic {
                                     raw: serde_json::json!({
-                                        "kind": "ignored_command_during_active_prompt",
-                                        "command": format!("{other:?}"),
+                                        "kind": "ignored_cancel_for_inactive_prompt",
+                                        "cancel_session_id": cancel_session,
+                                        "cancel_prompt_id": cancel_prompt,
                                     }),
                                 },
                             );

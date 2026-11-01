@@ -117,7 +117,9 @@ export const GitCommitBox = memo(function GitCommitBox({
               e.stopPropagation();
               handleGenerateMessage();
             }}
-            title={i18n.t('panels:ui.gitCommit.generateCommitMessageFromStaged')}
+            title={i18n.t(
+              'panels:ui.gitCommit.generateCommitMessageFromStaged'
+            )}
             type="button"
           >
             <Sparkles className="h-3.5 w-3.5" />

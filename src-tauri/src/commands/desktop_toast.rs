@@ -171,12 +171,9 @@ fn schedule_desktop_toast_idle_cleanup(app: &tauri::AppHandle) {
             let app_for_close = app.clone();
             let _ = app.run_on_main_thread(move || {
                 let state = app_for_close.state::<crate::state::AppState>();
-                let still_idle = state
-                    .desktop_toast_state
-                    .try_lock()
-                    .is_ok_and(|runtime| {
-                        runtime.idle_generation == generation && runtime.pending.is_empty()
-                    });
+                let still_idle = state.desktop_toast_state.try_lock().is_ok_and(|runtime| {
+                    runtime.idle_generation == generation && runtime.pending.is_empty()
+                });
                 if !still_idle {
                     return;
                 }

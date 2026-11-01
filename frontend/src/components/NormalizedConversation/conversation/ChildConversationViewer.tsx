@@ -314,7 +314,9 @@ function ChildInlineSideRow({
   if (row.kind === 'feedback_request') {
     return (
       <div className="rounded-md border border-violet-300/50 bg-violet-50 px-3 py-2 text-xs text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/25 dark:text-violet-100">
-        <div className="font-medium">{i18n.t('panels:ui.childConversation.feedbackRequested')}</div>
+        <div className="font-medium">
+          {i18n.t('panels:ui.childConversation.feedbackRequested')}
+        </div>
         <div className="mt-1 whitespace-pre-wrap break-words text-violet-800/80 dark:text-violet-100/75">
           {row.request.prompt}
         </div>

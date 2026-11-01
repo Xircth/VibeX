@@ -47,8 +47,37 @@ pub(crate) fn is_user_target_name(raw: &str) -> bool {
         || trimmed == "用户"
 }
 
+pub(crate) fn strip_stray_pass_tokens(text: &str) -> &str {
+    let mut s = text.trim();
+    loop {
+        if let Some(prefix) = s.get(..6)
+            && prefix.eq_ignore_ascii_case("[PASS]")
+        {
+            let rest = s[6..].trim_start();
+            if rest.is_empty() {
+                return s;
+            }
+            s = rest;
+            continue;
+        }
+        if s.len() >= 6
+            && let Some(suffix) = s.get(s.len() - 6..)
+            && suffix.eq_ignore_ascii_case("[PASS]")
+        {
+            let rest = s[..s.len() - 6].trim_end();
+            if rest.is_empty() {
+                return s;
+            }
+            s = rest;
+            continue;
+        }
+        break;
+    }
+    s
+}
+
 pub(crate) fn is_pass_token(text: &str) -> bool {
-    text.trim().eq_ignore_ascii_case("[PASS]")
+    strip_stray_pass_tokens(text).eq_ignore_ascii_case("[PASS]")
 }
 
 pub(crate) fn is_bot_space(space_id: &str) -> bool {
@@ -76,13 +105,15 @@ pub(crate) fn recipient_display_name(raw: &str) -> String {
 }
 
 /// Strip a leading `BotName:` / `BotName：` / `@BotName` prefix when the bot
-/// restates its own nickname at the start of a space reply.
+/// restates its own nickname at the start of a space reply, as well as any
+/// stray `[PASS]` tokens concatenated from intermediate wait steps.
 pub(crate) fn strip_own_nickname_prefix(text: &str, nickname: &str) -> String {
+    let cleaned = strip_stray_pass_tokens(text);
     let nick = nickname.trim();
     if nick.is_empty() {
-        return text.trim().to_string();
+        return cleaned.to_string();
     }
-    let trimmed = text.trim_start();
+    let trimmed = cleaned.trim_start();
     let at_prefix = format!("@{nick}");
     if let Some(rest) = trimmed.strip_prefix(at_prefix.as_str()) {
         let after = rest.chars().next();
@@ -92,16 +123,16 @@ pub(crate) fn strip_own_nickname_prefix(text: &str, nickname: &str) -> String {
                 .strip_prefix(':')
                 .or_else(|| rest.strip_prefix('：'))
                 .unwrap_or(rest);
-            return rest.trim().to_string();
+            return strip_stray_pass_tokens(rest).to_string();
         }
     }
     if let Some(rest) = trimmed.strip_prefix(nick) {
         let rest = rest.trim_start_matches([' ', '\t']);
         if let Some(rest) = rest.strip_prefix(':').or_else(|| rest.strip_prefix('：')) {
-            return rest.trim().to_string();
+            return strip_stray_pass_tokens(rest).to_string();
         }
     }
-    text.trim().to_string()
+    cleaned.to_string()
 }
 
 fn first_mention_index(content: &str, name: &str) -> Option<usize> {
@@ -1819,6 +1850,7 @@ mod tests {
         assert!(is_pass_token("[PASS]"));
         assert!(is_pass_token("  [pass]  "));
         assert!(is_pass_token("[Pass]"));
+        assert!(is_pass_token("[PASS]\n[PASS]"));
         assert!(!is_pass_token("[PASS] 还有一句"));
         assert!(!is_pass_token("好的"));
     }
@@ -1846,6 +1878,15 @@ mod tests {
             "@小B 请看登录"
         );
         assert_eq!(strip_own_nickname_prefix("小A做完了", "小A"), "小A做完了");
+        assert_eq!(
+            strip_own_nickname_prefix("[PASS]已将原则升级", "Skill专员"),
+            "已将原则升级"
+        );
+        assert_eq!(
+            strip_own_nickname_prefix("[PASS]\n已将原则升级\n[PASS]", "Skill专员"),
+            "已将原则升级"
+        );
+        assert_eq!(strip_own_nickname_prefix("[PASS]", "Skill专员"), "[PASS]");
     }
 
     #[test]

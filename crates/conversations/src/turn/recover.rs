@@ -123,6 +123,10 @@ impl ConversationSessionService {
             return Ok(());
         };
         let pool = &self.ctx.deployment.db().pool;
+        if let Some((_, prompt_id)) = cancel_target {
+            let _ =
+                ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt_id.to_string()).await;
+        }
         self.append_event(
             conversation_id,
             Some(turn_id),

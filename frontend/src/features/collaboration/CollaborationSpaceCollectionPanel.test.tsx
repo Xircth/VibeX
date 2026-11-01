@@ -176,14 +176,10 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
       screen.getByTestId('collaboration-assets-segmented')
     ).toBeInTheDocument();
     expect(
-      screen
-        .getByTestId('collaboration-assets-tab-memory')
-        .querySelector('svg')
+      screen.getByTestId('collaboration-assets-tab-memory').querySelector('svg')
     ).toBeTruthy();
     expect(
-      screen
-        .getByTestId('collaboration-assets-tab-topics')
-        .querySelector('svg')
+      screen.getByTestId('collaboration-assets-tab-topics').querySelector('svg')
     ).toBeTruthy();
     expect(
       screen
@@ -192,14 +188,18 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
     ).toBeTruthy();
 
     // Open add-memory card and verify it is rendered inside the list container
-    await user.click(screen.getByTestId('collaboration-memory-add-fact-toggle'));
+    await user.click(
+      screen.getByTestId('collaboration-memory-add-fact-toggle')
+    );
     const addFactForm = screen.getByTestId(
       'collaboration-memory-add-fact-form'
     );
     expect(
       screen.getByTestId('collaboration-collection-list')
     ).toContainElement(addFactForm);
-    await user.click(screen.getByTestId('collaboration-memory-add-fact-toggle'));
+    await user.click(
+      screen.getByTestId('collaboration-memory-add-fact-toggle')
+    );
 
     expect(screen.getByTestId('collaboration-memory-budget')).toHaveTextContent(
       '128 / 3000'

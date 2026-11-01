@@ -605,7 +605,9 @@ mod tests {
     }
 
     fn executable(path: &Path) {
-        file(path);
+        if !path.exists() {
+            file(path);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

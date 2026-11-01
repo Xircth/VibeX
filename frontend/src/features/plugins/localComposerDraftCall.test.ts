@@ -3,7 +3,9 @@ import { handleLocalComposerDraftCall } from './PluginRuntimeLoader';
 
 describe('handleLocalComposerDraftCall', () => {
   it('draft.target reports availability under `available`', () => {
-    expect(handleLocalComposerDraftCall('conversation', 'draft.target', {})).toEqual({
+    expect(
+      handleLocalComposerDraftCall('conversation', 'draft.target', {})
+    ).toEqual({
       conversationId: null,
       available: false,
     });
@@ -19,7 +21,9 @@ describe('handleLocalComposerDraftCall', () => {
 
   it('defers calls that carry a conversationId to the backend', () => {
     expect(
-      handleLocalComposerDraftCall('conversation', 'draft.target', { conversationId: 'c1' })
+      handleLocalComposerDraftCall('conversation', 'draft.target', {
+        conversationId: 'c1',
+      })
     ).toBeNull();
   });
 });

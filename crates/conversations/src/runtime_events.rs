@@ -905,7 +905,7 @@ async fn resolve_agent_event_turn_id(
             if let Some(turn) =
                 ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, &prompt_id).await?
             {
-                return Ok(Some(turn.id));
+                return Ok(is_in_flight_turn_status(&turn.status).then_some(turn.id));
             }
             let Some(active_id) = in_flight_active_turn_id(pool, conversation_id).await? else {
                 return Ok(None);
@@ -935,7 +935,11 @@ async fn resolve_agent_event_turn_id(
 /// in-flight Turn they resolve to `None` rather than falling back to the conversation's
 /// latest Turn.
 fn binds_only_to_in_flight_turn(event: &AgentEvent) -> bool {
-    is_turn_scoped_content(event) || matches!(event, AgentEvent::Error { .. })
+    is_turn_scoped_content(event)
+        || matches!(
+            event,
+            AgentEvent::Error { .. } | AgentEvent::TurnCompleted { .. }
+        )
 }
 
 fn is_unpersisted_conversation_event(event: &ConversationEvent) -> bool {
@@ -958,33 +962,51 @@ pub(crate) fn space_turn_conclusion_text(
         .iter()
         .rposition(|block| matches!(block, agents::ContentBlock::ToolUse { .. }));
     let join_text = |slice: &[agents::ContentBlock]| {
-        slice
+        let non_pass: Vec<&str> = slice
+            .iter()
+            .filter_map(|block| match block {
+                agents::ContentBlock::Text { text } => {
+                    let cleaned = crate::collaboration::strip_stray_pass_tokens(text);
+                    if cleaned.is_empty() || crate::collaboration::is_pass_token(cleaned) {
+                        None
+                    } else {
+                        Some(cleaned)
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        if !non_pass.is_empty() {
+            return crate::collaboration::strip_stray_pass_tokens(&non_pass.join("\n")).to_string();
+        }
+        let raw = slice
             .iter()
             .filter_map(|block| match block {
                 agents::ContentBlock::Text { text } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n");
+        crate::collaboration::strip_stray_pass_tokens(&raw).to_string()
     };
+    let clean_leftover =
+        || crate::collaboration::strip_stray_pass_tokens(leftover_step_text).to_string();
     match last_tool {
         Some(idx) => {
             let after_tool = join_text(&blocks[idx + 1..]);
             if !after_tool.trim().is_empty() {
                 after_tool
             } else {
-                leftover_step_text.to_string()
+                clean_leftover()
             }
         }
-        None if had_tool_call && !leftover_step_text.trim().is_empty() => {
-            leftover_step_text.to_string()
-        }
+        None if had_tool_call && !leftover_step_text.trim().is_empty() => clean_leftover(),
         None => {
             let joined = join_text(blocks);
             if !joined.trim().is_empty() {
                 joined
             } else {
-                leftover_step_text.to_string()
+                clean_leftover()
             }
         }
     }
@@ -1008,7 +1030,9 @@ fn is_turn_scoped_content(event: &AgentEvent) -> bool {
         | AgentEvent::PermissionRequested { .. }
         | AgentEvent::ElicitationRequested { .. }
         | AgentEvent::TerminalCreated { .. }
-        | AgentEvent::TerminalOutput { .. } => true,
+        | AgentEvent::TerminalOutput { .. }
+        | AgentEvent::PromptFinished { .. }
+        | AgentEvent::TurnCompleted { .. } => true,
         _ => false,
     }
 }
@@ -3168,5 +3192,80 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn late_cancelled_prompt_finished_does_not_cancel_next_queued_turn() {
+        let pool = setup_pool().await;
+        let prompt_1 = AgentPromptId::new();
+        let prompt_2 = AgentPromptId::new();
+        let (conversation_id, turn_1) =
+            seed_conversation_turn(&pool, &prompt_1.to_string(), "first turn").await;
+        ConversationTurnRecord::mark_cancelled(&pool, turn_1, Some("user cancelled"))
+            .await
+            .expect("cancel turn 1");
+
+        let turn_2 = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some(&prompt_2.to_string()),
+                text_preview: Some("queued turn"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2")
+        .id;
+        ConversationTurnRecord::mark_running(&pool, turn_2)
+            .await
+            .expect("mark turn 2 running");
+        ConversationRecord::update_active_turn(&pool, conversation_id, Some(turn_2))
+            .await
+            .expect("set active turn to turn 2");
+
+        let mut recorder = super::ConversationAgentEventRecorder {
+            pool: pool.clone(),
+            deployment: None,
+            conversation_context: None,
+            event_publisher: None,
+            coalescer: super::ConversationEventCoalescer::default(),
+            active_turn_cache: std::collections::HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: std::collections::HashMap::new(),
+            turn_had_tool_call: std::collections::HashSet::new(),
+            turn_db_lookups: 0,
+        };
+
+        let late_cancel = AgentEventEnvelope {
+            sequence: 20,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId(conversation_id)),
+            event: AgentEvent::PromptFinished {
+                finished: agents::AgentPromptFinished {
+                    prompt_id: prompt_1,
+                    stop_reason: Some("cancelled".to_string()),
+                    usage: None,
+                },
+            },
+            created_at: Utc::now(),
+        };
+
+        let batch = recorder
+            .record(&late_cancel)
+            .await
+            .expect("record late PromptFinished for turn 1");
+        assert!(
+            batch.events.is_empty(),
+            "late PromptFinished for already-cancelled turn 1 must be dropped so it cannot settle turn 2"
+        );
+
+        let turn_2_record = ConversationTurnRecord::find_by_id(&pool, turn_2)
+            .await
+            .expect("fetch turn 2")
+            .expect("turn 2 exists");
+        assert_eq!(turn_2_record.status, "running");
     }
 }

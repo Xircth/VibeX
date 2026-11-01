@@ -40,7 +40,9 @@ export function collapseTurnSegments(
     const item = items[index]!;
     if (!isAskQuestionTurnItem(item)) continue;
     if (index > cursor) {
-      segments.push(...collapseSlice(items.slice(cursor, index), cursor, false));
+      segments.push(
+        ...collapseSlice(items.slice(cursor, index), cursor, false)
+      );
     }
     segments.push({
       kind: 'items',

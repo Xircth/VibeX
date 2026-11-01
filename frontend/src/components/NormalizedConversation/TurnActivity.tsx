@@ -1163,7 +1163,9 @@ export function hasMatchingAskQuestionTool(
     }
   }
   if (askToolUses.length === 0) return false;
-  if (askToolUses.some((use) => doesToolUseMatchQuestionRequest(use, request))) {
+  if (
+    askToolUses.some((use) => doesToolUseMatchQuestionRequest(use, request))
+  ) {
     return true;
   }
   return (

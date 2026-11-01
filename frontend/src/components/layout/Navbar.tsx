@@ -164,7 +164,9 @@ export function Navbar() {
                     </DropdownMenuItem>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled>{i18n.t('panels:ui.navbar.noProjects')}</DropdownMenuItem>
+                  <DropdownMenuItem disabled>
+                    {i18n.t('panels:ui.navbar.noProjects')}
+                  </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -191,7 +193,10 @@ export function Navbar() {
                     size="icon"
                     className="h-9 w-9"
                     onClick={handleCreateSession}
-                    aria-label={i18n.t('panels:workspaceSessionList.newSession', { defaultValue: 'New session' })}
+                    aria-label={i18n.t(
+                      'panels:workspaceSessionList.newSession',
+                      { defaultValue: 'New session' }
+                    )}
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -211,7 +216,9 @@ export function Navbar() {
                 variant="ghost"
                 size="icon"
                 className="h-9 w-9"
-                aria-label={i18n.t('panels:shellA11y.settings', { defaultValue: 'Settings' })}
+                aria-label={i18n.t('panels:shellA11y.settings', {
+                  defaultValue: 'Settings',
+                })}
                 onClick={openSettings}
               >
                 <Settings className="h-4 w-4" />

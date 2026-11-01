@@ -186,7 +186,9 @@ export class WebTransport implements BackendTransport {
           closed = true;
           if (!subscription) return;
           subscription.queue.close();
-          if (this.subscriptions.get(request.subscription_id) === subscription) {
+          if (
+            this.subscriptions.get(request.subscription_id) === subscription
+          ) {
             this.subscriptions.delete(request.subscription_id);
             if (this.socket?.readyState === WebSocket.OPEN) {
               this.socket.send(
@@ -207,7 +209,8 @@ export class WebTransport implements BackendTransport {
             if (!subscription) {
               subscription = {
                 request,
-                cursor: 'after_sequence' in request ? request.after_sequence : 0n,
+                cursor:
+                  'after_sequence' in request ? request.after_sequence : 0n,
                 queue: new AsyncEventQueue(),
               };
               this.subscriptions.set(request.subscription_id, subscription);

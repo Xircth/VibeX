@@ -602,7 +602,10 @@ export function LogsSettings() {
                   className="flex flex-col gap-1.5 p-1"
                 >
                   {Array.from({ length: 5 }, (_, index) => (
-                    <Skeleton key={index} className="h-5 w-full rounded-[var(--radius)]" />
+                    <Skeleton
+                      key={index}
+                      className="h-5 w-full rounded-[var(--radius)]"
+                    />
                   ))}
                 </div>
               ) : visible.length === 0 ? (

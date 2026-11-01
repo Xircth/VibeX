@@ -428,7 +428,9 @@ export const GitBranchList = memo(function GitBranchList({
                   <div className="my-0.5 flex items-center gap-1 rounded-md bg-muted/30 px-2 py-1.5">
                     <input
                       className="flex-1 bg-background/50 border border-border/50 rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
-                      placeholder={i18n.t('panels:ui.gitBranches.newBranchName')}
+                      placeholder={i18n.t(
+                        'panels:ui.gitBranches.newBranchName'
+                      )}
                       value={newBranchName}
                       onChange={(e) => setNewBranchName(e.target.value)}
                       onKeyDown={handleKeyDown}

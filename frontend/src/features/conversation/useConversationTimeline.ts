@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import {
   getConversationSessionFacts,
   getConversationTimelineView,
@@ -16,8 +16,13 @@ export function useConversationTimeline(
   options?: { active?: boolean }
 ): UseConversationTimelineResult {
   const isActive = options?.active ?? true;
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      subscribeConversationTimeline(onStoreChange, conversationId),
+    [conversationId]
+  );
   const snapshot = useSyncExternalStore(
-    subscribeConversationTimeline,
+    subscribe,
     () => getConversationTimelineView(conversationId),
     () => getConversationTimelineView(conversationId)
   );
@@ -35,8 +40,13 @@ export function useConversationTimeline(
 export function useConversationSessionFacts(
   conversationId: string | null
 ): ConversationSessionFacts {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      subscribeConversationTimeline(onStoreChange, conversationId),
+    [conversationId]
+  );
   return useSyncExternalStore(
-    subscribeConversationTimeline,
+    subscribe,
     () => getConversationSessionFacts(conversationId),
     () => getConversationSessionFacts(conversationId)
   );

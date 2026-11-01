@@ -1,8 +1,6 @@
 import { Clock } from 'lucide-react';
 
-import {
-  PopoverContent,
-} from '@/components/ui/popover';
+import { PopoverContent } from '@/components/ui/popover';
 import i18n from '@/i18n';
 
 import { DelayedMessageCountdown } from './CollaborationSpaceChrome';

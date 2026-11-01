@@ -149,7 +149,9 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::Cancel {
                     session_id,
                     prompt_id,
+                    result_tx,
                 } => {
+                    self.cancel_pending_interactions(session_id).await;
                     if let Some(acp_session_id) =
                         self.session_map.read().await.get(&session_id).cloned()
                     {
@@ -167,6 +169,7 @@ impl AgentConnectionRunner {
                             },
                         },
                     );
+                    let _ = result_tx.send(true);
                 }
                 AgentConnectionCommand::Steer { result_tx, .. } => {
                     let _ = result_tx.send(Err(AgentError::SteeringUnsupported));

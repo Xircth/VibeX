@@ -1,11 +1,16 @@
 import {
+  bindExternalStoreHook,
   type CapturedInternalMessage,
   dispatchCapturedInternalMessage,
   serviceContainer,
   useThemes,
 } from '@vibex/plugin-sdk';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef } from 'react';
+import * as React from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+
+(globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
+bindExternalStoreHook(useSyncExternalStore);
 
 import { toast } from '@/components/ui/toast';
 

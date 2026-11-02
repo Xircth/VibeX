@@ -1,7 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { bindExternalStoreHook } from '@vibex/plugin-sdk';
 import App from './App.tsx';
 // CSS is now imported by design scope components (LegacyDesignScope, NewDesignScope)
+
+(globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
+bindExternalStoreHook(React.useSyncExternalStore);
 
 import {
   QueryClient,

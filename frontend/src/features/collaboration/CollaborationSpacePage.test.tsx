@@ -749,15 +749,17 @@ describe('CollaborationSpacePage', () => {
 
     const menu = await screen.findByTestId('composer-at-reference-menu');
     expect(menu).toBeVisible();
-    expect(screen.getByRole('tab', { name: /助手/ })).toHaveAttribute(
+    expect(within(menu).getByRole('tab', { name: /助手/ })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(screen.getByRole('option', { name: /全体成员/ })).toBeVisible();
-    expect(screen.queryByRole('option', { name: /^全体$/ })).toBeNull();
-    expect(screen.queryByRole('option', { name: /你/ })).toBeNull();
+    expect(
+      within(menu).getByRole('option', { name: /全体成员/ })
+    ).toBeVisible();
+    expect(within(menu).queryByRole('option', { name: /^全体$/ })).toBeNull();
+    expect(within(menu).queryByRole('option', { name: /你/ })).toBeNull();
 
-    await user.click(screen.getByRole('option', { name: /小A/ }));
+    await user.click(within(menu).getByRole('option', { name: /小A/ }));
     await user.type(editor, '请看 diff');
     await user.click(screen.getByRole('button', { name: '发送' }));
 

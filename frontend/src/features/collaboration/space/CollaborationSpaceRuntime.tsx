@@ -93,7 +93,7 @@ import {
   listenCollaborationSpaceChanged,
 } from '../collaborationApi';
 import {
-  SpaceComposerDraftStore,
+  sharedSpaceComposerDraftStore,
   spaceComposerDraftKey,
 } from '../spaceComposerDrafts';
 import {
@@ -329,8 +329,14 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
 
   const [session, sessionDispatch] = useReducer(
     spaceSessionReducer,
-    INITIAL_SPACE_SESSION_STATE
+    workspace,
+    (initialWorkspace) =>
+      sharedSpaceComposerDraftStore.getWorkspaceSession(initialWorkspace) ??
+      INITIAL_SPACE_SESSION_STATE
   );
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionWorkspaceRef = useRef(workspace);
   const selectedId = session.selectedId;
   const selectedMemberKey = session.selectedMemberKey;
   const activeDirect = session.activeDirect;
@@ -660,14 +666,23 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   );
 
   // Composer & Dockview preview state
-  const [draft, setDraft] = useState('');
+  const initialDraftKey = spaceComposerDraftKey(
+    selectedId,
+    activeDirect?.threadId ?? null,
+    workspace
+  );
+  const [draft, setDraft] = useState(
+    () => sharedSpaceComposerDraftStore.get(initialDraftKey).text
+  );
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  const composerDraftsRef = useRef(new SpaceComposerDraftStore());
+  const composerDraftsRef = useRef(sharedSpaceComposerDraftStore);
+  const activeDraftKeyRef = useRef(initialDraftKey);
   const [attachedImages, setAttachedImages] = useState<
     SessionComposerImageAttachment[]
-  >([]);
-  const attachedImagesRef = useRef<SessionComposerImageAttachment[]>([]);
+  >(() => sharedSpaceComposerDraftStore.get(initialDraftKey).images);
+  const attachedImagesRef =
+    useRef<SessionComposerImageAttachment[]>(attachedImages);
   attachedImagesRef.current = attachedImages;
   const sentAttachmentsRef = useRef<SessionComposerImageAttachment[]>([]);
   const replaceDraftRef = useRef<((next: string) => void) | null>(null);
@@ -1959,16 +1974,61 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   const loadedMemberSpaceKeyRef = useRef('');
   const bootstrappedDefaultBotWorkspaceRef = useRef('');
   useEffect(() => {
+    if (sessionWorkspaceRef.current !== workspace) {
+      if (activeDraftKeyRef.current) {
+        composerDraftsRef.current.remember(
+          {
+            text: draftRef.current,
+            images: attachedImagesRef.current,
+          },
+          activeDraftKeyRef.current
+        );
+      }
+      if (sessionWorkspaceRef.current && sessionRef.current.selectedId) {
+        composerDraftsRef.current.rememberWorkspaceSession(
+          sessionWorkspaceRef.current,
+          sessionRef.current
+        );
+      }
+      const restoredSession =
+        composerDraftsRef.current.getWorkspaceSession(workspace) ??
+        INITIAL_SPACE_SESSION_STATE;
+      sessionWorkspaceRef.current = workspace;
+      selectedIdRef.current = restoredSession.selectedId;
+      directThreadRef.current =
+        restoredSession.activeDirect?.threadId ?? null;
+      sessionDispatch({
+        type: 'apply',
+        apply: () => restoredSession,
+      });
+      const nextDraftKey = spaceComposerDraftKey(
+        restoredSession.selectedId,
+        restoredSession.activeDirect?.threadId ?? null,
+        workspace
+      );
+      const restoredDraft = composerDraftsRef.current.switchThread(
+        nextDraftKey,
+        {
+          text: draftRef.current,
+          images: attachedImagesRef.current,
+        },
+        activeDraftKeyRef.current
+      );
+      activeDraftKeyRef.current = nextDraftKey;
+      draftRef.current = restoredDraft.text;
+      attachedImagesRef.current = restoredDraft.images;
+      setDraft(restoredDraft.text);
+      replaceDraftRef.current?.(restoredDraft.text);
+      setAttachedImages(restoredDraft.images);
+    }
     overlayOpenedByUserRef.current = false;
     loadedMemberSpaceKeyRef.current = '';
     bootstrappedDefaultBotWorkspaceRef.current = '';
     inFlightConversationsRef.current = null;
     inFlightRolesAndAgentsRef.current = null;
     disposePreviewDockviewListeners();
-    setExpanded({});
     setMembersBySpace({});
     setMessagesBySpace({});
-    setSelectedMemberKey('');
     setPreviewTabs([]);
     setActivePreviewTabId('');
     previewDockviewApiRef.current = null;
@@ -2009,7 +2069,17 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         const next = page.spaces ?? [];
         setSpaces(next);
         if (next.length > 0) {
-          setSelectedId((current) => current || next[0]?.space_id || '');
+          setSelectedId((current) => {
+            if (
+              current &&
+              (current.startsWith('direct:') ||
+                current.startsWith('unassigned:') ||
+                next.some((item) => item.space_id === current))
+            ) {
+              return current;
+            }
+            return next[0]?.space_id || '';
+          });
           return;
         }
         const targetUnassignedId = unassignedSpaceId(workspace);
@@ -2229,7 +2299,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   ]);
 
   useEffect(() => {
-    if (!workspace) return;
+    if (!workspace || sessionWorkspaceRef.current !== workspace) return;
     const ids = openSpaceKey ? openSpaceKey.split('\n').filter(Boolean) : [];
     const allSpaceIds = spaces.map((space) => space.space_id);
     const memberIds = Array.from(
@@ -2887,44 +2957,76 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   }, [markSpaceInReviewMembersViewed, messages, selectedId]);
 
   useEffect(() => {
-    composerDraftsRef.current.remember({
-      text: draft,
-      images: attachedImages,
-    });
-  }, [attachedImages, draft]);
-
-  useEffect(() => {
+    if (sessionWorkspaceRef.current !== workspace) return;
     setMessages([]);
     setScheduledMessages([]);
     setSpaceQueuedMessages([]);
     setEditingSpaceMessageId(null);
     setHoveredDelayedMemberKey(null);
     setReceiptsBySeq({});
+    const nextDraftKey = spaceComposerDraftKey(
+      selectedId,
+      activeDirectThreadId,
+      workspace
+    );
     const restored = composerDraftsRef.current.switchThread(
-      spaceComposerDraftKey(selectedId, activeDirectThreadId),
+      nextDraftKey,
       {
         text: draftRef.current,
         images: attachedImagesRef.current,
-      }
+      },
+      activeDraftKeyRef.current
     );
+    activeDraftKeyRef.current = nextDraftKey;
+    draftRef.current = restored.text;
+    attachedImagesRef.current = restored.images;
     setDraft(restored.text);
     replaceDraftRef.current?.(restored.text);
     setAttachedImages(restored.images);
     setError('');
     setOperationId(crypto.randomUUID());
-  }, [activeDirectThreadId, selectedId, setMessages, setScheduledMessages]);
+  }, [
+    activeDirectThreadId,
+    selectedId,
+    setMessages,
+    setScheduledMessages,
+    workspace,
+  ]);
+
+  useEffect(() => {
+    if (sessionWorkspaceRef.current !== workspace) return;
+    if (!activeDraftKeyRef.current) return;
+    composerDraftsRef.current.remember(
+      {
+        text: draftRef.current,
+        images: attachedImagesRef.current,
+      },
+      activeDraftKeyRef.current
+    );
+  }, [attachedImages, draft, workspace]);
+
+  useEffect(() => {
+    if (!workspace || sessionWorkspaceRef.current !== workspace) return;
+    if (!session.selectedId) return;
+    composerDraftsRef.current.rememberWorkspaceSession(workspace, session);
+  }, [session, workspace]);
 
   useEffect(
     () => () => {
-      const seen = new Set<string>();
-      for (const image of [
-        ...attachedImagesRef.current,
-        ...composerDraftsRef.current.allImages(),
-      ]) {
-        const url = image.previewUrl;
-        if (!url || seen.has(url)) continue;
-        seen.add(url);
-        revokeComposerImagePreviewUrl(image);
+      if (activeDraftKeyRef.current) {
+        composerDraftsRef.current.remember(
+          {
+            text: draftRef.current,
+            images: attachedImagesRef.current,
+          },
+          activeDraftKeyRef.current
+        );
+      }
+      if (sessionWorkspaceRef.current && sessionRef.current.selectedId) {
+        composerDraftsRef.current.rememberWorkspaceSession(
+          sessionWorkspaceRef.current,
+          sessionRef.current
+        );
       }
     },
     []

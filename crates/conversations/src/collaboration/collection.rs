@@ -223,7 +223,8 @@ pub fn is_team_space_collection_file(path: &std::path::Path) -> bool {
     let components = collection_path_components(path);
     if components.len() >= 4
         && components[0].eq_ignore_ascii_case("spaces")
-        && components[2].eq_ignore_ascii_case("collection")
+        && (components[2].eq_ignore_ascii_case("collection")
+            || components[2].eq_ignore_ascii_case("topics"))
     {
         return true;
     }

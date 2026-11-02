@@ -18,6 +18,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   History,
   Link2,
   Pencil,
@@ -27,7 +28,9 @@ import {
   X,
 } from 'lucide-react';
 
+import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { AttachmentFileCard } from '@/components/NormalizedConversation/attachments/AttachmentFileCard';
+import '@/components/previews/markdownFileProse.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -1658,6 +1661,8 @@ export function CollaborationSpaceCollectionDockviewPanel(
                       const topicSummary =
                         topicItem.summary ?? topicItem.preview ?? '';
                       const topicBody = topicItem.content ?? topicSummary;
+                      const topicFilePath =
+                        topicItem.filePath ?? topicItem.file_path ?? '';
                       return (
                         <div
                           key={topicItem.topic}
@@ -1683,6 +1688,35 @@ export function CollaborationSpaceCollectionDockviewPanel(
                                   topicBody.length}{' '}
                                 字
                               </span>
+                              {topicFilePath ? (
+                                <button
+                                  type="button"
+                                  className="collaboration-collection-open-tab-btn"
+                                  aria-label={i18n.t(
+                                    'panels:ui.collection.openInTab'
+                                  )}
+                                  title={i18n.t(
+                                    'panels:ui.collection.openInTab'
+                                  )}
+                                  data-testid={`memory-topic-open-tab-${topicItem.topic}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    panelActions?.openFilePreview(
+                                      topicFilePath,
+                                      {
+                                        displayPath:
+                                          topicItem.title ||
+                                          `${topicItem.topic}.md`,
+                                      }
+                                    );
+                                  }}
+                                >
+                                  <ExternalLink
+                                    className="h-3 w-3"
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 className="collaboration-collection-copy-btn"
@@ -1731,10 +1765,14 @@ export function CollaborationSpaceCollectionDockviewPanel(
                             </p>
                           ) : (
                             <div
-                              className="collaboration-collection-text-content mt-1.5"
+                              className="collaboration-collection-text-content collaboration-collection-markdown-preview mt-1.5"
                               data-testid={`memory-topic-content-${topicItem.topic}`}
                             >
-                              {topicBody}
+                              <AstryxMarkdown
+                                className="markdown-file-prose"
+                                value={topicBody}
+                                workspacePath={workspacePath}
+                              />
                             </div>
                           )}
                         </div>
@@ -1770,6 +1808,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 const itemKind = item.item_kind ?? item.kind ?? 'file';
                 const itemName = item.file_name ?? item.name ?? '';
                 const itemReads = item.read_receipts ?? item.reads ?? [];
+                const itemTextPreview =
+                  item.text_content ??
+                  (item as SpaceCollectionItemRecord & { text_preview?: string })
+                    .text_preview ??
+                  itemName;
                 const kindLabel =
                   itemKind === 'image'
                     ? i18n.t('panels:ui.collection.image')
@@ -1825,6 +1868,28 @@ export function CollaborationSpaceCollectionDockviewPanel(
                         >
                           {kindLabel}
                         </span>
+                        {itemKind === 'text' && item.file_path ? (
+                          <button
+                            type="button"
+                            className="collaboration-collection-open-tab-btn"
+                            data-testid={`collection-item-open-tab-${item.id}`}
+                            aria-label={i18n.t(
+                              'panels:ui.collection.openInTab'
+                            )}
+                            title={i18n.t('panels:ui.collection.openInTab')}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              panelActions?.openFilePreview(item.file_path, {
+                                displayPath: itemName || undefined,
+                              });
+                            }}
+                          >
+                            <ExternalLink
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
+                          </button>
+                        ) : null}
                         {itemKind === 'text' || itemKind === 'image' ? (
                           <button
                             type="button"
@@ -1889,8 +1954,15 @@ export function CollaborationSpaceCollectionDockviewPanel(
                           data-testid={`collection-item-content-${item.id}`}
                         >
                           {itemKind === 'text' ? (
-                            <div className="collaboration-collection-text-content">
-                              {item.text_content ?? itemName}
+                            <div
+                              className="collaboration-collection-text-content collaboration-collection-markdown-preview"
+                              data-testid={`collection-item-markdown-preview-${item.id}`}
+                            >
+                              <AstryxMarkdown
+                                className="markdown-file-prose"
+                                value={itemTextPreview}
+                                workspacePath={workspacePath}
+                              />
                             </div>
                           ) : itemKind === 'image' ? (
                             <SpaceCollectionImagePreview

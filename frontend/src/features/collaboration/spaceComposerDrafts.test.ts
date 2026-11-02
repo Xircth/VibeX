@@ -61,4 +61,69 @@ describe('SpaceComposerDraftStore', () => {
     });
     expect(store.allImages()).toEqual([shot]);
   });
+
+  it('scopes draft keys by workspace when workspaceId is provided', () => {
+    expect(spaceComposerDraftKey('s1', null, 'workspace-1')).toBe(
+      'workspace-1::s1'
+    );
+    expect(spaceComposerDraftKey('s1', 'direct:m1', 'workspace-1')).toBe(
+      'workspace-1::direct:m1'
+    );
+    expect(spaceComposerDraftKey('', null, 'workspace-1')).toBe('');
+  });
+
+  it('restores stored draft on remount when previousKey is empty and persists across storage', () => {
+    const backing = new Map<string, string>();
+    const mockStorage = {
+      get length() {
+        return backing.size;
+      },
+      clear: () => backing.clear(),
+      getItem: (key: string) => backing.get(key) ?? null,
+      key: (index: number) => [...backing.keys()][index] ?? null,
+      removeItem: (key: string) => {
+        backing.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        backing.set(key, value);
+      },
+    } satisfies Storage;
+
+    const firstMountStore = new SpaceComposerDraftStore(mockStorage);
+    firstMountStore.switchThread(
+      'workspace-1::s1',
+      { text: '', images: [] },
+      ''
+    );
+    firstMountStore.remember(
+      { text: 'unsent draft before page switch', images: [] },
+      'workspace-1::s1'
+    );
+    firstMountStore.rememberWorkspaceSession('workspace-1', {
+      selectedId: 's1',
+      selectedMemberKey: '',
+      activeDirect: null,
+      expanded: { s1: true },
+      error: '',
+    });
+
+    const remountedStore = new SpaceComposerDraftStore(mockStorage);
+    expect(remountedStore.getWorkspaceSession('workspace-1')).toEqual({
+      selectedId: 's1',
+      selectedMemberKey: '',
+      activeDirect: null,
+      expanded: { s1: true },
+      error: '',
+    });
+    expect(
+      remountedStore.switchThread(
+        'workspace-1::s1',
+        { text: '', images: [] },
+        ''
+      )
+    ).toEqual({
+      text: 'unsent draft before page switch',
+      images: [],
+    });
+  });
 });

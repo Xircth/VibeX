@@ -92,7 +92,14 @@ describe('collaboration group and assistant details width', () => {
     expect(display['word-break']?.value).toBe('break-word');
   });
 
-  it('keeps collection copy and delete icon buttons backgroundless', () => {
+  it('keeps collection open-tab, copy, and delete icon buttons backgroundless', () => {
+    const openTab = declarationsFor('.collaboration-collection-open-tab-btn');
+    expect(openTab.background?.value).toBe('transparent');
+    expect(openTab['background-color']?.value ?? 'transparent').toBe(
+      'transparent'
+    );
+    expect(openTab.border?.value).toBe('none');
+
     const copy = declarationsFor('.collaboration-collection-copy-btn');
     expect(copy.background?.value).toBe('transparent');
     expect(copy['background-color']?.value ?? 'transparent').toBe(

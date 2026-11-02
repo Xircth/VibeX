@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   act,
   fireEvent,
@@ -15,6 +16,7 @@ import { sessionsApi } from '@/lib/api';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import { CollaborationSpacePage } from './CollaborationSpacePage';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
+import { resetSharedSpaceComposerDrafts } from './spaceComposerDrafts';
 import { mentionNicknames, strayMentions } from './spaceModel';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
@@ -182,6 +184,7 @@ function getComposerEditor(): HTMLDivElement {
 
 describe('CollaborationSpacePage', () => {
   beforeEach(() => {
+    resetSharedSpaceComposerDrafts();
     useCollaborationLayoutStore.setState({
       isSpacesVisible: true,
       isThreadVisible: true,
@@ -1269,6 +1272,131 @@ describe('CollaborationSpacePage', () => {
       );
     });
     expect(getComposerEditor()).toHaveTextContent('keep-this-draft');
+  });
+
+  it('keeps composer draft when unmounting and remounting the page (switching pages)', async () => {
+    const user = userEvent.setup();
+    const firstMount = renderPage('workspace-1');
+    await screen.findByTestId('composer-current-space');
+    const editor = getComposerEditor();
+    await user.click(editor);
+    await user.type(editor, 'draft-across-page-switch');
+    expect(editor).toHaveTextContent('draft-across-page-switch');
+
+    firstMount.unmount();
+
+    renderPage('workspace-1');
+    await screen.findByTestId('composer-current-space');
+    await waitFor(() => {
+      expect(getComposerEditor()).toHaveTextContent('draft-across-page-switch');
+    });
+  });
+
+  it('keeps composer draft when switching projects and switching back', async () => {
+    const user = userEvent.setup();
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        const ws = String(input?.workspaceId ?? '');
+        if (method === 'space.list') {
+          return {
+            spaces:
+              ws === 'workspace-2'
+                ? [{ space_id: 's2-w2', name: '项目二空间' }]
+                : [{ space_id: 's1-w1', name: '项目一空间' }],
+          };
+        }
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              ws === 'workspace-2'
+                ? {
+                    kind: 'group',
+                    thread_id: 's2-w2',
+                    space_id: 's2-w2',
+                    name: '项目二空间',
+                    last_message: null,
+                    unread_count: 0,
+                    member_count: 1,
+                  }
+                : {
+                    kind: 'group',
+                    thread_id: 's1-w1',
+                    space_id: 's1-w1',
+                    name: '项目一空间',
+                    last_message: null,
+                    unread_count: 0,
+                    member_count: 1,
+                  },
+            ],
+          };
+        }
+        if (method === 'space.listMembers') {
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return { messages: [] };
+        }
+        return {};
+      }
+    );
+
+    let setActiveWorkspaceId: ((next: string) => void) | null = null;
+    function ProjectSwitchHost() {
+      const [wsId, setWsId] = useState('workspace-1');
+      setActiveWorkspaceId = setWsId;
+      return (
+        <HotkeysProvider initiallyActiveScopes={['dialog']}>
+          <CollaborationSpacePage workspaceId={wsId} />
+        </HotkeysProvider>
+      );
+    }
+
+    render(<ProjectSwitchHost />);
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '项目一空间'
+      );
+    });
+    const editor1 = getComposerEditor();
+    await user.click(editor1);
+    await user.type(editor1, 'draft-in-project-1');
+    expect(editor1).toHaveTextContent('draft-in-project-1');
+
+    act(() => {
+      setActiveWorkspaceId?.('workspace-2');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '项目二空间'
+      );
+    });
+    expect(getComposerEditor()).toHaveTextContent('');
+
+    act(() => {
+      setActiveWorkspaceId?.('workspace-1');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+        '项目一空间'
+      );
+    });
+    await waitFor(() => {
+      expect(getComposerEditor()).toHaveTextContent('draft-in-project-1');
+    });
   });
 
   it('keeps composer images with the space that attached them', async () => {

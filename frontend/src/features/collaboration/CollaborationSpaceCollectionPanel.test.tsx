@@ -33,6 +33,14 @@ vi.mock('./GroupDetailsUsageTab', () => ({
   GroupDetailsUsageTab: () => <div data-testid="usage-tab" />,
 }));
 
+const openFilePreviewMock = vi.hoisted(() => vi.fn(() => 'opened' as const));
+
+vi.mock('@/contexts/PanelActionsContext', () => ({
+  useOptionalPanelActionsContext: () => ({
+    openFilePreview: openFilePreviewMock,
+  }),
+}));
+
 function renderPanel(overrides: Partial<SpaceCollectionPanelParams> = {}) {
   const params: SpaceCollectionPanelParams = {
     spaceId: 's1',
@@ -52,6 +60,7 @@ function renderPanel(overrides: Partial<SpaceCollectionPanelParams> = {}) {
 describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / Collection)', () => {
   beforeEach(() => {
     collaborationCall.mockReset();
+    openFilePreviewMock.mockClear();
     collaborationCall.mockImplementation(
       async (
         _capability: string,
@@ -68,10 +77,10 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
               {
                 id: 'col-1',
                 kind: 'text',
-                name: '接口规范说明',
-                relative_path: 'text/spec.txt',
-                file_path: '~/.vibex/spaces/s1/collection/text/spec.txt',
-                text_preview: '统一使用 camelCase 命名字段',
+                name: 'api-spec.md',
+                relative_path: 'api-spec.md',
+                file_path: 'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
+                text_content: '### 接口规范说明\n\n- 统一使用 **camelCase** 命名字段',
                 note: 'API 约定',
                 created_at: '2026-10-30T09:00:00Z',
                 read_receipts: [],
@@ -108,9 +117,10 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 topic: 'deploy-flow',
                 title: '部署流程',
                 preview: '先跑 check 再发布到 staging',
+                content: '## 部署步骤\n\n1. 先跑 **check** 再发布到 staging',
                 charCount: 64,
                 updatedAt: '2026-10-30T09:06:00Z',
-                filePath: '~/.vibex/spaces/s1/topics/deploy-flow.md',
+                filePath: 'C:/Users/test/.vibex/spaces/s1/topics/deploy-flow.md',
               },
             ],
             journal: [
@@ -253,6 +263,28 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
     expect(
       screen.getByTestId('collaboration-collection-dropzone')
     ).toBeInTheDocument();
+
+    // Verify Markdown preview view renders formatted HTML instead of raw markdown source
+    const previewContainer = screen.getByTestId(
+      'collection-item-markdown-preview-col-1'
+    );
+    expect(previewContainer.querySelector('h3')).toHaveTextContent(
+      '接口规范说明'
+    );
+    expect(previewContainer.querySelector('strong')).toHaveTextContent(
+      'camelCase'
+    );
+
+    // Verify Open in Tab button is immediately to the left of Copy button and opens file preview tab
+    const openTabBtn = screen.getByTestId('collection-item-open-tab-col-1');
+    const copyBtn = screen.getByTestId('collection-item-copy-col-1');
+    expect(openTabBtn.nextElementSibling).toBe(copyBtn);
+
+    await user.click(openTabBtn);
+    expect(openFilePreviewMock).toHaveBeenCalledWith(
+      'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
+      { displayPath: 'api-spec.md' }
+    );
 
     const indexToggle = screen.getByTestId(
       'collection-item-index-toggle-col-1'

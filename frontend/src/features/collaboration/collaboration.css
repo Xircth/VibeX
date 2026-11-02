@@ -3652,6 +3652,7 @@ body.is-dragging-collaboration-member * {
   font-weight: 500;
 }
 
+.collaboration-collection-open-tab-btn,
 .collaboration-collection-copy-btn,
 .collaboration-collection-delete-btn {
   display: inline-flex;
@@ -3662,6 +3663,19 @@ body.is-dragging-collaboration-member * {
   padding: 0;
   border-radius: var(--radius);
   cursor: pointer;
+}
+
+.collaboration-collection-open-tab-btn {
+  border: none;
+  background: transparent;
+  background-color: transparent;
+  color: var(--text-muted);
+}
+
+.collaboration-collection-open-tab-btn:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: transparent;
+  background-color: transparent;
 }
 
 .collaboration-collection-copy-btn {
@@ -3690,12 +3704,14 @@ body.is-dragging-collaboration-member * {
   background-color: transparent;
 }
 
+.collaboration-collection-open-tab-btn:disabled,
 .collaboration-collection-copy-btn:disabled,
 .collaboration-collection-delete-btn:disabled {
   cursor: default;
   opacity: 0.45;
 }
 
+.collaboration-collection-open-tab-btn:focus-visible,
 .collaboration-collection-copy-btn:focus-visible,
 .collaboration-collection-delete-btn:focus-visible {
   outline: 2px solid var(--border-strong);
@@ -3751,6 +3767,10 @@ body.is-dragging-collaboration-member * {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.collaboration-collection-text-content.collaboration-collection-markdown-preview {
+  white-space: normal;
 }
 
 .collaboration-collection-image-wrap {

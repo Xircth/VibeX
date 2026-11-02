@@ -26,12 +26,14 @@ export function AgentQuestionCard({
   responding = false,
   mode = 'interactive',
   answers = null,
+  onQuestionIndexChange,
 }: {
   request: ConversationQuestionRequest;
   onRespond?: (questionId: string, response: AgentElicitationResponse) => void;
   responding?: boolean;
   mode?: 'interactive' | 'readonly';
   answers?: Record<string, QuestionAnswerState> | null;
+  onQuestionIndexChange?: (index: number) => void;
 }) {
   const { t, i18n } = useTranslation(['conversation']);
   const questions = useMemo(() => questionTabsFromRequest(request), [request]);
@@ -57,6 +59,10 @@ export function AgentQuestionCard({
   if (mode === 'readonly') {
     const question = questions[activeIndex] ?? questions[0];
     if (!question) return null;
+    const updateReadonlyIndex = (nextIndex: number) => {
+      setActiveIndex(nextIndex);
+      onQuestionIndexChange?.(nextIndex);
+    };
     return (
       <div
         className="agent-question-detail"
@@ -70,7 +76,7 @@ export function AgentQuestionCard({
               className="agent-question-detail-pager-btn"
               aria-label={t('questionRequestCard.previous')}
               disabled={activeIndex === 0}
-              onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+              onClick={() => updateReadonlyIndex(Math.max(0, activeIndex - 1))}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -83,8 +89,8 @@ export function AgentQuestionCard({
               aria-label={t('questionRequestCard.next')}
               disabled={activeIndex >= questions.length - 1}
               onClick={() =>
-                setActiveIndex((index) =>
-                  Math.min(questions.length - 1, index + 1)
+                updateReadonlyIndex(
+                  Math.min(questions.length - 1, activeIndex + 1)
                 )
               }
             >
@@ -288,7 +294,9 @@ function QuestionFields({
   const disabled = readonly || responding;
   return (
     <div className="agent-question-fields">
-      <p className="agent-question-card-prompt">{question.question}</p>
+      {!readonly ? (
+        <p className="agent-question-card-prompt">{question.question}</p>
+      ) : null}
       <div
         className="agent-question-options"
         role={question.multiSelect ? 'group' : 'radiogroup'}

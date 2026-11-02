@@ -606,6 +606,14 @@ pub(crate) async fn insert_space_log(
     }
 }
 
+pub(crate) fn cross_chat_receipt_message_id(message_id: &str, dest_space_id: &str) -> String {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        format!("cross-chat-recv:{message_id}:{dest_space_id}").as_bytes(),
+    )
+    .to_string()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn project_cross_chat_receipts(
     pool: &SqlitePool,
@@ -619,26 +627,24 @@ pub(crate) async fn project_cross_chat_receipts(
     turn_delivery: &DeliveryContext,
 ) -> Result<(), CollaborationError> {
     for dest in dests {
-        let recv_id = Uuid::new_v5(
-            &Uuid::NAMESPACE_OID,
-            format!("cross-chat-recv:{message_id}:{dest}").as_bytes(),
-        )
-        .to_string();
-        let mut extra = Map::new();
-        extra.insert("crossChatReceivedFrom".to_string(), json!([received_from]));
-        let envelope = build_space_envelope(NewSpaceEnvelope {
-            id: &recv_id,
-            sender: actor,
-            to: Vec::new(),
-            content: "",
-            reply_to: None,
-            published,
-            summary: None,
-            conversation_id,
-            extra,
-        });
-        let _seq =
-            insert_space_log(pool, dest, &recv_id, &envelope, origin_kind, &recv_id, 0).await?;
+        let recv_id = cross_chat_receipt_message_id(message_id, dest);
+        if load_message_head(pool, &recv_id).await?.is_none() {
+            let mut extra = Map::new();
+            extra.insert("crossChatReceivedFrom".to_string(), json!([received_from]));
+            let envelope = build_space_envelope(NewSpaceEnvelope {
+                id: &recv_id,
+                sender: actor,
+                to: Vec::new(),
+                content: "",
+                reply_to: None,
+                published,
+                summary: None,
+                conversation_id,
+                extra,
+            });
+            let _seq =
+                insert_space_log(pool, dest, &recv_id, &envelope, origin_kind, &recv_id, 0).await?;
+        }
         if dest.starts_with(identity::DIRECT_PREFIX) {
             let dest_conv: Option<String> = sqlx::query_scalar(
                 r#"SELECT conversation_id FROM collaboration_thread_members

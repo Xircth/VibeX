@@ -3255,20 +3255,23 @@ async fn finalize_pass_token_does_not_post() {
     let a = Uuid::new_v4();
     create_session(&pool, a, workspace, Some("小A")).await;
     let space = space_of(&pool, a).await;
-    let posted = post_as(&pool, None, &space, "@小A 请看", &[]).await;
-    mark_processing(&pool, &posted.message_id, a).await;
-    finalize_space_turn_deliveries(&pool, a, "  [pass]  ", &DeliveryContext::default())
-        .await
-        .unwrap();
-    let receipts = list_message_receipts(&pool, &posted.message_id)
-        .await
-        .unwrap();
-    assert_eq!(receipts[0].state, "passed");
-    assert_eq!(receipts[0].outcome.as_deref(), Some("pass"));
+    for raw_pass in ["  [pass]  ", " `[PASS]` ", "```\n[PASS]\n```"] {
+        let posted = post_as(&pool, None, &space, "@小A 请看", &[]).await;
+        mark_processing(&pool, &posted.message_id, a).await;
+        finalize_space_turn_deliveries(&pool, a, raw_pass, &DeliveryContext::default())
+            .await
+            .unwrap();
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
+        assert_eq!(receipts[0].state, "passed");
+        assert_eq!(receipts[0].outcome.as_deref(), Some("pass"));
+    }
     let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
         .await
         .unwrap();
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 3);
+    assert!(messages.iter().all(|m| m.origin == "user"));
 }
 
 #[tokio::test]
@@ -4596,3 +4599,197 @@ async fn direct_space_card_post_does_not_mirror_raw_card_into_assistant_events()
         "direct-space card posts must not leak raw <card> XML into conversation_events as AssistantTextDelta"
     );
 }
+
+#[tokio::test]
+async fn cross_space_bot_message_recipient_reply_appears_in_recipient_space_and_sender_space() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+        .bind(workspace)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let created_a = host_create_space_member(
+        &pool,
+        HostCreateSpaceMember {
+            workspace_id: workspace,
+            space_id: None,
+            nickname: "小A".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: None,
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let created_b = host_create_space_member(
+        &pool,
+        HostCreateSpaceMember {
+            workspace_id: workspace,
+            space_id: None,
+            nickname: "小B".to_string(),
+            role_id: None,
+            agent_id: Some("codex".to_string()),
+            team_id: None,
+            persona_prompt: None,
+            mode_id: None,
+            config_values: None,
+            operation_id: Uuid::new_v4(),
+        },
+    )
+    .await
+    .unwrap();
+    let a_conv = Uuid::parse_str(created_a.conversation_id.as_deref().unwrap()).unwrap();
+    let b_conv = Uuid::parse_str(created_b.conversation_id.as_deref().unwrap()).unwrap();
+    let a_member = identity::binding_of_conversation(&pool, a_conv)
+        .await
+        .unwrap()
+        .expect("identity")
+        .member_id;
+    let b_member = identity::binding_of_conversation(&pool, b_conv)
+        .await
+        .unwrap()
+        .expect("identity")
+        .member_id;
+    let a_thread = identity::direct_thread_id(&a_member);
+    let b_thread = identity::direct_thread_id(&b_member);
+
+    // 1. User sends a task to Bot A in Bot A's space.
+    let (user_to_a, _, _) = post_direct_message_with(
+        &pool,
+        PostDirectMessage {
+            thread_id: a_thread.clone(),
+            content: "请找小B协助核对接口".to_string(),
+            summary: None,
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+    mark_processing(&pool, &user_to_a.message_id, a_conv).await;
+
+    // 2. Mid-turn, Bot A sends a cross-space message to Bot B.
+    let cross_posted = post_to_space_with(
+        &pool,
+        PostToSpace {
+            caller_id: Some(a_conv),
+            space_id: a_thread.clone(),
+            content: "@小B 请核对订单接口返回值".to_string(),
+            summary: None,
+            to: vec!["小B".to_string()],
+            in_reply_to: None,
+            operation_id: Uuid::new_v4(),
+        },
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    // Bot A finishes its turn and reports back to Person in Bot A's space.
+    finalize_space_turn_deliveries(
+        &pool,
+        a_conv,
+        "我已经联系小B协助核对订单接口。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let origin_dm = crate::collaboration_sidebar::list_dm_messages(&pool, a_conv, None, Some(50))
+        .await
+        .unwrap();
+    assert!(
+        origin_dm
+            .iter()
+            .any(|m| m.text.contains("请核对订单接口返回值")),
+        "Bot A's space must show the cross-space message sent to Bot B: {origin_dm:?}"
+    );
+    assert!(
+        origin_dm
+            .iter()
+            .any(|m| m.text.contains("我已经联系小B协助核对订单接口。")),
+        "Bot A's space must also show Bot A's own turn completion reply: {origin_dm:?}"
+    );
+
+    // 3. Bot B processes the cross-space delivery: streams, emits a mid-turn step, and finishes its turn.
+    mark_processing(&pool, &cross_posted.message_id, b_conv).await;
+    append_space_turn_streaming_text(b_conv, "收到，我将立即核对订单接口。", false);
+    let dest_streaming =
+        crate::collaboration_sidebar::list_dm_messages(&pool, b_conv, None, Some(50))
+            .await
+            .unwrap();
+    assert!(
+        dest_streaming.iter().any(|m| {
+            m.streaming == Some(true) && m.text.contains("收到，我将立即核对订单接口。")
+        }),
+        "Bot B's space must expose the streaming draft while processing a cross-space delivery: {dest_streaming:?}"
+    );
+
+    advance_space_turn_streaming_step(b_conv);
+    on_space_turn_tool_call(
+        &pool,
+        b_conv,
+        "收到，我将立即核对订单接口。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    finalize_space_turn_deliveries(
+        &pool,
+        b_conv,
+        "订单接口返回值已核对完毕，字段完全一致。",
+        &DeliveryContext::default(),
+    )
+    .await
+    .unwrap();
+
+    let dest_dm = crate::collaboration_sidebar::list_dm_messages(&pool, b_conv, None, Some(50))
+        .await
+        .unwrap();
+    let recv_pos = dest_dm
+        .iter()
+        .position(|m| {
+            m.text.is_empty()
+                && m.cross_chat_received_from
+                    .as_ref()
+                    .is_some_and(|v| v.to_string().contains("小A"))
+        })
+        .expect("Bot B's space must contain the cross-chat receipt from 小A");
+    let step_pos = dest_dm
+        .iter()
+        .position(|m| m.text == "收到，我将立即核对订单接口。")
+        .expect("Bot B's space must contain Bot B's mid-turn opening reply");
+    let final_pos = dest_dm
+        .iter()
+        .position(|m| m.text == "订单接口返回值已核对完毕，字段完全一致。")
+        .expect("Bot B's space must contain Bot B's final reply");
+    assert!(
+        recv_pos < step_pos && step_pos < final_pos,
+        "cross-chat receipt, mid-turn step, and final reply must appear in chronological order in Bot B's space (`{b_thread}`): {dest_dm:?}"
+    );
+
+    let cross_receipts = list_message_receipts(&pool, &cross_posted.message_id)
+        .await
+        .unwrap();
+    assert_eq!(cross_receipts.len(), 1);
+    assert_eq!(cross_receipts[0].state, "replied");
+    assert_eq!(cross_receipts[0].outcome.as_deref(), Some("sent"));
+}
+

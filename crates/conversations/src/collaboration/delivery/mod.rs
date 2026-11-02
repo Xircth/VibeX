@@ -10,8 +10,8 @@ pub use receipts::*;
 pub(crate) use row::*;
 pub use service::*;
 pub(crate) use service::{
-    last_completed_delivery_seq, round_speaking_order_line, split_missed_group_context,
-    working_peers_line,
+    last_completed_delivery_seq, resolve_turn_trigger_seq_in_space, round_speaking_order_line,
+    split_missed_group_context, working_peers_line,
 };
 
 #[cfg(test)]

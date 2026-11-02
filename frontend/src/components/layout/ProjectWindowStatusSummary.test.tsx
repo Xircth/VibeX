@@ -133,6 +133,47 @@ describe('ProjectWindowStatusSummary', () => {
     expect(screen.getByText('Running')).toBeInTheDocument();
   });
 
+  it('truncates long recent session titles to 20 characters and constrains popover width', () => {
+    useWindowProjectsStore.setState({
+      railVisible: false,
+      openProjectIds: ['project-alpha', 'project-beta'],
+      projectSnapshots: {
+        ...useWindowProjectsStore.getState().projectSnapshots,
+        'project-beta': snapshot({
+          recentSessions: [
+            {
+              sessionId: 'session-long',
+              workspaceId: 'ws-long',
+              taskId: 'task-long',
+              title: '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示',
+              statusLabel: 'Running',
+              visualState: 'loading',
+              subtitle: 'Claude · just now',
+              updatedAt: '2026-03-31T08:00:00Z',
+            },
+          ],
+        }),
+      },
+    });
+
+    render(<ProjectWindowStatusSummary />);
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: 'openProject:Beta' })
+    );
+
+    const truncatedTitle = screen.getByText(
+      '一二三四五六七八九十一二三四五六七八九十...'
+    );
+    expect(truncatedTitle).toBeInTheDocument();
+    expect(
+      screen.queryByText('一二三四五六七八九十一二三四五六七八九十超出的部分不应显示')
+    ).not.toBeInTheDocument();
+    const popoverContainer = truncatedTitle.closest('.w-72');
+    expect(popoverContainer).not.toBeNull();
+    expect(popoverContainer).toHaveClass('max-w-[calc(100vw-1rem)]');
+  });
+
   it('switches to the clicked project without opening the project rail', () => {
     render(<ProjectWindowStatusSummary />);
 

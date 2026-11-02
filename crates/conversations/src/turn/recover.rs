@@ -122,28 +122,49 @@ impl ConversationSessionService {
         let Some(turn_id) = turn_id else {
             return Ok(());
         };
-        let pool = &self.ctx.deployment.db().pool;
-        if let Some((_, prompt_id)) = cancel_target {
-            let _ =
-                ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt_id.to_string()).await;
+        let settled_here = {
+            let turn_lock = self.turn_lock(conversation_id).await;
+            let _turn_guard = turn_lock.lock().await;
+            let pool = &self.ctx.deployment.db().pool;
+            if let Some((_, prompt_id)) = cancel_target {
+                let _ =
+                    ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt_id.to_string())
+                        .await;
+            }
+            let still_in_flight = ConversationTurnRecord::find_by_id(pool, turn_id)
+                .await?
+                .is_some_and(|turn| is_in_flight_turn_status(&turn.status));
+            if still_in_flight {
+                self.append_event(
+                    conversation_id,
+                    Some(turn_id),
+                    "runtime",
+                    ConversationEvent::TurnCancelled {
+                        reason: reason.clone(),
+                    },
+                    Some(format!("turn:{turn_id}:cancelled")),
+                )
+                .await?;
+            }
+            if ConversationRecord::find_by_id(pool, conversation_id)
+                .await?
+                .and_then(|conversation| conversation.active_turn_id)
+                == Some(turn_id)
+            {
+                ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+            }
+            still_in_flight
+        };
+        if settled_here {
+            spawn_turn_end_collaboration_cleanup(self.ctx.clone(), conversation_id, false, None);
         }
-        self.append_event(
-            conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::TurnCancelled {
-                reason: reason.clone(),
-            },
-            Some(format!("turn:{turn_id}:cancelled")),
-        )
-        .await?;
-        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
-        spawn_turn_end_collaboration_cleanup(self.ctx.clone(), conversation_id, false, None);
         self.update_runtime_state(conversation_id, |state| {
-            state.turn_in_flight = false;
-            state.active_turn_id = None;
-            state.active_prompt_id = None;
-            state.recovery_status = reason;
+            if state.active_turn_id.is_none() || state.active_turn_id == Some(turn_id) {
+                state.turn_in_flight = false;
+                state.active_turn_id = None;
+                state.active_prompt_id = None;
+                state.recovery_status = reason;
+            }
         })
         .await;
         if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {

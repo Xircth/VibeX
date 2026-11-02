@@ -797,25 +797,45 @@ function mergeAssistantTurnData(
   };
 }
 
-function mergeAssistantBlocks(
+function isStructuredBlock(block: ContentBlock): boolean {
+  return (
+    block.type === 'tool_use' ||
+    block.type === 'tool_result' ||
+    block.type === 'plan'
+  );
+}
+
+function findMatchingStructuredBlockIndex(
+  blocks: ContentBlock[],
+  candidate: ContentBlock
+): number {
+  if (candidate.type === 'tool_use' && candidate.tool_use_id) {
+    return blocks.findIndex(
+      (b) => b.type === 'tool_use' && b.tool_use_id === candidate.tool_use_id
+    );
+  }
+  if (candidate.type === 'tool_result' && candidate.tool_use_id) {
+    return blocks.findIndex(
+      (b) =>
+        (b.type === 'tool_result' || b.type === 'tool_use') &&
+        b.tool_use_id === candidate.tool_use_id
+    );
+  }
+  if (candidate.type === 'plan') {
+    return blocks.findIndex((b) => b.type === 'plan');
+  }
+  return -1;
+}
+
+export function mergeAssistantBlocks(
   fileBlocks: ContentBlock[],
   clientBlocks: ContentBlock[]
 ): ContentBlock[] {
   if (fileBlocks.length === 0) return clientBlocks;
   if (clientBlocks.length === 0) return fileBlocks;
 
-  const fileHasStructured = fileBlocks.some(
-    (block) =>
-      block.type === 'tool_use' ||
-      block.type === 'tool_result' ||
-      block.type === 'plan'
-  );
-  const clientHasStructured = clientBlocks.some(
-    (block) =>
-      block.type === 'tool_use' ||
-      block.type === 'tool_result' ||
-      block.type === 'plan'
-  );
+  const fileHasStructured = fileBlocks.some(isStructuredBlock);
+  const clientHasStructured = clientBlocks.some(isStructuredBlock);
 
   // Pure text / thinking on both sides: combine without duplicating prefix/suffix.
   if (!fileHasStructured && !clientHasStructured) {
@@ -843,29 +863,37 @@ function mergeAssistantBlocks(
     return merged.length > 0 ? merged : clientBlocks;
   }
 
-  // When `clientBlocks` starts at a mid-turn `patch_blocks` (so its first block
-  // is a tool_use/plan without the pre-reload blocks that `fileBlocks` holds),
-  // seed with the prefix of `fileBlocks` and fold `clientBlocks` on top.
+  for (let clientIdx = 0; clientIdx < clientBlocks.length; clientIdx += 1) {
+    const candidate = clientBlocks[clientIdx]!;
+    if (!isStructuredBlock(candidate)) continue;
+    const matchIndex = findMatchingStructuredBlockIndex(fileBlocks, candidate);
+    if (matchIndex >= 0) {
+      const prefix = mergeAssistantBlocks(
+        fileBlocks.slice(0, matchIndex),
+        clientBlocks.slice(0, clientIdx)
+      );
+      const seeded = [
+        ...prefix,
+        ...fileBlocks.slice(matchIndex).filter(isStructuredBlock),
+      ];
+      return mergeBlockSequence(seeded, clientBlocks.slice(clientIdx));
+    }
+  }
+
+  if (windowBlocksCoverLiveBlocks(fileBlocks, clientBlocks)) {
+    return mergePatchedBlocks(
+      fileBlocks,
+      clientBlocks.filter(isStructuredBlock)
+    );
+  }
+
+  if (windowBlocksCoverLiveBlocks(clientBlocks, fileBlocks)) {
+    return clientBlocks;
+  }
+
   const firstClientBlock = clientBlocks[0];
-  if (
-    firstClientBlock &&
-    (firstClientBlock.type === 'tool_use' ||
-      firstClientBlock.type === 'tool_result' ||
-      firstClientBlock.type === 'plan')
-  ) {
-    const matchIndex =
-      firstClientBlock.type === 'tool_use' && firstClientBlock.tool_use_id
-        ? fileBlocks.findIndex(
-            (b) =>
-              b.type === 'tool_use' &&
-              b.tool_use_id === firstClientBlock.tool_use_id
-          )
-        : firstClientBlock.type === 'plan'
-          ? fileBlocks.findIndex((b) => b.type === 'plan')
-          : -1;
-    const prefix =
-      matchIndex >= 0 ? fileBlocks.slice(0, matchIndex) : fileBlocks.slice();
-    return mergeBlockSequence(prefix, clientBlocks);
+  if (firstClientBlock && isStructuredBlock(firstClientBlock)) {
+    return mergeBlockSequence(fileBlocks.slice(), clientBlocks);
   }
 
   return mergeBlockSequence(fileBlocks, clientBlocks);
@@ -877,11 +905,7 @@ function mergeBlockSequence(
 ): ContentBlock[] {
   const result = baseBlocks.slice();
   for (const block of incomingBlocks) {
-    if (
-      block.type === 'tool_use' ||
-      block.type === 'tool_result' ||
-      block.type === 'plan'
-    ) {
+    if (isStructuredBlock(block)) {
       const patched = mergePatchedBlocks(result, [block]);
       result.length = 0;
       result.push(...patched);
@@ -1400,15 +1424,37 @@ export function insertTimelineRow(
   if (!key) return [...rows, incoming];
 
   let insertAt = rows.length;
+  let foundSibling = false;
   if (isPrimaryUserRow(incoming)) {
     const sibling = rows.findIndex(
       (row) => messageTurnPairKey(row.row_id) === key
     );
-    if (sibling >= 0) insertAt = sibling;
+    if (sibling >= 0) {
+      insertAt = sibling;
+      foundSibling = true;
+    }
   } else {
     for (let index = 0; index < rows.length; index += 1) {
       if (messageTurnPairKey(rows[index]?.row_id ?? '') === key) {
         insertAt = index + 1;
+        foundSibling = true;
+      }
+    }
+  }
+  if (!foundSibling) {
+    const incomingStartMs = plausibleTurnStartMs(incoming.row.turn.timestamp);
+    if (incomingStartMs !== null) {
+      const newerIndex = rows.findIndex((candidate) => {
+        if (candidate.row.kind !== 'message_turn') return false;
+        const candidateKey = messageTurnPairKey(candidate.row_id);
+        if (!candidateKey || candidateKey === key) return false;
+        const candidateStartMs = plausibleTurnStartMs(
+          candidate.row.turn.timestamp
+        );
+        return candidateStartMs !== null && candidateStartMs > incomingStartMs;
+      });
+      if (newerIndex >= 0) {
+        insertAt = newerIndex;
       }
     }
   }

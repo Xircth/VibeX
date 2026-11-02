@@ -422,7 +422,7 @@ pub(crate) async fn deliver_pending(
                 let turn_id = if receipt.input_id.is_some() {
                     bind_delivery_turn(
                         pool,
-                        space_id,
+                        &dest_thread,
                         &delivery_message_id,
                         conversation_id,
                         envelope,

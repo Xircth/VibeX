@@ -51,7 +51,12 @@ export function AskQuestionToolCard({
       answerStateFromToolResult(questions, result),
     [questions, response, result]
   );
-  const title = firstQuestionTitle(questions) || t('askQuestion.title');
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const activeQuestionTitle =
+    questions[activeQuestionIndex]?.question ||
+    questions[activeQuestionIndex]?.header ||
+    firstQuestionTitle(questions);
+  const title = activeQuestionTitle || t('askQuestion.title');
 
   useLayoutEffect(() => {
     const node = titleRef.current;
@@ -117,16 +122,12 @@ export function AskQuestionToolCard({
           </span>
         </div>
         {open && questions.length > 0 ? (
-          <div
-            data-testid="ask-question-detail-well"
-            className="ask-question-detail-well"
-          >
-            <AgentQuestionCard
-              request={resolvedRequest}
-              mode="readonly"
-              answers={answers}
-            />
-          </div>
+          <AgentQuestionCard
+            request={resolvedRequest}
+            mode="readonly"
+            answers={answers}
+            onQuestionIndexChange={setActiveQuestionIndex}
+          />
         ) : null}
       </div>
     </div>

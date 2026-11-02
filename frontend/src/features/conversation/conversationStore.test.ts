@@ -3261,6 +3261,202 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entryOf(state).prefixHash).toBeNull();
     expect(entryOf(state).optimisticTurns).toHaveLength(1);
   });
+
+  it('keeps a stopped turn before a newly dispatched queued turn when a late cancelled upsert arrives', () => {
+    const detail = emptyDetail([
+      fileTurn('acp-0', 'user', '请你启动开发服务', 1n, 'settled'),
+      fileTurn('acp-1', 'assistant', '正在启动服务…', 2n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 4n;
+    detail.in_flight_user_turn_id = 't2';
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    // Queued turn t2 is dispatched immediately after stopping t1.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t2:user', 5n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: {
+                ...messageTurn('t2:user', 'user', [
+                  { type: 'text', text: '我的后台密码是什么？' },
+                ]),
+                timestamp: '2026-07-03T01:02:00.000Z',
+              },
+            }),
+          },
+        ],
+        5n
+      ),
+    });
+
+    // A late TurnCancelled upsert for t1 arrives after t2 is already in liveRows.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t1:user', 6n, {
+              kind: 'message_turn',
+              phase: 'cancelled',
+              turn: {
+                ...messageTurn('t1:user', 'user', [
+                  { type: 'text', text: '请你启动开发服务' },
+                ]),
+                timestamp: '2026-07-03T00:00:00.000Z',
+              },
+            }),
+          },
+          {
+            op: 'upsert',
+            row: timelineRow('t1:assistant', 6n, {
+              kind: 'message_turn',
+              phase: 'cancelled',
+              turn: {
+                ...messageTurn('t1:assistant', 'assistant', [
+                  { type: 'text', text: '正在启动服务…' },
+                ]),
+                timestamp: '2026-07-03T00:00:01.000Z',
+              },
+            }),
+          },
+        ],
+        6n
+      ),
+    });
+
+    const userPrompts = timelineTurnsForEntry(entryOf(state))
+      .filter((row) => row.turn.role === 'user')
+      .map((row) => textOf(row.turn.blocks));
+    expect(userPrompts).toEqual(['请你启动开发服务', '我的后台密码是什么？']);
+  });
+
+  it('preserves question tool block position between intro and follow-up prose across usage patches and window merges', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([]),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t1', '帮我配置项目', 1n) },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: '我先确认一下你的偏好：',
+          },
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [],
+            usage: {
+              input_tokens: 100n,
+              output_tokens: 20n,
+              cache_creation_input_tokens: 0n,
+              cache_read_input_tokens: 0n,
+              context_window_max: null,
+            },
+          },
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 4n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'call-ask-1',
+                tool_name: 'AskUserQuestion',
+                status: 'completed',
+                kind: 'other',
+                input_preview: JSON.stringify({
+                  questions: [
+                    {
+                      id: 'q1',
+                      question: '选择哪个方案？',
+                      options: [{ label: '方案 A' }, { label: '方案 B' }],
+                    },
+                  ],
+                }),
+                meta: null,
+              },
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-ask-1',
+                output_preview: JSON.stringify({ answers: { q1: ['方案 A'] } }),
+                is_error: false,
+                agent_stats: null,
+              },
+            ],
+          },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: '已按方案 A 完成配置。',
+          },
+        ],
+        5n
+      ),
+    });
+
+    // Mid-turn window refresh arrives with only the intro text and tool_use.
+    const partialWindow = emptyDetail([
+      fileTurn('acp-0', 'user', '帮我配置项目', 1n, 'streaming'),
+      timelineRow('acp-1', 2n, {
+        kind: 'message_turn',
+        phase: 'streaming',
+        turn: messageTurn('acp-1', 'assistant', [
+          { type: 'text', text: '我先确认一下你的偏好：' },
+          {
+            type: 'tool_use',
+            tool_use_id: 'call-ask-1',
+            tool_name: 'AskUserQuestion',
+            status: 'running',
+            kind: 'other',
+            input_preview: '{}',
+            meta: null,
+          },
+        ]),
+      }),
+    ]);
+    partialWindow.timeline.last_sequence = 4n;
+    partialWindow.in_flight_user_turn_id = 't1';
+
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: partialWindow,
+    });
+
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(assistant?.turn.blocks.map((block) => block.type)).toEqual([
+      'text',
+      'tool_use',
+      'tool_result',
+      'text',
+    ]);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

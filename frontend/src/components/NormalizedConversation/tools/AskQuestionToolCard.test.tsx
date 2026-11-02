@@ -78,7 +78,14 @@ describe('AskQuestionToolCard', () => {
     expect(details).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(details);
     expect(details).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('ask-question-detail-well')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('ask-question-detail-well')
+    ).not.toBeInTheDocument();
+    const detail = screen.getByTestId('agent-question-detail');
+    expect(detail).toBeInTheDocument();
+    expect(
+      detail.querySelector('.agent-question-card-prompt')
+    ).not.toBeInTheDocument();
     expect(screen.getByText('Local markdown')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '提交回答' })
@@ -134,7 +141,7 @@ describe('AskQuestionToolCard', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('pages completed answers one question at a time inside the detail well', () => {
+  it('pages completed answers one question at a time directly without an inner container or duplicate prompt', () => {
     render(
       <AskQuestionToolCard
         use={use(QUESTIONS)}
@@ -151,26 +158,34 @@ describe('AskQuestionToolCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
 
-    const well = screen.getByTestId('ask-question-detail-well');
+    expect(
+      screen.queryByTestId('ask-question-detail-well')
+    ).not.toBeInTheDocument();
     const detail = screen.getByTestId('agent-question-detail');
-    expect(well.contains(detail)).toBe(true);
-    expect(detail).toHaveTextContent(QUESTIONS[0]!.question);
-    expect(detail).not.toHaveTextContent('Add a note');
-    expect(detail).not.toHaveTextContent('Choose a host');
+    expect(
+      detail.querySelector('.agent-question-card-prompt')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('ask-question-title')).toHaveTextContent(
+      QUESTIONS[0]!.question
+    );
+    expect(detail).not.toHaveTextContent(QUESTIONS[0]!.question);
     expect(screen.getByText('1 / 3')).toBeInTheDocument();
 
     const selected = screen.getByText(/Local markdown/);
     expect(selected.closest('label')).toHaveClass('is-answered');
 
     fireEvent.click(screen.getByRole('button', { name: '下一个' }));
-    expect(detail).toHaveTextContent('Add a note');
-    expect(detail).not.toHaveTextContent(QUESTIONS[0]!.question);
+    expect(screen.getByTestId('ask-question-title')).toHaveTextContent(
+      'Add a note'
+    );
     expect(
       screen.getByDisplayValue('Keep tests at the public UI seam.')
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '下一个' }));
-    expect(detail).toHaveTextContent('Choose a host');
+    expect(screen.getByTestId('ask-question-title')).toHaveTextContent(
+      'Choose a host'
+    );
     expect(screen.getByText('GitLab').closest('label')).toHaveClass(
       'is-answered'
     );

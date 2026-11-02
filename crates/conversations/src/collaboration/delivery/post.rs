@@ -375,12 +375,22 @@ pub(crate) async fn post_to_space_inner(
             .await?;
         }
         let is_card_post = content.trim_start().starts_with("<card ");
+        let is_pure_cross_chat_post = !sent_to.is_empty()
+            && !targets.is_empty()
+            && targets.iter().all(|target| {
+                target
+                    .dest_thread_id
+                    .as_deref()
+                    .is_some_and(|dest| dest != input.space_id)
+            });
         if let Some(sender) = sender
             && !is_card_post
+            && !is_pure_cross_chat_post
         {
             // Mid-turn posts in an open sequential round (and interactive <card>
-            // posts such as ask/approval) are progress, not the slot's closing
-            // reply. Those deliveries stay processing so
+            // posts such as ask/approval, or pure cross-space deliveries to
+            // another space) are progress, not the slot's closing reply in this
+            // space. Those deliveries stay processing so
             // finalize_space_turn_deliveries can still post the implicit text.
             let closed_deliveries: Vec<String> = sqlx::query_scalar(
                 r#"SELECT d.space_message_id FROM collaboration_space_deliveries d
@@ -399,9 +409,18 @@ pub(crate) async fn post_to_space_inner(
                          )
                        )
                      )
-                     AND d.space_message_id IN (
-                       SELECT id FROM collaboration_space_messages
-                       WHERE space_id = ? AND seq < ?)
+                     AND (
+                       d.space_message_id IN (
+                         SELECT id FROM collaboration_space_messages
+                         WHERE space_id = ? AND seq < ?
+                       )
+                       OR EXISTS (
+                         SELECT 1 FROM collaboration_turns ct
+                         WHERE ct.id = d.turn_id
+                           AND ct.space_id = ?
+                           AND ct.state <> 'finished'
+                       )
+                     )
                      AND (d.round_id IS NULL OR d.round_id NOT IN (
                        SELECT id FROM collaboration_rounds
                        WHERE state IN ('open', 'closing')
@@ -410,6 +429,7 @@ pub(crate) async fn post_to_space_inner(
             .bind(sender.to_string())
             .bind(&input.space_id)
             .bind(seq)
+            .bind(&input.space_id)
             .fetch_all(&mut *conn)
             .await?;
             for closed_msg_id in &closed_deliveries {
@@ -492,6 +512,29 @@ pub(crate) async fn post_to_space_inner(
         &json!({ "message_id": message_id }),
     )
     .await?;
+    let dests = unique_cross_chat_dests(&input.space_id, &targets);
+    if !dests.is_empty() {
+        let received_from = sender_received_from_peer(
+            pool,
+            &input.space_id,
+            sender,
+            sender_nickname.as_deref(),
+            sender_member_id.as_deref(),
+        )
+        .await?;
+        project_cross_chat_receipts(
+            pool,
+            &message_id,
+            &actor,
+            sender,
+            &published,
+            origin,
+            &received_from,
+            &dests,
+            turn_delivery,
+        )
+        .await?;
+    }
     let result = deliver_pending(pool, &input.space_id, &message_id, turn_delivery)
         .await
         .map(|mut result| {
@@ -519,29 +562,6 @@ pub(crate) async fn post_to_space_inner(
     if sender.is_some() && !is_card_post {
         advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await?;
     }
-    let dests = unique_cross_chat_dests(&input.space_id, &targets);
-    if !dests.is_empty() {
-        let received_from = sender_received_from_peer(
-            pool,
-            &input.space_id,
-            sender,
-            sender_nickname.as_deref(),
-            sender_member_id.as_deref(),
-        )
-        .await?;
-        project_cross_chat_receipts(
-            pool,
-            &message_id,
-            &actor,
-            sender,
-            &published,
-            origin,
-            &received_from,
-            &dests,
-            turn_delivery,
-        )
-        .await?;
-    }
     Ok(result)
 }
 
@@ -555,7 +575,14 @@ pub(crate) async fn load_hop_parent(
     in_reply_to: Option<&str>,
 ) -> Result<Option<HopHead>, CollaborationError> {
     if let Some(parent_id) = in_reply_to.map(bare_message_id).filter(|id| !id.is_empty()) {
-        return HopHead::find_by_id_in_space(pool, parent_id, space_id)
+        if let Some(head) = HopHead::find_by_id_in_space(pool, parent_id, space_id)
+            .await
+            .map_err(db)?
+        {
+            return Ok(Some(head));
+        }
+        let recv_id = cross_chat_receipt_message_id(parent_id, space_id);
+        return HopHead::find_by_id_in_space(pool, &recv_id, space_id)
             .await
             .map_err(db);
     }
@@ -986,13 +1013,15 @@ pub async fn cancel_space_turn_with(
         ));
     }
     let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
-        r#"SELECT id, space_id, space_message_id, conversation_id, round_id
-           FROM collaboration_turns
-           WHERE space_id = ?
-             AND state <> 'finished'
-             AND (? IS NULL OR id = ?)
-             AND (? IS NULL OR space_message_id = ?)"#,
+        r#"SELECT t.id, t.space_id, t.space_message_id, t.conversation_id, t.round_id
+           FROM collaboration_turns t
+           LEFT JOIN collaboration_space_messages m ON m.id = t.space_message_id
+           WHERE (t.space_id = ? OR m.space_id = ?)
+             AND t.state <> 'finished'
+             AND (? IS NULL OR t.id = ?)
+             AND (? IS NULL OR t.space_message_id = ?)"#,
     )
+    .bind(space_id)
     .bind(space_id)
     .bind(turn_id)
     .bind(turn_id)
@@ -1007,10 +1036,7 @@ pub async fn cancel_space_turn_with(
     let now = now_stamp();
     let mut cancelled = Vec::new();
     let mut rounds_to_advance = Vec::new();
-    for (id, turn_space, space_message_id, conversation_raw, round_id) in rows {
-        if turn_space != space_id {
-            continue;
-        }
+    for (id, _turn_space, space_message_id, conversation_raw, round_id) in rows {
         let Ok(turn_conversation_id) = Uuid::parse_str(&conversation_raw) else {
             continue;
         };

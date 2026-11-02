@@ -80,6 +80,20 @@ export function resolveProjectVisualStateMeta(
   }
 }
 
+const MAX_RECENT_SESSION_TITLE_CHARS = 20;
+
+export function formatRecentSessionTitle(
+  title: string,
+  maxChars = MAX_RECENT_SESSION_TITLE_CHARS
+): string {
+  const normalized = title.trim();
+  const chars = Array.from(normalized);
+  if (chars.length <= maxChars) {
+    return normalized;
+  }
+  return `${chars.slice(0, maxChars).join('')}...`;
+}
+
 export function ProjectRecentSessionsPopover({
   projectName,
   recentSessions,
@@ -97,12 +111,12 @@ export function ProjectRecentSessionsPopover({
   const popover = (
     <div
       className={cn(
-        'z-[80] min-w-72 rounded-lg border border-border bg-popover p-2 shadow-xl pointer-events-none',
+        'z-[80] w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-popover p-2 shadow-xl pointer-events-none',
         useFixedPosition ? 'fixed' : 'absolute bottom-7 left-0'
       )}
       style={style}
     >
-      <div className="mb-2 text-xs font-medium text-muted-foreground">
+      <div className="mb-2 truncate text-xs font-medium text-muted-foreground">
         {projectName} · {t('projectActivity.recentSessions')}
       </div>
       {recentSessions.length === 0 ? (
@@ -116,13 +130,13 @@ export function ProjectRecentSessionsPopover({
               key={session.sessionId}
               className="rounded-md border border-border/60 bg-background/60 px-2 py-1.5"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {session.visualState === 'loading' ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
                 ) : (
                   <span
                     className={cn(
-                      'h-2 w-2 rounded-full',
+                      'h-2 w-2 shrink-0 rounded-full',
                       session.visualState === 'error'
                         ? 'bg-destructive'
                         : session.visualState === 'success'
@@ -131,10 +145,10 @@ export function ProjectRecentSessionsPopover({
                     )}
                   />
                 )}
-                <span className="truncate text-xs font-medium">
-                  {session.title}
+                <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                  {formatRecentSessionTitle(session.title)}
                 </span>
-                <span className="ml-auto text-[10px] text-muted-foreground">
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
                   {session.statusLabel}
                 </span>
               </div>

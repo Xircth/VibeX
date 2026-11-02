@@ -47,24 +47,75 @@ pub(crate) fn is_user_target_name(raw: &str) -> bool {
         || trimmed == "用户"
 }
 
+fn leading_pass_token_len(s: &str) -> Option<usize> {
+    if let Some(prefix) = s.get(..6)
+        && prefix.eq_ignore_ascii_case("[PASS]")
+    {
+        return Some(6);
+    }
+    let tick_count = s.bytes().take_while(|&b| b == b'`').count();
+    if tick_count == 0 {
+        return None;
+    }
+    let after_open = &s[tick_count..];
+    let ws_before = after_open.len() - after_open.trim_start().len();
+    let inner = &after_open[ws_before..];
+    if let Some(token) = inner.get(..6)
+        && token.eq_ignore_ascii_case("[PASS]")
+    {
+        let after_token = &inner[6..];
+        let ws_after = after_token.len() - after_token.trim_start().len();
+        let close = &after_token[ws_after..];
+        let close_ticks = close.bytes().take_while(|&b| b == b'`').count();
+        if close_ticks == tick_count {
+            return Some(tick_count + ws_before + 6 + ws_after + close_ticks);
+        }
+    }
+    None
+}
+
+fn trailing_pass_token_len(s: &str) -> Option<usize> {
+    if s.len() >= 6
+        && let Some(suffix) = s.get(s.len() - 6..)
+        && suffix.eq_ignore_ascii_case("[PASS]")
+    {
+        return Some(6);
+    }
+    let close_ticks = s.bytes().rev().take_while(|&b| b == b'`').count();
+    if close_ticks == 0 {
+        return None;
+    }
+    let before_close = &s[..s.len() - close_ticks];
+    let trimmed_end = before_close.trim_end();
+    let ws_after = before_close.len() - trimmed_end.len();
+    if trimmed_end.len() >= 6
+        && let Some(token) = trimmed_end.get(trimmed_end.len() - 6..)
+        && token.eq_ignore_ascii_case("[PASS]")
+    {
+        let before_token = &trimmed_end[..trimmed_end.len() - 6];
+        let trimmed_before = before_token.trim_end();
+        let ws_before = before_token.len() - trimmed_before.len();
+        let open_ticks = trimmed_before.bytes().rev().take_while(|&b| b == b'`').count();
+        if open_ticks == close_ticks {
+            return Some(open_ticks + ws_before + 6 + ws_after + close_ticks);
+        }
+    }
+    None
+}
+
 pub(crate) fn strip_stray_pass_tokens(text: &str) -> &str {
     let mut s = text.trim();
     loop {
-        if let Some(prefix) = s.get(..6)
-            && prefix.eq_ignore_ascii_case("[PASS]")
-        {
-            let rest = s[6..].trim_start();
+        if let Some(len) = leading_pass_token_len(s) {
+            let rest = s[len..].trim_start();
             if rest.is_empty() {
                 return s;
             }
             s = rest;
             continue;
         }
-        if s.len() >= 6
-            && let Some(suffix) = s.get(s.len() - 6..)
-            && suffix.eq_ignore_ascii_case("[PASS]")
-        {
-            let rest = s[..s.len() - 6].trim_end();
+        if let Some(len) = trailing_pass_token_len(s) {
+            let rest = s[..s.len() - len].trim_end();
             if rest.is_empty() {
                 return s;
             }
@@ -77,7 +128,8 @@ pub(crate) fn strip_stray_pass_tokens(text: &str) -> &str {
 }
 
 pub(crate) fn is_pass_token(text: &str) -> bool {
-    strip_stray_pass_tokens(text).eq_ignore_ascii_case("[PASS]")
+    let cleaned = strip_stray_pass_tokens(text);
+    !cleaned.is_empty() && leading_pass_token_len(cleaned) == Some(cleaned.len())
 }
 
 pub(crate) fn is_bot_space(space_id: &str) -> bool {
@@ -1846,12 +1898,19 @@ mod tests {
     }
 
     #[test]
-    fn pass_token_ignores_case_and_surrounding_whitespace() {
+    fn pass_token_ignores_case_backticks_and_surrounding_whitespace() {
         assert!(is_pass_token("[PASS]"));
         assert!(is_pass_token("  [pass]  "));
         assert!(is_pass_token("[Pass]"));
+        assert!(is_pass_token("`[PASS]`"));
+        assert!(is_pass_token("  `[pass]`  "));
+        assert!(is_pass_token("` [PASS] `"));
+        assert!(is_pass_token("```\n[PASS]\n```"));
         assert!(is_pass_token("[PASS]\n[PASS]"));
+        assert!(is_pass_token("`[PASS]`\n`[PASS]`"));
+        assert!(is_pass_token("[PASS]\n`[PASS]`"));
         assert!(!is_pass_token("[PASS] 还有一句"));
+        assert!(!is_pass_token("`[PASS]` 还有一句"));
         assert!(!is_pass_token("好的"));
     }
 
@@ -1883,10 +1942,22 @@ mod tests {
             "已将原则升级"
         );
         assert_eq!(
+            strip_own_nickname_prefix("`[PASS]`已将原则升级", "Skill专员"),
+            "已将原则升级"
+        );
+        assert_eq!(
             strip_own_nickname_prefix("[PASS]\n已将原则升级\n[PASS]", "Skill专员"),
             "已将原则升级"
         );
+        assert_eq!(
+            strip_own_nickname_prefix("`[PASS]`\n已将原则升级\n`[PASS]`", "Skill专员"),
+            "已将原则升级"
+        );
         assert_eq!(strip_own_nickname_prefix("[PASS]", "Skill专员"), "[PASS]");
+        assert_eq!(
+            strip_own_nickname_prefix("`[PASS]`", "Skill专员"),
+            "`[PASS]`"
+        );
     }
 
     #[test]

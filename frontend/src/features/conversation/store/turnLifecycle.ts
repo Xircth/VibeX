@@ -29,6 +29,7 @@ import {
   isLateSettledAssistantAppend,
   isLiveProjectorRowId,
   isLiveTurnConvergedInWindow,
+  mergeAssistantBlocks,
   mergePatchedBlocks,
   messageTurnPairKey,
   overlayLiveText,
@@ -699,6 +700,21 @@ function upsertRow(
     ) {
       return { rows, liveText };
     }
+    if (!windowExisting && windowRows && isTerminalMessageRow(incoming)) {
+      const turnKey = messageTurnPairKey(incoming.row_id);
+      if (
+        turnKey &&
+        !rows.some((row) => messageTurnPairKey(row.row_id) === turnKey) &&
+        isLiveTurnConvergedInWindow(
+          turnKey,
+          windowRows,
+          [...rows, incoming],
+          liveText
+        )
+      ) {
+        return { rows, liveText };
+      }
+    }
     const isOverlayTerminalTransition = Boolean(
       !windowExisting &&
         liveText[incoming.row_id] &&
@@ -803,8 +819,43 @@ function preserveAssistantBlocksOnColdUpsert(
     return incoming;
   }
   const incomingRevision = toBigInt(incoming.revision);
+  if (existing === incoming) {
+    if (!overlay) return incoming;
+    const overlayBlocks = overlayLiveText([], overlay);
+    if (
+      incoming.row.turn.blocks.length > 0 &&
+      windowBlocksCoverLiveBlocks(incoming.row.turn.blocks, overlayBlocks)
+    ) {
+      return incoming;
+    }
+    if (
+      overlay.revision > incomingRevision ||
+      incoming.row.turn.blocks.length === 0 ||
+      forceApplyOverlay
+    ) {
+      return {
+        ...incoming,
+        row: {
+          ...incoming.row,
+          turn: {
+            ...incoming.row.turn,
+            blocks: overlayLiveText(incoming.row.turn.blocks, overlay),
+          },
+        },
+      };
+    }
+    return incoming;
+  }
+  const shouldApplyOverlay = Boolean(
+    overlay &&
+      (incomingRevision >= overlay.revision || forceApplyOverlay) &&
+      !windowBlocksCoverLiveBlocks(
+        existing.row.turn.blocks,
+        overlayLiveText([], overlay)
+      )
+  );
   const baseBlocks =
-    overlay && (incomingRevision >= overlay.revision || forceApplyOverlay)
+    shouldApplyOverlay && overlay
       ? overlayLiveText(existing.row.turn.blocks, overlay)
       : existing.row.turn.blocks;
   if (baseBlocks.length === 0) {
@@ -818,7 +869,7 @@ function preserveAssistantBlocksOnColdUpsert(
   }
   const mergedBlocks =
     incoming.row.turn.blocks.length > 0
-      ? mergePatchedBlocks(baseBlocks, incoming.row.turn.blocks)
+      ? mergeAssistantBlocks(baseBlocks, incoming.row.turn.blocks)
       : baseBlocks;
   return {
     ...incoming,
@@ -893,6 +944,11 @@ function applyPatchBlocks(
       if (consumeOverlay) {
         nextLive = { ...liveText };
         delete nextLive[op.row_id];
+      } else if (overlay && overlay.revision <= revision) {
+        nextLive = {
+          ...liveText,
+          [op.row_id]: { ...overlay, revision: revision + 1n },
+        };
       }
       return { rows: nextRows, liveText: nextLive };
     }
@@ -917,6 +973,11 @@ function applyPatchBlocks(
     if (consumeOverlay) {
       nextLive = { ...liveText };
       delete nextLive[op.row_id];
+    } else if (overlay && overlay.revision <= revision) {
+      nextLive = {
+        ...liveText,
+        [op.row_id]: { ...overlay, revision: revision + 1n },
+      };
     }
     return { rows: nextRows, liveText: nextLive };
   }
@@ -962,6 +1023,11 @@ function applyPatchBlocks(
   if (consumeOverlay) {
     nextLive = { ...liveText };
     delete nextLive[op.row_id];
+  } else if (overlay && overlay.revision <= revision) {
+    nextLive = {
+      ...liveText,
+      [op.row_id]: { ...overlay, revision: revision + 1n },
+    };
   }
   return { rows: nextRows, liveText: nextLive };
 }

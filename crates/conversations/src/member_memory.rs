@@ -2341,8 +2341,8 @@ fn format_turns_for_review(turns: &[agents::MessageTurn]) -> Vec<(String, String
                 }
             }
             agents::TurnRole::Assistant => {
-                let clean = raw_text.trim();
-                if !clean.is_empty() && clean != "[PASS]" {
+                let clean = crate::collaboration::strip_stray_pass_tokens(&raw_text);
+                if !clean.is_empty() && !crate::collaboration::is_pass_token(clean) {
                     let condensed =
                         first_sentences(clean, 3, 400).unwrap_or_else(|| clean.to_string());
                     formatted_turns.push((turn.id.clone(), format!("Assistant: {condensed}")));

@@ -1138,14 +1138,19 @@ export function doesToolUseMatchQuestionRequest(
 ): boolean {
   if (!isAskQuestionTool(use)) return false;
   if (use.tool_use_id && use.tool_use_id === request.question_id) return true;
+  const requestTabs = questionTabsFromRequest(request);
+  if (
+    use.tool_use_id &&
+    requestTabs.some((question) => question.id === use.tool_use_id)
+  ) {
+    return true;
+  }
   const title = firstQuestionTitle(
     questionTabsFromRequest(questionRequestFromToolUse(use))
   );
   if (!title) return false;
   const prompt = request.prompt;
-  const headers = questionTabsFromRequest(request).map(
-    (question) => question.question
-  );
+  const headers = requestTabs.map((question) => question.question);
   return prompt.includes(title) || headers.includes(title);
 }
 
@@ -1168,11 +1173,11 @@ export function hasMatchingAskQuestionTool(
   ) {
     return true;
   }
-  return (
-    askToolUses.length === 1 &&
-    !firstQuestionTitle(
-      questionTabsFromRequest(questionRequestFromToolUse(askToolUses[0]!))
-    )
+  return askToolUses.some(
+    (use) =>
+      !firstQuestionTitle(
+        questionTabsFromRequest(questionRequestFromToolUse(use))
+      )
   );
 }
 
@@ -1188,6 +1193,6 @@ function matchTimelineQuestion(
   const title = firstQuestionTitle(
     questionTabsFromRequest(questionRequestFromToolUse(use))
   );
-  if (!title && questions.length === 1) return questions[0] ?? null;
+  if (!title) return questions[0] ?? null;
   return null;
 }

@@ -151,9 +151,12 @@ pub async fn notify_space_turn_streaming(
         return;
     };
     let mut space_ids = std::collections::BTreeSet::new();
-    for (space_id, _, _, _) in rows {
-        if space_tracks_turns(&space_id) {
-            space_ids.insert(space_id);
+    for row in rows {
+        if space_tracks_turns(&row.target_space_id) {
+            space_ids.insert(row.target_space_id);
+        }
+        if space_tracks_turns(&row.origin_space_id) {
+            space_ids.insert(row.origin_space_id);
         }
     }
     if space_ids.is_empty()
@@ -998,12 +1001,56 @@ pub(crate) async fn message_actor_conversation(
     Ok(envelope_sender_conversation(&envelope))
 }
 
+#[derive(Debug, Clone)]
+struct OpenSpaceTurnDelivery {
+    target_space_id: String,
+    origin_space_id: String,
+    message_id: String,
+    local_seq: i64,
+    turn_id: Option<String>,
+}
+
+pub(crate) async fn resolve_turn_trigger_seq_in_space(
+    pool: &SqlitePool,
+    target_space_id: &str,
+    origin_space_id: &str,
+    message_id: &str,
+    origin_seq: i64,
+    origin_created_at: &str,
+) -> Result<i64, CollaborationError> {
+    if target_space_id == origin_space_id {
+        return Ok(origin_seq);
+    }
+    let recv_id = cross_chat_receipt_message_id(message_id, target_space_id);
+    if let Some(seq) = sqlx::query_scalar::<_, i64>(
+        "SELECT seq FROM collaboration_space_messages WHERE space_id = ? AND id = ?",
+    )
+    .bind(target_space_id)
+    .bind(&recv_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    {
+        return Ok(seq);
+    }
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT COALESCE(MAX(seq), 0)
+           FROM collaboration_space_messages
+           WHERE space_id = ? AND created_at <= ?"#,
+    )
+    .bind(target_space_id)
+    .bind(origin_created_at)
+    .fetch_one(pool)
+    .await
+    .map_err(db)
+}
+
 async fn open_space_turn_deliveries(
     pool: &SqlitePool,
     conversation_id: Uuid,
-) -> Result<Vec<(String, String, i64, Option<String>)>, CollaborationError> {
-    sqlx::query_as::<_, (String, String, i64, Option<String>)>(
-        r#"SELECT m.space_id, d.space_message_id, m.seq, d.turn_id
+) -> Result<Vec<OpenSpaceTurnDelivery>, CollaborationError> {
+    let raw_rows = sqlx::query_as::<_, (String, String, i64, String, Option<String>, Option<String>)>(
+        r#"SELECT m.space_id, d.space_message_id, m.seq, m.created_at, d.turn_id, t.space_id
            FROM collaboration_space_deliveries d
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
@@ -1024,12 +1071,52 @@ async fn open_space_turn_deliveries(
                  )
                )
              )
-           ORDER BY m.seq ASC"#,
+           ORDER BY m.seq ASC, m.created_at ASC"#,
     )
     .bind(conversation_id.to_string())
     .fetch_all(pool)
     .await
-    .map_err(db)
+    .map_err(db)?;
+
+    if raw_rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let home_thread = thread_id_for_conversation(pool, conversation_id)
+        .await?
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty() && parse_unassigned_space_id(id).is_none());
+
+    let mut out = Vec::with_capacity(raw_rows.len());
+    for (origin_space_id, message_id, origin_seq, origin_created_at, turn_id, turn_space_id) in
+        raw_rows
+    {
+        let target_space_id = home_thread
+            .clone()
+            .or_else(|| {
+                turn_space_id
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| !id.is_empty() && parse_unassigned_space_id(id).is_none())
+            })
+            .unwrap_or_else(|| origin_space_id.clone());
+        let local_seq = resolve_turn_trigger_seq_in_space(
+            pool,
+            &target_space_id,
+            &origin_space_id,
+            &message_id,
+            origin_seq,
+            &origin_created_at,
+        )
+        .await?;
+        out.push(OpenSpaceTurnDelivery {
+            target_space_id,
+            origin_space_id,
+            message_id,
+            local_seq,
+            turn_id,
+        });
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone)]
@@ -1221,20 +1308,26 @@ pub async fn on_space_turn_tool_call(
         return Ok(());
     }
 
-    let mut grouped: std::collections::BTreeMap<String, Vec<(String, i64, Option<String>)>> =
+    let mut grouped: std::collections::BTreeMap<String, Vec<OpenSpaceTurnDelivery>> =
         std::collections::BTreeMap::new();
-    for (space_id, message_id, seq, turn_id) in rows {
+    for row in rows {
         grouped
-            .entry(space_id)
+            .entry(row.target_space_id.clone())
             .or_default()
-            .push((message_id, seq, turn_id));
+            .push(row);
     }
 
     let trimmed = step_text.trim();
     for (space_id, deliveries) in grouped {
-        let Some((trigger_message_id, trigger_seq, _)) = deliveries.last().cloned() else {
+        let Some(last_delivery) = deliveries.last().cloned() else {
             continue;
         };
+        let trigger_message_id = last_delivery.message_id;
+        let trigger_seq = last_delivery.local_seq;
+        let reopen_tuples: Vec<(String, i64, Option<String>)> = deliveries
+            .iter()
+            .map(|d| (d.message_id.clone(), d.local_seq, d.turn_id.clone()))
+            .collect();
         if space_tracks_turns(&space_id) {
             let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
             let body = strip_own_nickname_prefix(trimmed, &nickname);
@@ -1242,7 +1335,7 @@ pub async fn on_space_turn_tool_call(
             if !skip {
                 let earliest_seq = deliveries
                     .iter()
-                    .map(|(_, seq, _)| *seq)
+                    .map(|d| d.local_seq)
                     .min()
                     .unwrap_or(trigger_seq);
                 let posted_same = member_posted_content_equals(
@@ -1282,7 +1375,7 @@ pub async fn on_space_turn_tool_call(
                     .await
                     {
                         Ok(_) => {
-                            reopen_processing_deliveries(pool, conversation_id, &deliveries)
+                            reopen_processing_deliveries(pool, conversation_id, &reopen_tuples)
                                 .await?;
                             if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
                                 && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
@@ -1305,6 +1398,14 @@ pub async fn on_space_turn_tool_call(
             }
         }
         advance_open_rounds_for_space(pool, &space_id, delivery).await?;
+        for origin_space_id in deliveries
+            .iter()
+            .map(|d| d.origin_space_id.as_str())
+            .filter(|origin| *origin != space_id)
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            advance_open_rounds_for_space(pool, origin_space_id, delivery).await?;
+        }
     }
     clear_space_turn_flushing_step(conversation_id);
     Ok(())
@@ -1449,58 +1550,81 @@ pub async fn finalize_space_turn_deliveries(
         return Ok(events);
     }
 
-    let mut grouped: std::collections::BTreeMap<String, Vec<(String, i64, Option<String>)>> =
+    let mut grouped: std::collections::BTreeMap<String, Vec<OpenSpaceTurnDelivery>> =
         std::collections::BTreeMap::new();
-    for (space_id, message_id, seq, turn_id) in rows {
+    for row in rows {
         grouped
-            .entry(space_id)
+            .entry(row.target_space_id.clone())
             .or_default()
-            .push((message_id, seq, turn_id));
+            .push(row);
     }
 
+    let mut notified_spaces = std::collections::BTreeSet::new();
     for (space_id, deliveries) in grouped {
-        let Some((trigger_message_id, trigger_seq, _)) = deliveries.last().cloned() else {
+        let Some(last_delivery) = deliveries.last().cloned() else {
             continue;
         };
+        let trigger_message_id = last_delivery.message_id;
+        let trigger_seq = last_delivery.local_seq;
         if !space_tracks_turns(&space_id) {
-            sqlx::query(
-                r#"UPDATE collaboration_space_deliveries
-                   SET receipt_state = 'replied', receipt_updated_at = ?
-                   WHERE conversation_id = ?
-                     AND receipt_state = 'processing'
-                     AND space_message_id IN (
-                       SELECT id FROM collaboration_space_messages WHERE space_id = ?
-                     )"#,
-            )
-            .bind(now_stamp())
-            .bind(conversation_id.to_string())
-            .bind(&space_id)
-            .execute(pool)
-            .await
-            .map_err(db)?;
+            for d in &deliveries {
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries
+                       SET receipt_state = 'replied', receipt_updated_at = ?
+                       WHERE conversation_id = ?
+                         AND receipt_state = 'processing'
+                         AND space_message_id = ?"#,
+                )
+                .bind(now_stamp())
+                .bind(conversation_id.to_string())
+                .bind(&d.message_id)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            }
             continue;
         }
 
         let earliest_seq = deliveries
             .iter()
-            .map(|(_, seq, _)| *seq)
+            .map(|d| d.local_seq)
             .min()
             .unwrap_or(trigger_seq);
-        let already_posted =
+        let mut already_posted =
             member_posted_after(pool, &space_id, conversation_id, earliest_seq).await?;
+        if !already_posted {
+            for origin_space_id in deliveries
+                .iter()
+                .map(|d| d.origin_space_id.as_str())
+                .filter(|origin| *origin != space_id)
+                .collect::<std::collections::BTreeSet<_>>()
+            {
+                let origin_earliest = deliveries
+                    .iter()
+                    .filter(|d| d.origin_space_id == origin_space_id)
+                    .filter_map(|d| d.turn_id.as_ref().map(|_| 0_i64))
+                    .min()
+                    .unwrap_or(0);
+                if member_posted_after(pool, origin_space_id, conversation_id, origin_earliest)
+                    .await?
+                {
+                    already_posted = true;
+                    break;
+                }
+            }
+        }
 
         let nickname = finalize_nickname(pool, &space_id, conversation_id).await;
         let body = strip_own_nickname_prefix(trimmed, &nickname);
-        let posted_same_body = already_posted
-            && member_posted_content_equals(
-                pool,
-                &space_id,
-                conversation_id,
-                earliest_seq,
-                &body,
-                &nickname,
-            )
-            .await?;
+        let posted_same_body = member_posted_content_equals(
+            pool,
+            &space_id,
+            conversation_id,
+            earliest_seq,
+            &body,
+            &nickname,
+        )
+        .await?;
         let passed = body.is_empty() || is_pass_token(&body) || is_polite_ack_only(&body);
         if body.is_empty() {
             tracing::info!(
@@ -1585,12 +1709,12 @@ pub async fn finalize_space_turn_deliveries(
             ("pass", "passed")
         };
 
-        for (message_id, _, turn_id) in &deliveries {
+        for d in &deliveries {
             close_processing_delivery(
                 pool,
                 conversation_id,
-                message_id,
-                turn_id.as_deref(),
+                &d.message_id,
+                d.turn_id.as_deref(),
                 outcome,
                 receipt_state,
             )
@@ -1598,7 +1722,16 @@ pub async fn finalize_space_turn_deliveries(
         }
 
         advance_open_rounds_for_space(pool, &space_id, delivery).await?;
+        notified_spaces.insert(space_id);
+        for d in &deliveries {
+            if d.origin_space_id != d.target_space_id {
+                advance_open_rounds_for_space(pool, &d.origin_space_id, delivery).await?;
+                notified_spaces.insert(d.origin_space_id.clone());
+            }
+        }
+    }
 
+    for space_id in notified_spaces {
         if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
             && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
         {
@@ -1664,10 +1797,11 @@ async fn implicit_asked_by_recipient(
     sender: Uuid,
     trigger_message_id: &str,
 ) -> Result<Option<String>, CollaborationError> {
-    let envelope = match load_envelope(pool, trigger_message_id).await {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
+    let head = match load_message_head(pool, trigger_message_id).await {
+        Ok(Some(head)) => head,
+        _ => return Ok(None),
     };
+    let envelope: Value = serde_json::from_str(&head.envelope_json).unwrap_or(Value::Null);
     let parsed = parse_space_envelope(&envelope);
     let Some(asker_cid) = parsed.conversation_id else {
         return Ok(None);
@@ -1683,6 +1817,9 @@ async fn implicit_asked_by_recipient(
         if !name.is_empty() {
             return Ok(Some(name.to_string()));
         }
+    }
+    if head.space_id != space_id {
+        return Ok(None);
     }
     let sender_name = parsed.sender.trim();
     if !sender_name.is_empty() && !is_person_ref(sender_name) {

@@ -478,7 +478,16 @@ pub async fn list_space_messages(
         .into_iter()
         .filter_map(|(seq, raw, origin, id)| {
             let stored: Value = serde_json::from_str(&raw).ok()?;
-            let parsed = parse_space_envelope(&stored);
+            let mut parsed = parse_space_envelope(&stored);
+            if origin == "agent" {
+                let stripped = strip_stray_pass_tokens(&parsed.content);
+                if is_pass_token(stripped) {
+                    return None;
+                }
+                if stripped != parsed.content {
+                    parsed.content = stripped.to_string();
+                }
+            }
             let envelope = project_listed_envelope(stored, &parsed, audience);
             let receipts = receipts_by_message.remove(&id).unwrap_or_default();
             Some(SpaceMessage {
@@ -510,23 +519,33 @@ pub async fn list_space_messages(
             .await
             .unwrap_or(0),
         );
-        let mut running_turns: Vec<(String, String, Option<String>, i64)> =
-            sqlx::query_as::<_, (String, String, String, i64)>(
-                r#"SELECT t.id, t.conversation_id, t.space_message_id, m.seq
+        let raw_running_turns = sqlx::query_as::<_, (String, String, String, String, i64, String)>(
+            r#"SELECT t.id, t.conversation_id, t.space_message_id, m.space_id, m.seq, m.created_at
                FROM collaboration_turns t
                JOIN collaboration_space_messages m ON m.id = t.space_message_id
                WHERE t.space_id = ? AND t.state = 'running'
                ORDER BY m.seq ASC, t.created_at ASC"#,
+        )
+        .bind(space_id)
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
+        let mut running_turns: Vec<(String, String, Option<String>, i64)> =
+            Vec::with_capacity(raw_running_turns.len());
+        for (turn_id, cid_str, trigger_msg_id, origin_space_id, origin_seq, origin_created_at) in
+            raw_running_turns
+        {
+            let trigger_seq = resolve_turn_trigger_seq_in_space(
+                pool,
+                space_id,
+                &origin_space_id,
+                &trigger_msg_id,
+                origin_seq,
+                &origin_created_at,
             )
-            .bind(space_id)
-            .fetch_all(pool)
-            .await
-            .map_err(db)?
-            .into_iter()
-            .map(|(turn_id, cid_str, trigger_msg_id, trigger_seq)| {
-                (turn_id, cid_str, Some(trigger_msg_id), trigger_seq)
-            })
-            .collect();
+            .await?;
+            running_turns.push((turn_id, cid_str, Some(trigger_msg_id), trigger_seq));
+        }
         let seen_cids: std::collections::HashSet<String> = running_turns
             .iter()
             .map(|(_, cid_str, _, _)| cid_str.clone())

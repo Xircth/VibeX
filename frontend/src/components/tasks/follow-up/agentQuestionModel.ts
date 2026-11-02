@@ -36,7 +36,7 @@ export type QuestionAnswerState = {
 };
 
 const QUESTION_TOOL_NAME =
-  /(ask_user_question|(^|[_-])(ask|question|request_user_input)([_-]|$))/i;
+  /(ask_user_question|askuserquestion|ask_question|askquestion|request_user_input|requestuserinput|(^|[/:._-])(ask|question)([/:._-]|$))/i;
 
 const CUSTOM_FIELD_SUFFIX = '_custom';
 
@@ -60,6 +60,7 @@ function hasStructuredQuestions(
 }
 
 export function isAskQuestionTool(use: ToolUseBlock): boolean {
+  if (use.tool_use_id?.startsWith('interaction_')) return true;
   const meta = asObject(use.meta);
   const vendor = asObject(meta?.['x.ai/tool']);
   const vendorName = readString(vendor?.name);

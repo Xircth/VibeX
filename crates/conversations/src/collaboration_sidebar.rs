@@ -324,7 +324,9 @@ fn cross_chat_field_present(value: &Option<Value>) -> bool {
 }
 
 fn dm_row_is_visible(message: &DmMessage) -> bool {
-    !message.text.is_empty()
+    let has_visible_text = !message.text.is_empty()
+        && !(message.origin != "user" && crate::collaboration::is_pass_token(&message.text));
+    has_visible_text
         || cross_chat_field_present(&message.cross_chat_sent_to)
         || cross_chat_field_present(&message.cross_chat_received_from)
 }
@@ -547,7 +549,16 @@ fn group_dm_rows(
     }
     out.into_iter()
         .map(|mut row| {
-            row.message.text = row.message.text.trim().to_string();
+            if row.message.origin == "agent" {
+                let stripped = crate::collaboration::strip_stray_pass_tokens(&row.message.text);
+                if crate::collaboration::is_pass_token(stripped) {
+                    row.message.text.clear();
+                } else {
+                    row.message.text = stripped.to_string();
+                }
+            } else {
+                row.message.text = row.message.text.trim().to_string();
+            }
             row.message
         })
         .collect()
@@ -722,8 +733,11 @@ async fn dm_space_messages_since(
                     ELSE COALESCE(
                       d.turn_id,
                       (SELECT ct.id FROM collaboration_turns ct
-                       WHERE ct.space_id = m.space_id
-                         AND ct.space_message_id = json_extract(m.envelope_json, '$.reply_to')
+                       WHERE ct.space_message_id = json_extract(m.envelope_json, '$.reply_to')
+                         AND (
+                           ct.space_id = m.space_id
+                           OR ct.conversation_id = json_extract(m.envelope_json, '$.conversation_id')
+                         )
                        ORDER BY ct.created_at DESC LIMIT 1)
                     )
                   END AS resolved_turn_id
@@ -761,7 +775,12 @@ async fn dm_space_messages_since(
                 None => continue,
             }
         } else {
-            raw_content
+            let stripped = crate::collaboration::strip_stray_pass_tokens(&raw_content);
+            if crate::collaboration::is_pass_token(stripped) {
+                String::new()
+            } else {
+                stripped.to_string()
+            }
         };
         let (operation_id, delivered) = if origin == "user" {
             let deliv = if status.as_deref() == Some("failed") {
@@ -803,22 +822,34 @@ async fn dm_streaming_draft(
     thread_id: &str,
     cutover_seq: i64,
 ) -> Result<Option<DmMessage>, CollaborationError> {
-    let open_turn: Option<(String, String, i64)> = sqlx::query_as(
-        r#"SELECT t.id, t.space_message_id, m.seq
+    let open_turn: Option<(String, String, String, i64, String)> = sqlx::query_as(
+        r#"SELECT t.id, t.space_message_id, m.space_id, m.seq, m.created_at
            FROM collaboration_turns t
            JOIN collaboration_space_messages m ON m.id = t.space_message_id
-           WHERE t.space_id = ? AND t.conversation_id = ? AND t.state = 'running'
-           ORDER BY m.seq DESC, t.created_at DESC
+           WHERE (t.space_id = ? OR m.space_id = ?) AND t.conversation_id = ? AND t.state = 'running'
+           ORDER BY t.created_at DESC, m.seq DESC
            LIMIT 1"#,
     )
+    .bind(thread_id)
     .bind(thread_id)
     .bind(conversation_id.to_string())
     .fetch_optional(pool)
     .await
     .map_err(db_err)?;
-    let Some((turn_id, _trigger_msg_id, trigger_seq)) = open_turn else {
+    let Some((turn_id, trigger_msg_id, origin_space_id, origin_seq, origin_created_at)) =
+        open_turn
+    else {
         return Ok(None);
     };
+    let trigger_seq = crate::collaboration::resolve_turn_trigger_seq_in_space(
+        pool,
+        thread_id,
+        &origin_space_id,
+        &trigger_msg_id,
+        origin_seq,
+        &origin_created_at,
+    )
+    .await?;
     let posted_rows: Vec<(i64, String)> = sqlx::query_as(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ? AND origin = 'agent'

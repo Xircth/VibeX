@@ -57,8 +57,9 @@ pub use delivery::{
 pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
     last_completed_delivery_seq, load_stored_operation, parse_space_envelope,
-    parse_space_envelope_str, round_speaking_order_line, seat_binding, split_missed_group_context,
-    store_operation, sweep_round_grace_detach, working_peers_line,
+    parse_space_envelope_str, resolve_turn_trigger_seq_in_space, round_speaking_order_line,
+    seat_binding, split_missed_group_context, store_operation, sweep_round_grace_detach,
+    working_peers_line,
 };
 pub use hot_group::HotGroupTracker;
 pub(crate) use prompt::{

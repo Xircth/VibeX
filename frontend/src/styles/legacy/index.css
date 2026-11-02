@@ -6674,13 +6674,10 @@ html.dark {
     line-height: 1;
   }
 
-  .ask-question-detail-well {
+  .ask-question-tool-card .agent-question-detail {
     margin-top: 10px;
     max-height: min(24rem, 50vh);
     overflow-y: auto;
-    border-radius: var(--radius);
-    background: var(--surface-control);
-    padding: 14px 20px;
   }
 
   .ask-question-tool-title {

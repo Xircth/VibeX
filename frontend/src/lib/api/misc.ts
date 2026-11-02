@@ -128,6 +128,8 @@ export interface ReadFileResponse {
 export interface BinaryAssetResponse {
   data_base64: string;
   mime_type: string;
+  size_bytes?: number;
+  too_large?: boolean;
 }
 
 export interface WritePastedImageAssetResponse {
@@ -234,9 +236,13 @@ export const fileTreeApi = {
     });
   },
 
-  readBinaryAsset: async (path: string): Promise<BinaryAssetResponse> => {
+  readBinaryAsset: async (
+    path: string,
+    maxBytes?: number
+  ): Promise<BinaryAssetResponse> => {
     return backendCall<BinaryAssetResponse>('read_binary_asset', {
       path,
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
     });
   },
 

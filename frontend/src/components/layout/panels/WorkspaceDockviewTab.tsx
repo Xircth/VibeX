@@ -27,8 +27,10 @@ import { contributionIconComponent } from '@/components/plugins/contributionIcon
 import FileIcon from '@/components/FileIcon';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
+import { QueryClientContext } from '@tanstack/react-query';
 import { useAppContextMenu } from '@/components/context-menu';
 import { useWorkspaceEditorTabMenu } from '@/components/layout/panels/workspaceTabContextMenu';
+import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
 
 const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
 
@@ -208,6 +210,15 @@ export function WorkspaceDockviewTab({
     return () => disposable.dispose();
   }, [api]);
 
+  const queryClient = React.useContext(QueryClientContext);
+  const refreshTab = React.useCallback(() => {
+    requestPreviewTabRefresh({
+      panelId: api.id,
+      filePath: tabParams?.filePath ?? null,
+      queryClient,
+    });
+  }, [api.id, queryClient, tabParams?.filePath]);
+
   const closeTab = React.useCallback(() => {
     if (
       api.component === PANEL_IDS.MERGE &&
@@ -228,7 +239,7 @@ export function WorkspaceDockviewTab({
     },
     [closeTab]
   );
-  const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab);
+  const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab, refreshTab);
 
   return (
     <div
@@ -245,6 +256,11 @@ export function WorkspaceDockviewTab({
         const panels = group?.panels ?? [];
         const index = panels.findIndex((panel) => panel.id === api.id);
         openSurfaceMenu(event, [
+          {
+            id: 'refresh',
+            label: t('panels:tabCreation.refresh', '刷新'),
+            onSelect: refreshTab,
+          },
           {
             id: 'close',
             label: t('contextMenu.closeTab'),

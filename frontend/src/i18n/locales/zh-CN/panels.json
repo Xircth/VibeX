@@ -164,6 +164,7 @@
   },
   "tabCreation": {
     "newTab": "新建标签页",
+    "refresh": "刷新",
     "browser": "浏览器",
     "review": "审阅",
     "note": "笔记",
@@ -1189,6 +1190,10 @@
       "officeDocumentDiffIsNot": "此处不支持 Office 文档差异",
       "imagePreviewIsUnavailable": "图片预览不可用",
       "pdfPreviewIsUnavailable": "PDF 预览不可用",
+      "videoPreviewIsUnavailable": "视频预览不可用",
+      "videoTooLargeWindows": "当前文件过大（≥20MB），请通过文件资源管理器查看",
+      "videoTooLargeMac": "当前文件过大（≥20MB），请通过访达查看",
+      "openInFolder": "在文件夹中打开",
       "selectAFileFromThe": "从文件树中选择要预览的文件"
     },
     "merge": {

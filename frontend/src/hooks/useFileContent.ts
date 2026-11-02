@@ -5,6 +5,8 @@ import { fileTreeKeys } from '@/hooks/useFileTree';
 
 export const fileContentKeys = {
   all: ['fileContent'] as const,
+  allHead: ['fileContentHead'] as const,
+  allBinaryAssets: ['binaryAsset'] as const,
   byPath: (path: string | null) => ['fileContent', path] as const,
   headByPath: (path: string | null) => ['fileContentHead', path] as const,
   binaryAssetByPath: (path: string | null) => ['binaryAsset', path] as const,
@@ -43,6 +45,15 @@ export function useFileAtHead(path: string | null) {
   });
 }
 
+function estimateBase64ByteLength(base64: string) {
+  const trimmed = base64.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  const padding = trimmed.endsWith('==') ? 2 : trimmed.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
+}
+
 function decodeBase64ToBlob(base64: string, mimeType: string) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -57,10 +68,17 @@ function decodeBase64ToBlob(base64: string, mimeType: string) {
 /**
  * Hook to read a binary asset and expose it as a local blob URL for preview.
  */
-export function useBinaryAssetPreview(path: string | null) {
+export function useBinaryAssetPreview(
+  path: string | null,
+  options?: { maxBytes?: number }
+) {
+  const maxBytes = options?.maxBytes;
   const query = useQuery<BinaryAssetResponse>({
-    queryKey: fileContentKeys.binaryAssetByPath(path),
-    queryFn: () => fileTreeApi.readBinaryAsset(path!),
+    queryKey:
+      maxBytes !== undefined
+        ? [...fileContentKeys.binaryAssetByPath(path), maxBytes]
+        : fileContentKeys.binaryAssetByPath(path),
+    queryFn: () => fileTreeApi.readBinaryAsset(path!, maxBytes),
     enabled: !!path,
     staleTime: 30_000,
     gcTime: 15_000,
@@ -70,13 +88,31 @@ export function useBinaryAssetPreview(path: string | null) {
     },
   });
 
-  const blob = useMemo(() => {
+  const sizeBytes = useMemo(() => {
     if (!query.data) {
+      return null;
+    }
+    if (typeof query.data.size_bytes === 'number') {
+      return query.data.size_bytes;
+    }
+    if (query.data.data_base64) {
+      return estimateBase64ByteLength(query.data.data_base64);
+    }
+    return null;
+  }, [query.data]);
+
+  const isTooLarge = Boolean(
+    query.data?.too_large ||
+      (maxBytes !== undefined && sizeBytes !== null && sizeBytes >= maxBytes)
+  );
+
+  const blob = useMemo(() => {
+    if (!query.data || isTooLarge || !query.data.data_base64) {
       return null;
     }
 
     return decodeBase64ToBlob(query.data.data_base64, query.data.mime_type);
-  }, [query.data]);
+  }, [isTooLarge, query.data]);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,6 +132,8 @@ export function useBinaryAssetPreview(path: string | null) {
   return {
     assetUrl: objectUrl,
     mimeType: query.data?.mime_type ?? null,
+    sizeBytes,
+    isTooLarge,
     isLoading: query.isLoading,
     error: query.error,
   };

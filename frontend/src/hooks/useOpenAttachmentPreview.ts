@@ -26,6 +26,20 @@ export function useOpenAttachmentPreview(): (
 
   return useCallback(
     (args: OpenAttachmentPreviewArgs) => {
+      const filePath = args.filePath?.trim() || '';
+      if (
+        args.kind === 'video' &&
+        presentation === 'workspace-tab' &&
+        panelActions &&
+        filePath
+      ) {
+        const result = panelActions.openFilePreview(filePath, {
+          title: args.fileName,
+          displayPath: args.fileName,
+        });
+        if (result !== 'unavailable') return;
+      }
+
       if (args.kind === 'image' || args.kind === 'video') {
         if (!args.imageUrl) return;
         openImagePreview({
@@ -38,7 +52,6 @@ export function useOpenAttachmentPreview(): (
         return;
       }
 
-      const filePath = args.filePath?.trim() || '';
       if (presentation === 'workspace-tab' && panelActions && filePath) {
         const result = panelActions.openFilePreview(filePath, {
           title: args.fileName,

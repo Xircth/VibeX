@@ -2,6 +2,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -10,7 +11,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import i18n from '@/i18n';
+import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
 import {
   type IDockviewHeaderActionsProps,
   type IDockviewPanelHeaderProps,
@@ -312,6 +315,7 @@ export function CollaborationPreviewDockviewTab(
         .map(asMemberAvatar)
         .filter((avatar): avatar is MemberBotAvatarConfig => Boolean(avatar))
     : [];
+  const queryClient = useContext(QueryClientContext);
   const filePath =
     typeof tabParams.filePath === 'string' ? tabParams.filePath : '';
   const imagePreviewId =
@@ -330,6 +334,17 @@ export function CollaborationPreviewDockviewTab(
         const panels = group?.panels ?? [];
         const index = panels.findIndex((panel) => panel.id === api.id);
         openSurfaceMenu(event.nativeEvent, [
+          {
+            id: 'refresh',
+            label: i18n.t('panels:tabCreation.refresh', '刷新'),
+            onSelect: () => {
+              requestPreviewTabRefresh({
+                panelId: api.id,
+                filePath: filePath || null,
+                queryClient,
+              });
+            },
+          },
           {
             type: 'submenu',
             id: 'close',

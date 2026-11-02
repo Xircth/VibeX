@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildWorkspaceTabContextMenu } from './workspaceTabContextMenu';
 
 const labels = {
+  refresh: '刷新',
   close: '关闭',
   closeCurrent: '关闭当前页',
   closeOthers: '关闭其他页',
@@ -18,8 +19,9 @@ const labels = {
   sortByName: '按名称排序',
 };
 
-function menu(openBrowser?: () => void) {
+function menu(openBrowser?: () => void, refresh = vi.fn()) {
   return buildWorkspaceTabContextMenu(labels, {
+    refresh,
     closeCurrent: vi.fn(),
     closeOthers: vi.fn(),
     canSplit: true,
@@ -39,14 +41,21 @@ function menu(openBrowser?: () => void) {
 }
 
 describe('buildWorkspaceTabContextMenu', () => {
-  it('exposes close, split, new, and sort as the only top-level rows', () => {
-    const items = menu();
-    expect(items.map((item) => item.type === 'submenu' && item.label)).toEqual([
+  it('exposes refresh, close, split, new, and sort as the top-level rows', () => {
+    const refresh = vi.fn();
+    const items = menu(undefined, refresh);
+    expect(items.map((item) => ('label' in item ? item.label : ''))).toEqual([
+      '刷新',
       '关闭',
       '拆分',
       '新建',
       '排序',
     ]);
+    const refreshItem = items[0];
+    if (refreshItem && 'onSelect' in refreshItem && refreshItem.onSelect) {
+      refreshItem.onSelect();
+    }
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('nests shell choices under terminal and omits browser when it is disabled', () => {

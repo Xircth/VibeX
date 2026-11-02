@@ -21,10 +21,13 @@ import {
   Eye,
   FileText,
   FileWarning,
+  Film,
+  FolderOpen,
   GitCompare,
   Image as ImageIcon,
 } from 'lucide-react';
 import {
+  fileContentKeys,
   useBinaryAssetPreview,
   useFileAtHead,
   useFileContent,
@@ -48,16 +51,18 @@ import {
   getFilePreviewForm,
   getFilePreviewKind,
   isBinaryContentError,
+  MAX_VIDEO_PREVIEW_BYTES,
 } from '@/utils/filePreviewKind';
-import { isTauriDesktopShell } from '@/utils/platform';
+import { isMac, isTauriDesktopShell } from '@/utils/platform';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 import { toast } from '@/components/ui/toast';
 import { useAppContextMenu } from '@/components/context-menu';
 import { copyImageFromSrc, saveImageFromSrc } from '@/lib/previewMediaActions';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { fileTreeApi } from '@/lib/api';
-import { fileToBase64 } from '@/lib/api/misc';
+import { desktopApi, fileToBase64 } from '@/lib/api/misc';
 import { fileTreeKeys } from '@/hooks/useFileTree';
+import { subscribePreviewTabRefresh } from '@/utils/previewTabRefresh';
 import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
 import {
   insertPastedImagesAsMarkdown,
@@ -209,10 +214,12 @@ function PreviewPlaceholder({
   icon,
   title,
   description,
+  action,
 }: {
   icon: ComponentType<{ className?: string }>;
   title: string;
   description?: string;
+  action?: ReactNode;
 }) {
   const Icon = icon;
 
@@ -225,6 +232,7 @@ function PreviewPlaceholder({
           <p className="text-xs">{description}</p>
         ) : null}
       </div>
+      {action ? <div className="pt-1">{action}</div> : null}
     </div>
   );
 }
@@ -467,15 +475,23 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     previewKind === 'text' && hasBinaryReadError ? 'binary' : previewKind;
   const shouldFetchBinaryAsset =
     mode !== 'diff' &&
-    (effectivePreviewKind === 'image' || effectivePreviewKind === 'pdf');
+    (effectivePreviewKind === 'image' ||
+      effectivePreviewKind === 'pdf' ||
+      effectivePreviewKind === 'video');
   const modifiedContent = modifiedContentOverride ?? content ?? '';
   const originalContent =
     originalContentOverride ?? (headError ? '' : (headContent ?? ''));
   const {
     assetUrl: fileAssetSrc,
+    isTooLarge: isBinaryAssetTooLarge,
     isLoading: isLoadingBinaryAsset,
     error: binaryAssetError,
-  } = useBinaryAssetPreview(shouldFetchBinaryAsset ? resolvedFilePath : null);
+  } = useBinaryAssetPreview(
+    shouldFetchBinaryAsset ? resolvedFilePath : null,
+    effectivePreviewKind === 'video'
+      ? { maxBytes: MAX_VIDEO_PREVIEW_BYTES }
+      : undefined
+  );
   const binaryAssetErrorMessage = useMemo(() => {
     if (!binaryAssetError) {
       return null;
@@ -484,6 +500,41 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       ? binaryAssetError.message
       : String(binaryAssetError);
   }, [binaryAssetError]);
+
+  const [refreshGeneration, setRefreshGeneration] = useState(0);
+  useEffect(() => {
+    return subscribePreviewTabRefresh((payload) => {
+      const panelId = props.api?.id;
+      const matchesPanel = Boolean(
+        payload.panelId && panelId && payload.panelId === panelId
+      );
+      const matchesFile = Boolean(
+        payload.filePath &&
+          (payload.filePath === filePath ||
+            payload.filePath === resolvedFilePath)
+      );
+      if (
+        !matchesPanel &&
+        !matchesFile &&
+        (payload.panelId || payload.filePath)
+      ) {
+        return;
+      }
+      setDraft(null);
+      setRefreshGeneration((current) => current + 1);
+      if (resolvedFilePath) {
+        void queryClient.invalidateQueries({
+          queryKey: fileContentKeys.byPath(resolvedFilePath),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: fileContentKeys.headByPath(resolvedFilePath),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: fileContentKeys.binaryAssetByPath(resolvedFilePath),
+        });
+      }
+    });
+  }, [filePath, props.api?.id, queryClient, resolvedFilePath]);
 
   const canToggleView =
     previewForm !== null && effectivePreviewKind === 'text' && !isDiffMode;
@@ -963,7 +1014,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           }
           if (
             effectivePreviewKind === 'binary' ||
-            effectivePreviewKind === 'pdf'
+            effectivePreviewKind === 'pdf' ||
+            effectivePreviewKind === 'video'
           ) {
             return;
           }
@@ -1012,7 +1064,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             label={`Opening ${resolvedDisplayPath ?? filePath}`}
           />
         ) : isDiffMode ? (
-          effectivePreviewKind === 'binary' ? (
+          effectivePreviewKind === 'binary' ||
+          effectivePreviewKind === 'video' ? (
             <PreviewPlaceholder
               icon={FileWarning}
               title={i18n.t('panels:ui.preview.binaryDiffIsNotSupported')}
@@ -1067,13 +1120,13 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : pluginOpener ? (
           pluginOpener.target === 'app_surface' ? (
             <PluginArtifactEditor
-              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}`}
+              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}:${refreshGeneration}`}
               opener={pluginOpener}
               filePath={resolvedFilePath ?? filePath}
             />
           ) : (
             <PluginFilePreview
-              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}`}
+              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}:${refreshGeneration}`}
               filePath={resolvedFilePath ?? filePath}
             />
           )
@@ -1101,6 +1154,66 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               description={
                 binaryAssetErrorMessage ??
                 'The image data could not be loaded for this file.'
+              }
+            />
+          )
+        ) : effectivePreviewKind === 'video' ? (
+          isLoadingBinaryAsset ? (
+            <FilePreviewLoading
+              fileName={resolvedDisplayPath ?? filePath}
+              label={`Opening ${resolvedDisplayPath ?? filePath}`}
+            />
+          ) : isBinaryAssetTooLarge ? (
+            <PreviewPlaceholder
+              icon={Film}
+              title={
+                isMac()
+                  ? i18n.t(
+                      'panels:ui.preview.videoTooLargeMac',
+                      '当前文件过大（≥20MB），请通过访达查看'
+                    )
+                  : i18n.t(
+                      'panels:ui.preview.videoTooLargeWindows',
+                      '当前文件过大（≥20MB），请通过文件资源管理器查看'
+                    )
+              }
+              action={
+                <button
+                  type="button"
+                  className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
+                  onClick={() => {
+                    const targetPath = resolvedFilePath ?? filePath;
+                    if (targetPath) {
+                      void desktopApi.revealInFileManager(targetPath);
+                    }
+                  }}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
+                </button>
+              }
+            />
+          ) : fileAssetSrc ? (
+            <div className="flex h-full min-h-0 w-full items-center justify-center overflow-auto bg-muted/10 p-3">
+              <video
+                key={`${fileAssetSrc}:${refreshGeneration}`}
+                controls
+                preload="metadata"
+                src={fileAssetSrc}
+                data-testid="workspace-video-preview"
+                className="h-auto max-h-full w-full rounded-lg border border-border bg-black shadow-sm"
+              />
+            </div>
+          ) : (
+            <PreviewPlaceholder
+              icon={Film}
+              title={i18n.t(
+                'panels:ui.preview.videoPreviewIsUnavailable',
+                '视频预览不可用'
+              )}
+              description={
+                binaryAssetErrorMessage ??
+                'The video data could not be loaded for this file.'
               }
             />
           )
@@ -1138,6 +1251,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           )
         ) : isHtml && isRendered && htmlAssetRoot ? (
           <HostHtmlPreview
+            key={`${resolvedFilePath ?? filePath}:${refreshGeneration}`}
             filePath={resolvedFilePath ?? filePath}
             assetRoot={htmlAssetRoot}
             displayPath={resolvedDisplayPath ?? filePath}
@@ -1154,7 +1268,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             description={contentErrorMessage}
           />
         ) : showingMarkdownRichtext ? (
-          <PreviewSubviewErrorBoundary key={resolvedFilePath ?? filePath}>
+          <PreviewSubviewErrorBoundary
+            key={`${resolvedFilePath ?? filePath}:${refreshGeneration}`}
+          >
             <Suspense
               fallback={
                 <FilePreviewLoading
@@ -1165,7 +1281,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             >
               <div ref={markdownScrollRef} className="h-full min-h-0">
                 <LazyMarkdownRichTextEditor
-                  key={resolvedFilePath ?? filePath}
+                  key={`${resolvedFilePath ?? filePath}:${refreshGeneration}`}
                   markdown={editorContent}
                   label={resolvedDisplayPath ?? filePath}
                   workspacePath={markdownBasePath}

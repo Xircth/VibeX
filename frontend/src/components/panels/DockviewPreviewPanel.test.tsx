@@ -9,13 +9,30 @@ import {
 } from '@/lib/imagePreviewRegistry';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 
+import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
+
 import DockviewPreviewPanel from './DockviewPreviewPanel';
 
-const api = vi.hoisted(() => ({ resolveFileOpener: vi.fn() }));
+const api = vi.hoisted(() => ({
+  resolveFileOpener: vi.fn(),
+  revealInFileManager: vi.fn(),
+}));
 const saveFile = vi.hoisted(() => ({ mutate: vi.fn() }));
-const platform = vi.hoisted(() => ({ isTauriDesktopShell: vi.fn(() => true) }));
+const queryClientMock = vi.hoisted(() => ({ invalidateQueries: vi.fn() }));
+const platform = vi.hoisted(() => ({
+  isTauriDesktopShell: vi.fn(() => true),
+  isMac: vi.fn(() => false),
+}));
 const fileContent = vi.hoisted(() => ({
   data: '# Preview title' as string | undefined,
+  isLoading: false,
+  error: null as Error | null,
+}));
+const binaryAsset = vi.hoisted(() => ({
+  assetUrl: null as string | null,
+  mimeType: null as string | null,
+  sizeBytes: null as number | null,
+  isTooLarge: false,
   isLoading: false,
   error: null as Error | null,
 }));
@@ -24,9 +41,21 @@ vi.mock('@/lib/api/plugins', () => ({
   pluginControlApi: { resolveFileOpener: api.resolveFileOpener },
 }));
 
+vi.mock('@/lib/api/misc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/misc')>();
+  return {
+    ...actual,
+    desktopApi: {
+      ...actual.desktopApi,
+      revealInFileManager: api.revealInFileManager,
+    },
+  };
+});
+
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   isTauriDesktopShell: platform.isTauriDesktopShell,
+  isMac: platform.isMac,
 }));
 
 vi.mock('@/components/previews/HostHtmlPreview', () => ({
@@ -121,20 +150,20 @@ vi.mock('@monaco-editor/react', () => {
   return { default: MockMonacoEditor };
 });
 
-vi.mock('@/hooks/useFileContent', () => ({
-  useFileContent: () => fileContent,
-  useFileAtHead: () => ({
-    data: null,
-    isLoading: false,
-    error: null,
-  }),
-  useBinaryAssetPreview: () => ({
-    assetUrl: null,
-    isLoading: false,
-    error: null,
-  }),
-  useSaveFile: () => saveFile,
-}));
+vi.mock('@/hooks/useFileContent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useFileContent')>();
+  return {
+    ...actual,
+    useFileContent: () => fileContent,
+    useFileAtHead: () => ({
+      data: null,
+      isLoading: false,
+      error: null,
+    }),
+    useBinaryAssetPreview: () => binaryAsset,
+    useSaveFile: () => saveFile,
+  };
+});
 
 vi.mock('@/components/ThemeProvider', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
@@ -154,7 +183,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-query')>();
   return {
     ...actual,
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    useQueryClient: () => queryClientMock,
   };
 });
 
@@ -230,10 +259,19 @@ describe('DockviewPreviewPanel', () => {
     HTMLElement.prototype.releasePointerCapture = vi.fn();
     HTMLElement.prototype.scrollIntoView = vi.fn();
     api.resolveFileOpener.mockReset().mockResolvedValue(null);
+    api.revealInFileManager.mockReset().mockResolvedValue(undefined);
+    queryClientMock.invalidateQueries.mockReset();
     platform.isTauriDesktopShell.mockReturnValue(true);
+    platform.isMac.mockReturnValue(false);
     fileContent.data = '# Preview title';
     fileContent.isLoading = false;
     fileContent.error = null;
+    binaryAsset.assetUrl = null;
+    binaryAsset.mimeType = null;
+    binaryAsset.sizeBytes = null;
+    binaryAsset.isTooLarge = false;
+    binaryAsset.isLoading = false;
+    binaryAsset.error = null;
     saveFile.mutate.mockReset().mockImplementation((variables, callbacks) => {
       fileContent.data = variables.content;
       callbacks?.onSuccess?.();
@@ -554,5 +592,78 @@ describe('DockviewPreviewPanel', () => {
       await screen.findByTestId('plugin-artifact-editor')
     ).toHaveTextContent('/workspace/architecture.drawio');
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
+  });
+
+  it('renders an adaptive width MP4 video player when the video is under 20MB', async () => {
+    binaryAsset.assetUrl = 'blob:http://localhost/video-demo';
+    binaryAsset.mimeType = 'video/mp4';
+    binaryAsset.sizeBytes = 5 * 1024 * 1024;
+    binaryAsset.isTooLarge = false;
+
+    render(<DockviewPreviewPanel {...panelProps('demos/intro.mp4')} />);
+
+    const video = await screen.findByTestId('workspace-video-preview');
+    expect(video.tagName).toBe('VIDEO');
+    expect(video).toHaveAttribute('src', 'blob:http://localhost/video-demo');
+    expect(video).toHaveClass('w-full');
+  });
+
+  it('shows the >=20MB prompt and opens folder on Windows and macOS when MP4 is oversized', async () => {
+    binaryAsset.assetUrl = null;
+    binaryAsset.mimeType = 'video/mp4';
+    binaryAsset.sizeBytes = 20 * 1024 * 1024;
+    binaryAsset.isTooLarge = true;
+    platform.isMac.mockReturnValue(false);
+
+    const { unmount } = render(
+      <DockviewPreviewPanel {...panelProps('demos/large.mp4')} />
+    );
+
+    expect(
+      await screen.findByText('当前文件过大（≥20MB），请通过文件资源管理器查看')
+    ).toBeVisible();
+    const openBtn = screen.getByRole('button', { name: '在文件夹中打开' });
+    fireEvent.click(openBtn);
+    expect(api.revealInFileManager).toHaveBeenCalledWith(
+      '/workspace/demos/large.mp4'
+    );
+    expect(
+      screen.queryByTestId('workspace-video-preview')
+    ).not.toBeInTheDocument();
+
+    unmount();
+    platform.isMac.mockReturnValue(true);
+    render(<DockviewPreviewPanel {...panelProps('demos/large.mp4')} />);
+
+    expect(
+      await screen.findByText('当前文件过大（≥20MB），请通过访达查看')
+    ).toBeVisible();
+  });
+
+  it('reloads file content and clears stale draft when tab refresh is triggered', async () => {
+    const props = {
+      ...panelProps('src/index.ts'),
+      api: { id: 'preview:src/index.ts' },
+    } as unknown as IDockviewPanelProps;
+    fileContent.data = 'const version = 1;';
+
+    render(<DockviewPreviewPanel {...props} />);
+
+    const sourceInput = await screen.findByLabelText('File source');
+    fireEvent.change(sourceInput, { target: { value: 'const version = 999;' } });
+    expect(sourceInput).toHaveValue('const version = 999;');
+
+    fileContent.data = 'const version = 2;';
+    act(() => {
+      requestPreviewTabRefresh({
+        panelId: 'preview:src/index.ts',
+        filePath: 'src/index.ts',
+      });
+    });
+
+    expect(await screen.findByLabelText('File source')).toHaveValue(
+      'const version = 2;'
+    );
+    expect(queryClientMock.invalidateQueries).toHaveBeenCalled();
   });
 });

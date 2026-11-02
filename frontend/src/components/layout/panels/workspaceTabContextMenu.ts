@@ -17,11 +17,15 @@ import {
 } from '@/lib/terminalPreferences';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
+import { useContext } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { terminalHostPlatform } from '@/utils/platform';
+import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
 import { useTranslation } from 'react-i18next';
 import { openWorkspaceTerminal } from './openWorkspaceTerminal';
 
 export interface WorkspaceTabMenuLabels {
+  refresh?: string;
   close: string;
   closeCurrent: string;
   closeOthers: string;
@@ -39,6 +43,7 @@ export interface WorkspaceTabMenuLabels {
 }
 
 export interface WorkspaceTabMenuActions {
+  refresh?: () => void;
   closeCurrent: () => void;
   closeOthers: () => void;
   canSplit: boolean;
@@ -90,6 +95,11 @@ export function buildWorkspaceTabContextMenu(
   }
 
   return [
+    {
+      id: 'refresh',
+      label: labels.refresh ?? '刷新',
+      onSelect: () => actions.refresh?.(),
+    },
     {
       type: 'submenu',
       id: 'close',
@@ -167,10 +177,12 @@ interface EditorTabApi {
 
 export function useWorkspaceEditorTabMenu(
   api: EditorTabApi,
-  closeCurrent: () => void
+  closeCurrent: () => void,
+  refreshCurrent?: () => void
 ): { open: (event: MouseEvent) => void } | null {
   const { t } = useTranslation('panels');
   const { openSurfaceMenu } = useAppContextMenu();
+  const queryClient = useContext(QueryClientContext);
   const {
     runInEditorGroup,
     splitEditorPanel,
@@ -196,6 +208,7 @@ export function useWorkspaceEditorTabMenu(
   if (!group || !isEditorGroup(group)) return null;
 
   const labels: WorkspaceTabMenuLabels = {
+    refresh: t('tabCreation.refresh', '刷新'),
     close: t('tabCreation.close'),
     closeCurrent: t('tabCreation.closeCurrent'),
     closeOthers: t('tabCreation.closeOthers'),
@@ -248,6 +261,13 @@ export function useWorkspaceEditorTabMenu(
       openSurfaceMenu(
         event,
         buildWorkspaceTabContextMenu(labels, {
+          refresh:
+            refreshCurrent ??
+            (() =>
+              requestPreviewTabRefresh({
+                panelId: api.id,
+                queryClient,
+              })),
           closeCurrent,
           closeOthers: () => {
             panels.filter((panel) => panel.id !== api.id).forEach(closePanel);

@@ -236,8 +236,10 @@ struct AgentIdArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PathArgs {
+struct ReadBinaryAssetArgs {
     path: String,
+    #[serde(default, alias = "max_bytes")]
+    max_bytes: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -819,14 +821,30 @@ impl ServerApplicationDomains {
                 )
             }
             DomainCommand::ReadBinaryAsset => {
-                let args: PathArgs = parse(args)?;
+                let args: ReadBinaryAssetArgs = parse(args)?;
                 let path = self.sandbox_existing_binary_asset(&args.path).await?;
+                let metadata = tokio::fs::metadata(&path).await.map_err(internal_error)?;
+                let size_bytes = metadata.len();
+                let mime_type = mime_type_for_path(&path);
+                if let Some(max_bytes) = args.max_bytes
+                    && size_bytes >= max_bytes
+                {
+                    return Ok(json!({
+                        "data_base64": "",
+                        "base64": "",
+                        "mime_type": mime_type,
+                        "size_bytes": size_bytes,
+                        "too_large": true,
+                    }));
+                }
                 let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
                 let encoded = BASE64.encode(bytes);
                 Ok(json!({
                     "data_base64": encoded,
                     "base64": encoded,
-                    "mime_type": mime_type_for_path(&path),
+                    "mime_type": mime_type,
+                    "size_bytes": size_bytes,
+                    "too_large": false,
                 }))
             }
             DomainCommand::AutomationUpdateWorkflow => self.automation_update(args).await,
@@ -1628,6 +1646,7 @@ fn mime_type_for_path(path: &Path) -> &'static str {
         "tif" | "tiff" => "image/tiff",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",
+        "mp4" => "video/mp4",
         _ => "application/octet-stream",
     }
 }

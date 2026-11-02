@@ -16,6 +16,10 @@ const IMAGE_PREVIEW_EXTENSIONS = new Set([
 
 const PDF_PREVIEW_EXTENSIONS = new Set(['pdf']);
 
+const VIDEO_PREVIEW_EXTENSIONS = new Set(['mp4']);
+
+export const MAX_VIDEO_PREVIEW_BYTES = 20 * 1024 * 1024;
+
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
 
 const HTML_EXTENSIONS = new Set(['html', 'htm']);
@@ -43,7 +47,6 @@ const BINARY_PREVIEW_EXTENSIONS = new Set([
   'wav',
   'ogg',
   'flac',
-  'mp4',
   'mov',
   'avi',
   'mkv',
@@ -60,7 +63,7 @@ const BINARY_PREVIEW_EXTENSIONS = new Set([
   'sqlite',
 ]);
 
-export type FilePreviewKind = 'text' | 'image' | 'pdf' | 'binary';
+export type FilePreviewKind = 'text' | 'image' | 'pdf' | 'video' | 'binary';
 
 /**
  * A file that has both a rendered and a source view in the preview panel.
@@ -95,6 +98,10 @@ export function isPdfPreviewPath(path?: string | null) {
   return PDF_PREVIEW_EXTENSIONS.has(extensionFromPath(path));
 }
 
+export function isVideoPreviewPath(path?: string | null) {
+  return VIDEO_PREVIEW_EXTENSIONS.has(extensionFromPath(path));
+}
+
 export function getFilePreviewKind(path?: string | null): FilePreviewKind {
   if (isImagePreviewPath(path)) {
     return 'image';
@@ -102,6 +109,10 @@ export function getFilePreviewKind(path?: string | null): FilePreviewKind {
 
   if (isPdfPreviewPath(path)) {
     return 'pdf';
+  }
+
+  if (isVideoPreviewPath(path)) {
+    return 'video';
   }
 
   if (isBinaryPreviewPath(path)) {

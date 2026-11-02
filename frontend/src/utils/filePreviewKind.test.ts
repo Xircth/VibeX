@@ -7,6 +7,8 @@ import {
   isBinaryPreviewPath,
   isImagePreviewPath,
   isPdfPreviewPath,
+  isVideoPreviewPath,
+  MAX_VIDEO_PREVIEW_BYTES,
 } from './filePreviewKind';
 
 describe('filePreviewKind', () => {
@@ -24,6 +26,13 @@ describe('filePreviewKind', () => {
     expect(getFilePreviewKind('C:/repo/src-tauri/icons/icon.icns')).toBe(
       'binary'
     );
+  });
+
+  it('classifies mp4 video preview paths and keeps 20MB limit', () => {
+    expect(isVideoPreviewPath('C:/repo/assets/demo.mp4')).toBe(true);
+    expect(isVideoPreviewPath('C:/repo/assets/demo.MP4')).toBe(true);
+    expect(getFilePreviewKind('C:/repo/assets/demo.mp4')).toBe('video');
+    expect(MAX_VIDEO_PREVIEW_BYTES).toBe(20 * 1024 * 1024);
   });
 
   it('classifies pdf paths and leaves Office rendering to plugins', () => {

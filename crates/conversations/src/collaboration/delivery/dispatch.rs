@@ -115,8 +115,10 @@ pub(crate) async fn deliver_pending(
         r#"SELECT d.conversation_id, d.operation_id, d.input_id, d.status, d.receipt_state,
                   d.context_from_seq, d.wake_deferred_turn_key, d.round_id, d.round_ordinal,
                   CASE WHEN d.round_id IS NULL
-                         OR d.round_ordinal = (SELECT current_ordinal FROM collaboration_rounds r
-                                               WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                         OR d.round_ordinal <= (SELECT current_ordinal FROM collaboration_rounds r
+                                                WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                         OR EXISTS (SELECT 1 FROM collaboration_rounds r
+                                    WHERE r.id = d.round_id AND r.state = 'closed')
                        THEN 1 ELSE 0 END AS round_ready
            FROM collaboration_space_deliveries d
            WHERE d.space_message_id = ?
@@ -131,14 +133,16 @@ pub(crate) async fn deliver_pending(
                   d.receipt_state, d.context_from_seq, d.wake_deferred_turn_key, d.round_id,
                   d.round_ordinal,
                   CASE WHEN d.round_id IS NULL
-                         OR d.round_ordinal = (SELECT current_ordinal FROM collaboration_rounds r
-                                               WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                         OR d.round_ordinal <= (SELECT current_ordinal FROM collaboration_rounds r
+                                                WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                         OR EXISTS (SELECT 1 FROM collaboration_rounds r
+                                    WHERE r.id = d.round_id AND r.state = 'closed')
                        THEN 1 ELSE 0 END AS round_ready
            FROM collaboration_space_deliveries d
            WHERE d.space_message_id != ?
              AND d.round_id IS NOT NULL
              AND TRIM(d.round_id) != ''
-             AND d.round_ordinal = (
+             AND d.round_ordinal <= (
                  SELECT r.current_ordinal FROM collaboration_rounds r
                  WHERE r.id = d.round_id
                    AND r.state IN ('open', 'closing')
@@ -1007,17 +1011,97 @@ pub async fn redeliver_deferred(
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            WHERE d.status = 'queued' AND d.input_id IS NULL
              AND (d.round_id IS NULL
-                  OR d.round_ordinal = (SELECT current_ordinal FROM collaboration_rounds r
-                                        WHERE r.id = d.round_id AND r.state IN ('open','closing')))
+                  OR d.round_ordinal <= (SELECT current_ordinal FROM collaboration_rounds r
+                                         WHERE r.id = d.round_id AND r.state IN ('open','closing'))
+                  OR EXISTS (SELECT 1 FROM collaboration_rounds r
+                             WHERE r.id = d.round_id AND r.state = 'closed'))
            LIMIT 100"#,
     )
     .fetch_all(pool)
     .await
     .map_err(db)?;
+    let mut retried = pending.len();
     for (space_id, message_id) in &pending {
         if let Err(error) = deliver_pending(pool, space_id, message_id, delivery).await {
             tracing::warn!(%error, %message_id, "deferred space delivery retry failed");
         }
     }
-    Ok(pending.len())
+
+    let queued_with_input = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        r#"SELECT d.space_message_id, d.conversation_id, d.input_id, ci.status
+           FROM collaboration_space_deliveries d
+           LEFT JOIN conversation_inputs ci
+             ON lower(hex(ci.id)) = replace(lower(d.input_id), '-', '')
+           WHERE d.receipt_state = 'queued'
+             AND d.input_id IS NOT NULL
+             AND TRIM(d.input_id) != ''
+           LIMIT 100"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+
+    for (space_message_id, cid_raw, _input_id, ci_status) in queued_with_input {
+        let Ok(conversation_id) = Uuid::parse_str(&cid_raw) else {
+            continue;
+        };
+        let mut dispatched = ci_status.as_deref() == Some("dispatched");
+        if !dispatched
+            && ci_status.as_deref() == Some("queued")
+            && let Some(dispatcher) = &delivery.dispatcher
+        {
+            match dispatcher.start_if_idle(conversation_id).await {
+                Ok(Some(_)) => {
+                    dispatched = true;
+                }
+                Ok(None) => {
+                    let current_status: Option<String> = sqlx::query_scalar(
+                        r#"SELECT ci.status
+                           FROM collaboration_space_deliveries d
+                           JOIN conversation_inputs ci
+                             ON lower(hex(ci.id)) = replace(lower(d.input_id), '-', '')
+                           WHERE d.space_message_id = ? AND d.conversation_id = ?
+                           LIMIT 1"#,
+                    )
+                    .bind(&space_message_id)
+                    .bind(&cid_raw)
+                    .fetch_optional(pool)
+                    .await
+                    .ok()
+                    .flatten();
+                    if current_status.as_deref() == Some("dispatched") {
+                        dispatched = true;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        %conversation_id,
+                        %space_message_id,
+                        "deferred queued input start_if_idle failed"
+                    );
+                }
+            }
+        }
+        if dispatched {
+            let now = now_stamp();
+            let _ = sqlx::query(
+                r#"UPDATE collaboration_space_deliveries
+                   SET status = 'dispatched',
+                       receipt_state = 'processing',
+                       receipt_updated_at = ?
+                   WHERE space_message_id = ?
+                     AND conversation_id = ?
+                     AND receipt_state = 'queued'"#,
+            )
+            .bind(&now)
+            .bind(&space_message_id)
+            .bind(&cid_raw)
+            .execute(pool)
+            .await;
+            retried += 1;
+        }
+    }
+
+    Ok(retried)
 }

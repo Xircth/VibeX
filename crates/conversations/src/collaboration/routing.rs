@@ -1006,6 +1006,14 @@ pub async fn sleep_idle_sessions(
 /// Finish collaboration turns whose deadline has passed and mark still-
 /// processing receipts `timed_out`, which also frees in-flight slots.
 pub async fn sweep_expired_turns(pool: &SqlitePool) -> Result<u64, CollaborationError> {
+    let default_ctx = DeliveryContext::default();
+    sweep_expired_turns_with(pool, &default_ctx).await
+}
+
+pub async fn sweep_expired_turns_with(
+    pool: &SqlitePool,
+    delivery: &DeliveryContext,
+) -> Result<u64, CollaborationError> {
     let now = now_stamp();
     let overdue_turns: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
         r#"SELECT id, space_id, space_message_id, conversation_id, round_id
@@ -1073,9 +1081,8 @@ pub async fn sweep_expired_turns(pool: &SqlitePool) -> Result<u64, Collaboration
         rounds_to_advance.insert(rid);
     }
 
-    let default_ctx = DeliveryContext::default();
     for rid in rounds_to_advance {
-        let _ = advance_round(pool, &rid, &default_ctx).await;
+        let _ = advance_round(pool, &rid, delivery).await;
     }
 
     Ok(finished.rows_affected())
@@ -1095,7 +1102,7 @@ pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
             if let Err(error) = sleep_idle_sessions(&pool, minutes).await {
                 tracing::warn!(%error, "idle member session sweep failed");
             }
-            if let Err(error) = sweep_expired_turns(&pool).await {
+            if let Err(error) = sweep_expired_turns_with(&pool, &delivery).await {
                 tracing::warn!(%error, "expired collaboration turn sweep failed");
             }
             if let Err(error) = redeliver_deferred(&pool, &delivery).await {

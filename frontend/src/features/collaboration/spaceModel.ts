@@ -809,11 +809,17 @@ function hasMentionBoundaryAfter(
   return true;
 }
 
+function stripCodeForMentionScan(input: string): string {
+  return input
+    .replace(/```[\s\S]*?```/g, (segment) => ' '.repeat(segment.length))
+    .replace(/`[^`\r\n]*`/g, (segment) => ' '.repeat(segment.length));
+}
+
 function scanSpaceMentions(
   text: string | null | undefined,
   members: SpaceMember[] | null | undefined
 ): { matched: string[]; stray: string[] } {
-  const raw = String(text ?? '');
+  const raw = stripCodeForMentionScan(String(text ?? ''));
   if (!raw.includes('@')) {
     return { matched: [], stray: [] };
   }
@@ -874,7 +880,11 @@ function scanSpaceMentions(
     const fallback = /^([^\s@,，:：.。!！？?;；)）\]】]+)/.exec(after);
     const token = fallback?.[1] ?? '';
     if (!token) continue;
-    if (!MENTION_ALL_TOKENS.has(token.toLowerCase()) && !knownSet.has(token)) {
+    if (
+      !MENTION_ALL_TOKENS.has(token.toLowerCase()) &&
+      !isHumanPersonLabel(token) &&
+      !knownSet.has(token)
+    ) {
       stray.push(token);
     }
     i += token.length;
@@ -1332,6 +1342,18 @@ export function surfaceErrorCopy(cause: unknown): string {
         : record?.message != null
           ? String(record.message)
           : '';
+  if (code === 'not_found') {
+    const trimmed = message.trim();
+    if (
+      !trimmed ||
+      trimmed === 'not_found' ||
+      trimmed.toLowerCase().includes('nickname') ||
+      trimmed.includes('昵称')
+    ) {
+      return COPY.nicknameMissing;
+    }
+    return trimmed;
+  }
   const known = sendErrorCopy(code) || sendErrorCopy(message);
   if (known) return known;
   if (

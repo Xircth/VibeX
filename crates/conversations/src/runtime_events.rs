@@ -431,6 +431,7 @@ impl ConversationAgentEventRecorder {
                 }
                 let pool_for_collab = self.pool.clone();
                 let delivery_ctx = self.delivery_context();
+                let next_input_context = self.conversation_context.clone();
                 tokio::spawn(async move {
                     let reply = if is_completed {
                         match crate::jsonl_history::load_all_turns(
@@ -485,6 +486,17 @@ impl ConversationAgentEventRecorder {
                         conversation_id,
                     )
                     .await;
+                    if let Some(context) = next_input_context
+                        && let Err(error) = ConversationSessionService::new(context)
+                            .dispatch_next_queued_input(conversation_id)
+                            .await
+                    {
+                        tracing::warn!(
+                            %conversation_id,
+                            %error,
+                            "failed to dispatch the next durable conversation input"
+                        );
+                    }
                     if let Err(error) =
                         crate::collaboration::redeliver_deferred(&pool_for_collab, &delivery_ctx)
                             .await
@@ -493,22 +505,6 @@ impl ConversationAgentEventRecorder {
                             %conversation_id,
                             %error,
                             "failed to redeliver deferred collaboration space messages on turn end"
-                        );
-                    }
-                });
-            }
-
-            if terminal && let Some(context) = self.conversation_context.clone() {
-                let conversation_id = mapped.conversation_id;
-                tokio::spawn(async move {
-                    if let Err(error) = ConversationSessionService::new(context)
-                        .dispatch_next_queued_input(conversation_id)
-                        .await
-                    {
-                        tracing::warn!(
-                            %conversation_id,
-                            %error,
-                            "failed to dispatch the next durable conversation input"
                         );
                     }
                 });

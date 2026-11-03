@@ -161,7 +161,7 @@ pub(crate) async fn post_to_space_inner(
             .filter(|t| t.conversation_id.is_some())
             .count()
     };
-    if is_real_group_space && !hop_exceeded && sender.is_none() {
+    if is_real_group_space && !hop_exceeded {
         let _ = advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await;
     }
     let open_round = if is_real_group_space && !hop_exceeded {
@@ -318,19 +318,38 @@ pub(crate) async fn post_to_space_inner(
                 && let Ok(target_uuid) = Uuid::parse_str(conversation_id)
             {
                 let new_op_id = delivery_operation_id(input.operation_id, target_uuid).to_string();
-                sqlx::query(
+                let open_rid = open_round.as_ref().map(|round| round.id.as_str());
+                let res = sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
-                       SET round_ordinal = ?, space_message_id = ?, operation_id = ?
-                       WHERE round_id = ? AND conversation_id = ? AND space_message_id = ?"#,
+                       SET round_ordinal = ?, space_message_id = ?, operation_id = ?, receipt_updated_at = ?
+                       WHERE round_id = ? AND conversation_id = ? AND space_message_id = ?
+                         AND receipt_state = 'queued' AND input_id IS NULL"#,
                 )
                 .bind(ordinal)
                 .bind(&message_id)
-                .bind(new_op_id)
-                .bind(open_round.as_ref().map(|round| round.id.as_str()))
+                .bind(&new_op_id)
+                .bind(&published)
+                .bind(open_rid)
                 .bind(conversation_id)
                 .bind(space_message_id)
                 .execute(&mut *conn)
                 .await?;
+                if res.rows_affected() == 0 {
+                    sqlx::query(
+                        r#"INSERT OR IGNORE INTO collaboration_space_deliveries
+                           (space_message_id, conversation_id, operation_id, input_id, status,
+                            receipt_state, receipt_updated_at, round_id, round_ordinal)
+                           VALUES (?, ?, ?, NULL, 'queued', 'queued', ?, ?, ?)"#,
+                    )
+                    .bind(&message_id)
+                    .bind(conversation_id)
+                    .bind(&new_op_id)
+                    .bind(&published)
+                    .bind(open_rid)
+                    .bind(ordinal)
+                    .execute(&mut *conn)
+                    .await?;
+                }
             } else {
                 sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
@@ -787,7 +806,10 @@ async fn plan_round_splice(
 
     let speaking: std::collections::HashSet<String> = slots
         .iter()
-        .filter(|(_, ordinal, state, _)| *ordinal == open.current_ordinal || state == "processing")
+        .filter(|(_, ordinal, state, _)| {
+            matches!(state.as_str(), "queued" | "processing")
+                && (*ordinal == open.current_ordinal || state == "processing")
+        })
         .map(|(conversation_id, _, _, _)| conversation_id.clone())
         .collect();
     let waiting_by_conversation: std::collections::HashMap<String, (i64, String, String)> = slots
@@ -819,6 +841,19 @@ async fn plan_round_splice(
                     round_id: None,
                     round_ordinal: None,
                 });
+            } else {
+                placed.insert(key.clone());
+                if let Some((_, _, message_id)) = waiting_by_conversation.get(&key) {
+                    updates.push((key, message_id.clone(), next_ordinal, true));
+                } else {
+                    inserts.push(QueuedSpaceDelivery {
+                        conversation_id: target_id,
+                        operation_id: delivery_operation_id(operation_id, target_id),
+                        round_id: Some(open.id.clone()),
+                        round_ordinal: Some(next_ordinal),
+                    });
+                }
+                next_ordinal += 1;
             }
             continue;
         }

@@ -1161,7 +1161,7 @@ impl HostCollaborationHost {
             })
             .collect();
         if !mention_targets.is_empty() {
-            collaboration::post_to_space_with(
+            if let Err(error) = collaboration::post_to_space_with(
                 &self.pool,
                 collaboration::PostToSpace {
                     caller_id: None,
@@ -1175,7 +1175,13 @@ impl HostCollaborationHost {
                 &delivery,
             )
             .await
-            .map_err(host_error)?;
+            {
+                tracing::warn!(
+                    %error,
+                    thread_id = %thread_id,
+                    "dm-mention secondary post_to_space_with failed after direct message posted"
+                );
+            }
         }
 
         let real_receipts = collaboration::list_message_receipts(&self.pool, &posted.message_id)

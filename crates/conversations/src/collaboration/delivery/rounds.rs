@@ -649,8 +649,8 @@ pub async fn advance_round(
 
     let mut progressed = false;
     loop {
-        let cur_deliv: Option<(String, Option<String>)> = sqlx::query_as(
-            r#"SELECT receipt_state, turn_id
+        let cur_deliv: Option<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
+            r#"SELECT receipt_state, turn_id, input_id, space_message_id
                FROM collaboration_space_deliveries
                WHERE round_id = ? AND round_ordinal = ?
                LIMIT 1"#,
@@ -660,9 +660,27 @@ pub async fn advance_round(
         .fetch_optional(pool)
         .await
         .map_err(db)?;
-        let Some((receipt_state, turn_id)) = cur_deliv else {
+        let Some((mut receipt_state, mut turn_id, input_id, slot_message_id)) = cur_deliv else {
             break;
         };
+        if receipt_state == "queued" && input_id.is_none() {
+            let _ = deliver_pending(pool, &space_id, &slot_message_id, delivery_ctx).await;
+            if let Some((new_rs, new_tid)) = sqlx::query_as::<_, (String, Option<String>)>(
+                r#"SELECT receipt_state, turn_id
+                   FROM collaboration_space_deliveries
+                   WHERE round_id = ? AND round_ordinal = ?
+                   LIMIT 1"#,
+            )
+            .bind(round_id)
+            .bind(current_ordinal)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            {
+                receipt_state = new_rs;
+                turn_id = new_tid;
+            }
+        }
         let mut is_terminal = matches!(
             receipt_state.as_str(),
             "replied" | "passed" | "timed_out" | "cancelled" | "failed"
@@ -722,6 +740,16 @@ pub async fn advance_round(
             }
             progressed = true;
             current_ordinal = next_ord;
+            let _ = sqlx::query(
+                r#"UPDATE collaboration_space_deliveries
+                   SET receipt_updated_at = ?
+                   WHERE round_id = ? AND round_ordinal = ? AND receipt_state = 'queued'"#,
+            )
+            .bind(&now)
+            .bind(round_id)
+            .bind(current_ordinal)
+            .execute(pool)
+            .await;
             let slot_message_id: String = sqlx::query_scalar(
                 r#"SELECT space_message_id FROM collaboration_space_deliveries
                    WHERE round_id = ? AND round_ordinal = ?
@@ -792,8 +820,14 @@ async fn round_slot_is_detachable(
     if !matches!(receipt_state, "queued" | "processing") {
         return Ok(false);
     }
-    let row: Option<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
-        r#"SELECT d.conversation_id, d.receipt_updated_at, t.created_at, d.space_message_id
+    let row: Option<(
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"SELECT d.conversation_id, d.receipt_updated_at, t.created_at, d.space_message_id, d.input_id
            FROM collaboration_space_deliveries d
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
            WHERE d.round_id = ? AND d.round_ordinal = ?
@@ -804,7 +838,9 @@ async fn round_slot_is_detachable(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
-    let Some((conversation_id, receipt_updated_at, turn_created_at, space_message_id)) = row else {
+    let Some((conversation_id, receipt_updated_at, turn_created_at, space_message_id, input_id)) =
+        row
+    else {
         return Ok(false);
     };
     let Ok(cid) = Uuid::parse_str(&conversation_id) else {
@@ -819,6 +855,9 @@ async fn round_slot_is_detachable(
             .unwrap_or(0);
     if member_posted_after(pool, space_id, cid, trigger_seq).await? {
         return Ok(true);
+    }
+    if receipt_state == "queued" && input_id.is_none() {
+        return Ok(false);
     }
     if let Some(tool_start) = space_turn_tool_started_at(cid) {
         let elapsed = Utc::now().signed_duration_since(tool_start);
@@ -1267,6 +1306,20 @@ pub async fn on_space_turn_tool_call(
                 {
                     continue;
                 }
+                let to = if is_bot_space(&space_id) {
+                    vec![ENVELOPE_USER_ACTOR.to_string()]
+                } else {
+                    let members = list_space_members(pool, &space_id, MessageAudience::Agent)
+                        .await
+                        .unwrap_or_default();
+                    let mentioned =
+                        mentioned_local_bot_nicknames(&body, &members, Some(conversation_id));
+                    if mentioned.is_empty() {
+                        vec![ENVELOPE_USER_ACTOR.to_string()]
+                    } else {
+                        mentioned
+                    }
+                };
                 let op_id = Uuid::new_v5(
                     &Uuid::NAMESPACE_OID,
                     format!(
@@ -1285,7 +1338,7 @@ pub async fn on_space_turn_tool_call(
                         space_id: space_id.clone(),
                         content: body,
                         summary: None,
-                        to: vec![ENVELOPE_USER_ACTOR.to_string()],
+                        to,
                         in_reply_to: None,
                         operation_id: op_id,
                     },
@@ -1348,6 +1401,20 @@ pub async fn on_space_turn_tool_call(
                 )
                 .await?;
                 if !posted_same {
+                    let to = if is_bot_space(&space_id) {
+                        vec![ENVELOPE_USER_ACTOR.to_string()]
+                    } else {
+                        let members = list_space_members(pool, &space_id, MessageAudience::Agent)
+                            .await
+                            .unwrap_or_default();
+                        let mentioned =
+                            mentioned_local_bot_nicknames(&body, &members, Some(conversation_id));
+                        if mentioned.is_empty() {
+                            vec![ENVELOPE_USER_ACTOR.to_string()]
+                        } else {
+                            mentioned
+                        }
+                    };
                     let op_id = Uuid::new_v5(
                         &Uuid::NAMESPACE_OID,
                         format!(
@@ -1365,7 +1432,7 @@ pub async fn on_space_turn_tool_call(
                             space_id: space_id.clone(),
                             content: body,
                             summary: None,
-                            to: vec![ENVELOPE_USER_ACTOR.to_string()],
+                            to,
                             in_reply_to: Some(trigger_message_id.clone()),
                             operation_id: op_id,
                         },

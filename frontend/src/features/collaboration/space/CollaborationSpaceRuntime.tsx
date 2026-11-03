@@ -4763,7 +4763,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     const content = buildCollaborationSendContent(rawText, sendingAttachments);
     const textPart = rawText.replace(/\u00a0/g, ' ').trim();
     if (!selected || !content || sending || isBotSessionLoading) return;
-    if (textPart && strayMentions(textPart, allWorkspaceMembers).length > 0) {
+    if (
+      !directThreadId &&
+      textPart &&
+      strayMentions(textPart, allWorkspaceMembers).length > 0
+    ) {
       restoreDraft(rawText);
       setError(COPY.nicknameMissing);
       return;

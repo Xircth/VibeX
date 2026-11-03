@@ -177,6 +177,8 @@ describe('collaboration space model', () => {
     expect(postRecipients('请 @小A @小AB', members)).toEqual(['小A', '小AB']);
     expect(userSendIsBroadcast('@小B 补充一句', members)).toBe(false);
     expect(strayMentions('@不存在 看一下', members)).toEqual(['不存在']);
+    expect(strayMentions('看下 `@不存在` 和 ```ts\n@不存在\n```', members)).toEqual([]);
+    expect(strayMentions('@Person @User @你 看下', members)).toEqual([]);
     expect(userSendIsBroadcast('@不存在', members)).toBe(false);
   });
 

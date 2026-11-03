@@ -56,24 +56,26 @@ describe('encodePairingInvitation', () => {
 });
 
 describe('pairingDisplayOrigins', () => {
-  it('keeps published first and hides loopback until expanded', () => {
+  it('orders local 127.0.0.1, LAN, and published origins while dropping non-127.0.0.1 loopback aliases', () => {
     const origins = pairingDisplayOrigins(
       [
         { origin: 'https://host.example.ts.net', kind: 'tailscale' },
         { origin: 'http://192.168.1.20:17891', kind: 'lan' },
       ],
-      ['http://127.0.0.1:17891', 'http://192.168.1.20:17891']
+      [
+        'http://127.0.0.1:17891',
+        'http://localhost:17891',
+        'http://[::1]:17891',
+        'http://192.168.1.20:17891',
+      ]
     );
 
     expect(origins.map((item) => item.origin)).toEqual([
-      'https://host.example.ts.net',
-      'http://192.168.1.20:17891',
       'http://127.0.0.1:17891',
+      'http://192.168.1.20:17891',
+      'https://host.example.ts.net',
     ]);
-    expect(pairingVisibleOrigins(origins, false)).toEqual([
-      { origin: 'https://host.example.ts.net', kind: 'published' },
-      { origin: 'http://192.168.1.20:17891', kind: 'lan' },
-    ]);
+    expect(pairingVisibleOrigins(origins, false)).toEqual(origins);
     expect(pairingVisibleOrigins(origins, true)).toEqual(origins);
   });
 

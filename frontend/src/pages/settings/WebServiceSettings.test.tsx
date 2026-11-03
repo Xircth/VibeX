@@ -210,10 +210,10 @@ describe('WebServiceSettings', () => {
     expect(screen.getByText('root@lab')).toBeVisible();
     expect(screen.getByText('已连接')).toBeVisible();
     expect(
-      screen.queryByRole('tab', { name: '服务端' })
+      screen.queryByRole('radio', { name: '服务端' })
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('tab', { name: '客户端' })
+      screen.queryByRole('radio', { name: '客户端' })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('spinbutton', { name: '监听端口' })
@@ -243,29 +243,30 @@ describe('WebServiceSettings', () => {
 
     await userEvent
       .setup()
-      .click(await screen.findByRole('tab', { name: '客户端' }));
+      .click(await screen.findByRole('radio', { name: '客户端' }));
     expect(
       await screen.findByRole('heading', { name: '已保存 Host' })
     ).toBeVisible();
     expect(screen.getByText('root@lab')).toBeVisible();
     expect(screen.queryByText('已连接')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '服务端' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '服务端' })).toBeInTheDocument();
   });
 
-  it('puts server and client roles in top-right tabs', async () => {
+  it('puts server and client roles in top-right segmented control with icons', async () => {
     renderSettings();
 
-    expect(await screen.findByRole('tab', { name: '服务端' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-    expect(screen.getByRole('tab', { name: '客户端' })).toHaveAttribute(
-      'aria-selected',
-      'false'
-    );
+    const serverRadio = await screen.findByRole('radio', { name: '服务端' });
+    const clientRadio = screen.getByRole('radio', { name: '客户端' });
+    expect(serverRadio).toHaveAttribute('aria-checked', 'true');
+    expect(clientRadio).toHaveAttribute('aria-checked', 'false');
+    expect(serverRadio.querySelector('svg')).not.toBeNull();
+    expect(clientRadio.querySelector('svg')).not.toBeNull();
+    expect(
+      screen.getByRole('radiogroup', { name: '远程连接角色' })
+    ).toHaveClass('dsh-plugin-mode-segmented');
     expect(screen.getByRole('heading', { name: '远程连接服务' })).toBeVisible();
 
-    await userEvent.setup().click(screen.getByRole('tab', { name: '客户端' }));
+    await userEvent.setup().click(clientRadio);
     expect(
       await screen.findByRole('heading', { name: '局域网 Host' })
     ).toBeVisible();
@@ -276,19 +277,26 @@ describe('WebServiceSettings', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows host, client, and web access without collapsing them', async () => {
+  it('shows host and external access without a separate Web Access section, hiding port and LAN options while stopped', async () => {
     renderSettings();
 
     expect(
       await screen.findByRole('heading', { name: '远程连接服务' })
     ).toBeVisible();
-    expect(screen.getByRole('heading', { name: '客户端访问' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Web 访问' })).toBeVisible();
-    expect(screen.getByText('当前状态')).toBeVisible();
-    expect(screen.getByRole('spinbutton', { name: '监听端口' })).toBeVisible();
-    expect(screen.getByTestId('web-service-status-lamp')).toHaveClass(
-      'settings-status-dot-neutral'
-    );
+    expect(screen.getByRole('heading', { name: '外部访问' })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Web 访问' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('远程服务状态')).toBeVisible();
+    expect(
+      screen.queryByRole('spinbutton', { name: '监听端口' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: '自动启动' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: '允许局域网' })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /服务状态|访问配置/ })
     ).not.toBeInTheDocument();
@@ -297,7 +305,7 @@ describe('WebServiceSettings', () => {
   it('keeps service status and its start-stop control in one setting row', async () => {
     renderSettings();
 
-    const currentStatus = await screen.findByText('当前状态');
+    const currentStatus = await screen.findByText('远程服务状态');
     const serviceControl = screen.getByRole('switch', { name: '启动' });
     const statusRow = currentStatus.closest('.settings-row');
 
@@ -305,7 +313,7 @@ describe('WebServiceSettings', () => {
     expect(statusRow).toContainElement(serviceControl);
   });
 
-  it('starts and stops the service through the visible state control', async () => {
+  it('starts and stops the service through the visible state control, revealing port, health capsule, and LAN toggles when running', async () => {
     const user = userEvent.setup();
     renderSettings();
 
@@ -319,18 +327,19 @@ describe('WebServiceSettings', () => {
     );
 
     const stopControl = await screen.findByRole('switch', { name: '停止' });
-    expect(
-      within(stopControl.closest('.settings-row')!).getByText('运行中')
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('web-service-status-lamp')).toHaveClass(
-      'settings-status-dot-success'
-    );
+    expect(screen.getByRole('spinbutton', { name: '监听端口' })).toBeVisible();
+    expect(screen.getByRole('switch', { name: '自动启动' })).toBeVisible();
+    expect(screen.getByRole('switch', { name: '允许局域网' })).toBeVisible();
+    const lamp = screen.getByTestId('web-service-status-lamp');
+    expect(lamp).toHaveClass('text-[hsl(var(--success))]');
+    expect(lamp).toHaveAttribute('data-status', 'healthy');
+    expect(lamp.querySelector('.vu-toast-status-icon')).not.toBeNull();
 
     await user.click(stopControl);
     await waitFor(() => expect(webServiceApiMock.stop).toHaveBeenCalledOnce());
-    expect(screen.getByTestId('web-service-status-lamp')).toHaveClass(
-      'settings-status-dot-neutral'
-    );
+    expect(
+      screen.queryByRole('spinbutton', { name: '监听端口' })
+    ).not.toBeInTheDocument();
   });
 
   it('asks the user to start the service before generating a pairing code', async () => {
@@ -344,65 +353,7 @@ describe('WebServiceSettings', () => {
     expect(webServiceApiMock.createPairing).not.toHaveBeenCalled();
   });
 
-  it('does not discard an unsaved port edit when generating a token', async () => {
-    const user = userEvent.setup();
-    webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
-    renderSettings();
-
-    const port = await screen.findByRole('spinbutton', { name: '监听端口' });
-    await user.clear(port);
-    await user.type(port, '19000');
-    await user.click(screen.getByRole('button', { name: /^生成$/ }));
-
-    await waitFor(() =>
-      expect(webServiceApiMock.generateToken).toHaveBeenCalledOnce()
-    );
-    expect(port).toHaveValue(19000);
-  });
-
-  it('lists Web UI and Host addresses separately when they use different ports', async () => {
-    webServiceApiMock.getConfig.mockResolvedValue({
-      port: 17891,
-      token: null,
-      auto_start: false,
-      allow_lan: true,
-    });
-    webServiceApiMock.getStatus.mockResolvedValue({
-      ...runningStatus,
-      port: 17891,
-      address: 'http://127.0.0.1:17891',
-      addresses: ['http://127.0.0.1:17891', 'http://192.168.1.20:17891'],
-      serves_web_ui: false,
-    });
-
-    renderSettings();
-    expect(await screen.findByTestId('web-service-status-lamp')).toHaveClass(
-      'settings-status-dot-success'
-    );
-
-    const webAccess = (
-      await screen.findByRole('heading', { name: 'Web 访问' })
-    ).closest('.settings-section') as HTMLElement | null;
-    expect(webAccess).not.toBeNull();
-    expect(
-      within(webAccess!).getByText('http://127.0.0.1:17891')
-    ).toBeVisible();
-    expect(
-      within(webAccess!).getByText('http://192.168.1.20:17891')
-    ).toBeVisible();
-    expect(within(webAccess!).getByText(window.location.origin)).toBeVisible();
-    expect(
-      within(webAccess!).getByText('Web UI', { selector: 'label' })
-    ).toBeVisible();
-    expect(
-      within(webAccess!).getByText(/主机|Host/, { selector: 'label' })
-    ).toBeVisible();
-    expect(
-      within(webAccess!).getByText(/局域网|LAN/, { selector: 'label' })
-    ).toBeVisible();
-  });
-
-  it('lists loopback and LAN from the same Host port when it serves the Web UI', async () => {
+  it('lists loopback and LAN addresses under External Access when the Host is running', async () => {
     webServiceApiMock.getConfig.mockResolvedValue({
       port: 17891,
       token: null,
@@ -418,21 +369,26 @@ describe('WebServiceSettings', () => {
     });
 
     renderSettings();
+    expect(
+      await screen.findByTestId('web-service-status-lamp')
+    ).toHaveAttribute('data-status', 'healthy');
 
-    const webAccess = (
-      await screen.findByRole('heading', { name: 'Web 访问' })
+    const externalAccess = (
+      await screen.findByRole('heading', { name: '外部访问' })
     ).closest('.settings-section') as HTMLElement | null;
-    expect(webAccess).not.toBeNull();
+    expect(externalAccess).not.toBeNull();
     expect(
-      within(webAccess!).getByText('http://127.0.0.1:17891')
+      within(externalAccess!).getByText('http://127.0.0.1:17891')
     ).toBeVisible();
     expect(
-      within(webAccess!).getByText('http://192.168.1.20:17891')
+      within(externalAccess!).getByText('http://192.168.1.20:17891')
     ).toBeVisible();
-    expect(within(webAccess!).queryByText('Web UI')).not.toBeInTheDocument();
+    expect(
+      within(externalAccess!).getByRole('switch', { name: '远程穿透' })
+    ).toBeVisible();
   });
 
-  it('opens the Host address in the system browser', async () => {
+  it('opens the Host address in the system browser from External Access', async () => {
     const user = userEvent.setup();
     webServiceApiMock.getConfig.mockResolvedValue({
       port: 17891,
@@ -450,11 +406,10 @@ describe('WebServiceSettings', () => {
 
     renderSettings();
 
-    const loopback = (
-      await screen.findByText('http://127.0.0.1:17891')
-    ).closest('.settings-row') as HTMLElement | null;
     await user.click(
-      within(loopback!).getByRole('button', { name: /打开|Open/ })
+      await screen.findByRole('button', {
+        name: '打开 http://127.0.0.1:17891',
+      })
     );
 
     await waitFor(() =>
@@ -477,21 +432,22 @@ describe('WebServiceSettings', () => {
 
     renderSettings();
 
-    expect(await screen.findByText('当前状态')).toBeVisible();
+    expect(await screen.findByText('远程服务状态')).toBeVisible();
     expect(screen.queryByAltText('地址二维码')).not.toBeInTheDocument();
     expect(
       screen.queryByText(/在同一网络的另一台设备上扫描/)
     ).not.toBeInTheDocument();
   });
 
-  it('saves the edited access configuration through the action bar', async () => {
+  it('saves the edited access configuration and probes port via health capsule when running', async () => {
     const user = userEvent.setup();
+    webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
     renderSettings();
 
     const port = await screen.findByRole('spinbutton', { name: '监听端口' });
     await user.clear(port);
     await user.type(port, '19000');
-    await user.click(screen.getByRole('button', { name: '探测' }));
+    await user.click(screen.getByTestId('web-service-status-lamp'));
     await waitFor(() =>
       expect(webServiceApiMock.probePort).toHaveBeenCalledWith(19000)
     );
@@ -507,7 +463,32 @@ describe('WebServiceSettings', () => {
     );
   });
 
-  it('lists paired devices under device pairing', async () => {
+  it('rolls back local switch state and shows toast error when updateConfig fails', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
+    webServiceApiMock.updateConfig.mockRejectedValueOnce(
+      new Error('Failed to bind 0.0.0.0:17891')
+    );
+
+    renderSettings();
+
+    const allowLanSwitch = await screen.findByRole('switch', {
+      name: '允许局域网',
+    });
+    expect(allowLanSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(allowLanSwitch);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Failed to bind 0.0.0.0:17891')
+    );
+    await waitFor(() =>
+      expect(allowLanSwitch).toHaveAttribute('aria-checked', 'false')
+    );
+  });
+
+  it('lists connected devices under External Access', async () => {
     webServiceApiMock.listDevices.mockResolvedValue([
       {
         device_id: 'dev-1',
@@ -520,7 +501,7 @@ describe('WebServiceSettings', () => {
 
     renderSettings();
 
-    expect(await screen.findByText('已配对设备')).toBeVisible();
+    expect(await screen.findByText('已连接列表')).toBeVisible();
     expect(await screen.findByText('Pixel 9')).toBeVisible();
     expect(screen.getByRole('button', { name: '撤销' })).toBeVisible();
   });

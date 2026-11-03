@@ -243,7 +243,14 @@ describe('HostTunnelPanel', () => {
       <HostTunnelPanel serviceRunning onReachabilityChange={() => undefined} />
     );
 
-    expect(await screen.findByText('已保存穿透')).toBeVisible();
+    const toggle = await screen.findByRole('button', { name: /已保存穿透/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByText('https://gate.example.ts.net')
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('https://gate.example.ts.net')).toBeVisible();
     expect(screen.getByText(/使用中/)).toBeVisible();
     expect(screen.getByRole('button', { name: '移除' })).toBeVisible();

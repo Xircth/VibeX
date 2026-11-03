@@ -69,7 +69,7 @@ export function HostTunnelPanel({
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
-  const [listExpanded, setListExpanded] = useState(true);
+  const [listExpanded, setListExpanded] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [setupCommand, setSetupCommand] = useState<string | null>(null);
   const savedListId = useId();

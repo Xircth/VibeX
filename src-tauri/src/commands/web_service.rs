@@ -28,7 +28,7 @@ struct WebServiceRuntime {
     listen_addresses: Vec<utils::net::AdvertisedListenAddress>,
     allow_lan: bool,
     started_at: String,
-    handle: JoinHandle<()>,
+    handles: Vec<JoinHandle<()>>,
     serves_web_ui: bool,
 }
 
@@ -277,7 +277,7 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
         message: None,
         host_id,
         reachability: Vec::new(),
-        serves_web_ui: resolve_static_root(None).is_some(),
+        serves_web_ui: true,
     }
 }
 
@@ -292,8 +292,8 @@ pub async fn update_web_service_config(
     config: WebServiceConfig,
 ) -> Result<WebServiceConfig, AppError> {
     let previous = load_config().await?;
-    let saved = save_config(&config).await?;
-    if let Some(raw) = saved.token.as_deref() {
+    let normalized = normalize_config(config)?;
+    if let Some(raw) = normalized.token.as_deref() {
         let token = server::ServerToken::try_new(raw.to_string()).map_err(|_| {
             AppError::BadRequest(
                 "Host token must contain at least 32 characters with mixed values".to_string(),
@@ -304,10 +304,15 @@ pub async fn update_web_service_config(
             .await
             .map_err(|error| AppError::Internal(error.to_string()))?;
     }
+    let saved = save_config(&normalized).await?;
     let running = WEB_SERVICE_RUNTIME.lock().await.is_some();
     if running && (previous.allow_lan != saved.allow_lan || previous.port != saved.port) {
         stop_web_server_with_config(saved.clone()).await;
-        start_web_server(app).await?;
+        if let Err(error) = start_web_server(app.clone()).await {
+            let _ = save_config(&previous).await;
+            let _ = start_web_server(app).await;
+            return Err(error);
+        }
     }
     Ok(saved)
 }
@@ -364,10 +369,24 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         .map_err(|error| AppError::BadRequest(error.to_string()))?
         .with_host_identity(host_id, composed_reachability(&advertised).await);
     let static_root = resolve_static_root(Some(&app));
-    let serves_web_ui = static_root.is_some();
-    if let Some(static_root) = static_root {
+    let serves_web_ui = if let Some(static_root) = static_root {
         server_config = server_config.with_static_root(static_root);
-    }
+        true
+    } else if app.asset_resolver().get("index.html".to_string()).is_some() {
+        let resolver_app = app.clone();
+        server_config = server_config.with_static_asset_resolver(Arc::new(move |path| {
+            resolver_app
+                .asset_resolver()
+                .get(path.to_string())
+                .map(|asset| server::EmbeddedAsset {
+                    bytes: asset.bytes,
+                    mime_type: asset.mime_type,
+                })
+        }));
+        true
+    } else {
+        false
+    };
     let runtime = server::ServerRuntime::from_host(
         server_config,
         Arc::new(server::SqliteServerAuth::new(
@@ -377,6 +396,56 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         state.local_deployment.pty().clone(),
     );
     start_web_server_with_router(config, runtime.router(), serves_web_ui).await
+}
+
+async fn bind_web_service_listeners(
+    port: u16,
+    allow_lan: bool,
+) -> Result<(Vec<TcpListener>, SocketAddr), AppError> {
+    let bind_ip = server::ServerConfig::bind_ip(allow_lan);
+    match TcpListener::bind((bind_ip, port)).await {
+        Ok(listener) => {
+            let local_addr = listener.local_addr().map_err(|error| {
+                AppError::Internal(format!("Failed to read web service address: {error}"))
+            })?;
+            return Ok((vec![listener], local_addr));
+        }
+        Err(error) if !allow_lan => {
+            return Err(AppError::Conflict(format!(
+                "Failed to bind web service on {bind_ip}:{port}: {error}"
+            )));
+        }
+        Err(wildcard_error) => {
+            let loopback_listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+                .await
+                .map_err(|_| {
+                    AppError::Conflict(format!(
+                        "Failed to bind web service on {bind_ip}:{port}: {wildcard_error}"
+                    ))
+                })?;
+            let local_addr = loopback_listener.local_addr().map_err(|error| {
+                AppError::Internal(format!("Failed to read web service address: {error}"))
+            })?;
+            let bound_port = local_addr.port();
+            let mut listeners = vec![loopback_listener];
+            let candidate_lan_ips = advertised_listen_addresses(bound_port, true)
+                .into_iter()
+                .filter(|item| item.interface != "loopback" && item.family == "ipv4")
+                .filter_map(|item| item.ip.parse::<std::net::Ipv4Addr>().ok())
+                .collect::<Vec<_>>();
+            for lan_ip in &candidate_lan_ips {
+                if let Ok(listener) = TcpListener::bind((*lan_ip, bound_port)).await {
+                    listeners.push(listener);
+                }
+            }
+            if !candidate_lan_ips.is_empty() && listeners.len() == 1 {
+                return Err(AppError::Conflict(format!(
+                    "Failed to bind web service on {bind_ip}:{port}: {wildcard_error}"
+                )));
+            }
+            Ok((listeners, local_addr))
+        }
+    }
 }
 
 async fn start_web_server_with_router(
@@ -394,18 +463,7 @@ async fn start_web_server_with_router(
         }
     }
 
-    let bind_ip = server::ServerConfig::bind_ip(config.allow_lan);
-    let listener = TcpListener::bind((bind_ip, config.port))
-        .await
-        .map_err(|error| {
-            AppError::Conflict(format!(
-                "Failed to bind web service on {bind_ip}:{}: {error}",
-                config.port
-            ))
-        })?;
-    let local_addr = listener.local_addr().map_err(|error| {
-        AppError::Internal(format!("Failed to read web service address: {error}"))
-    })?;
+    let (listeners, local_addr) = bind_web_service_listeners(config.port, config.allow_lan).await?;
     let listen_addresses = advertised_listen_addresses(local_addr.port(), config.allow_lan);
     let addresses = listen_addresses
         .iter()
@@ -416,11 +474,15 @@ async fn start_web_server_with_router(
         .cloned()
         .unwrap_or_else(|| format!("http://{local_addr}"));
     let started_at = Utc::now().to_rfc3339();
-    let handle = tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, service_router).await {
-            tracing::warn!("VibeX web service stopped with error: {}", error);
-        }
-    });
+    let mut handles = Vec::with_capacity(listeners.len());
+    for listener in listeners {
+        let router = service_router.clone();
+        handles.push(tokio::spawn(async move {
+            if let Err(error) = axum::serve(listener, router).await {
+                tracing::warn!("VibeX web service stopped with error: {}", error);
+            }
+        }));
+    }
 
     let mut runtime = WEB_SERVICE_RUNTIME.lock().await;
     *runtime = Some(WebServiceRuntime {
@@ -430,7 +492,7 @@ async fn start_web_server_with_router(
         listen_addresses,
         allow_lan: config.allow_lan,
         started_at,
-        handle,
+        handles,
         serves_web_ui,
     });
     drop(runtime);
@@ -446,11 +508,16 @@ pub async fn stop_web_server() -> Result<WebServerStatus, AppError> {
 }
 
 async fn stop_web_server_with_config(config: WebServiceConfig) -> WebServerStatus {
-    let mut runtime = WEB_SERVICE_RUNTIME.lock().await;
-    if let Some(runtime) = runtime.take() {
-        runtime.handle.abort();
+    let removed = {
+        let mut runtime = WEB_SERVICE_RUNTIME.lock().await;
+        runtime.take()
+    };
+    if let Some(runtime) = removed {
+        for handle in runtime.handles {
+            handle.abort();
+            let _ = handle.await;
+        }
     }
-    drop(runtime);
     status_from_runtime(config).await
 }
 
@@ -506,7 +573,7 @@ pub async fn create_host_device_pairing(
     request: CreateHostPairingRequest,
 ) -> Result<remote_protocol::IssuedPairingInvitation, AppError> {
     let preset = match request.preset.as_deref() {
-        None | Some("") => remote_protocol::DevicePermissionPreset::Companion,
+        None | Some("") => remote_protocol::DevicePermissionPreset::Workstation,
         Some("companion") => remote_protocol::DevicePermissionPreset::Companion,
         Some("workstation") => remote_protocol::DevicePermissionPreset::Workstation,
         Some(other) => {
@@ -650,8 +717,12 @@ mod tests {
         assert_eq!(listen[0].family, "ipv4");
     }
 
+    static TEST_RUNTIME_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
     #[tokio::test(flavor = "multi_thread")]
     async fn starting_web_service_returns_the_running_status_without_hanging() {
+        let _guard = TEST_RUNTIME_LOCK.lock().await;
         let port = StdTcpListener::bind(("127.0.0.1", 0))
             .expect("an ephemeral test port should be available")
             .local_addr()
@@ -679,5 +750,48 @@ mod tests {
             .expect("start_web_server should succeed on an available port");
         assert!(status.running);
         assert!(status.address.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn toggling_allow_lan_rebinds_port_immediately_without_losing_service() {
+        let _guard = TEST_RUNTIME_LOCK.lock().await;
+        let port = StdTcpListener::bind(("127.0.0.1", 0))
+            .expect("an ephemeral test port should be available")
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        let loopback_config = WebServiceConfig {
+            port,
+            token: None,
+            auto_start: false,
+            allow_lan: false,
+        };
+        let lan_config = WebServiceConfig {
+            port,
+            token: None,
+            auto_start: false,
+            allow_lan: true,
+        };
+
+        let first = start_web_server_with_router(loopback_config.clone(), Router::new(), true)
+            .await
+            .expect("initial loopback start");
+        assert!(first.running);
+
+        let stopped = stop_web_server_with_config(lan_config.clone()).await;
+        assert!(!stopped.running);
+
+        let second = start_web_server_with_router(lan_config.clone(), Router::new(), true)
+            .await
+            .expect("lan start immediately after stop");
+        assert!(second.running);
+
+        let _ = stop_web_server_with_config(loopback_config.clone()).await;
+        let third = start_web_server_with_router(loopback_config.clone(), Router::new(), true)
+            .await
+            .expect("loopback start immediately after lan stop");
+        assert!(third.running);
+
+        let _ = stop_web_server_with_config(loopback_config).await;
     }
 }

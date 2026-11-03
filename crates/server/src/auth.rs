@@ -47,6 +47,7 @@ pub(crate) const ADMIN_SCOPES: &[&str] = &[
     "device.revoke",
     "notification.summary",
     "offline.read",
+    "workspace.terminal",
 ];
 
 /// Plaintext bearer token accepted only at the composition boundary.
@@ -159,6 +160,12 @@ pub struct PairedDeviceRecord {
     pub scopes: Vec<String>,
     pub created_at: String,
     pub preset: Option<DevicePermissionPreset>,
+    #[serde(default)]
+    pub client_kind: Option<String>,
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub last_connected_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -283,6 +290,15 @@ pub trait ServerAuth: Send + Sync {
         &self,
         actor: &AuthenticatedCredential,
     ) -> Result<Vec<PairedDeviceRecord>, AuthStoreError>;
+
+    async fn record_device_connection(
+        &self,
+        _device_id: DeviceId,
+        _client_kind: Option<&str>,
+        _ip_address: Option<&str>,
+    ) -> Result<(), AuthStoreError> {
+        Ok(())
+    }
 }
 
 pub(crate) struct StaticServerAuth {
@@ -576,15 +592,19 @@ impl ServerAuth for SqliteServerAuth {
                 Uuid::new_v4().simple()
             );
             let device_digest = TokenDigest::from_secret(&access_token);
+            let preset = infer_preset(&scopes);
+            let client_kind = infer_client_kind(device_name, preset, None, false);
             sqlx::query(
                 "INSERT INTO server_device_credentials
-                 (id, token_hash, device_name, scopes_json, created_at_unix)
-                 VALUES (?, ?, ?, ?, ?)",
+                 (id, token_hash, device_name, scopes_json, created_at_unix, client_kind, last_connected_at_unix)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(device_id.to_string())
             .bind(device_digest.as_bytes().as_slice())
             .bind(device_name)
             .bind(serde_json::to_string(&scopes).expect("scopes serialize"))
+            .bind(now)
+            .bind(&client_kind)
             .bind(now)
             .execute(&mut *connection)
             .await?;
@@ -668,10 +688,11 @@ impl ServerAuth for SqliteServerAuth {
             return Err(AuthStoreError::Forbidden);
         }
         let rows = sqlx::query(
-            "SELECT id, device_name, scopes_json, created_at_unix
+            "SELECT id, device_name, scopes_json, created_at_unix,
+                    client_kind, last_ip, last_connected_at_unix
              FROM server_device_credentials
              WHERE revoked_at_unix IS NULL
-             ORDER BY created_at_unix DESC",
+             ORDER BY COALESCE(last_connected_at_unix, created_at_unix) DESC, created_at_unix DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -685,16 +706,108 @@ impl ServerAuth for SqliteServerAuth {
                 serde_json::from_str(row.try_get("scopes_json")?).map_err(|error| {
                     sqlx::Error::Protocol(format!("invalid device scopes: {error}"))
                 })?;
+            let device_name: String = row.try_get("device_name")?;
+            let created_at_unix: i64 = row.try_get("created_at_unix")?;
+            let preset = infer_preset(&scopes);
+            let stored_client_kind: Option<String> = row.try_get("client_kind").ok().flatten();
+            let client_kind = stored_client_kind
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| Some(infer_client_kind(&device_name, preset, None, false)));
+            let ip_address: Option<String> = row
+                .try_get::<Option<String>, _>("last_ip")
+                .ok()
+                .flatten()
+                .filter(|value| !value.trim().is_empty());
+            let last_connected_at_unix: Option<i64> =
+                row.try_get("last_connected_at_unix").ok().flatten();
             devices.push(PairedDeviceRecord {
                 device_id,
-                device_name: row.try_get("device_name")?,
-                created_at: unix_timestamp(row.try_get("created_at_unix")?),
-                preset: infer_preset(&scopes),
+                device_name,
+                created_at: unix_timestamp(created_at_unix),
+                preset,
                 scopes,
+                client_kind,
+                ip_address,
+                last_connected_at: Some(unix_timestamp(
+                    last_connected_at_unix.unwrap_or(created_at_unix),
+                )),
             });
         }
         Ok(devices)
     }
+
+    async fn record_device_connection(
+        &self,
+        device_id: DeviceId,
+        client_kind: Option<&str>,
+        ip_address: Option<&str>,
+    ) -> Result<(), AuthStoreError> {
+        let now = self.now();
+        sqlx::query(
+            "UPDATE server_device_credentials
+             SET client_kind = COALESCE(?, client_kind),
+                 last_ip = COALESCE(?, last_ip),
+                 last_connected_at_unix = ?
+             WHERE id = ? AND revoked_at_unix IS NULL",
+        )
+        .bind(client_kind)
+        .bind(ip_address)
+        .bind(now)
+        .bind(device_id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+pub(crate) fn infer_client_kind(
+    device_name: &str,
+    preset: Option<DevicePermissionPreset>,
+    user_agent: Option<&str>,
+    has_origin: bool,
+) -> String {
+    let lower_name = device_name.to_ascii_lowercase();
+    let lower_ua = user_agent.unwrap_or_default().to_ascii_lowercase();
+    if lower_name.contains("web")
+        || lower_name.contains("browser")
+        || lower_name.contains("chrome")
+        || lower_name.contains("safari")
+        || lower_name.contains("edge")
+        || lower_name.contains("firefox")
+    {
+        return "web".to_owned();
+    }
+    if lower_name.contains("iphone")
+        || lower_name.contains("ipad")
+        || lower_name.contains("android")
+        || lower_name.contains("pixel")
+        || lower_name.contains("mobile")
+        || preset == Some(DevicePermissionPreset::Companion)
+    {
+        return "mobile".to_owned();
+    }
+    if lower_name.contains("vibex (")
+        || lower_name.contains("workstation")
+        || lower_name.contains("desktop")
+        || lower_name.contains("windows")
+        || lower_name.contains("mac")
+        || lower_name.contains("linux")
+    {
+        return "desktop".to_owned();
+    }
+    if has_origin
+        && (lower_ua.contains("mozilla/")
+            || lower_ua.contains("applewebkit")
+            || lower_ua.contains("chrome/")
+            || lower_ua.contains("safari/")
+            || lower_ua.contains("firefox/"))
+    {
+        return "web".to_owned();
+    }
+    if lower_ua.contains("android") || lower_ua.contains("iphone") || lower_ua.contains("ipad") {
+        return "mobile".to_owned();
+    }
+    "desktop".to_owned()
 }
 
 fn resolve_pairing_scopes(
@@ -753,7 +866,7 @@ fn unix_timestamp(seconds: i64) -> String {
         .to_rfc3339()
 }
 
-fn infer_preset(scopes: &[String]) -> Option<DevicePermissionPreset> {
+pub(crate) fn infer_preset(scopes: &[String]) -> Option<DevicePermissionPreset> {
     let set = scopes.iter().map(String::as_str).collect::<BTreeSet<_>>();
     for preset in [
         DevicePermissionPreset::Companion,
@@ -877,6 +990,15 @@ mod host_console_pairing_tests {
         assert_eq!(devices[0].device_id, credential.device_id);
         assert_eq!(devices[0].device_name, "Pixel 9");
         assert_eq!(devices[0].preset, Some(DevicePermissionPreset::Companion));
+        assert_eq!(devices[0].client_kind.as_deref(), Some("mobile"));
+        assert!(devices[0].last_connected_at.is_some());
+
+        auth.record_device_connection(credential.device_id, Some("web"), Some("127.0.0.1"))
+            .await
+            .expect("record connection");
+        let updated = auth.list_devices(&owner).await.expect("list updated");
+        assert_eq!(updated[0].client_kind.as_deref(), Some("web"));
+        assert_eq!(updated[0].ip_address.as_deref(), Some("127.0.0.1"));
 
         auth.revoke_device(&owner, credential.device_id)
             .await

@@ -126,6 +126,91 @@ async fn production_assets_and_spa_routes_share_the_static_root() {
     assert_eq!(unknown_api.status(), StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
+    use std::sync::Arc;
+    use server::EmbeddedAsset;
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str("sqlite::memory:")
+                .expect("sqlite options")
+                .foreign_keys(false),
+        )
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+
+    let config = ServerConfig::default().with_static_asset_resolver(Arc::new(|path| match path {
+        "index.html" => Some(EmbeddedAsset {
+            bytes: b"<main>Embedded VibeX</main>".to_vec(),
+            mime_type: "text/html; charset=utf-8".to_string(),
+        }),
+        "assets/app.js" => Some(EmbeddedAsset {
+            bytes: b"export const embedded = true;".to_vec(),
+            mime_type: "text/javascript; charset=utf-8".to_string(),
+        }),
+        _ => None,
+    }));
+    let app = ServerRuntime::new(
+        config,
+        ServerToken::new("static-test-token-with-at-least-32-bytes"),
+        ApplicationCore::new(SqliteConversationRepository::new(pool)),
+    )
+    .router();
+
+    for (path, expected_type, expected_body) in [
+        ("/", "text/html; charset=utf-8", "<main>Embedded VibeX</main>"),
+        (
+            "/assets/app.js",
+            "text/javascript; charset=utf-8",
+            "export const embedded = true;",
+        ),
+        (
+            "/settings/remote-access",
+            "text/html; charset=utf-8",
+            "<main>Embedded VibeX</main>",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).expect("type"),
+            expected_type
+        );
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+            expected_body
+        );
+    }
+
+    let unknown_api = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/not-registered")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(unknown_api.status(), StatusCode::NOT_FOUND);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn static_assets_never_follow_a_symlink_outside_the_root() {

@@ -53,14 +53,59 @@ describe('WebTransportBootstrap', () => {
     );
 
     await user.type(
-      screen.getByLabelText(/Access token|访问 Token|Server token/),
+      screen.getByLabelText(/^(Connection code|连接码)/),
       'one-time-server-token'
     );
-    await user.click(screen.getByRole('button', { name: /Connect|连接/ }));
+    await user.click(screen.getByRole('button', { name: /^(Connect|连接)$/ }));
 
     expect(await screen.findByText('Connected via web')).toBeInTheDocument();
     expect(storageSpy).not.toHaveBeenCalled();
     expect(window.location.href).not.toContain('one-time-server-token');
+  });
+
+  it('redeems an 8-character connection code for a device credential', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/health')) {
+          return jsonFetch({ status: 'ok' });
+        }
+        if (url.endsWith('/api/v1/auth/pairings/redeem')) {
+          expect(init?.method).toBe('POST');
+          expect(JSON.parse(String(init?.body))).toEqual({
+            pairing_token: 'K7M2NPQX',
+            device_name: expect.stringMatching(/Web/),
+          });
+          return jsonFetch({
+            access_token: 'vbx_device_secret',
+          });
+        }
+        expect(new Headers(init?.headers).get('Authorization')).toBe(
+          'Bearer vbx_device_secret'
+        );
+        return jsonFetch({
+          server_version: '1.0.0',
+          protocol_version: '1.0',
+          minimum_client_version: '0.1.0',
+          capabilities: ['conversation.read'],
+        });
+      }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <WebTransportBootstrap>
+        <ConnectedApp />
+      </WebTransportBootstrap>
+    );
+
+    await user.type(
+      screen.getByLabelText(/^(Connection code|连接码)/),
+      'k7m2-npqx'
+    );
+    await user.click(screen.getByRole('button', { name: /^(Connect|连接)$/ }));
+
+    expect(await screen.findByText('Connected via web')).toBeInTheDocument();
   });
 
   it('prefills the Host URL from the host query', () => {

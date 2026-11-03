@@ -49,7 +49,7 @@ pub use cli::{
 };
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
-pub use config::{ListenPolicyError, ServerConfig};
+pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetResolver};
 pub use conversations as vibex_conversations;
 pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::ServerApplicationDomains;

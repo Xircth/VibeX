@@ -42,6 +42,7 @@ export function pairingDisplayOrigins(
   const push = (origin: string, kind?: string) => {
     const value = origin.trim();
     if (!value || seen.has(value)) return;
+    if (isLoopbackOrigin(value) && !value.includes('127.0.0.1')) return;
     seen.add(value);
     const iface = interfaces.get(value);
     rows.push(
@@ -52,17 +53,15 @@ export function pairingDisplayOrigins(
   };
   for (const item of reachability) push(item.origin, item.kind);
   for (const origin of hostUrls) push(origin);
-  const rank = { published: 0, lan: 1, loopback: 2 };
+  const rank = { loopback: 0, lan: 1, published: 2 };
   return rows.sort((left, right) => rank[left.kind] - rank[right.kind]);
 }
 
 export function pairingVisibleOrigins(
   origins: PairingDisplayOrigin[],
-  expanded: boolean
+  _expanded = true
 ): PairingDisplayOrigin[] {
-  if (expanded) return origins;
-  const reachable = origins.filter((item) => item.kind !== 'loopback');
-  return reachable.length > 0 ? reachable : origins.slice(0, 1);
+  return origins;
 }
 
 export const PAIRING_TTL_SECONDS = [

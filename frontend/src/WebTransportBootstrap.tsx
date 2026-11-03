@@ -19,13 +19,49 @@ import {
 } from '@/pages/settings/hostEndpoints';
 import '@/styles/legacy/index.css';
 
+const PAIRING_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
+
+function extractPairingCode(input: string): string | null {
+  const raw = input.trim();
+  if (!raw) return null;
+  if (raw.startsWith('vibex-pairing:')) {
+    try {
+      const parsed = JSON.parse(raw.slice('vibex-pairing:'.length)) as {
+        pairing_token?: unknown;
+      };
+      if (
+        typeof parsed.pairing_token === 'string' &&
+        parsed.pairing_token.trim()
+      ) {
+        return parsed.pairing_token
+          .trim()
+          .replace(/[\s-]+/g, '')
+          .toUpperCase();
+      }
+    } catch {
+      return null;
+    }
+  }
+  const canonical = raw.replace(/[\s-]+/g, '').toUpperCase();
+  return PAIRING_CODE_PATTERN.test(canonical) ? canonical : null;
+}
+
+function detectBrowserDeviceName(): string {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/Edg\//i.test(ua)) return 'Edge (Web)';
+  if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) return 'Chrome (Web)';
+  if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return 'Safari (Web)';
+  if (/Firefox\//i.test(ua)) return 'Firefox (Web)';
+  return 'VibeX Web';
+}
+
 export function WebTransportBootstrap({ children }: { children: ReactNode }) {
   const { t } = useTranslation('app');
   const [baseUrl, setBaseUrl] = useState(() =>
     defaultHostUrl(window.location.origin, window.location.search)
   );
   const [token, setToken] = useState('');
-  const [tokenRevealed, setTokenRevealed] = useState(false);
+  const [tokenRevealed, setTokenRevealed] = useState(true);
   const [transport, setTransport] = useState<WebTransport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -53,7 +89,8 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
   const connect = async (event: SyntheticEvent) => {
     event.preventDefault();
     const host = baseUrl.trim();
-    if (!token.trim() || !host) return;
+    const rawToken = token.trim();
+    if (!rawToken || !host) return;
     setConnecting(true);
     setError(null);
     if (!(await looksLikeVibexHost(host))) {
@@ -61,9 +98,50 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
       setConnecting(false);
       return;
     }
+    let resolvedToken = rawToken;
+    const pairingCode = extractPairingCode(rawToken);
+    if (pairingCode) {
+      try {
+        const origin = host.replace(/\/+$/, '');
+        const response = await fetch(`${origin}/api/v1/auth/pairings/redeem`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-vibex-protocol-version': '1.0',
+          },
+          body: JSON.stringify({
+            pairing_token: pairingCode,
+            device_name: detectBrowserDeviceName(),
+          }),
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          throw new Error(payload?.message || t('webConnect.authFailed'));
+        }
+        const credential = (await response.json()) as {
+          access_token?: string;
+          device_token?: string;
+        };
+        const issuedToken = credential?.access_token ?? credential?.device_token;
+        if (!issuedToken) {
+          throw new Error(t('webConnect.authFailed'));
+        }
+        resolvedToken = issuedToken;
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : t('webConnect.authFailed')
+        );
+        setConnecting(false);
+        return;
+      }
+    }
     const candidate = new WebTransport({
       baseUrl: host,
-      token: token.trim(),
+      token: resolvedToken,
     });
     try {
       await candidate.capabilities();
@@ -133,6 +211,7 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
                 type={tokenRevealed ? 'text' : 'password'}
                 value={token}
                 onChange={setToken}
+                placeholder={t('webConnect.tokenPlaceholder')}
                 isRequired
                 hasAutoFocus
                 width="100%"

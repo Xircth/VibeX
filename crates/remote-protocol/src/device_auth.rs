@@ -114,6 +114,7 @@ impl DevicePermissionPreset {
             "workflow.approve",
             "notification.summary",
             "offline.read",
+            "workspace.terminal",
         ]
     }
 

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { ChevronDown, Copy, Loader2, QrCode, ShieldCheck } from 'lucide-react';
+import {
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Loader2,
+  QrCode,
+  ShieldCheck,
+} from 'lucide-react';
 import QRCode from 'qrcode';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
+import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import { webServiceApi, type HostPairedDevice } from '@/lib/api';
 import { getErrorMessage } from '@/lib/modals';
 import type {
@@ -21,6 +29,7 @@ import type {
   DevicePairingChallenge,
 } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
+import { HostTunnelPanel } from './HostTunnelPanel';
 import { SettingsSection } from './SettingsUi';
 import {
   encodePairingInvitation,
@@ -30,6 +39,7 @@ import {
   pairingDisplayOrigins,
   pairingLiveStatus,
   pairingVisibleOrigins,
+  type PairingDisplayOrigin,
   type PairingListenAddress,
   type PairingReachability,
   type PairingTtlSeconds,
@@ -43,6 +53,38 @@ const EMPTY_HOST_URLS: string[] = [];
 const EMPTY_REACHABILITY: PairingReachability[] = [];
 const EMPTY_LISTEN_ADDRESSES: PairingListenAddress[] = [];
 
+function resolveClientKind(
+  device: HostPairedDevice
+): 'mobile' | 'desktop' | 'web' {
+  const explicit = device.client_kind?.toLowerCase();
+  if (explicit === 'mobile' || explicit === 'desktop' || explicit === 'web') {
+    return explicit;
+  }
+  const name = device.device_name || '';
+  if (/\b(web|browser|chrome|safari|edge|firefox)\b/i.test(name)) {
+    return 'web';
+  }
+  if (
+    /\b(iphone|ipad|android|pixel|mobile|ios)\b/i.test(name) ||
+    device.preset === 'companion'
+  ) {
+    return 'mobile';
+  }
+  return 'desktop';
+}
+
+function formatConnectedAt(isoOrTimestamp: string | null | undefined): string {
+  if (!isoOrTimestamp) return '';
+  const date = new Date(isoOrTimestamp);
+  if (Number.isNaN(date.getTime())) return isoOrTimestamp;
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}/${month}/${day} ${hours}:${minutes}`;
+}
+
 export function DevicePairingPanel({
   transport,
   hostUrls = EMPTY_HOST_URLS,
@@ -51,6 +93,8 @@ export function DevicePairingPanel({
   listenAddresses = EMPTY_LISTEN_ADDRESSES,
   autoIssue = false,
   serviceRunning = true,
+  showTunnel = false,
+  onReachabilityChange,
   onEnsureListening,
 }: {
   transport: BackendTransport;
@@ -60,10 +104,12 @@ export function DevicePairingPanel({
   listenAddresses?: PairingListenAddress[];
   autoIssue?: boolean;
   serviceRunning?: boolean;
+  showTunnel?: boolean;
+  onReachabilityChange?: () => void;
   onEnsureListening?: () => Promise<string[]>;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const [preset, setPreset] = useState<PairingPreset>('companion');
+  const preset: PairingPreset = 'workstation';
   const [challenge, setChallenge] = useState<DevicePairingChallenge | null>(
     null
   );
@@ -73,7 +119,6 @@ export function DevicePairingPanel({
   const [startedUrls, setStartedUrls] = useState<string[] | null>(null);
   const [devices, setDevices] = useState<HostPairedDevice[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [addressesExpanded, setAddressesExpanded] = useState(false);
   const [ttlSeconds, setTtlSeconds] = useState<PairingTtlSeconds>(
     DEFAULT_PAIRING_TTL_SECONDS
   );
@@ -103,7 +148,8 @@ export function DevicePairingPanel({
       })
     );
   }, [challenge, hostId, preset, resolvedReachability]);
-  const hasReachableOrigin = resolvedReachability.length > 0;
+  const hasReachableOrigin =
+    resolvedReachability.length > 0 || resolvedUrls.length > 0;
 
   const loadDevices = useCallback(async () => {
     try {
@@ -252,13 +298,13 @@ export function DevicePairingPanel({
       ),
     [listenAddresses, resolvedReachability, resolvedUrls]
   );
-  const visibleOrigins = pairingVisibleOrigins(
-    displayOrigins,
-    addressesExpanded
-  );
-  const canExpandAddresses =
-    displayOrigins.length > visibleOrigins.length ||
-    (addressesExpanded && displayOrigins.length > 1);
+  const visibleOrigins = pairingVisibleOrigins(displayOrigins, true);
+
+  const addressKindLabel = (kind: PairingDisplayOrigin['kind']) => {
+    if (kind === 'loopback') return t('webService.thisComputerAddressLabel');
+    if (kind === 'lan') return t('webService.lanAddressLabel');
+    return t('webService.publishedAddressLabel');
+  };
 
   const copyConnectionCode = useCallback(async () => {
     if (!connectionCode) return;
@@ -286,253 +332,258 @@ export function DevicePairingPanel({
       })
     : null;
 
+  const addressesNode =
+    displayOrigins.length > 0 ? (
+      <div className="settings-pairing-block flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="settings-pairing-addresses__header">
+          <span className="settings-pairing-addresses__label">
+            {t('webService.pairingAddressesLabel')}
+          </span>
+          <span className="settings-pairing-devices__count">
+            {visibleOrigins.length}
+          </span>
+        </div>
+        <div className="settings-pairing-addresses flex-1">
+          <div
+            className="settings-pairing-devices__list max-h-40 overflow-y-auto"
+            data-testid="pairing-addresses-scroll-box"
+          >
+            {visibleOrigins.map((item) => {
+              const ifaceLabel =
+                item.interface ??
+                (item.kind === 'loopback'
+                  ? 'loopback'
+                  : item.kind === 'published'
+                    ? 'tunnel'
+                    : null);
+              return (
+                <div
+                  className="settings-pairing-addresses__row flex items-center gap-3"
+                  key={item.origin}
+                >
+                  <span className="w-12 shrink-0 text-xs font-semibold text-foreground">
+                    {addressKindLabel(item.kind)}
+                  </span>
+                  <span className="flex w-24 shrink-0 items-center">
+                    {ifaceLabel ? (
+                      <span className="settings-pairing-addresses__iface inline-flex max-w-full items-center truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        {ifaceLabel}
+                      </span>
+                    ) : null}
+                  </span>
+                  <button
+                    type="button"
+                    className="settings-pairing-addresses__origin min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    title={item.origin}
+                    onClick={() => void copyOrigin(item.origin)}
+                    aria-label={`${t('webService.copyAddress')} ${item.origin}`}
+                  >
+                    {item.origin}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="settings-pairing-addresses__open !h-6 !min-h-0 !w-6 shrink-0 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                    onClick={() => void openInSystemBrowser(item.origin)}
+                    aria-label={`${t('webService.openOrigin')} ${item.origin}`}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   return (
     <SettingsSection
       icon={QrCode}
       title={t('webService.clientSectionTitle')}
       description={t('webService.clientSectionDescription')}
       className={!serviceRunning ? 'settings-remote-gated' : undefined}
+      action={
+        <Button
+          size="sm"
+          onClick={() => void createPairing()}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <QrCode className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          {t('webService.createPairing')}
+        </Button>
+      }
     >
-      <div className="settings-row">
-        <Label htmlFor="pairing-preset">
-          {t('webService.pairingPresetLabel')}
-        </Label>
-        <div className="flex items-center gap-2">
-          <Select
-            value={preset}
-            onValueChange={(value) => setPreset(value as PairingPreset)}
-          >
-            <SelectTrigger
-              id="pairing-preset"
-              className="h-8 min-w-32 text-sm"
-              aria-label={t('webService.pairingPresetLabel')}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="companion">
-                {t('webService.pairingPresetCompanion')}
-              </SelectItem>
-              <SelectItem value="workstation">
-                {t('webService.pairingPresetWorkstation')}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            onClick={() => void createPairing()}
-            disabled={busy}
-          >
-            {busy ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <QrCode className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            {t('webService.createPairing')}
-          </Button>
-        </div>
-      </div>
-
-      {!hasReachableOrigin ? (
+      {serviceRunning && !hasReachableOrigin ? (
         <p className="px-4 pb-4 text-sm text-muted-foreground">
           {t('webService.pairingNeedsReachability')}
         </p>
       ) : null}
 
       {challenge ? (
-        <div className="settings-pairing-body">
-          <div className="settings-pairing-invite">
-            <div className="settings-pairing-qr">
-              {qrDataUrl ? (
-                <img
-                  src={qrDataUrl}
-                  width={PAIRING_QR_SIZE}
-                  height={PAIRING_QR_SIZE}
-                  alt={t('webService.pairingQrAlt')}
-                />
-              ) : (
-                <div
-                  className="settings-pairing-qr__placeholder"
-                  style={{
-                    width: PAIRING_QR_SIZE,
-                    height: PAIRING_QR_SIZE,
-                  }}
-                  aria-label={t('webService.pairingQrLoading')}
-                >
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                </div>
-              )}
+        <div
+          className="settings-pairing-split"
+          data-testid="pairing-active-split"
+        >
+          {addressesNode}
+          <div className="settings-pairing-block flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="settings-pairing-addresses__header">
+              <span className="settings-pairing-addresses__label">
+                {t('webService.pairingCredentialLabel')}
+              </span>
             </div>
-            {connectionCode ? (
-              <div className="settings-pairing-fields">
-                <div className="settings-pairing-code-row">
-                  <p className="text-sm font-medium">
-                    {t('webService.pairingCodeLabel')}
-                  </p>
-                  <div className="settings-pairing-code">
-                    <code>{connectionCode}</code>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="settings-pairing-code__copy"
-                      onClick={() => void copyConnectionCode()}
-                      aria-label={t('webService.copyPairingCode')}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="settings-pairing-meta">
-                  <div className="settings-pairing-field">
-                    <Label
-                      htmlFor="pairing-ttl"
-                      className="text-sm font-medium"
-                    >
-                      {t('webService.pairingTtlLabel')}
-                    </Label>
-                    <Select
-                      value={String(ttlSeconds)}
-                      onValueChange={(value) => {
-                        const next = Number(value) as PairingTtlSeconds;
-                        setTtlSeconds(next);
-                        if (PAIRING_TTL_SECONDS.includes(next)) {
-                          void createPairing(next);
-                        }
-                      }}
-                    >
-                      <SelectTrigger
-                        id="pairing-ttl"
-                        className="h-8 w-32 text-sm"
-                        aria-label={t('webService.pairingTtlLabel')}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="300">
-                          {t('webService.pairingTtl5m')}
-                        </SelectItem>
-                        <SelectItem value="900">
-                          {t('webService.pairingTtl15m')}
-                        </SelectItem>
-                        <SelectItem value="1800">
-                          {t('webService.pairingTtl30m')}
-                        </SelectItem>
-                        <SelectItem value="3600">
-                          {t('webService.pairingTtl60m')}
-                        </SelectItem>
-                        <SelectItem value="21600">
-                          {t('webService.pairingTtl6h')}
-                        </SelectItem>
-                        <SelectItem value="86400">
-                          {t('webService.pairingTtl1d')}
-                        </SelectItem>
-                        <SelectItem value="604800">
-                          {t('webService.pairingTtl7d')}
-                        </SelectItem>
-                        <SelectItem value="2592000">
-                          {t('webService.pairingTtl30d')}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p
-                    className={cn(
-                      'settings-pairing-status',
-                      liveStatus === 'connected' && 'settings-status-success',
-                      liveStatus === 'failed' && 'text-destructive',
-                      liveStatus === 'waiting' && 'text-muted-foreground'
-                    )}
-                    role="status"
-                  >
-                    <span
-                      className={cn(
-                        'settings-status-lamp',
-                        liveStatus === 'connected' &&
-                          'settings-status-dot-success',
-                        liveStatus === 'failed' &&
-                          'settings-status-dot-neutral',
-                        liveStatus === 'waiting' &&
-                          'settings-status-dot-neutral'
-                      )}
-                      aria-hidden="true"
+            <div className="settings-pairing-body flex-1">
+              <div className="settings-pairing-invite">
+                <div className="settings-pairing-qr">
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      width={PAIRING_QR_SIZE}
+                      height={PAIRING_QR_SIZE}
+                      alt={t('webService.pairingQrAlt')}
                     />
-                    {liveStatus === 'connected'
-                      ? t('webService.pairingStatusConnected')
-                      : liveStatus === 'failed'
-                        ? t('webService.pairingStatusFailed')
-                        : t('webService.pairingStatusWaiting')}
-                  </p>
+                  ) : (
+                    <div
+                      className="settings-pairing-qr__placeholder"
+                      style={{
+                        width: PAIRING_QR_SIZE,
+                        height: PAIRING_QR_SIZE,
+                      }}
+                      aria-label={t('webService.pairingQrLoading')}
+                    >
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    </div>
+                  )}
                 </div>
+                {connectionCode ? (
+                  <div className="settings-pairing-fields">
+                    <div className="settings-pairing-code-row">
+                      <p className="text-sm font-medium">
+                        {t('webService.pairingCodeLabel')}
+                      </p>
+                      <div className="settings-pairing-code">
+                        <code>{connectionCode}</code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="settings-pairing-code__copy"
+                          onClick={() => void copyConnectionCode()}
+                          aria-label={t('webService.copyPairingCode')}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="settings-pairing-meta">
+                      <div className="settings-pairing-field">
+                        <Label
+                          htmlFor="pairing-ttl"
+                          className="text-sm font-medium"
+                        >
+                          {t('webService.pairingTtlLabel')}
+                        </Label>
+                        <Select
+                          value={String(ttlSeconds)}
+                          onValueChange={(value) => {
+                            const next = Number(value) as PairingTtlSeconds;
+                            setTtlSeconds(next);
+                            if (PAIRING_TTL_SECONDS.includes(next)) {
+                              void createPairing(next);
+                            }
+                          }}
+                        >
+                          <SelectTrigger
+                            id="pairing-ttl"
+                            className="h-8 w-32 text-sm"
+                            aria-label={t('webService.pairingTtlLabel')}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent align="end">
+                            <SelectItem value="300">
+                              {t('webService.pairingTtl5m')}
+                            </SelectItem>
+                            <SelectItem value="900">
+                              {t('webService.pairingTtl15m')}
+                            </SelectItem>
+                            <SelectItem value="1800">
+                              {t('webService.pairingTtl30m')}
+                            </SelectItem>
+                            <SelectItem value="3600">
+                              {t('webService.pairingTtl60m')}
+                            </SelectItem>
+                            <SelectItem value="21600">
+                              {t('webService.pairingTtl6h')}
+                            </SelectItem>
+                            <SelectItem value="86400">
+                              {t('webService.pairingTtl1d')}
+                            </SelectItem>
+                            <SelectItem value="604800">
+                              {t('webService.pairingTtl7d')}
+                            </SelectItem>
+                            <SelectItem value="2592000">
+                              {t('webService.pairingTtl30d')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <p
+                        className={cn(
+                          'settings-pairing-status',
+                          liveStatus === 'connected' &&
+                            'settings-status-success',
+                          liveStatus === 'failed' && 'text-destructive',
+                          liveStatus === 'waiting' && 'text-muted-foreground'
+                        )}
+                        role="status"
+                      >
+                        <span
+                          className={cn(
+                            'settings-status-lamp',
+                            liveStatus === 'connected' &&
+                              'settings-status-dot-success',
+                            liveStatus === 'failed' &&
+                              'settings-status-dot-neutral',
+                            liveStatus === 'waiting' &&
+                              'settings-status-dot-neutral'
+                          )}
+                          aria-hidden="true"
+                        />
+                        {liveStatus === 'connected'
+                          ? t('webService.pairingStatusConnected')
+                          : liveStatus === 'failed'
+                            ? t('webService.pairingStatusFailed')
+                            : t('webService.pairingStatusWaiting')}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-          {displayOrigins.length > 0 ? (
-            <div className="settings-pairing-addresses">
-              {canExpandAddresses ? (
-                <button
-                  type="button"
-                  className="settings-pairing-addresses__toggle"
-                  aria-expanded={addressesExpanded}
-                  aria-label={
-                    addressesExpanded
-                      ? t('webService.pairingAddressesCollapse')
-                      : t('webService.pairingAddressesExpand')
-                  }
-                  onClick={() => setAddressesExpanded((current) => !current)}
-                >
-                  {t('webService.pairingAddressesLabel')}
-                  <ChevronDown
-                    className={cn(
-                      'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
-                      addressesExpanded && 'rotate-180'
-                    )}
-                    aria-hidden="true"
-                  />
-                </button>
-              ) : (
-                <p className="settings-pairing-addresses__label">
-                  {t('webService.pairingAddressesLabel')}
-                </p>
-              )}
-              {visibleOrigins.map((item) => (
-                <div
-                  className="settings-pairing-addresses__row"
-                  key={item.origin}
-                >
-                  <p
-                    className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
-                    title={item.origin}
-                  >
-                    {item.interface ? (
-                      <span className="settings-pairing-addresses__iface">
-                        {item.interface}
-                      </span>
-                    ) : null}
-                    <span>{item.origin}</span>
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 shrink-0 p-0"
-                    onClick={() => void copyOrigin(item.origin)}
-                    aria-label={`${t('webService.copyAddress')} ${item.origin}`}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
+              <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {t('webService.pairingOneTime', {
+                  expiresAt: new Date(challenge.expires_at).toLocaleString(),
+                })}
+              </p>
             </div>
-          ) : null}
-          <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
-            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {t('webService.pairingOneTime', {
-              expiresAt: new Date(challenge.expires_at).toLocaleString(),
-            })}
-          </p>
+          </div>
         </div>
+      ) : (
+        addressesNode
+      )}
+
+      {showTunnel && onReachabilityChange ? (
+        <HostTunnelPanel
+          serviceRunning={serviceRunning}
+          onReachabilityChange={onReachabilityChange}
+        />
       ) : null}
 
-      <div className="settings-pairing-devices">
+      <div className="settings-pairing-block flex flex-col gap-1.5">
         <button
           type="button"
           className="settings-pairing-devices__toggle"
@@ -553,48 +604,64 @@ export function DevicePairingPanel({
           />
         </button>
         {devicesExpanded ? (
-          <div id={devicesListId} className="settings-pairing-devices__list">
-            {devices.length === 0 ? (
-              <p className="settings-pairing-devices__empty">
-                {t('webService.pairedDevicesEmpty')}
-              </p>
-            ) : (
-              devices.map((device) => (
-                <div
-                  className="settings-pairing-devices__row"
-                  key={device.device_id}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {device.device_name}
-                    </p>
-                    <p className="settings-row__description">
-                      <span className="settings-pairing-devices__preset">
-                        {device.preset === 'workstation'
-                          ? t('webService.pairingPresetWorkstation')
-                          : device.preset === 'companion'
-                            ? t('webService.pairingPresetCompanion')
-                            : t('webService.pairedDeviceUnknownPreset')}
-                      </span>
-                      {' · '}
-                      {new Date(device.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0"
-                    onClick={() => void revokeDevice(device)}
-                    disabled={revokingId === device.device_id}
-                  >
-                    {revokingId === device.device_id ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {t('webService.revokeDevice')}
-                  </Button>
-                </div>
-              ))
-            )}
+          <div className="settings-pairing-devices">
+            <div id={devicesListId} className="settings-pairing-devices__list">
+              {devices.length === 0 ? (
+                <p className="settings-pairing-devices__empty">
+                  {t('webService.pairedDevicesEmpty')}
+                </p>
+              ) : (
+                devices.map((device) => {
+                  const kind = resolveClientKind(device);
+                  const kindLabel =
+                    kind === 'mobile'
+                      ? t('webService.clientKindMobile')
+                      : kind === 'web'
+                        ? t('webService.clientKindWeb')
+                        : t('webService.clientKindDesktop');
+                  const connectedTime = formatConnectedAt(
+                    device.last_connected_at ?? device.created_at
+                  );
+                  return (
+                    <div
+                      className="settings-pairing-devices__row flex items-center justify-between gap-3"
+                      key={device.device_id}
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sm">
+                        <span className="truncate font-medium">
+                          {device.device_name}
+                        </span>
+                        <span className="settings-pairing-devices__preset shrink-0">
+                          {kindLabel}
+                        </span>
+                        {device.ip_address ? (
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                            {device.ip_address}
+                          </span>
+                        ) : null}
+                        {connectedTime ? (
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {connectedTime}
+                          </span>
+                        ) : null}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0"
+                        onClick={() => void revokeDevice(device)}
+                        disabled={revokingId === device.device_id}
+                      >
+                        {revokingId === device.device_id ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {t('webService.revokeDevice')}
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         ) : null}
       </div>

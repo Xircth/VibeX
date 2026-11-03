@@ -1,23 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Copy,
-  ExternalLink,
-  Eye,
-  EyeOff,
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import {
+  CheckCircle2,
+  CircleAlert,
   Globe,
-  KeyRound,
-  RefreshCw,
-  Shield,
+  Laptop,
   Loader2,
+  Server,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { isTauriClient } from '@/lib/desktopShell';
+import { getErrorMessage } from '@/lib/modals';
 import { useBackendTransport } from '@/lib/transport';
 
-import { TextInput } from '@astryxdesign/core/TextInput';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -28,23 +28,15 @@ import {
   webServiceApi,
 } from '@/lib/api';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
-import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import { cn } from '@/lib/utils';
 
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { DevicePairingPanel } from './DevicePairingPanel';
-import { HostTunnelPanel } from './HostTunnelPanel';
-import { presentRemoteAccess, type RemoteAccessRowKind } from './hostEndpoints';
 import { RemoteClientSettings } from './RemoteClientSettings';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 type RemoteRoleTab = 'server' | 'client';
-
-const ROLE_TABS: Array<{ value: RemoteRoleTab; labelKey: string }> = [
-  { value: 'server', labelKey: 'webService.roleServer' },
-  { value: 'client', labelKey: 'webService.roleClient' },
-];
 
 const DEFAULT_CONFIG: WebServiceConfig = {
   port: 17891,
@@ -75,10 +67,8 @@ export function WebServiceSettings({
   const [status, setStatus] = useState<WebServerStatus | null>(null);
   const [probe, setProbe] = useState<PortProbeResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
-  const [tokenRevealed, setTokenRevealed] = useState(false);
   const hostConsole = isTauriClient(transport.environment);
   const boundToRemote = transport.environment === 'remote-desktop';
   const [role, setRole] = useState<RemoteRoleTab>(() =>
@@ -98,11 +88,23 @@ export function WebServiceSettings({
         setProbe(null);
         setStatus(await webServiceApi.getStatus());
       } catch (error) {
+        const raw = getErrorMessage(error);
         toast.error(
-          error instanceof Error
-            ? error.message
+          raw && raw !== 'An unknown error occurred'
+            ? raw
             : t('webService.configSaveFailed')
         );
+        try {
+          const [actualConfig, actualStatus] = await Promise.all([
+            webServiceApi.getConfig(),
+            webServiceApi.getStatus(),
+          ]);
+          draftRef.current = actualConfig;
+          setDraft(actualConfig);
+          setStatus(actualStatus);
+        } catch {
+          // Ignore secondary refresh error
+        }
       }
     }
   );
@@ -112,46 +114,6 @@ export function WebServiceSettings({
     if (!validPort(next.port)) return;
     if (settle) writeSettled(next);
     else writeNow(next);
-  };
-
-  const accessRows = useMemo(
-    () =>
-      presentRemoteAccess({
-        running: Boolean(status?.running),
-        servesWebUi: Boolean(status?.serves_web_ui),
-        address: status?.address,
-        addresses: status?.addresses,
-        reachability: status?.reachability,
-        windowOrigin: window.location.origin,
-      }),
-    [status]
-  );
-
-  const hasSeparateBrowser = accessRows.some((row) => row.kind === 'browser');
-  const addressCopy: Record<
-    RemoteAccessRowKind,
-    { label: string; description: string }
-  > = {
-    browser: {
-      label: t('webService.browserAddressLabel'),
-      description: t('webService.browserAddressDescription'),
-    },
-    thisComputer: {
-      label: hasSeparateBrowser
-        ? t('webService.hostAddressLabel')
-        : t('webService.thisComputerAddressLabel'),
-      description: hasSeparateBrowser
-        ? t('webService.hostAddressDescription')
-        : t('webService.thisComputerAddressDescription'),
-    },
-    lan: {
-      label: t('webService.lanAddressLabel'),
-      description: t('webService.lanAddressDescription'),
-    },
-    published: {
-      label: t('webService.publishedAddressLabel'),
-      description: t('webService.publishedAddressDescription'),
-    },
   };
 
   const load = useCallback(
@@ -235,6 +197,7 @@ export function WebServiceSettings({
         setDraft(saved);
       }
       setStatus(next);
+      setProbe(null);
       toast.success(t('webService.started'));
       return next;
     } catch (error) {
@@ -265,10 +228,15 @@ export function WebServiceSettings({
   const probePort = useCallback(async () => {
     setProbing(true);
     try {
-      const result = await webServiceApi.probePort(draft.port);
+      const [nextStatus, result] = await Promise.all([
+        webServiceApi.getStatus(),
+        webServiceApi.probePort(draft.port),
+      ]);
+      setStatus(nextStatus);
       setProbe(result);
-      toast[result.available ? 'success' : 'error'](
-        result.available
+      const healthy = Boolean(nextStatus.running) || result.available;
+      toast[healthy ? 'success' : 'error'](
+        healthy
           ? t('webService.portAvailable')
           : (result.message ?? t('webService.portUnavailable'))
       );
@@ -281,54 +249,13 @@ export function WebServiceSettings({
     }
   }, [draft.port, t]);
 
-  const requireRunning = useCallback(() => {
-    if (serviceRunning) return true;
-    toast.error(t('webService.enableServiceFirst'));
-    return false;
-  }, [serviceRunning, t]);
-
-  const generateToken = useCallback(async () => {
-    if (!requireRunning()) return;
-    setSaving(true);
-    try {
-      const saved = await webServiceApi.generateToken();
-      setDraft((previous) => {
-        const next = { ...previous, token: saved.token };
-        draftRef.current = next;
-        return next;
-      });
-      toast.success(t('webService.tokenGenerated'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('webService.tokenGenerateFailed')
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [requireRunning, t]);
-
-  const copyText = useCallback(
-    async (text: string, label: string) => {
-      await navigator.clipboard.writeText(text);
-      toast.success(t('webService.copied', { label }));
-    },
-    [t]
-  );
-
   if (loading) {
     return <SurfaceLoading />;
   }
 
-  const focusRole = (next: RemoteRoleTab) => {
-    setRole(next);
-    window.requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>(`[data-remote-role-tab="${next}"]`)
-        ?.focus();
-    });
-  };
+  const portHealthy =
+    serviceRunning &&
+    (probe === null || probe.available || status?.port === draft.port);
 
   return (
     <div className="settings-content">
@@ -341,44 +268,23 @@ export function WebServiceSettings({
         </div>
         {hostConsole && !boundToRemote ? (
           <div className="chat-channel-heading__actions">
-            <div
-              className="chat-channel-tabs"
-              role="tablist"
-              aria-label={t('webService.roleTabsAria')}
-              onKeyDown={(event) => {
-                const index = ROLE_TABS.findIndex(
-                  (item) => item.value === role
-                );
-                let next = index;
-                if (event.key === 'ArrowRight')
-                  next = (index + 1) % ROLE_TABS.length;
-                else if (event.key === 'ArrowLeft') {
-                  next = (index - 1 + ROLE_TABS.length) % ROLE_TABS.length;
-                } else if (event.key === 'Home') next = 0;
-                else if (event.key === 'End') next = ROLE_TABS.length - 1;
-                else return;
-                event.preventDefault();
-                focusRole(ROLE_TABS[next].value);
-              }}
+            <SegmentedControl
+              value={role}
+              onChange={(next) => setRole(next as RemoteRoleTab)}
+              label={t('webService.roleTabsAria')}
+              className="dsh-plugin-mode-segmented"
             >
-              {ROLE_TABS.map((item) => {
-                const active = role === item.value;
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    role="tab"
-                    data-remote-role-tab={item.value}
-                    aria-selected={active}
-                    tabIndex={active ? 0 : -1}
-                    className={active ? 'is-active' : undefined}
-                    onClick={() => setRole(item.value)}
-                  >
-                    {t(item.labelKey)}
-                  </button>
-                );
-              })}
-            </div>
+              <SegmentedControlItem
+                value="server"
+                label={t('webService.roleServer')}
+                icon={<Server aria-hidden="true" />}
+              />
+              <SegmentedControlItem
+                value="client"
+                label={t('webService.roleClient')}
+                icon={<Laptop aria-hidden="true" />}
+              />
+            </SegmentedControl>
           </div>
         ) : null}
       </div>
@@ -395,51 +301,61 @@ export function WebServiceSettings({
             >
               <div className="settings-row">
                 <div>
-                  <Label>{t('webService.currentStatusLabel')}</Label>
-                  {serviceRunning ? null : (
-                    <p className="settings-row__description">
-                      {t('webService.serviceNotStarted')}
-                    </p>
-                  )}
+                  <Label htmlFor={serviceRunning ? 'web-service-port' : undefined}>
+                    {t('webService.remoteServiceStatusLabel')}
+                  </Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      'settings-status-lamp',
-                      serviceRunning
-                        ? 'settings-status-dot-success'
-                        : 'settings-status-dot-neutral'
-                    )}
-                    data-testid="web-service-status-lamp"
-                    aria-hidden="true"
-                  />
-                  <span
-                    className={cn(
-                      'rounded-full px-2 py-1 text-sm font-medium',
-                      serviceRunning
-                        ? 'settings-status-success'
-                        : 'text-muted-foreground'
-                    )}
-                  >
-                    {!status
-                      ? t('webService.statusUnchecked')
-                      : serviceRunning
-                        ? t('webService.statusRunning')
-                        : t('webService.statusStopped')}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() => void refreshStatus()}
-                    disabled={statusBusy}
-                    title={t('webService.refreshStatus')}
-                    aria-label={t('webService.refreshStatus')}
-                  >
-                    <RefreshCw
-                      className={`h-3.5 w-3.5 ${statusBusy ? 'animate-spin' : ''}`}
-                    />
-                  </Button>
+                  {serviceRunning ? (
+                    <div className="relative flex items-center">
+                      <Input
+                        id="web-service-port"
+                        aria-label={t('webService.portLabel')}
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={draft.port || ''}
+                        className="h-8 w-32 pr-8 font-mono text-sm"
+                        onChange={(event) => {
+                          const port = Number(event.target.value);
+                          commitDraft({ ...draftRef.current, port }, true);
+                        }}
+                        onBlur={() => void flush()}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void probePort()}
+                        disabled={probing || statusBusy}
+                        title={t('webService.refreshStatus')}
+                        aria-label={t('webService.refreshStatus')}
+                        data-testid="web-service-status-lamp"
+                        data-status={portHealthy ? 'healthy' : 'unhealthy'}
+                        className={cn(
+                          'absolute right-2 inline-flex !h-5 !min-h-0 !w-5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 transition-opacity hover:bg-transparent hover:opacity-80 focus-visible:outline-none',
+                          portHealthy
+                            ? 'text-[hsl(var(--success))]'
+                            : 'text-destructive'
+                        )}
+                      >
+                        {probing ? (
+                          <Loader2
+                            className="vu-toast-status-icon vu-toast-status-icon-loading"
+                            aria-hidden="true"
+                          />
+                        ) : portHealthy ? (
+                          <CheckCircle2
+                            className="vu-toast-status-icon"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <CircleAlert
+                            className="vu-toast-status-icon"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
                   <Switch
                     className="settings-switch"
                     checked={serviceRunning}
@@ -460,107 +376,50 @@ export function WebServiceSettings({
                 </div>
               </div>
 
-              <div className="settings-row">
-                <div>
-                  <Label htmlFor="web-service-port">
-                    {t('webService.portLabel')}
-                  </Label>
-                  <p className="settings-row__description">
-                    {t('webService.portDescription')}
-                  </p>
-                </div>
-                <div className="flex w-full max-w-xs gap-2">
-                  <Input
-                    id="web-service-port"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={draft.port || ''}
-                    onChange={(event) => {
-                      const port = Number(event.target.value);
-                      commitDraft({ ...draftRef.current, port }, true);
-                    }}
-                    onBlur={() => void flush()}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0"
-                    onClick={() => void probePort()}
-                    disabled={probing}
-                  >
-                    {probing ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                    )}
-                    {t('webService.probe')}
-                  </Button>
-                </div>
-              </div>
+              {serviceRunning ? (
+                <>
+                  <div className="settings-row">
+                    <div>
+                      <Label htmlFor="web-service-autostart">
+                        {t('webService.autoStartLabel')}
+                      </Label>
+                      <p className="settings-row__description">
+                        {t('webService.autoStartDescription')}
+                      </p>
+                    </div>
+                    <Switch
+                      id="web-service-autostart"
+                      className="settings-switch"
+                      checked={draft.auto_start}
+                      onCheckedChange={(checked: boolean) =>
+                        commitDraft({
+                          ...draftRef.current,
+                          auto_start: checked,
+                        })
+                      }
+                    />
+                  </div>
 
-              {probe && !probe.available && !serviceRunning ? (
-                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-                  <p className="font-medium">
-                    {t('webService.stalePortOccupied', { port: probe.port })}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {t('webService.stalePortHint')}
-                  </p>
-                </div>
-              ) : probe ? (
-                <p className="settings-row__description">
-                  {t('webService.portProbeResult', {
-                    port: probe.port,
-                    result: probe.available
-                      ? t('webService.available')
-                      : probe.message,
-                  })}
-                </p>
+                  <div className="settings-row">
+                    <div>
+                      <Label htmlFor="web-service-lan">
+                        {t('webService.allowLanLabel')}
+                      </Label>
+                      <p className="settings-row__description">
+                        {t('webService.allowLanDescription')}
+                      </p>
+                    </div>
+                    <Switch
+                      id="web-service-lan"
+                      className="settings-switch"
+                      checked={Boolean(draft.allow_lan)}
+                      onCheckedChange={(checked: boolean) =>
+                        commitDraft({ ...draftRef.current, allow_lan: checked })
+                      }
+                    />
+                  </div>
+                </>
               ) : null}
-
-              <div className="settings-row">
-                <div>
-                  <Label htmlFor="web-service-autostart">
-                    {t('webService.autoStartLabel')}
-                  </Label>
-                  <p className="settings-row__description">
-                    {t('webService.autoStartDescription')}
-                  </p>
-                </div>
-                <Switch
-                  id="web-service-autostart"
-                  className="settings-switch"
-                  checked={draft.auto_start}
-                  onCheckedChange={(checked: boolean) =>
-                    commitDraft({ ...draftRef.current, auto_start: checked })
-                  }
-                />
-              </div>
-
-              <div className="settings-row">
-                <div>
-                  <Label htmlFor="web-service-lan">
-                    {t('webService.allowLanLabel')}
-                  </Label>
-                  <p className="settings-row__description">
-                    {t('webService.allowLanDescription')}
-                  </p>
-                </div>
-                <Switch
-                  id="web-service-lan"
-                  className="settings-switch"
-                  checked={Boolean(draft.allow_lan)}
-                  onCheckedChange={(checked: boolean) =>
-                    commitDraft({ ...draftRef.current, allow_lan: checked })
-                  }
-                />
-              </div>
-
-              <HostTunnelPanel
-                serviceRunning={serviceRunning}
-                onReachabilityChange={() => void refreshStatus()}
-              />
             </SettingsSection>
           ) : null}
 
@@ -577,146 +436,9 @@ export function WebServiceSettings({
             reachability={status?.reachability ?? []}
             listenAddresses={status?.listen_addresses ?? []}
             serviceRunning={serviceRunning}
+            showTunnel={hostConsole}
+            onReachabilityChange={() => void refreshStatus()}
           />
-
-          {hostConsole ? (
-            <SettingsSection
-              icon={Shield}
-              title={t('webService.webSectionTitle')}
-              description={t('webService.webSectionDescription')}
-              className={!serviceRunning ? 'settings-remote-gated' : undefined}
-            >
-              <div className="settings-row">
-                <div>
-                  <Label>{t('webService.tokenLabel')}</Label>
-                  <p className="settings-row__description">
-                    {t('webService.tokenDescription')}
-                  </p>
-                </div>
-                <div className="flex w-full max-w-sm gap-2">
-                  <TextInput
-                    label={t('webService.tokenLabel')}
-                    isLabelHidden
-                    type={tokenRevealed ? 'text' : 'password'}
-                    value={draft.token ?? ''}
-                    onChange={(value) =>
-                      commitDraft(
-                        { ...draftRef.current, token: value || null },
-                        true
-                      )
-                    }
-                    onBlur={() => void flush()}
-                    placeholder={t('webService.tokenPlaceholder')}
-                    width="100%"
-                    className="[&_input]:font-mono"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 shrink-0 p-0"
-                    onClick={() => {
-                      if (!requireRunning()) return;
-                      setTokenRevealed((value) => !value);
-                    }}
-                    title={
-                      tokenRevealed
-                        ? t('webService.hideToken')
-                        : t('webService.showToken')
-                    }
-                    aria-label={
-                      tokenRevealed
-                        ? t('webService.hideToken')
-                        : t('webService.showToken')
-                    }
-                  >
-                    {tokenRevealed ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 shrink-0 p-0"
-                    onClick={() => {
-                      if (!requireRunning() || !draft.token) return;
-                      void copyText(draft.token, 'Token');
-                    }}
-                    disabled={!draft.token}
-                    title={t('webService.copyToken')}
-                    aria-label={t('webService.copyToken')}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 shrink-0"
-                    onClick={() => void generateToken()}
-                    disabled={saving}
-                  >
-                    <KeyRound className="mr-1 h-3.5 w-3.5" />
-                    {t('webService.generate')}
-                  </Button>
-                </div>
-              </div>
-
-              {accessRows.length === 0 ? (
-                <p className="settings-row__description">
-                  {t('webService.serviceNotStarted')}
-                </p>
-              ) : (
-                accessRows.map((row) => {
-                  const copy = addressCopy[row.kind];
-                  return (
-                    <div
-                      className="settings-row"
-                      key={`${row.kind}:${row.origin}`}
-                    >
-                      <div>
-                        <Label>{copy.label}</Label>
-                        <p className="settings-row__description font-mono">
-                          {row.origin}
-                        </p>
-                        <p className="settings-row__description">
-                          {copy.description}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => {
-                            if (!requireRunning()) return;
-                            void copyText(
-                              row.origin,
-                              t('webService.copyOrigin')
-                            );
-                          }}
-                          aria-label={`${t('webService.copyOrigin')} ${row.origin}`}
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => {
-                            if (!requireRunning()) return;
-                            void openInSystemBrowser(row.openHref);
-                          }}
-                        >
-                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                          {t('webService.openOrigin')}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </SettingsSection>
-          ) : null}
         </div>
       ) : null}
     </div>

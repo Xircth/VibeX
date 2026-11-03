@@ -2502,11 +2502,50 @@ html.dark {
     font-size: 0.75rem;
   }
 
+  .settings-page .settings-pairing-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+
+  @media (max-width: 680px) {
+    .settings-page .settings-pairing-split {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .settings-page .settings-pairing-split > .settings-pairing-body,
+  .settings-page .settings-pairing-block > .settings-pairing-body {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    background: var(--surface-control);
+  }
+
   .settings-page .settings-pairing-addresses {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    overflow: hidden;
+    align-self: stretch;
+    width: auto;
     min-width: 0;
+    border-radius: var(--radius);
+    background: var(--surface-control);
+  }
+
+  .settings-page .settings-card > .settings-pairing-addresses {
+    padding: 0;
+    margin: 0.75rem 1rem;
+  }
+
+  .settings-page .settings-pairing-addresses__header {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+    padding: 0 2px;
+    color: var(--text-strong);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.33;
   }
 
   .settings-page .settings-pairing-addresses__label,
@@ -2515,7 +2554,7 @@ html.dark {
     align-items: center;
     gap: 0.25rem;
     color: var(--text-strong);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 500;
   }
 
@@ -2535,14 +2574,40 @@ html.dark {
   .settings-page .settings-pairing-addresses__row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    min-height: 2rem;
+    gap: 0.75rem;
+    padding: 6px 4px;
+    border-radius: var(--radius);
   }
 
   .settings-page .settings-pairing-addresses__iface {
-    margin-right: 0.5rem;
-    color: var(--text-strong);
     font-variant-numeric: tabular-nums;
+  }
+
+  .settings-page .settings-pairing-addresses__origin {
+    height: auto;
+    min-height: 0;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .settings-page .settings-pairing-addresses__origin:hover {
+    background: transparent;
+  }
+
+  .settings-page .settings-pairing-addresses__open {
+    width: 1.5rem;
+    height: 1.5rem;
+    min-height: 1.5rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .settings-page .settings-pairing-addresses__open:hover {
+    background: transparent;
   }
 
   .settings-page .settings-pairing-code {
@@ -2595,7 +2660,7 @@ html.dark {
     width: 100%;
     align-items: center;
     gap: 8px;
-    padding: 8px 10px;
+    padding: 0 2px;
     border: 0;
     background: transparent;
     color: var(--text-strong);
@@ -2606,7 +2671,8 @@ html.dark {
   }
 
   .settings-page .settings-pairing-devices__toggle:hover {
-    background: var(--surface-control-hover);
+    background: transparent;
+    opacity: 0.85;
   }
 
   .settings-page .settings-pairing-devices__toggle:focus-visible {
@@ -2625,7 +2691,7 @@ html.dark {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 0 8px 8px;
+    padding: 8px;
   }
 
   .settings-page .settings-pairing-devices__empty {

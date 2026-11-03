@@ -274,7 +274,7 @@ function presentToast(
   };
 }
 
-function ToastStatusIcon({ kind }: { kind: ToastKind }) {
+export function ToastStatusIcon({ kind }: { kind: ToastKind }) {
   const className = 'vu-toast-status-icon';
 
   switch (kind) {

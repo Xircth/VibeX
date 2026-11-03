@@ -427,6 +427,9 @@ export interface HostPairedDevice {
   scopes: string[];
   created_at: string;
   preset: 'companion' | 'workstation' | null;
+  client_kind?: 'mobile' | 'desktop' | 'web' | string | null;
+  ip_address?: string | null;
+  last_connected_at?: string | null;
 }
 
 export interface PortProbeResult {

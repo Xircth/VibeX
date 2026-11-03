@@ -69,13 +69,23 @@ describe('DevicePairingPanel', () => {
         hostUrls={['http://127.0.0.1:17891', 'http://192.168.1.20:17891']}
       />
     );
-    await user.click(screen.getByRole('button', { name: '生成连接码' }));
+    expect(
+      screen.queryByRole('combobox', { name: '设备预设' })
+    ).not.toBeInTheDocument();
+    const generateBtn = screen.getByRole('button', { name: '生成连接码' });
+    const sectionHeader = screen
+      .getByRole('heading', { name: '外部访问' })
+      .closest('.settings-section')
+      ?.querySelector(':scope > div:first-child');
+    expect(sectionHeader).toContainElement(generateBtn);
+
+    await user.click(generateBtn);
 
     expect(createDevicePairing).toHaveBeenCalledWith({
-      preset: 'companion',
+      preset: 'workstation',
       ttl_seconds: 1800,
     });
-    expect(screen.getByRole('heading', { name: '客户端访问' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '外部访问' })).toBeVisible();
     expect(
       await screen.findByRole('img', { name: '设备配对二维码' })
     ).toBeVisible();
@@ -87,16 +97,17 @@ describe('DevicePairingPanel', () => {
     expect(
       screen.queryByText(/pair-once-secret.*https?:/)
     ).not.toBeInTheDocument();
-    const devicesToggle = screen.getByRole('button', { name: /已配对设备/ });
+    const devicesToggle = screen.getByRole('button', { name: /已连接列表/ });
     expect(devicesToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('还没有已配对设备')).toBeVisible();
+    expect(screen.getByText('暂无已连接设备')).toBeVisible();
     const qr = await screen.findByRole('img', { name: '设备配对二维码' });
     expect(qr).toHaveAttribute('width', '144');
     expect(qr).toHaveAttribute('height', '144');
     expect(screen.getByText('http://192.168.1.20:17891')).toBeVisible();
-    expect(
-      screen.queryByText('http://127.0.0.1:17891')
-    ).not.toBeInTheDocument();
+    expect(screen.getByText('http://127.0.0.1:17891')).toBeVisible();
+    expect(screen.getByTestId('pairing-addresses-scroll-box')).toBeVisible();
+    const split = screen.getByTestId('pairing-active-split');
+    expect(split).toHaveClass('settings-pairing-split');
     const copy = screen.getByRole('button', { name: '复制连接码' });
     const code = screen.getByText('K7M2NPQX');
     const label = screen.getByText('连接码');
@@ -116,7 +127,23 @@ describe('DevicePairingPanel', () => {
     expect(invite as HTMLElement | null).not.toContainElement(
       addresses as HTMLElement | null
     );
+    expect(split).toContainElement(addresses as HTMLElement | null);
+    expect(split).toContainElement(invite as HTMLElement | null);
     expect(addresses).toBeTruthy();
+    const addressesHeader = screen
+      .getByText('连接地址')
+      .closest('.settings-pairing-addresses__header');
+    expect(addresses).not.toContainElement(
+      addressesHeader as HTMLElement | null
+    );
+    const credentialHeader = screen
+      .getByText('连接凭证')
+      .closest('.settings-pairing-addresses__header');
+    expect(credentialHeader).toBeVisible();
+    const pairingBody = qr.closest('.settings-pairing-body');
+    expect(pairingBody).not.toContainElement(
+      credentialHeader as HTMLElement | null
+    );
     expect(screen.getByText('等待连接')).toBeVisible();
     expect(meta as HTMLElement | null).toContainElement(
       screen.getByRole('combobox', { name: '有效期' })
@@ -130,7 +157,7 @@ describe('DevicePairingPanel', () => {
     );
   });
 
-  it('expands every connection address with a copy control', async () => {
+  it('lists every connection address with copy and open controls', async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
@@ -168,22 +195,27 @@ describe('DevicePairingPanel', () => {
     );
     await user.click(screen.getByRole('button', { name: '生成连接码' }));
 
-    expect(screen.getByText('en0')).toBeVisible();
+    expect(screen.getByText('loopback')).toHaveClass('rounded-full');
+    expect(screen.getByText('en0')).toHaveClass('rounded-full');
+    expect(screen.getByText('tunnel')).toHaveClass('rounded-full');
+    expect(screen.getByText('本地')).toHaveClass('font-semibold');
+    expect(screen.getByText('局域网')).toHaveClass('font-semibold');
+    expect(screen.getByText('穿透')).toHaveClass('font-semibold');
     expect(screen.getByText('http://192.168.1.20:17891')).toBeVisible();
     expect(screen.getByText('https://host.example.ts.net')).toBeVisible();
-    expect(
-      screen.queryByText('http://127.0.0.1:17891')
-    ).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: '显示全部地址' }));
     expect(screen.getByText('http://127.0.0.1:17891')).toBeVisible();
 
-    await user.click(
-      screen.getByRole('button', {
-        name: '复制地址 http://192.168.1.20:17891',
-      })
-    );
+    const copyOriginBtn = screen.getByRole('button', {
+      name: '复制地址 http://192.168.1.20:17891',
+    });
+    expect(copyOriginBtn).toHaveTextContent('http://192.168.1.20:17891');
+    await user.click(copyOriginBtn);
     expect(writeText).toHaveBeenCalledWith('http://192.168.1.20:17891');
+    const openOriginBtn = screen.getByRole('button', {
+      name: '打开 http://127.0.0.1:17891',
+    });
+    expect(openOriginBtn).toBeVisible();
+    expect(openOriginBtn).toHaveTextContent('');
   });
 
   it('sends the selected pairing lifetime and reports a successful device join', async () => {
@@ -222,7 +254,7 @@ describe('DevicePairingPanel', () => {
     await user.click(screen.getByRole('option', { name: '15 分钟' }));
 
     expect(createDevicePairing).toHaveBeenLastCalledWith({
-      preset: 'companion',
+      preset: 'workstation',
       ttl_seconds: 900,
     });
     expect(await screen.findByText('连接成功')).toBeVisible();
@@ -255,7 +287,7 @@ describe('DevicePairingPanel', () => {
     await user.click(screen.getByRole('option', { name: '7 天' }));
 
     expect(createDevicePairing).toHaveBeenLastCalledWith({
-      preset: 'companion',
+      preset: 'workstation',
       ttl_seconds: 604800,
     });
   });
@@ -282,7 +314,7 @@ describe('DevicePairingPanel', () => {
     expect(transport.createDevicePairing).not.toHaveBeenCalled();
   });
 
-  it('collapses the paired-device list from its default expanded state', async () => {
+  it('collapses the connected-device list from its default expanded state', async () => {
     const user = userEvent.setup();
     webServiceApiMock.listDevices.mockResolvedValue([
       {
@@ -302,7 +334,7 @@ describe('DevicePairingPanel', () => {
     );
 
     expect(await screen.findByText('Pixel 9')).toBeVisible();
-    const toggle = screen.getByRole('button', { name: /已配对设备/ });
+    const toggle = screen.getByRole('button', { name: /已连接列表/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
     await user.click(toggle);
@@ -313,14 +345,26 @@ describe('DevicePairingPanel', () => {
     expect(screen.getByText('Pixel 9')).toBeVisible();
   });
 
-  it('stretches the paired-device list across the client-access card', async () => {
+  it('renders connected devices in a single row with name, client kind, IP, and timestamp', async () => {
     webServiceApiMock.listDevices.mockResolvedValue([
       {
         device_id: 'dev-1',
         device_name: 'Pixel 9',
         scopes: ['conversation.read'],
-        created_at: '2026-08-18T12:00:00Z',
+        created_at: '2026-11-03T00:46:00Z',
+        last_connected_at: '2026-11-03T00:46:00Z',
+        ip_address: '192.168.1.35',
+        client_kind: 'mobile',
         preset: 'companion',
+      },
+      {
+        device_id: 'dev-2',
+        device_name: 'Chrome (Web)',
+        scopes: ['conversation.read'],
+        created_at: '2026-11-03T00:46:00Z',
+        ip_address: '127.0.0.1',
+        client_kind: 'web',
+        preset: 'workstation',
       },
     ]);
 
@@ -332,18 +376,18 @@ describe('DevicePairingPanel', () => {
     );
 
     expect(await screen.findByText('Pixel 9')).toBeVisible();
-    const deviceClassRow = screen
-      .getByText('设备类型')
-      .closest('.settings-row');
+    const toggle = screen.getByRole('button', { name: /已连接列表/ });
     const pairedList = screen
-      .getByRole('button', { name: /已配对设备/ })
-      .closest('.settings-pairing-devices');
+      .getByText('Pixel 9')
+      .closest('.settings-pairing-devices') as HTMLElement;
+    expect(pairedList).not.toContainElement(toggle);
 
-    expect(deviceClassRow).not.toBeNull();
-    expect(pairedList).not.toBeNull();
-    expect(pairedList).not.toBe(deviceClassRow);
-    expect(within(pairedList as HTMLElement).getByText('伴随端')).toHaveClass(
+    expect(within(pairedList).getByText('移动端')).toHaveClass(
       'settings-pairing-devices__preset'
     );
+    expect(within(pairedList).getByText('192.168.1.35')).toBeVisible();
+    expect(within(pairedList).getByText('Chrome (Web)')).toBeVisible();
+    expect(within(pairedList).getByText('Web端')).toBeVisible();
+    expect(within(pairedList).getByText('127.0.0.1')).toBeVisible();
   });
 });

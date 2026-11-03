@@ -306,9 +306,6 @@ async fn static_asset<R>(
     State(state): State<Arc<ServerState<R>>>,
     OriginalUri(uri): OriginalUri,
 ) -> Response {
-    let Some(root) = state.config.static_root.as_ref() else {
-        return host_listen_page(uri.path());
-    };
     let path = uri.path().trim_start_matches('/');
     if path == "api" || path.starts_with("api/") {
         return StatusCode::NOT_FOUND.into_response();
@@ -322,43 +319,58 @@ async fn static_asset<R>(
     {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let root = match tokio::fs::canonicalize(root).await {
-        Ok(root) => root,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
-    };
-    let requested = root.join(relative_path);
-    let selected = match tokio::fs::canonicalize(&requested).await {
-        Ok(path) if path.starts_with(&root) && path.is_file() => path,
-        _ => root.join("index.html"),
-    };
-    if !selected.starts_with(&root) || !selected.is_file() {
-        return StatusCode::NOT_FOUND.into_response();
+    if let Some(root) = state.config.static_root.as_ref() {
+        let root = match tokio::fs::canonicalize(root).await {
+            Ok(root) => root,
+            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        };
+        let requested = root.join(relative_path);
+        let selected = match tokio::fs::canonicalize(&requested).await {
+            Ok(path) if path.starts_with(&root) && path.is_file() => path,
+            _ => root.join("index.html"),
+        };
+        if !selected.starts_with(&root) || !selected.is_file() {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        let bytes = match tokio::fs::read(&selected).await {
+            Ok(bytes) => bytes,
+            Err(_) => return StatusCode::NOT_FOUND.into_response(),
+        };
+        let content_type = match selected
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+        {
+            "html" => "text/html; charset=utf-8",
+            "js" => "text/javascript; charset=utf-8",
+            "css" => "text/css; charset=utf-8",
+            "json" => "application/json",
+            "svg" => "image/svg+xml",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            "woff2" => "font/woff2",
+            _ => "application/octet-stream",
+        };
+        return (
+            [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+            Body::from(bytes),
+        )
+            .into_response();
     }
-    let bytes = match tokio::fs::read(&selected).await {
-        Ok(bytes) => bytes,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
-    };
-    let content_type = match selected
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-    {
-        "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" => "application/json",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "woff2" => "font/woff2",
-        _ => "application/octet-stream",
-    };
-    (
-        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
-        Body::from(bytes),
-    )
-        .into_response()
+    if let Some(resolver) = state.config.static_asset_resolver.as_ref() {
+        let Some(asset) = resolver(relative).or_else(|| resolver("index.html")) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let content_type = HeaderValue::from_str(&asset.mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+        return (
+            [(header::CONTENT_TYPE, content_type)],
+            Body::from(asset.bytes),
+        )
+            .into_response();
+    }
+    host_listen_page(uri.path())
 }
 
 static EXTRA_BROWSER_ORIGINS: OnceLock<RwLock<BTreeSet<String>>> = OnceLock::new();
@@ -671,6 +683,41 @@ async fn capabilities<R>(
     Json(capabilities).into_response()
 }
 
+fn extract_client_ip(headers: &HeaderMap, listen_addr: std::net::SocketAddr) -> Option<String> {
+    if let Some(forwarded) = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+    {
+        for candidate in forwarded.split(',') {
+            let trimmed = candidate.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
+            }
+        }
+    }
+    if let Some(real_ip) = headers
+        .get("x-real-ip")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(real_ip.to_owned());
+    }
+    if let Some(host_header) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    {
+        let (host, _) = split_host_header(host_header.trim(), listen_addr.port());
+        if is_loopback_host(&host) {
+            return Some("127.0.0.1".to_owned());
+        }
+    }
+    if listen_addr.ip().is_loopback() {
+        return Some("127.0.0.1".to_owned());
+    }
+    None
+}
+
 async fn require_token<R>(
     State(state): State<Arc<ServerState<R>>>,
     mut request: Request,
@@ -691,6 +738,13 @@ async fn require_token<R>(
     if let Some(candidate) = candidate {
         match state.auth.authenticate(&candidate).await {
             Ok(Some(credential)) => {
+                if let Some(device_id) = credential.device_id {
+                    let ip_address = extract_client_ip(request.headers(), state.config.listen_addr);
+                    let _ = state
+                        .auth
+                        .record_device_connection(device_id, None, ip_address.as_deref())
+                        .await;
+                }
                 request.extensions_mut().insert(credential);
                 return next.run(request).await;
             }
@@ -739,10 +793,34 @@ async fn create_pairing<R>(
 
 async fn redeem_pairing<R>(
     State(state): State<Arc<ServerState<R>>>,
+    headers: HeaderMap,
     Json(request): Json<RedeemPairingRequest>,
 ) -> Response {
+    let device_name = request.device_name.clone();
     match state.auth.redeem_pairing(request).await {
-        Ok(credential) => (StatusCode::CREATED, Json(credential)).into_response(),
+        Ok(credential) => {
+            let preset = crate::auth::infer_preset(&credential.scopes);
+            let user_agent = headers
+                .get(header::USER_AGENT)
+                .and_then(|value| value.to_str().ok());
+            let has_origin = headers.contains_key(header::ORIGIN);
+            let client_kind = crate::auth::infer_client_kind(
+                &device_name,
+                preset,
+                user_agent,
+                has_origin,
+            );
+            let ip_address = extract_client_ip(&headers, state.config.listen_addr);
+            let _ = state
+                .auth
+                .record_device_connection(
+                    credential.device_id,
+                    Some(&client_kind),
+                    ip_address.as_deref(),
+                )
+                .await;
+            (StatusCode::CREATED, Json(credential)).into_response()
+        }
         Err(error) => auth_error_response(error),
     }
 }

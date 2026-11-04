@@ -497,16 +497,23 @@ impl AgentConnectionManager {
         prompt_id: AgentPromptId,
     ) -> AgentResult<()> {
         let (result_tx, result_rx) = oneshot::channel();
-        self.send_command(
-            connection_id,
-            AgentConnectionCommand::Cancel {
-                session_id,
-                prompt_id,
-                result_tx,
-            },
-        )
-        .await?;
-        let acknowledged = result_rx.await.unwrap_or(false);
+        let acknowledged = match self
+            .send_command(
+                connection_id,
+                AgentConnectionCommand::Cancel {
+                    session_id,
+                    prompt_id,
+                    result_tx,
+                },
+            )
+            .await
+        {
+            Ok(()) => result_rx.await.unwrap_or(false),
+            Err(AgentError::ConnectionNotFound(id)) => {
+                return Err(AgentError::ConnectionNotFound(id));
+            }
+            Err(_) => false,
+        };
         if !acknowledged {
             let _ = self.disconnect(connection_id).await;
         }

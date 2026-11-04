@@ -455,7 +455,7 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
         definition
             .skills_directory
             .as_deref()
-            .is_some_and(|path| path.ends_with("/.local-reviewer/skills"))
+            .is_some_and(|path| path.replace('\\', "/").ends_with("/.local-reviewer/skills"))
     );
 }
 

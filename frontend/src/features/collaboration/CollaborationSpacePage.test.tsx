@@ -2569,11 +2569,15 @@ describe('CollaborationSpacePage', () => {
     const textKind = await within(collectionPanel).findByTestId(
       'collection-item-kind-col-text'
     );
+    const textOpenTab = within(collectionPanel).getByTestId(
+      'collection-item-open-tab-col-text'
+    );
     const textCopy = within(collectionPanel).getByTestId(
       'collection-item-copy-col-text'
     );
     expect(textKind).toHaveTextContent('文本');
-    expect(textKind.nextElementSibling).toBe(textCopy);
+    expect(textKind.nextElementSibling).toBe(textOpenTab);
+    expect(textOpenTab.nextElementSibling).toBe(textCopy);
     expect(textCopy).toHaveAttribute('aria-label', '复制');
     expect(textCopy.textContent).toBe('');
 

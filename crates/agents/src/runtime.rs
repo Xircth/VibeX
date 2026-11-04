@@ -5083,7 +5083,8 @@ mod tests {
         let working_dir = "C:/cancel-reuse";
         let session = test_session(&runtime, workspace_id, working_dir, "acp-a").await;
         let prompt = prompt_text(&runtime, &session, "task A").await;
-        let (holding_tx, _holding_rx) = mpsc::channel(4);
+        let (holding_tx, holding_rx) = mpsc::channel(4);
+        drop(holding_rx);
         let _keep_alive = runtime
             .connection_manager
             .replace_command_sender(session.connection_id, holding_tx)

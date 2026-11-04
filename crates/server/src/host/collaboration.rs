@@ -2560,7 +2560,7 @@ mod tests {
         assert_eq!(join_event.payload["workspaceId"], json!(workspace));
         assert_eq!(join_event.payload["spaceId"], json!(space_id));
         assert_eq!(join_event.payload["memberId"], added_a["member_id"]);
-        assert_eq!(join_event.payload["seq"], json!(2));
+        assert_eq!(join_event.payload["seq"], json!(3));
         assert_eq!(join_event.payload["kind"], json!("roster"));
         assert_eq!(join_event.payload["generation"], json!(1));
 
@@ -2688,7 +2688,7 @@ mod tests {
         assert_eq!(post_event.channel, COLLABORATION_SPACE_CHANGED_EVENT);
         assert_eq!(post_event.payload["workspaceId"], json!(workspace));
         assert_eq!(post_event.payload["spaceId"], json!(space_id));
-        assert_eq!(post_event.payload["seq"], json!(6));
+        assert_eq!(post_event.payload["seq"], json!(7));
         assert_eq!(post_event.payload["kind"], json!("turn"));
         assert_eq!(post_event.payload["generation"], json!(1));
         assert!(post_event.payload.get("content").is_none());

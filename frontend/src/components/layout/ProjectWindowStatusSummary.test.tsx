@@ -145,7 +145,8 @@ describe('ProjectWindowStatusSummary', () => {
               sessionId: 'session-long',
               workspaceId: 'ws-long',
               taskId: 'task-long',
-              title: '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示',
+              title:
+                '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示',
               statusLabel: 'Running',
               visualState: 'loading',
               subtitle: 'Claude · just now',
@@ -167,7 +168,9 @@ describe('ProjectWindowStatusSummary', () => {
     );
     expect(truncatedTitle).toBeInTheDocument();
     expect(
-      screen.queryByText('一二三四五六七八九十一二三四五六七八九十超出的部分不应显示')
+      screen.queryByText(
+        '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示'
+      )
     ).not.toBeInTheDocument();
     const popoverContainer = truncatedTitle.closest('.w-72');
     expect(popoverContainer).not.toBeNull();

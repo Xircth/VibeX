@@ -1995,8 +1995,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         INITIAL_SPACE_SESSION_STATE;
       sessionWorkspaceRef.current = workspace;
       selectedIdRef.current = restoredSession.selectedId;
-      directThreadRef.current =
-        restoredSession.activeDirect?.threadId ?? null;
+      directThreadRef.current = restoredSession.activeDirect?.threadId ?? null;
       sessionDispatch({
         type: 'apply',
         apply: () => restoredSession,
@@ -7163,7 +7162,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         ? unassignedMembers
         : loadedSpaceMembers && loadedSpaceMembers.length > 0
           ? loadedSpaceMembers
-          : (entry?.members.length ? entry.members : EMPTY_MEMBERS)
+          : entry?.members.length
+            ? entry.members
+            : EMPTY_MEMBERS
     );
     const groupActivityMembers = isUnassigned
       ? rawSpaceMembers

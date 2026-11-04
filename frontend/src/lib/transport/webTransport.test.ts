@@ -321,7 +321,10 @@ describe('WebTransport', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
       );
 
-      const unlisten = await transport.listen('browser-screenshot-request', () => {});
+      const unlisten = await transport.listen(
+        'browser-screenshot-request',
+        () => {}
+      );
       const socket = MockWebSocket.instances[0]!;
       socket.open();
       const subFrame = JSON.parse(socket.sent[0] ?? '{}');

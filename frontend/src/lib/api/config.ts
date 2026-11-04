@@ -532,6 +532,7 @@ export type SavedHostTunnel = {
   host: string;
   port: number;
   kind: string;
+  created_at?: string | null;
 };
 
 export type HostTunnelStatus = {
@@ -562,7 +563,7 @@ export const hostTunnelApi = {
       address,
     });
   },
-  selectSaved: async (id: string): Promise<HostTunnelStatus> => {
+  selectSaved: async (id: string | null): Promise<HostTunnelStatus> => {
     return desktopShellCall<HostTunnelStatus>('select_saved_host_tunnel', {
       id,
     });

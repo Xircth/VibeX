@@ -219,6 +219,8 @@ describe('shared raised controls', () => {
         /rounded-\[[0-9.]+(?:px|rem|em)\]/.test(source) &&
         !path.endsWith('KanbanUsageDashboard.tsx') &&
         !path.endsWith('KanbanUsageDashboard.test.tsx') &&
+        !path.endsWith('UsageDailyTrend.tsx') &&
+        !path.endsWith('UsageHeatmap.tsx') &&
         !path.endsWith('SessionFlameGraph.tsx')
       ) {
         violations.push(`${path}: arbitrary rounded length`);

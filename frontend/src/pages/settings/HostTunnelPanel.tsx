@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { ChevronDown, Copy, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import {
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  Loader2,
+  Plus,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { toast } from '@/components/ui/toast';
-import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   hostTunnelApi,
   type HostTunnelStatus,
@@ -21,8 +24,7 @@ import {
 } from '@/lib/api';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
-
-type TunnelMode = 'existing' | 'create';
+import '@/features/collaboration/collaboration.css';
 
 const EMPTY_STATUS: HostTunnelStatus = {
   enabled: false,
@@ -31,6 +33,14 @@ const EMPTY_STATUS: HostTunnelStatus = {
   pending: null,
   relay_state: 'idle',
   last_error: null,
+};
+
+type TunnelConnectivityResult = {
+  connected: boolean;
+  latencyMs: number;
+  message: string;
+  origin?: string;
+  http?: boolean;
 };
 
 function tunnelErrorMessage(
@@ -56,6 +66,94 @@ function tunnelErrorMessage(
   return raw || t('webService.tunnelCheckFailed');
 }
 
+function TunnelConnectivityStatus({
+  result,
+  t,
+}: {
+  result: TunnelConnectivityResult;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  return (
+    <div
+      role="status"
+      data-testid="tunnel-connectivity-status"
+      data-connected={result.connected ? 'true' : 'false'}
+      className={cn(
+        'flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs',
+        result.connected
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          : 'border-destructive/30 bg-destructive/10 text-destructive'
+      )}
+    >
+      <span className="inline-flex min-w-0 items-center gap-1.5 font-medium">
+        {result.connected ? (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        ) : (
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        )}
+        <span className="truncate">{result.message}</span>
+      </span>
+      <span className="shrink-0 font-mono text-[11px] opacity-90">
+        {t('webService.tunnelLatencyMs', { ms: result.latencyMs })}
+      </span>
+    </div>
+  );
+}
+
+function formatTunnelCreatedAt(
+  isoOrTimestamp: string | null | undefined
+): string {
+  if (!isoOrTimestamp) return '—';
+  const date = new Date(isoOrTimestamp);
+  if (Number.isNaN(date.getTime())) return isoOrTimestamp;
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}/${month}/${day} ${hours}:${minutes}`;
+}
+
+function TunnelUsageBadge({
+  active,
+  polling,
+  t,
+}: {
+  active: boolean;
+  polling: boolean;
+  t: (key: string) => string;
+}) {
+  return (
+    <span
+      data-testid="tunnel-usage-badge"
+      data-state={active ? 'in-use' : 'unused'}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium',
+        active
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          : 'border-border/70 bg-muted/60 text-muted-foreground'
+      )}
+    >
+      <span
+        className={cn(
+          'h-1.5 w-1.5 shrink-0 rounded-full',
+          active
+            ? 'bg-emerald-500 dark:bg-emerald-400'
+            : 'bg-muted-foreground/50'
+        )}
+        aria-hidden="true"
+      />
+      <span>
+        {active
+          ? polling
+            ? t('webService.tunnelPolling')
+            : t('webService.tunnelInUse')
+          : t('webService.tunnelNotInUse')}
+      </span>
+    </span>
+  );
+}
+
 export function HostTunnelPanel({
   serviceRunning,
   onReachabilityChange,
@@ -64,32 +162,78 @@ export function HostTunnelPanel({
   onReachabilityChange: () => void;
 }) {
   const { t } = useTranslation(['settings', 'common']);
+  const portalContainer = usePortalContainer();
   const [status, setStatus] = useState<HostTunnelStatus>(EMPTY_STATUS);
-  const [mode, setMode] = useState<TunnelMode>('existing');
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [polling, setPolling] = useState(false);
-  const [listExpanded, setListExpanded] = useState(false);
+  const [listExpanded, setListExpanded] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [setupCommand, setSetupCommand] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalLeft, setModalLeft] = useState('12.5rem');
+  const [testResult, setTestResult] = useState<TunnelConnectivityResult | null>(
+    null
+  );
+  const [preTestSavedIds, setPreTestSavedIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [createdTunnelIds, setCreatedTunnelIds] = useState<string[]>([]);
   const savedListId = useId();
 
   const applyStatus = useCallback((next: HostTunnelStatus) => {
     setStatus(next);
-    if (next.pending) {
-      setMode('create');
+    if (next.pending?.command) {
       setSetupCommand(next.pending.command);
     }
     if (!next.enabled) setSetupCommand(null);
   }, []);
 
   const refresh = useCallback(async () => {
-    applyStatus(await hostTunnelApi.get());
+    const next = await hostTunnelApi.get();
+    applyStatus(next);
+    return next;
   }, [applyStatus]);
 
   useEffect(() => {
     void refresh().catch(() => undefined);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const settingsShell = document.querySelector('.settings-page');
+    settingsShell?.classList.add('collaboration-settings-window-blurred');
+
+    const syncOverlayLeft = () => {
+      const settingsContent = document.querySelector<HTMLElement>(
+        '[data-settings-content]'
+      );
+      const settingsSidebar =
+        document.querySelector<HTMLElement>('.settings-sidebar');
+      const contentLeft = settingsContent?.getBoundingClientRect().left ?? 0;
+      const sidebarRight = settingsSidebar?.getBoundingClientRect().right ?? 0;
+      const measuredLeft = contentLeft > 0 ? contentLeft : sidebarRight;
+      if (measuredLeft > 0) {
+        setModalLeft(`${Math.round(measuredLeft)}px`);
+        return;
+      }
+      setModalLeft(
+        settingsSidebar?.classList.contains('settings-sidebar--flush')
+          ? '11rem'
+          : '12.5rem'
+      );
+    };
+
+    syncOverlayLeft();
+    window.addEventListener('resize', syncOverlayLeft);
+    return () => {
+      window.removeEventListener('resize', syncOverlayLeft);
+      settingsShell?.classList.remove('collaboration-settings-window-blurred');
+    };
+  }, [modalOpen]);
 
   useEffect(() => {
     if (!polling) return;
@@ -128,41 +272,32 @@ export function HostTunnelPanel({
     }
   };
 
-  const checkExisting = async () => {
-    if (!requireRunning()) return;
-    const value = address.trim();
-    if (!value && !status.active_id) {
-      toast.error(t('webService.tunnelAddressRequired'));
-      return;
-    }
-    setBusy(true);
-    try {
-      if (value) {
-        const result = await hostTunnelApi.checkExisting(value);
-        toast.success(
-          result.http
-            ? t('webService.tunnelSavedHttp')
-            : t('webService.tunnelSaved')
-        );
-        await refresh();
-      }
-      onReachabilityChange();
-    } catch (error) {
-      toast.error(tunnelErrorMessage(error, t));
-    } finally {
-      setBusy(false);
-    }
+  const openCreateModal = () => {
+    setAddress('');
+    setSetupCommand(status.pending?.command ?? null);
+    setTestResult(null);
+    setPreTestSavedIds(new Set(status.saved.map((item) => item.id)));
+    setCreatedTunnelIds([]);
+    setModalOpen(true);
   };
 
-  const selectSaved = async (id: string) => {
-    setBusy(true);
+  const closeCreateModal = async () => {
+    setModalOpen(false);
+    setPolling(false);
+    setTestResult(null);
+    setSetupCommand(null);
     try {
-      applyStatus(await hostTunnelApi.selectSaved(id));
-      onReachabilityChange();
-    } catch (error) {
-      toast.error(getErrorMessage(error) || t('webService.tunnelSaveFailed'));
-    } finally {
-      setBusy(false);
+      if (status.pending) {
+        await hostTunnelApi.cancelCreate();
+      }
+      for (const id of createdTunnelIds) {
+        if (!preTestSavedIds.has(id)) {
+          await hostTunnelApi.removeSaved(id);
+        }
+      }
+      await refresh();
+    } catch {
+      // Ignore cleanup errors on cancel
     }
   };
 
@@ -173,37 +308,110 @@ export function HostTunnelPanel({
       toast.error(t('webService.tunnelAddressRequired'));
       return;
     }
+    setGenerating(true);
     setBusy(true);
+    setTestResult(null);
     try {
       const next = await hostTunnelApi.startCreate(value);
       applyStatus(next);
-      setMode('create');
       if (next.pending?.command) setSetupCommand(next.pending.command);
     } catch (error) {
       toast.error(
         tunnelErrorMessage(error, t) || t('webService.tunnelSaveFailed')
       );
     } finally {
+      setGenerating(false);
       setBusy(false);
     }
   };
 
-  const confirmCreate = async () => {
+  const testConnectivity = async () => {
     if (!requireRunning()) return;
+    const value = address.trim();
+    if (!value && !status.pending && !setupCommand && !status.active_id) {
+      toast.error(t('webService.tunnelAddressRequired'));
+      return;
+    }
+    setTesting(true);
     setBusy(true);
+    const startedAt = performance.now();
     try {
-      const next = await hostTunnelApi.confirmCreate();
-      applyStatus(next);
-      setPolling(true);
-      if (!next.pending && next.active_id) {
-        setPolling(false);
-        setSetupCommand(null);
-        onReachabilityChange();
-        toast.success(t('webService.tunnelConnected'));
+      const beforeIds = new Set(status.saved.map((item) => item.id));
+      let connectedHttp = false;
+      if (value) {
+        try {
+          const result = await hostTunnelApi.checkExisting(value);
+          connectedHttp = result.http;
+        } catch (checkError) {
+          if (status.pending || setupCommand) {
+            const confirmedStatus = await hostTunnelApi.confirmCreate();
+            applyStatus(confirmedStatus);
+            if (confirmedStatus.pending && !confirmedStatus.active_id) {
+              throw new Error(t('webService.tunnelRelayWait'));
+            }
+          } else {
+            throw checkError;
+          }
+        }
+      } else {
+        const confirmedStatus = await hostTunnelApi.confirmCreate();
+        applyStatus(confirmedStatus);
+        if (confirmedStatus.pending && !confirmedStatus.active_id) {
+          throw new Error(t('webService.tunnelRelayWait'));
+        }
       }
+
+      const latest = await refresh();
+      const addedIds = latest.saved
+        .filter((item) => !beforeIds.has(item.id))
+        .map((item) => item.id);
+      if (addedIds.length > 0) {
+        setCreatedTunnelIds((prev) => [...new Set([...prev, ...addedIds])]);
+      }
+
+      const latencyMs = Math.max(1, Math.round(performance.now() - startedAt));
+      setTestResult({
+        connected: true,
+        latencyMs,
+        message: t('webService.tunnelTestConnected'),
+        http: connectedHttp,
+      });
     } catch (error) {
-      toast.error(tunnelErrorMessage(error, t));
+      const latencyMs = Math.max(1, Math.round(performance.now() - startedAt));
+      const msg = tunnelErrorMessage(error, t);
+      setTestResult({
+        connected: false,
+        latencyMs,
+        message: `${t('webService.tunnelTestFailed')} · ${msg}`,
+      });
+      toast.error(msg);
     } finally {
+      setTesting(false);
+      setBusy(false);
+    }
+  };
+
+  const handleSaveModal = async () => {
+    if (!testResult?.connected) return;
+    setModalOpen(false);
+    setCreatedTunnelIds([]);
+    setTestResult(null);
+    setSetupCommand(null);
+    await refresh().catch(() => undefined);
+    onReachabilityChange();
+    toast.success(t('webService.tunnelSaved'));
+  };
+
+  const toggleSavedTunnel = async (item: SavedHostTunnel, active: boolean) => {
+    setBusy(true);
+    setTogglingId(item.id);
+    try {
+      applyStatus(await hostTunnelApi.selectSaved(active ? null : item.id));
+      onReachabilityChange();
+    } catch (error) {
+      toast.error(getErrorMessage(error) || t('webService.tunnelSaveFailed'));
+    } finally {
+      setTogglingId(null);
       setBusy(false);
     }
   };
@@ -235,10 +443,7 @@ export function HostTunnelPanel({
     }
   };
 
-  const kindLabel = (kind: string) =>
-    kind === 'relay'
-      ? t('webService.tunnelModeCreate')
-      : t('webService.tunnelModeExisting');
+  const activeCommand = status.pending?.command ?? setupCommand ?? '';
 
   return (
     <>
@@ -261,158 +466,11 @@ export function HostTunnelPanel({
       </div>
 
       {status.enabled ? (
-        <>
-          <div className="settings-row">
-            <div>
-              <Label htmlFor="host-tunnel-mode">
-                {t('webService.tunnelMode')}
-              </Label>
-            </div>
-            <Select
-              value={mode}
-              onValueChange={(value: TunnelMode) => setMode(value)}
-              disabled={busy}
-            >
-              <SelectTrigger id="host-tunnel-mode" className="!w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="existing">
-                  {t('webService.tunnelModeExisting')}
-                </SelectItem>
-                <SelectItem value="create">
-                  {t('webService.tunnelModeCreate')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {mode === 'existing' ? (
-            <div className="settings-row settings-row--stacked">
-              <Label htmlFor="host-tunnel-address">
-                {t('webService.tunnelAddress')}
-              </Label>
-              <div className="settings-row__stack">
-                <div className="flex gap-2">
-                  <TextInput
-                    label={t('webService.tunnelAddress')}
-                    isLabelHidden
-                    value={address}
-                    placeholder="gate.example.com"
-                    isDisabled={busy}
-                    onChange={setAddress}
-                    width="100%"
-                    className="[&_input]:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-8 shrink-0 text-xs"
-                    disabled={busy}
-                    onClick={() => void checkExisting()}
-                  >
-                    {busy ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {t('webService.tunnelCheck')}
-                  </Button>
-                </div>
-                <p className="settings-row__description">
-                  {t('webService.tunnelAddressHint')}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="settings-row settings-row--stacked">
-              <Label htmlFor="host-tunnel-create-address">
-                {t('webService.tunnelCreateAddress')}
-              </Label>
-              <div className="settings-row__stack">
-                <div className="flex gap-2">
-                  <TextInput
-                    label={t('webService.tunnelCreateAddress')}
-                    isLabelHidden
-                    value={address}
-                    placeholder="203.0.113.10"
-                    isDisabled={busy}
-                    onChange={setAddress}
-                    width="100%"
-                    className="[&_input]:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-8 shrink-0 text-xs"
-                    disabled={busy}
-                    onClick={() => void startCreate()}
-                  >
-                    {t('webService.tunnelGenerateCommand')}
-                  </Button>
-                </div>
-                <p className="settings-row__description">
-                  {t('webService.tunnelCreateHint')}
-                </p>
-              </div>
-              {setupCommand || status.pending ? (
-                <>
-                  <div className="flex min-w-0 gap-2">
-                    <TextInput
-                      ref={(input) => {
-                        if (input) input.readOnly = true;
-                      }}
-                      label={t('webService.tunnelCommand')}
-                      isLabelHidden
-                      value={status.pending?.command ?? setupCommand ?? ''}
-                      onChange={() => undefined}
-                      onFocus={(event) => {
-                        const target = event.currentTarget;
-                        if (target instanceof HTMLInputElement) {
-                          target.select();
-                        }
-                      }}
-                      width="100%"
-                      className="settings-command-line [&_input]:font-mono [&_input]:text-xs"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 shrink-0 p-0"
-                      onClick={() =>
-                        void copyCommand(
-                          status.pending?.command ?? setupCommand ?? ''
-                        )
-                      }
-                      aria-label={t('webService.copyOrigin')}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 text-xs"
-                      disabled={busy}
-                      onClick={() => void confirmCreate()}
-                    >
-                      {busy || polling ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : null}
-                      {polling
-                        ? t('webService.tunnelPolling')
-                        : t('webService.tunnelConfirm')}
-                    </Button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          )}
-
-          <div className="settings-pairing-devices">
+        <div className="settings-pairing-block flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              className="settings-pairing-devices__toggle"
+              className="settings-pairing-devices__toggle flex-1"
               aria-expanded={listExpanded}
               aria-controls={savedListId}
               onClick={() => setListExpanded((current) => !current)}
@@ -429,7 +487,21 @@ export function HostTunnelPanel({
                 aria-hidden="true"
               />
             </button>
-            {listExpanded ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 px-2.5 text-xs"
+              disabled={busy}
+              onClick={openCreateModal}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              {t('webService.tunnelModeCreate')}
+            </Button>
+          </div>
+
+          {listExpanded ? (
+            <div className="settings-pairing-devices">
               <div id={savedListId} className="settings-pairing-devices__list">
                 {status.saved.length === 0 ? (
                   <p className="settings-pairing-devices__empty">
@@ -438,62 +510,221 @@ export function HostTunnelPanel({
                 ) : (
                   status.saved.map((item) => {
                     const active = item.id === status.active_id;
+                    const isRelayPolling =
+                      active &&
+                      item.kind === 'relay' &&
+                      status.relay_state !== 'connected';
                     return (
                       <div
-                        className="settings-pairing-devices__row"
+                        className="settings-pairing-devices__row flex items-center justify-between gap-3"
                         key={item.id}
                       >
-                        <button
-                          type="button"
-                          className="settings-pairing-devices__choose"
-                          disabled={busy || active}
-                          onClick={() => void selectSaved(item.id)}
-                        >
-                          <p className="truncate text-sm font-medium">
-                            {item.origin}
-                          </p>
-                          <p className="settings-row__description">
-                            <span className="settings-pairing-devices__preset">
-                              {kindLabel(item.kind)}
+                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_8.5rem] items-center gap-3 text-sm">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="truncate font-medium"
+                              title={item.origin}
+                            >
+                              {item.origin}
                             </span>
-                            {' · '}
+                            <TunnelUsageBadge
+                              active={active}
+                              polling={isRelayPolling}
+                              t={t}
+                            />
+                          </div>
+                          <span
+                            className="truncate font-mono text-xs text-muted-foreground"
+                            title={`${item.host}:${item.port}`}
+                          >
                             {item.host}:{item.port}
+                          </span>
+                          <span className="truncate text-xs tabular-nums text-muted-foreground">
+                            {formatTunnelCreatedAt(item.created_at)}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 shrink-0"
+                            disabled={busy || togglingId === item.id}
+                            onClick={() => void toggleSavedTunnel(item, active)}
+                          >
+                            {togglingId === item.id ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : null}
                             {active
-                              ? ` · ${
-                                  item.kind === 'relay' &&
-                                  status.relay_state !== 'connected'
-                                    ? t('webService.tunnelPolling')
-                                    : t('webService.tunnelInUse')
-                                }`
-                              : null}
-                          </p>
-                        </button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0"
-                          onClick={() => void removeSaved(item)}
-                          disabled={removingId === item.id}
-                        >
-                          {removingId === item.id ? (
-                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                          ) : null}
-                          {t('webService.tunnelRemove')}
-                        </Button>
+                              ? t('webService.tunnelDisable')
+                              : t('webService.tunnelEnable')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="h-8 shrink-0 !border-destructive/30 !bg-destructive/10 !text-destructive hover:!bg-destructive/15"
+                            onClick={() => void removeSaved(item)}
+                            disabled={removingId === item.id}
+                          >
+                            {removingId === item.id ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            {t('webService.tunnelRemove')}
+                          </Button>
+                        </div>
                       </div>
                     );
                   })
                 )}
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {polling && status.last_error ? (
             <p className="settings-row__description">{status.last_error}</p>
           ) : null}
-        </>
+        </div>
       ) : null}
+
+      {modalOpen
+        ? createPortal(
+            <div
+              data-testid="host-tunnel-modal-overlay"
+              className="collaboration-thread-overlay collaboration-settings-modal-overlay fixed inset-y-0 right-0 z-[9999] flex items-center justify-center p-6"
+              style={{
+                left: modalLeft,
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              }}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  void closeCreateModal();
+                }
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('webService.tunnelModeCreate')}
+                className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[480px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-[14px] font-semibold text-foreground">
+                    {t('webService.tunnelModeCreate')}
+                  </h3>
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon"
+                    className="collaboration-expand h-7 w-7"
+                    aria-label={t('common:close', '关闭')}
+                    onClick={() => void closeCreateModal()}
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="host-tunnel-modal-address">
+                      {t('webService.tunnelAddress')}
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="host-tunnel-modal-address"
+                        value={address}
+                        placeholder="203.0.113.10"
+                        disabled={busy}
+                        onChange={(event) => {
+                          setAddress(event.target.value);
+                          setTestResult(null);
+                        }}
+                        className="flex-1 text-sm"
+                        autoFocus
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 text-xs"
+                        disabled={busy}
+                        onClick={() => void startCreate()}
+                      >
+                        {generating ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {t('webService.tunnelGenerateCommand')}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 shrink-0 text-xs"
+                        disabled={busy}
+                        onClick={() => void testConnectivity()}
+                      >
+                        {testing ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {t('webService.tunnelTestConnectivity')}
+                      </Button>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {t('webService.tunnelAddressHint')}
+                    </p>
+                  </div>
+
+                  {activeCommand ? (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Input
+                        readOnly
+                        aria-label={t('webService.tunnelCommand')}
+                        value={activeCommand}
+                        onFocus={(event) => event.currentTarget.select()}
+                        className="settings-command-line flex-1 font-mono text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 shrink-0 p-0"
+                        onClick={() => void copyCommand(activeCommand)}
+                        aria-label={t('webService.copyOrigin')}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {testResult ? (
+                    <TunnelConnectivityStatus result={testResult} t={t} />
+                  ) : null}
+
+                  <div className="mt-1 flex items-center justify-end gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 text-xs"
+                      onClick={() => void closeCreateModal()}
+                    >
+                      {t('common:cancel', '取消')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 px-3 text-xs"
+                      disabled={!testResult?.connected || busy}
+                      onClick={() => void handleSaveModal()}
+                    >
+                      {t('common:save', '保存')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            portalContainer ?? document.body
+          )
+        : null}
     </>
   );
 }

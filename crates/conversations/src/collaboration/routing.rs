@@ -95,7 +95,11 @@ fn trailing_pass_token_len(s: &str) -> Option<usize> {
         let before_token = &trimmed_end[..trimmed_end.len() - 6];
         let trimmed_before = before_token.trim_end();
         let ws_before = before_token.len() - trimmed_before.len();
-        let open_ticks = trimmed_before.bytes().rev().take_while(|&b| b == b'`').count();
+        let open_ticks = trimmed_before
+            .bytes()
+            .rev()
+            .take_while(|&b| b == b'`')
+            .count();
         if open_ticks == close_ticks {
             return Some(open_ticks + ws_before + 6 + ws_after + close_ticks);
         }

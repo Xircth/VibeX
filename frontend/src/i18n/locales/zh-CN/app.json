@@ -139,7 +139,7 @@
   "webConnect": {
     "formLabel": "连接到 VibeX",
     "title": "连接 VibeX Host",
-    "description": "输入「设置 → 远程连接 → 外部访问」生成的 8 位连接码。",
+    "description": "输入连接码",
     "hostLabel": "主机地址",
     "tokenLabel": "连接码",
     "tokenPlaceholder": "8 位连接码",

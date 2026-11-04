@@ -56,6 +56,8 @@ struct SavedTunnel {
     kind: String,
     #[serde(default)]
     token: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +76,7 @@ pub struct SavedTunnelView {
     pub host: String,
     pub port: u16,
     pub kind: String,
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +177,7 @@ fn view_saved(item: &SavedTunnel) -> SavedTunnelView {
         host: item.host.clone(),
         port: item.port,
         kind: item.kind.clone(),
+        created_at: item.created_at.clone(),
     }
 }
 
@@ -395,6 +399,7 @@ async fn promote_pending_if_connected(host: &str, port: u16, token: &str) {
     if pending.host != host || pending.port != port || pending.token != token {
         return;
     }
+    let created_at = pending.created_at.clone();
     let origin = format_origin(
         "http",
         &TunnelEndpoint {
@@ -412,6 +417,7 @@ async fn promote_pending_if_connected(host: &str, port: u16, token: &str) {
         port,
         kind: "relay".to_string(),
         token: Some(token.to_string()),
+        created_at: Some(created_at),
     });
     store.active_id = Some(id);
     store.enabled = true;
@@ -578,6 +584,11 @@ async fn persist_checked_origin(
     if let Some(token) = token.as_deref() {
         remember_relay(&mut store, &endpoint.host, endpoint.port, token);
     }
+    let existing_created_at = store
+        .saved
+        .iter()
+        .find(|item| item.origin == origin)
+        .and_then(|item| item.created_at.clone());
     let kind = if token.is_some() { "relay" } else { "existing" };
     upsert_saved(
         &mut store,
@@ -588,6 +599,7 @@ async fn persist_checked_origin(
             port: endpoint.port,
             kind: kind.to_string(),
             token,
+            created_at: Some(existing_created_at.unwrap_or_else(|| Utc::now().to_rfc3339())),
         },
     );
     store.enabled = true;
@@ -692,13 +704,20 @@ pub async fn check_existing_host_tunnel(
 }
 
 #[tauri::command]
-pub async fn select_saved_host_tunnel(id: String) -> Result<HostTunnelStatus, AppError> {
+pub async fn select_saved_host_tunnel(id: Option<String>) -> Result<HostTunnelStatus, AppError> {
     let mut store = load_store().await?;
-    if !store.saved.iter().any(|item| item.id == id) {
-        return Err(AppError::BadRequest("Unknown tunnel".to_string()));
+    let target_id = id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(ref target) = target_id {
+        if !store.saved.iter().any(|item| &item.id == target) {
+            return Err(AppError::BadRequest("Unknown tunnel".to_string()));
+        }
+        store.active_id = Some(target.clone());
+        store.enabled = true;
+    } else {
+        store.active_id = None;
     }
-    store.active_id = Some(id);
-    store.enabled = true;
     store.pending = None;
     save_store(&store).await?;
     sync_relay().await;
@@ -835,6 +854,7 @@ mod tests {
                 port: 13630,
                 kind: "relay".to_string(),
                 token: Some("vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+                created_at: None,
             }],
             pending: None,
             relays: Vec::new(),
@@ -891,6 +911,7 @@ mod tests {
                 port: 17891,
                 kind: "relay".to_string(),
                 token: Some("vbx_tun_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+                created_at: None,
             }],
             pending: None,
             relays: Vec::new(),

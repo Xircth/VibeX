@@ -151,7 +151,8 @@ vi.mock('@monaco-editor/react', () => {
 });
 
 vi.mock('@/hooks/useFileContent', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/useFileContent')>();
+  const actual =
+    await importOriginal<typeof import('@/hooks/useFileContent')>();
   return {
     ...actual,
     useFileContent: () => fileContent,
@@ -650,7 +651,9 @@ describe('DockviewPreviewPanel', () => {
     render(<DockviewPreviewPanel {...props} />);
 
     const sourceInput = await screen.findByLabelText('File source');
-    fireEvent.change(sourceInput, { target: { value: 'const version = 999;' } });
+    fireEvent.change(sourceInput, {
+      target: { value: 'const version = 999;' },
+    });
     expect(sourceInput).toHaveValue('const version = 999;');
 
     fileContent.data = 'const version = 2;';

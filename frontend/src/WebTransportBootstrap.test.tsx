@@ -142,4 +142,21 @@ describe('WebTransportBootstrap', () => {
       await screen.findByRole('textbox', { name: /Host|主机地址/ })
     ).toHaveValue('');
   });
+
+  it('renders concise description, single field labels without duplicate required badges, and standard inputs', () => {
+    const { container } = render(
+      <WebTransportBootstrap>
+        <ConnectedApp />
+      </WebTransportBootstrap>
+    );
+
+    expect(
+      screen.getByText(/^(Enter connection code|输入连接码)$/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Required/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^(Host|主机地址)$/)).toHaveLength(1);
+    expect(screen.getAllByText(/^(Connection code|连接码)$/)).toHaveLength(1);
+    expect(container.querySelector('.astryx-text-input')).toBeNull();
+    expect(container.querySelector('.web-connect')).not.toBeNull();
+  });
 });

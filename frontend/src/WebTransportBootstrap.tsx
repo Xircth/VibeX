@@ -9,8 +9,8 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Logo } from '@/components/Logo';
-import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { BackendTransportProvider, WebTransport } from '@/lib/transport';
 import {
   defaultHostUrl,
@@ -124,7 +124,8 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
           access_token?: string;
           device_token?: string;
         };
-        const issuedToken = credential?.access_token ?? credential?.device_token;
+        const issuedToken =
+          credential?.access_token ?? credential?.device_token;
         if (!issuedToken) {
           throw new Error(t('webConnect.authFailed'));
         }
@@ -186,15 +187,12 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
           </div>
           <label className="web-connect__field">
             <span>{t('webConnect.hostLabel')}</span>
-            <TextInput
-              label={t('webConnect.hostLabel')}
-              isLabelHidden
+            <Input
               value={baseUrl}
-              onChange={setBaseUrl}
-              isRequired
+              onChange={(event) => setBaseUrl(event.target.value)}
+              required
               placeholder="http://127.0.0.1:17891"
-              width="100%"
-              className="[&_input]:font-mono [&_input]:text-sm"
+              className="font-mono text-sm"
             />
             {hostDiffers ? (
               <span className="web-connect__hint">
@@ -205,17 +203,14 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
           <label className="web-connect__field">
             <span>{t('webConnect.tokenLabel')}</span>
             <span className="web-connect__token">
-              <TextInput
-                label={t('webConnect.tokenLabel')}
-                isLabelHidden
+              <Input
                 type={tokenRevealed ? 'text' : 'password'}
                 value={token}
-                onChange={setToken}
+                onChange={(event) => setToken(event.target.value)}
                 placeholder={t('webConnect.tokenPlaceholder')}
-                isRequired
-                hasAutoFocus
-                width="100%"
-                className="[&_input]:font-mono [&_input]:text-sm"
+                required
+                autoFocus
+                className="flex-1 font-mono text-sm"
               />
               <Button
                 type="button"

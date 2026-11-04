@@ -408,13 +408,11 @@ async fn bind_web_service_listeners(
             let local_addr = listener.local_addr().map_err(|error| {
                 AppError::Internal(format!("Failed to read web service address: {error}"))
             })?;
-            return Ok((vec![listener], local_addr));
+            Ok((vec![listener], local_addr))
         }
-        Err(error) if !allow_lan => {
-            return Err(AppError::Conflict(format!(
-                "Failed to bind web service on {bind_ip}:{port}: {error}"
-            )));
-        }
+        Err(error) if !allow_lan => Err(AppError::Conflict(format!(
+            "Failed to bind web service on {bind_ip}:{port}: {error}"
+        ))),
         Err(wildcard_error) => {
             let loopback_listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
                 .await

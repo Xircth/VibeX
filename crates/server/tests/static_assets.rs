@@ -129,6 +129,7 @@ async fn production_assets_and_spa_routes_share_the_static_root() {
 #[tokio::test]
 async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
     use std::sync::Arc;
+
     use server::EmbeddedAsset;
 
     let pool = SqlitePoolOptions::new()
@@ -164,7 +165,11 @@ async fn embedded_asset_resolver_serves_assets_and_spa_fallback() {
     .router();
 
     for (path, expected_type, expected_body) in [
-        ("/", "text/html; charset=utf-8", "<main>Embedded VibeX</main>"),
+        (
+            "/",
+            "text/html; charset=utf-8",
+            "<main>Embedded VibeX</main>",
+        ),
         (
             "/assets/app.js",
             "text/javascript; charset=utf-8",

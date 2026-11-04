@@ -1802,8 +1802,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 const itemReads = item.read_receipts ?? item.reads ?? [];
                 const itemTextPreview =
                   item.text_content ??
-                  (item as SpaceCollectionItemRecord & { text_preview?: string })
-                    .text_preview ??
+                  (
+                    item as SpaceCollectionItemRecord & {
+                      text_preview?: string;
+                    }
+                  ).text_preview ??
                   itemName;
                 const kindLabel =
                   itemKind === 'image'

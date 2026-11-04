@@ -16,6 +16,7 @@ import {
 } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
+  ArrowLeft,
   Bot,
   BookOpenText,
   Clock,
@@ -37,6 +38,7 @@ import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AppTitleBar } from '@/components/settings/AppTitleBar';
 import { Button } from '@/components/ui/button';
+import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useTauriClient } from '@/lib/desktopShell';
 import { useSettingsNavFloat } from '@/lib/settingsNavFloat';
 import { preloadSettingsPath } from '@/lib/settingsPreload';
@@ -286,6 +288,7 @@ export function SettingsLayout() {
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
   const isTauri = useTauriClient();
+  const returnToMainPage = usePreviousPath();
   const settingsNavFloat = useSettingsNavFloat();
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
@@ -410,6 +413,20 @@ export function SettingsLayout() {
             settingsNavFloat ? 'm-3' : 'settings-sidebar--flush'
           )}
         >
+          {!isTauri ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="settings-nav-button mb-2 h-8 w-full shrink-0 justify-start text-sm"
+              onClick={returnToMainPage}
+            >
+              <span className="inline-flex items-center gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                {t('nav.backToMainPage')}
+              </span>
+            </Button>
+          ) : null}
           <SettingsSearch
             query={searchQuery}
             onQueryChange={setSearchQuery}

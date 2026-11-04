@@ -79,8 +79,10 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 kind: 'text',
                 name: 'api-spec.md',
                 relative_path: 'api-spec.md',
-                file_path: 'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
-                text_content: '### 接口规范说明\n\n- 统一使用 **camelCase** 命名字段',
+                file_path:
+                  'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
+                text_content:
+                  '### 接口规范说明\n\n- 统一使用 **camelCase** 命名字段',
                 note: 'API 约定',
                 created_at: '2026-10-30T09:00:00Z',
                 read_receipts: [],
@@ -120,7 +122,8 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 content: '## 部署步骤\n\n1. 先跑 **check** 再发布到 staging',
                 charCount: 64,
                 updatedAt: '2026-10-30T09:06:00Z',
-                filePath: 'C:/Users/test/.vibex/spaces/s1/topics/deploy-flow.md',
+                filePath:
+                  'C:/Users/test/.vibex/spaces/s1/topics/deploy-flow.md',
               },
             ],
             journal: [

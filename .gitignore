@@ -123,3 +123,9 @@ logs/
 
 # Local task execution history (private runtime data)
 .reasonix/
+
+# Locally cloned third-party skill repositories
+.agents/skills/auto-redbook/
+.agents/skills/geo-optimizer/
+.agents/skills/postiz/
+.agents/skills/video-shotcraft/

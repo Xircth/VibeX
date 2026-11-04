@@ -424,6 +424,60 @@ describe('SettingsLayout chrome', () => {
     expect(right).toContainElement(logo);
     expect(left).not.toContainElement(logo);
   });
+
+  it('shows a Back to main page button at the top of the left sidebar only in WebUI', async () => {
+    const user = userEvent.setup();
+    const webTransport: BackendTransport = {
+      environment: 'web',
+      call: vi.fn(),
+    };
+
+    const { unmount } = render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: /^(回到主页面|Back to main page)$/ })
+    ).not.toBeInTheDocument();
+    unmount();
+
+    window.localStorage.setItem(
+      'vibex.appUpdate.lastMainRoute',
+      '/local-projects'
+    );
+    render(
+      <BackendTransportProvider transport={webTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route
+              path="/local-projects"
+              element={<div>Main projects page</div>}
+            />
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const backButton = screen.getByRole('button', {
+      name: /^(回到主页面|Back to main page)$/,
+    });
+    const sidebar = backButton.closest('.settings-sidebar');
+    expect(sidebar?.firstElementChild).toBe(backButton);
+
+    await user.click(backButton);
+    expect(await screen.findByText('Main projects page')).toBeInTheDocument();
+  });
 });
 
 describe('SettingsLayout window title', () => {

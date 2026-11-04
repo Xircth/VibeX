@@ -804,12 +804,8 @@ async fn redeem_pairing<R>(
                 .get(header::USER_AGENT)
                 .and_then(|value| value.to_str().ok());
             let has_origin = headers.contains_key(header::ORIGIN);
-            let client_kind = crate::auth::infer_client_kind(
-                &device_name,
-                preset,
-                user_agent,
-                has_origin,
-            );
+            let client_kind =
+                crate::auth::infer_client_kind(&device_name, preset, user_agent, has_origin);
             let ip_address = extract_client_ip(&headers, state.config.listen_addr);
             let _ = state
                 .auth

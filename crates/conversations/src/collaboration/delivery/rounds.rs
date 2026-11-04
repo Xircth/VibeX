@@ -820,13 +820,14 @@ async fn round_slot_is_detachable(
     if !matches!(receipt_state, "queued" | "processing") {
         return Ok(false);
     }
-    let row: Option<(
+    type DeliverySlotRow = (
         String,
         Option<String>,
         Option<String>,
         String,
         Option<String>,
-    )> = sqlx::query_as(
+    );
+    let row: Option<DeliverySlotRow> = sqlx::query_as(
         r#"SELECT d.conversation_id, d.receipt_updated_at, t.created_at, d.space_message_id, d.input_id
            FROM collaboration_space_deliveries d
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
@@ -1088,8 +1089,9 @@ async fn open_space_turn_deliveries(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Vec<OpenSpaceTurnDelivery>, CollaborationError> {
-    let raw_rows = sqlx::query_as::<_, (String, String, i64, String, Option<String>, Option<String>)>(
-        r#"SELECT m.space_id, d.space_message_id, m.seq, m.created_at, d.turn_id, t.space_id
+    let raw_rows =
+        sqlx::query_as::<_, (String, String, i64, String, Option<String>, Option<String>)>(
+            r#"SELECT m.space_id, d.space_message_id, m.seq, m.created_at, d.turn_id, t.space_id
            FROM collaboration_space_deliveries d
            JOIN collaboration_space_messages m ON m.id = d.space_message_id
            LEFT JOIN collaboration_turns t ON t.id = d.turn_id
@@ -1111,11 +1113,11 @@ async fn open_space_turn_deliveries(
                )
              )
            ORDER BY m.seq ASC, m.created_at ASC"#,
-    )
-    .bind(conversation_id.to_string())
-    .fetch_all(pool)
-    .await
-    .map_err(db)?;
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(pool)
+        .await
+        .map_err(db)?;
 
     if raw_rows.is_empty() {
         return Ok(Vec::new());

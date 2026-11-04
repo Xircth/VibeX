@@ -139,7 +139,7 @@
   "webConnect": {
     "formLabel": "Connect to VibeX",
     "title": "Connect to VibeX Host",
-    "description": "Enter the 8-character connection code from Settings → Remote Access → External Access.",
+    "description": "Enter connection code",
     "hostLabel": "Host",
     "tokenLabel": "Connection code",
     "tokenPlaceholder": "8-character connection code",

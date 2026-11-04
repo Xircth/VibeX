@@ -404,11 +404,7 @@ export function DevicePairingPanel({
       description={t('webService.clientSectionDescription')}
       className={!serviceRunning ? 'settings-remote-gated' : undefined}
       action={
-        <Button
-          size="sm"
-          onClick={() => void createPairing()}
-          disabled={busy}
-        >
+        <Button size="sm" onClick={() => void createPairing()} disabled={busy}>
           {busy ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
           ) : (

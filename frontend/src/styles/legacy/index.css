@@ -1679,12 +1679,49 @@ html.dark {
 
 @layer components {
   .legacy-design.web-connect {
+    --web-connect-void: #f4f5f7;
+    position: relative;
     min-height: 100vh;
-    background: var(--surface-shell);
+    overflow: hidden;
+    background: var(--web-connect-void);
     color: var(--text-primary);
+    isolation: isolate;
+  }
+
+  .dark .legacy-design.web-connect,
+  .legacy-design.dark.web-connect {
+    --web-connect-void: #0e1319;
+  }
+
+  .legacy-design.web-connect::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0 auto 0 50%;
+    z-index: 0;
+    width: 100vw;
+    transform: translateX(-50%);
+    background: radial-gradient(
+      ellipse 70% 58% at 50% 52%,
+      rgb(63 108 196 / 0.58) 0%,
+      rgb(63 108 196 / 0.22) 38%,
+      transparent 70%
+    );
+  }
+
+  .dark .legacy-design.web-connect::before,
+  .legacy-design.dark.web-connect::before {
+    background: radial-gradient(
+      ellipse 70% 58% at 50% 52%,
+      rgb(63 108 196 / 0.78) 0%,
+      rgb(63 108 196 / 0.32) 38%,
+      transparent 70%
+    );
   }
 
   .legacy-design .web-connect__frame {
+    position: relative;
+    z-index: 1;
     display: flex;
     min-height: 100vh;
     align-items: center;
@@ -1701,6 +1738,7 @@ html.dark {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     background: var(--surface-card-strong);
+    box-shadow: var(--shadow-card);
   }
 
   .legacy-design .web-connect__brand {

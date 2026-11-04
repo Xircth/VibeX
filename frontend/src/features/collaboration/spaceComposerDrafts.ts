@@ -92,9 +92,8 @@ export class SpaceComposerDraftStore {
         for (const [key, value] of Object.entries(parsed.drafts)) {
           if (!key || !value || typeof value.text !== 'string') continue;
           const images = Array.isArray(value.images)
-            ? value.images.filter(
-                (img): img is SpaceComposerImageDraft =>
-                  Boolean(img && typeof img.id === 'string')
+            ? value.images.filter((img): img is SpaceComposerImageDraft =>
+                Boolean(img && typeof img.id === 'string')
               )
             : [];
           const snapshot = { text: value.text, images };
@@ -257,4 +256,3 @@ export const sharedSpaceComposerDraftStore = new SpaceComposerDraftStore(
 export function resetSharedSpaceComposerDrafts(): void {
   sharedSpaceComposerDraftStore.clear();
 }
-

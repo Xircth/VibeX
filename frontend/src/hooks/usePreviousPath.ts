@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { readLastMainWindowRoute } from '@/lib/appUpdate';
+import { isSettingsSurfacePath } from '@/lib/settingsPreload';
 
 const globalVisited: string[] = [];
 
@@ -22,7 +24,7 @@ export function usePreviousPath() {
     // Find last non-settings route in history
     const lastNonSettingsPath = [...globalVisited]
       .reverse()
-      .find((p) => !p.startsWith('/settings'));
-    navigate(lastNonSettingsPath || '/');
+      .find((p) => !isSettingsSurfacePath(p));
+    navigate(lastNonSettingsPath || readLastMainWindowRoute() || '/');
   }, [navigate]);
 }

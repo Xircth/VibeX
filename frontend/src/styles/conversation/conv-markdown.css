@@ -315,7 +315,7 @@
   width: 100%;
   padding: 6px 10px;
   border: 0;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--conv-text-primary);
   font-size: 12px;

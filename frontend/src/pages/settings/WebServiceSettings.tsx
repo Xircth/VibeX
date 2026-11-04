@@ -301,7 +301,9 @@ export function WebServiceSettings({
             >
               <div className="settings-row">
                 <div>
-                  <Label htmlFor={serviceRunning ? 'web-service-port' : undefined}>
+                  <Label
+                    htmlFor={serviceRunning ? 'web-service-port' : undefined}
+                  >
                     {t('webService.remoteServiceStatusLabel')}
                   </Label>
                 </div>

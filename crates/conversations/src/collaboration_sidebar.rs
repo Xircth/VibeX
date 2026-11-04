@@ -324,8 +324,9 @@ fn cross_chat_field_present(value: &Option<Value>) -> bool {
 }
 
 fn dm_row_is_visible(message: &DmMessage) -> bool {
-    let has_visible_text = !message.text.is_empty()
-        && !(message.origin != "user" && crate::collaboration::is_pass_token(&message.text));
+    let is_silent_pass =
+        message.origin != "user" && crate::collaboration::is_pass_token(&message.text);
+    let has_visible_text = !message.text.is_empty() && !is_silent_pass;
     has_visible_text
         || cross_chat_field_present(&message.cross_chat_sent_to)
         || cross_chat_field_present(&message.cross_chat_received_from)
@@ -836,8 +837,7 @@ async fn dm_streaming_draft(
     .fetch_optional(pool)
     .await
     .map_err(db_err)?;
-    let Some((turn_id, trigger_msg_id, origin_space_id, origin_seq, origin_created_at)) =
-        open_turn
+    let Some((turn_id, trigger_msg_id, origin_space_id, origin_seq, origin_created_at)) = open_turn
     else {
         return Ok(None);
     };

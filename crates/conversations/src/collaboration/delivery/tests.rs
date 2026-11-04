@@ -4792,4 +4792,3 @@ async fn cross_space_bot_message_recipient_reply_appears_in_recipient_space_and_
     assert_eq!(cross_receipts[0].state, "replied");
     assert_eq!(cross_receipts[0].outcome.as_deref(), Some("sent"));
 }
-

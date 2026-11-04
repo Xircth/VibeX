@@ -227,7 +227,12 @@ pub fn new_hidden_tokio_command(
         if is_windows_batch_script(&program) {
             let mut command = tokio::process::Command::new("cmd.exe");
             configure_tokio_command_no_window(&mut command);
-            command.arg("/d").arg("/c").arg(&program).args(args);
+            command
+                .arg("/d")
+                .arg("/c")
+                .arg("call")
+                .arg(&program)
+                .args(args);
             return command;
         }
         if let Some(resolved) = resolve_windows_program(&program) {
@@ -235,7 +240,12 @@ pub fn new_hidden_tokio_command(
             if is_windows_batch_script(&resolved) {
                 let mut command = tokio::process::Command::new("cmd.exe");
                 configure_tokio_command_no_window(&mut command);
-                command.arg("/d").arg("/c").arg(&resolved).args(args);
+                command
+                    .arg("/d")
+                    .arg("/c")
+                    .arg("call")
+                    .arg(&resolved)
+                    .args(args);
                 return command;
             }
             let mut command = tokio::process::Command::new(&resolved);
@@ -273,7 +283,12 @@ pub fn new_hidden_std_command(
         if is_windows_batch_script(&program) {
             let mut command = std::process::Command::new("cmd.exe");
             configure_std_command_no_window(&mut command);
-            command.arg("/d").arg("/c").arg(&program).args(args);
+            command
+                .arg("/d")
+                .arg("/c")
+                .arg("call")
+                .arg(&program)
+                .args(args);
             return command;
         }
         if let Some(resolved) = resolve_windows_program(&program) {
@@ -281,7 +296,12 @@ pub fn new_hidden_std_command(
             if is_windows_batch_script(&resolved) {
                 let mut command = std::process::Command::new("cmd.exe");
                 configure_std_command_no_window(&mut command);
-                command.arg("/d").arg("/c").arg(&resolved).args(args);
+                command
+                    .arg("/d")
+                    .arg("/c")
+                    .arg("call")
+                    .arg(&resolved)
+                    .args(args);
                 return command;
             }
             let mut command = std::process::Command::new(&resolved);
@@ -387,13 +407,113 @@ pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<
     Ok(())
 }
 
+#[cfg(windows)]
+fn windows_multibyte_to_utf8(code_page: u32, flags: u32, bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return Some(String::new());
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MultiByteToWideChar(
+            CodePage: u32,
+            dwFlags: u32,
+            lpMultiByteStr: *const u8,
+            cbMultiByte: i32,
+            lpWideCharStr: *mut u16,
+            cchWideChar: i32,
+        ) -> i32;
+    }
+    let Ok(input_len) = i32::try_from(bytes.len()) else {
+        return None;
+    };
+    // SAFETY: Calling Win32 MultiByteToWideChar with valid slice pointer and length to query buffer size.
+    let wide_len = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            flags,
+            bytes.as_ptr(),
+            input_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if wide_len <= 0 {
+        return None;
+    }
+    let mut wide = vec![0u16; wide_len as usize];
+    // SAFETY: `wide` is allocated with `wide_len` u16 elements as returned by MultiByteToWideChar.
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            flags,
+            bytes.as_ptr(),
+            input_len,
+            wide.as_mut_ptr(),
+            wide_len,
+        )
+    };
+    if written <= 0 {
+        return None;
+    }
+    wide.truncate(written as usize);
+    String::from_utf16(&wide).ok()
+}
+
+/// Decode subprocess stdout/stderr bytes, preferring valid UTF-8 and falling
+/// back on Windows to the active ANSI/OEM code page or CP936 (GBK) so localized
+/// `cmd.exe` diagnostics do not turn into replacement characters (`\u{FFFD}`).
+pub fn decode_process_output(bytes: &[u8]) -> String {
+    if let Ok(utf8) = std::str::from_utf8(bytes) {
+        return utf8.to_string();
+    }
+
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetACP() -> u32;
+            fn GetOEMCP() -> u32;
+        }
+        const MB_ERR_INVALID_CHARS: u32 = 0x0000_0008;
+        const CP_UTF8: u32 = 65001;
+        const CP_LATIN1: u32 = 1252;
+        const CP_GBK: u32 = 936;
+
+        // SAFETY: GetACP and GetOEMCP take no arguments and are thread-safe Win32 queries.
+        let acp = unsafe { GetACP() };
+        let oemcp = unsafe { GetOEMCP() };
+
+        let mut candidates = Vec::with_capacity(5);
+        for cp in [acp, oemcp] {
+            if cp != 0 && cp != CP_UTF8 && cp != CP_LATIN1 && !candidates.contains(&(cp, MB_ERR_INVALID_CHARS)) {
+                candidates.push((cp, MB_ERR_INVALID_CHARS));
+            }
+        }
+        if !candidates.contains(&(CP_GBK, MB_ERR_INVALID_CHARS)) {
+            candidates.push((CP_GBK, MB_ERR_INVALID_CHARS));
+        }
+        candidates.push((0, MB_ERR_INVALID_CHARS));
+        candidates.push((0, 0));
+
+        for (code_page, flags) in candidates {
+            if let Some(decoded) = windows_multibyte_to_utf8(code_page, flags, bytes)
+                && !decoded.contains('\u{FFFD}')
+            {
+                return decoded;
+            }
+        }
+    }
+
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 pub fn command_output_detail(output: &std::process::Output) -> Option<String> {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stderr = decode_process_output(&output.stderr).trim().to_string();
     if !stderr.is_empty() {
         return Some(stderr);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stdout = decode_process_output(&output.stdout).trim().to_string();
     (!stdout.is_empty()).then_some(stdout)
 }
 
@@ -401,7 +521,7 @@ pub fn command_output_detail(output: &std::process::Output) -> Option<String> {
 mod command_output_detail_tests {
     use std::process::{ExitStatus, Output};
 
-    use super::command_output_detail;
+    use super::{command_output_detail, decode_process_output};
 
     #[cfg(unix)]
     fn failure_status() -> ExitStatus {
@@ -442,6 +562,24 @@ mod command_output_detail_tests {
         let output = output(b"  \n", b"\t\n");
 
         assert_eq!(command_output_detail(&output), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn decode_process_output_decodes_gbk_cmd_error_on_windows() {
+        // "'D:\Program' 不是内部或外部命令，也不是可运行的程序\r\n" encoded in CP936 (GBK)
+        let gbk_bytes = b"'D:\\Program' \xb2\xbb\xca\xc7\xc4\xda\xb2\xbf\xbb\xf2\xcd\xe2\xb2\xbf\xc3\xfc\xc1\xee\xa3\xac\xd2\xb2\xb2\xbb\xca\xc7\xbf\xc9\xd4\xcb\xd0\xd0\xb5\xc4\xb3\xcc\xd0\xf2\r\n";
+        let decoded = decode_process_output(gbk_bytes);
+        assert_eq!(
+            decoded.trim(),
+            "'D:\\Program' 不是内部或外部命令，也不是可运行的程序"
+        );
+
+        let out = output(b"", gbk_bytes);
+        assert_eq!(
+            command_output_detail(&out).as_deref(),
+            Some("'D:\\Program' 不是内部或外部命令，也不是可运行的程序")
+        );
     }
 }
 
@@ -716,5 +854,75 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok arg");
+    }
+
+    #[tokio::test]
+    async fn batch_script_with_spaces_and_spaced_args_runs_successfully() {
+        let dir = tempfile::tempdir().expect("create temp test dir");
+        let spaced_dir = dir.path().join("Program Files").join("nodejs");
+        fs::create_dir_all(&spaced_dir).expect("create spaced dir");
+
+        let script_path = spaced_dir.join("npm.cmd");
+        fs::write(&script_path, "@echo off\r\necho prefix=%~4 pkg=%~5\r\n")
+            .expect("write batch script");
+
+        let mut command = new_hidden_tokio_command(&script_path, std::iter::empty::<&str>());
+        command.args([
+            "install",
+            "-g",
+            "--prefix",
+            r"D:\Program Files\nodejs\node_global",
+            "@zed-industries/claude-code-acp@0.12.0",
+        ]);
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let output = command.output().await.expect("run batch script");
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            super::decode_process_output(&output.stderr)
+        );
+        assert_eq!(
+            super::decode_process_output(&output.stdout).trim(),
+            r"prefix=D:\Program Files\nodejs\node_global pkg=@zed-industries/claude-code-acp@0.12.0"
+        );
+    }
+
+    #[test]
+    fn std_batch_script_with_spaces_and_spaced_args_runs_successfully() {
+        let dir = tempfile::tempdir().expect("create temp test dir");
+        let spaced_dir = dir.path().join("Program Files").join("nodejs");
+        fs::create_dir_all(&spaced_dir).expect("create spaced dir");
+
+        let script_path = spaced_dir.join("npm.cmd");
+        fs::write(&script_path, "@echo off\r\necho prefix=%~4 pkg=%~5\r\n")
+            .expect("write batch script");
+
+        let mut command = new_hidden_std_command(&script_path, std::iter::empty::<&str>());
+        command.args([
+            "install",
+            "-g",
+            "--prefix",
+            r"D:\Program Files\nodejs\node_global",
+            "@zed-industries/claude-code-acp@0.12.0",
+        ]);
+        let output = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("run batch script");
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            super::decode_process_output(&output.stderr)
+        );
+        assert_eq!(
+            super::decode_process_output(&output.stdout).trim(),
+            r"prefix=D:\Program Files\nodejs\node_global pkg=@zed-industries/claude-code-acp@0.12.0"
+        );
     }
 }

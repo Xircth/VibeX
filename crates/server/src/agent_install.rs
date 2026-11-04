@@ -1152,11 +1152,8 @@ async fn live_npm_global_prefix(node: Option<&NodeRuntime>) -> Option<PathBuf> {
     if !output.status.success() {
         return None;
     }
-    let prefix = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()?
-        .trim()
-        .to_string();
+    let decoded = utils::process::decode_process_output(&output.stdout);
+    let prefix = decoded.lines().next()?.trim().to_string();
     if prefix.is_empty() {
         None
     } else {
@@ -1907,8 +1904,8 @@ async fn probe_version(executable: &Path, version_args: &[&str]) -> Option<Strin
     if !output.status.success() {
         return None;
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = utils::process::decode_process_output(&output.stdout);
+    let stderr = utils::process::decode_process_output(&output.stderr);
     let text = if stdout.trim().is_empty() {
         stderr
     } else {
@@ -1932,8 +1929,9 @@ async fn run_command(label: &str, mut command: tokio::process::Command) -> anyho
     if output.status.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    anyhow::bail!("{label} failed: {}", stderr.trim())
+    let detail = utils::process::command_output_detail(&output)
+        .unwrap_or_else(|| format!("exit status {}", output.status));
+    anyhow::bail!("{label} failed: {detail}")
 }
 
 #[cfg(test)]
@@ -2171,6 +2169,53 @@ Read-Host "Press Enter to exit"
         assert_eq!(
             tokio::fs::read(&dest_sibling).await.unwrap(),
             b"new-sibling"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn run_npm_global_install_handles_spaced_npm_cmd_and_spaced_prefix() {
+        let temp = tempfile::tempdir().unwrap();
+        let node_dir = temp.path().join("Program Files").join("nodejs");
+        let prefix_dir = temp.path().join("Program Files").join("npm global");
+        tokio::fs::create_dir_all(&node_dir).await.unwrap();
+        tokio::fs::create_dir_all(&prefix_dir).await.unwrap();
+
+        let marker = prefix_dir.join("installed.txt");
+        let npm_cmd = node_dir.join("npm.cmd");
+        let script = format!(
+            "@echo off\r\necho %~6^|%*> \"{}\"\r\nexit /b 0\r\n",
+            marker.display()
+        );
+        tokio::fs::write(&npm_cmd, script).await.unwrap();
+
+        let component = PlannedInstallComponent {
+            component_id: "acp_adapter".into(),
+            distribution_kind: PlannedDistributionKind::Npx,
+            version: "0.12.0".into(),
+            resolved_source: "@zed-industries/claude-code-acp@0.12.0".into(),
+            command: "npm".into(),
+            args: Vec::new(),
+            env: Default::default(),
+            trust: agents::ArtifactTrust::EcosystemIntegrityRequired,
+        };
+        let user_env = UserEnvironmentLayout::for_current_user(temp.path())
+            .with_npm_prefix(prefix_dir.clone());
+
+        run_npm_global_install(&npm_cmd, &component, &user_env, None)
+            .await
+            .expect("npm.cmd in spaced Program Files path with spaced --prefix must succeed");
+
+        let recorded = tokio::fs::read_to_string(&marker).await.unwrap();
+        let trimmed = recorded.trim();
+        assert!(
+            trimmed.starts_with(&format!("{}|", prefix_dir.display())),
+            "expected prefix `{}` in `{trimmed}`",
+            prefix_dir.display()
+        );
+        assert!(
+            trimmed.ends_with("@zed-industries/claude-code-acp@0.12.0"),
+            "expected package spec at end of `{trimmed}`"
         );
     }
 }

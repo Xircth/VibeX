@@ -1,3 +1,4 @@
+import { randomUUID } from '@/utils/randomUUID';
 import type {
   BackendTransport,
   RemoteEvent,
@@ -66,7 +67,7 @@ export class TauriTransport implements BackendTransport {
         'application_call',
         {
           command,
-          operationId: options?.operationId ?? globalThis.crypto.randomUUID(),
+          operationId: options?.operationId ?? randomUUID(),
           args: args ?? {},
         }
       );

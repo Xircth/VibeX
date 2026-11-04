@@ -3,6 +3,7 @@ import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
 import { getBackendTransport } from '@/lib/transport/transportRegistry';
 import type { RemoteEvent } from '@/lib/transport/backendTransport';
+import { randomUUID } from '@/utils/randomUUID';
 import type { JsonValue } from 'shared/types';
 
 type TauriLogMsg =
@@ -152,7 +153,7 @@ export const usePatchStream = <T extends object>(
       const args = (argsKey ? JSON.parse(argsKey) : {}) as JsonValue;
       try {
         const subscription = transport.subscribe({
-          subscription_id: globalThis.crypto.randomUUID(),
+          subscription_id: randomUUID(),
           resource: 'patch_stream',
           stream,
           args,

@@ -1,3 +1,4 @@
+import '@/utils/randomUUID';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { bindExternalStoreHook } from '@vibex/plugin-sdk';

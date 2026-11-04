@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
 import { getBackendTransport } from '@/lib/transport/transportRegistry';
 import type { RemoteEvent } from '@/lib/transport/backendTransport';
+import { randomUUID } from '@/utils/randomUUID';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
@@ -95,7 +96,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       }
       try {
         const subscription = transport.subscribe({
-          subscription_id: globalThis.crypto.randomUUID(),
+          subscription_id: randomUUID(),
           resource: 'patch_stream',
           stream: 'log',
           args: { processId },

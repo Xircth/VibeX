@@ -1,3 +1,4 @@
+import { randomUUID } from '@/utils/randomUUID';
 import type {
   BackendTransport,
   RemoteEvent,
@@ -60,7 +61,7 @@ const tauriBridge: RemoteDesktopBridge = {
       `remote-desktop:${profileId}:${event}`,
       handler
     );
-    const subscriptionId = globalThis.crypto.randomUUID();
+    const subscriptionId = randomUUID();
     await tauriInvoke('remote_desktop_listen', {
       profileId,
       event,
@@ -89,7 +90,7 @@ function subscribeRemoteDesktop(
       let closed = false;
       let started = false;
       let cancelled = false;
-      const subscriptionId = globalThis.crypto.randomUUID();
+      const subscriptionId = randomUUID();
 
       const cancelSubscription = async () => {
         if (cancelled) return;

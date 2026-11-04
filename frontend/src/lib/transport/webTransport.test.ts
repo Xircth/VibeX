@@ -287,4 +287,57 @@ describe('WebTransport', () => {
     transport.destroy();
     await pending;
   });
+
+  it('generates RFC 4122 v4 operation_id and subscription_id in HTTP insecure contexts where crypto.randomUUID is undefined', async () => {
+    const originalRandomUUID = globalThis.crypto.randomUUID;
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          operation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+          data: [{ id: 'proj-1', name: 'Demo' }],
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      vi.stubGlobal('WebSocket', MockWebSocket);
+
+      const transport = new WebTransport({
+        baseUrl: 'http://192.168.1.10:17891',
+        token: 'lan-token',
+      });
+
+      await expect(transport.call('get_projects', {})).resolves.toEqual([
+        { id: 'proj-1', name: 'Demo' },
+      ]);
+      const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+      expect(body.operation_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      );
+
+      const unlisten = await transport.listen('browser-screenshot-request', () => {});
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+      const subFrame = JSON.parse(socket.sent[0] ?? '{}');
+      expect(subFrame.type).toBe('attach');
+      expect(subFrame.request?.subscription_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      );
+
+      unlisten();
+      transport.destroy();
+    } finally {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        value: originalRandomUUID,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
 });

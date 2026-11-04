@@ -1,3 +1,4 @@
+import { randomUUID } from '@/utils/randomUUID';
 import type {
   BackendTransport,
   CreateDevicePairingRequest,
@@ -135,7 +136,7 @@ export class WebTransport implements BackendTransport {
       {
         method: 'POST',
         body: JSON.stringify({
-          operation_id: options?.operationId ?? globalThis.crypto.randomUUID(),
+          operation_id: options?.operationId ?? randomUUID(),
           args: args ?? {},
         }),
       }
@@ -401,7 +402,7 @@ export class WebTransport implements BackendTransport {
     handler: (payload: T) => void
   ): Promise<() => void> {
     const request = {
-      subscription_id: globalThis.crypto.randomUUID(),
+      subscription_id: randomUUID(),
       resource: 'host_event',
       channel,
       after_sequence: 0n,

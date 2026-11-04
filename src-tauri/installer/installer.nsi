@@ -347,10 +347,36 @@ Section WebView2
   ${EndIf}
 SectionEnd
 
+!macro KillCompanionProcess executableName
+  !if "${INSTALLMODE}" == "currentUser"
+    nsis_tauri_utils::FindProcessCurrentUser "${executableName}"
+  !else
+    nsis_tauri_utils::FindProcess "${executableName}"
+  !endif
+  Pop $R0
+  ${If} $R0 = 0
+    DetailPrint "Stopping ${executableName}..."
+    !if "${INSTALLMODE}" == "currentUser"
+      nsis_tauri_utils::KillProcessCurrentUser "${executableName}"
+    !else
+      nsis_tauri_utils::KillProcess "${executableName}"
+    !endif
+    Pop $R0
+    Sleep 300
+  ${EndIf}
+!macroend
+
+!macro StopAllVibeXProcesses
+  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro KillCompanionProcess "vibex-mcp.exe"
+  !insertmacro KillCompanionProcess "vibex-workflow-mcp.exe"
+  !insertmacro KillCompanionProcess "vibex-computer-helper.exe"
+!macroend
+
 Section Install VibeXSecInstall
   ${If} $VibeXAction == "uninstall"
     !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_UNINSTALL)"
-    !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+    !insertmacro StopAllVibeXProcesses
     ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
     ${If} $4 == ""
       StrCpy $4 "$INSTDIR"
@@ -370,7 +396,7 @@ Section Install VibeXSecInstall
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro StopAllVibeXProcesses
 
   !insertmacro VibeXSetStage "" "$(VIBEX_PROGRESS_EXTRACT)"
 
@@ -510,7 +536,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro StopAllVibeXProcesses
 
   !insertmacro VibeXSetStage "un." "$(VIBEX_PROGRESS_UNINSTALL)"
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"

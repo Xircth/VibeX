@@ -62,6 +62,59 @@ test("Windows Tauri config wires the custom installer template", () => {
   assert.equal(winConf.bundle.windows.nsis.template, "installer/installer.nsi");
   assert.equal(winConf.bundle.windows.nsis.installerHooks, "installer/hooks.nsh");
   assert.deepEqual(winConf.bundle.windows.nsis.languages, ["SimpChinese", "English"]);
+
+  const baseConf = JSON.parse(
+    fs.readFileSync(path.join(ROOT, "src-tauri", "tauri.conf.json"), "utf8"),
+  );
+  assert.equal(
+    baseConf.plugins?.updater?.windows?.installMode,
+    "basicUi",
+    "Windows updater must use basicUi so custom installer pages are shown on update restart",
+  );
+});
+
+test("Windows NSIS installer stops companion processes and renders custom UI on updates", () => {
+  const nsi = fs.readFileSync(path.join(INSTALLER_DIR, "installer.nsi"), "utf8");
+  assert.match(nsi, /!macro\s+KillCompanionProcess\s+executableName/);
+  assert.match(nsi, /!macro\s+StopAllVibeXProcesses/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-mcp\.exe"/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-workflow-mcp\.exe"/);
+  assert.match(nsi, /!insertmacro\s+KillCompanionProcess\s+"vibex-computer-helper\.exe"/);
+  const stopMacroMatches = nsi.match(/!insertmacro\s+StopAllVibeXProcesses/g) || [];
+  assert.equal(
+    stopMacroMatches.length,
+    3,
+    "StopAllVibeXProcesses must be invoked in install, reinstall-uninstall, and uninstall sections",
+  );
+
+  const pages = fs.readFileSync(path.join(INSTALLER_DIR, "pages.nsh"), "utf8");
+  const pageMainBlock = pages.slice(
+    pages.indexOf("Function VibeXPageMain"),
+    pages.indexOf("Function VibeXApplyPhase"),
+  );
+  assert.doesNotMatch(
+    pageMainBlock,
+    /\$UpdateMode\s*=\s*1/,
+    "VibeXPageMain must not abort when $UpdateMode = 1",
+  );
+  const pageFinishBlock = pages.slice(
+    pages.indexOf("Function VibeXPageFinish"),
+    pages.indexOf("Function VibeXPageFinishLeave"),
+  );
+  assert.doesNotMatch(
+    pageFinishBlock,
+    /\$UpdateMode\s*=\s*1/,
+    "VibeXPageFinish must not abort when $UpdateMode = 1",
+  );
+  const guiInitBlock = pages.slice(
+    pages.indexOf("Function ${UN}VibeXGuiInit"),
+    pages.indexOf("Function ${UN}VibeXBuildChrome"),
+  );
+  assert.doesNotMatch(
+    guiInitBlock,
+    /\$PassiveMode\s*=\s*1/,
+    "VibeXGuiInit must initialize custom frameless window even in passive mode",
+  );
 });
 
 test("Windows NSIS custom template compiles cleanly with makensis when available", (t) => {

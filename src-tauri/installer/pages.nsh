@@ -129,8 +129,7 @@ Var VibeXKeyEsc
 !macro VIBEX_DEFINE_PAGES_SHARED UN
 
 Function ${UN}VibeXGuiInit
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
+  ${If} ${Silent}
     Return
   ${EndIf}
   Call ${UN}VibeXInitResources
@@ -275,8 +274,7 @@ FunctionEnd
 ; Restyle the MUI instfiles page into the progress view.
 Function ${UN}VibeXInstFilesShow
   SetAutoClose true
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
+  ${If} ${Silent}
     Return
   ${EndIf}
   Call ${UN}VibeXHideOuterControls
@@ -345,8 +343,7 @@ FunctionEnd
 
 ; Mirror NSIS's hidden progress bar (1004) into the custom bar + percentage.
 Function ${UN}VibeXTick
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
+  ${If} ${Silent}
   ${OrIf} $VibeXInstDlg == ""
   ${OrIf} $VibeXInstDlg == 0
     Return
@@ -382,8 +379,7 @@ FunctionEnd
 !macroend
 
 !macro VibeXSetStage UN TEXT
-  ${If} $PassiveMode <> 1
-  ${AndIfNot} ${Silent}
+  ${IfNot} ${Silent}
   ${AndIf} $VibeXStatusLbl != ""
     !insertmacro VibeXSetText $VibeXStatusLbl "${TEXT}"
     Call ${UN}VibeXTick
@@ -437,7 +433,7 @@ FunctionEnd
 Function VibeXPageMain
   Call VibeXDetectExisting
   ${If} $PassiveMode = 1
-  ${OrIf} $UpdateMode = 1
+  ${OrIf} ${Silent}
     StrCpy $VibeXAction "install"
     ${If} $VibeXHasExisting = 1
       StrCpy $VibeXAction "reinstall"
@@ -718,7 +714,6 @@ FunctionEnd
 
 Function VibeXPageFinish
   ${If} $PassiveMode = 1
-  ${OrIf} $UpdateMode = 1
   ${OrIf} ${Silent}
     Abort
   ${EndIf}

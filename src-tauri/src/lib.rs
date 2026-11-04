@@ -707,9 +707,33 @@ pub fn run() {
             tauri::async_runtime::block_on(
                 agents::terminal::agent_terminal_registry().release_all(),
             );
+            kill_companion_processes_on_exit();
             log_guard.take();
         }
     });
+}
+
+fn kill_companion_processes_on_exit() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("taskkill")
+            .args([
+                "/F",
+                "/IM",
+                "vibex-mcp.exe",
+                "/IM",
+                "vibex-workflow-mcp.exe",
+                "/IM",
+                "vibex-computer-helper.exe",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }
 
 #[cfg(test)]
@@ -757,5 +781,15 @@ mod tests {
         assert!(source.contains(".data_directory(data_dir.clone())"));
         assert!(source.contains("set_active_debug_webview2_environment_dir(data_dir)"));
         assert!(source.contains("run_on_main_thread"));
+    }
+
+    #[test]
+    fn exit_and_updater_hooks_clean_up_companion_processes() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("if let tauri::RunEvent::Exit = event"));
+        assert!(source.contains("kill_companion_processes_on_exit();"));
+        assert!(source.contains("vibex-mcp.exe"));
+        assert!(source.contains("vibex-workflow-mcp.exe"));
+        assert!(source.contains("vibex-computer-helper.exe"));
     }
 }

@@ -69,7 +69,10 @@
       "endpoints": [
         "https://github.com/Xircth/VibeX/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxQTAwNjE1QTBFRDg2OTIKUldTU2h1MmdGUWFnY1lZT09pbXU0a2xZeG9EMlRzRXJRUHpEcGp3VUhmTDZ2K09RUUREMGZEZDQK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxQTAwNjE1QTBFRDg2OTIKUldTU2h1MmdGUWFnY1lZT09pbXU0a2xZeG9EMlRzRXJRUHpEcGp3VUhmTDZ2K09RUUREMGZEZDQK",
+      "windows": {
+        "installMode": "basicUi"
+      }
     }
   }
 }

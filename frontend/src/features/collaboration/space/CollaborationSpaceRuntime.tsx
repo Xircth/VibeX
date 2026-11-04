@@ -4764,7 +4764,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     const textPart = rawText.replace(/\u00a0/g, ' ').trim();
     if (!selected || !content || sending || isBotSessionLoading) return;
     if (
-      !directThreadId &&
+      !directThreadRef.current &&
       textPart &&
       strayMentions(textPart, allWorkspaceMembers).length > 0
     ) {
@@ -7157,12 +7157,21 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     // Flat chat list: group rows never expand into a member list.
     const open = false;
     // Requirement 1: User ('你') is an invisible member and never appears in the member list
+    const loadedSpaceMembers = membersBySpace[space.space_id];
     const rawSpaceMembers = agentRoster(
       isUnassigned
         ? unassignedMembers
-        : (membersBySpace[space.space_id] ??
-            (entry?.members.length ? entry.members : EMPTY_MEMBERS))
+        : loadedSpaceMembers && loadedSpaceMembers.length > 0
+          ? loadedSpaceMembers
+          : (entry?.members.length ? entry.members : EMPTY_MEMBERS)
     );
+    const groupActivityMembers = isUnassigned
+      ? rawSpaceMembers
+      : [...rawSpaceMembers, ...(entry?.members ?? [])];
+    const isGroupActive = groupActivityMembers.some((member) => {
+      const convId = String(member.conversation_id ?? '').trim();
+      return convId ? isMemberWorking(conversationById.get(convId)) : false;
+    });
     const visibleAgentCount = entry?.memberCount ?? rawSpaceMembers.length;
     const spaceLog =
       space.space_id === selectedId
@@ -7328,6 +7337,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                 <GroupAvatar
                   avatars={spaceMemberAvatars}
                   tagHue={tagPreset?.hue}
+                  sessionActive={isGroupActive}
                   size={CONTACT_AVATAR_PX}
                 />
                 <Input
@@ -7407,6 +7417,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                   <GroupAvatar
                     avatars={spaceMemberAvatars}
                     tagHue={tagPreset?.hue}
+                    sessionActive={isGroupActive}
                     size={CONTACT_AVATAR_PX}
                   />
                   <span className="collaboration-contact-name-line">

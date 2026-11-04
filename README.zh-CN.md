@@ -183,13 +183,14 @@ pnpm run plugins:build
   <table>
     <tr>
       <td align="center" width="260">
-        <img src="./assets/wechat.jpg" alt="VibeX 微信交流群" width="200" /><br />
+        <img src="./assets/images/readme/VibeX交流群3.png" alt="VibeX 微信交流群" width="200" /><br />
         <sub><b>微信交流群</b>（扫码加入）</sub>
       </td>
       <td align="center" width="260">
-        <img src="./assets/qq.jpg" alt="VibeX QQ 交流群" width="200" /><br />
+        <img src="./assets/images/readme/QQ-VibeX交流群3.png" alt="VibeX QQ 交流群" width="200" /><br />
         <sub><b>QQ 交流群</b>（扫码加入）</sub>
       </td>
     </tr>
   </table>
+  <p><strong>微信号</strong>：<code>M1X3X1X4</code></p>
 </div>

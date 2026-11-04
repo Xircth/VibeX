@@ -66,9 +66,13 @@ export function groupAvatarMemberSlotPx(
   return (slotSize / BOX) * groupSize;
 }
 
+/** Default green tag hue (emerald preset) used when an untagged group is active. */
+export const DEFAULT_ACTIVE_GROUP_TAG_HUE = '152 68% 42%';
+
 export function GroupAvatar({
   avatars,
   tagHue,
+  sessionActive = false,
   size = 24,
   className,
   'data-testid': dataTestId = 'collaboration-group-avatar',
@@ -77,6 +81,8 @@ export function GroupAvatar({
   avatars: readonly MemberBotAvatarConfig[];
   /** Space tag hue ("h s% l%") rendered as an outline ring. */
   tagHue?: string;
+  /** Whether any bot in the group is active, enabling the breathing tag ring. */
+  sessionActive?: boolean;
   /** Rendered edge length in px. */
   size?: number;
   className?: string;
@@ -85,22 +91,28 @@ export function GroupAvatar({
   const shown = avatars.slice(0, GROUP_AVATAR_MAX);
   const slots = GROUP_AVATAR_LAYOUTS[shown.length] ?? [];
   const k = size / BOX;
+  const effectiveTagHue =
+    tagHue || (sessionActive ? DEFAULT_ACTIVE_GROUP_TAG_HUE : undefined);
   return (
     <span
       className={cn(
         'collaboration-group-avatar',
         tagHue && 'has-tag',
+        sessionActive && 'is-breathing',
         className
       )}
       data-testid={dataTestId}
       data-count={shown.length}
+      data-session-active={sessionActive ? 'true' : 'false'}
       style={
         {
           width: `${size}px`,
           height: `${size}px`,
           // Tag ring is 1.5px at the 24px size; keep it proportional.
           '--group-avatar-ring': `${(1.5 * size) / 24}px`,
-          ...(tagHue ? { '--group-avatar-tag': `hsl(${tagHue})` } : {}),
+          ...(effectiveTagHue
+            ? { '--group-avatar-tag': `hsl(${effectiveTagHue})` }
+            : {}),
         } as CSSProperties
       }
       aria-hidden="true"

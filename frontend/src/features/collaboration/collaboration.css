@@ -1512,6 +1512,8 @@
   min-height: 0;
   flex-direction: column;
   gap: 0.25rem;
+  margin-right: -0.5rem;
+  padding-right: 0.5rem;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -4256,6 +4258,29 @@ body.is-dragging-collaboration-member * {
 /* Tagged: a ring in the tag colour, still no background fill. */
 .collaboration-group-avatar.has-tag {
   box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px) var(--group-avatar-tag);
+}
+
+/* Active group: tag ring breathes in and out; untagged groups fall back to green. */
+.collaboration-group-avatar.is-breathing {
+  box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
+    var(--group-avatar-tag, hsl(152 68% 42%));
+  animation: collaboration-group-tag-breathe 2s ease-in-out infinite;
+}
+
+@keyframes collaboration-group-tag-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
+      var(--group-avatar-tag, hsl(152 68% 42%));
+  }
+  50% {
+    box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
+      color-mix(
+        in srgb,
+        var(--group-avatar-tag, hsl(152 68% 42%)) 10%,
+        transparent
+      );
+  }
 }
 
 .collaboration-group-avatar-slot {

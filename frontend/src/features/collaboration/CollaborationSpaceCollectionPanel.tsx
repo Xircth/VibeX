@@ -1000,14 +1000,6 @@ export function CollaborationSpaceCollectionDockviewPanel(
       }}
     >
       <div className="collaboration-group-details-hero">
-        <button
-          type="button"
-          className="collaboration-group-details-close"
-          aria-label={i18n.t('panels:ui.collection.close')}
-          onClick={() => props.api.close()}
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
         {isAssistant ? (
           <MemberBotAvatar
             config={

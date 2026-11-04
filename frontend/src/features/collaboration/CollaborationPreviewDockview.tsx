@@ -43,6 +43,7 @@ import {
 } from '@/components/layout/panels/PanelRegistry';
 import { Button } from '@/components/ui/button';
 import {
+  NOOP_PANEL_ACTIONS,
   PanelActionsContext,
   useOptionalPanelActionsContext,
   type PanelActions,
@@ -599,47 +600,7 @@ export function CollaborationPreviewScope({
   const onRunInEditorGroupRef = useRef(onRunInEditorGroup);
   onRunInEditorGroupRef.current = onRunInEditorGroup;
   const value = useMemo<PanelActions>(() => {
-    const noop = () => {};
-    const noopFalse = () => false;
-    const base: PanelActions = parent ?? {
-      openOrFocusPanel: noop,
-      openFilePreview: () => 'opened' as const,
-      renameFilePreviews: noop,
-      openImagePreview: noop,
-      openWebPreview: noop,
-      revealInFileTree: noop,
-      openDiffPreview: noop,
-      openDiffPreviewAtPath: noop,
-      openMergePanel: noop,
-      openCommitDiff: noop,
-      openNewTerminal: noop,
-      openTerminalEditorTab: noop,
-      showTerminal: noop,
-      toggleEditorArea: noop,
-      runInEditorGroup: (_groupId, action) => action(),
-      splitEditorPanel: noopFalse,
-      sortEditorGroupByName: noop,
-      openPanelInNewEditorGroup: noopFalse,
-      canOpenPanelInNewEditorGroup: noopFalse,
-      splitActiveEditor: noopFalse,
-      canSplitActiveEditor: noopFalse,
-      closePanel: noop,
-      toggleFileTree: noop,
-      showFileTree: noop,
-      toggleGitPanel: noop,
-      toggleSearchPanel: noop,
-      toggleSessionList: noop,
-      placeLeftDockPanel: noop,
-      measureLeftDock: () => null,
-      isLeftDockSplit: noopFalse,
-      unsplitLeftDock: noop,
-      isPanelOpen: noopFalse,
-      focusKanban: noop,
-      openLogs: noop,
-      openNotes: noop,
-      openPluginPanel: noop,
-      setDockviewApi: noop,
-    };
+    const base: PanelActions = parent ?? NOOP_PANEL_ACTIONS;
     return {
       ...base,
       openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => {

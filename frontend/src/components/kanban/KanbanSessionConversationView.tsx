@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type Context,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -101,8 +102,16 @@ type ConversationPlacementContextValue = {
   ) => void;
 };
 
-const ConversationPlacementContext =
-  createContext<ConversationPlacementContextValue | null>(null);
+const GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY =
+  '__VIBEX_CONVERSATION_PLACEMENT_CONTEXT__' as const;
+const globalConversationPlacementScope = globalThis as typeof globalThis & {
+  [GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY]?: Context<ConversationPlacementContextValue | null>;
+};
+
+const ConversationPlacementContext: Context<ConversationPlacementContextValue | null> =
+  globalConversationPlacementScope[GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY] ??
+  (globalConversationPlacementScope[GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY] =
+    createContext<ConversationPlacementContextValue | null>(null));
 
 function buildPlacementKey(workspaceId: string, sessionId?: string) {
   return `${workspaceId}:${sessionId ?? 'no-session'}`;

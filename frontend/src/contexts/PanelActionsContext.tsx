@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type Context,
   type ReactNode,
 } from 'react';
 import type { DockviewGroupPanel } from 'dockview-core';
@@ -258,7 +259,60 @@ export interface PanelActions {
   setDockviewApi: (api: DockviewApi | null) => void;
 }
 
-export const PanelActionsContext = createContext<PanelActions | null>(null);
+const GLOBAL_PANEL_ACTIONS_CONTEXT_KEY =
+  '__VIBEX_PANEL_ACTIONS_CONTEXT__' as const;
+
+const globalPanelActionsScope = globalThis as typeof globalThis & {
+  [GLOBAL_PANEL_ACTIONS_CONTEXT_KEY]?: Context<PanelActions | null>;
+};
+
+export const PanelActionsContext: Context<PanelActions | null> =
+  globalPanelActionsScope[GLOBAL_PANEL_ACTIONS_CONTEXT_KEY] ??
+  (globalPanelActionsScope[GLOBAL_PANEL_ACTIONS_CONTEXT_KEY] =
+    createContext<PanelActions | null>(null));
+
+const noopPanelAction = () => {};
+const noopFalsePanelAction = () => false;
+
+export const NOOP_PANEL_ACTIONS: PanelActions = {
+  openOrFocusPanel: noopPanelAction,
+  openFilePreview: () => 'opened' as const,
+  renameFilePreviews: noopPanelAction,
+  openImagePreview: noopPanelAction,
+  openWebPreview: noopPanelAction,
+  revealInFileTree: noopPanelAction,
+  openDiffPreview: noopPanelAction,
+  openDiffPreviewAtPath: noopPanelAction,
+  openMergePanel: noopPanelAction,
+  openCommitDiff: noopPanelAction,
+  openNewTerminal: noopPanelAction,
+  openTerminalEditorTab: noopPanelAction,
+  showTerminal: noopPanelAction,
+  toggleEditorArea: noopPanelAction,
+  runInEditorGroup: (_groupId, action) => action(),
+  splitEditorPanel: noopFalsePanelAction,
+  sortEditorGroupByName: noopPanelAction,
+  openPanelInNewEditorGroup: noopFalsePanelAction,
+  canOpenPanelInNewEditorGroup: noopFalsePanelAction,
+  splitActiveEditor: noopFalsePanelAction,
+  canSplitActiveEditor: noopFalsePanelAction,
+  closePanel: noopPanelAction,
+  toggleFileTree: noopPanelAction,
+  showFileTree: noopPanelAction,
+  toggleGitPanel: noopPanelAction,
+  toggleSearchPanel: noopPanelAction,
+  toggleSessionList: noopPanelAction,
+  placeLeftDockPanel: noopPanelAction,
+  measureLeftDock: () => null,
+  isLeftDockSplit: noopFalsePanelAction,
+  unsplitLeftDock: noopPanelAction,
+  isPanelOpen: noopFalsePanelAction,
+  focusKanban: noopPanelAction,
+  openLogs: noopPanelAction,
+  openNotes: noopPanelAction,
+  openPluginPanel: noopPanelAction,
+  setDockviewApi: noopPanelAction,
+};
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -1826,14 +1880,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 }
 
 export function usePanelActionsContext(): PanelActions {
-  const context = useContext(PanelActionsContext);
-  if (!context) {
-    throw new Error(
-      'usePanelActionsContext must be used within a PanelActionsProvider'
-    );
-  }
-
-  return context;
+  return useContext(PanelActionsContext) ?? NOOP_PANEL_ACTIONS;
 }
 
 export function useOptionalPanelActionsContext(): PanelActions | null {

@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useState,
+  type Context,
   ReactNode,
   useEffect,
   useCallback,
@@ -37,7 +38,15 @@ interface ReviewContextType {
   generateReviewMarkdown: () => string;
 }
 
-const ReviewContext = createContext<ReviewContextType | null>(null);
+const GLOBAL_REVIEW_CONTEXT_KEY = '__VIBEX_REVIEW_CONTEXT__' as const;
+const globalReviewScope = globalThis as typeof globalThis & {
+  [GLOBAL_REVIEW_CONTEXT_KEY]?: Context<ReviewContextType | null>;
+};
+
+const ReviewContext: Context<ReviewContextType | null> =
+  globalReviewScope[GLOBAL_REVIEW_CONTEXT_KEY] ??
+  (globalReviewScope[GLOBAL_REVIEW_CONTEXT_KEY] =
+    createContext<ReviewContextType | null>(null));
 
 export function useReview() {
   const context = useContext(ReviewContext);

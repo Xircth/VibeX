@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type Context,
   type ReactNode,
 } from 'react';
 import { useProject } from '@/contexts/ProjectContext';
@@ -77,9 +78,16 @@ interface KanbanSessionContextValue {
   ) => void;
 }
 
-const KanbanSessionContext = createContext<KanbanSessionContextValue | null>(
-  null
-);
+const GLOBAL_KANBAN_SESSION_CONTEXT_KEY =
+  '__VIBEX_KANBAN_SESSION_CONTEXT__' as const;
+const globalKanbanSessionScope = globalThis as typeof globalThis & {
+  [GLOBAL_KANBAN_SESSION_CONTEXT_KEY]?: Context<KanbanSessionContextValue | null>;
+};
+
+const KanbanSessionContext: Context<KanbanSessionContextValue | null> =
+  globalKanbanSessionScope[GLOBAL_KANBAN_SESSION_CONTEXT_KEY] ??
+  (globalKanbanSessionScope[GLOBAL_KANBAN_SESSION_CONTEXT_KEY] =
+    createContext<KanbanSessionContextValue | null>(null));
 
 export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();

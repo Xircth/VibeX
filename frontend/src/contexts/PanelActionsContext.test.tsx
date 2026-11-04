@@ -10,7 +10,9 @@ import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import {
+  PanelActionsContext,
   PanelActionsProvider,
+  useOptionalPanelActionsContext,
   usePanelActionsContext,
   type PanelActions,
 } from './PanelActionsContext';
@@ -542,5 +544,29 @@ describe('PanelActionsContext editor placement', () => {
 
     api.dispose();
     container.remove();
+  });
+
+  it('returns safe no-op actions outside PanelActionsProvider while keeping optional context null', () => {
+    let requiredActions: PanelActions | undefined;
+    let optionalActions: PanelActions | null | undefined;
+    function StandaloneProbe() {
+      requiredActions = usePanelActionsContext();
+      optionalActions = useOptionalPanelActionsContext();
+      return null;
+    }
+
+    expect(() => render(<StandaloneProbe />)).not.toThrow();
+    expect(optionalActions).toBeNull();
+    expect(requiredActions?.openFilePreview('/repo/a.ts')).toBe('opened');
+    expect(requiredActions?.isPanelOpen(PANEL_IDS.TERMINAL)).toBe(false);
+  });
+
+  it('registers PanelActionsContext on globalThis to survive HMR module re-evaluation', () => {
+    const globalScope = globalThis as typeof globalThis & {
+      __VIBEX_PANEL_ACTIONS_CONTEXT__?: typeof PanelActionsContext;
+    };
+    expect(globalScope.__VIBEX_PANEL_ACTIONS_CONTEXT__).toBe(
+      PanelActionsContext
+    );
   });
 });

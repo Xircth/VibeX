@@ -5,6 +5,7 @@ import {
   useMemo,
   useCallback,
   useRef,
+  type Context,
   ReactNode,
 } from 'react';
 import type { Terminal } from '@xterm/xterm';
@@ -197,7 +198,15 @@ interface TerminalContextType {
   getTerminalConnection: (tabId: string) => TerminalConnection | null;
 }
 
-const TerminalContext = createContext<TerminalContextType | null>(null);
+const GLOBAL_TERMINAL_CONTEXT_KEY = '__VIBEX_TERMINAL_CONTEXT__' as const;
+const globalTerminalScope = globalThis as typeof globalThis & {
+  [GLOBAL_TERMINAL_CONTEXT_KEY]?: Context<TerminalContextType | null>;
+};
+
+const TerminalContext: Context<TerminalContextType | null> =
+  globalTerminalScope[GLOBAL_TERMINAL_CONTEXT_KEY] ??
+  (globalTerminalScope[GLOBAL_TERMINAL_CONTEXT_KEY] =
+    createContext<TerminalContextType | null>(null));
 
 interface TerminalProviderProps {
   children: ReactNode;

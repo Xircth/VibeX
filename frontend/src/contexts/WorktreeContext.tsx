@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  type Context,
   type ReactNode,
 } from 'react';
 import { useParams } from 'react-router-dom';
@@ -18,7 +19,15 @@ export interface WorktreeState {
   setActiveWorktree: (worktreeId: string | null, taskId: string | null) => void;
 }
 
-const WorktreeContext = createContext<WorktreeState | null>(null);
+const GLOBAL_WORKTREE_CONTEXT_KEY = '__VIBEX_WORKTREE_CONTEXT__' as const;
+const globalWorktreeScope = globalThis as typeof globalThis & {
+  [GLOBAL_WORKTREE_CONTEXT_KEY]?: Context<WorktreeState | null>;
+};
+
+const WorktreeContext: Context<WorktreeState | null> =
+  globalWorktreeScope[GLOBAL_WORKTREE_CONTEXT_KEY] ??
+  (globalWorktreeScope[GLOBAL_WORKTREE_CONTEXT_KEY] =
+    createContext<WorktreeState | null>(null));
 
 export function WorktreeProvider({ children }: { children: ReactNode }) {
   const { workspaceId } = useParams<{ workspaceId?: string }>();

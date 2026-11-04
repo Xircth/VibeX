@@ -447,16 +447,21 @@ describe('CollaborationSpacePage', () => {
     const groupAvatar = within(spaceButton).getByTestId(
       'collaboration-group-avatar'
     );
-    expect(groupAvatar).toHaveClass('has-tag');
+    expect(groupAvatar).toHaveClass('has-tag', 'is-breathing');
     expect(groupAvatar).toHaveAttribute('data-count', '2');
+    expect(groupAvatar).toHaveAttribute('data-session-active', 'true');
     expect(groupAvatar).toHaveStyle({ width: '40px', height: '40px' });
-    expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toContain(
-      'hsl('
+    expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toBe(
+      'hsl(214 88% 56%)'
     );
     await user.click(clearTagBtn);
     expect(groupAvatar).not.toHaveClass('has-tag');
+    expect(groupAvatar).toHaveClass('is-breathing');
+    expect(groupAvatar.style.getPropertyValue('--group-avatar-tag')).toBe(
+      'hsl(152 68% 42%)'
+    );
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
-    expect(groupAvatar).toHaveClass('has-tag');
+    expect(groupAvatar).toHaveClass('has-tag', 'is-breathing');
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();

@@ -49,12 +49,45 @@ describe('GroupAvatar', () => {
     render(<GroupAvatar avatars={avatars(2)} tagHue="45 93% 47%" />);
     const root = screen.getByTestId('collaboration-group-avatar');
     expect(root).toHaveClass('has-tag');
+    expect(root).not.toHaveClass('is-breathing');
+    expect(root).toHaveAttribute('data-session-active', 'false');
     expect(root.style.getPropertyValue('--group-avatar-tag')).toBe(
       'hsl(45 93% 47%)'
     );
     expect(root.querySelectorAll('[data-gaze="up-right"]')).toHaveLength(2);
     expect(root.querySelectorAll('[stroke="#ffffff"]').length).toBeGreaterThan(
       0
+    );
+  });
+
+  it('breathes with the default green tag when active and untagged, and has no tag when inactive', () => {
+    const { rerender } = render(
+      <GroupAvatar avatars={avatars(2)} sessionActive />
+    );
+    const root = screen.getByTestId('collaboration-group-avatar');
+    expect(root).toHaveClass('is-breathing');
+    expect(root).not.toHaveClass('has-tag');
+    expect(root).toHaveAttribute('data-session-active', 'true');
+    expect(root.style.getPropertyValue('--group-avatar-tag')).toBe(
+      'hsl(152 68% 42%)'
+    );
+
+    rerender(<GroupAvatar avatars={avatars(2)} sessionActive={false} />);
+    expect(root).not.toHaveClass('is-breathing');
+    expect(root).not.toHaveClass('has-tag');
+    expect(root).toHaveAttribute('data-session-active', 'false');
+    expect(root.style.getPropertyValue('--group-avatar-tag')).toBe('');
+  });
+
+  it('breathes with its own tag colour when active and tagged', () => {
+    render(
+      <GroupAvatar avatars={avatars(2)} tagHue="214 88% 56%" sessionActive />
+    );
+    const root = screen.getByTestId('collaboration-group-avatar');
+    expect(root).toHaveClass('has-tag', 'is-breathing');
+    expect(root).toHaveAttribute('data-session-active', 'true');
+    expect(root.style.getPropertyValue('--group-avatar-tag')).toBe(
+      'hsl(214 88% 56%)'
     );
   });
 });

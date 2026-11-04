@@ -1,4 +1,4 @@
-﻿# ===== Rust =====
+# ===== Rust =====
 target/
 **/*.rs.bk
 
@@ -92,6 +92,7 @@ src-tauri/binaries/
 **/.harn/
 dev_assets
 build-npm-package-codesign.sh
+/tools/
 
 # ===== SSH keys =====
 .ssh

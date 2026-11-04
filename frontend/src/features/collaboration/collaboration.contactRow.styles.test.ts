@@ -224,4 +224,20 @@ describe('collaboration contact row chrome', () => {
     const body = declarationsFor('.collaboration-contact-section-body');
     expect(body.gap?.value).toBe('0.125rem');
   });
+
+  it('animates the group avatar tag ring when a group is active', () => {
+    const breathing = declarationsFor(
+      '.collaboration-group-avatar.is-breathing'
+    );
+    expect(breathing['box-shadow']?.value).toContain('--group-avatar-tag');
+    expect(breathing.animation?.value).toContain(
+      'collaboration-group-tag-breathe'
+    );
+  });
+
+  it('aligns the left sidebar list scrollbar flush with the right divider', () => {
+    const spaceList = declarationsFor('.collaboration-space-list');
+    expect(spaceList['margin-right']?.value).toBe('-0.5rem');
+    expect(spaceList['padding-right']?.value).toBe('0.5rem');
+  });
 });

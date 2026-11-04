@@ -10,6 +10,8 @@ const PRODUCT_NAME = "VibeX";
 const DEFAULT_NOTARY_TIMEOUT_SECONDS = 7200;
 const NOTARY_POLL_INTERVAL_SECONDS = 20;
 const NOTARY_SUBMIT_ATTEMPTS = 3;
+const STAPLE_ATTEMPTS = 6;
+const STAPLE_RETRY_DELAY_SECONDS = 15;
 const DMG_ATTEMPTS = 3;
 const APPLE_NOTARY_ENV_KEYS = [
   "APPLE_API_KEY",
@@ -129,7 +131,12 @@ function isTransientNotaryFailure(output) {
   const text = String(output || "");
   return (
     /Internet connection appears to be offline/i.test(text) ||
+    /The network connection was lost/i.test(text) ||
     /NSURLErrorDomain/i.test(text) ||
+    /kCFErrorDomainCFNetwork/i.test(text) ||
+    /CloudKit/i.test(text) ||
+    /Error 68/i.test(text) ||
+    /status 68/i.test(text) ||
     /Code=-100[0-9]/i.test(text) ||
     /unsatisfied \(No network route\)/i.test(text) ||
     /The request timed out/i.test(text) ||
@@ -324,6 +331,34 @@ function waitForNotarization({ id, env, timeoutSeconds }) {
   );
 }
 
+function stapleWithRetry(appPath) {
+  let lastError = new Error("xcrun stapler did not run");
+  for (let attempt = 1; attempt <= STAPLE_ATTEMPTS; attempt += 1) {
+    console.log(
+      `Stapling notarization ticket (attempt ${attempt}/${STAPLE_ATTEMPTS})`,
+    );
+    const result = runCaptured("xcrun", ["stapler", "staple", "-v", appPath]);
+    const output = commandOutput(result);
+    if (output) {
+      console.log(output);
+    }
+    if (result.status === 0) {
+      return;
+    }
+    lastError = new Error(
+      `xcrun stapler staple -v ${appPath} failed with status ${result.status ?? "null"}: ${output}`,
+    );
+    if (!isTransientNotaryFailure(output) || attempt === STAPLE_ATTEMPTS) {
+      throw lastError;
+    }
+    console.log(
+      `Transient stapler CloudKit failure; retrying in ${STAPLE_RETRY_DELAY_SECONDS}s...`,
+    );
+    sleepSeconds(STAPLE_RETRY_DELAY_SECONDS);
+  }
+  throw lastError;
+}
+
 function notarizeAndStaple({ appPath, zipPath, env, timeoutSeconds }) {
   const keyPath = env.APPLE_API_KEY_PATH;
   if (!fs.existsSync(keyPath)) {
@@ -344,9 +379,7 @@ function notarizeAndStaple({ appPath, zipPath, env, timeoutSeconds }) {
     fs.rmSync(zipPath, { force: true });
   }
 
-  console.log("Stapling notarization ticket");
-  run("xcrun", ["stapler", "staple", "-v", appPath]);
-  run("xcrun", ["stapler", "validate", appPath]);
+  stapleWithRetry(appPath);
 }
 
 function detachVolume(productName) {

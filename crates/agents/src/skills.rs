@@ -2859,8 +2859,16 @@ mod tests {
             "skill must note that GroupSpace envelopes already carry incremental context and state the 3-stage audience-aware principles"
         );
         assert!(
-            playbook.contains("interrupt"),
-            "playbook must document manage_bot interrupt"
+            playbook.contains("interrupt")
+                && playbook.contains("list_agents")
+                && playbook.contains("thinking_level"),
+            "playbook must document manage_bot interrupt, list_agents, and thinking_level"
+        );
+        assert!(
+            skill.contains("list_agents")
+                && skill.contains("model")
+                && skill.contains("thinking_level"),
+            "manage_bot skill table must document list_agents, model, and thinking_level"
         );
         assert!(
             skill.contains("按场景加载") && skill.contains("只加载当前回合用得到的节"),

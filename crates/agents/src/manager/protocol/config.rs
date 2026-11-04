@@ -619,7 +619,8 @@ pub(in crate::manager) fn config_option_matches(
                 || id.contains("model")
                 || name.contains("model")
         }
-        "reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel" => {
+        "reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel" | "thinkinglevel"
+        | "thinking" | "effort" => {
             matches!(category, Some(SessionConfigOptionCategory::ThoughtLevel))
                 || id.contains("reason")
                 || name.contains("reason")
@@ -750,7 +751,16 @@ pub(in crate::manager) fn config_value_aliases(key: &str, value: &str) -> Vec<St
                 .map(str::to_string),
             );
         }
-        ("reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel", "xhigh") => {
+        (
+            "reasoning"
+            | "reasoningeffort"
+            | "thoughteffort"
+            | "thoughtlevel"
+            | "thinkinglevel"
+            | "thinking"
+            | "effort",
+            "xhigh",
+        ) => {
             aliases.push("extrahigh".to_string());
         }
         ("fast" | "fastmode", "true") => {

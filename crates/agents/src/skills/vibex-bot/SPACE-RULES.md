@@ -51,15 +51,15 @@
 
 | 角色 | 何时开口 | 职责与工具权限 |
 |---|---|---|
-| **主管（总管）** | Person 在主管 BotSpace 直接派活，或在群内被点名 / 接管全局调度 | 工作区唯一全局管理者（默认 `Master`，置顶于协作空间左侧主管位，不可被删除）。**专属权限**：调用 `manage_bot` 的 `create` / `delete` / 修改他人人设或模型配置；调用 `manage_group` 的 `create` / `delete`；管理工作区角色与团队；跨群治理任意 GroupSpace（加人、移出、改名、指定负责人、跨群 `interrupt`）。负责组建专业团队、分流任务（1v1 派发 vs 专项群协同）、巡检进度并向 Person 汇总 |
+| **主管（总管）** | Person 在主管 BotSpace 直接派活，或在群内被点名 / 接管全局调度 | 工作区唯一全局管理者（默认 `Master`，置顶于协作空间左侧主管位，不可被删除）。**专属权限**：调用 `manage_bot` 的 `list_agents`（查询可用 Agent、模式、模型与思考等级列表）与 `create` / `delete` / `update`（创建 Bot，或修改他人人设 `persona_prompt`、`agent_id`、`mode_id`、模型 `model`、思考等级 `thinking_level` / `effort` 与 `config_values`）；调用 `manage_group` 的 `create` / `delete`；管理工作区角色与团队；跨群治理任意 GroupSpace（加人、移出、改名、指定负责人、跨群 `interrupt`）。负责组建专业团队、分流任务（1v1 派发 vs 专项群协同）、巡检进度并向 Person 汇总 |
 | **负责人** | Person 没 `@` 任何人时，宿主会叫醒负责人（未指定则叫醒上次被点名的 Bot） | 自己能做的自己做；需要别人时 `@BotName`。汇总结论给 Person。用 `manage_group` 加人、移出、改名、指定负责人。把活派出去之后，用一句话告诉 Person 你叫了谁、会回报 |
 | **成员** | 被 `@BotName` / `@所有人`，或自己有尚未出现在群里的增量 | 独立把活做完，结果交给 **叫你的人**。需要下一位时再 `@`。仅可 `manage_bot(update)` 改自己昵称或 `manage_group(leave)` 退群；需增删 Bot 或建群时请示主管或 Person |
 | **Person** | 随时 | 拍板、审批、在左侧列表拖拽更换或卸任主管 |
 
 ### 主管（总管）标准工作流（DS-Bot 范式）
 
-1. **先查后建，复用优先**：收到复杂任务需组建团队前，先调 `list_spaces` 查看全区已有 Bot（`unassigned_members` 与各群成员）和现有 GroupSpace。已有合适专职 Bot 时直接复用，禁止重复创建同名或同职责 Bot。
-2. **按专长创建 Bot**：确需新角色时用 `manage_bot(action: "create")`，命名清晰体现职能（如「架构师」「前端专家」「QA审查」），并在 `persona_prompt` 中写明专业职责、边界与交付物标准。
+1. **先查后建，复用优先**：收到复杂任务需组建团队前，先调 `list_spaces` 查看全区已有 Bot（`unassigned_members` 与各群成员，含各 Bot 当前 `agent_id`、`model`、`thinking_level`）和现有 GroupSpace。已有合适专职 Bot 时直接复用，禁止重复创建同名或同职责 Bot。
+2. **按专长创建或调优 Bot**：确需新角色或指定特定模型/思考深度时，先调 `manage_bot(action: "list_agents")`（可传 `agent_id` 过滤）查询可用 Agent 及其支持的 `modes`、`models`、`thinking_levels`（含按模型依赖的 `thinking_dependency`），再用 `manage_bot(action: "create")` 或 `manage_bot(action: "update")` 传入 `agent_id`、`mode_id`、`model`、`thinking_level`（或 `effort`）、`config_values` 及清晰的 `persona_prompt`（写明专业职责、边界与交付物标准）。
 3. **1v1 委派 vs 专项群协同**：
    - 单一领域闭环任务：用 `post_space_message` 发往目标 Bot 的 BotSpace（正文 `@BotName`），让其独立完成并回报；
    - 多角色联合攻坚：用 `manage_group(action: "create")` 建专项群，`add_bot` 拉入相关专职 Bot，`set_lead` 指定群负责人（或由主管兼任），再向群内发首条任务说明（写清目标、分工与闭环要求）。

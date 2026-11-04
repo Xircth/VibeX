@@ -1,3 +1,4 @@
+use agents::AgentId;
 use db::models::collaboration_identity::{self as identity};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -612,4 +613,452 @@ pub(crate) async fn resolve_identity_member_id(
         Some(conversation) => identity_member_id_for_conversation(pool, Some(&conversation)).await,
         None => Ok(None),
     }
+}
+
+pub const THINKING_CONFIG_KEYS: &[&str] = &[
+    "thinking_level",
+    "effort",
+    "reasoning_effort",
+    "thought_level",
+    "thinking",
+];
+
+fn config_string_value(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+pub fn extract_model_and_thinking(config_values: &Value) -> (Option<String>, Option<String>) {
+    let Some(object) = config_values.as_object() else {
+        return (None, None);
+    };
+    let model = config_string_value(object.get("model"));
+    let thinking_level = THINKING_CONFIG_KEYS
+        .iter()
+        .find_map(|key| config_string_value(object.get(*key)));
+    (model, thinking_level)
+}
+
+pub fn enrich_member_json_with_session_config(
+    object: &mut serde_json::Map<String, Value>,
+    config: Option<&MemberSessionConfig>,
+) {
+    let agent_id = config
+        .and_then(|c| c.agent_id.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mode_id = config
+        .and_then(|c| c.mode_id.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let config_values = config
+        .filter(|c| c.config_values.is_object())
+        .map(|c| c.config_values.clone())
+        .unwrap_or_else(|| json!({}));
+    let (model, thinking_level) = extract_model_and_thinking(&config_values);
+    object.insert("agent_id".into(), json!(agent_id));
+    object.insert("mode_id".into(), json!(mode_id));
+    object.insert("model".into(), json!(model));
+    object.insert("thinking_level".into(), json!(thinking_level));
+    object.insert("config_values".into(), config_values);
+}
+
+pub(crate) async fn attach_member_session_configs_to_rows(
+    pool: &SqlitePool,
+    rows: &mut [Value],
+) -> Result<(), CollaborationError> {
+    let mut identity_ids: Vec<String> = Vec::new();
+    for row in rows.iter() {
+        let is_agent = row
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_none_or(|kind| kind == "agent");
+        if !is_agent {
+            continue;
+        }
+        if let Some(id) = row
+            .get("identity_member_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if !identity_ids.iter().any(|existing| existing == id) {
+                identity_ids.push(id.to_string());
+            }
+        }
+    }
+    let mut configs = std::collections::HashMap::<String, MemberSessionConfig>::new();
+    for member_id in identity_ids {
+        if let Some(cfg) = load_member_session_config(pool, &member_id).await? {
+            configs.insert(member_id, cfg);
+        }
+    }
+    for row in rows.iter_mut() {
+        let Some(object) = row.as_object_mut() else {
+            continue;
+        };
+        let is_agent = object
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_none_or(|kind| kind == "agent");
+        if !is_agent {
+            continue;
+        }
+        let cfg = object
+            .get("identity_member_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .and_then(|id| configs.get(id));
+        enrich_member_json_with_session_config(object, cfg);
+    }
+    Ok(())
+}
+
+async fn load_latest_catalog_snapshot(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Option<agents::AgentSessionControlsSnapshot> {
+    if let Ok(Some(snapshot)) =
+        crate::read_matching_capability_catalog_for_defaults(pool, agent_id).await
+    {
+        return Some(snapshot);
+    }
+    let raw: Option<String> = sqlx::query_scalar(
+        r#"SELECT controls_json
+           FROM agent_capability_catalog
+           WHERE agent_type = ?
+           ORDER BY retrieved_at DESC, generation DESC
+           LIMIT 1"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    raw.and_then(|json_str| serde_json::from_str(&json_str).ok())
+}
+
+fn is_thinking_option(opt: &agents::AgentSessionConfigOption) -> bool {
+    opt.category.as_deref() == Some("thought_level")
+        || matches!(
+            opt.key.as_str(),
+            "effort" | "reasoning_effort" | "thought_level" | "thinking_level" | "thinking"
+        )
+}
+
+fn is_model_option(opt: &agents::AgentSessionConfigOption) -> bool {
+    opt.category.as_deref() == Some("model") || opt.key == "model"
+}
+
+pub async fn resolve_agent_thinking_option_key(
+    pool: &SqlitePool,
+    agent_id: Option<&str>,
+    caller_id: Option<Uuid>,
+) -> String {
+    let resolved_raw = match agent_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(raw) => Some(raw.to_string()),
+        None => match caller_id {
+            Some(cid) => load_session(pool, cid)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.agent_id),
+            None => None,
+        },
+    };
+    let Some(raw) = resolved_raw else {
+        return "effort".to_string();
+    };
+    let Ok(parsed) = AgentId::parse(&raw) else {
+        return "effort".to_string();
+    };
+    if let Some(snapshot) = load_latest_catalog_snapshot(pool, &parsed).await
+        && let Some(opt) = snapshot
+            .config_options
+            .iter()
+            .find(|opt| is_thinking_option(opt))
+    {
+        return opt.key.clone();
+    }
+    "effort".to_string()
+}
+
+/// Merge `base` config values with optional `config_values` overrides, `model`,
+/// and `thinking_level`, writing the thinking value under `thinking_option_key`
+/// and removing stale thinking synonym keys when `thinking_level` is set.
+pub fn merge_bot_config_values(
+    base: Option<&Value>,
+    extra_config_values: Option<&Value>,
+    model: Option<&str>,
+    thinking_level: Option<&str>,
+    thinking_option_key: &str,
+) -> Value {
+    let mut map = base
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(extra) = extra_config_values.and_then(Value::as_object) {
+        for (k, v) in extra {
+            map.insert(k.clone(), v.clone());
+        }
+    }
+    if let Some(model) = model.map(str::trim).filter(|s| !s.is_empty()) {
+        map.insert("model".to_string(), json!(model));
+    }
+    if let Some(level) = thinking_level.map(str::trim).filter(|s| !s.is_empty()) {
+        for key in THINKING_CONFIG_KEYS {
+            map.remove(*key);
+        }
+        let target_key = if thinking_option_key.trim().is_empty() {
+            "effort"
+        } else {
+            thinking_option_key.trim()
+        };
+        map.insert(target_key.to_string(), json!(level));
+    }
+    Value::Object(map)
+}
+
+/// Inspect installed/configured agent runtimes and their advertised modes,
+/// models, thinking levels (reasoning effort), and session config options.
+pub async fn list_available_bot_agents(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    agent_id_filter: Option<&str>,
+) -> Result<Value, CollaborationError> {
+    let caller_agent_id = load_session(pool, caller_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|s| s.agent_id);
+    let filter = agent_id_filter
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let managed_views =
+        services::services::agent_management::AgentManagementApplicationService::new(pool.clone())
+            .list()
+            .await
+            .unwrap_or_default();
+
+    let mut seen_ids = std::collections::HashSet::<String>::new();
+    let mut entries = Vec::<Value>::new();
+
+    for view in managed_views {
+        let id_str = view.agent_id.as_str().to_string();
+        if let Some(wanted) = filter {
+            if !id_str.eq_ignore_ascii_case(wanted) {
+                continue;
+            }
+        }
+        seen_ids.insert(id_str.clone());
+        let entry = build_bot_agent_catalog_entry(
+            pool,
+            &view.agent_id,
+            &view.display_name,
+            &view.description,
+            view.enabled,
+            serde_json::to_value(&view.lifecycle).unwrap_or_else(|_| json!("unknown")),
+            serde_json::to_value(&view.authentication).unwrap_or_else(|_| json!("unknown")),
+        )
+        .await;
+        entries.push(entry);
+    }
+
+    // Fallback: include any agent_type present in `agent_capability_catalog`
+    // that was not already in `agent_membership` (e.g. lightweight test DBs).
+    let extra_catalog_agents: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT agent_type FROM agent_capability_catalog ORDER BY agent_type",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let profiles = agents::BuiltInProfileCatalog::management();
+    for raw_id in extra_catalog_agents {
+        if seen_ids.contains(&raw_id) {
+            continue;
+        }
+        if let Some(wanted) = filter {
+            if !raw_id.eq_ignore_ascii_case(wanted) {
+                continue;
+            }
+        }
+        let Ok(parsed_id) = AgentId::parse(&raw_id) else {
+            continue;
+        };
+        seen_ids.insert(raw_id.clone());
+        let profile = profiles.profile(&parsed_id);
+        let display_name = profile
+            .map(|p| p.display_name.to_string())
+            .unwrap_or_else(|| raw_id.clone());
+        let description = profile
+            .map(|p| p.description.to_string())
+            .unwrap_or_default();
+        let entry = build_bot_agent_catalog_entry(
+            pool,
+            &parsed_id,
+            &display_name,
+            &description,
+            true,
+            json!("ready"),
+            json!("authenticated"),
+        )
+        .await;
+        entries.push(entry);
+    }
+
+    Ok(json!({
+        "caller_agent_id": caller_agent_id,
+        "agents": entries,
+    }))
+}
+
+async fn build_bot_agent_catalog_entry(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    display_name: &str,
+    description: &str,
+    enabled: bool,
+    lifecycle: Value,
+    authentication: Value,
+) -> Value {
+    let snapshot = load_latest_catalog_snapshot(pool, agent_id).await;
+    let defaults = db::models::agent_management::SessionDefaultRepository::new(pool.clone())
+        .list_for_agent(agent_id)
+        .await
+        .unwrap_or_default();
+    let mut default_mode_id: Option<String> = None;
+    let mut default_config_map = serde_json::Map::new();
+    for record in defaults {
+        let parsed = serde_json::from_str::<Value>(&record.value_json)
+            .unwrap_or_else(|_| Value::String(record.value_json.clone()));
+        if record.option_id == "mode" {
+            default_mode_id = config_string_value(Some(&parsed));
+        } else {
+            default_config_map.insert(record.option_id, parsed);
+        }
+    }
+    let default_config_values = Value::Object(default_config_map);
+    let (default_model, default_thinking) = extract_model_and_thinking(&default_config_values);
+
+    let Some(snapshot) = snapshot else {
+        return json!({
+            "agent_id": agent_id.as_str(),
+            "display_name": display_name,
+            "description": description,
+            "enabled": enabled,
+            "lifecycle": lifecycle,
+            "authentication": authentication,
+            "catalog_available": false,
+            "current_mode": default_mode_id,
+            "default_mode_id": default_mode_id,
+            "modes": [],
+            "model_option_key": Value::Null,
+            "current_model": default_model,
+            "models": [],
+            "thinking_option_key": Value::Null,
+            "current_thinking_level": default_thinking,
+            "thinking_levels": [],
+            "thinking_dependency": Value::Null,
+            "default_config_values": default_config_values,
+            "config_options": [],
+        });
+    };
+
+    let modes: Vec<Value> = snapshot
+        .modes
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id,
+                "label": m.label,
+                "description": m.description,
+            })
+        })
+        .collect();
+    let current_mode = default_mode_id
+        .clone()
+        .or_else(|| snapshot.current_mode.clone());
+
+    let model_opt = snapshot
+        .config_options
+        .iter()
+        .find(|opt| is_model_option(opt));
+    let model_option_key = model_opt.map(|opt| opt.key.clone());
+    let current_model = default_model.or_else(|| {
+        model_opt.and_then(|opt| config_string_value(opt.value.as_ref()))
+    });
+    let models: Vec<Value> = model_opt
+        .map(|opt| {
+            opt.choices
+                .iter()
+                .map(|c| {
+                    json!({
+                        "value": c.value,
+                        "label": c.label,
+                        "description": c.description,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let thinking_opt = snapshot
+        .config_options
+        .iter()
+        .find(|opt| is_thinking_option(opt));
+    let thinking_option_key = thinking_opt.map(|opt| opt.key.clone());
+    let current_thinking_level = default_thinking.or_else(|| {
+        thinking_opt.and_then(|opt| config_string_value(opt.value.as_ref()))
+    });
+    let thinking_levels: Vec<Value> = thinking_opt
+        .map(|opt| {
+            opt.choices
+                .iter()
+                .map(|c| {
+                    json!({
+                        "value": c.value,
+                        "label": c.label,
+                        "description": c.description,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let thinking_dependency = thinking_opt.and_then(|opt| {
+        opt.dependency
+            .as_ref()
+            .and_then(|dep| serde_json::to_value(dep).ok())
+    });
+
+    json!({
+        "agent_id": agent_id.as_str(),
+        "display_name": display_name,
+        "description": description,
+        "enabled": enabled,
+        "lifecycle": lifecycle,
+        "authentication": authentication,
+        "catalog_available": true,
+        "current_mode": current_mode,
+        "default_mode_id": default_mode_id,
+        "modes": modes,
+        "model_option_key": model_option_key,
+        "current_model": current_model,
+        "models": models,
+        "thinking_option_key": thinking_option_key,
+        "current_thinking_level": current_thinking_level,
+        "thinking_levels": thinking_levels,
+        "thinking_dependency": thinking_dependency,
+        "default_config_values": default_config_values,
+        "config_options": snapshot.config_options,
+    })
 }

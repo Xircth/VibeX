@@ -110,6 +110,7 @@ pub(crate) async fn attach_member_activities(
     };
     let (by_conversation, by_identity) = load_roster_activities(pool, rows).await?;
     apply_activities(rows, &by_conversation, &by_identity);
+    attach_member_session_configs_to_rows(pool, rows).await?;
     Ok(())
 }
 
@@ -127,6 +128,7 @@ pub(crate) async fn attach_space_member_activities(
     for space in spaces {
         if let Some(members) = space.get_mut("members").and_then(Value::as_array_mut) {
             apply_activities(members, &by_conversation, &by_identity);
+            attach_member_session_configs_to_rows(pool, members).await?;
         }
     }
     Ok(())

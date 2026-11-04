@@ -260,9 +260,9 @@ pub(crate) async fn member_identity_context_text(
 
     let is_supervisor = is_caller_workspace_supervisor(pool, conversation_id).await?;
     let supervisor_line = if is_supervisor {
-        "- 协作权限身份：你是当前工作区的 **主管（总管）**。你可以调用 `manage_bot(create/update/delete/interrupt)` 管理全区 Bot，调用 `manage_group(create/rename/delete/add_bot/remove_bot/set_lead)` 组建和治理群组，并通过 `post_space_message` 跨会话协同（删除 Bot 或解散群组前必须先 `request_approval`）。"
+        "- 协作权限身份：你是当前工作区的 **主管（总管）**。你可以调用 `manage_bot(list_agents/create/update/delete/interrupt)` 查询可用 Agent/模式/模型/思考等级列表并管理全区 Bot（含配置或切换 `agent_id`、`mode_id`、`model`、`thinking_level` / `effort` 与 `persona_prompt`），调用 `manage_group(create/rename/delete/add_bot/remove_bot/set_lead)` 组建和治理群组，并通过 `post_space_message` 跨会话协同（删除 Bot 或解散群组前必须先 `request_approval`）。"
     } else {
-        "- 协作权限身份：普通成员（创建/删除 Bot、修改其他 Bot 配置、创建/解散群组等高危或全局管理操作仅限主管调用；需要时先调 `list_spaces` 查看 `supervisor_nickname` 并联系主管或 Person）。"
+        "- 协作权限身份：普通成员（创建/删除 Bot、修改其他 Bot 或变更模型/思考等级/人设配置、创建/解散群组等高危或全局管理操作仅限主管调用；需要时先调 `list_spaces` 查看 `supervisor_nickname` 并联系主管或 Person）。"
     };
 
     if group_memberships.is_empty() {

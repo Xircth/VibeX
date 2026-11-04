@@ -164,7 +164,15 @@ fn request_id_seed(request_id: Option<&Value>) -> String {
     String::new()
 }
 
-fn collaboration_needs_operation_id(name: &str) -> bool {
+fn collaboration_needs_operation_id(name: &str, arguments: &Value) -> bool {
+    if name == "manage_bot"
+        && matches!(
+            arguments.get("action").and_then(Value::as_str).map(str::trim),
+            Some("list_agents" | "list_options")
+        )
+    {
+        return false;
+    }
     matches!(
         name,
         "create_conversation"
@@ -444,7 +452,7 @@ impl Companion {
             return;
         }
         let mut arguments = arguments;
-        if collaboration_needs_operation_id(&name) {
+        if collaboration_needs_operation_id(&name, &arguments) {
             ensure_operation_id(&mut arguments, meta.as_ref(), id.as_ref());
         }
         let message = match self.build_message(&name, &arguments, meta.as_ref()) {
@@ -1583,6 +1591,26 @@ mod tests {
             Some(&json!(1)),
         );
         assert_eq!(args["operation_id"], "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn manage_bot_list_agents_does_not_need_operation_id() {
+        assert!(!collaboration_needs_operation_id(
+            "manage_bot",
+            &json!({"action": "list_agents"})
+        ));
+        assert!(!collaboration_needs_operation_id(
+            "manage_bot",
+            &json!({"action": "list_options"})
+        ));
+        assert!(collaboration_needs_operation_id(
+            "manage_bot",
+            &json!({"action": "create", "nickname": "Bot"})
+        ));
+        assert!(collaboration_needs_operation_id(
+            "manage_bot",
+            &json!({"action": "update"})
+        ));
     }
 
     #[test]

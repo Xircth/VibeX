@@ -462,18 +462,26 @@ pub async fn space_member_tool_value(
     pool: &SqlitePool,
     member: &MemberRecord,
 ) -> Result<Value, CollaborationError> {
-    Ok(json!({
+    let identity_member_id =
+        identity_member_id_for_conversation(pool, member.conversation_id.as_deref()).await?;
+    let mut value = json!({
         "member_id": member.member_id,
-        "identity_member_id": identity_member_id_for_conversation(
-            pool,
-            member.conversation_id.as_deref(),
-        )
-        .await?,
+        "identity_member_id": identity_member_id,
         "conversation_id": member.conversation_id,
         "nickname": member.nickname,
         "kind": member.kind,
         "visible_to_agents": member.visible_to_agents,
-    }))
+    });
+    if member.kind == "agent" {
+        let cfg = match identity_member_id.as_deref() {
+            Some(id) => load_member_session_config(pool, id).await?,
+            None => None,
+        };
+        if let Some(object) = value.as_object_mut() {
+            enrich_member_json_with_session_config(object, cfg.as_ref());
+        }
+    }
+    Ok(value)
 }
 
 /// Resolve a target for a caller conversation: `member_id` plus `thread_id`

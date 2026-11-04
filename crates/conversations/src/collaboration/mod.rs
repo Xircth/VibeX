@@ -106,6 +106,8 @@ pub use roles::{
     space_member_tool_value, space_tracks_events, space_workspace_id, sweep_expired_space_events,
     sweep_expired_space_events_before, thread_id_for_conversation, transfer_space_lead,
     try_acquire_member_write, unassigned_space_id, update_role, update_team,
+    THINKING_CONFIG_KEYS, enrich_member_json_with_session_config, extract_model_and_thinking,
+    list_available_bot_agents, merge_bot_config_values, resolve_agent_thinking_option_key,
 };
 pub(crate) use roles::{
     append_space_event, append_space_event_pool, append_space_event_tx, caller_seat, load_space,

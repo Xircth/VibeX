@@ -1613,20 +1613,49 @@ async fn manage_bot_tool(
         bot_ref = nickname.clone();
     }
     match action {
+        "list_agents" | "list_options" => {
+            let agent_filter = optional_arg(arguments, "agent_id");
+            collaboration::list_available_bot_agents(pool, caller_id, agent_filter.as_deref()).await
+        }
         "create" => {
             if nickname.is_empty() {
                 return Err(missing_arg("nickname"));
             }
+            let requested_agent_id = optional_arg(arguments, "agent_id");
+            let model = optional_arg(arguments, "model");
+            let thinking_level = optional_arg(arguments, "thinking_level")
+                .or_else(|| optional_arg(arguments, "effort"));
+            let raw_config_values = arguments.get("config_values").filter(|v| v.is_object());
+            let config_values = if model.is_some()
+                || thinking_level.is_some()
+                || raw_config_values.is_some()
+            {
+                let thinking_key = collaboration::resolve_agent_thinking_option_key(
+                    pool,
+                    requested_agent_id.as_deref(),
+                    Some(caller_id),
+                )
+                .await;
+                Some(collaboration::merge_bot_config_values(
+                    None,
+                    raw_config_values,
+                    model.as_deref(),
+                    thinking_level.as_deref(),
+                    &thinking_key,
+                ))
+            } else {
+                None
+            };
             let created = collaboration::create_space_member(
                 pool,
                 caller_id,
                 collaboration::CreateSpaceMemberRequest {
                     nickname: nickname.clone(),
                     role_id: optional_arg(arguments, "role_id"),
-                    agent_id: optional_arg(arguments, "agent_id"),
+                    agent_id: requested_agent_id,
                     team_id: optional_arg(arguments, "team_id"),
                     mode_id: optional_arg(arguments, "mode_id"),
-                    config_values: arguments.get("config_values").cloned(),
+                    config_values,
                     persona_prompt: optional_arg(arguments, "persona_prompt"),
                     operation_id,
                 },
@@ -1747,7 +1776,17 @@ async fn manage_bot_tool(
             let persona = optional_arg(arguments, "persona_prompt");
             let mode_id = optional_arg(arguments, "mode_id");
             let agent_id = optional_arg(arguments, "agent_id");
-            if nickname.is_empty() && persona.is_none() && mode_id.is_none() && agent_id.is_none() {
+            let model = optional_arg(arguments, "model");
+            let thinking_level = optional_arg(arguments, "thinking_level")
+                .or_else(|| optional_arg(arguments, "effort"));
+            let raw_config_values = arguments.get("config_values").filter(|v| v.is_object());
+            let has_config_mutation = persona.is_some()
+                || mode_id.is_some()
+                || agent_id.is_some()
+                || model.is_some()
+                || thinking_level.is_some()
+                || raw_config_values.is_some();
+            if nickname.is_empty() && !has_config_mutation {
                 return Err(missing_arg("nickname"));
             }
             let target_id = if bot_ref.is_empty() {
@@ -1769,11 +1808,11 @@ async fn manage_bot_tool(
             .await?;
             let is_self = target_id == caller_id
                 || (caller_identity.is_some() && caller_identity == target_identity);
-            if !is_self || persona.is_some() || mode_id.is_some() || agent_id.is_some() {
+            if !is_self || has_config_mutation {
                 collaboration::require_workspace_supervisor(
                     pool,
                     caller_id,
-                    "update another bot or modify persona/agent/mode settings (修改其他 Bot 或变更人设/模型配置)",
+                    "update another bot or modify persona/agent/mode/model/thinking settings (修改其他 Bot 或变更人设/模型/思考程度配置)",
                 )
                 .await?;
             }
@@ -1807,7 +1846,7 @@ async fn manage_bot_tool(
                 .await;
                 result = serde_json::to_value(&member).unwrap_or(result);
             }
-            if persona.is_some() || mode_id.is_some() || agent_id.is_some() {
+            if has_config_mutation {
                 let identity = target_identity.ok_or_else(|| {
                     collaboration::CollaborationError::new("not_found", "member was not found")
                 })?;
@@ -1828,15 +1867,40 @@ async fn manage_bot_tool(
                 if let Some(agent_id) = agent_id {
                     config.agent_id = Some(agent_id);
                 }
+                if model.is_some() || thinking_level.is_some() || raw_config_values.is_some() {
+                    let thinking_key = collaboration::resolve_agent_thinking_option_key(
+                        pool,
+                        config.agent_id.as_deref(),
+                        Some(target_id),
+                    )
+                    .await;
+                    config.config_values = collaboration::merge_bot_config_values(
+                        Some(&config.config_values),
+                        raw_config_values,
+                        model.as_deref(),
+                        thinking_level.as_deref(),
+                        &thinking_key,
+                    );
+                }
                 let saved =
                     collaboration::set_member_session_config(pool, &identity, config).await?;
                 if let Some(object) = result.as_object_mut() {
                     object.insert("identity_member_id".into(), json!(identity));
+                    collaboration::enrich_member_json_with_session_config(object, Some(&saved));
                     object.insert(
                         "session_config".into(),
                         serde_json::to_value(saved).unwrap_or(json!({})),
                     );
                 }
+            } else if let Some(ref tid) = target_identity
+                && let Ok(Some(existing_cfg)) =
+                    collaboration::load_member_session_config(pool, tid).await
+                && let Some(object) = result.as_object_mut()
+            {
+                collaboration::enrich_member_json_with_session_config(
+                    object,
+                    Some(&existing_cfg),
+                );
             }
             Ok(result)
         }
@@ -2230,5 +2294,191 @@ mod tests {
         let text = payload["text"].as_str().expect("input text");
         assert!(text.contains("Lander 刚为用户创建了你。"), "{text}");
         assert!(!text.contains("<vibex-private-bootstrap>"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn manage_bot_list_agents_and_model_thinking_create_update_round_trip() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("sqlite memory pool");
+        sqlx::migrate!("../../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+
+        let workspace_id = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("fk off");
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace_id)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .expect("insert workspace");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("fk on");
+
+        // Seed capability catalog for codex with reasoning_effort as thinking option key
+        let codex_controls = json!({
+            "modes": [
+                { "id": "auto", "label": "Auto", "description": "Default mode" },
+                { "id": "plan", "label": "Plan", "description": "Plan mode" }
+            ],
+            "current_mode": "auto",
+            "config_options": [
+                {
+                    "key": "model",
+                    "label": "Model",
+                    "category": "model",
+                    "value": "gpt-5.3-codex",
+                    "choices": [
+                        { "value": "gpt-5.3-codex", "label": "GPT-5.3-Codex" },
+                        { "value": "gpt-5.4", "label": "GPT-5.4" }
+                    ]
+                },
+                {
+                    "key": "reasoning_effort",
+                    "label": "Reasoning Effort",
+                    "category": "thought_level",
+                    "value": "medium",
+                    "choices": [
+                        { "value": "low", "label": "Low" },
+                        { "value": "medium", "label": "Medium" },
+                        { "value": "high", "label": "High" },
+                        { "value": "xhigh", "label": "Extra High" }
+                    ]
+                }
+            ]
+        });
+        sqlx::query(
+            r#"INSERT INTO agent_capability_catalog
+               (agent_type, fingerprint, controls_json, generation, retrieved_at)
+               VALUES ('codex', 'fp-test', ?, 1, datetime('now'))"#,
+        )
+        .bind(codex_controls.to_string())
+        .execute(&pool)
+        .await
+        .expect("insert capability catalog");
+
+        let supervisor = collaboration::host_create_space_member(
+            &pool,
+            collaboration::HostCreateSpaceMember {
+                workspace_id,
+                space_id: None,
+                nickname: "Lander".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: Some("主管 Bot".to_string()),
+                mode_id: None,
+                config_values: Some(json!({ "is_supervisor": true })),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .expect("create supervisor");
+        let caller_id =
+            Uuid::parse_str(supervisor.conversation_id.as_deref().unwrap()).expect("caller uuid");
+
+        let delivery = collaboration::DeliveryContext::default();
+        let on_space_changed = None;
+
+        // 1. Test list_agents
+        let listed = manage_bot_tool(
+            &pool,
+            caller_id,
+            &json!({
+                "action": "list_agents",
+                "agent_id": "codex"
+            }),
+            Uuid::new_v4(),
+            &delivery,
+            &on_space_changed,
+        )
+        .await
+        .expect("manage_bot list_agents");
+        assert_eq!(listed["caller_agent_id"], "codex");
+        let agents = listed["agents"].as_array().expect("agents array");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0]["agent_id"], "codex");
+        assert_eq!(agents[0]["catalog_available"], true);
+        assert_eq!(agents[0]["model_option_key"], "model");
+        assert_eq!(agents[0]["thinking_option_key"], "reasoning_effort");
+        assert_eq!(agents[0]["models"].as_array().unwrap().len(), 2);
+        assert_eq!(agents[0]["thinking_levels"].as_array().unwrap().len(), 4);
+
+        // 2. Test create with model and thinking_level
+        let created = manage_bot_tool(
+            &pool,
+            caller_id,
+            &json!({
+                "action": "create",
+                "nickname": "Coder",
+                "agent_id": "codex",
+                "mode_id": "auto",
+                "model": "gpt-5.4",
+                "thinking_level": "high",
+                "persona_prompt": "资深编码助手"
+            }),
+            Uuid::new_v4(),
+            &delivery,
+            &on_space_changed,
+        )
+        .await
+        .expect("manage_bot create with model & thinking_level");
+        assert_eq!(created["agent_id"], "codex");
+        assert_eq!(created["mode_id"], "auto");
+        assert_eq!(created["model"], "gpt-5.4");
+        assert_eq!(created["thinking_level"], "high");
+        assert_eq!(created["config_values"]["model"], "gpt-5.4");
+        assert_eq!(created["config_values"]["reasoning_effort"], "high");
+
+        let identity_member_id = created["identity_member_id"]
+            .as_str()
+            .expect("identity_member_id")
+            .to_string();
+        let space_id = created["space_id"].as_str().expect("space_id").to_string();
+
+        // 3. Test list_spaces_for_caller returns model, thinking_level, agent_id, mode_id
+        let spaces = collaboration::list_spaces_for_caller(&pool, caller_id, Some(&space_id))
+            .await
+            .expect("list_spaces_for_caller");
+        let members = spaces["members"].as_array().expect("space members");
+        let coder_row = members
+            .iter()
+            .find(|m| m["identity_member_id"] == identity_member_id)
+            .expect("find Coder in list_spaces");
+        assert_eq!(coder_row["agent_id"], "codex");
+        assert_eq!(coder_row["mode_id"], "auto");
+        assert_eq!(coder_row["model"], "gpt-5.4");
+        assert_eq!(coder_row["thinking_level"], "high");
+
+        // 4. Test update with effort alias and new model
+        let updated = manage_bot_tool(
+            &pool,
+            caller_id,
+            &json!({
+                "action": "update",
+                "space_id": space_id,
+                "bot_id": identity_member_id,
+                "model": "gpt-5.3-codex",
+                "effort": "xhigh"
+            }),
+            Uuid::new_v4(),
+            &delivery,
+            &on_space_changed,
+        )
+        .await
+        .expect("manage_bot update model & effort");
+        assert_eq!(updated["model"], "gpt-5.3-codex");
+        assert_eq!(updated["thinking_level"], "xhigh");
+        assert_eq!(updated["config_values"]["model"], "gpt-5.3-codex");
+        assert_eq!(updated["config_values"]["reasoning_effort"], "xhigh");
     }
 }

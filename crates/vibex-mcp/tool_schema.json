@@ -410,7 +410,7 @@
   },
   {
     "name": "manage_bot",
-    "description": "Create, update, delete, or interrupt a collaboration bot. Permission rules: action=create, action=delete, and updating another bot or changing persona_prompt/mode_id/agent_id require the workspace supervisor (主管/总管) identity; ordinary bots can only call action=update to rename themselves. The supervisor bot itself cannot be deleted. action=create makes a bot identity plus its private chat (check list_spaces first to avoid duplicates). action=delete permanently removes another bot (call request_approval first). action=interrupt stops another group member's in-flight turn (same-group peers or the workspace supervisor). bot_id accepts the identity id, per-space seat id, conversation id, or nickname.",
+    "description": "Create, update, delete, interrupt a collaboration bot, or inspect available agent runtimes and options. Permission rules: action=list_agents is read-only and open to any bot; action=create, action=delete, and updating another bot or changing persona_prompt/mode_id/agent_id/model/thinking_level/config_values require the workspace supervisor (主管/总管) identity; ordinary bots can only call action=update to rename themselves. The supervisor bot itself cannot be deleted. action=list_agents returns installed agent runtimes and their supported modes, models, thinking levels (reasoning effort), and config options. action=create makes a bot identity plus its private chat (check list_spaces first to avoid duplicates). action=delete permanently removes another bot (call request_approval first). action=interrupt stops another group member's in-flight turn (same-group peers or the workspace supervisor). bot_id accepts the identity id, per-space seat id, conversation id, or nickname.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -423,9 +423,10 @@
             "create",
             "update",
             "delete",
-            "interrupt"
+            "interrupt",
+            "list_agents"
           ],
-          "description": "create | update | delete | interrupt"
+          "description": "create | update | delete | interrupt | list_agents"
         },
         "bot_id": {
           "type": "string",
@@ -437,17 +438,33 @@
         },
         "space_id": {
           "type": "string",
-          "description": "Group id, unassigned space id, or direct:<id>. Required for update, delete, and interrupt."
+          "description": "Group id, unassigned space id, or direct:<id>. Required for update, delete, and interrupt; optional for create and list_agents."
         },
         "agent_id": {
           "type": "string",
-          "description": "Agent runtime for create/update. Defaults to the calling session's agent on create."
+          "description": "Agent runtime for create/update, or optional filter for list_agents. Defaults to the calling session's agent on create."
         },
         "persona_prompt": {
           "type": "string"
         },
         "mode_id": {
           "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier for the bot (for 'create' and 'update'). Use action='list_agents' to inspect supported models per agent."
+        },
+        "thinking_level": {
+          "type": "string",
+          "description": "Thinking / reasoning effort level for the bot, e.g. 'low', 'medium', 'high', 'max', 'xhigh' (for 'create' and 'update'). Use action='list_agents' to inspect supported thinking levels per agent."
+        },
+        "effort": {
+          "type": "string",
+          "description": "Alias of thinking_level for setting reasoning/thinking effort on 'create' and 'update'."
+        },
+        "config_values": {
+          "type": "object",
+          "description": "Additional key-value session config overrides for the bot (for 'create' and 'update')."
         },
         "reason": {
           "type": "string",

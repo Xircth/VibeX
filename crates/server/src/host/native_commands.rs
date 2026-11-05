@@ -81,36 +81,47 @@ fn invalidate(channel: &str) {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentIdArgs {
+    #[serde(alias = "agent_id")]
     agent_id: AgentId,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CatalogArgs {
+    #[serde(alias = "agent_id")]
     agent_id: AgentId,
+    #[serde(alias = "provider_id")]
     provider_id: Option<String>,
+    #[serde(alias = "api_url")]
     api_url: Option<String>,
+    #[serde(alias = "api_key")]
     api_key: Option<String>,
+    #[serde(alias = "force_refresh")]
     force_refresh: Option<bool>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KimiCatalogArgs {
+    #[serde(default, alias = "base_url")]
     base_url: String,
+    #[serde(default, alias = "api_key")]
     api_key: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DevicePollArgs {
+    #[serde(alias = "device_auth_id")]
     device_auth_id: String,
+    #[serde(alias = "user_code")]
     user_code: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PluginSpecArgs {
+    #[serde(alias = "agent_id")]
     agent_id: Option<AgentId>,
     spec: Option<String>,
     name: Option<String>,
@@ -120,14 +131,16 @@ struct PluginSpecArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderIdArgs {
+    #[serde(alias = "agent_id")]
     agent_id: Option<AgentId>,
+    #[serde(alias = "provider_id")]
     provider_id: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DshDiscoverArgs {
-    #[serde(alias = "base_url")]
+    #[serde(default, alias = "base_url")]
     base_url: String,
     #[serde(alias = "api_key")]
     api_key: Option<String>,
@@ -153,7 +166,7 @@ pub async fn dispatch_codex_poll_device_code(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: DevicePollArgs = parse(args)?;
+    let args: DevicePollArgs = parse_request(args)?;
     let agent_id = AgentId::parse("codex").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
@@ -199,15 +212,38 @@ pub async fn dispatch_model_catalog(
             )
         }
         "kimi_model_catalog" => {
-            let args: KimiCatalogArgs = parse(args)?;
+            let args: KimiCatalogArgs = parse_request(args)?;
+            let agent_id = AgentId::parse("kimi_code").map_err(internal_error)?;
+            let store = provider_store_path();
+            let home = require_home()?;
+            let env = env_for(pool, &agent_id).await?;
+            let base_url = if args.base_url.trim().is_empty() {
+                "https://api.moonshot.cn/v1".to_string()
+            } else {
+                args.base_url.trim().to_string()
+            };
+            let api_key = if args.api_key.trim().is_empty() {
+                model_providers::resolve_probe_api_key_from(
+                    &store,
+                    &agent_id,
+                    None,
+                    None,
+                    Some(&home),
+                    Some(&env),
+                )
+                .await
+                .map_err(bad)?
+            } else {
+                args.api_key
+            };
             serialize(
-                model_catalogs::kimi(&args.base_url, &args.api_key)
+                model_catalogs::kimi(&base_url, &api_key)
                     .await
                     .map_err(bad)?,
             )
         }
         "codex_model_catalog" => {
-            let args: CatalogArgs = parse(args).unwrap_or(CatalogArgs {
+            let args: CatalogArgs = parse_request(args).unwrap_or(CatalogArgs {
                 agent_id: AgentId::parse("codex").map_err(internal_error)?,
                 provider_id: None,
                 api_url: None,
@@ -229,18 +265,18 @@ pub async fn dispatch_model_catalog(
             )
         }
         _ => {
-            let args: CatalogArgs = parse(args)?;
+            let args: CatalogArgs = parse_request(args)?;
             let store = provider_store_path();
             let home = require_home()?;
             let env = env_for(pool, &args.agent_id).await?;
-            let api_url = args.api_url.unwrap_or_default();
-            let api_key = model_providers::resolve_probe_api_key_from(
+            let (api_url, api_key) = model_providers::resolve_probe_target(
                 &store,
+                &home,
+                &env,
                 &args.agent_id,
                 args.provider_id.as_deref(),
+                args.api_url.as_deref(),
                 args.api_key.as_deref(),
-                Some(&home),
-                Some(&env),
             )
             .await
             .map_err(bad)?;
@@ -269,7 +305,7 @@ pub async fn dispatch_codex_catalog_apply(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: CodexModelCatalogConfigRequest = parse(args)?;
+    let request: CodexModelCatalogConfigRequest = parse_request(args)?;
     let agent_id = AgentId::parse("codex").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
     let program = management::resolve_management_program(pool, &agent_id, "codex", &env).await;
@@ -290,7 +326,7 @@ pub async fn dispatch_model_providers(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: AgentIdArgs = parse(args)?;
+    let args: AgentIdArgs = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &args.agent_id).await?;
     let native_home = native_home_for(&home, &env, &args.agent_id);
@@ -309,7 +345,7 @@ pub async fn dispatch_model_provider_save(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<(AgentId, Value), ApplicationError> {
-    let request: AgentModelProviderSaveRequest = parse(args)?;
+    let request: AgentModelProviderSaveRequest = parse_request(args)?;
     let agent_id = request.agent_id.clone();
     let home = require_home()?;
     let env = env_for(pool, &agent_id).await?;
@@ -334,10 +370,12 @@ pub async fn dispatch_model_provider_delete(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct DeleteArgs {
+        #[serde(alias = "agent_id")]
         agent_id: AgentId,
+        #[serde(alias = "provider_id")]
         provider_id: String,
     }
-    let args: DeleteArgs = parse(args)?;
+    let args: DeleteArgs = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &args.agent_id).await?;
     let store_path = provider_store_path();
@@ -375,10 +413,12 @@ pub async fn dispatch_model_provider_bind(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct BindArgs {
+        #[serde(alias = "agent_id")]
         agent_id: AgentId,
+        #[serde(alias = "provider_id")]
         provider_id: Option<String>,
     }
-    let args: BindArgs = parse(args)?;
+    let args: BindArgs = parse_request(args)?;
     let provider_id = args
         .provider_id
         .map(|value| value.trim().to_string())
@@ -423,7 +463,47 @@ pub async fn dispatch_model_provider_probe(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    dispatch_model_catalog(pool, "agent_model_provider_catalog", args).await
+    let args: CatalogArgs = parse_request(args)?;
+    let store = provider_store_path();
+    let home = require_home()?;
+    let env = env_for(pool, &args.agent_id).await?;
+    let started = std::time::Instant::now();
+    let (api_url, api_key) = model_providers::resolve_probe_target(
+        &store,
+        &home,
+        &env,
+        &args.agent_id,
+        args.provider_id.as_deref(),
+        args.api_url.as_deref(),
+        args.api_key.as_deref(),
+    )
+    .await
+    .map_err(bad)?;
+    let result = model_catalogs::provider(args.agent_id, &api_url, &api_key).await;
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    let view = match result {
+        Ok(catalog) => {
+            if let Some(error) = catalog.error {
+                api_types::AgentModelProviderProbeView {
+                    ok: false,
+                    latency_ms,
+                    error: Some(error),
+                }
+            } else {
+                api_types::AgentModelProviderProbeView {
+                    ok: true,
+                    latency_ms,
+                    error: None,
+                }
+            }
+        }
+        Err(error) => api_types::AgentModelProviderProbeView {
+            ok: false,
+            latency_ms,
+            error: Some(error.to_string()),
+        },
+    };
+    serialize(view)
 }
 
 pub async fn dispatch_model_provider_import_preview(
@@ -433,10 +513,11 @@ pub async fn dispatch_model_provider_import_preview(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct ImportPreviewArgs {
+        #[serde(alias = "agent_id")]
         agent_id: AgentId,
         source: AgentModelProviderImportSource,
     }
-    let args: ImportPreviewArgs = parse(args)?;
+    let args: ImportPreviewArgs = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &args.agent_id).await?;
     serialize(
@@ -456,7 +537,7 @@ pub async fn dispatch_model_provider_import(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<(AgentId, Value), ApplicationError> {
-    let request: AgentModelProviderImportRequest = parse(args)?;
+    let request: AgentModelProviderImportRequest = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &request.agent_id).await?;
     let view = model_providers::apply_import(
@@ -482,7 +563,7 @@ pub async fn dispatch_pi_credentials_save(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: PiCredentialsSaveRequest = parse(args)?;
+    let request: PiCredentialsSaveRequest = parse_request(args)?;
     let home = require_home()?;
     let view = pi_configuration::save_credentials(pool, &home, request)
         .await
@@ -495,7 +576,7 @@ pub async fn dispatch_pi_runtime_save(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: PiRuntimeSaveRequest = parse(args)?;
+    let request: PiRuntimeSaveRequest = parse_request(args)?;
     pi_configuration::save_runtime(pool, request)
         .await
         .map_err(bad)?;
@@ -504,7 +585,7 @@ pub async fn dispatch_pi_runtime_save(
 }
 
 pub async fn dispatch_pi_command_validate(args: Value) -> Result<Value, ApplicationError> {
-    let args: CommandArgs = parse(args)?;
+    let args: CommandArgs = parse_request(args)?;
     serialize(pi_configuration::validate_command(&args.command).await)
 }
 
@@ -512,7 +593,7 @@ pub async fn dispatch_pi_project_trust_state(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: PiTrustWorkspaceRequest = parse(args)?;
+    let request: PiTrustWorkspaceRequest = parse_request(args)?;
     let home = require_home()?;
     serialize(pi_trust::state(pool, &home, request).await.map_err(bad)?)
 }
@@ -521,7 +602,7 @@ pub async fn dispatch_pi_project_trust_set(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: PiTrustSetRequest = parse(args)?;
+    let request: PiTrustSetRequest = parse_request(args)?;
     let home = require_home()?;
     serialize(pi_trust::set(pool, &home, request).await.map_err(bad)?)
 }
@@ -530,7 +611,7 @@ pub async fn dispatch_pi_project_trust_acknowledge(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: PiTrustWorkspaceRequest = parse(args)?;
+    let request: PiTrustWorkspaceRequest = parse_request(args)?;
     let home = require_home()?;
     serialize(
         pi_trust::acknowledge(pool, &home, request)
@@ -553,7 +634,7 @@ pub async fn dispatch_pi_plugin_add(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args
         .spec
         .or(args.name)
@@ -570,7 +651,7 @@ pub async fn dispatch_pi_plugin_remove(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args
         .spec
         .or(args.name)
@@ -606,11 +687,27 @@ pub async fn dispatch_dsh_provider_save(
 ) -> Result<Value, ApplicationError> {
     let request: DshProviderSaveRequest = parse_request(args)?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
-    let env = env_for(pool, &agent_id).await?;
+    let mut env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
     let paths = dsh_configuration::resolve_paths(&home, &env);
+    let env_updates = dsh_configuration::default_env_updates(&request, &env);
     let (view, mutations) = dsh_configuration::save_provider(&paths, request).map_err(bad)?;
     apply_native_file_mutations(&mutations).await.map_err(bad)?;
+    if !env_updates.is_empty() {
+        for (key, value) in env_updates {
+            match value {
+                Some(val) if !val.trim().is_empty() => {
+                    env.insert(key, val);
+                }
+                _ => {
+                    env.remove(&key);
+                }
+            }
+        }
+        apply_built_in_auth_mode_policy(&agent_id, &mut env);
+        management::persist_agent_environment(pool, &agent_id, &env).await?;
+    }
+    let _ = management::persist_observed_authentication(pool, &agent_id).await;
     invalidate("agent-management-snapshot-invalidated");
     serialize(view)
 }
@@ -619,7 +716,7 @@ pub async fn dispatch_dsh_provider_delete(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: ProviderIdArgs = parse(args)?;
+    let args: ProviderIdArgs = parse_request(args)?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
@@ -627,6 +724,7 @@ pub async fn dispatch_dsh_provider_delete(
     let (view, mutations) =
         dsh_configuration::delete_provider(&paths, &args.provider_id).map_err(bad)?;
     apply_native_file_mutations(&mutations).await.map_err(bad)?;
+    let _ = management::persist_observed_authentication(pool, &agent_id).await;
     invalidate("agent-management-snapshot-invalidated");
     serialize(view)
 }
@@ -646,6 +744,7 @@ pub async fn dispatch_dsh_provider_discover(
             &args.base_url,
             args.api_key.as_deref(),
             args.provider_id.as_deref(),
+            &env,
         )
         .await
         .map_err(bad)?,
@@ -664,7 +763,7 @@ pub async fn dispatch_dsh_plugin_add(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args.spec.or(args.name).ok_or_else(|| bad("缺少插件"))?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
@@ -681,7 +780,7 @@ pub async fn dispatch_dsh_plugin_remove(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args.spec.or(args.name).ok_or_else(|| bad("缺少插件"))?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
@@ -705,7 +804,7 @@ pub async fn dispatch_grok_plugin_add(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args.spec.or(args.name).ok_or_else(|| bad("缺少插件"))?;
     let agent_id = AgentId::parse("grok").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
@@ -721,7 +820,7 @@ pub async fn dispatch_grok_plugin_remove(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args.spec.or(args.name).ok_or_else(|| bad("缺少插件"))?;
     let agent_id = AgentId::parse("grok").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
@@ -746,7 +845,7 @@ pub async fn dispatch_opencode_plugin_install(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args).unwrap_or(PluginSpecArgs {
+    let args: PluginSpecArgs = parse_request(args).unwrap_or(PluginSpecArgs {
         agent_id: None,
         spec: None,
         name: None,
@@ -765,7 +864,7 @@ pub async fn dispatch_opencode_plugin_add(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let spec = args
         .spec
         .or(args.name)
@@ -783,7 +882,7 @@ pub async fn dispatch_opencode_plugin_uninstall(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: PluginSpecArgs = parse(args)?;
+    let args: PluginSpecArgs = parse_request(args)?;
     let name = args.name.or(args.spec).ok_or_else(|| bad("缺少插件名"))?;
     let agent_id = coding_agent_id(args.agent_id)?;
     let paths = coding_cli_paths(pool, &agent_id).await?;
@@ -798,9 +897,10 @@ pub async fn dispatch_opencode_provider_catalog(args: Value) -> Result<Value, Ap
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Refresh {
+        #[serde(alias = "force_refresh")]
         force_refresh: Option<bool>,
     }
-    let args: Refresh = parse(args).unwrap_or(Refresh {
+    let args: Refresh = parse_request(args).unwrap_or(Refresh {
         force_refresh: Some(false),
     });
     serialize(
@@ -839,7 +939,7 @@ pub async fn dispatch_opencode_provider_disconnect(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: ProviderIdArgs = parse(args)?;
+    let args: ProviderIdArgs = parse_request(args)?;
     let agent_id = coding_agent_id(args.agent_id)?;
     mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
         opencode_providers::disconnect_opencode_provider(auth, config, &args.provider_id)
@@ -854,11 +954,13 @@ pub async fn dispatch_opencode_provider_set_enabled(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct SetEnabledArgs {
+        #[serde(alias = "agent_id")]
         agent_id: Option<AgentId>,
+        #[serde(alias = "provider_id")]
         provider_id: String,
         enabled: bool,
     }
-    let args: SetEnabledArgs = parse(args)?;
+    let args: SetEnabledArgs = parse_request(args)?;
     let agent_id = coding_agent_id(args.agent_id)?;
     opencode_providers::validate_opencode_provider_id(&args.provider_id).map_err(bad)?;
     mutate_coding_cli_documents(pool, &agent_id, |auth, config| {
@@ -940,9 +1042,10 @@ fn optional_coding_agent_id(args: Value) -> Result<AgentId, ApplicationError> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct OptionalAgent {
+        #[serde(alias = "agent_id")]
         agent_id: Option<AgentId>,
     }
-    let parsed: OptionalAgent = parse(args).unwrap_or(OptionalAgent { agent_id: None });
+    let parsed: OptionalAgent = parse_request(args).unwrap_or(OptionalAgent { agent_id: None });
     coding_agent_id(parsed.agent_id)
 }
 
@@ -990,7 +1093,7 @@ pub async fn dispatch_native_config_read(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let args: AgentIdArgs = parse(args)?;
+    let args: AgentIdArgs = parse_request(args)?;
     serialize(native_config_view(pool, args.agent_id).await?)
 }
 
@@ -998,7 +1101,7 @@ pub async fn dispatch_native_config_write(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: api_types::AgentNativeConfigPatchRequest = parse(args)?;
+    let request: api_types::AgentNativeConfigPatchRequest = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &request.agent_id).await?;
     let recorded = sqlx::query_scalar::<_, String>(
@@ -1031,7 +1134,7 @@ pub async fn dispatch_native_config_file_write(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: api_types::AgentNativeConfigFileWriteRequest = parse(args)?;
+    let request: api_types::AgentNativeConfigFileWriteRequest = parse_request(args)?;
     let home = require_home()?;
     let env = env_for(pool, &request.agent_id).await?;
     let recorded = sqlx::query_scalar::<_, String>(

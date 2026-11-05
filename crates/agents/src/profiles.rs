@@ -2356,7 +2356,7 @@ const DEEPSEEK_HARNESS_FIELDS: &[NativeConfigField] = &[authentication(secret_fi
     "deepseek_harness_api_key",
     "API Key",
     "DeepSeek API Key",
-    &["DEEPSEEK_API_KEY"],
+    &["refs", "DEEPSEEK_API_KEY"],
 ))];
 const DEEPSEEK_HARNESS_CONFIG: &[NativeConfigBinding] = &[
     NativeConfigBinding {

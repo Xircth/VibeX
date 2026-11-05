@@ -678,6 +678,7 @@ pub fn apply_built_in_launch_policy(
             bind_pi_acp_pi_command(env, requested.as_deref());
         }
         "grok" => apply_grok_native_launch_env(env),
+        "deepseek_harness" => apply_dsh_native_launch_env(env),
         // In-process Cline runtime so model switches apply, and no
         // `npm update -g cline` after stdin closes (Codeg pin 3.0.73).
         "cline" => {
@@ -689,6 +690,118 @@ pub fn apply_built_in_launch_policy(
         _ => {}
     }
     apply_built_in_launch_argument_policy(agent_id, env, args);
+}
+
+fn dsh_config_dir(env: &HashMap<String, String>) -> PathBuf {
+    if let Some(home) = env
+        .get("DSH_HOME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return PathBuf::from(home);
+    }
+    if let Some(home) = std::env::var_os("DSH_HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(home);
+    }
+    env.get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".dsh"))
+        .unwrap_or_else(|| PathBuf::from(".dsh"))
+}
+
+fn sanitize_and_read_dsh_credentials(dsh_dir: &Path) -> Option<String> {
+    let path = dsh_dir.join(".credentials.yaml");
+    let text = std::fs::read_to_string(&path).ok()?;
+    let mut doc: serde_json::Value = serde_yaml::from_str(&text).ok()?;
+    let root = doc.as_object_mut()?;
+    let mut mutated = false;
+    let stray: Vec<(String, serde_json::Value)> = root
+        .iter()
+        .filter(|(key, _)| !matches!(key.as_str(), "version" | "records" | "refs"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if !stray.is_empty() {
+        mutated = true;
+        for (key, _) in &stray {
+            root.remove(key);
+        }
+    }
+    if root.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+        root.insert(
+            "version".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        mutated = true;
+    }
+    if !stray.is_empty() {
+        let refs = root
+            .entry("refs")
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if !refs.is_object() {
+            *refs = serde_json::Value::Object(serde_json::Map::new());
+        }
+        if let Some(refs_obj) = refs.as_object_mut() {
+            for (key, value) in stray {
+                if value.is_string() {
+                    refs_obj.entry(key).or_insert(value);
+                }
+            }
+        }
+    }
+    let api_key = root
+        .get("refs")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|refs| {
+            refs.get("DEEPSEEK_API_KEY")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    refs.values()
+                        .find_map(|value| value.as_str().map(str::trim))
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                })
+        });
+    if mutated
+        && let Ok(serialized) = serde_yaml::to_string(&doc)
+    {
+        let _ = std::fs::write(&path, serialized);
+    }
+    api_key
+}
+
+fn apply_dsh_native_launch_env(env: &mut HashMap<String, String>) {
+    let dsh_dir = dsh_config_dir(env);
+    let credential_key = sanitize_and_read_dsh_credentials(&dsh_dir);
+    let has_env_key = env
+        .get("DEEPSEEK_API_KEY")
+        .map(|value| value.trim())
+        .is_some_and(|value| !value.is_empty());
+    if !has_env_key
+        && let Some(api_key) = credential_key
+    {
+        env.insert("DEEPSEEK_API_KEY".to_string(), api_key);
+    }
+    if let Some(base_url) = env.get("DEEPSEEK_BASE_URL").cloned() {
+        let normalized = base_url.trim().trim_end_matches('/').to_string();
+        if normalized.is_empty() {
+            env.remove("DEEPSEEK_BASE_URL");
+        } else {
+            env.insert("DEEPSEEK_BASE_URL".to_string(), normalized);
+        }
+    }
+    if env.contains_key("DEEPSEEK_ACP_PROVIDER") {
+        env.insert(
+            "DEEPSEEK_ACP_PROVIDER".to_string(),
+            "deepseek-official".to_string(),
+        );
+    }
 }
 
 /// Carry Grok's native `ui.permission_mode` into the launch env so new sessions
@@ -1799,6 +1912,51 @@ mod tests {
                 None,
             ),
             "subscription"
+        );
+    }
+
+    #[test]
+    fn deepseek_harness_launch_policy_migrates_legacy_top_level_credentials_and_normalizes_env() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cred_path = temp.path().join(".credentials.yaml");
+        std::fs::write(&cred_path, "DEEPSEEK_API_KEY: sk-legacy-dsh\n").expect("write legacy");
+
+        let dsh = AgentId::parse("deepseek_harness").unwrap();
+        let mut env = HashMap::from([
+            (
+                "DSH_HOME".to_string(),
+                temp.path().to_string_lossy().to_string(),
+            ),
+            (
+                "DEEPSEEK_BASE_URL".to_string(),
+                "https://api.deepseek.com/".to_string(),
+            ),
+            ("DEEPSEEK_ACP_PROVIDER".to_string(), "custom-id".to_string()),
+        ]);
+        let mut args = Vec::new();
+        apply_built_in_launch_policy(&dsh, &mut env, &mut args);
+
+        assert_eq!(
+            env.get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("sk-legacy-dsh")
+        );
+        assert_eq!(
+            env.get("DEEPSEEK_BASE_URL").map(String::as_str),
+            Some("https://api.deepseek.com")
+        );
+        assert_eq!(
+            env.get("DEEPSEEK_ACP_PROVIDER").map(String::as_str),
+            Some("deepseek-official")
+        );
+
+        let rewritten: serde_json::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(&cred_path).expect("read rewritten"))
+                .expect("valid yaml");
+        assert_eq!(rewritten["version"], serde_json::json!(1));
+        assert!(rewritten.get("DEEPSEEK_API_KEY").is_none());
+        assert_eq!(
+            rewritten["refs"]["DEEPSEEK_API_KEY"],
+            serde_json::json!("sk-legacy-dsh")
         );
     }
 }

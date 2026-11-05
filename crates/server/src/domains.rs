@@ -1174,6 +1174,7 @@ impl ServerApplicationDomains {
         #[serde(rename_all = "camelCase")]
         struct InstallArgs {
             owner: String,
+            #[serde(alias = "plugin_name")]
             plugin_name: String,
             tag: Option<String>,
             conflict: Option<String>,
@@ -1192,30 +1193,36 @@ impl ServerApplicationDomains {
         }
         let mut last_error =
             ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
+        let mut import_error: Option<ApplicationError> = None;
         let conflict_decision = args.conflict.clone().unwrap_or_else(|| "reject".into());
         let origin_url = plugins::marketplace_listing_url(&args.owner, &args.plugin_name);
-        if args.tag.is_none()
-            && let Some(monorepo_root) = plugins::monorepo_official_plugin_root(&args.plugin_name)
-                .or_else(|| {
-                    plugins::monorepo_official_plugin_root(&format!(
-                        "{}.{}",
-                        args.owner, args.plugin_name
-                    ))
-                })
+        let monorepo_root =
+            plugins::monorepo_official_plugin_root(&args.plugin_name).or_else(|| {
+                plugins::monorepo_official_plugin_root(&format!(
+                    "{}.{}",
+                    args.owner, args.plugin_name
+                ))
+            });
+        let mut tried_monorepo = false;
+        if let Some(monorepo_root) = monorepo_root.as_deref()
+            && tag_matches_monorepo_official_plugin(args.tag.as_deref(), monorepo_root)
         {
+            tried_monorepo = true;
+            let git_ref =
+                monorepo_plugin_version(monorepo_root).unwrap_or_else(|| "2.0.0".to_owned());
             match self
                 .plugin_control_import(json!({
                     "path": monorepo_root.to_string_lossy(),
                     "developerLink": false,
                     "conflictDecision": conflict_decision,
                     "origin": origin_url,
-                    "gitRef": "2.0.0",
+                    "gitRef": git_ref,
                     "locked": true,
                 }))
                 .await
             {
                 Ok(result) => return Ok(result),
-                Err(error) => last_error = error,
+                Err(error) => import_error = Some(error),
             }
         }
         let github_urls = plugins::official_github_archive_urls(&args.owner, &args.plugin_name);
@@ -1234,10 +1241,14 @@ impl ServerApplicationDomains {
                         .await
                     {
                         Ok(result) => return Ok(result),
-                        Err(error) => last_error = error,
+                        Err(error) => import_error = Some(error),
                     }
                 }
-                Err(error) => last_error = error,
+                Err(error) => {
+                    if import_error.is_none() {
+                        last_error = error;
+                    }
+                }
             }
         }
         if let Ok(listing) =
@@ -1246,20 +1257,56 @@ impl ServerApplicationDomains {
             && !url.starts_with("builtin://")
             && !url.starts_with("offline://")
         {
-            let archive = download_marketplace_archive(&url).await?;
-            return self
+            match download_marketplace_archive(&url).await {
+                Ok(archive) => {
+                    match self
+                        .plugin_control_import(json!({
+                            "path": archive.to_string_lossy(),
+                            "developerLink": false,
+                            "conflictDecision": conflict_decision,
+                            "origin": origin_url,
+                            "gitRef": listing.tag,
+                            "locked": true,
+                            "showTree": listing.show_tree,
+                        }))
+                        .await
+                    {
+                        Ok(result) => return Ok(result),
+                        Err(error) => import_error = Some(error),
+                    }
+                }
+                Err(error) => {
+                    if import_error.is_none() {
+                        last_error = error;
+                    }
+                }
+            }
+        }
+        if !tried_monorepo
+            && let Some(monorepo_root) = monorepo_root.as_deref()
+        {
+            let git_ref =
+                monorepo_plugin_version(monorepo_root).unwrap_or_else(|| "2.0.0".to_owned());
+            match self
                 .plugin_control_import(json!({
-                    "path": archive.to_string_lossy(),
+                    "path": monorepo_root.to_string_lossy(),
                     "developerLink": false,
                     "conflictDecision": conflict_decision,
                     "origin": origin_url,
-                    "gitRef": listing.tag,
+                    "gitRef": git_ref,
                     "locked": true,
-                    "showTree": listing.show_tree,
                 }))
-                .await;
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    if import_error.is_none() {
+                        import_error = Some(error);
+                    }
+                }
+            }
         }
-        Err(last_error)
+        Err(import_error.unwrap_or(last_error))
     }
 
     async fn plugin_check_updates(&self) -> Result<Value, ApplicationError> {
@@ -2937,6 +2984,42 @@ async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, A
     Ok(path)
 }
 
+fn monorepo_plugin_version(monorepo_root: &std::path::Path) -> Option<String> {
+    for rel in [".vibex-plugin/plugin.json", "plugin.json"] {
+        let manifest_path = monorepo_root.join(rel);
+        let Ok(content) = std::fs::read_to_string(&manifest_path) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<Value>(&content) else {
+            continue;
+        };
+        if let Some(version) = manifest
+            .get("version")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(version.to_owned());
+        }
+    }
+    None
+}
+
+fn tag_matches_monorepo_official_plugin(
+    tag: Option<&str>,
+    monorepo_root: &std::path::Path,
+) -> bool {
+    let Some(raw) = tag.map(str::trim).filter(|value| !value.is_empty()) else {
+        return true;
+    };
+    if matches!(raw, "main" | "master" | "latest" | "HEAD") {
+        return true;
+    }
+    let normalized = raw.strip_prefix('v').unwrap_or(raw);
+    monorepo_plugin_version(monorepo_root)
+        .is_some_and(|version| version.strip_prefix('v').unwrap_or(&version) == normalized)
+}
+
 fn remove_managed_plugin_snapshot(
     runtime_root: &std::path::Path,
     source: &std::path::Path,
@@ -3141,6 +3224,27 @@ mod plugin_invoke_contribution_args {
             "timeoutSeconds": 300
         });
         assert!(parse::<plugins::AppSurfaceInvocation>(args).is_err());
+    }
+
+    #[test]
+    fn monorepo_official_plugin_matches_default_and_manifest_version_tags() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manifest_dir = temp.path().join(".vibex-plugin");
+        std::fs::create_dir_all(&manifest_dir).expect("create manifest dir");
+        std::fs::write(
+            manifest_dir.join("plugin.json"),
+            r#"{"version":"2.0.0"}"#,
+        )
+        .expect("write plugin.json");
+
+        assert!(tag_matches_monorepo_official_plugin(None, temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some(""), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("main"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("master"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("latest"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("2.0.0"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("v2.0.0"), temp.path()));
+        assert!(!tag_matches_monorepo_official_plugin(Some("1.0.0"), temp.path()));
     }
 
     #[tokio::test]

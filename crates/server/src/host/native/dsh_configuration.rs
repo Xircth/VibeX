@@ -92,7 +92,13 @@ pub fn load_providers(
     default_model: Option<&str>,
 ) -> Result<DshProvidersView, String> {
     let settings = read_yaml_mapping(&paths.settings)?;
-    let credentials = read_yaml_mapping(&paths.credentials)?;
+    let mut credentials = read_yaml_mapping(&paths.credentials)?;
+    if paths.credentials.exists()
+        && sanitize_credentials_mapping(&mut credentials)
+        && let Ok(serialized) = serde_yaml::to_string(&Value::Mapping(credentials.clone()))
+    {
+        let _ = std::fs::write(&paths.credentials, serialized);
+    }
     Ok(providers_from_maps(
         paths,
         &settings,
@@ -171,6 +177,7 @@ pub fn save_provider(
     let id = normalize_provider_id(&request.id)?;
     let (mut settings, settings_original) = read_yaml_state(&paths.settings)?;
     let (mut credentials, credentials_original) = read_yaml_state(&paths.credentials)?;
+    sanitize_credentials_mapping(&mut credentials);
     let kind = provider_kind(&id);
     match kind {
         DshProviderKind::Official => apply_official_provider(&mut settings, &request)?,
@@ -178,6 +185,7 @@ pub fn save_provider(
             apply_pi_provider(&mut settings, &id, kind, &request)?;
         }
     }
+    let env_key_name = api_key_env_for(&id, &request);
     if let Some(api_key) = request
         .api_key
         .as_deref()
@@ -185,16 +193,15 @@ pub fn save_provider(
         .filter(|value| !value.is_empty())
     {
         validate_secret(api_key)?;
-        credentials.insert(
-            Value::String(api_key_env_for(&id, &request)),
-            Value::String(api_key.to_string()),
-        );
+        write_credential_ref(&mut credentials, &env_key_name, api_key);
         if request.set_default && kind != DshProviderKind::Official {
-            credentials.insert(
-                Value::String(OFFICIAL_API_KEY_ENV.into()),
-                Value::String(api_key.to_string()),
-            );
+            write_credential_ref(&mut credentials, OFFICIAL_API_KEY_ENV, api_key);
         }
+    } else if request.set_default
+        && kind != DshProviderKind::Official
+        && let Some(existing_key) = read_credential_ref(&credentials, &env_key_name)
+    {
+        write_credential_ref(&mut credentials, OFFICIAL_API_KEY_ENV, &existing_key);
     }
     if request.set_default && kind != DshProviderKind::Official {
         apply_official_provider(
@@ -249,11 +256,12 @@ pub fn delete_provider(
     }
     let (mut settings, settings_original) = read_yaml_state(&paths.settings)?;
     let (mut credentials, credentials_original) = read_yaml_state(&paths.credentials)?;
+    sanitize_credentials_mapping(&mut credentials);
     let removed_env = remove_pi_provider(&mut settings, &id);
     if let Some(env_name) = removed_env.filter(|name| name != OFFICIAL_API_KEY_ENV)
         && !credential_still_referenced(&settings, &env_name)
     {
-        credentials.remove(Value::String(env_name));
+        remove_credential_ref(&mut credentials, &env_name);
     }
     let mutations = vec![
         yaml_mutation(&paths.settings, settings_original, &settings, false)?,
@@ -265,71 +273,182 @@ pub fn delete_provider(
     ))
 }
 
+pub fn resolve_stored_api_key(
+    paths: &DshPaths,
+    provider_id: Option<&str>,
+    environment: &HashMap<String, String>,
+) -> Option<String> {
+    let settings = read_yaml_mapping(&paths.settings).unwrap_or_default();
+    let credentials = read_yaml_mapping(&paths.credentials).unwrap_or_default();
+    let mut candidate_envs = Vec::new();
+    if let Some(id) = provider_id.map(str::trim).filter(|value| !value.is_empty()) {
+        if id == OFFICIAL_PROVIDER_ID {
+            if let Some(configured_env) = settings
+                .get(Value::String("llm-deepseek".into()))
+                .and_then(Value::as_mapping)
+                .and_then(|section| section.get(Value::String("apiKeyEnv".into())))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                candidate_envs.push(configured_env.to_string());
+            }
+        } else if let Some(configured_env) = settings
+            .get(Value::String("llm-pi-ai".into()))
+            .and_then(Value::as_mapping)
+            .and_then(|section| section.get(Value::String("providers".into())))
+            .and_then(Value::as_mapping)
+            .and_then(|providers| providers.get(Value::String(id.to_string())))
+            .and_then(Value::as_mapping)
+            .and_then(|entry| entry.get(Value::String("apiKeyEnv".into())))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            candidate_envs.push(configured_env.to_string());
+        }
+        candidate_envs.push(api_key_env_for_id(id));
+    }
+    candidate_envs.push(OFFICIAL_API_KEY_ENV.to_string());
+
+    for env_name in &candidate_envs {
+        if let Some(key) = read_credential_ref(&credentials, env_name) {
+            return Some(key);
+        }
+        if let Some(key) = environment
+            .get(env_name)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+pub fn resolve_stored_base_url(paths: &DshPaths, provider_id: Option<&str>) -> String {
+    let settings = read_yaml_mapping(&paths.settings).unwrap_or_default();
+    if let Some(id) = provider_id.map(str::trim).filter(|value| !value.is_empty())
+        && id != OFFICIAL_PROVIDER_ID
+        && let Some(url) = settings
+            .get(Value::String("llm-pi-ai".into()))
+            .and_then(Value::as_mapping)
+            .and_then(|section| section.get(Value::String("providers".into())))
+            .and_then(Value::as_mapping)
+            .and_then(|providers| providers.get(Value::String(id.to_string())))
+            .and_then(Value::as_mapping)
+            .and_then(|entry| entry.get(Value::String("baseURL".into())))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return url.trim_end_matches('/').to_string();
+    }
+    if let Some(url) = settings
+        .get(Value::String("llm-deepseek".into()))
+        .and_then(Value::as_mapping)
+        .and_then(|section| section.get(Value::String("baseURL".into())))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return url.trim_end_matches('/').to_string();
+    }
+    OFFICIAL_BASE_URL.to_string()
+}
+
 pub async fn discover_models(
     paths: &DshPaths,
     base_url: &str,
     api_key: Option<&str>,
     provider_id: Option<&str>,
+    environment: &HashMap<String, String>,
 ) -> Result<Vec<DshProviderModelView>, String> {
-    let endpoint = normalize_models_url(base_url)?;
+    let effective_base_url = if base_url.trim().is_empty() {
+        resolve_stored_base_url(paths, provider_id)
+    } else {
+        base_url.trim().to_string()
+    };
+    let endpoints = normalize_models_urls(&effective_base_url)?;
     let key = api_key
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .or_else(|| {
-            let id = provider_id
-                .map(str::trim)
-                .filter(|value| !value.is_empty())?;
-            let credentials = read_yaml_mapping(&paths.credentials).ok()?;
-            let env_name = catalog_env(id).unwrap_or_else(|| default_custom_env(id));
-            credentials
-                .get(Value::String(env_name))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+        .or_else(|| resolve_stored_api_key(paths, provider_id, environment))
         .ok_or_else(|| "拉取模型需要 API Key".to_string())?;
     validate_secret(&key)?;
-    let response = reqwest::Client::new()
-        .get(endpoint)
-        .bearer_auth(key)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|error| format!("读取模型目录失败：{error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "读取模型目录失败：HTTP {}",
-            response.status().as_u16()
-        ));
-    }
-    let body = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|error| format!("解析模型目录失败：{error}"))?;
-    let mut models = body
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.trim();
-            if id.is_empty() {
-                return None;
+    let client = reqwest::Client::new();
+    let mut last_error = "读取模型目录失败".to_string();
+    for (index, endpoint) in endpoints.iter().enumerate() {
+        let response = match client
+            .get(endpoint)
+            .bearer_auth(&key)
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+        {
+            Ok(resp) => resp,
+            Err(error) => {
+                last_error = format!("读取模型目录失败：{error}");
+                if index + 1 < endpoints.len() {
+                    continue;
+                }
+                return Err(last_error);
             }
-            Some(DshProviderModelView {
-                id: id.to_string(),
-                name: entry
-                    .get("name")
+        };
+        if !response.status().is_success() {
+            last_error = format!("读取模型目录失败：HTTP {}", response.status().as_u16());
+            if index + 1 < endpoints.len() {
+                continue;
+            }
+            return Err(last_error);
+        }
+        let body = match response.json::<serde_json::Value>().await {
+            Ok(json) => json,
+            Err(error) => {
+                last_error = format!("解析模型目录失败：{error}");
+                if index + 1 < endpoints.len() {
+                    continue;
+                }
+                return Err(last_error);
+            }
+        };
+        let items = body
+            .get("data")
+            .and_then(serde_json::Value::as_array)
+            .or_else(|| body.get("models").and_then(serde_json::Value::as_array))
+            .or_else(|| body.as_array());
+        let mut models = items
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let id = entry
+                    .get("id")
                     .and_then(serde_json::Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string),
+                    .or_else(|| entry.as_str())?
+                    .trim();
+                if id.is_empty() {
+                    return None;
+                }
+                let id = id.strip_prefix("models/").unwrap_or(id);
+                Some(DshProviderModelView {
+                    id: id.to_string(),
+                    name: entry
+                        .get("name")
+                        .or_else(|| entry.get("display_name"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string),
+                })
             })
-        })
-        .collect::<Vec<_>>();
-    models.sort_by(|left, right| left.id.cmp(&right.id));
-    models.dedup_by(|left, right| left.id == right.id);
-    Ok(models)
+            .collect::<Vec<_>>();
+        models.sort_by(|left, right| left.id.cmp(&right.id));
+        models.dedup_by(|left, right| left.id == right.id);
+        return Ok(models);
+    }
+    Err(last_error)
 }
 
 pub fn load_plugins(paths: &DshPaths) -> Result<DshPluginSummaryView, String> {
@@ -374,10 +493,24 @@ pub fn any_credential_present(paths: &DshPaths) -> bool {
     let Ok(credentials) = read_yaml_mapping(&paths.credentials) else {
         return false;
     };
-    credentials.values().any(|value| {
-        value
-            .as_str()
-            .is_some_and(|secret| !secret.trim().is_empty())
+    if credentials
+        .get(Value::String("refs".into()))
+        .and_then(Value::as_mapping)
+        .is_some_and(|refs| {
+            refs.values().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|secret| !secret.trim().is_empty())
+            })
+        })
+    {
+        return true;
+    }
+    credentials.iter().any(|(key, value)| {
+        !matches!(key.as_str(), Some("version" | "records" | "refs"))
+            && value
+                .as_str()
+                .is_some_and(|secret| !secret.trim().is_empty())
     })
 }
 
@@ -434,12 +567,23 @@ pub fn default_env_updates(
     request: &DshProviderSaveRequest,
     _current: &HashMap<String, String>,
 ) -> BTreeMap<String, Option<String>> {
-    if !request.set_default {
-        return BTreeMap::new();
-    }
     let Ok(id) = normalize_provider_id(&request.id) else {
         return BTreeMap::new();
     };
+    let official = id == OFFICIAL_PROVIDER_ID;
+    let mut updates = BTreeMap::new();
+    if let Some(api_key) = request
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && (request.set_default || official)
+    {
+        updates.insert(OFFICIAL_API_KEY_ENV.to_string(), Some(api_key.to_string()));
+    }
+    if !request.set_default {
+        return updates;
+    }
     let model = request
         .default_model
         .as_deref()
@@ -448,23 +592,27 @@ pub fn default_env_updates(
         .or_else(|| request.models.first().map(|model| model.id.as_str()))
         .unwrap_or(DEFAULT_OFFICIAL_MODEL)
         .to_string();
-    let official = id == OFFICIAL_PROVIDER_ID;
-    let mut updates = BTreeMap::from([
-        (
-            ACP_PROVIDER_ENV.to_string(),
-            Some(OFFICIAL_PROVIDER_ID.to_string()),
-        ),
-        (ACP_MODEL_ENV.to_string(), Some(model)),
-    ]);
+    updates.insert(
+        ACP_PROVIDER_ENV.to_string(),
+        Some(OFFICIAL_PROVIDER_ID.to_string()),
+    );
+    updates.insert(ACP_MODEL_ENV.to_string(), Some(model));
     updates.insert(
         BASE_URL_ENV.to_string(),
         if official {
-            None
+            request
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .map(|value| value.trim_end_matches('/'))
+                .filter(|value| !value.is_empty() && *value != OFFICIAL_BASE_URL)
+                .map(str::to_string)
         } else {
             request
                 .base_url
                 .as_deref()
                 .map(str::trim)
+                .map(|value| value.trim_end_matches('/'))
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         },
@@ -550,7 +698,7 @@ fn project_pi_provider(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| catalog_env(id).unwrap_or_else(|| default_custom_env(id)));
+        .unwrap_or_else(|| api_key_env_for_id(id));
     DshProviderView {
         id: id.to_string(),
         display_name: entry
@@ -618,6 +766,7 @@ fn apply_official_provider(
         .base_url
         .as_deref()
         .map(str::trim)
+        .map(|value| value.trim_end_matches('/'))
         .filter(|value| !value.is_empty())
     {
         validate_http_url(base_url)?;
@@ -695,6 +844,7 @@ fn apply_pi_provider(
             .base_url
             .as_deref()
             .map(str::trim)
+            .map(|value| value.trim_end_matches('/'))
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "自定义 Provider 需要 Base URL".to_string())?;
         validate_http_url(base_url)?;
@@ -928,11 +1078,16 @@ fn provider_kind(id: &str) -> DshProviderKind {
     }
 }
 
-fn api_key_env_for(id: &str, _request: &DshProviderSaveRequest) -> String {
-    if id == OFFICIAL_PROVIDER_ID {
+pub fn api_key_env_for_id(id: &str) -> String {
+    let normalized = id.trim();
+    if normalized.is_empty() || normalized.eq_ignore_ascii_case(OFFICIAL_PROVIDER_ID) {
         return OFFICIAL_API_KEY_ENV.to_string();
     }
-    catalog_env(id).unwrap_or_else(|| default_custom_env(id))
+    catalog_env(normalized).unwrap_or_else(|| default_custom_env(normalized))
+}
+
+fn api_key_env_for(id: &str, _request: &DshProviderSaveRequest) -> String {
+    api_key_env_for_id(id)
 }
 
 fn catalog_env(id: &str) -> Option<String> {
@@ -953,11 +1108,92 @@ fn default_custom_env(id: &str) -> String {
     format!("{}_API_KEY", id.to_ascii_uppercase().replace('-', "_"))
 }
 
-fn credential_present(credentials: &serde_yaml::Mapping, env_name: &str) -> bool {
+pub fn sanitize_credentials_mapping(credentials: &mut serde_yaml::Mapping) -> bool {
+    let mut mutated = false;
+    let stray: Vec<(String, Value)> = credentials
+        .iter()
+        .filter_map(|(key, value)| {
+            let name = key.as_str()?;
+            if matches!(name, "version" | "records" | "refs") {
+                None
+            } else {
+                Some((name.to_string(), value.clone()))
+            }
+        })
+        .collect();
+    for (name, _) in &stray {
+        credentials.remove(Value::String(name.clone()));
+        mutated = true;
+    }
+    let version_key = Value::String("version".into());
+    if credentials.get(&version_key).and_then(Value::as_u64) != Some(1) {
+        credentials.insert(version_key, Value::Number(serde_yaml::Number::from(1)));
+        mutated = true;
+    }
+    if !stray.is_empty() {
+        let refs = mapping_entry(credentials, "refs");
+        for (name, value) in stray {
+            if value.as_str().is_some_and(|secret| !secret.trim().is_empty()) {
+                let key = Value::String(name);
+                if !refs.contains_key(&key) {
+                    refs.insert(key, value);
+                }
+            }
+        }
+    }
+    mutated
+}
+
+pub fn read_credential_ref(
+    credentials: &serde_yaml::Mapping,
+    env_name: &str,
+) -> Option<String> {
+    let key = Value::String(env_name.to_string());
     credentials
-        .get(Value::String(env_name.to_string()))
+        .get(Value::String("refs".into()))
+        .and_then(Value::as_mapping)
+        .and_then(|refs| refs.get(&key))
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            credentials
+                .get(&key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn write_credential_ref(
+    credentials: &mut serde_yaml::Mapping,
+    env_name: &str,
+    value: &str,
+) {
+    sanitize_credentials_mapping(credentials);
+    let refs = mapping_entry(credentials, "refs");
+    refs.insert(
+        Value::String(env_name.to_string()),
+        Value::String(value.to_string()),
+    );
+}
+
+fn remove_credential_ref(credentials: &mut serde_yaml::Mapping, env_name: &str) {
+    sanitize_credentials_mapping(credentials);
+    let key = Value::String(env_name.to_string());
+    credentials.remove(&key);
+    if let Some(refs) = credentials
+        .get_mut(Value::String("refs".into()))
+        .and_then(Value::as_mapping_mut)
+    {
+        refs.remove(&key);
+    }
+}
+
+fn credential_present(credentials: &serde_yaml::Mapping, env_name: &str) -> bool {
+    read_credential_ref(credentials, env_name).is_some()
 }
 
 fn validate_secret(value: &str) -> Result<(), String> {
@@ -981,14 +1217,42 @@ fn validate_http_url(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize_models_url(base_url: &str) -> Result<String, String> {
+fn normalize_models_urls(base_url: &str) -> Result<Vec<String>, String> {
     validate_http_url(base_url)?;
-    let trimmed = base_url.trim().trim_end_matches('/');
-    if trimmed.ends_with("/models") {
-        Ok(trimmed.to_string())
-    } else {
-        Ok(format!("{trimmed}/models"))
+    let mut trimmed = base_url.trim().trim_end_matches('/');
+    for suffix in [
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/v1/messages",
+        "/messages",
+        "/v1/responses",
+        "/responses",
+    ] {
+        if let Some(prefix) = trimmed.strip_suffix(suffix) {
+            trimmed = prefix.trim_end_matches('/');
+            break;
+        }
     }
+    if trimmed.ends_with("/models") {
+        return Ok(vec![trimmed.to_string()]);
+    }
+    let mut urls = Vec::new();
+    let push_unique = |list: &mut Vec<String>, candidate: String| {
+        if !list.contains(&candidate) {
+            list.push(candidate);
+        }
+    };
+    if let Some(without_v1) = trimmed.strip_suffix("/v1") {
+        push_unique(&mut urls, format!("{trimmed}/models"));
+        let without_v1 = without_v1.trim_end_matches('/');
+        if !without_v1.is_empty() {
+            push_unique(&mut urls, format!("{without_v1}/models"));
+        }
+    } else {
+        push_unique(&mut urls, format!("{trimmed}/v1/models"));
+        push_unique(&mut urls, format!("{trimmed}/models"));
+    }
+    Ok(urls)
 }
 
 fn validate_plugin_spec(spec: &str) -> Result<String, String> {
@@ -1420,6 +1684,47 @@ mod tests {
         assert_eq!(
             official.base_url.as_deref(),
             Some("https://opencode.ai/zen/go/v1")
+        );
+    }
+
+    #[test]
+    fn credentials_yaml_writes_under_refs_and_migrates_legacy_top_level_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = DshPaths {
+            home: dir.path().to_path_buf(),
+            settings: dir.path().join("settings.yaml"),
+            credentials: dir.path().join(".credentials.yaml"),
+            profile_dir: dir.path().join("profiles").join("default"),
+        };
+        std::fs::write(&paths.credentials, "DEEPSEEK_API_KEY: sk-legacy\n").unwrap();
+        let view = load_providers(&paths, None, None).unwrap();
+        let official = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == OFFICIAL_PROVIDER_ID)
+            .unwrap();
+        assert!(official.credential_present);
+        let healed: Value =
+            serde_yaml::from_str(&std::fs::read_to_string(&paths.credentials).unwrap()).unwrap();
+        assert_eq!(healed.get("version").and_then(Value::as_u64), Some(1));
+        assert!(healed.get("DEEPSEEK_API_KEY").is_none());
+        assert_eq!(
+            healed
+                .get("refs")
+                .and_then(|refs| refs.get("DEEPSEEK_API_KEY"))
+                .and_then(Value::as_str),
+            Some("sk-legacy")
+        );
+        assert_eq!(
+            api_key_env_for_id(OFFICIAL_PROVIDER_ID),
+            OFFICIAL_API_KEY_ENV
+        );
+        assert_eq!(
+            normalize_models_urls("https://api.deepseek.com/").unwrap(),
+            vec![
+                "https://api.deepseek.com/v1/models".to_string(),
+                "https://api.deepseek.com/models".to_string(),
+            ]
         );
     }
 }

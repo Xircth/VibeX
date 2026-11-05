@@ -22,15 +22,42 @@ const ERROR_BODY_MAX_CHARS: usize = 240;
 /// Anthropic-compatible protocol suffixes. Longest match first so `/api/anthropic`
 /// is stripped as a whole instead of leaving a dangling `/api`.
 const COMPAT_PROTOCOL_SUFFIXES: &[&str] = &[
+    "/v1/chat/completions",
+    "/chat/completions",
+    "/v1/messages",
+    "/messages",
+    "/v1/responses",
+    "/responses",
+    "/apps/anthropic/v1",
+    "/api/claudecode/v1",
+    "/api/anthropic/v1",
+    "/api/openai/v1",
+    "/api/coding/v1",
+    "/claudecode/v1",
+    "/anthropic/v1",
+    "/step_plan/v1",
+    "/openai/v1",
+    "/coding/v1",
+    "/claude/v1",
     "/api/claudecode",
     "/api/anthropic",
     "/apps/anthropic",
     "/api/coding",
+    "/api/openai",
     "/claudecode",
     "/anthropic",
     "/step_plan",
+    "/openai",
     "/coding",
     "/claude",
+];
+const LEAF_COMPLETION_SUFFIXES: &[&str] = &[
+    "/v1/chat/completions",
+    "/chat/completions",
+    "/v1/messages",
+    "/messages",
+    "/v1/responses",
+    "/responses",
 ];
 const CODEX_CATALOG_FILE: &str = "vibex-model-catalog.json";
 const CODEX_SOURCE_FILE: &str = "vibex-model-catalog.source.json";
@@ -102,9 +129,21 @@ pub async fn provider(
     if api_key.is_empty() {
         return Err("读取 Provider 模型需要填写 API Key".to_string());
     }
-    let urls = model_catalog_urls(&base_url);
+    let mut urls = model_catalog_urls(&base_url);
     if urls.is_empty() {
         return Err("无法从 Provider API URL 推导模型目录地址".to_string());
+    }
+    for root_candidate in ["/v1/models", "/models"] {
+        let mut fallback = base_url.clone();
+        fallback.set_path(root_candidate);
+        fallback.set_query(None);
+        fallback.set_fragment(None);
+        if !urls
+            .iter()
+            .any(|existing| existing.as_str() == fallback.as_str())
+        {
+            urls.push(fallback);
+        }
     }
     let client = reqwest::Client::builder()
         .timeout(PROVIDER_CATALOG_TIMEOUT)
@@ -1117,7 +1156,10 @@ fn model_catalog_urls(base: &url::Url) -> Vec<url::Url> {
         {
             paths.push(format!("{path}/v1/models"));
         }
-    } else {
+    } else if !LEAF_COMPLETION_SUFFIXES
+        .iter()
+        .any(|suffix| path.ends_with(*suffix))
+    {
         paths.push(format!("{path}/v1/models"));
         if strip_compat_suffix(path).is_none() {
             paths.push(format!("{path}/models"));
@@ -1386,6 +1428,29 @@ mod tests {
             vec![
                 "https://api.siliconflow.cn/v1/models",
                 "https://api.siliconflow.cn/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.deepseek.com/anthropic/v1"),
+            vec![
+                "https://api.deepseek.com/anthropic/v1/models",
+                "https://api.deepseek.com/v1/models",
+                "https://api.deepseek.com/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://api.openai.com/v1/chat/completions"),
+            vec![
+                "https://api.openai.com/v1/models",
+                "https://api.openai.com/models",
+            ]
+        );
+        assert_eq!(
+            catalog_url_strings("https://gateway.example/api/openai/v1"),
+            vec![
+                "https://gateway.example/api/openai/v1/models",
+                "https://gateway.example/v1/models",
+                "https://gateway.example/models",
             ]
         );
     }

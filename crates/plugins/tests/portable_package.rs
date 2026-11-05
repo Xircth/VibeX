@@ -1193,6 +1193,7 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         ("kanban-views", "vibex.kanban-views"),
         ("notes", "vibex.notes"),
         ("prompt-enhancer", "vibex.prompt-enhancer"),
+        ("code-completion", "vibex.code-completion"),
     ] {
         let plugin_dir = repo_root.join("plugins").join(dir_name);
         let package = PluginPackage::inspect(&plugin_dir, PluginSourceKind::Snapshot)
@@ -1219,7 +1220,8 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
     let installed = control
         .bootstrap_monorepo_plugins(true)
         .await
-        .expect("offline bootstrap of all monorepo plugins");
+        .expect("offline bootstrap of all 14 monorepo plugins");
+    assert_eq!(installed.len(), 14);
     assert_eq!(
         installed.len(),
         plugins::discover_monorepo_plugin_roots().len()

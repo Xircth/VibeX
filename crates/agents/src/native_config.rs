@@ -268,6 +268,8 @@ impl NativeConfigProvider {
                     field_revision(codex_websockets_source(document))
                 } else if field.field_id == "anthropic_api_key" {
                     field_revision(claude_credential_value(document))
+                } else if field.field_id == "deepseek_harness_api_key" {
+                    field_revision(dsh_credential_value(document))
                 } else if grok_auth_field_key(field.field_id).is_some() {
                     field_revision(grok_auth_field_value(document, field.field_id))
                 } else {
@@ -306,12 +308,13 @@ impl NativeConfigProvider {
                         }
                         if field.field_id == "codex_openai_base_url"
                             || field.field_id == "anthropic_api_key"
+                            || field.field_id == "deepseek_harness_api_key"
                             || grok_auth_field_key(field.field_id).is_some()
                         {
                             // 延迟到 finalize_*_shape：写回位置取决于原始配置
                             // （Codex 活跃表 / 顶层键；Claude AUTH_TOKEN /
-                            // API_KEY；Grok 当前 `models.default` 表），此处
-                            // 保留原始文档以便判断来源。
+                            // API_KEY；DSH refs.DEEPSEEK_API_KEY + 顶层清理；
+                            // Grok 当前 `models.default` 表），此处保留原始文档以便判断来源。
                             continue;
                         }
                         let value = parse_field_value(field, &value)?;
@@ -320,7 +323,12 @@ impl NativeConfigProvider {
                             set_discriminator(document, field.path, key, value)?;
                         }
                     }
-                    None => remove_value_at_path(document, field.path),
+                    None => {
+                        if field.field_id == "deepseek_harness_api_key" {
+                            continue;
+                        }
+                        remove_value_at_path(document, field.path);
+                    }
                 }
             }
             finalize_special_native_shape(document, &patch)?;
@@ -629,6 +637,9 @@ fn field_snapshot(
         // revision 必须反映实际生效的凭据来源。
         let effective = claude_credential_value(document);
         (scalar_string(effective), effective)
+    } else if field.field_id == "deepseek_harness_api_key" {
+        let effective = dsh_credential_value(document);
+        (scalar_string(effective), effective)
     } else if field.field_id == "grok_permission" {
         (scalar_string(raw).map(canonical_grok_permission_mode), raw)
     } else if grok_auth_field_key(field.field_id).is_some() {
@@ -691,6 +702,18 @@ fn codex_active_provider(document: &Value) -> Option<&str> {
 fn claude_credential_value(document: &Value) -> Option<&Value> {
     value_at_path(document, &["env", "ANTHROPIC_AUTH_TOKEN"])
         .or_else(|| value_at_path(document, &["env", "ANTHROPIC_API_KEY"]))
+}
+
+/// DeepSeek Harness 凭据字段的有效来源：DSH v0.1.0-rc.6 要求密钥位于
+/// `refs.DEEPSEEK_API_KEY`，兼容回退读取旧版顶层 `DEEPSEEK_API_KEY`。
+fn dsh_credential_value(document: &Value) -> Option<&Value> {
+    value_at_path(document, &["refs", "DEEPSEEK_API_KEY"])
+        .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        .or_else(|| {
+            value_at_path(document, &["DEEPSEEK_API_KEY"])
+                .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        })
+        .or_else(|| value_at_path(document, &["refs", "DEEPSEEK_API_KEY"]))
 }
 
 /// Codex 端点字段的有效来源：活跃 `[model_providers.<id>].base_url`，
@@ -804,10 +827,67 @@ fn finalize_special_native_shape(
     validate_object_field(document, patch, "pi_custom_providers", &["providers"])?;
     validate_object_field(document, patch, "antigravity_permissions", &["permissions"])?;
     finalize_claude_shape(document, patch)?;
+    finalize_dsh_credentials_shape(document, patch)?;
     finalize_codex_shape(document, patch)?;
     finalize_grok_shape(document, patch)?;
     finalize_cursor_shape(document, patch)?;
     finalize_kimi_shape(document, patch)
+}
+
+fn finalize_dsh_credentials_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if !patch.values.contains_key("deepseek_harness_api_key") {
+        return Ok(());
+    }
+    let new_value = patch
+        .values
+        .get("deepseek_harness_api_key")
+        .cloned()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(value) = &new_value
+        && value.contains(['\n', '\r'])
+    {
+        return Err(NativeConfigError::Invalid(
+            "deepseek_harness_api_key must not contain newlines".to_string(),
+        ));
+    }
+    if let Some(root) = document.as_object_mut() {
+        let stray_keys: Vec<(String, Value)> = root
+            .iter()
+            .filter(|(key, value)| {
+                !matches!(key.as_str(), "version" | "records" | "refs") && value.is_string()
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        for (key, _) in &stray_keys {
+            root.remove(key);
+        }
+        root.insert("version".to_string(), Value::Number(Number::from(1)));
+        let refs = root
+            .entry("refs")
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !refs.is_object() {
+            *refs = Value::Object(Map::new());
+        }
+        if let Some(refs_obj) = refs.as_object_mut() {
+            for (key, value) in stray_keys {
+                refs_obj.entry(key).or_insert(value);
+            }
+            match new_value {
+                Some(value) => {
+                    refs_obj.insert("DEEPSEEK_API_KEY".to_string(), Value::String(value));
+                }
+                None => {
+                    refs_obj.remove("DEEPSEEK_API_KEY");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_object_field(
@@ -1562,6 +1642,16 @@ fn provider_api_key_present(document: &Value) -> bool {
     let Some(object) = document.as_object() else {
         return false;
     };
+    if object
+        .get("refs")
+        .and_then(Value::as_object)
+        .is_some_and(|refs| {
+            refs.values()
+                .any(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        })
+    {
+        return true;
+    }
     object.values().any(|entry| {
         let Some(entry) = entry.as_object() else {
             return false;

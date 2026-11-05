@@ -725,6 +725,7 @@ pub struct PiTrustWorkspaceRequest {
 #[ts(export)]
 pub struct PiTrustSetRequest {
     pub workspace: String,
+    #[serde(default)]
     pub trusted: Option<bool>,
 }
 
@@ -772,8 +773,11 @@ pub struct PiCredentialsSaveRequest {
 pub struct PiRuntimeSaveRequest {
     pub mode: String,
     pub command: String,
+    #[serde(alias = "configDir")]
     pub config_dir: String,
+    #[serde(alias = "sessionDir")]
     pub session_dir: String,
+    #[serde(alias = "trustWorkspace")]
     pub trust_workspace: bool,
 }
 
@@ -846,8 +850,9 @@ pub struct DshProviderSaveRequest {
     pub base_url: Option<String>,
     #[serde(alias = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(default)]
     pub models: Vec<DshProviderModelView>,
-    #[serde(alias = "setDefault")]
+    #[serde(default, alias = "setDefault")]
     pub set_default: bool,
     #[serde(alias = "defaultModel")]
     pub default_model: Option<String>,
@@ -856,8 +861,11 @@ pub struct DshProviderSaveRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DshProviderDiscoverRequest {
+    #[serde(default, alias = "baseUrl")]
     pub base_url: String,
+    #[serde(alias = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(alias = "providerId")]
     pub provider_id: Option<String>,
 }
 

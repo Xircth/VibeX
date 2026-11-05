@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
   updateProxy: vi.fn(),
   getRendering: vi.fn(),
   updateRendering: vi.fn(),
+  getDataDir: vi.fn(),
+  updateDataDir: vi.fn(),
+  revealInFileManager: vi.fn(),
+  pickHostDirectory: vi.fn(),
   backupCreate: vi.fn(),
   backupInspect: vi.fn(),
   backupRestore: vi.fn(),
@@ -37,6 +41,16 @@ vi.mock('@/components/ConfigProvider', () => ({
   }),
 }));
 
+vi.mock('@/lib/hostFs', () => ({
+  pickHostDirectory: mocks.pickHostDirectory,
+}));
+
+vi.mock('@/lib/api/misc', () => ({
+  desktopApi: {
+    revealInFileManager: mocks.revealInFileManager,
+  },
+}));
+
 vi.mock('@/lib/api', () => ({
   configApi: {
     getSettingsPath: mocks.getSettingsPath,
@@ -47,6 +61,8 @@ vi.mock('@/lib/api', () => ({
     updateProxy: mocks.updateProxy,
     getRendering: mocks.getRendering,
     updateRendering: mocks.updateRendering,
+    getDataDir: mocks.getDataDir,
+    updateDataDir: mocks.updateDataDir,
   },
   backupApi: {
     create: mocks.backupCreate,
@@ -138,6 +154,19 @@ describe('SystemSettings', () => {
     mocks.updateProxy.mockImplementation(async (settings) => settings);
     mocks.getRendering.mockResolvedValue({ acceleration_mode: 'auto' });
     mocks.updateRendering.mockImplementation(async (settings) => settings);
+    mocks.getDataDir.mockResolvedValue({
+      current_data_dir: '/Users/test/.vibex',
+      configured_data_dir: null,
+      default_data_dir: '/Users/test/.vibex',
+    });
+    mocks.updateDataDir.mockImplementation(async (data_dir: string) => ({
+      current_data_dir: data_dir,
+      previous_data_dir: '/Users/test/.vibex',
+      migrated: true,
+      requires_reload: false,
+    }));
+    mocks.revealInFileManager.mockResolvedValue(undefined);
+    mocks.pickHostDirectory.mockResolvedValue('/Volumes/SSD/VibeXData');
     mocks.backupCreate.mockResolvedValue(preview);
     mocks.backupInspect.mockResolvedValue(preview);
     mocks.backupRestore.mockResolvedValue({
@@ -278,4 +307,36 @@ describe('SystemSettings', () => {
       { id: 'toast-id' }
     );
   });
+
+  it('supports viewing, opening in file manager, and migrating the data storage root directory', async () => {
+    const user = userEvent.setup();
+    render(<SystemSettings />);
+
+    expect(
+      (await screen.findAllByText(/数据存储位置|Data storage location/i)).length
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      await screen.findByDisplayValue('/Users/test/.vibex')
+    ).toBeInTheDocument();
+
+    const openBtn = await screen.findByRole('button', {
+      name: /在文件夹中打开|Open in Folder/i,
+    });
+    await user.click(openBtn);
+    expect(mocks.revealInFileManager).toHaveBeenCalledWith(
+      '/Users/test/.vibex'
+    );
+
+    const changeBtn = screen.getByRole('button', {
+      name: /更改目录…|Change directory…/i,
+    });
+    await user.click(changeBtn);
+    expect(mocks.pickHostDirectory).toHaveBeenCalled();
+
+    const confirmOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
+    expect(confirmOptions).toBeDefined();
+    await act(async () => confirmOptions.action.onClick());
+    expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/VibeXData');
+  });
 });
+

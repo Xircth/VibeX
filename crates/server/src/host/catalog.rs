@@ -95,6 +95,8 @@ pub(crate) fn handles(command: DomainCommand) -> bool {
             | DomainCommand::UpdateSystemProxySettings
             | DomainCommand::GetSystemRenderingSettings
             | DomainCommand::UpdateSystemRenderingSettings
+            | DomainCommand::GetSystemDataDirSettings
+            | DomainCommand::UpdateSystemDataDirSettings
             | DomainCommand::UploadImage
             | DomainCommand::UploadImageForTask
             | DomainCommand::UploadImageForWorkspace
@@ -211,6 +213,10 @@ pub(crate) async fn dispatch(
         DomainCommand::UpdateSystemProxySettings => system::update_proxy(args).await,
         DomainCommand::GetSystemRenderingSettings => system::get_rendering().await,
         DomainCommand::UpdateSystemRenderingSettings => system::update_rendering(args).await,
+        DomainCommand::GetSystemDataDirSettings => system::get_data_dir_settings(),
+        DomainCommand::UpdateSystemDataDirSettings => {
+            system::update_data_dir_settings(domains, args).await
+        }
         DomainCommand::UploadImage => images::upload(domains, args).await,
         DomainCommand::UploadImageForTask => images::upload_for_task(domains, args).await,
         DomainCommand::UploadImageForWorkspace => images::upload_for_workspace(domains, args).await,

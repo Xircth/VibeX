@@ -158,6 +158,9 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
     expect(panelRegistry.get(PANEL_IDS.PREVIEW)?.pluginId).toBe(
       'vibex.core.filesystem'
     );
+    expect(panelRegistry.get(PANEL_IDS.EXTERNAL_DIRECTORY)?.pluginId).toBe(
+      'vibex.core.filesystem'
+    );
     expect(serviceContainer.has('vibex.provider.editor-opener')).toBe(true);
     expect(serviceContainer.has('provider.editor.opener')).toBe(true);
 

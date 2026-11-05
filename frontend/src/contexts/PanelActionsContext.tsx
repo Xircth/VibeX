@@ -63,7 +63,9 @@ import {
   useTerminalStore,
 } from '@/stores/useTerminalStore';
 import {
+  buildExternalDirectoryPanelParams,
   buildPreviewPanelParams,
+  type OpenDirectoryExplorerOptions,
   type PreviewPanelParams,
   type OpenFilePreviewOptions,
   type OpenFilePreviewResult,
@@ -196,6 +198,10 @@ export interface PanelActions {
     options?: { title?: string | null }
   ) => void;
   openWebPreview: (url?: string | null) => void;
+  openDirectoryExplorer: (
+    dirPath: string,
+    options?: OpenDirectoryExplorerOptions
+  ) => void;
   revealInFileTree: (path: string, options?: RevealInFileTreeOptions) => void;
   openDiffPreview: () => void;
   openDiffPreviewAtPath: (
@@ -564,6 +570,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ...options,
         renderer:
           options.component === PANEL_IDS.PREVIEW ||
+          options.component === PANEL_IDS.EXTERNAL_DIRECTORY ||
           options.component === 'plugin-panel' ||
           options.component === PANEL_IDS.TERMINAL
             ? 'onlyWhenVisible'
@@ -610,8 +617,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const activate = options?.activate ?? true;
 
       if (activate) {
-        setSelectedFilePath(filePath);
-        revealInTree(filePath, 'file');
+        const currentRootPath = useFileTreeStore.getState().rootPath;
+        const isInsideWorkspace =
+          !isAbsoluteFilePath(filePath) ||
+          (Boolean(currentRootPath) &&
+            deriveRelativeFilePath(filePath, currentRootPath) !== null);
+        if (isInsideWorkspace) {
+          setSelectedFilePath(filePath);
+          revealInTree(filePath, 'file');
+        }
       }
 
       const basePanelId = `file:${filePath}`;
@@ -656,6 +670,56 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return 'opened';
     },
     [addPanelToActiveEditorGroup, revealInTree, setSelectedFilePath]
+  );
+
+  const openDirectoryExplorer = useCallback(
+    (dirPath: string, options?: OpenDirectoryExplorerOptions) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      const normalizedRoot =
+        dirPath.replace(/[\\/]+$/, '') || dirPath;
+      const activate = options?.activate ?? true;
+      const basePanelId = `dir:${normalizedRoot}`;
+      let panelId = basePanelId;
+      const folderName =
+        normalizedRoot.split(/[/\\]/).filter(Boolean).pop() || normalizedRoot;
+      const title = options?.title?.trim() || folderName;
+      const params = buildExternalDirectoryPanelParams(normalizedRoot, options);
+
+      const existingPanel = dockviewApi.panels.find(
+        (panel) =>
+          panel.view.contentComponent === PANEL_IDS.EXTERNAL_DIRECTORY &&
+          panel.params?.rootPath === normalizedRoot
+      );
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        if (existingPanel.title !== title) {
+          existingPanel.api.setTitle(title);
+        }
+        existingPanel.group.api.setVisible(true);
+        if (activate) {
+          existingPanel.api.setActive();
+        }
+        return;
+      }
+
+      for (let suffix = 1; dockviewApi.getPanel(panelId); suffix += 1) {
+        panelId = `${basePanelId}:${suffix}`;
+      }
+
+      const panel = addPanelToActiveEditorGroup({
+        id: panelId,
+        component: PANEL_IDS.EXTERNAL_DIRECTORY,
+        title,
+        params,
+      });
+
+      if (activate) {
+        panel?.api.setActive();
+      }
+    },
+    [addPanelToActiveEditorGroup]
   );
 
   const renameFilePreviews = useCallback(
@@ -1383,13 +1447,29 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const revealInFileTree = useCallback(
     (path: string, options?: RevealInFileTreeOptions) => {
       const nodeType = options?.nodeType ?? 'file';
+      const currentRootPath = useFileTreeStore.getState().rootPath;
+      const isInsideWorkspace =
+        !isAbsoluteFilePath(path) ||
+        (Boolean(currentRootPath) &&
+          deriveRelativeFilePath(path, currentRootPath) !== null);
+
+      if (nodeType === 'folder' && !isInsideWorkspace) {
+        openDirectoryExplorer(path, {
+          title:
+            options?.displayPath?.trim() ||
+            path.replace(/[\\/]+$/, '').split(/[/\\]/).pop() ||
+            path,
+        });
+        return;
+      }
+
       if (nodeType === 'file') {
         setSelectedFilePath(path);
       }
       revealInTree(path, nodeType);
       showFileTree();
     },
-    [revealInTree, setSelectedFilePath, showFileTree]
+    [openDirectoryExplorer, revealInTree, setSelectedFilePath, showFileTree]
   );
 
   const openOrFocusPanel = useCallback(
@@ -1799,6 +1879,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       renameFilePreviews,
       openImagePreview,
       openWebPreview,
+      openDirectoryExplorer,
       revealInFileTree,
       openDiffPreview,
       openDiffPreviewAtPath,
@@ -1846,6 +1927,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     renameFilePreviews,
     openImagePreview,
     openWebPreview,
+    openDirectoryExplorer,
     revealInFileTree,
     openLogs,
     openNewTerminal,

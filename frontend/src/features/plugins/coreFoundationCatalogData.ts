@@ -1454,7 +1454,12 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         registerBuiltinHostProviderServices({ ctx });
         registerBuiltinPanels({
           ctx,
-          panelIds: [PANEL_IDS.FILE_TREE, PANEL_IDS.PREVIEW, PANEL_IDS.SEARCH],
+          panelIds: [
+            PANEL_IDS.FILE_TREE,
+            PANEL_IDS.PREVIEW,
+            PANEL_IDS.EXTERNAL_DIRECTORY,
+            PANEL_IDS.SEARCH,
+          ],
         });
         registerBuiltinCommands({ ctx });
         bindCoreDomainServices(

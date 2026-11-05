@@ -545,6 +545,8 @@ domain_commands! {
     UpdateSystemProxySettings => "update_system_proxy_settings" / "application.call",
     GetSystemRenderingSettings => "get_system_rendering_settings" / "application.call",
     UpdateSystemRenderingSettings => "update_system_rendering_settings" / "application.call",
+    GetSystemDataDirSettings => "get_system_data_dir_settings" / "application.call",
+    UpdateSystemDataDirSettings => "update_system_data_dir_settings" / "application.call",
     UploadImage => "upload_image" / "application.call",
     UploadImageForTask => "upload_image_for_task" / "application.call",
     UploadImageForWorkspace => "upload_image_for_workspace" / "application.call",

@@ -41,10 +41,21 @@ pub fn get_qa_repos() -> Result<Vec<DirectoryEntry>, FilesystemError> {
         .filter_map(|(name, _url)| {
             let repo_path = base_dir.join(name);
             if repo_path.exists() && repo_path.join(".git").exists() {
-                let last_modified = std::fs::metadata(&repo_path)
-                    .ok()
+                let metadata = std::fs::metadata(&repo_path).ok();
+                let last_modified = metadata
+                    .as_ref()
                     .and_then(|m| m.modified().ok())
                     .map(|t| t.elapsed().unwrap_or_default().as_secs());
+                let created_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.created().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
+                let modified_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
 
                 Some(DirectoryEntry {
                     name: name.to_string(),
@@ -52,6 +63,9 @@ pub fn get_qa_repos() -> Result<Vec<DirectoryEntry>, FilesystemError> {
                     is_directory: true,
                     is_git_repo: true,
                     last_modified,
+                    size_bytes: None,
+                    created_at_ms,
+                    modified_at_ms,
                 })
             } else {
                 warn!("QA repo {} not found at {:?}", name, repo_path);

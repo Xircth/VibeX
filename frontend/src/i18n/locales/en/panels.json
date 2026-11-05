@@ -575,6 +575,7 @@
   },
   "panelRegistry": {
     "fileExplorer": "File Explorer",
+    "externalDirectory": "Directory Explorer",
     "gitManager": "Git Manager",
     "welcome": "Welcome",
     "notes": "Notes",
@@ -592,6 +593,19 @@
     "git": "Git",
     "merge": "Merge",
     "logs": "Logs"
+  },
+  "externalDirectory": {
+    "goBack": "Go back",
+    "goForward": "Go forward",
+    "viewMode": "View mode",
+    "emptyFolder": "Folder is empty",
+    "loadFailed": "Failed to load folder",
+    "information": "Information",
+    "created": "Created",
+    "modified": "Modified",
+    "kind": "Kind",
+    "size": "Size",
+    "openInTab": "Open in Tab"
   },
   "ideIcon": {
     "fileManager": "File Manager"
@@ -1193,6 +1207,7 @@
       "videoPreviewIsUnavailable": "Video preview is unavailable",
       "videoTooLargeWindows": "当前文件过大（≥20MB），请通过文件资源管理器查看",
       "videoTooLargeMac": "当前文件过大（≥20MB），请通过访达查看",
+      "unsupportedFormat": "当前文件格式暂不支持预览",
       "openInFolder": "在文件夹中打开",
       "selectAFileFromThe": "Select a file from the file tree to preview"
     },

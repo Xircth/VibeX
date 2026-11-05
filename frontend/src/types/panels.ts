@@ -49,6 +49,27 @@ export interface TerminalPanelParams {
   terminalShelf?: boolean;
 }
 
+export interface ExternalDirectoryPanelParams {
+  rootPath: string;
+  initialSelectedPath?: string | null;
+}
+
+export interface OpenDirectoryExplorerOptions {
+  title?: string;
+  initialSelectedPath?: string | null;
+  activate?: boolean;
+}
+
+export function buildExternalDirectoryPanelParams(
+  rootPath: string,
+  options?: OpenDirectoryExplorerOptions
+): ExternalDirectoryPanelParams {
+  return {
+    rootPath,
+    initialSelectedPath: options?.initialSelectedPath ?? null,
+  };
+}
+
 export function buildPreviewPanelParams(
   filePath: string,
   options?: OpenFilePreviewOptions

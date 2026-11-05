@@ -291,6 +291,20 @@ export interface SystemRenderingSettings {
   acceleration_mode: 'auto' | 'force_gpu' | 'disable_gpu';
 }
 
+export interface SystemDataDirSettings {
+  current_data_dir: string;
+  default_data_dir: string;
+  is_custom: boolean;
+}
+
+export interface UpdateSystemDataDirResult {
+  current_data_dir: string;
+  default_data_dir: string;
+  is_custom: boolean;
+  migrated: boolean;
+  requires_reload: boolean;
+}
+
 export interface BackupCreateOptions {
   path: string;
   /** When set (non-empty), the backup is encrypted with this passphrase (P3-4). */
@@ -358,6 +372,15 @@ export const systemSettingsApi = {
     return backendCall<SystemRenderingSettings>(
       'update_system_rendering_settings',
       { settings }
+    );
+  },
+  getDataDir: async (): Promise<SystemDataDirSettings> => {
+    return backendCall<SystemDataDirSettings>('get_system_data_dir_settings');
+  },
+  updateDataDir: async (dataDir: string): Promise<UpdateSystemDataDirResult> => {
+    return backendCall<UpdateSystemDataDirResult>(
+      'update_system_data_dir_settings',
+      { dataDir }
     );
   },
 };

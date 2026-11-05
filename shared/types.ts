@@ -760,7 +760,10 @@ export type DirectoryEntry = {
   path: string;
   is_directory: boolean;
   is_git_repo: boolean;
-  last_modified: bigint | null;
+  last_modified: bigint | number | null;
+  size_bytes?: bigint | number | null;
+  created_at_ms?: bigint | number | null;
+  modified_at_ms?: bigint | number | null;
 };
 
 export type DirectoryListResponse = {

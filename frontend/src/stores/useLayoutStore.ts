@@ -23,6 +23,7 @@ export const PANEL_IDS = {
   PROCESSES: 'processes',
   SEARCH: 'search',
   SESSION_LIST: 'session-list',
+  EXTERNAL_DIRECTORY: 'external-directory',
 } as const;
 
 export type PanelId = (typeof PANEL_IDS)[keyof typeof PANEL_IDS];

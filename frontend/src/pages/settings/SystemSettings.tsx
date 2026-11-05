@@ -3,6 +3,7 @@ import {
   Archive,
   Download,
   FileJson2,
+  FolderOpen,
   Gauge,
   Loader2,
   Network,
@@ -31,6 +32,8 @@ import {
   type SystemProxySettings,
   type SystemRenderingSettings,
 } from '@/lib/api';
+import { desktopApi } from '@/lib/api/misc';
+import { pickHostDirectory } from '@/lib/hostFs';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -206,6 +209,9 @@ export function SystemSettings() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [settingsPath, setSettingsPath] = useState('~/.vibex/settings.json');
+  const [dataDir, setDataDir] = useState('');
+  const [savedDataDir, setSavedDataDir] = useState('');
+  const [dataDirBusy, setDataDirBusy] = useState(false);
 
   const appliedConfig = useRef(config);
   useEffect(() => {
@@ -241,6 +247,16 @@ export function SystemSettings() {
     } finally {
       setProxyLoading(false);
       setRenderingLoading(false);
+    }
+
+    try {
+      const dataDirSettings = await systemSettingsApi.getDataDir?.();
+      if (dataDirSettings?.current_data_dir) {
+        setDataDir(dataDirSettings.current_data_dir);
+        setSavedDataDir(dataDirSettings.current_data_dir);
+      }
+    } catch {
+      // Optional during backend transition or mocked environments.
     }
   }, [proxyHoldingRef, renderingHoldingRef, t]);
 
@@ -455,6 +471,92 @@ export function SystemSettings() {
     });
   }, [confirmClearLocalData, t]);
 
+  const applyDataDirChange = useCallback(
+    async (targetDir: string) => {
+      const trimmed = targetDir.trim();
+      if (!trimmed || trimmed === savedDataDir) return;
+
+      setDataDirBusy(true);
+      const toastId = toast.loading(
+        t('system.dataDirMigrating', '正在迁移数据并切换存储位置...')
+      );
+      try {
+        const result = await systemSettingsApi.updateDataDir(trimmed);
+        setDataDir(result.current_data_dir);
+        setSavedDataDir(result.current_data_dir);
+        toast.success(
+          result.requires_reload
+            ? t('system.dataDirSavedReload', '数据存储位置已更新，建议重启应用')
+            : t('system.dataDirSaved', '数据存储位置已更新'),
+          { id: toastId }
+        );
+        if (
+          result.requires_reload &&
+          !window.location.pathname.startsWith('/settings')
+        ) {
+          window.setTimeout(() => window.location.reload(), 700);
+        }
+      } catch (error) {
+        const message = getInvokeErrorMessage(error).trim();
+        toast.error(
+          message || t('system.dataDirSaveFailed', '数据存储位置更新失败'),
+          { id: toastId }
+        );
+      } finally {
+        setDataDirBusy(false);
+      }
+    },
+    [savedDataDir, t]
+  );
+
+  const handleConfirmDataDirChange = useCallback(
+    (targetDir: string) => {
+      const trimmed = targetDir.trim();
+      if (!trimmed || trimmed === savedDataDir) return;
+
+      const toastId = toast.warning(
+        t(
+          'system.confirmDataDirChange',
+          '确认将数据存储位置更改并迁移至新目录？'
+        ),
+        {
+          duration: 8000,
+          action: {
+            label: t('system.confirmMigrate', '确认迁移'),
+            onClick: () => {
+              toast.dismiss(toastId);
+              void applyDataDirChange(trimmed);
+            },
+          },
+          cancel: {
+            label: t('common:cancel'),
+            onClick: () => toast.dismiss(toastId),
+          },
+        }
+      );
+    },
+    [applyDataDirChange, savedDataDir, t]
+  );
+
+  const handlePickDataDir = useCallback(async () => {
+    try {
+      const selected = await pickHostDirectory({
+        title: t('system.dataDirTitle', '数据存储位置'),
+        value: dataDir,
+      });
+      if (selected && selected.trim()) {
+        setDataDir(selected.trim());
+        handleConfirmDataDirChange(selected.trim());
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('system.dataDirSaveFailed', '数据存储位置更新失败')
+      );
+    }
+  }, [dataDir, handleConfirmDataDirChange, t]);
+
   if (loading) {
     return <SurfaceLoading />;
   }
@@ -475,6 +577,61 @@ export function SystemSettings() {
             <code className="select-all break-all font-mono text-xs text-foreground">
               {settingsPath}
             </code>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={FolderOpen}
+          title={t('system.dataDirTitle', '数据存储位置')}
+          description={t(
+            'system.dataDirDescription',
+            'VibeX 本地数据库、协作空间与附件统一保存在此目录。更改后将自动迁移现有数据。'
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <TextInput
+              label={t('system.dataDirTitle', '数据存储位置')}
+              isLabelHidden
+              value={dataDir}
+              placeholder="~/.vibex"
+              onChange={setDataDir}
+              isDisabled={dataDirBusy}
+              width="100%"
+              className="[&_input]:font-mono [&_input]:text-xs"
+            />
+            {dataDir.trim() && dataDir.trim() !== savedDataDir ? (
+              <Button
+                className="shrink-0"
+                onClick={() => handleConfirmDataDirChange(dataDir)}
+                disabled={dataDirBusy}
+              >
+                {dataDirBusy ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {t('system.applyDataDir', '迁移并应用')}
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => void handlePickDataDir()}
+              disabled={dataDirBusy}
+            >
+              {t('system.changeDataDir', '更改目录…')}
+            </Button>
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => {
+                if (dataDir.trim()) {
+                  void desktopApi.revealInFileManager(dataDir.trim());
+                }
+              }}
+              disabled={!dataDir.trim() || dataDirBusy}
+            >
+              <FolderOpen className="mr-1 h-3.5 w-3.5" />
+              {t('system.openInFolder', '在文件夹中打开')}
+            </Button>
           </div>
         </SettingsSection>
 

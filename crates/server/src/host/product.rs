@@ -822,7 +822,7 @@ impl ServerApplicationDomains {
             }
             DomainCommand::ReadBinaryAsset => {
                 let args: ReadBinaryAssetArgs = parse(args)?;
-                let path = self.sandbox_existing_binary_asset(&args.path).await?;
+                let path = self.existing_local_file(&args.path).await?;
                 let metadata = tokio::fs::metadata(&path).await.map_err(internal_error)?;
                 let size_bytes = metadata.len();
                 let mime_type = mime_type_for_path(&path);

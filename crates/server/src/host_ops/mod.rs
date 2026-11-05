@@ -409,7 +409,7 @@ impl ServerApplicationDomains {
             DomainCommand::FileTree => self.file_tree(args).await,
             DomainCommand::FileRead => {
                 let args: PathArgs = parse(args)?;
-                let path = self.sandbox_existing_file(&args.path).await?;
+                let path = self.existing_local_file(&args.path).await?;
                 let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
                 if bytes.contains(&0) {
                     return Err(ApplicationError::bad_request(
@@ -1215,7 +1215,7 @@ impl ServerApplicationDomains {
 
     async fn file_tree(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: FileTreeArgs = parse(args)?;
-        let root = self.sandbox_existing_path(&args.root_path).await?;
+        let root = self.existing_local_path(&args.root_path).await?;
         if !root.is_dir() {
             return Err(ApplicationError::bad_request(
                 "root path is not a directory",
@@ -1233,9 +1233,9 @@ impl ServerApplicationDomains {
 
     async fn list_directory_children(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: DirectoryChildrenArgs = parse(args)?;
-        let root = self.sandbox_existing_path(&args.root_path).await?;
+        let root = self.existing_local_path(&args.root_path).await?;
         if !args.relative_path.is_empty() {
-            self.sandbox_existing_path(&root.join(&args.relative_path).to_string_lossy())
+            self.existing_local_path(&root.join(&args.relative_path).to_string_lossy())
                 .await?;
         }
         let listing = tokio::task::spawn_blocking(move || {
@@ -1248,7 +1248,7 @@ impl ServerApplicationDomains {
 
     async fn read_file_truncated(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ReadTruncatedArgs = parse(args)?;
-        let path = self.sandbox_existing_file(&args.path).await?;
+        let path = self.existing_local_file(&args.path).await?;
         let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
         if bytes.contains(&0) {
             return Err(ApplicationError::bad_request(
@@ -1939,33 +1939,18 @@ impl ServerApplicationDomains {
             .unwrap_or_else(|| PathBuf::from(container)))
     }
 
-    pub(crate) async fn sandbox_existing_file(
+    pub(crate) async fn existing_local_file(
         &self,
         path: &str,
     ) -> Result<PathBuf, ApplicationError> {
-        let path = self.sandbox_existing_path(path).await?;
-        if !path.is_file() {
-            return Err(ApplicationError::not_found(format!(
-                "file {}",
-                path.display()
-            )));
-        }
-        Ok(path)
+        existing_local_file_at(path).await
     }
 
-    /// ReadBinaryAsset may load Host-cached conversation images. Those files
-    /// live under `{host_data_dir}/images`, which is not a repo or workspace.
-    pub(crate) async fn sandbox_existing_binary_asset(
+    pub(crate) async fn existing_local_path(
         &self,
         path: &str,
     ) -> Result<PathBuf, ApplicationError> {
-        match self.sandbox_existing_file(path).await {
-            Ok(existing) => Ok(existing),
-            Err(error) => match existing_host_image_cache_file(path).await {
-                Some(existing) => Ok(existing),
-                None => Err(error),
-            },
-        }
+        existing_local_path_at(path).await
     }
 
     async fn sandbox_existing_path(&self, path: &str) -> Result<PathBuf, ApplicationError> {
@@ -2249,20 +2234,30 @@ fn restrict_file(path: &Path) {
     let _ = path;
 }
 
-fn host_image_cache_dir() -> PathBuf {
-    utils::assets::host_data_dir().join("images")
-}
-
+#[cfg(test)]
 fn path_is_host_image_cache_file(requested: &Path, cache_root: &Path) -> bool {
     requested.is_file() && requested.starts_with(cache_root)
 }
 
-async fn existing_host_image_cache_file(path: &str) -> Option<PathBuf> {
-    let requested = tokio::fs::canonicalize(sanitize_absolute(path).ok()?)
+async fn existing_local_path_at(path: &str) -> Result<PathBuf, ApplicationError> {
+    let sanitized = sanitize_absolute(path)?;
+    let canonical = tokio::fs::canonicalize(&sanitized)
         .await
-        .ok()?;
-    let cache = tokio::fs::canonicalize(host_image_cache_dir()).await.ok()?;
-    path_is_host_image_cache_file(&requested, &cache).then_some(requested)
+        .map_err(|_| ApplicationError::not_found(format!("path {path}")))?;
+    Ok(utils::path::normalize_windows_extended_path_prefix(
+        canonical,
+    ))
+}
+
+async fn existing_local_file_at(path: &str) -> Result<PathBuf, ApplicationError> {
+    let path = existing_local_path_at(path).await?;
+    if !path.is_file() {
+        return Err(ApplicationError::not_found(format!(
+            "file {}",
+            path.display()
+        )));
+    }
+    Ok(path)
 }
 
 pub(crate) fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {
@@ -3013,5 +3008,34 @@ mod tests {
     #[test]
     fn prepared_sessions_reject_invalid_agent_display_names() {
         assert!(prepared_session_agent_id(Some("Registry Agent")).is_err());
+    }
+
+    #[tokio::test]
+    async fn existing_local_path_and_file_allow_non_workspace_local_paths_and_reject_traversal() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("outside-workspace.md");
+        std::fs::write(&file, b"# Outside workspace").expect("write");
+
+        let resolved_dir = existing_local_path_at(&dir.path().to_string_lossy())
+            .await
+            .expect("existing local dir");
+        assert!(resolved_dir.is_dir());
+
+        let resolved_file = existing_local_file_at(&file.to_string_lossy())
+            .await
+            .expect("existing local file");
+        assert!(resolved_file.is_file());
+
+        // Directory is not a file
+        assert!(
+            existing_local_file_at(&dir.path().to_string_lossy())
+                .await
+                .is_err()
+        );
+
+        // Relative paths and parent traversal are rejected
+        assert!(existing_local_path_at("relative/path").await.is_err());
+        let traversal = format!("{}/../outside", dir.path().display());
+        assert!(existing_local_path_at(&traversal).await.is_err());
     }
 }

@@ -1131,11 +1131,27 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             />
           )
         ) : effectivePreviewKind === 'binary' ? (
-          <PreviewPlaceholder
-            icon={FileWarning}
-            title={t('attachments.workspaceUnsupported')}
-            description={contentErrorMessage ?? undefined}
-          />
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+            <p className="text-sm font-medium text-foreground">
+              {i18n.t(
+                'panels:ui.preview.unsupportedFormat',
+                '当前文件格式暂不支持预览'
+              )}
+            </p>
+            <button
+              type="button"
+              className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
+              onClick={() => {
+                const targetPath = resolvedFilePath ?? filePath;
+                if (targetPath) {
+                  void desktopApi.revealInFileManager(targetPath);
+                }
+              }}
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
+            </button>
+          </div>
         ) : effectivePreviewKind === 'image' ? (
           isLoadingBinaryAsset ? (
             <FilePreviewLoading

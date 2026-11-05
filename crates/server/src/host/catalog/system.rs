@@ -786,3 +786,513 @@ fn remove_path_if_exists(path: &Path) -> Result<(), ApplicationError> {
         std::fs::remove_file(path).map_err(internal_error)
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SystemDataDirSettingsView {
+    current_data_dir: String,
+    default_data_dir: String,
+    is_custom: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SystemDataDirUpdateResponse {
+    current_data_dir: String,
+    default_data_dir: String,
+    is_custom: bool,
+    migrated: bool,
+    requires_reload: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UpdateDataDirArgs {
+    #[serde(alias = "dataDir")]
+    data_dir: String,
+}
+
+pub(super) fn get_data_dir_settings() -> Result<Value, ApplicationError> {
+    let settings = utils::assets::get_data_dir_settings();
+    serialize(SystemDataDirSettingsView {
+        current_data_dir: settings.current_data_dir.to_string_lossy().into_owned(),
+        default_data_dir: settings.default_data_dir.to_string_lossy().into_owned(),
+        is_custom: settings.is_custom,
+    })
+}
+
+pub(super) async fn update_data_dir_settings(
+    domains: &ServerApplicationDomains,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let parsed: UpdateDataDirArgs = unwrap_named(args, &["settings", "payload"])?;
+    let current = utils::assets::get_data_dir_settings();
+    let target_dir = validate_target_data_dir(&parsed.data_dir, &current.current_data_dir)?;
+
+    if same_directory_path(&current.current_data_dir, &target_dir) {
+        return serialize(SystemDataDirUpdateResponse {
+            current_data_dir: current.current_data_dir.to_string_lossy().into_owned(),
+            default_data_dir: current.default_data_dir.to_string_lossy().into_owned(),
+            is_custom: current.is_custom,
+            migrated: false,
+            requires_reload: false,
+        });
+    }
+
+    let old_data_dir = current.current_data_dir.clone();
+
+    // 1. Remap active pool paths and checkpoint WAL before copying db.sqlite
+    remap_sqlite_data_dir_paths(&domains.pool, &old_data_dir, &target_dir).await?;
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&domains.pool)
+        .await;
+
+    // 2. Copy all files and subdirectories from old_data_dir to target_dir
+    let src_for_copy = old_data_dir.clone();
+    let dst_for_copy = target_dir.clone();
+    tokio::task::spawn_blocking(move || copy_data_dir_tree(&src_for_copy, &dst_for_copy))
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))??;
+
+    // 3. Remap paths in copied target_dir/db.sqlite and target_dir/settings.json
+    let target_db_path = target_dir.join("db.sqlite");
+    if target_db_path.is_file() {
+        remap_sqlite_file_data_dir_paths(&target_db_path, &old_data_dir, &target_dir).await?;
+    }
+    remap_settings_json_paths(&target_dir.join("settings.json"), &old_data_dir, &target_dir)?;
+
+    // 4. Persist custom_data_dir in bootstrap.json
+    let updated = utils::assets::set_custom_data_dir(Some(&target_dir)).map_err(internal_error)?;
+
+    serialize(SystemDataDirUpdateResponse {
+        current_data_dir: updated.current_data_dir.to_string_lossy().into_owned(),
+        default_data_dir: updated.default_data_dir.to_string_lossy().into_owned(),
+        is_custom: updated.is_custom,
+        migrated: true,
+        requires_reload: true,
+    })
+}
+
+fn normalize_dir_for_comparison(path: &Path) -> std::path::PathBuf {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    utils::path::normalize_windows_extended_path_prefix(canonical)
+}
+
+fn same_directory_path(a: &Path, b: &Path) -> bool {
+    let norm_a = normalize_dir_for_comparison(a);
+    let norm_b = normalize_dir_for_comparison(b);
+    if cfg!(windows) {
+        norm_a
+            .to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .eq_ignore_ascii_case(norm_b.to_string_lossy().trim_end_matches(['\\', '/']))
+    } else {
+        norm_a == norm_b
+    }
+}
+
+fn is_strict_subdirectory(candidate: &Path, parent: &Path) -> bool {
+    if same_directory_path(candidate, parent) {
+        return false;
+    }
+    let norm_parent = normalize_dir_for_comparison(parent);
+    let norm_candidate = if candidate.exists() {
+        normalize_dir_for_comparison(candidate)
+    } else {
+        utils::path::normalize_windows_extended_path_prefix(candidate.to_path_buf())
+    };
+    if cfg!(windows) {
+        let parent_prefix = format!(
+            "{}\\",
+            norm_parent
+                .to_string_lossy()
+                .trim_end_matches(['\\', '/'])
+                .replace('/', "\\")
+                .to_ascii_lowercase()
+        );
+        let candidate_str = norm_candidate
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        candidate_str.starts_with(&parent_prefix)
+    } else {
+        norm_candidate.starts_with(&norm_parent)
+    }
+}
+
+pub(crate) fn validate_target_data_dir(
+    raw_path: &str,
+    current_data_dir: &Path,
+) -> Result<std::path::PathBuf, ApplicationError> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return Err(ApplicationError::bad_request(
+            "Data directory path cannot be empty",
+        ));
+    }
+    let path = std::path::PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(ApplicationError::bad_request(
+            "Data directory path must be an absolute path",
+        ));
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(ApplicationError::bad_request(
+            "Data directory path cannot contain '..' traversal segments",
+        ));
+    }
+    if is_strict_subdirectory(&path, current_data_dir) {
+        return Err(ApplicationError::bad_request(
+            "Target data directory cannot be inside the current data directory",
+        ));
+    }
+    if !utils::assets::probe_writable_dir(&path) {
+        return Err(ApplicationError::bad_request(
+            "Target data directory cannot be created or is not writable",
+        ));
+    }
+    Ok(normalize_dir_for_comparison(&path))
+}
+
+pub(crate) fn copy_data_dir_tree(src: &Path, dst: &Path) -> Result<(), ApplicationError> {
+    if !src.exists() {
+        std::fs::create_dir_all(dst).map_err(internal_error)?;
+        return Ok(());
+    }
+    std::fs::create_dir_all(dst).map_err(internal_error)?;
+    // Remove stale WAL/SHM in destination before copying checkpointed db.sqlite
+    let _ = std::fs::remove_file(dst.join("db.sqlite-wal"));
+    let _ = std::fs::remove_file(dst.join("db.sqlite-shm"));
+    copy_dir_recursive_inner(src, dst)
+}
+
+fn copy_dir_recursive_inner(src: &Path, dst: &Path) -> Result<(), ApplicationError> {
+    std::fs::create_dir_all(dst).map_err(internal_error)?;
+    for entry in std::fs::read_dir(src).map_err(internal_error)? {
+        let entry = entry.map_err(internal_error)?;
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if name.starts_with(".vibex-write-probe-")
+            || name == "db.sqlite-wal"
+            || name == "db.sqlite-shm"
+        {
+            continue;
+        }
+        let from_path = entry.path();
+        if same_directory_path(&from_path, dst) {
+            continue;
+        }
+        let to_path = dst.join(&file_name);
+        let file_type = entry.file_type().map_err(internal_error)?;
+        if file_type.is_dir() {
+            copy_dir_recursive_inner(&from_path, &to_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&from_path, &to_path).map_err(internal_error)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn remap_sqlite_file_data_dir_paths(
+    db_file: &Path,
+    old_dir: &Path,
+    new_dir: &Path,
+) -> Result<(), ApplicationError> {
+    use std::str::FromStr;
+    let options = sqlx::sqlite::SqliteConnectOptions::from_str(&format!(
+        "sqlite://{}",
+        db_file.to_string_lossy()
+    ))
+    .map_err(internal_error)?
+    .create_if_missing(false);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .map_err(internal_error)?;
+    let res = remap_sqlite_data_dir_paths(&pool, old_dir, new_dir).await;
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&pool)
+        .await;
+    pool.close().await;
+    res
+}
+
+pub(crate) async fn remap_sqlite_data_dir_paths(
+    pool: &sqlx::SqlitePool,
+    old_dir: &Path,
+    new_dir: &Path,
+) -> Result<(), ApplicationError> {
+    let old_native = old_dir
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    let new_native = new_dir
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    if old_native.is_empty() || old_native == new_native {
+        return Ok(());
+    }
+
+    let old_slash = old_native.replace('\\', "/");
+    let new_slash = new_native.replace('\\', "/");
+    let old_backslash = old_native.replace('/', "\\");
+    let new_backslash = new_native.replace('/', "\\");
+
+    let targets = [
+        ("workspaces", "container_ref"),
+        ("workspaces", "agent_working_dir"),
+        ("repos", "path"),
+        ("projects", "root_path"),
+        ("collaboration_space_collection_items", "file_path"),
+    ];
+
+    let mut pairs = vec![(old_slash.clone(), new_slash.clone())];
+    if old_backslash != old_slash || new_backslash != new_slash {
+        pairs.push((old_backslash, new_backslash));
+    }
+
+    for (table, column) in targets {
+        for (old_base, new_base) in &pairs {
+            let exact_sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
+            let _ = sqlx::query(&exact_sql)
+                .bind(new_base)
+                .bind(old_base)
+                .execute(pool)
+                .await;
+
+            for sep in ['/', '\\'] {
+                let old_prefix = format!("{old_base}{sep}");
+                let new_prefix = format!("{new_base}{sep}");
+                let prefix_sql = format!(
+                    "UPDATE {table} SET {column} = ?1 || substr({column}, length(?2) + 1) \
+                     WHERE {column} IS NOT NULL AND substr({column}, 1, length(?2)) = ?2"
+                );
+                let _ = sqlx::query(&prefix_sql)
+                    .bind(&new_prefix)
+                    .bind(&old_prefix)
+                    .execute(pool)
+                    .await;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn remap_path_string_prefix(value: &str, old_dir: &Path, new_dir: &Path) -> Option<String> {
+    let old_native = old_dir
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    let new_native = new_dir
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
+    if old_native.is_empty() {
+        return None;
+    }
+    let old_slash = old_native.replace('\\', "/");
+    let new_slash = new_native.replace('\\', "/");
+    let old_backslash = old_native.replace('/', "\\");
+    let new_backslash = new_native.replace('/', "\\");
+
+    for (old_base, new_base) in [(&old_slash, &new_slash), (&old_backslash, &new_backslash)] {
+        if value == old_base {
+            return Some(new_base.clone());
+        }
+        for sep in ['/', '\\'] {
+            let old_prefix = format!("{old_base}{sep}");
+            if let Some(rest) = value.strip_prefix(&old_prefix) {
+                return Some(format!("{new_base}{sep}{rest}"));
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn remap_settings_json_paths(
+    settings_file: &Path,
+    old_dir: &Path,
+    new_dir: &Path,
+) -> Result<(), ApplicationError> {
+    if !settings_file.is_file() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(settings_file).map_err(internal_error)?;
+    let Ok(mut root) = serde_json::from_str::<Value>(&raw) else {
+        return Ok(());
+    };
+    let mut changed = false;
+    if let Some(obj) = root.as_object_mut() {
+        if let Some(Value::String(ws_dir)) = obj.get_mut("workspace_dir")
+            && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
+        {
+            *ws_dir = remapped;
+            changed = true;
+        }
+        if let Some(Value::Object(config_obj)) = obj.get_mut("config")
+            && let Some(Value::String(ws_dir)) = config_obj.get_mut("workspace_dir")
+            && let Some(remapped) = remap_path_string_prefix(ws_dir, old_dir, new_dir)
+        {
+            *ws_dir = remapped;
+            changed = true;
+        }
+    }
+    if changed {
+        let encoded = serde_json::to_vec_pretty(&root).map_err(internal_error)?;
+        std::fs::write(settings_file, encoded).map_err(internal_error)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn copy_and_remap_data_dir_migrates_files_and_rewrites_sqlite_and_settings_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let old_dir = temp.path().join("old_data");
+        let new_dir = temp.path().join("new_data");
+        std::fs::create_dir_all(old_dir.join("worktrees/wt-1")).expect("mkdir worktrees");
+        std::fs::write(old_dir.join("worktrees/wt-1/README.md"), b"# Migrated").expect("write");
+        std::fs::write(
+            old_dir.join("settings.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "workspace_dir": format!("{}/worktrees", old_dir.to_string_lossy()),
+            }))
+            .unwrap(),
+        )
+        .expect("write settings.json");
+
+        // Create a SQLite DB in old_dir with the target tables/columns
+        let db_path = old_dir.join("db.sqlite");
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(&db_path)
+                    .create_if_missing(true),
+            )
+            .await
+            .expect("open sqlite");
+
+        sqlx::query("CREATE TABLE workspaces (id TEXT PRIMARY KEY, container_ref TEXT, agent_working_dir TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE repos (id TEXT PRIMARY KEY, path TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE projects (id TEXT PRIMARY KEY, root_path TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE collaboration_space_collection_items (id TEXT PRIMARY KEY, file_path TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let old_wt = format!("{}/worktrees/wt-1", old_dir.to_string_lossy());
+        let old_repo = format!("{}\\repos\\repo-1", old_dir.to_string_lossy());
+        let external_repo = "D:/external/project".to_string();
+        let old_doc = format!("{}/spaces/sp-1/doc.md", old_dir.to_string_lossy());
+
+        sqlx::query("INSERT INTO workspaces (id, container_ref, agent_working_dir) VALUES ('w1', ?1, ?1)")
+            .bind(&old_wt)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO repos (id, path) VALUES ('r1', ?1), ('r2', ?2)")
+            .bind(&old_repo)
+            .bind(&external_repo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO projects (id, root_path) VALUES ('p1', ?1)")
+            .bind(&old_repo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO collaboration_space_collection_items (id, file_path) VALUES ('c1', ?1)")
+            .bind(&old_doc)
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let validated_target = validate_target_data_dir(&new_dir.to_string_lossy(), &old_dir)
+            .expect("validate target dir");
+        copy_data_dir_tree(&old_dir, &validated_target).expect("copy tree");
+        remap_sqlite_file_data_dir_paths(
+            &validated_target.join("db.sqlite"),
+            &old_dir,
+            &validated_target,
+        )
+        .await
+        .expect("remap sqlite");
+        remap_settings_json_paths(
+            &validated_target.join("settings.json"),
+            &old_dir,
+            &validated_target,
+        )
+        .expect("remap settings.json");
+
+        assert!(validated_target.join("worktrees/wt-1/README.md").is_file());
+
+        let check_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(validated_target.join("db.sqlite")),
+            )
+            .await
+            .expect("open migrated sqlite");
+
+        let migrated_wt: String =
+            sqlx::query_scalar("SELECT container_ref FROM workspaces WHERE id = 'w1'")
+                .fetch_one(&check_pool)
+                .await
+                .unwrap();
+        assert!(
+            migrated_wt.ends_with("worktrees/wt-1"),
+            "unexpected container_ref: {migrated_wt}"
+        );
+        assert!(!migrated_wt.contains("old_data"));
+
+        let migrated_repo: String = sqlx::query_scalar("SELECT path FROM repos WHERE id = 'r1'")
+            .fetch_one(&check_pool)
+            .await
+            .unwrap();
+        assert!(!migrated_repo.contains("old_data"));
+
+        let untouched_external: String =
+            sqlx::query_scalar("SELECT path FROM repos WHERE id = 'r2'")
+                .fetch_one(&check_pool)
+                .await
+                .unwrap();
+        assert_eq!(untouched_external, external_repo);
+
+        let migrated_doc: String = sqlx::query_scalar(
+            "SELECT file_path FROM collaboration_space_collection_items WHERE id = 'c1'",
+        )
+        .fetch_one(&check_pool)
+        .await
+        .unwrap();
+        assert!(!migrated_doc.contains("old_data"));
+        check_pool.close().await;
+
+        let migrated_settings: Value = serde_json::from_str(
+            &std::fs::read_to_string(validated_target.join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        let ws_dir = migrated_settings["workspace_dir"].as_str().unwrap();
+        assert!(!ws_dir.contains("old_data"));
+
+        // Subdirectory of current_data_dir must be rejected
+        let nested = old_dir.join("nested_target");
+        assert!(validate_target_data_dir(&nested.to_string_lossy(), &old_dir).is_err());
+    }
+}

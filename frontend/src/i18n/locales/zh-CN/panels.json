@@ -575,6 +575,7 @@
   },
   "panelRegistry": {
     "fileExplorer": "文件管理器",
+    "externalDirectory": "目录浏览",
     "gitManager": "Git 管理器",
     "welcome": "欢迎",
     "notes": "笔记",
@@ -592,6 +593,19 @@
     "git": "Git",
     "merge": "合并",
     "logs": "日志"
+  },
+  "externalDirectory": {
+    "goBack": "返回上一级",
+    "goForward": "前进",
+    "viewMode": "视图模式",
+    "emptyFolder": "文件夹为空",
+    "loadFailed": "目录读取失败",
+    "information": "Information",
+    "created": "Created",
+    "modified": "Modified",
+    "kind": "Kind",
+    "size": "Size",
+    "openInTab": "在标签页打开"
   },
   "ideIcon": {
     "fileManager": "文件资源管理器"
@@ -1193,6 +1207,7 @@
       "videoPreviewIsUnavailable": "视频预览不可用",
       "videoTooLargeWindows": "当前文件过大（≥20MB），请通过文件资源管理器查看",
       "videoTooLargeMac": "当前文件过大（≥20MB），请通过访达查看",
+      "unsupportedFormat": "当前文件格式暂不支持预览",
       "openInFolder": "在文件夹中打开",
       "selectAFileFromThe": "从文件树中选择要预览的文件"
     },

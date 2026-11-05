@@ -9,6 +9,7 @@ import { logsPanelManifest } from './logs';
 import { mergePanelManifest } from './merge';
 import { notesPanelManifest } from './notes';
 import { previewPanelManifest } from './preview';
+import { externalDirectoryPanelManifest } from './externalDirectory';
 import { processesPanelManifest } from './processes';
 import { searchPanelManifest } from './search';
 import { sessionDetailsPanelManifest } from './sessionDetails';
@@ -24,6 +25,7 @@ const panelManifests = [
   kanbanPanelManifest,
   fileTreePanelManifest,
   previewPanelManifest,
+  externalDirectoryPanelManifest,
   diffsPanelManifest,
   terminalPanelManifest,
   aiChatPanelManifest,

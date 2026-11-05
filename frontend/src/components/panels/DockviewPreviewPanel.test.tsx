@@ -526,10 +526,15 @@ describe('DockviewPreviewPanel', () => {
     expect(await screen.findByTestId('monaco-editor')).toBeInTheDocument();
   });
 
-  it('shows a workspace-unsupported state for office documents', async () => {
+  it('shows a workspace-unsupported state without file icon and opens in folder for office documents', async () => {
     render(<DockviewPreviewPanel {...panelProps('letter.docx')} />);
 
-    expect(await screen.findByText('当前格式暂不支持预览')).toBeVisible();
+    expect(await screen.findByText('当前文件格式暂不支持预览')).toBeVisible();
+    const openBtn = screen.getByRole('button', { name: '在文件夹中打开' });
+    fireEvent.click(openBtn);
+    expect(api.revealInFileManager).toHaveBeenCalledWith(
+      '/workspace/letter.docx'
+    );
   });
 
   it('keeps HTML as source where no local webview can serve it', async () => {

@@ -23,6 +23,7 @@ import {
   Columns2,
   FileDiff,
   FileText,
+  FolderOpen,
   GitCompare,
   Globe,
   Image as ImageIcon,
@@ -54,7 +55,9 @@ import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { registerImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
+  buildExternalDirectoryPanelParams,
   buildPreviewPanelParams,
+  type OpenDirectoryExplorerOptions,
   type OpenFilePreviewOptions,
   type PreviewPanelParams,
 } from '@/types/panels';
@@ -478,6 +481,13 @@ export function CollaborationPreviewDockviewTab(
           data-tab-icon="notes"
           data-testid="workspace-tab-icon"
         />
+      ) : api.component === PANEL_IDS.EXTERNAL_DIRECTORY ? (
+        <FolderOpen
+          aria-hidden="true"
+          className="workspace-tab-icon"
+          data-tab-icon="external-directory"
+          data-testid="workspace-tab-icon"
+        />
       ) : api.component === PANEL_IDS.TERMINAL ? (
         <SquareTerminal
           aria-hidden="true"
@@ -601,11 +611,39 @@ export function CollaborationPreviewScope({
   onRunInEditorGroupRef.current = onRunInEditorGroup;
   const value = useMemo<PanelActions>(() => {
     const base: PanelActions = parent ?? NOOP_PANEL_ACTIONS;
+    const openDirectoryExplorer = (
+      dirPath: string,
+      options?: OpenDirectoryExplorerOptions
+    ) => {
+      const normalizedRoot = dirPath.replace(/[\\/]+$/, '') || dirPath;
+      const folderName =
+        normalizedRoot.split(/[/\\]/).filter(Boolean).pop() || normalizedRoot;
+      const title = options?.title?.trim() || folderName;
+      onOpenWorkspacePanelRef.current({
+        id: `dir:${normalizedRoot}`,
+        component: PANEL_IDS.EXTERNAL_DIRECTORY,
+        title,
+        params: buildExternalDirectoryPanelParams(
+          normalizedRoot,
+          options
+        ) as unknown as Record<string, unknown>,
+      });
+    };
     return {
       ...base,
       openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => {
         onOpenFileRef.current(buildPreviewPanelParams(filePath, options));
         return 'opened' as const;
+      },
+      openDirectoryExplorer,
+      revealInFileTree: (path, options) => {
+        if (options?.nodeType === 'folder') {
+          openDirectoryExplorer(path, {
+            title: options.displayPath ?? undefined,
+          });
+          return;
+        }
+        base.revealInFileTree(path, options);
       },
       openDiffPreview: () => {
         onOpenWorkspacePanelRef.current({

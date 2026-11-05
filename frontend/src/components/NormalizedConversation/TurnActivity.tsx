@@ -602,6 +602,7 @@ export function TurnActivity({
   renderOtherItem?: (item: TurnRenderItem, index: number) => ReactNode;
 }) {
   const { t } = useTranslation('conversation');
+  const panelActions = useOptionalPanelActionsContext();
   const lifecycleIndex = useSubagentLifecycleIndex();
   const parentAgentId = attempt.session?.agent_id ?? null;
   const entries = useMemo(
@@ -770,6 +771,22 @@ export function TurnActivity({
           text={listDirPath(action.arguments) || detailText}
           path={listDirPath(action.arguments) || detailText}
           isFolder
+          onClick={() => {
+            const rawDir = (listDirPath(action.arguments) || detailText).trim();
+            if (!rawDir) return;
+            const resolvedDir = resolveToolFilePath(
+              rawDir,
+              workspacePath ?? attempt.container_ref
+            );
+            const relativeDir = deriveRelativeFilePath(
+              resolvedDir,
+              workspacePath ?? attempt.container_ref
+            );
+            panelActions?.revealInFileTree(resolvedDir, {
+              displayPath: relativeDir ?? rawDir,
+              nodeType: 'folder',
+            });
+          }}
         />
       ) : detailText ? (
         <ToolCallTarget text={detailText} />

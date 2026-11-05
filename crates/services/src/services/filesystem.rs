@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 #[cfg(not(feature = "qa-mode"))]
@@ -39,6 +40,12 @@ pub struct DirectoryEntry {
     pub is_directory: bool,
     pub is_git_repo: bool,
     pub last_modified: Option<u64>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    #[serde(default)]
+    pub created_at_ms: Option<u64>,
+    #[serde(default)]
+    pub modified_at_ms: Option<u64>,
 }
 
 impl Default for FilesystemService {
@@ -326,10 +333,21 @@ impl FilesystemService {
                     return None;
                 }
 
-                let last_modified = fs::metadata(&canonical_path)
-                    .ok()
+                let metadata = fs::metadata(&canonical_path).ok();
+                let last_modified = metadata
+                    .as_ref()
                     .and_then(|m| m.modified().ok())
                     .map(|t| t.elapsed().unwrap_or_default().as_secs());
+                let created_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.created().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
+                let modified_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
 
                 Some(DirectoryEntry {
                     name: name.to_string(),
@@ -337,6 +355,9 @@ impl FilesystemService {
                     is_directory: true,
                     is_git_repo: true,
                     last_modified,
+                    size_bytes: None,
+                    created_at_ms,
+                    modified_at_ms,
                 })
             })
             .collect()
@@ -424,19 +445,42 @@ impl FilesystemService {
                     continue;
                 }
 
-                let is_directory = metadata.is_some_and(|m| m.is_dir());
+                let is_directory = metadata.as_ref().is_some_and(|m| m.is_dir());
                 let is_git_repo = if is_directory {
                     path.join(".git").exists()
                 } else {
                     false
                 };
+                let size_bytes = if is_directory {
+                    None
+                } else {
+                    metadata.as_ref().map(|m| m.len())
+                };
+                let created_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.created().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
+                let modified_at_ms = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
+                let last_modified = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.elapsed().ok())
+                    .map(|d| d.as_secs());
 
                 directory_entries.push(DirectoryEntry {
                     name: name.to_string(),
                     path: normalize_windows_extended_path_prefix(path),
                     is_directory,
                     is_git_repo,
-                    last_modified: None,
+                    last_modified,
+                    size_bytes,
+                    created_at_ms,
+                    modified_at_ms,
                 });
             }
         }
@@ -453,5 +497,44 @@ impl FilesystemService {
                 .to_string_lossy()
                 .to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FilesystemService;
+
+    #[tokio::test]
+    async fn list_directory_populates_size_and_timestamps() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let sub_dir = temp.path().join("subdir");
+        std::fs::create_dir_all(&sub_dir).expect("mkdir");
+        let file_path = temp.path().join("hello.txt");
+        std::fs::write(&file_path, b"hello world").expect("write");
+
+        let service = FilesystemService::new();
+        let response = service
+            .list_directory(Some(temp.path().to_string_lossy().into_owned()))
+            .await
+            .expect("list_directory");
+
+        let dir_entry = response
+            .entries
+            .iter()
+            .find(|entry| entry.name == "subdir")
+            .expect("subdir entry");
+        assert!(dir_entry.is_directory);
+        assert_eq!(dir_entry.size_bytes, None);
+        assert!(dir_entry.modified_at_ms.is_some());
+
+        let file_entry = response
+            .entries
+            .iter()
+            .find(|entry| entry.name == "hello.txt")
+            .expect("file entry");
+        assert!(!file_entry.is_directory);
+        assert_eq!(file_entry.size_bytes, Some(11));
+        assert!(file_entry.modified_at_ms.is_some());
+        assert!(file_entry.last_modified.is_some());
     }
 }

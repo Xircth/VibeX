@@ -1222,7 +1222,7 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
         .expect("offline bootstrap of all monorepo plugins");
     assert_eq!(
         installed.len(),
-        plugins::official_catalog::discover_monorepo_plugin_roots().len()
+        plugins::discover_monorepo_plugin_roots().len()
     );
 
     let opencode_catalog = control

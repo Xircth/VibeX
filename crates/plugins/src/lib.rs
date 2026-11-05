@@ -110,10 +110,10 @@ pub use native::{
 };
 pub use official_catalog::{
     MONOREPO_OFFICIAL_PLUGIN_DIRS, OfficialPluginCatalog, OfficialPluginRecord,
-    github_archive_urls_for_repository, listings_from_host_official_catalog,
-    merge_host_official_catalog, monorepo_official_plugin_root, official_marketplace_home,
-    official_marketplace_origin, official_plugin_catalog, official_plugin_category,
-    official_plugin_record,
+    discover_monorepo_plugin_roots, github_archive_urls_for_repository,
+    listings_from_host_official_catalog, merge_host_official_catalog, monorepo_official_plugin_root,
+    official_marketplace_home, official_marketplace_origin, official_plugin_catalog,
+    official_plugin_category, official_plugin_record,
 };
 pub use official_mcp::{
     DELEGATION_MCP_FEATURES, DELEGATION_MCP_NAME, DELEGATION_MCP_SPACE_FEATURES,

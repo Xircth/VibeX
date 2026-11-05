@@ -64,12 +64,16 @@ pub fn should_apply_medium_integrity_sacl(
     {
         return true;
     }
-    exe.and_then(|path| path.parent()).is_some_and(|exe_dir| {
-        let lower = exe_dir
+    exe.is_some_and(|path| {
+        let lower = path
             .to_string_lossy()
             .replace('/', "\\")
             .to_ascii_lowercase();
-        lower.ends_with("\\target\\debug") || lower.ends_with("\\target\\release")
+        let dir = lower
+            .rsplit_once('\\')
+            .map(|(parent, _)| parent)
+            .unwrap_or(&lower);
+        dir.ends_with("\\target\\debug") || dir.ends_with("\\target\\release")
     })
 }
 

@@ -106,6 +106,7 @@
   },
   "permissions": [
     {
+      "id": "runtime-execute",
       "capability": "runtime.execute",
       "reason": "Execute low-latency OpenAI and Anthropic FIM code completion requests in the plugin worker."
     }

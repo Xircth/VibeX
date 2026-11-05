@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use agents::{AgentConnectionId, AgentContentBlock, AgentEvent, AgentId, AgentSessionId};
+use agents::{AgentConnectionId, AgentEvent, AgentId, AgentSessionId};
 use automation::{
     AgentSelectionIntent, AutomationDraft, AutomationDraftInput, IsolationSpec, ScheduleSpec,
     TurnLaunchSpecInput, WorkspaceTarget,
@@ -256,10 +256,8 @@ async fn headless_agent_events_are_persisted_for_websocket_replay() {
         .emit_external(
             AgentConnectionId::new(),
             Some(AgentSessionId::from(conversation_id)),
-            AgentEvent::MessageChunk {
-                content: AgentContentBlock::Text {
-                    text: "durable headless output".to_string(),
-                },
+            AgentEvent::TurnCompleted {
+                stop_reason: Some("end_turn".to_string()),
             },
         )
         .await;
@@ -268,7 +266,7 @@ async fn headless_agent_events_are_persisted_for_websocket_replay() {
         loop {
             if let Some(value) = sqlx::query_scalar(
                 "SELECT normalized_json FROM conversation_events
-                     WHERE conversation_id = ? AND event_kind = 'assistant_text_delta'",
+                     WHERE conversation_id = ? AND event_kind = 'turn_completed'",
             )
             .bind(conversation_id)
             .fetch_optional(server.pool())
@@ -282,5 +280,5 @@ async fn headless_agent_events_are_persisted_for_websocket_replay() {
     })
     .await
     .expect("durable runtime event");
-    assert!(normalized.contains("durable headless output"));
+    assert!(normalized.contains("end_turn"));
 }

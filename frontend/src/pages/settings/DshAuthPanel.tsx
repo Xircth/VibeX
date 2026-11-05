@@ -203,6 +203,10 @@ export function DshAuthPanel({
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange, saving]);
 
+  const editingCustom = editingId
+    ? (view?.providers.find((provider) => provider.id === editingId) ?? custom)
+    : custom;
+
   const discover = async () => {
     const url = officialMode ? OFFICIAL_URL : draft.baseUrl.trim();
     if (!url) {
@@ -214,7 +218,9 @@ export function DshAuthPanel({
       const discovered = await agentManagementApi.discoverDshModels({
         base_url: url,
         api_key: draft.apiKey.trim() || null,
-        provider_id: officialMode ? OFFICIAL_ID : custom?.id || CUSTOM_ID,
+        provider_id: officialMode
+          ? OFFICIAL_ID
+          : editingId || custom?.id || CUSTOM_ID,
       });
       const models = discovered.length ? discovered : draftRef.current.models;
       const next = {
@@ -253,7 +259,9 @@ export function DshAuthPanel({
   const save = async (next: Draft = draftRef.current) => {
     const isOfficial = next.mode !== 'custom';
     const credentialPresent = Boolean(
-      isOfficial ? official?.credential_present : custom?.credential_present
+      isOfficial
+        ? official?.credential_present
+        : editingCustom?.credential_present
     );
     if (!draftChanged(next)) return;
     if (!isOfficial && !next.baseUrl.trim()) return;
@@ -709,7 +717,7 @@ export function DshAuthPanel({
                       type="password"
                       htmlName="dsh_api_key"
                       placeholder={
-                        custom?.credential_present
+                        editingCustom?.credential_present
                           ? t('settings:agents.credentialSavedPlaceholder')
                           : t('settings:agents.credentialPlaceholder')
                       }

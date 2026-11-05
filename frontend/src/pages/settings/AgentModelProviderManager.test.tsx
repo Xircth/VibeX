@@ -1372,4 +1372,63 @@ describe('AgentModelProviderManager', () => {
     await user.click(screen.getByRole('button', { name: '返回' }));
     expect(ConfirmDialog.show).toHaveBeenCalledOnce();
   });
+
+  it('detects models and tests custom models when editing a provider with a saved credential', async () => {
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'codex',
+      providers: [
+        {
+          ...gateway,
+          agent_id: 'codex',
+          api_key: '',
+          credential_present: true,
+        },
+      ],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'live',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    vi.mocked(agentManagementApi.codexModelCatalogConfig).mockResolvedValue({
+      customs: [],
+      excluded_officials: [],
+      default_model: null,
+      catalog_path: '/tmp/catalog.json',
+      source_path: '/tmp/source.json',
+      active: false,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'codex',
+      source: 'live',
+      models: [
+        {
+          id: 'gpt-5.4',
+          label: 'GPT-5.4',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'gpt-5.4',
+      error: null,
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager agentId="codex" disabled={false} embedded />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
+      'codex',
+      'provider-1',
+      'https://gateway.example/v1',
+      null
+    );
+  });
 });

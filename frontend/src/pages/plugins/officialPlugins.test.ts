@@ -41,6 +41,12 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex-plugin-computer-use', 'fallback', t)).toBe(
       '电脑控制'
     );
+    expect(officialPluginName('vibex.code-completion', 'fallback', t)).toBe(
+      'AI代码补全'
+    );
+    expect(officialPluginName('code-completion', 'fallback', t)).toBe(
+      'AI代码补全'
+    );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
     expect(officialPluginName('vibex.browser', 'fallback', en)).toBe('Browser');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
@@ -70,6 +76,9 @@ describe('official plugin presentation', () => {
     expect(
       officialPluginName('vibex-plugin-computer-use', 'fallback', en)
     ).toBe('Computer Use');
+    expect(officialPluginName('vibex.code-completion', 'fallback', en)).toBe(
+      'AI Code Completion'
+    );
   });
 
   it('localizes official config labels without rewriting user plugins', () => {

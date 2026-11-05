@@ -229,7 +229,7 @@ export function ProviderForm({
           agentId={agentId}
           catalog={detectedCatalog}
           claudeMappingTarget={claudeMappingTarget}
-          disabled={busy || !apiUrl.trim() || !apiKey.trim()}
+          disabled={busy || !apiUrl.trim() || (!apiKey.trim() && !id)}
           error={detectionError}
           loading={detectingModels}
           selectedIds={selectedDetectedIds(
@@ -316,7 +316,7 @@ export function ProviderForm({
                     detectingModels ||
                     detectedCatalog ||
                     !apiUrl.trim() ||
-                    !apiKey.trim()
+                    (!apiKey.trim() && !id)
                   ) {
                     return;
                   }

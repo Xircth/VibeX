@@ -332,6 +332,7 @@ export function AgentConfigurationAndDiagnostics({
                                 key={field.id}
                                 drafts={drafts}
                                 field={field}
+                                fields={fields}
                                 value={drafts[field.id] ?? ''}
                                 saving={fieldsDisabled}
                                 onBlur={() => void flush()}
@@ -392,6 +393,7 @@ export function AgentConfigurationAndDiagnostics({
 
 function ConfigField({
   field,
+  fields,
   value,
   drafts,
   saving,
@@ -399,6 +401,7 @@ function ConfigField({
   onChange,
 }: {
   field: AgentNativeConfigFieldView;
+  fields?: AgentNativeConfigFieldView[];
   value: string;
   drafts?: Record<string, string>;
   saving: boolean;
@@ -486,6 +489,10 @@ function ConfigField({
           </label>
         ) : field.id === 'grok_custom_model_id' ? (
           <GrokOfficialModelField
+            credentialPresent={Boolean(
+              field.present ||
+                fields?.find((item) => item.id === 'grok_api_key')?.present
+            )}
             disabled={saving}
             drafts={drafts ?? {}}
             label={label}
@@ -845,6 +852,7 @@ function GrokOfficialModelField({
   label,
   value,
   drafts,
+  credentialPresent = false,
   disabled,
   onBlur,
   onChange,
@@ -852,6 +860,7 @@ function GrokOfficialModelField({
   label: string;
   value: string;
   drafts: Record<string, string>;
+  credentialPresent?: boolean;
   disabled: boolean;
   onBlur?: () => void;
   onChange: (value: string) => void;
@@ -861,7 +870,7 @@ function GrokOfficialModelField({
   const [detecting, setDetecting] = useState(false);
   const detect = async () => {
     const apiKey = drafts.grok_api_key?.trim();
-    if (!apiKey) {
+    if (!apiKey && !credentialPresent) {
       toast.warning(t('agents.providerRequiredFields'));
       return;
     }
@@ -871,7 +880,7 @@ function GrokOfficialModelField({
         'grok',
         null,
         drafts.grok_base_url?.trim() || 'https://api.x.ai/v1',
-        apiKey
+        apiKey || null
       );
       setCatalog(next);
       if (!value && next.default_model) onChange(next.default_model);

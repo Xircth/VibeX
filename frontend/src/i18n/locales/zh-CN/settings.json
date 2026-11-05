@@ -949,6 +949,70 @@
         "summary": "在输入框提供 @enhance 提示词润色动作与 /enhance 结构化上下文扩写技能。",
         "readme": "# 提示词增强器\n\n在发送给智能体前对模糊需求进行结构化拆解、边界条件补充与上下文增强。\n\n## 增强管线\n\n- **`@enhance` 内联润色**：根据当前仓库技术栈自动补全验收标准与文件约束。\n- **`/enhance` 深度扩写**：将一句话需求转化为包含目标、非目标与验证步骤的执行规约。",
         "config": {}
+      },
+      "codeCompletion": {
+        "name": "AI代码补全",
+        "summary": "基于 OpenAI 兼容端点与 Anthropic Messages 协议的低延迟 AI 行内代码补全（Ghost Text）。",
+        "readme": "# AI代码补全\n\n在 VibeX Monaco 代码编辑器内提供低延迟 AI 行内幽灵文本（Ghost Text）代码补全，支持多协议端点与隐私安全过滤。\n\n## 核心能力\n\n- **多协议补全引擎**：支持 `openai-compatible`（`/v1/chat/completions`）、`anthropic-compatible`（`/v1/messages` 预填充）与 `openai-fim`（`/v1/completions` 原生 FIM）。\n- **自适应防抖与前缀缓存**：常规输入 `180ms` 防抖，结构化符号（`.`、`(`、`{`、`:`、`=`、`/`、`Enter`）`60ms` 极速触发，连续命中前缀缓存时 `0ms` 即时切片展示。\n- **敏感文件守卫**：自动拦截匹配 `ignoredGlobs`（如 `.env*`、`*.pem`、`*.key`、`*secret*`）的敏感文件，绝不外发上下文。",
+        "config": {
+          "enabled": {
+            "title": "启用行内代码补全",
+            "description": "在 Monaco 代码编辑器中启用 AI 幽灵文本（Ghost Text）自动补全。"
+          },
+          "providerProtocol": {
+            "title": "接口协议",
+            "description": "选择补全接口协议类型。",
+            "enum": {
+              "openai-compatible": "OpenAI Chat 兼容 (/v1/chat/completions)",
+              "anthropic-compatible": "Anthropic Messages 兼容 (/v1/messages)",
+              "openai-fim": "OpenAI 原生 FIM (/v1/completions)"
+            }
+          },
+          "baseUrl": {
+            "title": "Base URL",
+            "description": "OpenAI 兼容或 Anthropic 兼容接口的 Base URL。"
+          },
+          "apiKey": {
+            "title": "API Key",
+            "description": "用于代码补全请求鉴权的 API 密钥。"
+          },
+          "model": {
+            "title": "补全模型",
+            "description": "用于低延迟行内代码补全的模型标识（如 gpt-4o-mini、deepseek-chat、qwen2.5-coder-7b）。"
+          },
+          "triggerMode": {
+            "title": "触发方式",
+            "description": "输入时自动防抖触发或仅通过快捷键手动触发。",
+            "enum": {
+              "auto": "自动触发",
+              "manual": "仅手动触发"
+            }
+          },
+          "completionScope": {
+            "title": "补全范围",
+            "description": "智能判定多行代码块/单行补全，或严格仅补全单行。",
+            "enum": {
+              "smart": "智能多行/单行",
+              "single-line": "仅单行"
+            }
+          },
+          "ignoredGlobs": {
+            "title": "隐私忽略文件匹配（Globs）",
+            "description": "逗号分隔的文件通配符列表，匹配的文件不会触发代码补全或提取上下文。"
+          },
+          "disabledLanguages": {
+            "title": "禁用语言列表",
+            "description": "逗号分隔的语言 ID 列表，在这些语言中禁用自动行内补全。"
+          },
+          "maxTokens": {
+            "title": "最大生成 Token 数",
+            "description": "多行代码块补全允许生成的最大 Token 数量。"
+          },
+          "temperature": {
+            "title": "采样温度（Temperature）",
+            "description": "代码补全生成的采样温度。"
+          }
+        }
       }
     },
     "contentTab": "内容",

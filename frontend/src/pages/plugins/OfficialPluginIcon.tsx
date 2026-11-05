@@ -442,6 +442,38 @@ function PluginArtworkPromptEnhancer(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function PluginArtworkCodeCompletion(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M14 13L9.5 18L14 23"
+        stroke="#2563EB"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M20 12L16.5 24"
+        stroke="#60A5FA"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M22.5 13L27 18L22.5 23"
+        stroke="#38BDF8"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="2.4 2.4"
+      />
+      <path
+        d="M25.5 9.5L26.5 12L29 13L26.5 14L25.5 16.5L24.5 14L22 13L24.5 12L25.5 9.5Z"
+        fill="#6366F1"
+      />
+    </svg>
+  );
+}
+
 export function PluginArtworkDefault(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
@@ -495,6 +527,7 @@ export const OFFICIAL_GLYPHS: Record<
   browser: PluginArtworkWebSearch,
   openConnector: PluginArtworkOpenConnector,
   computerUse: PluginArtworkComputerUse,
+  codeCompletion: PluginArtworkCodeCompletion,
 };
 
 const CORE_PLUGIN_ARTWORK_BY_ID: Record<string, CoreFoundationArtworkKey> = {

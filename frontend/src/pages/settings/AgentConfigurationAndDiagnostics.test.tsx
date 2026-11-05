@@ -21,6 +21,7 @@ vi.mock('@/features/agent-management', () => ({
     validatePiCommand: vi.fn(),
     piTrustEntries: vi.fn(),
     setPiProjectTrust: vi.fn(),
+    modelProviderCatalog: vi.fn(),
   },
 }));
 
@@ -661,5 +662,74 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(
       screen.queryByRole('button', { name: '保存 Provider' })
     ).not.toBeInTheDocument();
+  });
+
+  it('loads Grok models using saved credential when grok_api_key draft is empty', async () => {
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'grok',
+      source: 'live',
+      models: [
+        {
+          id: 'grok-3',
+          label: 'Grok 3',
+          context_window: null,
+          reasoning_levels: [],
+        },
+      ],
+      default_model: 'grok-3',
+      error: null,
+    });
+
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={{
+          ...config,
+          agent_id: 'grok',
+          fields: [
+            {
+              id: 'grok_api_key',
+              label: 'Grok API Key',
+              description: '',
+              kind: 'secret',
+              options: [],
+              secret: true,
+              path: '/Users/example/.grok/user-settings.json',
+              present: true,
+              value: null,
+              masked_value: '••••••••',
+              revision: 'rev-grok-key',
+              surface: 'authentication',
+            },
+            {
+              id: 'grok_custom_model_id',
+              label: '默认模型',
+              description: '',
+              kind: 'text',
+              options: [],
+              secret: false,
+              path: '/Users/example/.grok/user-settings.json',
+              present: false,
+              value: '',
+              masked_value: null,
+              revision: 'rev-grok-model',
+              surface: 'authentication',
+            },
+          ],
+        }}
+        fieldSurface="authentication"
+        embedded
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '读取模型' }));
+
+    expect(agentManagementApi.modelProviderCatalog).toHaveBeenCalledWith(
+      'grok',
+      null,
+      'https://api.x.ai/v1',
+      null
+    );
   });
 });

@@ -949,6 +949,70 @@
         "summary": "Built-in prompt refinement, @enhance composer action, and structured context enrichment.",
         "readme": "# Prompt Enhancer\n\nRefines and enriches user prompts with structured constraints before sending to agents.",
         "config": {}
+      },
+      "codeCompletion": {
+        "name": "AI Code Completion",
+        "summary": "Low-latency AI ghost-text inline code completion powered by OpenAI-compatible and Anthropic Messages endpoints.",
+        "readme": "# AI Code Completion\n\nProvides low-latency AI inline ghost-text code completion in VibeX Monaco code editors with multi-protocol LLM support and privacy-aware FIM context assembly.\n\n## Key Capabilities\n\n- **Multi-Protocol Completion Engine**: Supports `openai-compatible` (`/v1/chat/completions`), `anthropic-compatible` (`/v1/messages` with assistant prefill), and `openai-fim` (`/v1/completions` native FIM).\n- **Adaptive Debounce & Prefix Cache**: 180ms adaptive debounce on normal typing, 60ms fast trigger after structural tokens (`.`, `(`, `{`, `:`, `=`, `/`, `Enter`), and 0ms instant slicing on prefix cache hits.\n- **Privacy Guard**: Automatically blocks files matching `ignoredGlobs` (such as `.env*`, `*.pem`, `*.key`, `*secret*`) before any context extraction or network request.",
+        "config": {
+          "enabled": {
+            "title": "Enable inline code completion",
+            "description": "Enable AI inline ghost-text code completion in Monaco editors."
+          },
+          "providerProtocol": {
+            "title": "Endpoint protocol",
+            "description": "Select the completion API protocol.",
+            "enum": {
+              "openai-compatible": "OpenAI Chat compatible (/v1/chat/completions)",
+              "anthropic-compatible": "Anthropic Messages compatible (/v1/messages)",
+              "openai-fim": "OpenAI native FIM (/v1/completions)"
+            }
+          },
+          "baseUrl": {
+            "title": "Base URL",
+            "description": "Base URL of the OpenAI-compatible or Anthropic-compatible API endpoint."
+          },
+          "apiKey": {
+            "title": "API Key",
+            "description": "API key for authenticating completion requests."
+          },
+          "model": {
+            "title": "Completion model",
+            "description": "Model identifier used for low-latency inline completion (e.g. gpt-4o-mini, deepseek-chat, qwen2.5-coder-7b)."
+          },
+          "triggerMode": {
+            "title": "Trigger mode",
+            "description": "Automatic debounced inline completion while typing or manual shortcut trigger only.",
+            "enum": {
+              "auto": "Automatic",
+              "manual": "Manual only"
+            }
+          },
+          "completionScope": {
+            "title": "Completion scope",
+            "description": "Smart multi-line/single-line detection or strict single-line completion.",
+            "enum": {
+              "smart": "Smart block / single-line",
+              "single-line": "Single-line only"
+            }
+          },
+          "ignoredGlobs": {
+            "title": "Ignored file globs",
+            "description": "Comma-separated file glob patterns excluded from context extraction and completion requests."
+          },
+          "disabledLanguages": {
+            "title": "Disabled languages",
+            "description": "Comma-separated language IDs where automatic inline completion is disabled."
+          },
+          "maxTokens": {
+            "title": "Max tokens",
+            "description": "Maximum tokens generated for multi-line block completions."
+          },
+          "temperature": {
+            "title": "Temperature",
+            "description": "Sampling temperature for code completion generation."
+          }
+        }
       }
     },
     "contentTab": "Content",

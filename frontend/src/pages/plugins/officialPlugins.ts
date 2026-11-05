@@ -27,6 +27,8 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.open-connector': 'openConnector',
   'vibex-plugin-computer-use': 'computerUse',
   'vibex.computer-use': 'computerUse',
+  'vibex.code-completion': 'codeCompletion',
+  'code-completion': 'codeCompletion',
 } as const;
 
 export type PluginCategoryKey =
@@ -60,6 +62,7 @@ const OFFICIAL_PLUGIN_CATEGORY_BY_KEY: Record<
   pluginDevelopment: 'development',
   remoteSsh: 'development',
   openConnector: 'development',
+  codeCompletion: 'development',
   science: 'science',
   sessionEnhance: 'ai-enhancement',
   providerSwitch: 'ai-enhancement',
@@ -80,6 +83,7 @@ const BARE_OFFICIAL_ID_TO_KEY: Record<string, OfficialPluginI18nKey> = {
   science: 'science',
   'open-connector': 'openConnector',
   'computer-use': 'computerUse',
+  'code-completion': 'codeCompletion',
 };
 
 const CATEGORY_LABELS_ZH: Record<'all' | PluginCategoryKey, string> = {
@@ -119,6 +123,7 @@ export function normalizePluginCategory(
     value === 'development' ||
     value === 'dev' ||
     value === 'devtools' ||
+    value === 'coding' ||
     value === 'mcp' ||
     value === '开发'
   ) {

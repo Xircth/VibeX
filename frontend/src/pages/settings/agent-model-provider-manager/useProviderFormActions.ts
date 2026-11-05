@@ -91,10 +91,13 @@ export function useProviderFormActions(
     setDetectionError(null);
     setCustomModelTests({});
     setSurface('form');
-    if (provider.api_url.trim() && provider.api_key.trim()) {
+    if (
+      provider.api_url.trim() &&
+      (provider.api_key.trim() || provider.credential_present)
+    ) {
       void detectModels(
         provider.api_url.trim(),
-        provider.api_key.trim(),
+        provider.api_key.trim() || null,
         provider.id
       );
     }
@@ -281,7 +284,7 @@ export function useProviderFormActions(
       toast.warning(t('settings:agents.providerCustomModelTestNeedId'));
       return;
     }
-    if (!apiUrl.trim() || !apiKey.trim()) {
+    if (!apiUrl.trim() || (!apiKey.trim() && !id)) {
       toast.warning(t('settings:agents.providerRequiredFields'));
       return;
     }

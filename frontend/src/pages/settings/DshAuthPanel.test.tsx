@@ -183,4 +183,70 @@ describe('DshAuthPanel', () => {
       screen.queryByDisplayValue('https://api.deepseek.com')
     ).not.toBeInTheDocument();
   });
+
+  it('uses editingId when discovering models and saving an edited custom provider', async () => {
+    const user = userEvent.setup();
+    const multiView: DshProvidersView = {
+      ...view,
+      default_provider: 'custom-2',
+      providers: [
+        ...view.providers,
+        {
+          id: 'custom-1',
+          display_name: 'First Gateway',
+          kind: 'custom',
+          notes: null,
+          api: 'openai-completions',
+          base_url: 'https://first.example.com/v1',
+          api_key_env: 'DSH_CUSTOM_1_KEY',
+          credential_present: false,
+          models: [{ id: 'm1', name: 'M1' }],
+        },
+        {
+          id: 'custom-2',
+          display_name: 'Second Gateway',
+          kind: 'custom',
+          notes: null,
+          api: 'openai-completions',
+          base_url: 'https://second.example.com/v1',
+          api_key_env: 'DSH_CUSTOM_2_KEY',
+          credential_present: true,
+          models: [{ id: 'm2', name: 'M2' }],
+        },
+      ],
+    };
+    vi.mocked(agentManagementApi.dshProviders).mockResolvedValue(multiView);
+    vi.mocked(agentManagementApi.authMode).mockResolvedValue({
+      agent_id: 'deepseek_harness',
+      mode: 'custom',
+      modes: ['deepseek', 'custom'],
+      options: [],
+      credential_env: 'DEEPSEEK_API_KEY',
+      credential_present: true,
+    });
+    vi.mocked(agentManagementApi.discoverDshModels).mockResolvedValue([
+      { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+    ]);
+    vi.mocked(agentManagementApi.saveDshProvider).mockResolvedValue(multiView);
+
+    render(<DshAuthPanel />);
+
+    const editButtons = await screen.findAllByRole('button', {
+      name: '编辑 Provider',
+    });
+    await user.click(editButtons[1]);
+    await user.click(screen.getByRole('button', { name: '拉取模型' }));
+
+    expect(agentManagementApi.discoverDshModels).toHaveBeenCalledWith({
+      base_url: 'https://second.example.com/v1',
+      api_key: null,
+      provider_id: 'custom-2',
+    });
+    expect(agentManagementApi.saveDshProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'custom-2',
+        base_url: 'https://second.example.com/v1',
+      })
+    );
+  });
 });

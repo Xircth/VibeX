@@ -72,7 +72,12 @@ jobs:
           # `zip` advisories affect `ZipArchive::extract` / `ZipStreamReader::extract`
           # symlink handling; VibeX does not call `extract` and `tauri-plugin-updater`
           # pins `zip ^4`.
-          ignore: RUSTSEC-2023-0071 RUSTSEC-2026-0367 RUSTSEC-2026-0368 RUSTSEC-2026-0369 RUSTSEC-2026-0429
+          ignore: |
+            RUSTSEC-2023-0071
+            RUSTSEC-2026-0367
+            RUSTSEC-2026-0368
+            RUSTSEC-2026-0369
+            RUSTSEC-2026-0429
 
       - name: Check JavaScript advisories
         run: pnpm audit --prod --audit-level high

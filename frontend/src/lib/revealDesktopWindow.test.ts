@@ -165,4 +165,3 @@ describe('revealDesktopWindow', () => {
     expect(capability).toContain('core:window:allow-show');
   });
 });
-

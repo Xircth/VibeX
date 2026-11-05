@@ -44,6 +44,7 @@ function kindFromCode(code: string | null): ConversationError['kind'] {
     case 'idle_timeout':
       return 'idle_timeout';
     case 'connection_closed':
+    case 'agent_connection_lost':
       return 'connection_closed';
     case 'prompt_conflict':
       return 'prompt_conflict';
@@ -99,6 +100,26 @@ describe('TurnErrorCard', () => {
     render(
       <TurnErrorCard
         error={err({ code: 'connection_closed' })}
+        onReload={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('连接已断开')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /重新加载会话/ })
+    ).toBeInTheDocument();
+  });
+
+  it('maps agent_connection_lost to connection_closed with reload', () => {
+    render(
+      <TurnErrorCard
+        error={
+          {
+            message: 'Agent connection was lost and could not be re-established',
+            code: 'agent_connection_lost',
+            raw: null,
+          } as unknown as ConversationError
+        }
         onReload={vi.fn()}
       />
     );

@@ -341,6 +341,7 @@ function errorKind(error: ConversationError): ConversationTurnErrorKind {
     case 'idle_timeout':
       return 'idle_timeout';
     case 'connection_closed':
+    case 'agent_connection_lost':
       return 'connection_closed';
     case 'prompt_conflict':
       return 'prompt_conflict';

@@ -690,10 +690,9 @@ pub(crate) async fn attach_member_session_configs_to_rows(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
+            && !identity_ids.iter().any(|existing| existing == id)
         {
-            if !identity_ids.iter().any(|existing| existing == id) {
-                identity_ids.push(id.to_string());
-            }
+            identity_ids.push(id.to_string());
         }
     }
     let mut configs = std::collections::HashMap::<String, MemberSessionConfig>::new();
@@ -850,10 +849,10 @@ pub async fn list_available_bot_agents(
 
     for view in managed_views {
         let id_str = view.agent_id.as_str().to_string();
-        if let Some(wanted) = filter {
-            if !id_str.eq_ignore_ascii_case(wanted) {
-                continue;
-            }
+        if let Some(wanted) = filter
+            && !id_str.eq_ignore_ascii_case(wanted)
+        {
+            continue;
         }
         seen_ids.insert(id_str.clone());
         let entry = build_bot_agent_catalog_entry(
@@ -862,8 +861,8 @@ pub async fn list_available_bot_agents(
             &view.display_name,
             &view.description,
             view.enabled,
-            serde_json::to_value(&view.lifecycle).unwrap_or_else(|_| json!("unknown")),
-            serde_json::to_value(&view.authentication).unwrap_or_else(|_| json!("unknown")),
+            serde_json::to_value(view.lifecycle).unwrap_or_else(|_| json!("unknown")),
+            serde_json::to_value(view.authentication).unwrap_or_else(|_| json!("unknown")),
         )
         .await;
         entries.push(entry);
@@ -882,10 +881,10 @@ pub async fn list_available_bot_agents(
         if seen_ids.contains(&raw_id) {
             continue;
         }
-        if let Some(wanted) = filter {
-            if !raw_id.eq_ignore_ascii_case(wanted) {
-                continue;
-            }
+        if let Some(wanted) = filter
+            && !raw_id.eq_ignore_ascii_case(wanted)
+        {
+            continue;
         }
         let Ok(parsed_id) = AgentId::parse(&raw_id) else {
             continue;

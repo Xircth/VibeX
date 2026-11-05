@@ -229,7 +229,7 @@ pub fn get_data_dir_settings() -> DataDirSettings {
 
 pub fn set_custom_data_dir(new_dir: Option<&Path>) -> std::io::Result<DataDirSettings> {
     let normalized = new_dir.map(|dir| {
-        crate::path::normalize_windows_extended_path_prefix(dir.to_path_buf())
+        crate::path::normalize_windows_extended_path_prefix(dir)
             .to_string_lossy()
             .into_owned()
     });

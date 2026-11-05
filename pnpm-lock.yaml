@@ -436,6 +436,12 @@ importers:
         specifier: ^6.3.0
         version: 6.4.3(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.8.0)
 
+  plugins/code-completion:
+    dependencies:
+      '@vibex/plugin-sdk':
+        specifier: ^2.0.0
+        version: link:../../packages/plugin-sdk
+
   plugins/computer-use:
     dependencies:
       '@astryxdesign/core':

@@ -1145,6 +1145,22 @@ mod tests {
         let ready = ConversationEvent::AgentConnectionStatusChanged {
             status: ConversationAgentConnectionStatus::Ready,
         };
+        let in_progress = ConversationProjector::project_records(
+            conversation_id,
+            &[diagnostic_record(conversation_id, 1, &progress)],
+        )
+        .expect("reconnect progress notice");
+        let progress_notices: Vec<_> = in_progress
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(progress_notices.len(), 1);
+        assert!(progress_notices[0].title.contains("正在重连 3/10"));
+
         let retrying = ConversationProjector::project_records(
             conversation_id,
             &[
@@ -1161,13 +1177,8 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(notices.len(), 2);
-        assert!(
-            notices
-                .iter()
-                .any(|notice| notice.title.contains("正在重连 3/10"))
-        );
-        assert!(notices.iter().any(|notice| notice.severity == "error"));
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].severity, "error");
 
         let recovered = ConversationProjector::project_records(
             conversation_id,

@@ -900,7 +900,7 @@ fn is_strict_subdirectory(candidate: &Path, parent: &Path) -> bool {
     let norm_candidate = if candidate.exists() {
         normalize_dir_for_comparison(candidate)
     } else {
-        utils::path::normalize_windows_extended_path_prefix(candidate.to_path_buf())
+        utils::path::normalize_windows_extended_path_prefix(candidate)
     };
     if cfg!(windows) {
         let parent_prefix = format!(

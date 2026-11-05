@@ -2384,7 +2384,7 @@ Read-Host "Press Enter to exit"
         let user_env = UserEnvironmentLayout::for_current_user(temp.path())
             .with_npm_prefix(prefix_dir.clone());
 
-        run_npm_global_install(&npm_cmd, &component, &user_env, None)
+        run_npm_global_install(&npm_cmd, &component, &user_env, None, &mut |_, _| {})
             .await
             .expect("npm.cmd in spaced Program Files path with spaced --prefix must succeed");
 

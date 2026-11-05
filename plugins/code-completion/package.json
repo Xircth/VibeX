@@ -11,6 +11,6 @@
     "pack:plugin": "node ../../packages/plugin-cli/dist/cli.js pack"
   },
   "dependencies": {
-    "@vibex/plugin-sdk": "^0.4.1"
+    "@vibex/plugin-sdk": "^2.0.0"
   }
 }

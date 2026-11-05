@@ -2556,10 +2556,184 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(success).toHaveBeenCalledWith('已完成 ACP 更新')
     );
-    expect(api.preflight).not.toHaveBeenCalledWith('codex');
+    expect(api.preflight).toHaveBeenCalledWith('codex');
     await waitFor(() => expect(screen.getByTitle('1.7.0')).toBeInTheDocument());
     expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
     expect(screen.queryByText('可更新')).not.toBeInTheDocument();
+  });
+
+  it('refreshes actions and preflight after install/repair finishes so stale unavailable_reason disappears', async () => {
+    const unavailableReason = '未找到 `omp`；请重新安装或修复此 Agent。';
+    const uninstalledOmp = {
+      agent_id: 'omp',
+      display_name: 'Oh My Pi',
+      description: 'Oh My Pi ACP',
+      icon_light: '/agents/omp.svg',
+      icon_dark: '/agents/omp-dark.svg',
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: null,
+      acp_version: null,
+      active_operation: null,
+      rollback_available: false,
+      settings_features: ['authentication_mode', 'reusable_model_providers'],
+    };
+    const installedOmp = {
+      ...uninstalledOmp,
+      lifecycle: 'needs_auth',
+      runtime_version: '13.17.1',
+      acp_version: '13.17.1',
+    };
+    api.bar.mockResolvedValue([uninstalledOmp]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'omp',
+      available: true,
+      settings_features: ['authentication_mode', 'reusable_model_providers'],
+      path: '/tmp/.omp/agent/config.yml',
+      paths: ['/tmp/.omp/agent/config.yml'],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'omp',
+      mode: 'subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['subscription', 'api_key', 'model_provider'],
+      options: [
+        {
+          value: 'subscription',
+          kind: 'subscription',
+          label_key: 'agents.authModeSubscription',
+          description_key: 'agents.authDescOmpSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+      ],
+    });
+    api.preflight.mockResolvedValue({
+      agent_id: 'omp',
+      checked_at: '2026-11-05T00:00:00Z',
+      items: [
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'fail',
+          detail: '未检测到 Oh My Pi',
+          version: null,
+          path: null,
+          source: null,
+          repairable: true,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'omp',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Oh My Pi',
+          description: '在本地终端中运行 `omp /login` 完成订阅账号授权。',
+          label_key: 'agents.managementAction.omp.login.label',
+          description_key: 'agents.managementAction.omp.login.description',
+          kind: 'login',
+          available: false,
+          unavailable_reason: unavailableReason,
+          url: null,
+        },
+      ],
+    });
+
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Oh My Pi' });
+    await waitFor(() =>
+      expect(listeners.has('agent-management-event')).toBe(true)
+    );
+    expect(await screen.findByText(unavailableReason)).toBeVisible();
+
+    api.preflight.mockClear();
+    api.actions.mockClear();
+    api.diagnostics.mockClear();
+    api.bar.mockResolvedValue([installedOmp]);
+    api.preflight.mockResolvedValue({
+      agent_id: 'omp',
+      checked_at: '2026-11-05T00:01:00Z',
+      items: [
+        {
+          id: 'acp',
+          label: 'ACP 适配器',
+          status: 'pass',
+          detail: '',
+          version: '13.17.1',
+          path: '/Users/example/.vibex/agents/omp/current/node_modules/.bin/omp',
+          source: 'managed',
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'omp',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Oh My Pi',
+          description: '在本地终端中运行 `omp /login` 完成订阅账号授权。',
+          label_key: 'agents.managementAction.omp.login.label',
+          description_key: 'agents.managementAction.omp.login.description',
+          kind: 'login',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    });
+
+    await act(async () => {
+      listeners.get('agent-management-event')?.({
+        sequence: 1,
+        agent_id: 'omp',
+        operation_id: 'install-omp-1',
+        kind: 'install',
+        status: 'running',
+        progress_percent: 45,
+        message: '正在安装 Oh My Pi ACP',
+      });
+    });
+    await act(async () => {
+      listeners.get('agent-management-event')?.({
+        sequence: 2,
+        agent_id: 'omp',
+        operation_id: 'install-omp-1',
+        kind: 'install',
+        status: 'succeeded',
+        progress_percent: 100,
+        message: '安装与 ACP 验证完成',
+      });
+    });
+
+    await waitFor(() => expect(api.actions).toHaveBeenCalledWith('omp'));
+    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('omp'));
+    expect(api.diagnostics).toHaveBeenCalledWith('omp');
+    await waitFor(() =>
+      expect(screen.queryByText(unavailableReason)).not.toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole('button', { name: '登录 OMP' })
+    ).not.toBeDisabled();
   });
 
   it('recovers from transient accountFlow polling errors and clears running state on persistent failure', async () => {

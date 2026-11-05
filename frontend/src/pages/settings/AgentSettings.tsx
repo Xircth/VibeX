@@ -590,31 +590,71 @@ export function AgentSettings() {
     }
   }, []);
 
+  const selectedAgentIdRef = useRef<AgentId | null>(selectedAgentId);
+  selectedAgentIdRef.current = selectedAgentId;
+
   const inspectAgent = useCallback(
     async (options?: { notify?: boolean; skipUpdateCheck?: boolean }) => {
       if (!selectedAgentId) return null;
+      const targetAgentId = selectedAgentId;
       const watchId = ++inspectGeneration.current;
       setChecking(true);
       try {
-        const report = await agentManagementApi.preflight(selectedAgentId);
-        if (inspectGeneration.current !== watchId) return null;
+        const [report, nextActions, nextDiagnostics] = await Promise.all([
+          agentManagementApi.preflight(targetAgentId),
+          agentManagementApi.actions(targetAgentId).catch(() => null),
+          agentManagementApi.diagnostics(targetAgentId).catch(() => null),
+        ]);
+        if (nextActions) {
+          inspectCacheRef.current.actions.set(targetAgentId, nextActions);
+        }
+        if (nextDiagnostics) {
+          const unread = nextDiagnostics.filter(
+            (diagnostic) => !diagnostic.read
+          );
+          inspectCacheRef.current.diagnostics.set(targetAgentId, unread);
+        }
+        if (
+          inspectGeneration.current !== watchId ||
+          selectedAgentIdRef.current !== targetAgentId
+        ) {
+          return null;
+        }
         writePreflightSnapshot(report);
         setPreflight(report);
+        if (nextActions) {
+          setActions(nextActions);
+        }
+        if (nextDiagnostics) {
+          setDiagnostics(
+            nextDiagnostics.filter((diagnostic) => !diagnostic.read)
+          );
+        }
         setChecking(false);
         const agents = await management.refresh();
-        if (inspectGeneration.current !== watchId) return null;
+        if (
+          inspectGeneration.current !== watchId ||
+          selectedAgentIdRef.current !== targetAgentId
+        ) {
+          return null;
+        }
         if (options?.notify !== false) {
           toast.success(t('settings:agents.preflightComplete'));
         }
         const agent =
-          agents.find((entry) => entry.agent_id === selectedAgentId) ?? null;
+          agents.find((entry) => entry.agent_id === targetAgentId) ?? null;
         if (options?.skipUpdateCheck) {
           return { report, agent, comparison: null };
         }
-        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+        const comparison = await applyBackgroundUpdateCheck(targetAgentId);
         return { report, agent, comparison };
       } catch (error) {
-        if (inspectGeneration.current !== watchId) return null;
+        if (
+          inspectGeneration.current !== watchId ||
+          selectedAgentIdRef.current !== targetAgentId
+        ) {
+          return null;
+        }
         toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
         return null;
       } finally {
@@ -649,7 +689,7 @@ export function AgentSettings() {
     previousOperationRef.current = {
       agentId: selectedAgentId,
       busy: operationActive,
-      kind: liveOperation?.kind ?? previous.kind,
+      kind: liveOperation?.kind ?? selectedAgentOperation ?? previous.kind,
     };
     if (
       !selectedAgentId ||
@@ -667,34 +707,89 @@ export function AgentSettings() {
     if (
       finishedKind !== 'install' &&
       finishedKind !== 'update' &&
-      finishedKind !== 'repair'
+      finishedKind !== 'repair' &&
+      finishedKind !== 'uninstall'
     ) {
       return;
     }
-    toast.success(
-      t(
-        finishedKind === 'install'
-          ? 'settings:agents.runtimeAcpInstallComplete'
-          : finishedKind === 'repair'
-            ? 'settings:agents.repairComplete'
-            : 'settings:agents.runtimeAcpUpdateComplete'
-      )
-    );
-    invalidateAgentAcpUpdate(selectedAgentId);
-    inspectCacheRef.current.updateCheck.delete(selectedAgentId);
-    void refreshManagement()
+    if (finishedKind !== 'uninstall') {
+      toast.success(
+        t(
+          finishedKind === 'install'
+            ? 'settings:agents.runtimeAcpInstallComplete'
+            : finishedKind === 'repair'
+              ? 'settings:agents.repairComplete'
+              : 'settings:agents.runtimeAcpUpdateComplete'
+        )
+      );
+    }
+    const targetAgentId = selectedAgentId;
+    const watchId = ++inspectGeneration.current;
+    invalidateAgentAcpUpdate(targetAgentId);
+    inspectCacheRef.current.updateCheck.delete(targetAgentId);
+    const refreshPromise = refreshManagement()
       .then((agents) => {
-        const agent = agents.find((item) => item.agent_id === selectedAgentId);
-        if (!agent) return;
-        setPreflight((current) => {
-          const next = applyInstallationToPreflight(current, agent);
-          writePreflightSnapshot(next);
-          return next;
-        });
+        const agent =
+          agents.find((item) => item.agent_id === targetAgentId) ?? null;
+        if (
+          !agent ||
+          inspectGeneration.current !== watchId ||
+          selectedAgentIdRef.current !== targetAgentId
+        ) {
+          return agent;
+        }
+        if (finishedKind !== 'uninstall') {
+          setPreflight((current) => {
+            const next = applyInstallationToPreflight(current, agent);
+            writePreflightSnapshot(next);
+            return next;
+          });
+        }
         setUpdateCheck(null);
         setChecking(false);
+        return agent;
       })
-      .catch(() => undefined);
+      .catch(() => null);
+    void Promise.all([
+      refreshPromise,
+      agentManagementApi.preflight(targetAgentId).catch(() => null),
+      agentManagementApi.actions(targetAgentId).catch(() => null),
+      agentManagementApi.diagnostics(targetAgentId).catch(() => null),
+    ]).then(([agent, report, nextActions, nextDiagnostics]) => {
+      if (nextActions) {
+        inspectCacheRef.current.actions.set(targetAgentId, nextActions);
+      }
+      if (nextDiagnostics) {
+        const unread = nextDiagnostics.filter(
+          (diagnostic) => !diagnostic.read
+        );
+        inspectCacheRef.current.diagnostics.set(targetAgentId, unread);
+      }
+      if (
+        inspectGeneration.current !== watchId ||
+        selectedAgentIdRef.current !== targetAgentId
+      ) {
+        return;
+      }
+      if (nextActions) {
+        setActions(nextActions);
+      }
+      if (nextDiagnostics) {
+        setDiagnostics(
+          nextDiagnostics.filter((diagnostic) => !diagnostic.read)
+        );
+      }
+      if (report) {
+        const next =
+          agent && finishedKind !== 'uninstall'
+            ? applyInstallationToPreflight(report, agent)
+            : report;
+        writePreflightSnapshot(next);
+        setPreflight(next);
+      }
+      setUpdateCheck(null);
+      setChecking(false);
+    });
   }, [
     liveOperation?.kind,
     refreshManagement,
@@ -702,6 +797,7 @@ export function AgentSettings() {
     registryOpen,
     selectedAgent?.lifecycle,
     selectedAgentId,
+    selectedAgentOperation,
     t,
   ]);
 
@@ -1918,13 +2014,14 @@ function applyInstallationToPreflight(
   const patch = (version: string | null) => {
     const index = items.findIndex((item) => item.id === 'acp');
     const previous = index >= 0 ? items[index] : null;
-    const available = Boolean(version);
+    const resolvedVersion = version ?? previous?.version ?? null;
+    const available = Boolean(resolvedVersion) || previous?.status === 'pass';
     const next: AgentPreflightItemView = {
       id: 'acp',
       label: previous?.label ?? 'ACP 适配器',
       status: available ? 'pass' : (previous?.status ?? 'fail'),
       detail: available ? '' : (previous?.detail ?? ''),
-      version,
+      version: resolvedVersion,
       path: previous?.path ?? null,
       source: previous?.source ?? null,
       repairable: !available,

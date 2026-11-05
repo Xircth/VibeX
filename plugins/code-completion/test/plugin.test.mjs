@@ -34,8 +34,15 @@ test('plugin manifest, README summary, and config.json conform to v4 / API 2.0 s
     await readFile(join(pluginRoot, '.vibex-plugin/plugin.json'), 'utf8'),
   );
   assert.equal(manifest.id, 'vibex.code-completion');
+  assert.equal(manifest.name, 'AI代码补全');
   assert.equal(manifest.manifestVersion, 4);
   assert.equal(manifest.apiVersion, '2.0');
+  assert.deepEqual(manifest.engines, {
+    vibex: '>=0.1.3 <1.0.0',
+    pluginSdk: '^2.0.0',
+  });
+  assert.equal(manifest.interface?.icon, 'assets/icon.svg');
+  assert.equal('permissions' in manifest, false);
   assert.equal(manifest.entrypoints.worker.path, 'dist/worker.mjs');
   assert.equal(manifest.entrypoints.app.entry, 'app/main.js');
   assert.equal(manifest.entrypoints.app.protocol, '2.0');
@@ -44,6 +51,11 @@ test('plugin manifest, README summary, and config.json conform to v4 / API 2.0 s
   assert.ok(statusItem);
   assert.equal(statusItem.slot, 'status.after-mcp');
   assert.equal(statusItem.handler, 'completion.status');
+  assert.equal(statusItem.title, 'AI代码补全');
+
+  const iconSvg = await readFile(join(pluginRoot, 'assets/icon.svg'), 'utf8');
+  assert.match(iconSvg, /viewBox="0 0 36 36"/);
+  assert.match(iconSvg, /linearGradient id="cc_bg"/);
 
   const config = JSON.parse(
     await readFile(join(pluginRoot, 'config.json'), 'utf8'),

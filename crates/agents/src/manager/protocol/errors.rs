@@ -370,6 +370,15 @@ pub(in crate::manager) fn turn_failure_error_event(
     }
 }
 
+pub(in crate::manager) fn is_prompt_session_lost_error_message(message: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "Session not found",
+        "session not found",
+        "session has ended",
+    ];
+    MARKERS.iter().any(|marker| message.contains(marker))
+}
+
 pub(in crate::manager) fn format_acp_prompt_error(
     error: &acp::Error,
     stderr_tail: &StderrTail,
@@ -390,9 +399,14 @@ pub(in crate::manager) fn format_acp_prompt_error(
             message = format!("{message}. Recent stderr: {trimmed}");
         }
     }
+    let code = if is_prompt_session_lost_error_message(&message) {
+        Some("agent_connection_lost".to_string())
+    } else {
+        acp_error_code_str(error)
+    };
     AgentErrorEvent {
         message,
-        code: acp_error_code_str(error),
+        code,
         raw: error.data.clone(),
     }
 }

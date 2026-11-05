@@ -878,7 +878,9 @@ pub fn classify_turn_error(
         ) => ConversationTurnErrorKind::SessionLoadFailed,
         Some("acp_session_not_bound") => ConversationTurnErrorKind::Unknown,
         Some("idle_timeout") => ConversationTurnErrorKind::IdleTimeout,
-        Some("connection_closed") => ConversationTurnErrorKind::ConnectionClosed,
+        Some("connection_closed" | "agent_connection_lost") => {
+            ConversationTurnErrorKind::ConnectionClosed
+        }
         Some("prompt_conflict") => ConversationTurnErrorKind::PromptConflict,
         _ => ConversationTurnErrorKind::Unknown,
     }

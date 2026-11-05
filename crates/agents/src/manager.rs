@@ -4913,4 +4913,224 @@ mod tests {
         assert!(failure.message.contains("502 Bad Gateway"));
         assert!(failure.message.contains("cloudcode-pa.googleapis.com"));
     }
+
+    #[test]
+    fn format_acp_prompt_error_classifies_session_not_found_as_agent_connection_lost() {
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        for raw_msg in [
+            "Session not found: 5b6593fa-0136-4a76-bfaa-92cb4412aa06",
+            "Internal error: session not found",
+            "The session has ended on the server",
+        ] {
+            let err = acp::Error::new(-32603, raw_msg);
+            let event = format_acp_prompt_error(&err, &tail, mark);
+            assert_eq!(
+                event.code.as_deref(),
+                Some("agent_connection_lost"),
+                "expected agent_connection_lost for `{raw_msg}`"
+            );
+            assert!(event.message.contains(raw_msg));
+        }
+
+        let unrelated = acp::Error::new(-32603, "Internal error: tool execution failed");
+        let unrelated_event = format_acp_prompt_error(&unrelated, &tail, mark);
+        assert_eq!(unrelated_event.code.as_deref(), Some("internal_error"));
+    }
+
+    #[tokio::test]
+    async fn run_prompt_unbinds_session_and_closes_connection_on_agent_connection_lost_after_partial_output()
+     {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let session_id = AgentSessionId::new();
+        let prompt_id = AgentPromptId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
+        runner
+            .session_map
+            .write()
+            .await
+            .insert(session_id, "acp-agy-live".to_string());
+        runner
+            .session_controls
+            .write()
+            .await
+            .insert(session_id, SessionControlState::default());
+        *runner.active_prompt.lock().await = Some((session_id, prompt_id));
+
+        let (client_to_agent, agent_from_client) = tokio::io::duplex(64 * 1024);
+        let (agent_to_client, client_from_agent) = tokio::io::duplex(64 * 1024);
+
+        let agent_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(agent_from_client);
+            let mut writer = agent_to_client;
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let req_id = req["id"].clone();
+
+            // 1. Stream partial output first.
+            let partial_chunk = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-agy-live",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": { "type": "text", "text": "Partial response before crash" }
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{partial_chunk}\n").as_bytes())
+                .await
+                .unwrap();
+
+            // 2. Stream Antigravity's synthetic connection-lost chunk.
+            let err_chunk = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-agy-live",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {
+                            "type": "text",
+                            "text": "Agent connection was lost and could not be re-established: 13 INTERNAL: Agent execution terminated due to error."
+                        }
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{err_chunk}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            // 3. Complete prompt with StopReason::EndTurn.
+            let resp = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "stopReason": "end_turn"
+                }
+            });
+            writer
+                .write_all(format!("{resp}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+        });
+
+        let transport =
+            acp::ByteStreams::new(client_to_agent.compat_write(), client_from_agent.compat());
+        let bridge = AcpClientBridge::new(
+            runner.snapshot.connection_id,
+            runner.snapshot.agent_id.clone(),
+            event_tx,
+            Arc::clone(&runner.session_map),
+            Arc::clone(&runner.session_controls),
+            Arc::clone(&runner.pending_permissions),
+            Arc::clone(&runner.pending_elicitations),
+            Arc::clone(&runner.auto_approve_mode),
+            Arc::clone(&runner.stream_dedup),
+            Arc::clone(&runner.last_activity),
+            Arc::clone(&runner.grok_subagent),
+            Arc::clone(&runner.grok_mcp),
+            Arc::clone(&runner.pending_session_id),
+            runner.snapshot.working_dir.clone(),
+            runner.snapshot.env.clone(),
+            runner.clone(),
+        );
+        let runner_for_conn = runner.clone();
+        let outcome = acp::Client
+            .builder()
+            .name("VibeX")
+            .on_receive_notification(
+                async move |notification: AgentNotification, _cx| {
+                    bridge.handle_agent_notification(notification).await
+                },
+                acp::on_receive_notification!(),
+            )
+            .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
+                let (_cmd_tx, mut cmd_rx) = mpsc::channel(4);
+                let outcome = runner_for_conn
+                    .run_prompt(
+                        &conn,
+                        RunPromptRequest {
+                            acp_session_id: "acp-agy-live".to_string(),
+                            session_id,
+                            prompt_id,
+                            blocks: vec![AgentContentBlock::Text {
+                                text: "hello".to_string(),
+                            }],
+                            display_blocks: None,
+                            mode_override: None,
+                            config_overrides: Vec::new(),
+                        },
+                        &mut cmd_rx,
+                    )
+                    .await
+                    .expect("run_prompt should succeed with Closed outcome");
+                assert_eq!(outcome, RunPromptOutcome::Closed);
+                Ok(())
+            })
+            .await;
+        assert!(outcome.is_ok());
+        agent_task.await.unwrap();
+
+        assert!(
+            !runner.session_map.read().await.contains_key(&session_id),
+            "session_map must unbind session_id after agent_connection_lost"
+        );
+        assert!(
+            !runner
+                .session_controls
+                .read()
+                .await
+                .contains_key(&session_id),
+            "session_controls must remove session_id after agent_connection_lost"
+        );
+        assert!(
+            runner.active_prompt.lock().await.is_none(),
+            "active_prompt must be cleared"
+        );
+
+        let mut collected = Vec::new();
+        while let Ok(ev) = event_rx.try_recv() {
+            collected.push(ev.event);
+        }
+        let failed_status_pos = collected
+            .iter()
+            .position(|ev| {
+                matches!(
+                    ev,
+                    AgentEvent::ConnectionStatusChanged { snapshot }
+                        if snapshot.status == AgentConnectionStatus::Failed
+                )
+            })
+            .expect("must emit ConnectionStatusChanged(Failed)");
+        let error_pos = collected
+            .iter()
+            .position(|ev| {
+                matches!(
+                    ev,
+                    AgentEvent::Error { error }
+                        if error.code.as_deref() == Some("agent_connection_lost")
+                )
+            })
+            .expect("must emit AgentEvent::Error(agent_connection_lost)");
+        assert!(
+            failed_status_pos < error_pos,
+            "ConnectionStatusChanged(Failed) must be emitted before AgentEvent::Error"
+        );
+        assert!(
+            !collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::PromptFinished { .. })),
+            "PromptFinished must NOT be emitted when closing a lost connection"
+        );
+    }
 }

@@ -155,6 +155,22 @@ impl AgentConnectionRunner {
                             )
                             .await;
                             if let Some(error) = turn_failure {
+                                if error.code.as_deref() == Some("agent_connection_lost") {
+                                    self.session_map.write().await.remove(&session_id);
+                                    self.session_controls.write().await.remove(&session_id);
+                                    self.emit_connection_status(
+                                        AgentConnectionStatus::Failed,
+                                        Some(error.message.clone()),
+                                        None,
+                                    );
+                                    self.emit(
+                                        Some(session_id),
+                                        Some(prompt_id),
+                                        AgentEvent::Error { error },
+                                    );
+                                    *self.active_prompt.lock().await = None;
+                                    return Ok(RunPromptOutcome::Closed);
+                                }
                                 self.emit(
                                     Some(session_id),
                                     Some(prompt_id),
@@ -208,6 +224,22 @@ impl AgentConnectionRunner {
                                 &self.stderr_tail,
                                 stderr_mark,
                             );
+                            if error_event.code.as_deref() == Some("agent_connection_lost") {
+                                self.session_map.write().await.remove(&session_id);
+                                self.session_controls.write().await.remove(&session_id);
+                                self.emit_connection_status(
+                                    AgentConnectionStatus::Failed,
+                                    Some(error_event.message.clone()),
+                                    None,
+                                );
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::Error { error: error_event },
+                                );
+                                *self.active_prompt.lock().await = None;
+                                return Ok(RunPromptOutcome::Closed);
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),

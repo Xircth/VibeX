@@ -598,7 +598,10 @@ impl AgentRuntime {
         let AgentEvent::Error { error } = &manager_event.event else {
             return None;
         };
-        if error.code.as_deref() != Some("connection_closed") {
+        if !matches!(
+            error.code.as_deref(),
+            Some("connection_closed" | "agent_connection_lost")
+        ) {
             return None;
         }
         let session_id = manager_event.session_id?;
@@ -2661,7 +2664,10 @@ impl AgentRuntime {
                 }
             }
             AgentEvent::Error { error } => {
-                if error.code.as_deref() == Some("connection_closed") {
+                if matches!(
+                    error.code.as_deref(),
+                    Some("connection_closed" | "agent_connection_lost")
+                ) {
                     // The ACP process is gone. Do not advance the prompt queue onto
                     // this connection — the next prompt would hang at "生成中".
                     fail_connection_sessions_locked(
@@ -3896,6 +3902,141 @@ mod tests {
                 .await
                 .is_none(),
             "once the agent has streamed, retrying the prompt would duplicate work"
+        );
+    }
+
+    #[tokio::test]
+    async fn silent_agent_connection_lost_is_auto_recovered_via_reconnect_and_session_load() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, prompt) =
+            create_running_prompt(&runtime, "recover after 13 INTERNAL").await;
+        let event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: Some(prompt.id),
+            event: AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: "Agent 底层连接中断，当前轮次未能完成。可能原因：Antigravity 语言服务（Language Server）内部 gRPC 连接意外断开。建议：重新发送消息，或重启 Agent 会话。".to_string(),
+                    code: Some("agent_connection_lost".to_string()),
+                    raw: None,
+                },
+            },
+        };
+
+        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
+            .await
+            .expect("agent_connection_lost without turn output must trigger SilentTurnRecovery");
+        assert_eq!(recovery.prompt_id, prompt.id);
+        assert_eq!(recovery.attempt, 1);
+
+        let recovered = AgentRuntime::recover_silent_turn(
+            &runtime.state,
+            &runtime.connection_manager,
+            runtime.event_sink.as_ref(),
+            &runtime.event_tx,
+            recovery,
+        )
+        .await;
+        assert!(
+            recovered,
+            "SilentTurnRecovery must reconnect, reload the ACP session, and resend the prompt"
+        );
+
+        let snapshot = runtime.snapshot().await;
+        let recovered_session = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_ne!(
+            recovered_session.connection_id, connection.id,
+            "session must be rebound to a fresh connection"
+        );
+        let recovered_prompt = snapshot
+            .prompts
+            .iter()
+            .find(|candidate| candidate.id == prompt.id)
+            .unwrap();
+        assert!(
+            matches!(recovered_prompt.status, AgentPromptStatus::Running),
+            "recovery must keep the original prompt running"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_connection_lost_after_partial_output_is_not_auto_recovered_and_evicts_dead_connection()
+     {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, active_prompt, queued_prompt) =
+            create_running_prompt_pair(&runtime).await;
+        {
+            let mut state = runtime.state.write().await;
+            AgentRuntime::queue_envelope_locked(
+                &mut state,
+                connection.id,
+                Some(session.id),
+                AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text {
+                        text: "partial output".to_string(),
+                    },
+                },
+            );
+        }
+        let message = "Session not found: 5b6593fa-0136-4a76-bfaa-92cb4412aa06";
+        let error_event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: Some(active_prompt.id),
+            event: AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: message.to_string(),
+                    code: Some("agent_connection_lost".to_string()),
+                    raw: None,
+                },
+            },
+        };
+        assert!(
+            AgentRuntime::take_silent_turn_recovery(&runtime.state, &error_event)
+                .await
+                .is_none(),
+            "once partial output has streamed, agent_connection_lost must not auto-retry"
+        );
+
+        let failed_conn = AgentConnectionSnapshot {
+            status: AgentConnectionStatus::Failed,
+            status_message: Some(message.to_string()),
+            updated_at: Utc::now(),
+            ..connection.clone()
+        };
+        {
+            let mut state = runtime.state.write().await;
+            AgentRuntime::apply_manager_event_locked(
+                &mut state,
+                &AgentConnectionManagerEvent {
+                    connection_id: connection.id,
+                    session_id: None,
+                    prompt_id: None,
+                    event: AgentEvent::ConnectionStatusChanged {
+                        snapshot: failed_conn,
+                    },
+                },
+            );
+            AgentRuntime::apply_manager_event_locked(&mut state, &error_event);
+        }
+
+        let snapshot = runtime.snapshot().await;
+        assert_prompt_failed(&snapshot, active_prompt.id, message);
+        assert_prompt_failed(&snapshot, queued_prompt.id, message);
+        let session_after = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_eq!(session_after.status, AgentSessionStatus::Failed);
+        assert_eq!(session_after.active_prompt_id, None);
+        assert!(
+            !runtime.session_has_ready_connection(session.id).await,
+            "connection must not look ready after agent_connection_lost so the next turn reconnects via session/load"
         );
     }
 

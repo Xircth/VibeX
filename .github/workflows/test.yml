@@ -213,7 +213,7 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run Cargo tests
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --no-fail-fast --status-level slow
 
   backend-platform-check:
     name: cargo check ${{ matrix.name }}

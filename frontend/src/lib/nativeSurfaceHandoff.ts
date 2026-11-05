@@ -5,13 +5,18 @@
  * that stand-in until the destination slot has a stable laid-out rect.
  */
 
+import { COLLABORATION_WORKSPACE_TAB } from '@/lib/hostSurfaceIds';
+
 export const NATIVE_SURFACE_DESTINATION_STABLE_SAMPLES = 3;
 
 export function chromeHidesNativeSurface(
   activeTab: string,
   tabContextMenuOpen = false
 ): boolean {
-  return tabContextMenuOpen || activeTab !== 'workspace';
+  return (
+    tabContextMenuOpen ||
+    (activeTab !== 'workspace' && activeTab !== COLLABORATION_WORKSPACE_TAB)
+  );
 }
 
 /**

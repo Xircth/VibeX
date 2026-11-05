@@ -6,14 +6,16 @@ import {
 } from './nativeSurfaceHandoff';
 
 describe('chromeHidesNativeSurface', () => {
-  it('parks the native page on kanban and plugin tabs', () => {
+  it('parks the native page on kanban and plugin tabs while keeping workspace and collaboration live', () => {
     expect(chromeHidesNativeSurface('kanban')).toBe(true);
     expect(chromeHidesNativeSurface('plugin:browser')).toBe(true);
     expect(chromeHidesNativeSurface('workspace')).toBe(false);
+    expect(chromeHidesNativeSurface('collaboration')).toBe(false);
   });
 
   it('parks the native page while a tab context menu is open', () => {
     expect(chromeHidesNativeSurface('workspace', true)).toBe(true);
+    expect(chromeHidesNativeSurface('collaboration', true)).toBe(true);
   });
 });
 

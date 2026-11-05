@@ -1,24 +1,43 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bell,
-  History,
+  Check,
+  ChevronDown,
   Lightbulb,
+  Pencil,
+  RefreshCw,
   Terminal,
   Users,
   Volume2,
+  X,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
-import { SoundFile, type Config, type NotificationWhen } from 'shared/types';
+import {
+  SoundFile,
+  type AgentManagementView,
+  type AgentSessionControlsSnapshot,
+  type Config,
+  type ExecutorProfileId,
+  type NotificationWhen,
+} from 'shared/types';
 
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { PluginSettingsSections } from '@/components/plugins/PluginSettingsSections';
 import { ImportLocalSessionsDialog } from '@/components/sessions/ImportLocalSessionsDialog';
 import { LocalHistoryImportStatus } from '@/features/history-import/LocalHistoryImportStatus';
 import { useLocalHistoryImportJob } from '@/features/history-import/useLocalHistoryImportJob';
-import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
+import { resolveEffectiveSessionConfig } from '@/components/settings/AgentSessionConfigPicker';
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -29,6 +48,9 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { agentManagementApi } from '@/features/agent-management/api';
+import { agentsApi } from '@/features/agents/api';
 import { configApi } from '@/lib/api';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import {
@@ -40,8 +62,19 @@ import { toPrettyCase } from '@/utils/string';
 import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
 import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
-import { MultiAgentSettings } from '@/features/collaboration/MultiAgentSettings';
+import {
+  CustomRoleSessionControls,
+  MultiAgentSettings,
+  stringRecord,
+} from '@/features/collaboration/MultiAgentSettings';
 import { setHideBotSessions, useHideBotSessions } from '@/lib/hideBotSessions';
+import i18n, { setUiLanguage } from '@/i18n';
+import {
+  LANGUAGE_LABELS,
+  SUPPORTED_LANGUAGES,
+  getUiLanguage,
+  type UiLanguage,
+} from '@/lib/uiLanguage';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
@@ -71,10 +104,13 @@ function cloneConfig(config: Config): Config {
 
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const portalContainer = usePortalContainer();
   const { config, environment, loading, updateAndSaveConfig } = useUserSystem();
   const basicGuide = useOptionalBasicGuide();
   const localDesktopHost = useLocalDesktopHost();
   const hideBotSessions = useHideBotSessions();
+  const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
+  const [barAgents, setBarAgents] = useState<AgentManagementView[]>([]);
 
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
@@ -92,7 +128,88 @@ export function GeneralSettings() {
     setMultiAgentRangeError(message);
   }, []);
 
-  const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
+  const [peDialogOpen, setPeDialogOpen] = useState(false);
+  const [peDialogSource, setPeDialogSource] = useState<'toggle' | 'edit'>(
+    'edit'
+  );
+  const [peDialogLeft, setPeDialogLeft] = useState('12.5rem');
+  const [peAgentId, setPeAgentId] = useState('');
+  const [peModeId, setPeModeId] = useState('');
+  const [peConfigValues, setPeConfigValues] = useState<Record<string, string>>(
+    {}
+  );
+  const [peCatalog, setPeCatalog] =
+    useState<AgentSessionControlsSnapshot | null>(null);
+  const [peCatalogReloadToken, setPeCatalogReloadToken] = useState(0);
+  const [peUseCustomPrompt, setPeUseCustomPrompt] = useState(false);
+  const [peCustomPrompt, setPeCustomPrompt] = useState(
+    DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+  );
+
+  useEffect(() => {
+    let active = true;
+    void agentManagementApi
+      .bar()
+      .then((rows) => {
+        if (!active) return;
+        setBarAgents(rows.filter((row) => row.enabled && !row.retired));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const availablePeAgents = useMemo(
+    () =>
+      barAgents.map((row) => ({
+        value: row.agent_id,
+        label: row.display_name || getAgentName(row.agent_id) || row.agent_id,
+      })),
+    [barAgents]
+  );
+
+  useEffect(() => {
+    if (!peDialogOpen) return;
+    if (!peAgentId && availablePeAgents.length > 0) {
+      setPeAgentId(availablePeAgents[0].value);
+    }
+  }, [availablePeAgents, peAgentId, peDialogOpen]);
+
+  useEffect(() => {
+    if (!peDialogOpen) return;
+    const settingsShell = document.querySelector('.settings-page');
+    settingsShell?.classList.add('collaboration-settings-window-blurred');
+
+    const syncOverlayLeft = () => {
+      const settingsContent = document.querySelector<HTMLElement>(
+        '[data-settings-content]'
+      );
+      const settingsSidebar =
+        document.querySelector<HTMLElement>('.settings-sidebar');
+      const contentLeft = settingsContent?.getBoundingClientRect().left ?? 0;
+      const sidebarRight = settingsSidebar?.getBoundingClientRect().right ?? 0;
+      const measuredLeft = contentLeft > 0 ? contentLeft : sidebarRight;
+      if (measuredLeft > 0) {
+        setPeDialogLeft(`${Math.round(measuredLeft)}px`);
+        return;
+      }
+      setPeDialogLeft(
+        settingsSidebar?.classList.contains('settings-sidebar--flush')
+          ? '11rem'
+          : '12.5rem'
+      );
+    };
+
+    syncOverlayLeft();
+    window.addEventListener('resize', syncOverlayLeft);
+    return () => {
+      window.removeEventListener('resize', syncOverlayLeft);
+      settingsShell?.classList.remove('collaboration-settings-window-blurred');
+    };
+  }, [peDialogOpen]);
+
+  const { writeNow, writeSettled, holding } = useLiveSettingsCommit(
     async (next: Config) => {
       const saved = await updateAndSaveConfig(next);
       if (!saved) {
@@ -126,6 +243,81 @@ export function GeneralSettings() {
     [writeNow, writeSettled]
   );
 
+  const populatePeFormFromDraft = useCallback(
+    (currentDraft: Config) => {
+      const initialAgentId =
+        currentDraft.prompt_enhancement_agent_id?.trim() ||
+        availablePeAgents[0]?.value ||
+        '';
+      setPeAgentId(initialAgentId);
+      setPeModeId(currentDraft.prompt_enhancement_mode ?? '');
+      setPeConfigValues(
+        stringRecord(currentDraft.prompt_enhancement_session_config)
+      );
+      const hasCustom = currentDraft.prompt_enhancement_prompt != null;
+      setPeUseCustomPrompt(hasCustom);
+      setPeCustomPrompt(
+        currentDraft.prompt_enhancement_prompt ??
+          DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+      );
+    },
+    [availablePeAgents]
+  );
+
+  const handlePromptEnhancementToggle = (checked: boolean) => {
+    if (!draft) return;
+    if (!checked) {
+      setPeDialogOpen(false);
+      updateDraft({ prompt_enhancement_enabled: false });
+      return;
+    }
+    populatePeFormFromDraft(draft);
+    setPeDialogSource('toggle');
+    setPeDialogOpen(true);
+  };
+
+  const openEditPromptEnhancementDialog = () => {
+    if (!draft) return;
+    populatePeFormFromDraft(draft);
+    setPeDialogSource('edit');
+    setPeDialogOpen(true);
+  };
+
+  const handleCancelPromptEnhancementDialog = () => {
+    setPeDialogOpen(false);
+    if (peDialogSource === 'toggle' && draft?.prompt_enhancement_enabled) {
+      updateDraft({ prompt_enhancement_enabled: false });
+    }
+  };
+
+  const handleRefreshPeSessionControls = async () => {
+    const trimmed = peAgentId.trim();
+    if (!trimmed) return;
+    try {
+      await agentsApi.refreshCapabilityCatalog(trimmed);
+      setPeCatalogReloadToken((prev) => prev + 1);
+    } catch {
+      // Ignore refresh error in offline/test mode
+    }
+  };
+
+  const handleSavePromptEnhancementDialog = () => {
+    const effective = resolveEffectiveSessionConfig(
+      peCatalog,
+      peModeId.trim() || null,
+      peConfigValues
+    );
+    updateDraft({
+      prompt_enhancement_enabled: true,
+      prompt_enhancement_agent_id: peAgentId.trim(),
+      prompt_enhancement_mode: effective.modeId?.trim() || null,
+      prompt_enhancement_session_config: stringRecord(effective.configValues),
+      prompt_enhancement_prompt: peUseCustomPrompt ? peCustomPrompt : null,
+    });
+    setPeDialogOpen(false);
+    toast.success(t('general.settingsSaved'));
+  };
+
   const playSound = async (soundFile: SoundFile) => {
     try {
       await configApi.playNotificationSound(soundFile);
@@ -147,6 +339,28 @@ export function GeneralSettings() {
 
   const hostPlatform = terminalHostPlatform(environment?.os_type);
   const terminalShellOptions = getTerminalShellOptions(hostPlatform);
+
+  const activePeAgentId =
+    draft.prompt_enhancement_agent_id?.trim() ||
+    availablePeAgents[0]?.value ||
+    '';
+  const activePeAgentLabel =
+    availablePeAgents.find((item) => item.value === activePeAgentId)?.label ||
+    getAgentName(activePeAgentId) ||
+    activePeAgentId ||
+    t('general.selectAgentPlaceholder');
+  const peSessionParts = [
+    draft.prompt_enhancement_mode?.trim() || '',
+    ...Object.values(stringRecord(draft.prompt_enhancement_session_config)),
+  ].filter(Boolean);
+  const peSessionSummary =
+    peSessionParts.length > 0
+      ? peSessionParts.join(' · ')
+      : i18n.t('panels:ui.multiAgent.defaultSessionSettings');
+  const selectedPeModalAgentLabel =
+    availablePeAgents.find((item) => item.value === peAgentId)?.label ||
+    getAgentName(peAgentId) ||
+    peAgentId;
 
   return (
     <div className="settings-content">
@@ -188,6 +402,37 @@ export function GeneralSettings() {
                 onChange={(editor) => updateDraft({ editor })}
               />
             ) : null}
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.language.label')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.language.hint')}
+                </p>
+              </div>
+              <Select
+                value={language}
+                onValueChange={(value) => {
+                  const next = value as UiLanguage;
+                  setLanguage(next);
+                  setUiLanguage(next);
+                }}
+              >
+                <SelectTrigger
+                  className="!w-40"
+                  aria-label={t('appearance.language.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {SUPPORTED_LANGUAGES.map((lng) => (
+                    <SelectItem key={lng} value={lng}>
+                      {LANGUAGE_LABELS[lng]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </SettingsSection>
 
@@ -281,100 +526,61 @@ export function GeneralSettings() {
               <Switch
                 id="prompt-enhancement-enabled"
                 className="settings-switch"
-                checked={draft.prompt_enhancement_enabled ?? false}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ prompt_enhancement_enabled: checked })
+                checked={
+                  Boolean(draft.prompt_enhancement_enabled) ||
+                  (peDialogOpen && peDialogSource === 'toggle')
                 }
+                onCheckedChange={handlePromptEnhancementToggle}
               />
             </div>
 
             {draft.prompt_enhancement_enabled ? (
-              <>
-                <AgentSessionConfigPicker
-                  agentId={draft.prompt_enhancement_agent_id ?? ''}
-                  selectedModeId={draft.prompt_enhancement_mode ?? null}
-                  pendingConfigValues={
-                    draft.prompt_enhancement_session_config as Record<
-                      string,
-                      string
-                    >
-                  }
-                  agentLabel={t('general.promptEnhancementAgent')}
-                  onAgentChange={(value) =>
-                    updateDraft({
-                      prompt_enhancement_agent_id: value,
-                      prompt_enhancement_mode: null,
-                      prompt_enhancement_session_config: {},
-                    })
-                  }
-                  onSelectMode={(modeId) =>
-                    updateDraft({ prompt_enhancement_mode: modeId })
-                  }
-                  onSelectConfigValue={(key, value) =>
-                    updateDraft({
-                      prompt_enhancement_session_config: {
-                        ...draft.prompt_enhancement_session_config,
-                        [key]: value,
-                      },
-                    })
-                  }
-                  onSave={({ modeId, configValues }) => {
-                    updateDraft({
-                      prompt_enhancement_mode: modeId,
-                      prompt_enhancement_session_config: configValues,
-                    });
-                    toast.success(t('general.settingsSaved'));
-                  }}
-                />
-
-                <div className="space-y-2">
-                  <div className="settings-row">
-                    <Label
-                      htmlFor="use-custom-pe-prompt"
-                      className="cursor-pointer"
-                    >
-                      {t('general.useCustomPrompt')}
-                    </Label>
-                    <Switch
-                      id="use-custom-pe-prompt"
-                      className="settings-switch"
-                      checked={draft.prompt_enhancement_prompt != null}
-                      onCheckedChange={(checked: boolean) =>
-                        updateDraft({
-                          prompt_enhancement_prompt: checked
-                            ? DEFAULT_PROMPT_ENHANCEMENT_PROMPT
-                            : null,
-                        })
-                      }
-                    />
+              <div
+                className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+                data-testid="prompt-enhancement-list-container"
+              >
+                <div className="divide-y divide-border/60">
+                  <div
+                    data-testid="prompt-enhancement-config-row"
+                    className="flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                      {activePeAgentId ? (
+                        <AgentIcon
+                          agent={
+                            activePeAgentId as ExecutorProfileId['executor']
+                          }
+                          className="h-4 w-4 shrink-0"
+                        />
+                      ) : null}
+                      <span className="max-w-[12rem] shrink-0 truncate text-xs font-medium text-foreground">
+                        {activePeAgentLabel}
+                      </span>
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {peSessionSummary}
+                      </span>
+                      <span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {draft.prompt_enhancement_prompt != null
+                          ? t('general.customPromptEnabledStatus')
+                          : t('general.customPromptDisabledStatus')}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        data-testid="prompt-enhancement-edit-btn"
+                        aria-label={t('general.editPromptEnhancement')}
+                        onClick={openEditPromptEnhancementDialog}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                    </div>
                   </div>
-                  <Textarea
-                    value={
-                      draft.prompt_enhancement_prompt ??
-                      DEFAULT_PROMPT_ENHANCEMENT_PROMPT
-                    }
-                    disabled={draft.prompt_enhancement_prompt == null}
-                    onChange={(event) =>
-                      updateDraft(
-                        {
-                          prompt_enhancement_prompt: event.target.value,
-                        },
-                        true
-                      )
-                    }
-                    onBlur={() => void flush()}
-                    placeholder={t('general.customPromptPlaceholder')}
-                    className={`min-h-32 font-mono text-sm ${
-                      draft.prompt_enhancement_prompt == null
-                        ? 'cursor-not-allowed opacity-50'
-                        : ''
-                    }`}
-                  />
-                  <p className="settings-row__description">
-                    {t('general.customPromptHint')}
-                  </p>
                 </div>
-              </>
+              </div>
             ) : null}
 
             <div className="settings-row">
@@ -398,14 +604,7 @@ export function GeneralSettings() {
                 }
               />
             </div>
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={History}
-          title={t('general.sessionFeaturesTitle')}
-        >
-          <div className="space-y-4">
             <div className="settings-row">
               <div>
                 <Label
@@ -433,10 +632,13 @@ export function GeneralSettings() {
             <div className="settings-row">
               <div>
                 <Label>{t('general.importLocalSessions')}</Label>
+                <p className="settings-row__description">
+                  {t('general.importLocalSessionsDescription')}
+                </p>
               </div>
               <Button
                 type="button"
-                variant="outline"
+                variant="default"
                 onClick={() => setImportOpen(true)}
               >
                 {t('general.importLocalSessionsAction')}
@@ -453,9 +655,14 @@ export function GeneralSettings() {
         >
           <div className="space-y-3">
             <div className="settings-row">
-              <Label htmlFor="sound-enabled" className="cursor-pointer">
-                {t('general.soundNotification')}
-              </Label>
+              <div>
+                <Label htmlFor="sound-enabled" className="cursor-pointer">
+                  {t('general.soundNotification')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.soundNotificationDescription')}
+                </p>
+              </div>
               <Switch
                 id="sound-enabled"
                 className="settings-switch"
@@ -510,9 +717,14 @@ export function GeneralSettings() {
             ) : null}
 
             <div className="settings-row">
-              <Label htmlFor="push-notifications" className="cursor-pointer">
-                {t('general.pushNotification')}
-              </Label>
+              <div>
+                <Label htmlFor="push-notifications" className="cursor-pointer">
+                  {t('general.pushNotification')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.pushNotificationDescription')}
+                </p>
+              </div>
               <Switch
                 id="push-notifications"
                 className="settings-switch"
@@ -599,6 +811,214 @@ export function GeneralSettings() {
           </Button>
         </div>
       </div>
+
+      {peDialogOpen
+        ? createPortal(
+            <div
+              data-testid="prompt-enhancement-modal-overlay"
+              className="collaboration-thread-overlay collaboration-settings-modal-overlay fixed inset-y-0 right-0 z-[9999] flex items-center justify-center p-6"
+              style={{
+                left: peDialogLeft,
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              }}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  handleCancelPromptEnhancementDialog();
+                }
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('general.promptEnhancementTitle')}
+                className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[440px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-[14px] font-semibold text-foreground">
+                    {t('general.promptEnhancementTitle')}
+                  </h3>
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon"
+                    className="collaboration-expand h-7 w-7"
+                    aria-label={i18n.t('panels:tabCreation.close', '关闭')}
+                    onClick={handleCancelPromptEnhancementDialog}
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+
+                <form
+                  className="flex flex-col gap-3.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleSavePromptEnhancementDialog();
+                  }}
+                >
+                  <div className="space-y-1.5">
+                    <Label>{t('general.promptEnhancementAgentLabel')}</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-label={t('general.promptEnhancementAgentLabel')}
+                          data-value={peAgentId}
+                          className="custom-role-agent-trigger raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
+                        >
+                          <span className="flex min-w-0 items-center gap-2 truncate">
+                            {peAgentId ? (
+                              <AgentIcon
+                                agent={
+                                  peAgentId as ExecutorProfileId['executor']
+                                }
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                            ) : null}
+                            <span className="truncate">
+                              {selectedPeModalAgentLabel ||
+                                t('general.selectAgentPlaceholder')}
+                            </span>
+                          </span>
+                          <ChevronDown
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+                      >
+                        {availablePeAgents.map((agent) => {
+                          const isSelected = peAgentId === agent.value;
+                          return (
+                            <DropdownMenuItem
+                              key={agent.value}
+                              data-state={isSelected ? 'checked' : undefined}
+                              onSelect={() => {
+                                setPeAgentId(agent.value);
+                                setPeModeId('');
+                                setPeConfigValues({});
+                              }}
+                            >
+                              <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                                <AgentIcon
+                                  agent={
+                                    agent.value as ExecutorProfileId['executor']
+                                  }
+                                  className="h-3.5 w-3.5 shrink-0"
+                                />
+                                <span className="truncate">{agent.label}</span>
+                              </span>
+                              {isSelected ? (
+                                <Check
+                                  className="h-3.5 w-3.5 shrink-0"
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <div
+                    className="space-y-1.5"
+                    data-testid="prompt-enhancement-session-config"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>
+                        {t('general.promptEnhancementSessionConfig')}
+                      </Label>
+                      {peAgentId ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          aria-label={t('general.refreshSessionControls')}
+                          onClick={() => void handleRefreshPeSessionControls()}
+                        >
+                          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
+                    <CustomRoleSessionControls
+                      agentId={peAgentId}
+                      modeId={peModeId}
+                      values={peConfigValues}
+                      onModeId={setPeModeId}
+                      onValues={setPeConfigValues}
+                      onCatalogChange={setPeCatalog}
+                      reloadToken={peCatalogReloadToken}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="settings-row flex min-h-7 items-center justify-between gap-3">
+                      <Label
+                        htmlFor="use-custom-pe-prompt"
+                        className="cursor-pointer leading-none"
+                      >
+                        {t('general.customOptimizationPrompt')}
+                      </Label>
+                      <Switch
+                        id="use-custom-pe-prompt"
+                        className="settings-switch shrink-0"
+                        checked={peUseCustomPrompt}
+                        onCheckedChange={(checked: boolean) => {
+                          setPeUseCustomPrompt(checked);
+                          if (checked && !peCustomPrompt.trim()) {
+                            setPeCustomPrompt(
+                              DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+                            );
+                          }
+                        }}
+                      />
+                    </div>
+                    {peUseCustomPrompt ? (
+                      <Textarea
+                        aria-label={t('general.customOptimizationPrompt')}
+                        value={peCustomPrompt}
+                        onChange={(event) =>
+                          setPeCustomPrompt(event.target.value)
+                        }
+                        placeholder={t('general.customPromptPlaceholder')}
+                        className="min-h-28 font-mono text-xs"
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-testid="prompt-enhancement-cancel-btn"
+                      onClick={handleCancelPromptEnhancementDialog}
+                    >
+                      {i18n.t('panels:ui.multiAgent.cancel')}
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      data-dialog-primary="true"
+                      data-testid="prompt-enhancement-save-btn"
+                    >
+                      {i18n.t('panels:ui.multiAgent.save')}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </div>,
+            portalContainer ?? document.body
+          )
+        : null}
 
       <ImportLocalSessionsDialog
         open={importOpen}

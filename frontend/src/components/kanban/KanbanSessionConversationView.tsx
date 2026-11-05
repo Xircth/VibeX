@@ -84,6 +84,7 @@ type ConversationPlacementRecord = {
   key: string;
   container: HTMLDivElement;
   props: KanbanSessionConversationSurfaceProps;
+  slotProps: Map<string, KanbanSessionConversationSurfaceProps>;
   slots: Map<string, HTMLElement>;
   activeSlotId: string | null;
 };
@@ -98,9 +99,56 @@ type ConversationPlacementContextValue = {
   claimVisibleSlot: (key: string, slotId: string, target: HTMLElement) => void;
   updateSlotProps: (
     key: string,
+    slotId: string,
     props: KanbanSessionConversationSurfaceProps
   ) => void;
 };
+
+function areConversationSessionsEqual(
+  left: UseWorkspaceSessionsResult,
+  right: UseWorkspaceSessionsResult
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  return (
+    left.sessions === right.sessions &&
+    left.selectedSession === right.selectedSession &&
+    left.selectedSessionId === right.selectedSessionId &&
+    left.selectSession === right.selectSession &&
+    left.selectLatestSession === right.selectLatestSession &&
+    left.isLoading === right.isLoading &&
+    left.isNewSessionMode === right.isNewSessionMode &&
+    left.isPendingNewSessionMode === right.isPendingNewSessionMode &&
+    left.requestNewSession === right.requestNewSession &&
+    left.confirmNewSession === right.confirmNewSession &&
+    left.cancelNewSession === right.cancelNewSession &&
+    left.startNewSession === right.startNewSession
+  );
+}
+
+function areConversationSurfacePropsEqual(
+  left: KanbanSessionConversationSurfaceProps,
+  right: KanbanSessionConversationSurfaceProps
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  return (
+    left.workspaceId === right.workspaceId &&
+    left.sessionId === right.sessionId &&
+    left.interactive === right.interactive &&
+    left.showSessionSelector === right.showSessionSelector &&
+    left.onSessionCreated === right.onSessionCreated &&
+    left.onSessionSelected === right.onSessionSelected &&
+    left.onCreateSessionRequested === right.onCreateSessionRequested &&
+    left.className === right.className &&
+    left.imagePreviewPresentation === right.imagePreviewPresentation &&
+    left.conversationWidthMode === right.conversationWidthMode &&
+    left.markViewed === right.markViewed &&
+    areConversationSessionsEqual(left.sessionState, right.sessionState)
+  );
+}
 
 const GLOBAL_CONVERSATION_PLACEMENT_CONTEXT_KEY =
   '__VIBEX_CONVERSATION_PLACEMENT_CONTEXT__' as const;
@@ -225,16 +273,16 @@ export function KanbanSessionConversationPlacementProvider({
           key,
           container: createPlacementContainer(),
           props,
+          slotProps: new Map(),
           slots: new Map(),
           activeSlotId: null,
         };
         recordsRef.current.set(key, record);
       }
 
-      const propsChanged = record.props !== props;
       const isNewSlot = !record.slots.has(slotId);
       const slotTargetChanged = record.slots.get(slotId) !== target;
-      record.props = props;
+      record.slotProps.set(slotId, props);
       record.slots.set(slotId, target);
       // Visible new views (canvas window, workspace execution) take the
       // portal. Hidden/detached remounts — the canvas-hidden execution slot
@@ -252,6 +300,14 @@ export function KanbanSessionConversationPlacementProvider({
       ) {
         record.activeSlotId = slotId;
       }
+      const nextProps = record.activeSlotId
+        ? (record.slotProps.get(record.activeSlotId) ?? props)
+        : props;
+      const propsChanged = !areConversationSurfacePropsEqual(
+        record.props,
+        nextProps
+      );
+      record.props = nextProps;
       if (
         record.activeSlotId === slotId &&
         record.container.parentElement !== target
@@ -272,10 +328,15 @@ export function KanbanSessionConversationPlacementProvider({
         }
 
         currentRecord.slots.delete(slotId);
+        currentRecord.slotProps.delete(slotId);
         if (currentRecord.activeSlotId === slotId) {
           const nextSlot = nextConversationSlot(currentRecord.slots);
           currentRecord.activeSlotId = nextSlot?.[0] ?? null;
           if (nextSlot) {
+            const nextSlotProps = currentRecord.slotProps.get(nextSlot[0]);
+            if (nextSlotProps) {
+              currentRecord.props = nextSlotProps;
+            }
             nextSlot[1].appendChild(currentRecord.container);
           }
         }
@@ -332,6 +393,10 @@ export function KanbanSessionConversationPlacementProvider({
         return;
       }
       record.activeSlotId = slotId;
+      const nextSlotProps = record.slotProps.get(slotId);
+      if (nextSlotProps) {
+        record.props = nextSlotProps;
+      }
       if (record.container.parentElement !== target) {
         target.appendChild(record.container);
       }
@@ -343,9 +408,16 @@ export function KanbanSessionConversationPlacementProvider({
   const updateSlotProps = useCallback<
     ConversationPlacementContextValue['updateSlotProps']
   >(
-    (key, props) => {
+    (key, slotId, props) => {
       const record = recordsRef.current.get(key);
-      if (!record || record.props === props) {
+      if (!record) {
+        return;
+      }
+      record.slotProps.set(slotId, props);
+      if (record.activeSlotId && record.activeSlotId !== slotId) {
+        return;
+      }
+      if (areConversationSurfacePropsEqual(record.props, props)) {
         return;
       }
 
@@ -844,8 +916,8 @@ export function KanbanSessionConversationView(
       return;
     }
 
-    placement.updateSlotProps(placementKey, surfaceProps);
-  }, [embedded, placement, placementKey, surfaceProps]);
+    placement.updateSlotProps(placementKey, slotId, surfaceProps);
+  }, [embedded, placement, placementKey, slotId, surfaceProps]);
 
   if (embedded || !placement) {
     return <KanbanSessionConversationSurface {...surfaceProps} />;

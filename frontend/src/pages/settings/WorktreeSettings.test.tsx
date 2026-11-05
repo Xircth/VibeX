@@ -86,6 +86,9 @@ describe('WorktreeSettings', () => {
       'settings-worktree-board'
     );
     expect(selectedProject.closest('.settings-card')).toBeNull();
+    expect(
+      screen.getByRole('heading', { name: '生命周期命令' })
+    ).toHaveTextContent(/^生命周期命令$/);
     expect(await screen.findByDisplayValue('pnpm install')).toBeInTheDocument();
     expect(screen.getByDisplayValue('pnpm run clean')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton')).toHaveValue(4);

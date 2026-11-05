@@ -72,14 +72,20 @@ describe('collectFloatingLayers', () => {
     const empty = document.createElement('div');
     empty.setAttribute(FLOATING_LAYER_ATTR, 'popover');
     empty.getBoundingClientRect = () => box(0, 0, 0, 0);
-    root.append(closed, empty);
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-radix-popper-content-wrapper', '');
+    wrapper.getBoundingClientRect = () => box(20, 20, 120, 60);
+    const closedInner = document.createElement('div');
+    closedInner.setAttribute('data-state', 'closed');
+    wrapper.append(closedInner);
+    root.append(closed, empty, wrapper);
     expect(collectFloatingLayers(root)).toEqual({
       hide: false,
       rects: [],
     });
   });
 
-  it('reads the parent box of an occlusion hold marker', () => {
+  it('reads the parent box of an occlusion hold marker unless its parent is closed', () => {
     const root = document.createElement('div');
     const overlay = document.createElement('div');
     overlay.getBoundingClientRect = () => box(0, 0, 1280, 800);
@@ -91,6 +97,12 @@ describe('collectFloatingLayers', () => {
     expect(collectFloatingLayers(root)).toEqual({
       hide: false,
       rects: [{ x: 0, y: 0, width: 1280, height: 800 }],
+    });
+
+    overlay.setAttribute('data-state', 'closed');
+    expect(collectFloatingLayers(root)).toEqual({
+      hide: false,
+      rects: [],
     });
   });
 });

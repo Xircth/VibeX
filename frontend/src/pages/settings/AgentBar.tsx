@@ -700,7 +700,10 @@ function AgentBarHorizontal({
         />
         <DragOverlay>
           {activeAgent ? (
-            <div className="settings-page" style={agentBarLayoutStyle}>
+            <div
+              className="settings-page agent-management-bar-drag-overlay bg-transparent"
+              style={agentBarLayoutStyle}
+            >
               <AgentBarMark
                 agent={activeAgent}
                 labelWidth={getLabelWidth(activeAgent.agent_id)}

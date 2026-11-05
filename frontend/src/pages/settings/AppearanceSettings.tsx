@@ -18,13 +18,6 @@ import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
 import { UI_ZOOM_LEVELS, getUiZoom, setUiZoom } from '@/lib/uiZoom';
 import { MONO_FONT_OPTIONS, getMonoFontId, setMonoFont } from '@/lib/uiFont';
-import { setUiLanguage } from '@/i18n';
-import {
-  LANGUAGE_LABELS,
-  SUPPORTED_LANGUAGES,
-  getUiLanguage,
-  type UiLanguage,
-} from '@/lib/uiLanguage';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Input } from '@/components/ui/input';
@@ -205,7 +198,6 @@ export function AppearanceSettings() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
-  const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
@@ -374,37 +366,6 @@ export function AppearanceSettings() {
 
             <div className="settings-row">
               <div>
-                <Label>{t('appearance.language.label')}</Label>
-                <p className="settings-row__description">
-                  {t('appearance.language.hint')}
-                </p>
-              </div>
-              <Select
-                value={language}
-                onValueChange={(value) => {
-                  const next = value as UiLanguage;
-                  setLanguage(next);
-                  setUiLanguage(next);
-                }}
-              >
-                <SelectTrigger
-                  className="w-56"
-                  aria-label={t('appearance.language.label')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {SUPPORTED_LANGUAGES.map((lng) => (
-                    <SelectItem key={lng} value={lng}>
-                      {LANGUAGE_LABELS[lng]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="settings-row">
-              <div>
                 <Label htmlFor="settings-nav-float" className="cursor-pointer">
                   {t('appearance.navFloat.label')}
                 </Label>
@@ -435,56 +396,52 @@ export function AppearanceSettings() {
               <div>
                 <Label>{t('appearance.kanbanSessionList.label')}</Label>
               </div>
-              <Select
+              <SegmentedControl
+                className="shrink-0"
                 value={kanbanSessionListView}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   const next = value as KanbanSessionListView;
                   setKanbanSessionListViewState(next);
                   setKanbanSessionListView(next);
                 }}
+                label={t('appearance.kanbanSessionList.label')}
+                size="sm"
+                layout="hug"
               >
-                <SelectTrigger
-                  className="w-56"
-                  aria-label={t('appearance.kanbanSessionList.label')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {KANBAN_SESSION_LIST_VIEWS.map((view) => (
-                    <SelectItem key={view} value={view}>
-                      {t(`appearance.kanbanSessionList.${view}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {KANBAN_SESSION_LIST_VIEWS.map((view) => (
+                  <SegmentedControlItem
+                    key={view}
+                    value={view}
+                    label={t(`appearance.kanbanSessionList.${view}`)}
+                  />
+                ))}
+              </SegmentedControl>
             </div>
 
             <div className="settings-row">
               <div>
                 <Label>{t('appearance.kanbanBoardStyle.label')}</Label>
               </div>
-              <Select
+              <SegmentedControl
+                className="shrink-0"
                 value={kanbanBoardStyle}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   const next = value as KanbanBoardStyle;
                   setKanbanBoardStyleState(next);
                   setKanbanBoardStyle(next);
                 }}
+                label={t('appearance.kanbanBoardStyle.label')}
+                size="sm"
+                layout="hug"
               >
-                <SelectTrigger
-                  className="w-56"
-                  aria-label={t('appearance.kanbanBoardStyle.label')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {KANBAN_BOARD_STYLES.map((style) => (
-                    <SelectItem key={style} value={style}>
-                      {t(`appearance.kanbanBoardStyle.${style}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {KANBAN_BOARD_STYLES.map((style) => (
+                  <SegmentedControlItem
+                    key={style}
+                    value={style}
+                    label={t(`appearance.kanbanBoardStyle.${style}`)}
+                  />
+                ))}
+              </SegmentedControl>
             </div>
           </div>
         </SettingsSection>

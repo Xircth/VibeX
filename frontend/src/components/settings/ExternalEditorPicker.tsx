@@ -120,9 +120,6 @@ export function ExternalEditorPicker({
     };
   }, [options]);
 
-  const selected = options.find(
-    (option) => option.value === value?.editor_type
-  );
   const selectedAvailability =
     !value || value.editor_type === EditorType.CUSTOM
       ? null
@@ -198,18 +195,6 @@ export function ExternalEditorPicker({
           </SelectContent>
         </Select>
       </div>
-
-      {!compact && selected && value?.editor_type !== EditorType.CUSTOM ? (
-        <p className="text-[11px] text-muted-foreground">
-          {t('general.commandLabel')}
-          <code className="font-mono">{selected.hint}</code>
-          {selectedAvailability === true
-            ? t('general.editorReadySuffix')
-            : selectedAvailability === false
-              ? t('general.editorNotFoundSuffix')
-              : ''}
-        </p>
-      ) : null}
 
       {value?.editor_type === EditorType.CUSTOM ? (
         <div className="settings-row settings-row--stacked">

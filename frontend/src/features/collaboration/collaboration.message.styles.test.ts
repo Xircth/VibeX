@@ -317,7 +317,7 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(name['-webkit-text-fill-color']?.important).toBe(true);
   });
 
-  it('keeps inline ask_user_question cards in normal flow inside space bubbles', () => {
+  it('keeps inline ask_user_question cards in normal flow as a standalone message container without outer bubble chrome', () => {
     const card = declarationsFor(
       '.collaboration-card-actions .agent-question-card'
     );
@@ -327,6 +327,14 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(card.right?.value).toBe('auto');
     expect(card.transform?.value).toBe('none');
     expect(card.width?.value).toBe('min(26rem, calc(100vw - 7rem))');
+
+    const container = declarationsFor(
+      '.collaboration-message .collaboration-question-card-msg'
+    );
+    expect(container.padding?.value).toBe('0');
+    expect(container.background?.value).toBe('transparent');
+    expect(container.border?.value).toBe('0');
+    expect(container['box-shadow']?.value).toBe('none');
   });
 
   it('caps collapsed message bubbles with a lower-half fade and centered expand-all capsule', () => {

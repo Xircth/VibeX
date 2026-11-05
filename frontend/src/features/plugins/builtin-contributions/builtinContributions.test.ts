@@ -29,12 +29,7 @@ describe('builtin panel manifests', () => {
       ['kanban', 'editor', false, 'panelRegistry.kanban'],
       ['file-tree', 'left', false, 'panelRegistry.fileExplorer'],
       ['preview', 'editor', true, 'panelRegistry.preview'],
-      [
-        'external-directory',
-        'editor',
-        true,
-        'panelRegistry.externalDirectory',
-      ],
+      ['external-directory', 'editor', true, 'panelRegistry.externalDirectory'],
       ['diffs', 'editor', false, 'panelRegistry.diffs'],
       ['terminal', 'bottom', true, 'panelRegistry.terminal'],
       ['ai-chat', 'session', false, 'panelRegistry.aiChat'],

@@ -257,8 +257,6 @@ export function WorktreeSettings() {
     [writeProjectNow, writeProjectSettled]
   );
 
-  const selectedProject = projects.find((project) => project.id === projectId);
-
   const selectProject = (id: string) => {
     if (id === projectId) return;
     void (async () => {
@@ -277,14 +275,14 @@ export function WorktreeSettings() {
           description={t('versionControl.worktreeSectionDescription')}
         >
           <div className="space-y-4">
-            <div className="settings-row settings-row--stacked">
+            <div className="settings-row">
               <div>
                 <Label>{t('versionControl.workspaceDirLabel')}</Label>
                 <p className="settings-row__description">
                   {t('versionControl.workspaceDirDescription')}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <TextInput
                   label={t('versionControl.workspaceDirLabel')}
                   isLabelHidden
@@ -296,8 +294,8 @@ export function WorktreeSettings() {
                   }
                   onBlur={() => void flushWorktree()}
                   placeholder={t('versionControl.workspaceDirPlaceholder')}
-                  width="100%"
-                  className="[&_input]:text-sm"
+                  width="220px"
+                  className="w-[220px] [&_input]:text-sm"
                 />
                 <Button
                   variant="outline"
@@ -309,34 +307,38 @@ export function WorktreeSettings() {
               </div>
             </div>
 
-            <div className="settings-row settings-row--stacked">
-              <div>
-                <Label>{t('versionControl.branchPrefixLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('versionControl.branchPrefixDescription')}
-                </p>
+            <div className="space-y-1.5">
+              <div className="settings-row">
+                <div>
+                  <Label>{t('versionControl.branchPrefixLabel')}</Label>
+                  <p className="settings-row__description">
+                    {t('versionControl.branchPrefixDescription')}
+                  </p>
+                </div>
+                <div className="shrink-0">
+                  <TextInput
+                    label={t('versionControl.branchPrefixLabel')}
+                    isLabelHidden
+                    value={worktreeDraft.git_branch_prefix}
+                    onChange={(value) =>
+                      updateWorktreeDraft({
+                        git_branch_prefix: value.trim(),
+                      })
+                    }
+                    onBlur={() => void flushWorktree()}
+                    placeholder="vibex"
+                    width="160px"
+                    className="w-40 [&_input]:text-sm"
+                    status={
+                      worktreeEdited && worktreeBranchPrefixError
+                        ? { type: 'error' }
+                        : undefined
+                    }
+                  />
+                </div>
               </div>
-              <TextInput
-                label={t('versionControl.branchPrefixLabel')}
-                isLabelHidden
-                value={worktreeDraft.git_branch_prefix}
-                onChange={(value) =>
-                  updateWorktreeDraft({
-                    git_branch_prefix: value.trim(),
-                  })
-                }
-                onBlur={() => void flushWorktree()}
-                placeholder="vibex"
-                width="100%"
-                className="[&_input]:text-sm"
-                status={
-                  worktreeEdited && worktreeBranchPrefixError
-                    ? { type: 'error' }
-                    : undefined
-                }
-              />
               {worktreeEdited && worktreeBranchPrefixError ? (
-                <p className="text-sm text-destructive">
+                <p className="text-right text-sm text-destructive">
                   {worktreeBranchPrefixError}
                 </p>
               ) : null}
@@ -384,10 +386,7 @@ export function WorktreeSettings() {
 
             <div className="settings-worktree-board__pane">
               <div className="space-y-3">
-                <h4>
-                  {t('worktrees.commandsTitle')}
-                  {selectedProject ? ` · ${selectedProject.name}` : ''}
-                </h4>
+                <h4>{t('worktrees.commandsTitle')}</h4>
                 <div className="space-y-2">
                   <Label htmlFor="worktree-create-command">
                     {t('worktrees.createCommand')}

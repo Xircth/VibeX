@@ -21,6 +21,16 @@ export type SessionSelection =
   | { mode: 'existing'; sessionId: string }
   | { mode: 'new' };
 
+function reuseExistingSelection(
+  prev: SessionSelection | undefined,
+  sessionId: string
+): SessionSelection {
+  if (prev?.mode === 'existing' && prev.sessionId === sessionId) {
+    return prev;
+  }
+  return { mode: 'existing', sessionId };
+}
+
 export function reconcileWorkspaceSessionSelection(input: {
   prev: SessionSelection | undefined;
   sessionIds: readonly string[];
@@ -43,7 +53,7 @@ export function reconcileWorkspaceSessionSelection(input: {
 
   if (pendingSessionId) {
     return {
-      selection: { mode: 'existing', sessionId: pendingSessionId },
+      selection: reuseExistingSelection(input.prev, pendingSessionId),
       pendingSessionId: sessionIdSet.has(pendingSessionId)
         ? null
         : pendingSessionId,
@@ -57,7 +67,7 @@ export function reconcileWorkspaceSessionSelection(input: {
   if (input.sessionIds.length === 0) {
     if (input.initialSessionId) {
       return {
-        selection: { mode: 'existing', sessionId: input.initialSessionId },
+        selection: reuseExistingSelection(input.prev, input.initialSessionId),
         pendingSessionId: input.initialSessionId,
       };
     }
@@ -73,7 +83,7 @@ export function reconcileWorkspaceSessionSelection(input: {
 
   if (input.initialSessionId) {
     return {
-      selection: { mode: 'existing', sessionId: input.initialSessionId },
+      selection: reuseExistingSelection(input.prev, input.initialSessionId),
       pendingSessionId: sessionIdSet.has(input.initialSessionId)
         ? null
         : input.initialSessionId,
@@ -85,7 +95,7 @@ export function reconcileWorkspaceSessionSelection(input: {
   }
 
   return {
-    selection: { mode: 'existing', sessionId: input.sessionIds[0] },
+    selection: reuseExistingSelection(input.prev, input.sessionIds[0]),
     pendingSessionId: null,
   };
 }
@@ -176,6 +186,8 @@ function getSessionStatusLabel(
   }
 }
 
+const EMPTY_SESSION_SUMMARIES: SessionSummaryRecord[] = [];
+
 export function useWorkspaceSessions(
   workspaceId: string | undefined,
   options: UseWorkspaceSessionsOptions = {}
@@ -201,17 +213,16 @@ export function useWorkspaceSessions(
     if (initialSessionId) {
       pendingSessionIdRef.current = initialSessionId;
       setIsPendingNewSessionMode(false);
-      setSelection({ mode: 'existing', sessionId: initialSessionId });
+      setSelection((prev) => reuseExistingSelection(prev, initialSessionId));
     }
   }
 
-  const { data: sessionSummaries = [], isLoading } = useQuery<
-    SessionSummaryRecord[]
-  >({
-    queryKey: ['workspaceSessions', workspaceId, 'summaries'],
-    queryFn: () => sessionsApi.getSummariesByWorkspace(workspaceId!),
-    enabled: enabled && !!workspaceId,
-  });
+  const { data: sessionSummaries = EMPTY_SESSION_SUMMARIES, isLoading } =
+    useQuery<SessionSummaryRecord[]>({
+      queryKey: ['workspaceSessions', workspaceId, 'summaries'],
+      queryFn: () => sessionsApi.getSummariesByWorkspace(workspaceId!),
+      enabled: enabled && !!workspaceId,
+    });
 
   const sessions: WorkspaceSessionSummary[] = useMemo(
     () =>

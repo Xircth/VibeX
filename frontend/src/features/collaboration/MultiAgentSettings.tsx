@@ -1,4 +1,12 @@
-import { Check, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +20,7 @@ import type {
 
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
-import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
+import { resolveEffectiveSessionConfig } from '@/components/settings/AgentSessionConfigPicker';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -23,16 +31,18 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { toast } from '@/components/ui/toast';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { agentManagementApi } from '@/features/agent-management/api';
+import { agentsApi } from '@/features/agents/api';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 
 import { collaborationCall } from './collaborationApi';
 import './collaboration.css';
 import { surfaceErrorCopy } from './spaceModel';
 import i18n from '@/i18n';
+
+const DEFAULT_AGENT_ROLE_PREFIX = 'default-agent:';
 
 type CustomRole = {
   id: string;
@@ -43,9 +53,11 @@ type CustomRole = {
   agent_id: string;
   mode_id?: string | null;
   config_values?: Record<string, string>;
+  isDefaultAgentRole?: boolean;
+  backendRoleId?: string;
 };
 
-function stringRecord(value: unknown): Record<string, string> {
+export function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).filter(
@@ -55,18 +67,22 @@ function stringRecord(value: unknown): Record<string, string> {
   );
 }
 
-function CustomRoleSessionControls({
+export function CustomRoleSessionControls({
   agentId,
   modeId,
   values,
   onModeId,
   onValues,
+  onCatalogChange,
+  reloadToken = 0,
 }: {
   agentId: string;
   modeId: string;
   values: Record<string, string>;
   onModeId: (modeId: string) => void;
   onValues: (values: Record<string, string>) => void;
+  onCatalogChange?: (catalog: AgentSessionControlsSnapshot | null) => void;
+  reloadToken?: number;
 }) {
   const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
     null
@@ -76,19 +92,24 @@ function CustomRoleSessionControls({
     const trimmed = agentId.trim();
     if (!trimmed) {
       setCatalog(null);
+      onCatalogChange?.(null);
       return;
     }
     let active = true;
     setCatalog(null);
+    onCatalogChange?.(null);
     void loadAgentSessionControlsCatalog(trimmed)
       .then((next) => {
-        if (active && next) setCatalog(next);
+        if (active) {
+          setCatalog(next ?? null);
+          onCatalogChange?.(next ?? null);
+        }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [agentId]);
+  }, [agentId, onCatalogChange, reloadToken]);
 
   if (!agentId.trim()) {
     return (
@@ -149,10 +170,11 @@ export function MultiAgentSettings({
   const portalContainer = usePortalContainer();
   const managedOptions = useManagedAgentOptions(undefined, true);
   const [barAgents, setBarAgents] = useState<AgentManagementView[]>([]);
-  const [selectedDefaultAgentId, setSelectedDefaultAgentId] =
-    useState<string>('');
 
   const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [defaultRolePersonas, setDefaultRolePersonas] = useState<
+    Record<string, string>
+  >({});
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [roleDialogLeft, setRoleDialogLeft] = useState('12.5rem');
 
@@ -188,17 +210,26 @@ export function MultiAgentSettings({
       settingsShell?.classList.remove('collaboration-settings-window-blurred');
     };
   }, [roleDialogOpen]);
+
   const [editingRoleId, setEditingRoleId] = useState<string>('');
+  const [editingBackendRoleId, setEditingBackendRoleId] = useState<string>('');
   const [roleName, setRoleName] = useState('');
   const [roleAgentId, setRoleAgentId] = useState('');
   const [roleModeId, setRoleModeId] = useState('');
   const [roleConfigValues, setRoleConfigValues] = useState<
     Record<string, string>
   >({});
+  const [roleCatalog, setRoleCatalog] =
+    useState<AgentSessionControlsSnapshot | null>(null);
+  const [roleCatalogReloadToken, setRoleCatalogReloadToken] = useState(0);
   const [rolePersonaPrompt, setRolePersonaPrompt] = useState('');
   const [roleError, setRoleError] = useState('');
   const [isSavingRole, setIsSavingRole] = useState(false);
   const personaTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const isEditingDefaultRole = editingRoleId.startsWith(
+    DEFAULT_AGENT_ROLE_PREFIX
+  );
 
   useEffect(() => {
     if (!roleDialogOpen) return;
@@ -263,15 +294,9 @@ export function MultiAgentSettings({
     void loadRoles();
   }, [loadRoles]);
 
-  const storedDefaults = draft.multi_agent_agent_defaults ?? {};
-  const selectedAgentKey = selectedDefaultAgentId.trim().toLowerCase();
-  const selectedAgentStoredRow = selectedAgentKey
-    ? (storedDefaults[selectedAgentKey] ??
-      storedDefaults[selectedDefaultAgentId.trim()])
-    : undefined;
-  const selectedAgentConfigOverrides = useMemo(
-    () => stringRecord(selectedAgentStoredRow?.config_values),
-    [selectedAgentStoredRow?.config_values]
+  const storedDefaults = useMemo(
+    () => draft.multi_agent_agent_defaults ?? {},
+    [draft.multi_agent_agent_defaults]
   );
 
   const commitAgentDefault = (
@@ -302,8 +327,62 @@ export function MultiAgentSettings({
     updateDraft({ multi_agent_agent_defaults: next });
   };
 
+  const displayRoles = useMemo(() => {
+    const matchedBackendIds = new Set<string>();
+    const defaultRoles: CustomRole[] = availableAgents.map((agent) => {
+      const normalizedKey = agent.value.trim().toLowerCase();
+      const defaultName = i18n.t('panels:ui.multiAgent.defaultAgentRoleName', {
+        agent: agent.label,
+        defaultValue: `${agent.label} · 默认配置`,
+      });
+      const matchedBackendRole = roles.find(
+        (role) =>
+          role.id === `${DEFAULT_AGENT_ROLE_PREFIX}${agent.value}` ||
+          (role.agent_id.trim().toLowerCase() === normalizedKey &&
+            role.name.trim() === defaultName)
+      );
+      if (matchedBackendRole) {
+        matchedBackendIds.add(matchedBackendRole.id);
+      }
+      const storedRow =
+        storedDefaults[normalizedKey] ?? storedDefaults[agent.value.trim()];
+      const storedConfigValues = stringRecord(storedRow?.config_values);
+      const effectiveConfigValues =
+        Object.keys(storedConfigValues).length > 0
+          ? storedConfigValues
+          : stringRecord(matchedBackendRole?.config_values);
+      const effectiveModeId =
+        storedRow?.mode_id ?? matchedBackendRole?.mode_id ?? null;
+      const effectivePersona =
+        defaultRolePersonas[normalizedKey] ??
+        matchedBackendRole?.persona_prompt ??
+        '';
+
+      return {
+        id: `${DEFAULT_AGENT_ROLE_PREFIX}${agent.value}`,
+        backendRoleId: matchedBackendRole?.id,
+        isDefaultAgentRole: true,
+        name: defaultName,
+        agent_id: agent.value,
+        mode_id: effectiveModeId,
+        config_values: effectiveConfigValues,
+        persona_prompt: effectivePersona,
+      };
+    });
+
+    const userCustomRoles: CustomRole[] = roles
+      .filter((role) => !matchedBackendIds.has(role.id))
+      .map((role) => ({
+        ...role,
+        isDefaultAgentRole: false,
+      }));
+
+    return [...defaultRoles, ...userCustomRoles];
+  }, [availableAgents, defaultRolePersonas, roles, storedDefaults]);
+
   const openCreateRoleDialog = () => {
     setEditingRoleId('');
+    setEditingBackendRoleId('');
     setRoleName('');
     setRoleAgentId(availableAgents[0]?.value ?? '');
     setRoleModeId('');
@@ -315,6 +394,7 @@ export function MultiAgentSettings({
 
   const openEditRoleDialog = (role: CustomRole) => {
     setEditingRoleId(role.id);
+    setEditingBackendRoleId(role.backendRoleId ?? '');
     setRoleName(role.name);
     setRoleAgentId(role.agent_id);
     setRoleModeId(role.mode_id ?? '');
@@ -324,12 +404,82 @@ export function MultiAgentSettings({
     setRoleDialogOpen(true);
   };
 
+  const handleRefreshRoleSessionControls = async () => {
+    const trimmed = roleAgentId.trim();
+    if (!trimmed) return;
+    try {
+      await agentsApi.refreshCapabilityCatalog(trimmed);
+      setRoleCatalogReloadToken((prev) => prev + 1);
+    } catch {
+      // Ignore refresh error in offline/test mode
+    }
+  };
+
   const handleSaveRole = async () => {
     const trimmedName = roleName.trim();
     const trimmedAgentId = roleAgentId.trim();
     if (!trimmedName || !trimmedAgentId || isSavingRole) return;
     setIsSavingRole(true);
     setRoleError('');
+
+    const effective = resolveEffectiveSessionConfig(
+      roleCatalog,
+      roleModeId.trim() || null,
+      roleConfigValues
+    );
+    const effectiveModeId = effective.modeId?.trim() ?? '';
+    const effectiveConfigValues = stringRecord(effective.configValues);
+
+    if (isEditingDefaultRole) {
+      try {
+        commitAgentDefault(trimmedAgentId, {
+          modeId: effectiveModeId || null,
+          configValues: effectiveConfigValues,
+        });
+        setDefaultRolePersonas((prev) => ({
+          ...prev,
+          [trimmedAgentId.toLowerCase()]: rolePersonaPrompt.trim(),
+        }));
+        const backendId = editingBackendRoleId.trim();
+        const payload = {
+          ...(backendId ? { id: backendId } : {}),
+          name: trimmedName,
+          teamId: '',
+          summary: rolePersonaPrompt.trim(),
+          personaPrompt: rolePersonaPrompt.trim(),
+          agentId: trimmedAgentId,
+          modeId: effectiveModeId,
+          configValues: effectiveConfigValues,
+        };
+        try {
+          const saved = await collaborationCall<CustomRole | undefined>(
+            'collaboration',
+            backendId ? 'role.update' : 'role.create',
+            payload
+          );
+          if (saved && saved.id) {
+            setRoles((current) => {
+              const normalized: CustomRole = {
+                ...saved,
+                config_values: stringRecord(saved.config_values),
+              };
+              const exists = current.some((item) => item.id === normalized.id);
+              return exists
+                ? current.map((item) =>
+                    item.id === normalized.id ? normalized : item
+                  )
+                : [...current, normalized];
+            });
+          }
+        } catch {
+          // Collaboration host may be offline in test mode; default config is persisted via updateDraft
+        }
+        setRoleDialogOpen(false);
+      } finally {
+        setIsSavingRole(false);
+      }
+      return;
+    }
 
     const payload = {
       ...(editingRoleId ? { id: editingRoleId } : {}),
@@ -338,8 +488,8 @@ export function MultiAgentSettings({
       summary: rolePersonaPrompt.trim(),
       personaPrompt: rolePersonaPrompt.trim(),
       agentId: trimmedAgentId,
-      modeId: roleModeId.trim(),
-      configValues: roleConfigValues,
+      modeId: effectiveModeId,
+      configValues: effectiveConfigValues,
     };
 
     try {
@@ -373,6 +523,7 @@ export function MultiAgentSettings({
   };
 
   const handleDeleteRole = async (roleId: string) => {
+    if (roleId.startsWith(DEFAULT_AGENT_ROLE_PREFIX)) return;
     try {
       await collaborationCall('collaboration', 'role.delete', { id: roleId });
       setRoles((current) => current.filter((item) => item.id !== roleId));
@@ -388,47 +539,6 @@ export function MultiAgentSettings({
 
   return (
     <div className="min-w-0 space-y-4">
-      <div
-        className="multi-agent-default-picker"
-        data-testid="multi-agent-default-picker"
-      >
-        <AgentSessionConfigPicker
-          agentId={selectedDefaultAgentId}
-          selectedModeId={selectedAgentStoredRow?.mode_id ?? null}
-          pendingConfigValues={selectedAgentConfigOverrides}
-          agentLabel={t('general.multiAgentDefaultsTitle')}
-          onAgentChange={(value) => setSelectedDefaultAgentId(value)}
-          onSelectMode={(modeId) => {
-            if (!selectedDefaultAgentId) return;
-            commitAgentDefault(selectedDefaultAgentId, {
-              modeId,
-              configValues: selectedAgentConfigOverrides,
-            });
-          }}
-          onSelectConfigValue={(key, value) => {
-            if (!selectedDefaultAgentId) return;
-            const nextValues = { ...selectedAgentConfigOverrides };
-            if (value && value.trim() !== '') {
-              nextValues[key] = value;
-            } else {
-              delete nextValues[key];
-            }
-            commitAgentDefault(selectedDefaultAgentId, {
-              modeId: selectedAgentStoredRow?.mode_id ?? null,
-              configValues: nextValues,
-            });
-          }}
-          onSave={({ modeId, configValues }) => {
-            if (!selectedDefaultAgentId) return;
-            commitAgentDefault(selectedDefaultAgentId, {
-              modeId,
-              configValues,
-            });
-            toast.success(t('general.settingsSaved'));
-          }}
-        />
-      </div>
-
       <div className="min-w-0 space-y-2">
         <div className="settings-row">
           <div>
@@ -447,10 +557,10 @@ export function MultiAgentSettings({
         </div>
 
         <div
-          className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+          className="settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
           data-testid="custom-roles-list-container"
         >
-          {roles.length === 0 ? (
+          {displayRoles.length === 0 ? (
             <div className="flex min-h-24 items-center justify-center p-4">
               <Button
                 type="button"
@@ -464,13 +574,20 @@ export function MultiAgentSettings({
               </Button>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
-              {roles.map((role) => {
+            <div
+              className="settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+              data-testid="custom-roles-scroll-box"
+            >
+              {displayRoles.map((role) => {
                 const agentLabel =
                   availableAgents.find((item) => item.value === role.agent_id)
                     ?.label ||
                   getAgentName(role.agent_id) ||
                   role.agent_id;
+                const sessionConfigParts = [
+                  role.mode_id?.trim() || '',
+                  ...Object.values(stringRecord(role.config_values)),
+                ].filter(Boolean);
                 return (
                   <div
                     key={role.id}
@@ -482,12 +599,17 @@ export function MultiAgentSettings({
                         agent={role.agent_id as ExecutorProfileId['executor']}
                         className="h-4 w-4 shrink-0"
                       />
-                      <span className="max-w-[12rem] shrink-0 truncate text-xs font-medium text-foreground">
+                      <span className="max-w-[14rem] shrink-0 truncate text-xs font-medium text-foreground">
                         {role.name}
                       </span>
                       <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                         {agentLabel}
                       </span>
+                      {sessionConfigParts.length > 0 ? (
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {sessionConfigParts.join(' · ')}
+                        </span>
+                      ) : null}
                       {role.persona_prompt ? (
                         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                           {role.persona_prompt}
@@ -508,19 +630,21 @@ export function MultiAgentSettings({
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        aria-label={i18n.t(
-                          'panels:ui.multiAgent.deleteRoleName',
-                          { name: role.name }
-                        )}
-                        onClick={() => void handleDeleteRole(role.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Button>
+                      {!role.isDefaultAgentRole ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={i18n.t(
+                            'panels:ui.multiAgent.deleteRoleName',
+                            { name: role.name }
+                          )}
+                          onClick={() => void handleDeleteRole(role.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -589,12 +713,17 @@ export function MultiAgentSettings({
                       id="custom-role-name-input"
                       aria-label={i18n.t('panels:ui.multiAgent.roleName')}
                       value={roleName}
-                      onChange={(event) => setRoleName(event.target.value)}
+                      disabled={isEditingDefaultRole}
+                      readOnly={isEditingDefaultRole}
+                      onChange={(event) => {
+                        if (isEditingDefaultRole) return;
+                        setRoleName(event.target.value);
+                      }}
                       placeholder={i18n.t(
                         'panels:ui.multiAgent.frontendEngineer'
                       )}
                       className="h-8 px-2.5 text-[13px]"
-                      autoFocus
+                      autoFocus={!isEditingDefaultRole}
                     />
                   </div>
 
@@ -606,6 +735,7 @@ export function MultiAgentSettings({
                           type="button"
                           variant="outline"
                           role="combobox"
+                          disabled={isEditingDefaultRole}
                           aria-label={i18n.t(
                             'panels:ui.multiAgent.chooseRoleAgent'
                           )}
@@ -632,41 +762,45 @@ export function MultiAgentSettings({
                           />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="start"
-                        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
-                      >
-                        {availableAgents.map((agent) => {
-                          const isSelected = roleAgentId === agent.value;
-                          return (
-                            <DropdownMenuItem
-                              key={agent.value}
-                              data-state={isSelected ? 'checked' : undefined}
-                              onSelect={() => {
-                                setRoleAgentId(agent.value);
-                                setRoleModeId('');
-                                setRoleConfigValues({});
-                              }}
-                            >
-                              <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
-                                <AgentIcon
-                                  agent={
-                                    agent.value as ExecutorProfileId['executor']
-                                  }
-                                  className="h-3.5 w-3.5 shrink-0"
-                                />
-                                <span className="truncate">{agent.label}</span>
-                              </span>
-                              {isSelected ? (
-                                <Check
-                                  className="h-3.5 w-3.5 shrink-0"
-                                  aria-hidden="true"
-                                />
-                              ) : null}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </DropdownMenuContent>
+                      {!isEditingDefaultRole ? (
+                        <DropdownMenuContent
+                          align="start"
+                          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+                        >
+                          {availableAgents.map((agent) => {
+                            const isSelected = roleAgentId === agent.value;
+                            return (
+                              <DropdownMenuItem
+                                key={agent.value}
+                                data-state={isSelected ? 'checked' : undefined}
+                                onSelect={() => {
+                                  setRoleAgentId(agent.value);
+                                  setRoleModeId('');
+                                  setRoleConfigValues({});
+                                }}
+                              >
+                                <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                                  <AgentIcon
+                                    agent={
+                                      agent.value as ExecutorProfileId['executor']
+                                    }
+                                    className="h-3.5 w-3.5 shrink-0"
+                                  />
+                                  <span className="truncate">
+                                    {agent.label}
+                                  </span>
+                                </span>
+                                {isSelected ? (
+                                  <Check
+                                    className="h-3.5 w-3.5 shrink-0"
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuContent>
+                      ) : null}
                     </DropdownMenu>
                   </div>
 
@@ -674,15 +808,33 @@ export function MultiAgentSettings({
                     className="space-y-1.5"
                     data-testid="custom-role-session-config"
                   >
-                    <Label>
-                      {i18n.t('panels:ui.multiAgent.sessionSettings')}
-                    </Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>
+                        {i18n.t('panels:ui.multiAgent.sessionSettings')}
+                      </Label>
+                      {roleAgentId ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          aria-label={t('general.refreshSessionControls')}
+                          onClick={() =>
+                            void handleRefreshRoleSessionControls()
+                          }
+                        >
+                          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
                     <CustomRoleSessionControls
                       agentId={roleAgentId}
                       modeId={roleModeId}
                       values={roleConfigValues}
                       onModeId={setRoleModeId}
                       onValues={setRoleConfigValues}
+                      onCatalogChange={setRoleCatalog}
+                      reloadToken={roleCatalogReloadToken}
                     />
                   </div>
 

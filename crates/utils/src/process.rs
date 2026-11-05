@@ -337,6 +337,7 @@ unsafe impl Sync for GuardianJobHandle {}
 #[cfg(windows)]
 fn guardian_job_object() -> Option<windows_sys::Win32::Foundation::HANDLE> {
     use std::sync::OnceLock;
+
     use windows_sys::Win32::{
         Foundation::CloseHandle,
         System::JobObjects::{
@@ -582,7 +583,11 @@ pub fn decode_process_output(bytes: &[u8]) -> String {
 
         let mut candidates = Vec::with_capacity(5);
         for cp in [acp, oemcp] {
-            if cp != 0 && cp != CP_UTF8 && cp != CP_LATIN1 && !candidates.contains(&(cp, MB_ERR_INVALID_CHARS)) {
+            if cp != 0
+                && cp != CP_UTF8
+                && cp != CP_LATIN1
+                && !candidates.contains(&(cp, MB_ERR_INVALID_CHARS))
+            {
                 candidates.push((cp, MB_ERR_INVALID_CHARS));
             }
         }

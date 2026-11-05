@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, CircleAlert } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleAlert, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -178,16 +178,18 @@ function PreflightCheckStatus({
       </span>
       {updateAvailable && onUpdate ? (
         <button
-          className="agent-preflight-status is-update"
+          className="agent-preflight-status is-update inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-primary transition-colors hover:bg-foreground/10 hover:text-primary"
           disabled={busy}
           onClick={onUpdate}
           type="button"
         >
-          {t('agents.updateAvailableBadge')}
+          <Sparkles aria-hidden="true" className="size-3 shrink-0" />
+          <span>{t('agents.updateAvailableBadge')}</span>
         </button>
       ) : updateAvailable ? (
-        <span className="agent-preflight-status is-update">
-          {t('agents.updateAvailableBadge')}
+        <span className="agent-preflight-status is-update inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-primary">
+          <Sparkles aria-hidden="true" className="size-3 shrink-0" />
+          <span>{t('agents.updateAvailableBadge')}</span>
         </span>
       ) : null}
     </span>

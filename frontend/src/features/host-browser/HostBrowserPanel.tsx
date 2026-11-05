@@ -101,9 +101,9 @@ import { useLayoutStore } from '@/stores/useLayoutStore';
 import { snapBrowserSurfaceRect } from './browserSurfaceBounds';
 
 const ICON_BTN =
-  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 const FIELD_BTN =
-  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 const CONNECTED_CHROME_BG =
   'bg-[var(--dv-connected-chrome,var(--surface-dialog))]';
 const ZOOM_PRESETS = [0.3, 0.5, 0.75, 1, 1.25, 1.5] as const;
@@ -422,13 +422,19 @@ export function HostBrowserPanel({
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [device, setDevice] = useState<BrowserDevice>(DEFAULT_DEVICE);
   const [frozen, setFrozen] = useState<string | null>(null);
+  const frozenRef = useRef<string | null>(null);
   const lastFreezeRef = useRef<string | null>(null);
   const freezeGenRef = useRef(0);
   const freezeInFlightRef = useRef<Promise<string | null> | null>(null);
   const hideTargetRef = useRef<boolean | null>(null);
+  const lastPushedBoundsRef = useRef('');
   const captureFreezeRef = useRef<() => Promise<string | null>>(
     async () => null
   );
+  const updateFrozen = useCallback((next: string | null) => {
+    frozenRef.current = next;
+    setFrozen(next);
+  }, []);
   const [addressHistory, setAddressHistory] = useState<
     BrowserAddressHistoryEntry[]
   >(() => loadBrowserAddressHistory());
@@ -475,6 +481,57 @@ export function HostBrowserPanel({
   panelVisibleRef.current = panelVisible;
   visibleRef.current = panelVisible;
   loadingRef.current = loading;
+
+  const syncBounds = useCallback(async () => {
+    const tabId = tabIdRef.current;
+    if (!tabId) return;
+    const bounds = measureSurface(
+      hostRef.current,
+      visibleRef.current,
+      occludedRef.current
+    );
+    lastPushedBoundsRef.current = boundsKey(bounds);
+    await dispatchRef.current('surface.set', { tabId, bounds });
+  }, []);
+
+  const waitForSurfaceBounds = useCallback(async () => {
+    for (let i = 0; i < 12; i += 1) {
+      const bounds = measureSurface(
+        hostRef.current,
+        visibleRef.current,
+        occludedRef.current
+      );
+      if (bounds.visible && bounds.width >= 32 && bounds.height >= 32) {
+        return bounds;
+      }
+      await nextFrame();
+    }
+    return measureSurface(
+      hostRef.current,
+      visibleRef.current,
+      occludedRef.current
+    );
+  }, []);
+
+  const waitForStableSurfaceBounds = useCallback(async () => {
+    let previousSignature = '';
+    let matches = 0;
+    for (let i = 0; i < 24; i += 1) {
+      const bounds = measureSurface(hostRef.current, visibleRef.current, false);
+      const laidOut = bounds.width >= 32 && bounds.height >= 32;
+      const progress = nativeSurfaceDestinationProgress({
+        signature: boundsKey({ ...bounds, visible: true }),
+        laidOut,
+        previousSignature,
+        matches,
+      });
+      previousSignature = progress.previousSignature;
+      matches = progress.matches;
+      if (progress.ready) return bounds;
+      await nextFrame();
+    }
+    return measureSurface(hostRef.current, visibleRef.current, false);
+  }, []);
 
   const stopPicking = () => {
     pickingRef.current = false;
@@ -531,6 +588,9 @@ export function HostBrowserPanel({
         pendingUrlRef.current = null;
         setLoading(false);
         setError(null);
+        if (!occludedRef.current) {
+          void syncBounds();
+        }
       }
     }
     if (payload.kind === 'tab.state' || payload.kind === 'tab.chrome') {
@@ -607,56 +667,6 @@ export function HostBrowserPanel({
     });
   };
 
-  const syncBounds = useCallback(async () => {
-    const tabId = tabIdRef.current;
-    if (!tabId) return;
-    const bounds = measureSurface(
-      hostRef.current,
-      visibleRef.current,
-      occludedRef.current
-    );
-    await dispatchRef.current('surface.set', { tabId, bounds });
-  }, []);
-
-  const waitForSurfaceBounds = useCallback(async () => {
-    for (let i = 0; i < 12; i += 1) {
-      const bounds = measureSurface(
-        hostRef.current,
-        visibleRef.current,
-        occludedRef.current
-      );
-      if (bounds.visible && bounds.width >= 32 && bounds.height >= 32) {
-        return bounds;
-      }
-      await nextFrame();
-    }
-    return measureSurface(
-      hostRef.current,
-      visibleRef.current,
-      occludedRef.current
-    );
-  }, []);
-
-  const waitForStableSurfaceBounds = useCallback(async () => {
-    let previousSignature = '';
-    let matches = 0;
-    for (let i = 0; i < 24; i += 1) {
-      const bounds = measureSurface(hostRef.current, visibleRef.current, false);
-      const laidOut = bounds.width >= 32 && bounds.height >= 32;
-      const progress = nativeSurfaceDestinationProgress({
-        signature: boundsKey({ ...bounds, visible: true }),
-        laidOut,
-        previousSignature,
-        matches,
-      });
-      previousSignature = progress.previousSignature;
-      matches = progress.matches;
-      if (progress.ready) return bounds;
-      await nextFrame();
-    }
-    return measureSurface(hostRef.current, visibleRef.current, false);
-  }, []);
-
   const stopForSiteRule = useCallback(
     (url: string) => {
       const decision = resolveSiteRuleAction(url);
@@ -698,6 +708,9 @@ export function HostBrowserPanel({
       setError(null);
       pendingUrlRef.current = url;
       setLoading(true);
+      freezeGenRef.current += 1;
+      lastFreezeRef.current = null;
+      updateFrozen(null);
       const label = provisionalTitle(url);
       if (label) panelApi?.setTitle?.(label);
       const icon = faviconFor(url);
@@ -769,6 +782,7 @@ export function HostBrowserPanel({
       panelId,
       stopForSiteRule,
       syncBounds,
+      updateFrozen,
       waitForSurfaceBounds,
     ]
   );
@@ -777,7 +791,6 @@ export function HostBrowserPanel({
     let scheduled = false;
     let inFlight = 0;
     let queued = false;
-    let pushed = '';
 
     const flush = () => {
       const tabId = tabIdRef.current;
@@ -788,12 +801,12 @@ export function HostBrowserPanel({
         occludedRef.current
       );
       const signature = boundsKey(bounds);
-      if (signature === pushed && !queued) return;
+      if (signature === lastPushedBoundsRef.current && !queued) return;
       if (inFlight >= 2) {
         queued = true;
         return;
       }
-      pushed = signature;
+      lastPushedBoundsRef.current = signature;
       queued = false;
       inFlight += 1;
       void dispatchRef.current('surface.set', { tabId, bounds }).finally(() => {
@@ -900,11 +913,16 @@ export function HostBrowserPanel({
   useLayoutEffect(() => {
     return overlay.subscribeNativeSurfaceOcclusion((occlusion) => {
       const hide = overlayCoversBrowser(hostRef.current, occlusion);
-      if (occludedRef.current === hide && hideTargetRef.current == null) {
+      if (
+        occludedRef.current === hide &&
+        hideTargetRef.current == null &&
+        (hide || !frozenRef.current)
+      ) {
         overlay.ackOverlayReady();
         return;
       }
       if (hideTargetRef.current === hide) {
+        overlay.ackOverlayReady();
         return;
       }
       hideSeqRef.current += 1;
@@ -922,7 +940,7 @@ export function HostBrowserPanel({
           if (hideSeqRef.current !== seq) return;
           await nextPaint();
           if (hideSeqRef.current !== seq) return;
-          setFrozen(null);
+          updateFrozen(null);
           hideTargetRef.current = null;
           overlay.ackOverlayReady();
         })();
@@ -940,7 +958,7 @@ export function HostBrowserPanel({
           lastFreezeRef.current = src;
           await decodeOffscreen(src);
           if (hideSeqRef.current !== seq) return;
-          setFrozen(src);
+          updateFrozen(src);
           await nextPaint();
           if (hideSeqRef.current !== seq) return;
         }
@@ -951,7 +969,7 @@ export function HostBrowserPanel({
         overlay.ackOverlayReady();
       })();
     });
-  }, [overlay, syncBounds, waitForStableSurfaceBounds]);
+  }, [overlay, syncBounds, updateFrozen, waitForStableSurfaceBounds]);
 
   useEffect(() => {
     const prefetch = () => {
@@ -1164,6 +1182,7 @@ export function HostBrowserPanel({
     hideSeqRef.current += 1;
     hideTargetRef.current = null;
     occludedRef.current = false;
+    updateFrozen(null);
     const label = provisionalTitle(url);
     if (label) panelApi?.setTitle?.(label);
     const icon = faviconFor(url);
@@ -1330,7 +1349,7 @@ export function HostBrowserPanel({
     hideSeqRef.current += 1;
     hideTargetRef.current = null;
     occludedRef.current = false;
-    setFrozen(null);
+    updateFrozen(null);
     void syncBounds();
   };
 

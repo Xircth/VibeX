@@ -64,11 +64,20 @@ describe('useWindowProjectsStore', () => {
     });
   });
 
-  it('stores a dragged rail position', () => {
+  it('stores a dragged rail position and resets to centered default when reopened', () => {
     useWindowProjectsStore.getState().setRailPosition({ x: 48, y: 120 });
     expect(useWindowProjectsStore.getState().railPosition).toEqual({
       x: 48,
       y: 120,
     });
+
+    useWindowProjectsStore.getState().setRailVisible(true);
+    expect(useWindowProjectsStore.getState().railPosition).toBeNull();
+
+    useWindowProjectsStore.getState().setRailPosition({ x: 8, y: 8 });
+    useWindowProjectsStore.getState().setRailVisible(false);
+    useWindowProjectsStore.getState().toggleRailVisible();
+    expect(useWindowProjectsStore.getState().railVisible).toBe(true);
+    expect(useWindowProjectsStore.getState().railPosition).toBeNull();
   });
 });

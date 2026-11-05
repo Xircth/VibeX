@@ -246,7 +246,7 @@ export function WorkspaceActivityPanel({
             <div className="flex min-w-0 items-center gap-2">
               <button
                 type="button"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-[calc(var(--radius)-6px)] px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
                 onClick={() => setSelectedSessionId(null)}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
@@ -397,7 +397,7 @@ export function WorkspaceActivityPanel({
                 return (
                   <li
                     key={task.id}
-                    className="flex items-center gap-2.5 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2.5 py-2 text-xs"
+                    className="flex items-center gap-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2.5 py-2 text-xs"
                   >
                     <TaskIcon
                       className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
@@ -470,7 +470,7 @@ export function WorkspaceActivityPanel({
                           : undefined
                       }
                       className={cn(
-                        'flex items-start gap-2.5 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2.5 py-2 text-xs',
+                        'flex items-start gap-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2.5 py-2 text-xs',
                         canOpenSession &&
                           'cursor-pointer transition-colors hover:bg-[var(--surface-control-hover)]'
                       )}

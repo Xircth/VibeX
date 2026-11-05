@@ -126,13 +126,39 @@ pub(in crate::manager) fn bounded_ext_notification(
     method: &str,
     params: &serde_json::Value,
 ) -> serde_json::Value {
-    let mut payload = serde_json::json!({
+    let mut bounded_params = params.clone();
+    bound_meta_fields(&mut bounded_params);
+    serde_json::json!({
         "kind": "ext_notification",
         "method": method,
-        "params": params,
-    });
-    bound_meta_fields(&mut payload);
-    payload
+        "params": crate::conversation::cap_json_value(bounded_params),
+    })
+}
+
+pub(in crate::manager) fn bounded_raw_diagnostic(
+    mut value: serde_json::Value,
+) -> serde_json::Value {
+    bound_meta_fields(&mut value);
+    let serialized = value.to_string();
+    if serialized.len() <= crate::conversation::MAX_TIMELINE_PREVIEW_BYTES {
+        return value;
+    }
+    let mut summary = serde_json::Map::new();
+    if let serde_json::Value::Object(ref object) = value {
+        for key in ["kind", "sessionUpdate", "method"] {
+            if let Some(serde_json::Value::String(text)) = object.get(key) {
+                summary.insert(
+                    key.to_string(),
+                    serde_json::Value::String(text.chars().take(200).collect()),
+                );
+            }
+        }
+    }
+    summary.insert(
+        "truncatedPayload".to_string(),
+        serde_json::Value::String(crate::conversation::cap_preview_bytes(serialized)),
+    );
+    serde_json::Value::Object(summary)
 }
 
 pub(in crate::manager) fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {

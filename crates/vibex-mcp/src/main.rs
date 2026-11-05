@@ -167,7 +167,10 @@ fn request_id_seed(request_id: Option<&Value>) -> String {
 fn collaboration_needs_operation_id(name: &str, arguments: &Value) -> bool {
     if name == "manage_bot"
         && matches!(
-            arguments.get("action").and_then(Value::as_str).map(str::trim),
+            arguments
+                .get("action")
+                .and_then(Value::as_str)
+                .map(str::trim),
             Some("list_agents" | "list_options")
         )
     {

@@ -70,23 +70,18 @@ function createUndoableMonacoEditorHarness(initialText = '') {
       ensureTopGroup().push(content);
       content += ch;
     },
-    executeEdits: vi.fn(
-      (
-        source: string,
-        edits: Array<{ text: string }>
-      ) => {
-        callLog.push(`editor.executeEdits:${source}`);
-        if (!currentGroupOpen && ensureTopGroup().length > 0) {
-          undoStack.push([]);
-        }
-        currentGroupOpen = true;
-        for (const edit of edits) {
-          ensureTopGroup().push(content);
-          content += edit.text;
-        }
-        return true;
+    executeEdits: vi.fn((source: string, edits: Array<{ text: string }>) => {
+      callLog.push(`editor.executeEdits:${source}`);
+      if (!currentGroupOpen && ensureTopGroup().length > 0) {
+        undoStack.push([]);
       }
-    ),
+      currentGroupOpen = true;
+      for (const edit of edits) {
+        ensureTopGroup().push(content);
+        content += edit.text;
+      }
+      return true;
+    }),
     undo: () => {
       while (undoStack.length > 0) {
         const group = undoStack.pop()!;

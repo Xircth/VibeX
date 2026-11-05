@@ -468,7 +468,7 @@ impl AcpClientBridge {
                 })
             }
             other => {
-                let mut raw_notification =
+                let raw_notification =
                     serde_json::to_value(other).unwrap_or(serde_json::Value::Null);
                 let agent_kind = self.apply.agent_kind();
                 if let Some(delta) = crate::async_tasks::parse_async_task_session_update(
@@ -506,9 +506,8 @@ impl AcpClientBridge {
                         tag,
                         "unrecognized sessionUpdate variant",
                     );
-                    bound_meta_fields(&mut raw_notification);
                     Some(AgentEvent::RawAcpDiagnostic {
-                        raw: raw_notification,
+                        raw: bounded_raw_diagnostic(raw_notification),
                     })
                 }
             }

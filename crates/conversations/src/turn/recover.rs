@@ -783,16 +783,16 @@ pub(super) fn known_acp_session_id(
         .and_then(|binding| binding.acp_session_id.clone())
         .filter(|id| !is_placeholder_acp_session_id(id))
         .or_else(|| {
-    persisted_session
-        .filter(|session| {
-            session
-                .agent_id
-                .as_ref()
-                .is_some_and(|persisted_id| persisted_id == agent_id)
+            persisted_session
+                .filter(|session| {
+                    session
+                        .agent_id
+                        .as_ref()
+                        .is_some_and(|persisted_id| persisted_id == agent_id)
+                })
+                .and_then(|session| session.external_session_id.clone())
+                .filter(|id| !is_placeholder_acp_session_id(id))
         })
-        .and_then(|session| session.external_session_id.clone())
-        .filter(|id| !is_placeholder_acp_session_id(id))
-    })
 }
 
 pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
@@ -867,8 +867,7 @@ pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
             }
             closed_count += 1;
         } else {
-            let _ =
-                ConversationProjector::persist_fold_to_pool(pool, conversation_id, &fold).await;
+            let _ = ConversationProjector::persist_fold_to_pool(pool, conversation_id, &fold).await;
         }
     }
     Ok(closed_count)

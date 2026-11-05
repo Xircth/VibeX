@@ -34,6 +34,7 @@ import {
 import {
   clampProjectRailPosition,
   defaultProjectRailPosition,
+  PROJECT_RAIL_EDGE_MARGIN,
   PROJECT_RAIL_WIDTH,
   projectRailHoverPopoverPosition,
   readViewportSize,
@@ -172,7 +173,7 @@ export function ProjectRail({
     syncViewport();
     window.addEventListener('resize', syncViewport);
     return () => window.removeEventListener('resize', syncViewport);
-  }, []);
+  }, [railVisible]);
 
   useEffect(() => {
     if (!isMovingRail) {
@@ -217,18 +218,35 @@ export function ProjectRail({
       setIsMovingRail(false);
     };
 
+    const onPointerCancel = (event: PointerEvent) => {
+      const move = moveStateRef.current;
+      if (!move || move.pointerId !== event.pointerId) {
+        return;
+      }
+
+      setDragPosition(null);
+      moveStateRef.current = null;
+      setIsMovingRail(false);
+    };
+
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
     return () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
     };
   }, [isMovingRail, projectRailHeight, setRailPosition]);
 
   useEffect(() => {
     if (!storedRailPosition) {
+      return;
+    }
+    if (
+      viewport.width < PROJECT_RAIL_WIDTH + PROJECT_RAIL_EDGE_MARGIN * 2 ||
+      viewport.height < projectRailHeight + PROJECT_RAIL_EDGE_MARGIN * 2
+    ) {
       return;
     }
     const next = clampProjectRailPosition(
@@ -280,7 +298,8 @@ export function ProjectRail({
     if (event.button !== 0) {
       return;
     }
-    if ((event.target as HTMLElement | null)?.closest('button')) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, .project-rail-projects, [draggable="true"]')) {
       return;
     }
 

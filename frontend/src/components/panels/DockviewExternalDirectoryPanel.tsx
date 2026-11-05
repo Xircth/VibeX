@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { Layout, LayoutContent, HStack, VStack } from '@astryxdesign/core/Layout';
+import {
+  Layout,
+  LayoutContent,
+  HStack,
+  VStack,
+} from '@astryxdesign/core/Layout';
 import { Toolbar } from '@astryxdesign/core/Toolbar';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Text } from '@astryxdesign/core/Text';
@@ -10,7 +21,10 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { Button } from '@astryxdesign/core/Button';
 import { Section } from '@astryxdesign/core/Section';
 import { Avatar } from '@astryxdesign/core/Avatar';
-import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
+import {
+  MetadataList,
+  MetadataListItem,
+} from '@astryxdesign/core/MetadataList';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -35,7 +49,10 @@ import type { ExternalDirectoryPanelParams } from '@/types/panels';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
 
 const pageStyle: CSSProperties = { height: '100%' };
-const columnRowStyle: CSSProperties = { overflowX: 'auto', overflowY: 'hidden' };
+const columnRowStyle: CSSProperties = {
+  overflowX: 'auto',
+  overflowY: 'hidden',
+};
 const scrollableStyle: CSSProperties = { overflowY: 'auto' };
 const fixedColumnStyle: CSSProperties = { flexShrink: 0 };
 const detailColumnStyle: CSSProperties = {
@@ -125,31 +142,34 @@ export function DockviewExternalDirectoryPanel(
     setSelectedPath([]);
   }, [rootPath]);
 
-  const loadDirectory = useCallback(async (dirPath: string) => {
-    const normalized = normalizeDirPath(dirPath);
-    if (!normalized) return;
+  const loadDirectory = useCallback(
+    async (dirPath: string) => {
+      const normalized = normalizeDirPath(dirPath);
+      if (!normalized) return;
 
-    setLoadingByDir((prev) => ({ ...prev, [normalized]: true }));
-    setErrorByDir((prev) => ({ ...prev, [normalized]: null }));
+      setLoadingByDir((prev) => ({ ...prev, [normalized]: true }));
+      setErrorByDir((prev) => ({ ...prev, [normalized]: null }));
 
-    try {
-      const response = await fileSystemApi.list(normalized);
-      const entries = (response?.entries ?? []).map((entry) => ({
-        ...entry,
-        path: normalizeDirPath(entry.path) || entry.path,
-      }));
-      setEntriesByDir((prev) => ({ ...prev, [normalized]: entries }));
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t('externalDirectory.loadFailed', '目录读取失败');
-      setErrorByDir((prev) => ({ ...prev, [normalized]: message }));
-      setEntriesByDir((prev) => ({ ...prev, [normalized]: [] }));
-    } finally {
-      setLoadingByDir((prev) => ({ ...prev, [normalized]: false }));
-    }
-  }, [t]);
+      try {
+        const response = await fileSystemApi.list(normalized);
+        const entries = (response?.entries ?? []).map((entry) => ({
+          ...entry,
+          path: normalizeDirPath(entry.path) || entry.path,
+        }));
+        setEntriesByDir((prev) => ({ ...prev, [normalized]: entries }));
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : t('externalDirectory.loadFailed', '目录读取失败');
+        setErrorByDir((prev) => ({ ...prev, [normalized]: message }));
+        setEntriesByDir((prev) => ({ ...prev, [normalized]: [] }));
+      } finally {
+        setLoadingByDir((prev) => ({ ...prev, [normalized]: false }));
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     if (rootPath && !(rootPath in entriesByDir) && !loadingByDir[rootPath]) {

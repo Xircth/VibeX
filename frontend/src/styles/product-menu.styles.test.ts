@@ -128,6 +128,20 @@ describe('product option menus', () => {
     expect(menu['border-radius']?.value).toBe(
       'var(--radius) var(--radius) 0 0'
     );
+
+    const atOptionActive = declarationsFor(
+      ".legacy-design .composer-at-reference-option:hover, .legacy-design .composer-at-reference-option:focus-visible, .legacy-design .composer-at-reference-option[aria-selected='true'], .legacy-design .composer-at-reference-option[data-active='true']"
+    );
+    expect(atOptionActive.background?.value).toBe('hsl(var(--accent))');
+    expect(atOptionActive.color?.value).toBe('hsl(var(--accent-foreground))');
+
+    const triggerOptionActive = declarationsFor(
+      ".legacy-design .session-composer-editor .astryx-trigger-menu [role='option']:hover, .legacy-design .session-composer-editor .astryx-trigger-menu [role='option']:focus-visible, .legacy-design .session-composer-editor .astryx-trigger-menu [role='option'][aria-selected='true'], .legacy-design .session-composer-editor .astryx-trigger-menu [role='option'][data-active='true']"
+    );
+    expect(triggerOptionActive.background?.value).toBe('hsl(var(--accent))');
+    expect(triggerOptionActive.color?.value).toBe(
+      'hsl(var(--accent-foreground))'
+    );
   });
 
   it('stacks the @ card above an expanded attachment drawer', () => {

@@ -1626,26 +1626,24 @@ async fn manage_bot_tool(
             let thinking_level = optional_arg(arguments, "thinking_level")
                 .or_else(|| optional_arg(arguments, "effort"));
             let raw_config_values = arguments.get("config_values").filter(|v| v.is_object());
-            let config_values = if model.is_some()
-                || thinking_level.is_some()
-                || raw_config_values.is_some()
-            {
-                let thinking_key = collaboration::resolve_agent_thinking_option_key(
-                    pool,
-                    requested_agent_id.as_deref(),
-                    Some(caller_id),
-                )
-                .await;
-                Some(collaboration::merge_bot_config_values(
-                    None,
-                    raw_config_values,
-                    model.as_deref(),
-                    thinking_level.as_deref(),
-                    &thinking_key,
-                ))
-            } else {
-                None
-            };
+            let config_values =
+                if model.is_some() || thinking_level.is_some() || raw_config_values.is_some() {
+                    let thinking_key = collaboration::resolve_agent_thinking_option_key(
+                        pool,
+                        requested_agent_id.as_deref(),
+                        Some(caller_id),
+                    )
+                    .await;
+                    Some(collaboration::merge_bot_config_values(
+                        None,
+                        raw_config_values,
+                        model.as_deref(),
+                        thinking_level.as_deref(),
+                        &thinking_key,
+                    ))
+                } else {
+                    None
+                };
             let created = collaboration::create_space_member(
                 pool,
                 caller_id,
@@ -1897,10 +1895,7 @@ async fn manage_bot_tool(
                     collaboration::load_member_session_config(pool, tid).await
                 && let Some(object) = result.as_object_mut()
             {
-                collaboration::enrich_member_json_with_session_config(
-                    object,
-                    Some(&existing_cfg),
-                );
+                collaboration::enrich_member_json_with_session_config(object, Some(&existing_cfg));
             }
             Ok(result)
         }

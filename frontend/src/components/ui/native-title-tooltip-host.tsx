@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
-import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import {
   findTitledElement,
   isOwnedAppTooltip,
@@ -22,12 +21,21 @@ function isMousePointer(event: PointerEvent): boolean {
   return event.pointerType === 'mouse' || event.pointerType === '';
 }
 
+function estimateTooltipWidth(text: string): number {
+  let width = 24;
+  for (const ch of text) {
+    width += ch.charCodeAt(0) > 0x7f ? 12.5 : 7.2;
+  }
+  return Math.min(352, Math.max(48, Math.ceil(width)));
+}
+
 export function NativeTitleTooltipHost() {
   const container = usePortalContainer();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   useEffect(() => {
     let showTimer: number | null = null;
+    let rafId: number | null = null;
     let active: Element | null = null;
     let observer: MutationObserver | null = null;
     const suppressed = new Set<Element>();
@@ -36,6 +44,10 @@ export function NativeTitleTooltipHost() {
       if (showTimer != null) {
         window.clearTimeout(showTimer);
         showTimer = null;
+      }
+      if (rafId != null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
       }
     };
 
@@ -56,12 +68,13 @@ export function NativeTitleTooltipHost() {
       const node = document.querySelector<HTMLElement>(
         `.${NATIVE_TITLE_TOOLTIP_CLASS}[data-native-title-tooltip='true']`
       );
-      const tooltipSize = node
-        ? { width: node.offsetWidth, height: node.offsetHeight }
-        : {
-            width: Math.min(352, Math.max(48, text.length * 7.2)),
-            height: 28,
-          };
+      const tooltipSize =
+        node && node.offsetWidth > 0 && node.offsetHeight > 0
+          ? { width: node.offsetWidth, height: node.offsetHeight }
+          : {
+              width: estimateTooltipWidth(text),
+              height: 28,
+            };
       const next = positionHoverTooltip(
         element.getBoundingClientRect(),
         tooltipSize,
@@ -98,20 +111,22 @@ export function NativeTitleTooltipHost() {
       active = element;
       watchTitle(element);
       place(element, text);
-      requestAnimationFrame(() => place(element, text));
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        if (active === element) place(element, text);
+      });
     };
 
     const onPointerOver = (event: PointerEvent) => {
       if (!isMousePointer(event)) return;
       const next = findTitledElement(event.target);
       const from = findTitledElement(event.relatedTarget);
-      if (next === from) return;
       if (next) suppress(next);
       if (!next || isOwnedAppTooltip(next)) {
         hide();
         return;
       }
-      if (next === active) return;
+      if (next === from || next === active) return;
       hide();
       active = next;
       suppress(next);
@@ -121,12 +136,22 @@ export function NativeTitleTooltipHost() {
       }, NATIVE_TITLE_SHOW_DELAY_MS);
     };
 
+    const onPointerOut = (event: PointerEvent) => {
+      if (!active) return;
+      const from = findTitledElement(event.target);
+      if (from !== active) return;
+      const to = findTitledElement(event.relatedTarget);
+      if (to === active) return;
+      hide();
+    };
+
     const onPointerDown = () => hide();
     const onKeyDown = () => hide();
     const onScroll = () => hide();
     const onBlur = () => hide();
 
     document.addEventListener('pointerover', onPointerOver, true);
+    document.addEventListener('pointerout', onPointerOut, true);
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
     document.documentElement.addEventListener('pointerleave', hide);
@@ -140,6 +165,7 @@ export function NativeTitleTooltipHost() {
       }
       suppressed.clear();
       document.removeEventListener('pointerover', onPointerOver, true);
+      document.removeEventListener('pointerout', onPointerOut, true);
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);
       document.documentElement.removeEventListener('pointerleave', hide);
@@ -163,7 +189,6 @@ export function NativeTitleTooltipHost() {
         pointerEvents: 'none',
       }}
     >
-      <NativeSurfaceOcclusionHold />
       {tooltip.text}
     </div>
   );

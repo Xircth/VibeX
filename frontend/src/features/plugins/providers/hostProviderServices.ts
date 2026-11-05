@@ -160,10 +160,19 @@ export interface MonacoInlineCompletionProviderLike {
     position: unknown,
     context: unknown,
     token: unknown
-  ): Promise<{ items: InlineCompletionItemResult[] } | InlineCompletionItemResult[] | null | undefined>;
+  ): Promise<
+    | { items: InlineCompletionItemResult[] }
+    | InlineCompletionItemResult[]
+    | null
+    | undefined
+  >;
   freeInlineCompletions?(completions: unknown): void;
   disposeInlineCompletions?(completions: unknown, reason?: unknown): void;
-  handleItemDidShow?(completions: unknown, item: unknown, updatedInsertText: string): void;
+  handleItemDidShow?(
+    completions: unknown,
+    item: unknown,
+    updatedInsertText: string
+  ): void;
 }
 
 export interface InlineCompletionHandlerRegistration {
@@ -178,7 +187,12 @@ export interface InlineCompletionHandlerRegistration {
       completionContext: unknown;
       token: unknown;
     }
-  ): Promise<{ items: InlineCompletionItemResult[] } | InlineCompletionItemResult[] | null | undefined>;
+  ): Promise<
+    | { items: InlineCompletionItemResult[] }
+    | InlineCompletionItemResult[]
+    | null
+    | undefined
+  >;
   freeInlineCompletions?(completions: unknown): void;
 }
 

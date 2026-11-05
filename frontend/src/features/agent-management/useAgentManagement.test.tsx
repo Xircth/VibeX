@@ -6,7 +6,12 @@ import { useAgentManagement } from './useAgentManagement';
 const mocks = vi.hoisted(() => ({
   bar: vi.fn(),
   refreshBar: vi.fn(),
-  listeners: new Map<string, (event: unknown) => void>(),
+  listeners: new Map<string, Set<(event: unknown) => void>>(),
+  emit(event: string, payload: unknown) {
+    for (const listener of mocks.listeners.get(event) ?? []) {
+      listener(payload);
+    }
+  },
   sequence: [] as string[],
   toastError: vi.fn(),
 }));
@@ -22,8 +27,12 @@ vi.mock('@/lib/backendTransport', () => ({
   backendListen: vi.fn(
     async (event: string, listener: (event: unknown) => void) => {
       mocks.sequence.push(`listen:${event}`);
-      mocks.listeners.set(event, listener);
-      return vi.fn();
+      const set = mocks.listeners.get(event) ?? new Set();
+      set.add(listener);
+      mocks.listeners.set(event, set);
+      return vi.fn(() => {
+        set.delete(listener);
+      });
     }
   ),
 }));
@@ -56,14 +65,15 @@ it('subscribes to snapshot invalidation before reading the initial snapshot', as
   ).toBeLessThan(mocks.sequence.indexOf('bar'));
 });
 
-it('surfaces an asynchronous Agent installation failure', async () => {
+it('surfaces an asynchronous Agent installation failure only once across multiple mounted hook instances', async () => {
+  renderHook(() => useAgentManagement());
   renderHook(() => useAgentManagement());
   await waitFor(() =>
-    expect(mocks.listeners.has('agent-management-event')).toBe(true)
+    expect(mocks.listeners.get('agent-management-event')?.size).toBe(2)
   );
 
   await act(async () => {
-    mocks.listeners.get('agent-management-event')?.({
+    mocks.emit('agent-management-event', {
       sequence: 1,
       agent_id: 'grok-build',
       operation_id: 'operation-1',
@@ -75,6 +85,7 @@ it('surfaces an asynchronous Agent installation failure', async () => {
     });
   });
 
+  expect(mocks.toastError).toHaveBeenCalledTimes(1);
   expect(mocks.toastError).toHaveBeenCalledWith(
     'npm package `@xai-official/grok` did not create executable `grok`'
   );
@@ -123,7 +134,7 @@ it('re-reads the fast snapshot when startup warmup finishes', async () => {
   ]);
 
   await act(async () => {
-    mocks.listeners.get('agent-management-snapshot-invalidated')?.(undefined);
+    mocks.emit('agent-management-snapshot-invalidated', undefined);
   });
 
   await waitFor(() => expect(result.current.state.agents).toHaveLength(1));

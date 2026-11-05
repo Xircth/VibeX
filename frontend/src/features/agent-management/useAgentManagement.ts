@@ -21,6 +21,8 @@ import {
 } from './agentManagementStore';
 
 let retainedSelectedAgentId: string | null = null;
+let activeEventSubscriptionCount = 0;
+let lastNotifiedFailureKey: string | null = null;
 
 export function useAgentManagement() {
   const { t, i18n } = useTranslation('settings');
@@ -74,6 +76,7 @@ export function useAgentManagement() {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
+    activeEventSubscriptionCount += 1;
     void backendListen<AgentOperationEvent>(
       'agent-management-event',
       (event) => {
@@ -83,38 +86,42 @@ export function useAgentManagement() {
         if (next.sequence <= lastEventSequence.current) return;
         lastEventSequence.current = next.sequence;
         if (next.status === 'failed') {
-          const message = next.message?.trim();
-          if (
-            next.agent_id === 'kiro' &&
-            (next.kind === 'install' ||
-              next.kind === 'repair' ||
-              next.kind === 'update')
-          ) {
-            const guideDescription = t(
-              'agents.kiroSilentInstallFailedDescription'
-            );
-            toast.error(t('agents.kiroSilentInstallFailedTitle'), {
-              description: message
-                ? `${guideDescription} (${message})`
-                : guideDescription,
-              duration: 12_000,
-              action: {
-                label: t('agents.officialInstallGuide'),
-                onClick: () => {
-                  window.open(
-                    'https://kiro.dev/docs/getting-started/installation/',
-                    '_blank',
-                    'noopener,noreferrer'
-                  );
+          const failureKey = `${next.operation_id}:${next.sequence}`;
+          if (lastNotifiedFailureKey !== failureKey) {
+            lastNotifiedFailureKey = failureKey;
+            const message = next.message?.trim();
+            if (
+              next.agent_id === 'kiro' &&
+              (next.kind === 'install' ||
+                next.kind === 'repair' ||
+                next.kind === 'update')
+            ) {
+              const guideDescription = t(
+                'agents.kiroSilentInstallFailedDescription'
+              );
+              toast.error(t('agents.kiroSilentInstallFailedTitle'), {
+                description: message
+                  ? `${guideDescription} (${message})`
+                  : guideDescription,
+                duration: 12_000,
+                action: {
+                  label: t('agents.officialInstallGuide'),
+                  onClick: () => {
+                    window.open(
+                      'https://kiro.dev/docs/getting-started/installation/',
+                      '_blank',
+                      'noopener,noreferrer'
+                    );
+                  },
                 },
-              },
-            });
-          } else {
-            toast.error(
-              i18n.resolvedLanguage?.startsWith('en')
-                ? t('agents.operationFailed')
-                : message || t('agents.operationFailed')
-            );
+              });
+            } else {
+              toast.error(
+                i18n.resolvedLanguage?.startsWith('en')
+                  ? t('agents.operationFailed')
+                  : message || t('agents.operationFailed')
+              );
+            }
           }
         }
         setState((current) => reduceOperationEvent(current, next));
@@ -133,6 +140,13 @@ export function useAgentManagement() {
     return () => {
       active = false;
       unlisten?.();
+      activeEventSubscriptionCount = Math.max(
+        0,
+        activeEventSubscriptionCount - 1
+      );
+      if (activeEventSubscriptionCount === 0) {
+        lastNotifiedFailureKey = null;
+      }
     };
   }, [i18n.resolvedLanguage, refresh, t]);
 

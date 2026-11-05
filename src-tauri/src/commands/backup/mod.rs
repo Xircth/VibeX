@@ -213,6 +213,10 @@ fn collect_directory_sources(
 fn collect_sources() -> Result<Vec<BackupSource>, AppError> {
     let mut sources = Vec::new();
     for name in [
+        "settings.json",
+        "mcp.json",
+        "agent-model-providers.json",
+        ".env",
         "config.json",
         "profiles.json",
         "db.sqlite",

@@ -455,6 +455,21 @@ impl DBService {
         Ok(DBService { pool })
     }
 
+    /// Create a lazy secondary handle to an already-migrated SQLite database
+    /// (for example, inside `after_connect` update-hook callbacks) without
+    /// opening a connection at startup or running `run_migrations` a second time.
+    pub fn new_lazy_at(data_dir: impl AsRef<std::path::Path>) -> Result<DBService, Error> {
+        std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
+        let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .min_connections(0)
+            .idle_timeout(Duration::from_secs(30))
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_lazy_with(options);
+        Ok(DBService { pool })
+    }
+
     pub async fn new_with_after_connect<F>(after_connect: F) -> Result<DBService, Error>
     where
         F: for<'a> Fn(

@@ -752,13 +752,8 @@ pub(in crate::manager) fn config_value_aliases(key: &str, value: &str) -> Vec<St
             );
         }
         (
-            "reasoning"
-            | "reasoningeffort"
-            | "thoughteffort"
-            | "thoughtlevel"
-            | "thinkinglevel"
-            | "thinking"
-            | "effort",
+            "reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel" | "thinkinglevel"
+            | "thinking" | "effort",
             "xhigh",
         ) => {
             aliases.push("extrahigh".to_string());

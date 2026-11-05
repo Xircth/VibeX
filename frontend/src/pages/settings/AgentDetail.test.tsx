@@ -6,6 +6,7 @@ import { parse } from 'postcss';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView, AgentPreflightView } from 'shared/types';
 
+import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
 import i18n from '@/i18n';
 
 import { AgentDetail } from './AgentDetail';
@@ -78,6 +79,7 @@ describe('AgentDetail', () => {
         rule.selector.includes(
           "button:not([role='switch']):not([role='checkbox'])"
         ) ||
+        rule.selector.includes('.astryx-button') ||
         rule.selector === '.settings-page .agent-preflight-layout' ||
         rule.selector.includes("data-expanded='true'") ||
         rule.selector === '.settings-page .agent-preflight-trigger' ||
@@ -470,11 +472,7 @@ describe('AgentDetail', () => {
       />
     );
 
-    const progress = screen.getByRole('progressbar', {
-      name: '正在安装 ACP',
-    });
-    expect(progress).toHaveAttribute('aria-valuenow', '55');
-    expect(progress).toHaveAttribute('aria-valuetext', '安装 · 55%');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.getByText('基础环境检查')).toHaveAttribute(
       'data-state',
       'complete'
@@ -495,6 +493,48 @@ describe('AgentDetail', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: '取消操作' }));
     expect(onCancelOperation).toHaveBeenCalledOnce();
+  });
+
+  it('immediately displays the update badge from cached status bar update state before preflight completes', () => {
+    localStorage.clear();
+    recordAgentAcpUpdateCheck({
+      agent_id: 'codex',
+      current_version: '0.1.0',
+      available_version: '0.2.0',
+      runtime_current: '1.0.0',
+      runtime_available: '1.0.0',
+      acp_current: '0.1.0',
+      acp_available: '0.2.0',
+      update_available: true,
+      snapshot_id: 'snap-1',
+      fetched_at: '2026-11-05T00:00:00Z',
+      fresh: true,
+      compatibility_warning: undefined,
+    });
+    render(
+      <AgentDetail
+        agent={{ ...agent, lifecycle: 'ready', acp_version: '0.1.0' }}
+        operation={null}
+        preflight={null}
+        checking={true}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onUpdatePreflightItem={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '可更新' })).toBeInTheDocument();
+    localStorage.clear();
   });
 
   it('validates and submits a concrete custom version for supported built-ins', async () => {

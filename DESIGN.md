@@ -84,10 +84,13 @@ typography:
     lineHeight: 1.5
     letterSpacing: "0"
 rounded:
-  control: "14px"
-  card: "14px"
-  panel: "14px"
-  sidebar: "14px"
+  none: "4px"
+  inner: "6px"
+  control: "10px"
+  card: "12px"
+  panel: "12px"
+  sidebar: "12px"
+  page: "28px"
   pill: "999px"
 spacing:
   xs: "4px"
@@ -122,10 +125,10 @@ components:
     padding: "0 12px"
     height: "32px"
   button-destructive:
-    backgroundColor: "transparent"
+    backgroundColor: "{colors.error-muted}"
     textColor: "{colors.destructive}"
-    border: "1px solid {colors.destructive}"
-    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
+    border: "1px solid transparent"
+    shadow: "none"
     rounded: "{rounded.control}"
     padding: "0 12px"
     height: "32px"
@@ -295,14 +298,15 @@ Resting surfaces are flat with a 1px hairline. Shadow is reserved for things tha
 - **Composer Shadow**: the persistent follow-up composer, slightly lifted from the right panel.
 - Dark elevation prefers lighter surfaces and moonlight hairlines over wide drop shadows copied from light mode.
 
-### Corners (continuous, macOS-leaning)
+### Corners (Astryx tiered semantic radius scale)
 
-- **All standard surfaces and controls** (buttons, inputs, selects, chips, cards, grouped lists, panels, sidebar, dialogs, composer): `14px`.
-- **Status pills / avatars**: full radius.
+- **Inner controls / compact items** (`--radius-inner`, `rounded-sm`): `6px` (`0.375rem`).
+- **Interactive elements / controls** (buttons, inputs, selects — `--radius-element`, `--radius`, `rounded-md`): `10px` (`0.625rem`).
+- **Containers** (cards, grouped lists, panels, sidebar, dialogs, popovers — `--radius-container`, `rounded-lg`): `12px` (`0.75rem`).
+- **Page / chat shell** (`--radius-page`, `--radius-chat`, `rounded-3xl`): `28px` (`1.75rem`).
+- **Status pills / avatars / switches / segmented controls** (`--radius-full`, `rounded-full`): `9999px`.
 
-`--radius` is the single source of truth. Named Tailwind radius utilities map to
-that token; local numeric radii are not allowed. Full circles/pills and square
-structural seams are the only exceptions.
+Semantic Astryx radius tokens (`--radius-inner`, `--radius-element`, `--radius-container`, `--radius-page`, `--radius-full`) are the single source of truth. Named Tailwind radius utilities map to those tokens; local numeric radii and `calc(var(--radius) - Npx)` derivations are not allowed.
 
 ### Motion
 

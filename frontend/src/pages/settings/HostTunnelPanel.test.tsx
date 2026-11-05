@@ -259,6 +259,13 @@ describe('HostTunnelPanel', () => {
       name: /已保存穿透列表/,
     });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const listContainer = screen.getByTestId('saved-tunnels-list-container');
+    expect(listContainer).toHaveClass(
+      'rounded-lg',
+      'border',
+      'border-border',
+      'bg-background/50'
+    );
     expect(screen.getByText('https://gate.example.ts.net')).toBeVisible();
     expect(screen.getByText('203.0.113.10:443')).toBeVisible();
     expect(screen.queryByText('已建穿透')).not.toBeInTheDocument();
@@ -279,7 +286,8 @@ describe('HostTunnelPanel', () => {
     );
 
     const removeButtons = screen.getAllByRole('button', { name: '移除' });
-    expect(removeButtons[0]).toHaveClass('!bg-destructive/10');
+    expect(removeButtons[0]).toHaveClass('destructive-control', 'destructive');
+    expect(removeButtons[0]).toHaveAttribute('data-variant', 'destructive');
     await user.click(removeButtons[0]);
     expect(ConfirmDialog.show).toHaveBeenCalled();
     await waitFor(() =>

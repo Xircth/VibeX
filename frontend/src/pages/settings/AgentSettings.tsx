@@ -21,7 +21,6 @@ import type {
 
 import { useUserSystem } from '@/components/ConfigProvider';
 import { toast } from '@/components/ui/toast';
-import { AgentUpdateConfirmDialog } from '@/components/dialogs/settings/AgentUpdateConfirmDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import {
   agentManagementApi,
@@ -29,7 +28,11 @@ import {
   type AgentOperationState,
   useAgentManagement,
 } from '@/features/agent-management';
-import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
+import {
+  invalidateAgentAcpUpdate,
+  readCachedAgentAcpUpdate,
+  recordAgentAcpUpdateCheck,
+} from '@/features/agent-management/agentAcpUpdates';
 import { consumeAgentSettingsFocus } from '@/features/agent-management/agentSettingsFocus';
 import { agentHasAcpUpdate } from '@/features/agent-management/agentVersion';
 
@@ -319,12 +322,22 @@ export function AgentSettings() {
     const watchId = ++inspectGeneration.current;
     const authGenAtStart = authRefreshGeneration.current;
     const cache = inspectCacheRef.current;
+    const cachedUpdateCheck = cache.updateCheck.get(selectedAgentId) ?? null;
+    const cachedAcpUpdate = readCachedAgentAcpUpdate(selectedAgentId);
     const snapshot = readPreflightSnapshot(selectedAgentId);
-    setPreflight(snapshot);
+    setPreflight(
+      snapshot
+        ? applyCachedUpdateToPreflight(
+            snapshot,
+            cachedAcpUpdate,
+            cachedUpdateCheck
+          )
+        : null
+    );
     setConfig(cache.config.get(selectedAgentId) ?? null);
     setActions(cache.actions.get(selectedAgentId) ?? null);
     setDiagnostics(cache.diagnostics.get(selectedAgentId) ?? []);
-    setUpdateCheck(cache.updateCheck.get(selectedAgentId) ?? null);
+    setUpdateCheck(cachedUpdateCheck);
     setConfigConflict(null);
     setChecking(!snapshot);
     void (async () => {
@@ -332,10 +345,15 @@ export function AgentSettings() {
         const report = await agentManagementApi.preflight(selectedAgentId);
         if (!active || inspectGeneration.current !== watchId) return;
         setPreflight((current) => {
-          const next =
+          const base =
             authRefreshGeneration.current !== authGenAtStart && current
               ? overlayAuthPreflightItems(report, current)
               : report;
+          const next = applyCachedUpdateToPreflight(
+            base,
+            readCachedAgentAcpUpdate(selectedAgentId),
+            cache.updateCheck.get(selectedAgentId) ?? null
+          );
           writePreflightSnapshot(next);
           return next;
         });
@@ -515,17 +533,43 @@ export function AgentSettings() {
     [management, t]
   );
 
+  const startingOperationAgentsRef = useRef<Set<string>>(new Set());
+
   const reinstallUserDefinition = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (
+      !selectedAgentId ||
+      startingOperationAgentsRef.current.has(selectedAgentId)
+    ) {
+      return;
+    }
+    startingOperationAgentsRef.current.add(selectedAgentId);
+    setEnablingOperation({
+      agentId: selectedAgentId,
+      operationId: `pending-reinstall-${selectedAgentId}`,
+      kind: 'update',
+      status: 'running',
+      progressPercent: 8,
+      message: null,
+      logs: [`$ vibex agent update ${selectedAgentId}`],
+      sequence: 0,
+    });
     try {
-      await agentManagementApi.applyUpdate(selectedAgentId);
+      const receipt = await agentManagementApi.applyUpdate(selectedAgentId);
+      if (receipt) {
+        management.beginOperation(receipt);
+      }
       toast.success(t('settings:agents.definitionReinstallStarted'));
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.definitionReinstallFailed'))
       );
+    } finally {
+      setEnablingOperation((current) =>
+        current?.agentId === selectedAgentId ? null : current
+      );
+      startingOperationAgentsRef.current.delete(selectedAgentId);
     }
-  }, [selectedAgentId, t]);
+  }, [management, selectedAgentId, t]);
 
   const applyBackgroundUpdateCheck = useCallback(async (agentId: AgentId) => {
     try {
@@ -636,6 +680,8 @@ export function AgentSettings() {
             : 'settings:agents.runtimeAcpUpdateComplete'
       )
     );
+    invalidateAgentAcpUpdate(selectedAgentId);
+    inspectCacheRef.current.updateCheck.delete(selectedAgentId);
     void refreshManagement()
       .then((agents) => {
         const agent = agents.find((item) => item.agent_id === selectedAgentId);
@@ -903,7 +949,23 @@ export function AgentSettings() {
   );
 
   const queueRepair = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (
+      !selectedAgentId ||
+      startingOperationAgentsRef.current.has(selectedAgentId)
+    ) {
+      return;
+    }
+    startingOperationAgentsRef.current.add(selectedAgentId);
+    setEnablingOperation({
+      agentId: selectedAgentId,
+      operationId: `pending-repair-${selectedAgentId}`,
+      kind: 'repair',
+      status: 'running',
+      progressPercent: 8,
+      message: null,
+      logs: [`$ vibex agent repair ${selectedAgentId}`],
+      sequence: 0,
+    });
     try {
       const receipt = await agentManagementApi.repair(selectedAgentId);
       management.beginOperation(receipt);
@@ -916,11 +978,32 @@ export function AgentSettings() {
       toast.error(
         errorMessage(error, t('settings:agents.operationStartFailed'))
       );
+    } finally {
+      setEnablingOperation((current) =>
+        current?.agentId === selectedAgentId ? null : current
+      );
+      startingOperationAgentsRef.current.delete(selectedAgentId);
     }
   }, [management, selectedAgentId, showKiroWebInstallFallbackToast, t]);
 
   const queueInstall = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (
+      !selectedAgentId ||
+      startingOperationAgentsRef.current.has(selectedAgentId)
+    ) {
+      return;
+    }
+    startingOperationAgentsRef.current.add(selectedAgentId);
+    setEnablingOperation({
+      agentId: selectedAgentId,
+      operationId: `pending-install-${selectedAgentId}`,
+      kind: 'install',
+      status: 'running',
+      progressPercent: 8,
+      message: null,
+      logs: [`$ vibex agent install ${selectedAgentId}`],
+      sequence: 0,
+    });
     try {
       const receipt = await agentManagementApi.addAndInstall(selectedAgentId);
       management.beginOperation(receipt);
@@ -931,6 +1014,11 @@ export function AgentSettings() {
         return;
       }
       toast.error(errorMessage(error, t('settings:agents.installStartFailed')));
+    } finally {
+      setEnablingOperation((current) =>
+        current?.agentId === selectedAgentId ? null : current
+      );
+      startingOperationAgentsRef.current.delete(selectedAgentId);
     }
   }, [management, selectedAgentId, showKiroWebInstallFallbackToast, t]);
 
@@ -940,9 +1028,27 @@ export function AgentSettings() {
       runtimeVersion?: string;
       acpVersion?: string;
     }) => {
-      if (!selectedAgentId) return;
+      if (
+        !selectedAgentId ||
+        startingOperationAgentsRef.current.has(selectedAgentId)
+      ) {
+        return;
+      }
+      startingOperationAgentsRef.current.add(selectedAgentId);
       const version =
         input.acpVersion || input.runtimeVersion || input.version || '';
+      setEnablingOperation({
+        agentId: selectedAgentId,
+        operationId: `pending-install-version-${selectedAgentId}`,
+        kind: 'install',
+        status: 'running',
+        progressPercent: 8,
+        message: null,
+        logs: [
+          `$ vibex agent install ${selectedAgentId}${version ? ` --version ${version}` : ''}`,
+        ],
+        sequence: 0,
+      });
       try {
         const receipt = await agentManagementApi.installVersion(
           selectedAgentId,
@@ -956,6 +1062,11 @@ export function AgentSettings() {
         toast.error(
           errorMessage(error, t('settings:agents.installStartFailed'))
         );
+      } finally {
+        setEnablingOperation((current) =>
+          current?.agentId === selectedAgentId ? null : current
+        );
+        startingOperationAgentsRef.current.delete(selectedAgentId);
       }
     },
     [management, selectedAgentId, t]
@@ -1012,7 +1123,23 @@ export function AgentSettings() {
   }, [applyBackgroundUpdateCheck, preflight, selectedAgentId, t]);
 
   const applyUpdate = useCallback(async () => {
-    if (!selectedAgentId) return;
+    if (
+      !selectedAgentId ||
+      startingOperationAgentsRef.current.has(selectedAgentId)
+    ) {
+      return;
+    }
+    startingOperationAgentsRef.current.add(selectedAgentId);
+    setEnablingOperation({
+      agentId: selectedAgentId,
+      operationId: `pending-update-${selectedAgentId}`,
+      kind: 'update',
+      status: 'running',
+      progressPercent: 8,
+      message: null,
+      logs: [`$ vibex agent update ${selectedAgentId}`],
+      sequence: 0,
+    });
     try {
       const receipt = await agentManagementApi.applyUpdate(selectedAgentId);
       if (receipt) {
@@ -1021,6 +1148,11 @@ export function AgentSettings() {
       toast.success(t('settings:agents.updateStarted'));
     } catch (error) {
       toast.error(errorMessage(error, t('settings:agents.updateStartFailed')));
+    } finally {
+      setEnablingOperation((current) =>
+        current?.agentId === selectedAgentId ? null : current
+      );
+      startingOperationAgentsRef.current.delete(selectedAgentId);
     }
   }, [management, selectedAgentId, t]);
 
@@ -1028,15 +1160,14 @@ export function AgentSettings() {
     async (enabled: boolean) => {
       if (!selectedAgentId) return;
       if (enabled) {
-        const envCheckMsg = t('settings:agents.stageEnvCheck');
         setEnablingOperation({
           agentId: selectedAgentId,
           operationId: `enable-${selectedAgentId}`,
           kind: 'install',
           status: 'running',
           progressPercent: 10,
-          message: envCheckMsg,
-          logs: [envCheckMsg],
+          message: null,
+          logs: [`$ vibex agent enable ${selectedAgentId}`],
           sequence: 0,
         });
       }
@@ -1056,14 +1187,16 @@ export function AgentSettings() {
       }
       if (!enabled) return;
       try {
-        const acpCheckMsg = t('settings:agents.stageAcpCheck');
         setEnablingOperation((current) =>
           current?.agentId === selectedAgentId
             ? {
                 ...current,
                 progressPercent: 22,
-                message: acpCheckMsg,
-                logs: [...(current.logs ?? []), acpCheckMsg],
+                message: null,
+                logs: [
+                  ...(current.logs ?? []),
+                  `$ vibex agent preflight ${selectedAgentId}`,
+                ],
               }
             : current
         );
@@ -1087,34 +1220,10 @@ export function AgentSettings() {
               ? 'repair'
               : null;
         if (action === 'install') {
-          const prepareMsg = t('settings:agents.stagePrepare');
-          setEnablingOperation((current) =>
-            current?.agentId === selectedAgentId
-              ? {
-                  ...current,
-                  kind: 'install',
-                  progressPercent: 35,
-                  message: prepareMsg,
-                  logs: [...(current.logs ?? []), prepareMsg],
-                }
-              : current
-          );
           await queueInstall();
           return;
         }
         if (action === 'repair') {
-          const prepareMsg = t('settings:agents.stagePrepare');
-          setEnablingOperation((current) =>
-            current?.agentId === selectedAgentId
-              ? {
-                  ...current,
-                  kind: 'repair',
-                  progressPercent: 35,
-                  message: prepareMsg,
-                  logs: [...(current.logs ?? []), prepareMsg],
-                }
-              : current
-          );
           await queueRepair();
           return;
         }
@@ -1124,18 +1233,6 @@ export function AgentSettings() {
           comparison?.update_available ||
           (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
         ) {
-          const prepareMsg = t('settings:agents.stagePrepare');
-          setEnablingOperation((current) =>
-            current?.agentId === selectedAgentId
-              ? {
-                  ...current,
-                  kind: 'update',
-                  progressPercent: 35,
-                  message: prepareMsg,
-                  logs: [...(current.logs ?? []), prepareMsg],
-                }
-              : current
-          );
           await applyUpdate();
         }
       } finally {
@@ -1158,19 +1255,19 @@ export function AgentSettings() {
 
   const applyPreflightItemUpdate = useCallback(
     async (itemId: string) => {
+      if (!selectedAgentId) return;
       const item = preflight?.items.find((entry) => entry.id === itemId);
-      if (!item?.update_available || !selectedAgentId) return;
-      const grouped = item.update_group
-        ? (preflight?.items.filter(
-            (entry) =>
-              entry.update_group === item.update_group && entry.update_available
-          ) ?? [item])
-        : [item];
-      const confirmed = await AgentUpdateConfirmDialog.show({ items: grouped });
-      if (confirmed !== 'confirmed') return;
+      const hasKnownUpdate =
+        Boolean(item?.update_available) ||
+        (itemId === 'acp' &&
+          Boolean(
+            updateCheck?.update_available ||
+              readCachedAgentAcpUpdate(selectedAgentId)?.available
+          ));
+      if (!hasKnownUpdate) return;
       await applyUpdate();
     },
-    [applyUpdate, preflight, selectedAgentId]
+    [applyUpdate, preflight, selectedAgentId, updateCheck]
   );
 
   const uninstall = useCallback(
@@ -1753,6 +1850,41 @@ function accountSessionMatchesAction(
   if (actionId === 'logout') return !signedIn;
   if (actionId === 'login') return signedIn;
   return true;
+}
+
+function applyCachedUpdateToPreflight(
+  current: AgentPreflightView,
+  cachedUpdate: ReturnType<typeof readCachedAgentAcpUpdate>,
+  comparison: AgentUpdateCheckView | null
+): AgentPreflightView {
+  if (comparison) {
+    return applyUpdateCheckToPreflight(current, comparison);
+  }
+  if (!cachedUpdate?.available) {
+    return current;
+  }
+  return {
+    ...current,
+    items: current.items.map((item) => {
+      if (item.id === 'acp' && item.status !== 'fail') {
+        if (
+          cachedUpdate.currentVersion &&
+          item.version &&
+          cachedUpdate.currentVersion !== item.version
+        ) {
+          return item;
+        }
+        return {
+          ...item,
+          update_available: true,
+          available_version:
+            item.available_version ?? cachedUpdate.availableVersion ?? null,
+          update_group: null,
+        };
+      }
+      return item;
+    }),
+  };
 }
 
 function applyUpdateCheckToPreflight(

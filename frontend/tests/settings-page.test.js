@@ -80,3 +80,11 @@ test('主题 token 使用按钮前景色作为 primary 前景色', () => {
     /--primary-foreground:\s*var\(\s*--vscode-button-foreground,/
   );
 });
+
+test('McpSettings 本地 MCP 与 MCP 市场列表项覆盖设置页固定按钮高度限制以避免多行重叠', () => {
+  const source = readFile('src/pages/settings/McpSettings.tsx');
+  const autoHeightMatches = source.match(/!my-0 !h-auto !min-h-0/g) ?? [];
+
+  assert.equal(autoHeightMatches.length, 2);
+});
+

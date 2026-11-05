@@ -68,7 +68,10 @@ import {
   fallbackWorkspaceTab,
 } from '@/lib/hostSurfaceIds';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { parkNativeSurfaceThen } from '@/lib/nativeSurfaceHandoff';
+import {
+  chromeHidesNativeSurface,
+  parkNativeSurfaceThen,
+} from '@/lib/nativeSurfaceHandoff';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
@@ -891,7 +894,7 @@ function WorkspaceTabSwitcher() {
       };
 
       void parkNativeSurfaceThen({
-        park: tab !== 'workspace',
+        park: tab !== effectiveActiveTab || chromeHidesNativeSurface(tab),
         occlude: () => setChromeOccluded(true),
         waitUntilParked: waitForOverlayReady,
         commit,

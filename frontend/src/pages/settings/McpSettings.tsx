@@ -1055,7 +1055,7 @@ function LocalListPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {loading ? (
           <div
             role="status"
@@ -1078,52 +1078,54 @@ function LocalListPanel({
             </p>
           </div>
         ) : (
-          servers.map((server) => {
-            const active = server.id === activeId;
-            return (
-              <button
-                key={server.id}
-                type="button"
-                aria-current={active ? 'true' : undefined}
-                data-active={active ? 'true' : undefined}
-                onClick={() => onSelect(server.id)}
-                className={cn(
-                  'relative block w-full cursor-pointer rounded-[var(--radius)] border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
-                  active
-                    ? 'border-primary/60 bg-primary/5 pr-7'
-                    : 'border-transparent hover:bg-foreground/[0.05]'
-                )}
-              >
-                {active ? (
-                  <Check
-                    aria-hidden="true"
-                    className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
-                  />
-                ) : null}
-                <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                    {server.id}
-                  </span>
-                  {server.global ? (
-                    <Badge
-                      variant="secondary"
-                      className="h-5 shrink-0 gap-1 px-1.5 text-[10px]"
-                    >
-                      <Globe className="h-2.5 w-2.5" />
-                      {t('mcp.global')}
-                    </Badge>
-                  ) : (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {t('mcp.agentCount', { count: server.apps.length })}
-                    </span>
+          <div className="flex flex-col gap-1">
+            {servers.map((server) => {
+              const active = server.id === activeId;
+              return (
+                <button
+                  key={server.id}
+                  type="button"
+                  aria-current={active ? 'true' : undefined}
+                  data-active={active ? 'true' : undefined}
+                  onClick={() => onSelect(server.id)}
+                  className={cn(
+                    '!my-0 !h-auto !min-h-0 relative block w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
+                    active
+                      ? 'border-primary/60 bg-primary/5 pr-7'
+                      : 'border-transparent hover:bg-foreground/[0.05]'
                   )}
-                </div>
-                <p className="mt-0.5 line-clamp-1 break-all text-[10px] text-muted-foreground">
-                  {specSummary(server.spec)}
-                </p>
-              </button>
-            );
-          })
+                >
+                  {active ? (
+                    <Check
+                      aria-hidden="true"
+                      className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
+                    />
+                  ) : null}
+                  <div className="flex items-center gap-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                      {server.id}
+                    </span>
+                    {server.global ? (
+                      <Badge
+                        variant="secondary"
+                        className="h-5 shrink-0 gap-1 px-1.5 text-[10px]"
+                      >
+                        <Globe className="h-2.5 w-2.5" />
+                        {t('mcp.global')}
+                      </Badge>
+                    ) : (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {t('mcp.agentCount', { count: server.apps.length })}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 truncate text-[10px] leading-4 text-muted-foreground">
+                    {specSummary(server.spec)}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -1203,7 +1205,7 @@ function MarketListPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {searching ? (
           <div
             role="status"
@@ -1226,75 +1228,80 @@ function MarketListPanel({
             </p>
           </div>
         ) : (
-          results.map((item) => {
-            const active = item.server_id === activeId;
-            return (
-              <button
-                key={`${item.provider_id}:${item.server_id}`}
-                type="button"
-                aria-current={active ? 'true' : undefined}
-                data-active={active ? 'true' : undefined}
-                onClick={() => onSelect(item.server_id)}
-                className={cn(
-                  'relative block w-full cursor-pointer rounded-[var(--radius)] border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
-                  active
-                    ? 'border-primary/60 bg-primary/5 pr-7'
-                    : 'border-transparent hover:bg-foreground/[0.05]'
-                )}
-              >
-                {active ? (
-                  <Check
-                    aria-hidden="true"
-                    className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
-                  />
-                ) : null}
-                <div className="flex items-start gap-2">
-                  <div className="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-md border bg-muted/40">
-                    {item.icon_url ? (
-                      <img
-                        src={item.icon_url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
-                        MCP
+          <div className="flex flex-col gap-1">
+            {results.map((item) => {
+              const active = item.server_id === activeId;
+              return (
+                <button
+                  key={`${item.provider_id}:${item.server_id}`}
+                  type="button"
+                  aria-current={active ? 'true' : undefined}
+                  data-active={active ? 'true' : undefined}
+                  onClick={() => onSelect(item.server_id)}
+                  className={cn(
+                    '!my-0 !h-auto !min-h-0 relative block w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
+                    active
+                      ? 'border-primary/60 bg-primary/5 pr-7'
+                      : 'border-transparent hover:bg-foreground/[0.05]'
+                  )}
+                >
+                  {active ? (
+                    <Check
+                      aria-hidden="true"
+                      className="absolute right-2 top-2.5 h-3.5 w-3.5 text-foreground"
+                    />
+                  ) : null}
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-md border bg-muted/40">
+                      {item.icon_url ? (
+                        <img
+                          src={item.icon_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                          MCP
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium leading-5">
+                        {item.name}
                       </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium">
-                      {item.name}
-                    </div>
-                    <div className="truncate text-[10px] text-muted-foreground">
-                      {item.server_id}
+                      <div className="truncate text-[10px] leading-4 text-muted-foreground">
+                        {item.server_id}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {item.protocols.map((protocol) => (
-                    <Badge
-                      key={protocol}
-                      variant="secondary"
-                      className="h-4 px-1.5 text-[10px]"
-                    >
-                      {protocolLabel(protocol)}
-                    </Badge>
-                  ))}
-                  {item.verified ? (
-                    <Badge className="h-4 px-1.5 text-[10px]">
-                      {t('mcp.verified')}
-                    </Badge>
-                  ) : null}
-                  {typeof item.downloads === 'number' ? (
-                    <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-                      {t('mcp.downloadsCount', { count: item.downloads })}
-                    </Badge>
-                  ) : null}
-                </div>
-              </button>
-            );
-          })
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    {item.protocols.map((protocol) => (
+                      <Badge
+                        key={protocol}
+                        variant="secondary"
+                        className="h-4 px-1.5 text-[10px]"
+                      >
+                        {protocolLabel(protocol)}
+                      </Badge>
+                    ))}
+                    {item.verified ? (
+                      <Badge className="h-4 px-1.5 text-[10px]">
+                        {t('mcp.verified')}
+                      </Badge>
+                    ) : null}
+                    {typeof item.downloads === 'number' ? (
+                      <Badge
+                        variant="outline"
+                        className="h-4 px-1.5 text-[10px]"
+                      >
+                        {t('mcp.downloadsCount', { count: item.downloads })}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

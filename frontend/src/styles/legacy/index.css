@@ -25,7 +25,12 @@
     --_border: 0 0% 83.1%;
     --_input: 0 0% 83.1%;
     --_ring: var(--_primary);
-    --_radius: 0.875rem;
+    --_radius-none: 0.25rem;
+    --_radius-inner: 0.375rem;
+    --_radius-element: 0.625rem;
+    --_radius-container: 0.75rem;
+    --_radius-page: 1.75rem;
+    --_radius: var(--_radius-element);
 
     /* Status (light - Ayu) */
     --_success: 78 100% 35%;
@@ -73,6 +78,8 @@
     --_accent-foreground: 0 0% 98%;
     --_destructive: 0 80% 55%;
     --_destructive-foreground: 0 0% 100%;
+    --color-error: #ff6467;
+    --color-error-muted: #460809;
     --_border: 0 0% 32.2%;
     --_input: 0 0% 14.9%;
     --_ring: var(--_primary);
@@ -146,7 +153,19 @@
     --input: var(--vscode-input-background, var(--_input));
     --ring: var(--vscode-focusBorder, var(--_ring));
 
+    --radius-none: var(--_radius-none);
+    --radius-inner: var(--_radius-inner);
+    --radius-element: var(--_radius-element);
+    --radius-container: var(--_radius-container);
+    --radius-page: var(--_radius-page);
+    --radius-chat: var(--_radius-page);
+    --radius-full: 9999px;
     --radius: var(--_radius);
+    --_button-radius: var(--radius-element);
+    --_field-radius: var(--radius-element);
+
+    --color-error: #e7000b;
+    --color-error-muted: #ffe2e2;
 
     /* Status */
     --success: var(--vscode-testing-iconPassed, var(--_success));
@@ -577,13 +596,22 @@
 
   .legacy-design [data-astryx-theme] {
     --font-family-body: var(--font-ui);
-    --radius-element: var(--radius);
-    --_button-radius: var(--radius);
+    --radius-none: var(--_radius-none);
+    --radius-inner: var(--_radius-inner);
+    --radius-element: var(--_radius-element);
+    --radius-container: var(--_radius-container);
+    --radius-page: var(--_radius-page);
+    --radius-chat: var(--_radius-page);
+    --radius-full: 9999px;
+    --_button-radius: var(--radius-element);
+    --_field-radius: var(--radius-element);
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
+    --color-error: #e7000b;
+    --color-error-muted: #ffe2e2;
     --color-neutral: #0000000f;
     --color-overlay-hover: var(--surface-control);
     --color-overlay-pressed: var(--surface-control-hover);
@@ -600,6 +628,8 @@
 
   .legacy-design.dark [data-astryx-theme],
   .dark .legacy-design [data-astryx-theme] {
+    --color-error: #ff6467;
+    --color-error-muted: #460809;
     --color-border-emphasized: #525252;
     --color-neutral: #ffffff1a;
     --color-background-body: #1b1b1b;
@@ -663,25 +693,29 @@
   .legacy-design .composer-at-reference-option {
     border-radius: var(--radius);
     color: inherit;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
   }
 
   .legacy-design .composer-at-reference-option:hover,
-  .legacy-design .composer-at-reference-option:focus-visible {
+  .legacy-design .composer-at-reference-option:focus-visible,
+  .legacy-design .composer-at-reference-option[aria-selected='true'],
+  .legacy-design .composer-at-reference-option[data-active='true'] {
     background: hsl(var(--accent));
     color: hsl(var(--accent-foreground));
   }
 
-  .legacy-design .composer-at-reference-option[aria-selected='true'] {
+  .legacy-design
+    .composer-at-reference-menu
+    [role='listbox']:hover
+    .composer-at-reference-option[aria-selected='true']:not(:hover),
+  .legacy-design
+    .composer-at-reference-menu
+    [role='listbox']:hover
+    .composer-at-reference-option[data-active='true']:not(:hover) {
     background: transparent;
     color: inherit;
-    font-weight: 500;
-  }
-
-  .legacy-design .composer-at-reference-option[aria-selected='true']:hover,
-  .legacy-design
-    .composer-at-reference-option[aria-selected='true']:focus-visible {
-    background: hsl(var(--accent));
-    color: hsl(var(--accent-foreground));
   }
 
   .legacy-design .session-composer-drop-overlay {
@@ -998,30 +1032,29 @@
   .legacy-design
     .session-composer-editor
     .astryx-trigger-menu
-    [role='option']:focus-visible {
+    [role='option']:focus-visible,
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option'][aria-selected='true'],
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu
+    [role='option'][data-active='true'] {
     background: hsl(var(--accent));
     color: hsl(var(--accent-foreground));
   }
 
   .legacy-design
     .session-composer-editor
-    .astryx-trigger-menu
-    [role='option'][aria-selected='true'] {
+    .astryx-trigger-menu:hover
+    [role='option'][aria-selected='true']:not(:hover),
+  .legacy-design
+    .session-composer-editor
+    .astryx-trigger-menu:hover
+    [role='option'][data-active='true']:not(:hover) {
     background: transparent;
     color: inherit;
-    font-weight: 500;
-  }
-
-  .legacy-design
-    .session-composer-editor
-    .astryx-trigger-menu
-    [role='option'][aria-selected='true']:hover,
-  .legacy-design
-    .session-composer-editor
-    .astryx-trigger-menu
-    [role='option'][aria-selected='true']:focus-visible {
-    background: hsl(var(--accent));
-    color: hsl(var(--accent-foreground));
   }
 
   @media (prefers-reduced-transparency: reduce) {
@@ -1600,8 +1633,11 @@ html.dark {
   :is(.astryx-button, .astryx-icon-button)[data-variant='destructive']:not(
     .destructive-control
   ) {
-  background-color: hsl(var(--destructive)) !important;
-  color: hsl(var(--destructive-foreground)) !important;
+  background-color: var(
+    --color-error-muted,
+    hsl(var(--destructive) / 0.12)
+  ) !important;
+  color: var(--color-error, hsl(var(--destructive))) !important;
   border-radius: var(
     --_button-radius,
     var(--radius-element, var(--radius))
@@ -2105,12 +2141,17 @@ html.dark {
   /* Grouped settings cards rely on spacing, not hairlines, to separate rows.
      Tables that genuinely need row separators opt in with their own divider. */
 
-  .settings-page .settings-row {
+  .settings-page .settings-row,
+  .collaboration-settings-modal-overlay .settings-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
     min-height: 2.75rem;
+  }
+
+  .collaboration-settings-modal-overlay .settings-row {
+    min-height: 1.75rem;
   }
 
   .settings-page .settings-card > .settings-subrows {
@@ -2399,21 +2440,21 @@ html.dark {
 
   .settings-page .settings-worktree-board {
     display: grid;
-    grid-template-columns: minmax(11rem, 13.75rem) minmax(0, 1fr);
+    grid-template-columns: minmax(13.5rem, 16rem) minmax(0, 1fr);
+    gap: 1rem;
     min-height: 22rem;
-    overflow: hidden;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    background: var(--surface-content);
+    align-items: stretch;
   }
 
   .settings-page .settings-worktree-board__list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 0.5rem;
-    background: var(--surface-control);
-    border-right: 1px solid var(--border-strong);
+    gap: 0.25rem;
+    padding: 0.375rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-container, var(--radius));
+    background: hsl(var(--card));
+    overflow-y: auto;
   }
 
   .settings-page .settings-worktree-board__item {
@@ -2421,23 +2462,28 @@ html.dark {
     width: 100%;
     min-height: 2.5rem;
     align-items: center;
-    padding: 0.5rem 0.75rem;
-    border: 0;
-    border-radius: var(--radius);
+    padding: 0.5rem 0.625rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-element, var(--radius));
     background: transparent;
     color: var(--text-primary);
     font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1.25;
     text-align: left;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease;
   }
 
   .settings-page .settings-worktree-board__item:hover {
-    background: var(--surface-control-hover);
+    background: hsl(var(--foreground) / 0.05);
   }
 
   .settings-page .settings-worktree-board__item.is-selected {
-    background: var(--surface-content);
+    border-color: hsl(var(--primary) / 0.6);
+    background: hsl(var(--primary) / 0.05);
     color: var(--text-strong);
   }
 
@@ -2457,7 +2503,10 @@ html.dark {
     flex-direction: column;
     gap: 1.25rem;
     min-width: 0;
-    padding: 1rem;
+    padding: 1.25rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-container, var(--radius));
+    background: hsl(var(--card));
   }
 
   .settings-page .settings-worktree-board__pane h4 {
@@ -2556,8 +2605,9 @@ html.dark {
   .settings-page .settings-pairing-split > .settings-pairing-body,
   .settings-page .settings-pairing-block > .settings-pairing-body {
     padding: 0.75rem 1rem;
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
-    background: var(--surface-control);
+    background: hsl(var(--background) / 0.5);
   }
 
   .settings-page .settings-pairing-addresses {
@@ -2565,8 +2615,9 @@ html.dark {
     align-self: stretch;
     width: auto;
     min-width: 0;
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
-    background: var(--surface-control);
+    background: hsl(var(--background) / 0.5);
   }
 
   .settings-page .settings-card > .settings-pairing-addresses {
@@ -2611,10 +2662,12 @@ html.dark {
 
   .settings-page .settings-pairing-addresses__row {
     display: flex;
+    min-height: 2.5rem;
+    min-width: 0;
     align-items: center;
+    justify-content: space-between;
     gap: 0.75rem;
-    padding: 6px 4px;
-    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
   }
 
   .settings-page .settings-pairing-addresses__iface {
@@ -2635,9 +2688,9 @@ html.dark {
   }
 
   .settings-page .settings-pairing-addresses__open {
-    width: 1.5rem;
-    height: 1.5rem;
-    min-height: 1.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    min-height: 1.75rem;
     padding: 0;
     border: 0;
     background: transparent;
@@ -2684,8 +2737,9 @@ html.dark {
     align-self: stretch;
     width: auto;
     min-width: 0;
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
-    background: var(--surface-control);
+    background: hsl(var(--background) / 0.5);
   }
 
   .settings-page .settings-card > .settings-pairing-devices {
@@ -2725,33 +2779,97 @@ html.dark {
     font-weight: 400;
   }
 
+  .settings-bounded-list,
+  .settings-page .settings-bounded-list,
   .settings-page .settings-pairing-devices__list {
     display: flex;
+    width: 100%;
+    max-height: 14rem;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    padding-inline-end: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: auto;
+  }
+
+  :is(
+    .settings-bounded-list,
+    .settings-page .settings-pairing-devices__list
+  )::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+    background: transparent;
+  }
+
+  :is(
+    .settings-bounded-list,
+    .settings-page .settings-pairing-devices__list
+  )::-webkit-scrollbar-track,
+  :is(
+    .settings-bounded-list,
+    .settings-page .settings-pairing-devices__list
+  )::-webkit-scrollbar-track-piece {
+    margin: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :is(
+    .settings-bounded-list,
+    .settings-page .settings-pairing-devices__list
+  )::-webkit-scrollbar-thumb {
+    border: none;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.32);
+  }
+
+  :is(
+      .settings-bounded-list,
+      .settings-page .settings-pairing-devices__list
+    )::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.48);
+  }
+
+  .settings-page
+    :is(.settings-bounded-list, .settings-pairing-devices__list)
+    > :not([hidden])
+    ~ :not([hidden]) {
+    border-top: 1px solid hsl(var(--border) / 0.6);
   }
 
   .settings-page .settings-pairing-devices__empty {
-    padding: 8px 4px 4px;
-    color: var(--text-muted);
+    display: flex;
+    min-height: 2.5rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    color: hsl(var(--muted-foreground));
     font-size: 0.75rem;
   }
 
   .settings-page .settings-pairing-devices__preset {
-    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    border-radius: calc(var(--radius) - 4px);
+    background: hsl(var(--muted));
+    padding: 0.125rem 0.375rem;
+    color: hsl(var(--muted-foreground));
     font-size: 0.75rem;
-    font-weight: 500;
-    line-height: 1.33;
+    font-weight: 400;
+    line-height: 1rem;
   }
 
   .settings-page .settings-pairing-devices__row {
     display: flex;
+    min-height: 2.5rem;
+    min-width: 0;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 4px;
-    border-radius: var(--radius);
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
   }
 
   .settings-page .settings-pairing-devices__row .settings-row__description {
@@ -2949,9 +3067,10 @@ html.dark {
   .settings-page .conversation-bundle-panel {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.5rem;
     width: 100%;
-    padding-top: 0.5rem;
+    padding-top: 0.625rem;
+    border-top: 1px solid var(--border-subtle);
   }
 
   .settings-page .settings-action-bar {
@@ -3397,12 +3516,18 @@ html.dark {
       )
     ),
   .settings-page button[role='combobox'],
-  .settings-page .astryx-button,
   .settings-page
     :where(
-      button:not([role='switch']):not([role='checkbox']):not([aria-expanded])
+      button:not(.astryx-button):not([role='switch']):not(
+          [role='checkbox']
+        ):not([aria-expanded])
     ) {
     height: 2rem;
+    min-height: 2rem;
+    font-size: 0.75rem;
+  }
+
+  .settings-page .astryx-button:not([data-size='lg']) {
     min-height: 2rem;
     font-size: 0.75rem;
   }
@@ -3544,16 +3669,22 @@ html.dark {
     box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22) !important;
   }
 
-  .settings-page button[role='switch'] {
+  .settings-page button[role='switch'],
+  .collaboration-settings-modal-overlay button[role='switch'] {
     border: 1px solid hsl(var(--border) / 0.95);
     box-shadow: var(--shadow-switch-track);
   }
 
-  .settings-page button[role='switch'][data-state='unchecked'] {
+  .settings-page button[role='switch'][data-state='unchecked'],
+  .collaboration-settings-modal-overlay
+    button[role='switch'][data-state='unchecked'] {
     background-color: hsl(var(--background));
   }
 
-  .settings-page button[role='switch'][data-state='unchecked'] > span {
+  .settings-page button[role='switch'][data-state='unchecked'] > span,
+  .collaboration-settings-modal-overlay
+    button[role='switch'][data-state='unchecked']
+    > span {
     background-color: hsl(var(--muted-foreground) / 0.58);
     box-shadow: var(--shadow-switch-thumb);
   }
@@ -3575,6 +3706,21 @@ html.dark {
 
   .settings-page .settings-card textarea {
     min-height: 9rem;
+  }
+
+  .settings-page .settings-card textarea.conversation-bundle-textarea {
+    min-height: 2rem;
+    height: 2rem;
+    padding-block: 0.375rem;
+    resize: vertical;
+  }
+
+  .settings-page .settings-card textarea.conversation-bundle-textarea:focus,
+  .settings-page
+    .settings-card
+    textarea.conversation-bundle-textarea:not(:placeholder-shown) {
+    min-height: 5rem;
+    height: auto;
   }
 }
 
@@ -3729,6 +3875,7 @@ html.dark {
 
   /* Capsule hover tooltip: opaque dialog surface, visible hairline, no glass. */
   .app-hover-tooltip {
+    width: max-content;
     max-width: min(22rem, calc(100vw - 16px));
     padding: 5px 12px;
     overflow: hidden;
@@ -5100,7 +5247,6 @@ html.dark {
     padding: 2px 0 5px;
     overflow-x: hidden;
     overflow-y: auto;
-    cursor: grab;
   }
 
   /* The shell's right padding is 4px, so the thumb sits near the rail edge.
@@ -7204,7 +7350,7 @@ html.dark {
     .settings-nav-groups,
     .settings-search-results
   )::-webkit-scrollbar-corner {
-    margin-block: 10px;
+    margin-block: 2px;
     border: none;
     background: transparent;
     box-shadow: none;
@@ -7343,7 +7489,9 @@ html.dark {
     flex-direction: column;
     gap: 2px;
     margin: 0;
+    margin-inline-end: -0.5rem;
     padding: 0;
+    padding-inline-end: 0.5rem;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -7433,6 +7581,8 @@ html.dark {
     flex: 1 1 auto;
     flex-direction: column;
     gap: 0.625rem;
+    margin-inline-end: -0.5rem;
+    padding-inline-end: 0.5rem;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -9472,6 +9622,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: var(--shadow-control);
 }
 
+.settings-page.agent-management-bar-drag-overlay,
+.dark .settings-page.agent-management-bar-drag-overlay {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
 :is(.settings-page, .plan-usage-page)
   .agent-management-bar-item.is-placeholder {
   opacity: 0;
@@ -10042,9 +10198,17 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-preflight-status.is-update {
-  border-color: var(--border-strong);
-  background: var(--surface-control);
-  color: var(--text-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: hsl(var(--primary));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .settings-page button.agent-preflight-status {
@@ -10057,9 +10221,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   cursor: pointer;
 }
 
+.settings-page button.agent-preflight-status.is-update {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
 .settings-page button.agent-preflight-status.is-update:hover:not(:disabled) {
-  background: var(--surface-control-hover);
-  border-color: var(--border-strong);
+  background: hsl(var(--foreground) / 0.1);
+  border-color: transparent;
+  color: hsl(var(--primary));
 }
 
 .settings-page button.agent-preflight-status:focus-visible {
@@ -11541,12 +11712,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-operation-log {
   max-height: 180px;
   overflow: auto;
-  margin-top: 10px;
-  padding: 9px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: hsl(var(--background) / 0.58);
-  color: var(--text-muted);
+  background: var(--surface-shell);
+  color: var(--text-primary);
   font-family: var(--font-mono, monospace);
   font-size: 0.75rem;
   line-height: 1.55;
@@ -11564,12 +11735,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-operation-stages {
-  display: flex;
-  flex-wrap: wrap;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 8px 16px;
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px 8px;
+  width: 100%;
+  margin: 12px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -11584,41 +11754,86 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-operation-stages li {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
-  color: var(--text-faint);
+  row-gap: 7px;
+  column-gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
   font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.settings-page .agent-operation-stages li .agent-operation-stage-bar {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--foreground) / 0.14);
+  transition: background-color 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-page .agent-operation-stages li .agent-operation-stage-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-.settings-page .agent-operation-stages li > span {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--surface-content);
+.settings-page
+  .agent-operation-stages
+  li[data-state='complete']
+  .agent-operation-stage-bar,
+.settings-page
+  .agent-operation-stages
+  li[data-state='current']
+  .agent-operation-stage-bar {
+  background: var(--text-strong);
 }
 
 .settings-page .agent-operation-stages li[data-state='complete'] {
-  color: var(--text-muted);
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
-.settings-page .agent-operation-stages li[data-state='complete'] > span {
-  border-color: hsl(var(--success) / 0.58);
-  background: hsl(var(--success));
+.settings-page
+  .agent-operation-stages
+  li[data-state='complete']
+  .agent-operation-stage-indicator {
+  background: var(--text-strong);
+  color: var(--surface-shell);
 }
 
 .settings-page .agent-operation-stages li[data-state='current'] {
-  color: hsl(var(--primary));
-  font-weight: 600;
+  color: var(--text-strong);
+  font-weight: 700;
 }
 
-.settings-page .agent-operation-stages li[data-state='current'] > span {
-  border-color: hsl(var(--primary));
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
+.settings-page
+  .agent-operation-stages
+  li[data-state='current']
+  .agent-operation-stage-indicator {
+  border: 1.75px solid var(--text-strong);
+  background: transparent;
+}
+
+.settings-page .agent-operation-stages li .agent-operation-stage-dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -15879,11 +16094,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     grid-template-columns: 1fr;
   }
 
-  .settings-page .settings-worktree-board__list {
-    border-right: 0;
-    border-bottom: 1px solid var(--border-strong);
-  }
-
   .settings-page .product-plugin-content-browser {
     height: min(660px, calc(100dvh - 230px));
     grid-template-columns: 1fr;
@@ -16844,7 +17054,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 28px !important;
   padding: 0 !important;
   border: 1px solid var(--border-subtle);
-  border-radius: 999px;
+  border-radius: var(--radius-element, var(--radius));
   background: var(--surface-card-strong);
   color: var(--text-secondary);
   cursor: pointer;

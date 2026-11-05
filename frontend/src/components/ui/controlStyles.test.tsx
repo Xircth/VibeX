@@ -33,8 +33,10 @@ describe('shared raised controls', () => {
       const className = screen.getByRole('button', {
         name: 'Action',
       }).className;
-      expect(className).toContain('rounded-lg');
+      expect(className).toContain('rounded-md');
       expect(className).toContain('raised-control');
+      expect(className).toContain('secondary');
+      expect(className).toContain('md');
     }
   );
 
@@ -45,6 +47,8 @@ describe('shared raised controls', () => {
       name: 'Primary action',
     }).className;
     expect(className).toContain('primary-control');
+    expect(className).toContain('primary');
+    expect(className).toContain('md');
     expect(className).toContain('text-[var(--primary-control-foreground)]');
   });
 
@@ -63,13 +67,16 @@ describe('shared raised controls', () => {
     );
   });
 
-  it('keeps destructive actions on the same control geometry and elevation', () => {
+  it('keeps destructive actions on the same control geometry and Astryx soft red fill', () => {
     render(<Button variant="destructive">Remove</Button>);
 
     const button = screen.getByRole('button', { name: 'Remove' });
-    expect(button.className).toContain('rounded-lg');
+    expect(button.className).toContain('rounded-md');
     expect(button.className).toContain('destructive-control');
     expect(button.className).toContain('astryx-button');
+    expect(button.className).toContain('destructive');
+    expect(button.className).toContain('md');
+    expect(button.className).toContain('--color-error-muted');
     expect(button).toHaveAttribute('data-variant', 'destructive');
     expect(button).toHaveAttribute('data-size', 'md');
   });
@@ -89,6 +96,8 @@ describe('shared raised controls', () => {
     const button = screen.getByRole('button', { name: /Create/i });
     expect(button.className).toContain('astryx-button');
     expect(button.className).toContain('primary-control');
+    expect(button.className).toContain('primary');
+    expect(button.className).toContain('sm');
     expect(button).toHaveAttribute('data-variant', 'primary');
     expect(button).toHaveAttribute('data-size', 'sm');
     expect(button).toHaveAttribute('data-astryx-pressable', '');
@@ -158,9 +167,12 @@ describe('shared raised controls', () => {
     );
     const design = readFileSync(join(frontendRoot, '../DESIGN.md'), 'utf8');
 
-    expect(css).toContain('--_radius: 0.875rem;');
-    expect(css).toContain('--radius-element: var(--radius);');
-    expect(css).toContain('--_button-radius: var(--radius);');
+    expect(css).toContain('--_radius-inner: 0.375rem;');
+    expect(css).toContain('--_radius-element: 0.625rem;');
+    expect(css).toContain('--_radius-container: 0.75rem;');
+    expect(css).toContain('--_radius: var(--_radius-element);');
+    expect(css).toContain('--radius-element: var(--_radius-element);');
+    expect(css).toContain('--_button-radius: var(--radius-element);');
     expect(css).toContain('--color-neutral: #0000000f;');
     expect(css).toContain('--_primary: var(--accent-hsl, 0 0% 10.59%);');
     expect(css).toContain(
@@ -190,7 +202,11 @@ describe('shared raised controls', () => {
     expect(design).toContain('shadow: "none"');
     expect(css).toContain(".raised-control[aria-disabled='true']");
     expect(css).toContain('opacity: 0.5;');
-    expect(tailwind).toContain("DEFAULT: 'var(--radius)'");
+    expect(tailwind).toContain(
+      "DEFAULT: 'var(--radius-element, var(--radius))'"
+    );
+    expect(tailwind).toContain("sm: 'var(--radius-inner, var(--radius))'");
+    expect(tailwind).toContain("lg: 'var(--radius-container, var(--radius))'");
   });
 
   it('rejects local numeric radii outside circle and pill exceptions', () => {
@@ -207,7 +223,7 @@ describe('shared raised controls', () => {
       for (const declaration of source.matchAll(
         /(?:border-radius|--[\w-]*radius)\s*:\s*([^;]+);/g
       )) {
-        if (declaration[0].startsWith('--_radius:')) continue;
+        if (declaration[0].startsWith('--_radius')) continue;
         for (const length of declaration[1].matchAll(radiusLengthPattern)) {
           if (Number(length[1]) < 900) {
             violations.push(`${path}: ${declaration[0]}`);

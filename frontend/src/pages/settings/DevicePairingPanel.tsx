@@ -343,9 +343,9 @@ export function DevicePairingPanel({
             {visibleOrigins.length}
           </span>
         </div>
-        <div className="settings-pairing-addresses flex-1">
+        <div className="settings-pairing-addresses settings-bounded-list-container min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-background/50">
           <div
-            className="settings-pairing-devices__list max-h-40 overflow-y-auto"
+            className="settings-pairing-devices__list settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
             data-testid="pairing-addresses-scroll-box"
           >
             {visibleOrigins.map((item) => {
@@ -358,37 +358,41 @@ export function DevicePairingPanel({
                     : null);
               return (
                 <div
-                  className="settings-pairing-addresses__row flex items-center gap-3"
+                  className="settings-pairing-addresses__row flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
                   key={item.origin}
                 >
-                  <span className="w-12 shrink-0 text-xs font-semibold text-foreground">
-                    {addressKindLabel(item.kind)}
-                  </span>
-                  <span className="flex w-24 shrink-0 items-center">
-                    {ifaceLabel ? (
-                      <span className="settings-pairing-addresses__iface inline-flex max-w-full items-center truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        {ifaceLabel}
-                      </span>
-                    ) : null}
-                  </span>
-                  <button
-                    type="button"
-                    className="settings-pairing-addresses__origin min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    title={item.origin}
-                    onClick={() => void copyOrigin(item.origin)}
-                    aria-label={`${t('webService.copyAddress')} ${item.origin}`}
-                  >
-                    {item.origin}
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="settings-pairing-addresses__open !h-6 !min-h-0 !w-6 shrink-0 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-                    onClick={() => void openInSystemBrowser(item.origin)}
-                    aria-label={`${t('webService.openOrigin')} ${item.origin}`}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                    <span className="w-12 shrink-0 text-xs font-semibold text-foreground">
+                      {addressKindLabel(item.kind)}
+                    </span>
+                    <span className="flex w-20 shrink-0 items-center">
+                      {ifaceLabel ? (
+                        <span className="settings-pairing-addresses__iface inline-flex max-w-full items-center truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          {ifaceLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      className="settings-pairing-addresses__origin min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      title={item.origin}
+                      onClick={() => void copyOrigin(item.origin)}
+                      aria-label={`${t('webService.copyAddress')} ${item.origin}`}
+                    >
+                      {item.origin}
+                    </button>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="settings-pairing-addresses__open !h-7 !min-h-0 !w-7 shrink-0 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                      onClick={() => void openInSystemBrowser(item.origin)}
+                      aria-label={`${t('webService.openOrigin')} ${item.origin}`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -600,8 +604,15 @@ export function DevicePairingPanel({
           />
         </button>
         {devicesExpanded ? (
-          <div className="settings-pairing-devices">
-            <div id={devicesListId} className="settings-pairing-devices__list">
+          <div
+            className="settings-pairing-devices settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+            data-testid="paired-devices-list-container"
+          >
+            <div
+              id={devicesListId}
+              className="settings-pairing-devices__list settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+              data-testid="paired-devices-scroll-box"
+            >
               {devices.length === 0 ? (
                 <p className="settings-pairing-devices__empty">
                   {t('webService.pairedDevicesEmpty')}
@@ -620,39 +631,41 @@ export function DevicePairingPanel({
                   );
                   return (
                     <div
-                      className="settings-pairing-devices__row flex items-center justify-between gap-3"
+                      className="settings-pairing-devices__row flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
                       key={device.device_id}
                     >
-                      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sm">
-                        <span className="truncate font-medium">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                        <span className="max-w-[14rem] shrink-0 truncate text-xs font-medium text-foreground">
                           {device.device_name}
                         </span>
-                        <span className="settings-pairing-devices__preset shrink-0">
+                        <span className="settings-pairing-devices__preset shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           {kindLabel}
                         </span>
                         {device.ip_address ? (
-                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                             {device.ip_address}
                           </span>
                         ) : null}
                         {connectedTime ? (
-                          <span className="shrink-0 text-xs text-muted-foreground">
+                          <span className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
                             {connectedTime}
                           </span>
                         ) : null}
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0"
-                        onClick={() => void revokeDevice(device)}
-                        disabled={revokingId === device.device_id}
-                      >
-                        {revokingId === device.device_id ? (
-                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        {t('webService.revokeDevice')}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0 px-2.5 text-xs"
+                          onClick={() => void revokeDevice(device)}
+                          disabled={revokingId === device.device_id}
+                        >
+                          {revokingId === device.device_id ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {t('webService.revokeDevice')}
+                        </Button>
+                      </div>
                     </div>
                   );
                 })

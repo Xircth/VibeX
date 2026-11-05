@@ -123,4 +123,30 @@ describe('NativeTitleTooltipHost', () => {
       '复制'
     );
   });
+
+  it('does not mount a native surface occlusion hold and hides on pointerout into native child surfaces', () => {
+    render(
+      <div>
+        <NativeTitleTooltipHost />
+        <button type="button" title="开发者工具">
+          调试
+        </button>
+      </div>
+    );
+
+    const trigger = screen.getByRole('button', { name: '调试' });
+    fireEvent.pointerOver(trigger, { pointerType: 'mouse' });
+    act(() => {
+      vi.advanceTimersByTime(NATIVE_TITLE_SHOW_DELAY_MS);
+    });
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.querySelector('[data-native-surface-occlusion]')).toBeNull();
+
+    fireEvent.pointerOut(trigger, {
+      pointerType: 'mouse',
+      relatedTarget: null,
+    });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
 });

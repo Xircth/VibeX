@@ -234,6 +234,41 @@ pub fn install_process_arguments() {
     }
 }
 
+/// Returns `true` when an existing WebView2 process still holds an open handle
+/// on the profile's `EBWebView\Default\LOCK` or `EBWebView\Crashpad\settings.dat`.
+pub fn webview2_user_data_is_locked(dir: &std::path::Path) -> bool {
+    let ebwebview = dir.join("EBWebView");
+    if !ebwebview.exists() {
+        return false;
+    }
+    for sentinel in [
+        ebwebview.join("Default").join("LOCK"),
+        ebwebview.join("Crashpad").join("settings.dat"),
+    ] {
+        if is_file_handle_contended(&sentinel) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_file_handle_contended(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0);
+    }
+    match options.open(path) {
+        Ok(_file) => false,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
 #[cfg(any(windows, test))]
 pub(crate) fn build_reclaim_orphaned_webview2_script(
     exe: &std::path::Path,
@@ -268,62 +303,83 @@ mod win32_desktop {
 
     use super::{
         INTERACTIVE_DESKTOP_RELAUNCHED_ENV, SANDBOX_PARENT_PID_ENV,
-        build_reclaim_orphaned_webview2_script, remove_stale_debug_run_user_data,
-        remove_stale_webview2_user_data, should_relaunch_on_interactive_desktop,
-        webview2_identifier_for_executable, webview2_user_data_dir,
+        build_reclaim_orphaned_webview2_script, debug_webview2_environment_dir,
+        remove_stale_debug_run_user_data, remove_stale_webview2_user_data,
+        should_relaunch_on_interactive_desktop, webview2_identifier_for_executable,
+        webview2_user_data_dir, webview2_user_data_is_locked,
     };
 
     const PREVIOUS_EXE_WAIT: Duration = Duration::from_secs(3);
 
+    fn webview2_identity_needs_reclaim(identifier: &str, user_data: Option<&Path>) -> bool {
+        if user_data.is_some_and(webview2_user_data_is_locked) {
+            return true;
+        }
+        if identifier == "com.vibex.app.dev"
+            && webview2_user_data_is_locked(&debug_webview2_environment_dir())
+        {
+            return true;
+        }
+        false
+    }
+
     /// Wait for a cargo-watch predecessor to exit, then reap WebView2 children
     /// still holding this identity's user-data folder (`0x800700AA`).
     ///
-    /// A live copy of this executable is left alone so single-instance launch
-    /// can still forward. Task Manager's "VibeX" group does not list
-    /// `msedgewebview2.exe`; those processes keep the folder after the window
-    /// is gone.
+    /// On a normal cold start where neither the identity `EBWebView` folder nor
+    /// the debug profile holds an active `LOCK`/`Crashpad` handle, skip
+    /// spawning `powershell.exe` altogether and clean up any `.stale-*`
+    /// leftovers in the background.
     pub fn reclaim_orphaned_webview2_user_data() {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
         let identifier = webview2_identifier_for_executable(&exe);
         let self_pid = std::process::id();
-        let sandbox_parent_pid = std::env::var(SANDBOX_PARENT_PID_ENV)
-            .ok()
-            .and_then(|raw| raw.trim().parse::<u32>().ok());
-        let wait_ms = PREVIOUS_EXE_WAIT.as_millis();
-        let script = build_reclaim_orphaned_webview2_script(
-            &exe,
-            identifier,
-            self_pid,
-            sandbox_parent_pid,
-            wait_ms,
-        );
-        let mut command = Command::new("powershell.exe");
-        utils::process::configure_std_command_no_window(&mut command);
-        let _ = command
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &script,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let user_data = webview2_user_data_dir(identifier);
 
-        let Some(user_data) = webview2_user_data_dir(identifier) else {
+        if webview2_identity_needs_reclaim(identifier, user_data.as_deref()) {
+            let sandbox_parent_pid = std::env::var(SANDBOX_PARENT_PID_ENV)
+                .ok()
+                .and_then(|raw| raw.trim().parse::<u32>().ok());
+            let wait_ms = PREVIOUS_EXE_WAIT.as_millis();
+            let script = build_reclaim_orphaned_webview2_script(
+                &exe,
+                identifier,
+                self_pid,
+                sandbox_parent_pid,
+                wait_ms,
+            );
+            let mut command = Command::new("powershell.exe");
+            utils::process::configure_std_command_no_window(&mut command);
+            let _ = command
+                .args([
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &script,
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+
+        let Some(user_data) = user_data else {
             return;
         };
-        remove_stale_webview2_user_data(&user_data);
-        if identifier == "com.vibex.app.dev" {
-            remove_stale_debug_run_user_data(
-                &utils::assets::asset_dir().join("webview-profiles"),
-                self_pid,
-            );
-        }
+        let _ = std::thread::Builder::new()
+            .name("wv2-stale-cleanup".to_string())
+            .spawn(move || {
+                remove_stale_webview2_user_data(&user_data);
+                if identifier == "com.vibex.app.dev" {
+                    remove_stale_debug_run_user_data(
+                        &utils::assets::asset_dir().join("webview-profiles"),
+                        self_pid,
+                    );
+                }
+            });
     }
 
     type Handle = *mut core::ffi::c_void;
@@ -870,5 +926,38 @@ mod tests {
         );
         assert!(script.contains("$self = 2000; $parentPid = 1000;"));
         assert!(script.contains("$_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid"));
+    }
+
+    #[test]
+    fn webview2_lock_probe_skips_unlocked_profile_and_detects_exclusive_lock() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "target/wv2-lock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        assert!(!super::webview2_user_data_is_locked(&dir));
+
+        let default_dir = dir.join("EBWebView").join("Default");
+        std::fs::create_dir_all(&default_dir).unwrap();
+        let lock_file = default_dir.join("LOCK");
+        std::fs::write(&lock_file, b"").unwrap();
+        assert!(!super::webview2_user_data_is_locked(&dir));
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let _held = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(0)
+                .open(&lock_file)
+                .unwrap();
+            assert!(super::webview2_user_data_is_locked(&dir));
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -133,7 +133,7 @@ function CopySnippetButton({
   return (
     <button
       type="button"
-      className="raised-control inline-flex h-6 items-center gap-1 rounded-[calc(var(--radius)-6px)] px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      className="raised-control inline-flex h-6 items-center gap-1 rounded-sm px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
       onClick={() => {
         void navigator.clipboard?.writeText(value);
         setCopied(true);
@@ -817,7 +817,7 @@ export function SessionFlameGraph({
               setViewport(null);
             }}
             className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-[calc(var(--radius)-6px)] px-2 text-xs font-medium transition-colors',
+              'inline-flex h-7 items-center gap-1 rounded-sm px-2 text-xs font-medium transition-colors',
               actualDuration
                 ? 'bg-[var(--surface-active)] text-foreground'
                 : 'text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground'
@@ -843,7 +843,7 @@ export function SessionFlameGraph({
             disabled={collapsibleTurnIds.length === 0}
             onClick={toggleAllTurns}
             className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-[calc(var(--radius)-6px)] px-2 text-xs font-medium transition-colors disabled:opacity-40',
+              'inline-flex h-7 items-center gap-1 rounded-sm px-2 text-xs font-medium transition-colors disabled:opacity-40',
               allTurnsCollapsed
                 ? 'bg-[var(--surface-active)] text-foreground'
                 : 'text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground'
@@ -871,7 +871,7 @@ export function SessionFlameGraph({
             disabled={collapsibleAssistantIndexes.length === 0}
             onClick={toggleAllCalls}
             className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-[calc(var(--radius)-6px)] px-2 text-xs font-medium transition-colors disabled:opacity-40',
+              'inline-flex h-7 items-center gap-1 rounded-sm px-2 text-xs font-medium transition-colors disabled:opacity-40',
               allCallsCollapsed
                 ? 'bg-[var(--surface-active)] text-foreground'
                 : 'text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground'
@@ -887,7 +887,7 @@ export function SessionFlameGraph({
             <button
               type="button"
               onClick={() => setTimelineRange(null)}
-              className="inline-flex h-7 items-center gap-1 rounded-[calc(var(--radius)-6px)] bg-primary/15 px-2 text-xs font-medium text-foreground transition-colors hover:bg-primary/25"
+              className="inline-flex h-7 items-center gap-1 rounded-sm bg-primary/15 px-2 text-xs font-medium text-foreground transition-colors hover:bg-primary/25"
             >
               <span>{t('workspaceActivity.trajectoryClearSelection')}</span>
               <X className="h-3 w-3" aria-hidden="true" />
@@ -1277,7 +1277,7 @@ export function SessionFlameGraph({
                 type="button"
                 aria-label={t('workspaceActivity.trajectoryDetailsClose')}
                 onClick={() => setSelectedIndex(null)}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-[calc(var(--radius)-6px)] text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -1297,7 +1297,7 @@ export function SessionFlameGraph({
                   aria-selected={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    'rounded-[calc(var(--radius)-6px)] px-2 py-1 text-xs font-medium transition-colors',
+                    'rounded-sm px-2 py-1 text-xs font-medium transition-colors',
                     activeTab === tab.id
                       ? 'bg-[var(--surface-active)] text-foreground'
                       : 'text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground'
@@ -1421,7 +1421,7 @@ export function SessionFlameGraph({
 
                   {/* Quick Preview Cards */}
                   {selectedRecord.thinkingText ? (
-                    <div className="space-y-1 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                    <div className="space-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-muted-foreground">
                           {t('workspaceActivity.trajectoryThinking')}
@@ -1434,7 +1434,7 @@ export function SessionFlameGraph({
                   ) : null}
 
                   {selectedRecord.fullText ? (
-                    <div className="space-y-1 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                    <div className="space-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                       <div className="flex items-center justify-between">
                         <button
                           type="button"
@@ -1456,7 +1456,7 @@ export function SessionFlameGraph({
                   {(selectedRecord.kind === 'tool' ||
                     selectedRecord.kind === 'subtool') && (
                     <>
-                      <div className="space-y-1 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                      <div className="space-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                         <button
                           type="button"
                           onClick={() => setActiveTab('payload')}
@@ -1473,7 +1473,7 @@ export function SessionFlameGraph({
                         </pre>
                       </div>
 
-                      <div className="space-y-1 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                      <div className="space-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                         <button
                           type="button"
                           onClick={() => setActiveTab('result')}
@@ -1506,7 +1506,7 @@ export function SessionFlameGraph({
                   {selectedRecord.thinkingText ? (
                     <details
                       open
-                      className="rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5"
+                      className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5"
                     >
                       <summary className="cursor-pointer font-semibold text-muted-foreground">
                         {t('workspaceActivity.trajectoryThinking')}
@@ -1529,7 +1529,7 @@ export function SessionFlameGraph({
                             )}
                           />
                         </div>
-                        <pre className="whitespace-pre-wrap rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-sans text-xs leading-relaxed text-foreground">
+                        <pre className="whitespace-pre-wrap rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-sans text-xs leading-relaxed text-foreground">
                           {selectedRecord.fullText}
                         </pre>
                       </>
@@ -1556,7 +1556,7 @@ export function SessionFlameGraph({
                           copiedLabel={t('workspaceActivity.trajectoryCopied')}
                         />
                       </div>
-                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-mono text-xs text-foreground">
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-mono text-xs text-foreground">
                         {formatPrettyPayload(selectedRecord.inputDetail)}
                       </pre>
                     </>
@@ -1581,7 +1581,7 @@ export function SessionFlameGraph({
                       </div>
                       <pre
                         className={cn(
-                          'overflow-x-auto whitespace-pre-wrap rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-mono text-xs',
+                          'overflow-x-auto whitespace-pre-wrap rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5 font-mono text-xs',
                           selectedRecord.isError
                             ? 'text-[hsl(var(--destructive))]'
                             : 'text-foreground'
@@ -1600,7 +1600,7 @@ export function SessionFlameGraph({
 
               {activeTab === 'usage' ? (
                 <div className="space-y-3">
-                  <div className="space-y-1.5 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                  <div className="space-y-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                     <h4 className="font-semibold text-foreground">
                       {t('workspaceActivity.trajectoryThisRequest')}
                     </h4>
@@ -1608,7 +1608,7 @@ export function SessionFlameGraph({
                   </div>
 
                   {selectedRecord.cumulativeUsage ? (
-                    <div className="space-y-1.5 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                    <div className="space-y-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                       <h4 className="font-semibold text-foreground">
                         {t('workspaceActivity.trajectorySessionCumulative')}
                       </h4>
@@ -1622,7 +1622,7 @@ export function SessionFlameGraph({
               ) : null}
 
               {activeTab === 'timing' ? (
-                <dl className="space-y-2 rounded-[calc(var(--radius)-4px)] border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
+                <dl className="space-y-2 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-control)] p-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <dt className="text-muted-foreground">
                       {t('workspaceActivity.trajectoryStarted')}

@@ -70,7 +70,7 @@ test('项目栏默认隐藏，且可见性不再跨窗口持久化', () => {
   const source = readFile('src/stores/useWindowProjectsStore.ts');
 
   assert.match(source, /railVisible:\s*false/);
-  assert.match(source, /version:\s*4/);
+  assert.match(source, /version:\s*7/);
   assert.match(source, /migrate:\s*\(persistedState:\s*unknown\)/);
   assert.doesNotMatch(source, /partialize:[\s\S]*railVisible:/);
 });

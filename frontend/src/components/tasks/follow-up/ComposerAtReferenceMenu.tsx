@@ -8,6 +8,7 @@ import {
   Server,
   Sparkles,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -50,10 +51,20 @@ export function ComposerAtReferenceMenu({
   onHighlight?: (index: number) => void;
 }) {
   const { t } = useTranslation('tasks');
+  const listboxRef = useRef<HTMLDivElement>(null);
   const groupByTab = new Map(groups.map((group) => [group.tab, group]));
   const activeGroup = groupByTab.get(activeTab);
   const items = activeGroup?.items ?? [];
   const tabOrder = atReferenceTabOrder(groups);
+
+  useEffect(() => {
+    const activeOption = listboxRef.current?.querySelector<HTMLElement>(
+      '[role="option"][aria-selected="true"]'
+    );
+    if (activeOption && typeof activeOption.scrollIntoView === 'function') {
+      activeOption.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeTab, selectedIndex]);
 
   return (
     <div
@@ -104,6 +115,7 @@ export function ComposerAtReferenceMenu({
           </div>
         ) : (
           <div
+            ref={listboxRef}
             role="listbox"
             aria-label={`${t('composer.atReference.listbox')}: ${t(
               `composer.atReference.tabs.${activeTab}`
@@ -124,7 +136,10 @@ export function ComposerAtReferenceMenu({
                   role="option"
                   aria-selected={active}
                   data-active={active}
-                  className="composer-at-reference-option relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start"
+                  className={cn(
+                    'composer-at-reference-option relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start transition-colors hover:bg-accent hover:text-accent-foreground',
+                    active && 'bg-accent text-accent-foreground'
+                  )}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     onSelectItem(item);

@@ -12,6 +12,7 @@ type CacheEntry = {
   at: number;
   available: boolean;
   currentVersion: string | null;
+  availableVersion?: string | null;
 };
 
 type Cache = Record<string, CacheEntry>;
@@ -20,13 +21,13 @@ let memoryCache: Cache | null = null;
 const inFlight = new Map<string, Promise<boolean>>();
 
 function readStore(): Cache {
-  if (memoryCache) return memoryCache;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       memoryCache = {};
       return memoryCache;
     }
+    if (memoryCache) return memoryCache;
     const parsed = JSON.parse(raw) as Cache;
     memoryCache = parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -68,6 +69,32 @@ export function readCachedAgentAcpUpdates(): Record<string, boolean> {
   return availableFromCache(readStore());
 }
 
+export function readCachedAgentAcpUpdate(
+  agentId: string,
+  currentVersion?: string | null
+): {
+  available: boolean;
+  currentVersion: string | null;
+  availableVersion: string | null;
+} | null {
+  const entry = readStore()[agentId];
+  if (!entry) return null;
+  if (Date.now() - entry.at >= CHECK_TTL_MS) return null;
+  if (
+    currentVersion !== undefined &&
+    currentVersion !== null &&
+    entry.currentVersion !== null &&
+    entry.currentVersion !== currentVersion
+  ) {
+    return null;
+  }
+  return {
+    available: entry.available,
+    currentVersion: entry.currentVersion,
+    availableVersion: entry.availableVersion ?? null,
+  };
+}
+
 export function subscribeAgentAcpUpdates(
   listener: (available: Record<string, boolean>) => void
 ): () => void {
@@ -100,6 +127,7 @@ export function recordAgentAcpUpdateCheck(
     at: Date.now(),
     available,
     currentVersion: currentVersion ?? check.acp_current ?? null,
+    availableVersion: check.acp_available ?? check.available_version ?? null,
   };
   writeStore(cache);
 }

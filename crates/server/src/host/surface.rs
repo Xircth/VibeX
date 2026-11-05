@@ -1645,7 +1645,11 @@ impl ServerApplicationDomains {
             kind,
             AgentOperationStatus::Queued,
             Some(5),
-            Some("正在进行基础环境检查".to_string()),
+            Some(format!(
+                "$ vibex agent {} {}",
+                operation_kind_key(kind),
+                agent_id.as_str()
+            )),
         );
         let pool = self.pool.clone();
         let data_dir = utils::assets::host_data_dir();

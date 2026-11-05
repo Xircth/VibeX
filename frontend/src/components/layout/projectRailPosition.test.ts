@@ -29,6 +29,13 @@ describe('clampProjectRailPosition', () => {
       y: 800 - 280 - PROJECT_RAIL_EDGE_MARGIN,
     });
   });
+
+  it('does not clamp y to the top margin when the viewport is not measured yet', () => {
+    expect(clampProjectRailPosition(12, 260, 220, 280, 0, 0)).toEqual({
+      x: 12,
+      y: 260,
+    });
+  });
 });
 
 describe('defaultProjectRailPosition', () => {

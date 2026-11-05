@@ -164,6 +164,7 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
         let port = allocate_loopback_port()?;
         let arguments = render_arguments(&process.argv, &artifact, port)?;
         let mut command = Command::new(&runtime.executable_path);
+        utils::process::configure_tokio_command_no_window(&mut command);
         command
             .args(arguments)
             .stdin(Stdio::null())

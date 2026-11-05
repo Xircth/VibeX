@@ -343,14 +343,50 @@ describe('VersionControlSettings', () => {
     });
   });
 
-  it('lists enabled Agents for PR description generation', async () => {
+  it('opens a right-side modal when enabling PR auto description and lists enabled Agents', async () => {
+    const user = userEvent.setup();
     render(<VersionControlSettings />);
 
     await waitFor(() => {
       expect(agentManagementApiMock.bar).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByRole('combobox', { name: 'Agent' })).not.toBeDisabled();
+    const prToggle = screen.getByRole('switch', { name: '自动生成 PR 描述' });
+    expect(prToggle).not.toBeChecked();
+    expect(
+      screen.queryByTestId('pr-description-list-container')
+    ).not.toBeInTheDocument();
+
+    await user.click(prToggle);
+    expect(prToggle).toBeChecked();
+
+    expect(
+      await screen.findByTestId('pr-description-modal-overlay')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: 'PR描述生成Agent' })
+    ).not.toBeDisabled();
+    const customPrPromptSwitch = screen.getByRole('switch', {
+      name: '自定义PR提示词',
+    });
+    expect(customPrPromptSwitch.parentElement).toHaveClass(
+      'flex',
+      'items-center',
+      'justify-between'
+    );
+
+    await user.click(screen.getByTestId('pr-description-save-btn'));
+
+    await waitFor(() => {
+      expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pr_auto_description_enabled: true,
+        })
+      );
+    });
+    expect(
+      await screen.findByTestId('pr-description-list-container')
+    ).toBeInTheDocument();
   });
 
   it('persists the reminder mode and changed-line threshold', async () => {

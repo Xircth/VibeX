@@ -127,7 +127,7 @@ describe('AppearanceSettings', () => {
     mocks.backendEmit.mockResolvedValue(undefined);
   });
 
-  it('groups accent, zoom, font, and language under basic appearance', () => {
+  it('groups accent, zoom, and font under basic appearance without language', () => {
     render(<AppearanceSettings />);
     expect(
       screen.getByRole('heading', { name: '基础外观' })
@@ -135,7 +135,7 @@ describe('AppearanceSettings', () => {
     expect(screen.getByText('强调色')).toBeInTheDocument();
     expect(screen.getByText('缩放比例')).toBeInTheDocument();
     expect(screen.getByText('等宽字体')).toBeInTheDocument();
-    expect(screen.getByText('界面语言')).toBeInTheDocument();
+    expect(screen.queryByText('界面语言')).not.toBeInTheDocument();
     expect(screen.getByText('设置菜单悬浮')).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: '强调色' })
@@ -181,10 +181,6 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('option', { name: 'Menlo' }));
     expect(mocks.setMonoFont).toHaveBeenCalledWith('menlo');
 
-    await user.click(screen.getByRole('combobox', { name: '界面语言' }));
-    await user.click(screen.getByRole('option', { name: 'English' }));
-    expect(mocks.setUiLanguage).toHaveBeenCalledWith('en');
-
     await user.click(screen.getByText('Dark'));
     expect(screen.getByRole('checkbox', { name: 'Dark' })).toBeChecked();
 
@@ -199,12 +195,12 @@ describe('AppearanceSettings', () => {
     });
   });
 
-  it('groups Kanban session list and board layout under session board style', () => {
+  it('groups Kanban session list view and board layout under session board style', () => {
     render(<AppearanceSettings />);
     expect(
       screen.getByRole('heading', { name: '会话看板样式' })
     ).toBeInTheDocument();
-    expect(screen.getByText('看板会话列表')).toBeInTheDocument();
+    expect(screen.getByText('看板会话列表视图')).toBeInTheDocument();
     expect(screen.getByText('看板布局类型')).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: 'Kanban 会话列表' })
@@ -214,22 +210,20 @@ describe('AppearanceSettings', () => {
     expect(screen.queryByText('看板样式')).not.toBeInTheDocument();
   });
 
-  it('applies the Kanban session list grouping immediately', async () => {
+  it('applies the Kanban session list grouping immediately via SegmentedControl', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole('combobox', { name: '看板会话列表' }));
-    await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
+    await user.click(screen.getByRole('radio', { name: '工作区分组' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
   });
 
-  it('applies the session board style immediately', async () => {
+  it('applies the session board style immediately via SegmentedControl', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole('combobox', { name: '看板布局类型' }));
-    await user.click(screen.getByRole('option', { name: '无限画布' }));
+    await user.click(screen.getByRole('radio', { name: '无限画布' }));
 
     expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');
   });

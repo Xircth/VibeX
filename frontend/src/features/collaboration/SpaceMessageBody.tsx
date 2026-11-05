@@ -907,6 +907,29 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
     ? splitMessageHtmlSegments(markdownValue, { workspacePath })
     : [];
   const hasHtmlSegment = segments.some((seg) => seg.kind === 'html');
+  const isStandaloneQuestionCard = Boolean(
+    card?.kind === 'ask' && card.questions && card.questions.length > 0
+  );
+  const inlineCard = card && !isStandaloneQuestionCard ? card : null;
+  const standaloneQuestionCardNode =
+    isStandaloneQuestionCard && card ? (
+      <div
+        className="conv-entry-item collaboration-member-msg collaboration-question-card-msg text-sm"
+        data-testid="collaboration-question-card-container"
+      >
+        <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member">
+          <div className="collaboration-bubble-shell">
+            <SpaceCardActions card={card} cardRecord={cardRecord} />
+            <SpaceMessageReactionBadge reactions={reactions} />
+          </div>
+          <MessageDeliveryTicks
+            status={deliveryStatus}
+            testId={deliveryTickTestId}
+          />
+        </div>
+      </div>
+    ) : null;
+
   if (hasHtmlSegment) {
     let firstMarkdownSeen = false;
     return (
@@ -917,6 +940,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
         >
           {segments.map((seg, idx) => {
             const isLast = idx === segments.length - 1;
+            const showTailMeta = isLast && !isStandaloneQuestionCard;
             if (seg.kind === 'html') {
               return (
                 <div
@@ -933,7 +957,9 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                     standalone
                   />
                   {isLast &&
-                  (handoff || card || reactions?.length || deliveryStatus) ? (
+                  (handoff ||
+                    inlineCard ||
+                    (showTailMeta && (reactions?.length || deliveryStatus))) ? (
                     <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member mt-1">
                       <div className="collaboration-bubble-shell">
                         {handoff ? (
@@ -942,18 +968,22 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                             workspacePath={workspacePath}
                           />
                         ) : null}
-                        {card ? (
+                        {inlineCard ? (
                           <SpaceCardActions
-                            card={card}
+                            card={inlineCard}
                             cardRecord={cardRecord}
                           />
                         ) : null}
-                        <SpaceMessageReactionBadge reactions={reactions} />
+                        {showTailMeta ? (
+                          <SpaceMessageReactionBadge reactions={reactions} />
+                        ) : null}
                       </div>
-                      <MessageDeliveryTicks
-                        status={deliveryStatus}
-                        testId={deliveryTickTestId}
-                      />
+                      {showTailMeta ? (
+                        <MessageDeliveryTicks
+                          status={deliveryStatus}
+                          testId={deliveryTickTestId}
+                        />
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -987,15 +1017,18 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                           />
                         ) : null}
                       </CollapsibleSpaceBubbleContent>
-                      {isLast && card ? (
-                        <SpaceCardActions card={card} cardRecord={cardRecord} />
+                      {isLast && inlineCard ? (
+                        <SpaceCardActions
+                          card={inlineCard}
+                          cardRecord={cardRecord}
+                        />
                       ) : null}
                     </div>
-                    {isLast ? (
+                    {showTailMeta ? (
                       <SpaceMessageReactionBadge reactions={reactions} />
                     ) : null}
                   </div>
-                  {isLast ? (
+                  {showTailMeta ? (
                     <MessageDeliveryTicks
                       status={deliveryStatus}
                       testId={deliveryTickTestId}
@@ -1005,12 +1038,57 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
               </div>
             );
           })}
+          {standaloneQuestionCardNode}
         </div>
       </CollaborationMemberMentionContext.Provider>
     );
   }
 
   const hasMemberProse = Boolean(markdownValue) || Boolean(handoff);
+  if (isStandaloneQuestionCard) {
+    return (
+      <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
+        {hasMemberProse ? (
+          <div
+            className="collaboration-split-message-blocks"
+            data-testid="collaboration-split-message-blocks"
+          >
+            <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
+              <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--member">
+                <div className="collaboration-bubble-shell">
+                  <div
+                    className="conv-assistant-body collaboration-member-bubble"
+                    data-testid="collaboration-member-bubble"
+                  >
+                    <CollapsibleSpaceBubbleContent
+                      measureText={handoff ? text : markdownValue}
+                    >
+                      {markdownValue ? (
+                        <AstryxMarkdown
+                          value={markdownValue}
+                          workspacePath={workspacePath}
+                        />
+                      ) : null}
+                      {handoff ? (
+                        <SpaceHandoffCard
+                          handoff={handoff}
+                          workspacePath={workspacePath}
+                        />
+                      ) : null}
+                    </CollapsibleSpaceBubbleContent>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {standaloneQuestionCardNode}
+          </div>
+        ) : (
+          standaloneQuestionCardNode
+        )}
+      </CollaborationMemberMentionContext.Provider>
+    );
+  }
+
   return (
     <CollaborationMemberMentionContext.Provider value={effectiveMentionCtx}>
       <div className="conv-entry-item conv-assistant-msg collaboration-member-msg px-4 py-1.5 text-sm">
@@ -1038,8 +1116,8 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                   ) : null}
                 </CollapsibleSpaceBubbleContent>
               ) : null}
-              {card ? (
-                <SpaceCardActions card={card} cardRecord={cardRecord} />
+              {inlineCard ? (
+                <SpaceCardActions card={inlineCard} cardRecord={cardRecord} />
               ) : null}
             </div>
             <SpaceMessageReactionBadge reactions={reactions} />

@@ -1,9 +1,9 @@
-import { Loader2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import type { AgentOperationState } from '@/features/agent-management';
 
 const operationStages: Record<AgentOperationState['kind'], readonly string[]> =
@@ -119,6 +119,7 @@ export function AgentOperationProgress({
   onCancel?: () => void;
 }) {
   const { t, i18n } = useTranslation('settings');
+  const logRef = useRef<HTMLDivElement>(null);
   const progress = Math.min(100, Math.max(0, operation.progressPercent ?? 0));
   const stages = operationStages[operation.kind].map((stage) =>
     t(`agents.${stage}`)
@@ -129,6 +130,18 @@ export function AgentOperationProgress({
     i18n.resolvedLanguage,
     operation
   );
+  const logLines =
+    operation.logs && operation.logs.length > 0
+      ? operation.logs
+      : operation.message?.trim()
+        ? [operation.message.trim()]
+        : [`$ vibex agent ${operation.kind}`];
+
+  useEffect(() => {
+    const element = logRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [logLines.length]);
 
   return (
     <div
@@ -153,52 +166,6 @@ export function AgentOperationProgress({
             <span>{localizedOperationMessage}</span>
           </div>
         </div>
-        <span className="agent-operation-progress-value">{progress}%</span>
-      </div>
-      <Progress
-        aria-label={
-          localizedOperationMessage ?? t('agents.processingInstallation')
-        }
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={progress}
-        aria-valuetext={`${stages[currentStageIndex]} · ${progress}%`}
-        className="agent-operation-track"
-        value={progress}
-      />
-      {operation.logs && operation.logs.length > 1 ? (
-        <div
-          aria-label={t('agents.installLog')}
-          className="agent-operation-log"
-          role="log"
-        >
-          {operation.logs.map((line, index) => (
-            <div key={`${index}:${line}`}>
-              {localizedOperationLogLine(t, i18n.resolvedLanguage, line)}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="agent-operation-progress-footer">
-        <ol
-          aria-label={t('agents.operationStages')}
-          className="agent-operation-stages"
-        >
-          {stages.map((stage, index) => {
-            const state =
-              index < currentStageIndex
-                ? 'complete'
-                : index === currentStageIndex
-                  ? 'current'
-                  : 'upcoming';
-            return (
-              <li data-state={state} key={stage}>
-                <span aria-hidden="true" />
-                {stage}
-              </li>
-            );
-          })}
-        </ol>
         {onCancel ? (
           <Button
             size="sm"
@@ -209,6 +176,53 @@ export function AgentOperationProgress({
             {t('agents.cancelOperation')}
           </Button>
         ) : null}
+      </div>
+      <ol
+        aria-label={t('agents.operationStages')}
+        className="agent-operation-stages"
+      >
+        {stages.map((stage, index) => {
+          const state =
+            index < currentStageIndex
+              ? 'complete'
+              : index === currentStageIndex
+                ? 'current'
+                : 'upcoming';
+          return (
+            <li
+              aria-current={state === 'current' ? 'step' : undefined}
+              data-state={state}
+              key={stage}
+            >
+              <span aria-hidden="true" className="agent-operation-stage-bar" />
+              <span
+                aria-hidden="true"
+                className="agent-operation-stage-indicator"
+              >
+                {state === 'complete' ? (
+                  <Check className="h-2.5 w-2.5 stroke-[3]" />
+                ) : state === 'current' ? (
+                  <span className="agent-operation-stage-dot" />
+                ) : (
+                  index + 1
+                )}
+              </span>
+              {stage}
+            </li>
+          );
+        })}
+      </ol>
+      <div
+        ref={logRef}
+        aria-label={t('agents.installLog')}
+        className="agent-operation-log"
+        role="log"
+      >
+        {logLines.map((line, index) => (
+          <div key={`${index}:${line}`}>
+            {localizedOperationLogLine(t, i18n.resolvedLanguage, line)}
+          </div>
+        ))}
       </div>
     </div>
   );

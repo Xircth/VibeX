@@ -45,6 +45,18 @@ export function isModalFloatingLayer(element: Element): boolean {
 function isInactiveLayer(element: Element): boolean {
   if (element.getAttribute('data-state') === 'closed') return true;
   if (element.hasAttribute('hidden')) return true;
+  if (element.getAttribute('aria-hidden') === 'true') return true;
+  if (
+    element.closest('[data-state="closed"], [hidden], [aria-hidden="true"]')
+  ) {
+    return true;
+  }
+  if (
+    element.hasAttribute('data-radix-popper-content-wrapper') &&
+    element.querySelector('[data-state="closed"]')
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -52,7 +64,7 @@ function boxOf(element: Element): OverlayRect | null {
   const target = element.hasAttribute('data-native-surface-occlusion')
     ? element.parentElement
     : element;
-  if (!target) return null;
+  if (!target || isInactiveLayer(target)) return null;
   const rect = target.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1) return null;
   return {

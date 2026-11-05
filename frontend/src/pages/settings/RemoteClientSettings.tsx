@@ -642,68 +642,78 @@ export function RemoteClientSettings() {
           </div>
         }
       >
-        {discoveredVisible.length === 0 ? (
-          <p className="settings-row__description px-4 py-3">
-            {t('webService.discoverEmpty')}
-          </p>
-        ) : (
-          discoveredVisible.map((host) => {
-            const key = hostKey(host);
-            const asking = tokenFor === key;
-            const busy = connectingKey === key;
-            return (
-              <div className="settings-host-row" key={key}>
-                <div className="settings-host-row__summary">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {host.name || host.origin}
-                    </p>
-                    <p className="settings-row__description font-mono">
-                      {host.origin}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    className="h-8 shrink-0"
-                    onClick={() => void connectDiscovered(host)}
-                    disabled={busy}
-                  >
-                    {busy ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {t('webService.clientConnect')}
-                  </Button>
-                </div>
-                {asking ? (
-                  <div className="settings-host-row__detail">
-                    <Label htmlFor={`lan-token-${key}`}>
-                      {t('webService.clientCodeLabel')}
-                    </Label>
-                    <div className="flex gap-2">
-                      <TextInput
-                        label={t('webService.clientCodeLabel')}
-                        isLabelHidden
-                        value={token}
-                        onChange={setToken}
-                        placeholder={t('webService.clientCodePlaceholder')}
-                        width="100%"
-                        className="[&_input]:font-mono [&_input]:text-sm"
-                      />
+        <div
+          className="settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+          data-testid="discovered-hosts-list-container"
+        >
+          <div
+            className="settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+            data-testid="discovered-hosts-scroll-box"
+          >
+            {discoveredVisible.length === 0 ? (
+              <p className="settings-pairing-devices__empty">
+                {t('webService.discoverEmpty')}
+              </p>
+            ) : (
+              discoveredVisible.map((host) => {
+                const key = hostKey(host);
+                const asking = tokenFor === key;
+                const busy = connectingKey === key;
+                return (
+                  <div className="settings-host-row" key={key}>
+                    <div className="settings-host-row__summary flex min-h-11 min-w-0 items-center justify-between gap-3 px-3 py-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                        <span className="max-w-[14rem] shrink-0 truncate text-xs font-medium text-foreground">
+                          {host.name || host.origin}
+                        </span>
+                        <span className="shrink-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                          {host.origin}
+                        </span>
+                      </div>
                       <Button
                         size="sm"
-                        className="h-8 shrink-0"
+                        className="h-7 shrink-0 px-2.5 text-xs"
                         onClick={() => void connectDiscovered(host)}
                         disabled={busy}
                       >
+                        {busy ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
                         {t('webService.clientConnect')}
                       </Button>
                     </div>
+                    {asking ? (
+                      <div className="settings-host-row__detail">
+                        <Label htmlFor={`lan-token-${key}`}>
+                          {t('webService.clientCodeLabel')}
+                        </Label>
+                        <div className="flex gap-2">
+                          <TextInput
+                            label={t('webService.clientCodeLabel')}
+                            isLabelHidden
+                            value={token}
+                            onChange={setToken}
+                            placeholder={t('webService.clientCodePlaceholder')}
+                            width="100%"
+                            className="[&_input]:font-mono [&_input]:text-sm"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 shrink-0 px-2.5 text-xs"
+                            onClick={() => void connectDiscovered(host)}
+                            disabled={busy}
+                          >
+                            {t('webService.clientConnect')}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            );
-          })
-        )}
+                );
+              })
+            )}
+          </div>
+        </div>
       </SettingsSection>
 
       {openProvisioner?.plugin.enabled ? (
@@ -720,45 +730,53 @@ export function RemoteClientSettings() {
       ) : null}
 
       <SettingsSection icon={Server} title={t('webService.savedTitle')}>
-        <div className="settings-saved-hosts">
-          {profiles.length === 0 ? (
-            <p className="settings-pairing-devices__empty">
-              {t('webService.savedEmpty')}
-            </p>
-          ) : (
-            profiles.map((profile) => {
-              const expanded = expandedId === profile.id;
-              const asking = tokenFor === profile.id;
-              const busy = connectingKey === profile.id;
-              const update = hostUpdates.find(
-                (item) =>
-                  item.profile_id === profile.id && item.update_available
-              );
-              return (
-                <div
-                  className={cn(
-                    'settings-host-row',
-                    profile.connected && 'is-connected',
-                    expanded && 'is-expanded'
-                  )}
-                  key={profile.id}
-                >
-                  <div className="settings-host-row__header">
-                    <button
-                      type="button"
-                      className="settings-host-row__summary"
-                      aria-expanded={expanded}
-                      onClick={() =>
-                        setExpandedId((current) =>
-                          current === profile.id ? null : profile.id
-                        )
-                      }
-                    >
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2 truncate text-sm font-medium">
-                          <span className="truncate">{profile.name}</span>
+        <div
+          className="settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+          data-testid="saved-hosts-list-container"
+        >
+          <div
+            className="settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+            data-testid="saved-hosts-scroll-box"
+          >
+            {profiles.length === 0 ? (
+              <p className="settings-pairing-devices__empty">
+                {t('webService.savedEmpty')}
+              </p>
+            ) : (
+              profiles.map((profile) => {
+                const expanded = expandedId === profile.id;
+                const asking = tokenFor === profile.id;
+                const busy = connectingKey === profile.id;
+                const update = hostUpdates.find(
+                  (item) =>
+                    item.profile_id === profile.id && item.update_available
+                );
+                return (
+                  <div
+                    className={cn(
+                      'settings-host-row',
+                      profile.connected && 'is-connected',
+                      expanded && 'is-expanded'
+                    )}
+                    key={profile.id}
+                  >
+                    <div className="settings-host-row__header">
+                      <button
+                        type="button"
+                        className="settings-host-row__summary min-h-11 px-3 py-2"
+                        aria-expanded={expanded}
+                        onClick={() =>
+                          setExpandedId((current) =>
+                            current === profile.id ? null : profile.id
+                          )
+                        }
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                          <span className="max-w-[14rem] shrink-0 truncate text-xs font-medium text-foreground">
+                            {profile.name}
+                          </span>
                           {profile.connected ? (
-                            <span className="settings-status-success rounded-full px-2 py-0.5 text-xs font-medium">
+                            <span className="settings-status-success shrink-0 rounded px-1.5 py-0.5 text-xs font-medium">
                               {t('webService.connectedBadge')}
                             </span>
                           ) : null}
@@ -766,93 +784,93 @@ export function RemoteClientSettings() {
                             profile.provision_kind,
                             provisioners.panels
                           ) ? (
-                            <span className="rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-xs font-medium text-[color:var(--text-muted)]">
+                            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               {provisionKindLabel(
                                 profile.provision_kind,
                                 provisioners.panels
                               )}
                             </span>
                           ) : null}
-                        </p>
-                      </div>
-                      <ChevronDown
-                        className={cn(
-                          'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
-                          expanded && 'rotate-180'
-                        )}
-                        aria-hidden="true"
-                      />
-                    </button>
-                    {update ? (
-                      <button
-                        type="button"
-                        className="settings-host-row__update settings-status-pill-warning text-xs font-medium"
-                        disabled={updatingId === profile.id}
-                        onClick={() => {
-                          void confirmHostUpdate(profile, update);
-                        }}
-                      >
-                        {updatingId === profile.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          t('webService.hostUpdateAvailable')
-                        )}
+                        </div>
+                        <ChevronDown
+                          className={cn(
+                            'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
+                            expanded && 'rotate-180'
+                          )}
+                          aria-hidden="true"
+                        />
                       </button>
+                      {update ? (
+                        <button
+                          type="button"
+                          className="settings-host-row__update settings-status-pill-warning text-xs font-medium"
+                          disabled={updatingId === profile.id}
+                          onClick={() => {
+                            void confirmHostUpdate(profile, update);
+                          }}
+                        >
+                          {updatingId === profile.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            t('webService.hostUpdateAvailable')
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                    {expanded ? (
+                      <div className="settings-host-row__detail">
+                        <SavedHostFacts profile={profile} />
+                        {asking ? (
+                          <TextInput
+                            label={t('webService.clientCodeLabel')}
+                            isLabelHidden
+                            value={token}
+                            onChange={setToken}
+                            placeholder={t('webService.clientCodePlaceholder')}
+                            width="100%"
+                            className="[&_input]:font-mono [&_input]:text-sm"
+                          />
+                        ) : null}
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {profile.connected ? (
+                            <Button
+                              size="sm"
+                              className="h-7 px-2.5 text-xs"
+                              onClick={() => void disconnectHost()}
+                            >
+                              {t('webService.clientDisconnect')}
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="h-7 px-2.5 text-xs"
+                              onClick={() => void connectSaved(profile)}
+                              disabled={busy}
+                            >
+                              {busy ? (
+                                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                              ) : null}
+                              {connected
+                                ? t('webService.switchHost')
+                                : t('webService.clientConnect')}
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2.5 text-xs"
+                            onClick={() => void deleteHost(profile)}
+                          >
+                            {t('webService.deleteHost')}
+                          </Button>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
-                  {expanded ? (
-                    <div className="settings-host-row__detail">
-                      <SavedHostFacts profile={profile} />
-                      {asking ? (
-                        <TextInput
-                          label={t('webService.clientCodeLabel')}
-                          isLabelHidden
-                          value={token}
-                          onChange={setToken}
-                          placeholder={t('webService.clientCodePlaceholder')}
-                          width="100%"
-                          className="[&_input]:font-mono [&_input]:text-sm"
-                        />
-                      ) : null}
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {profile.connected ? (
-                          <Button
-                            size="sm"
-                            className="h-8"
-                            onClick={() => void disconnectHost()}
-                          >
-                            {t('webService.clientDisconnect')}
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            className="h-8"
-                            onClick={() => void connectSaved(profile)}
-                            disabled={busy}
-                          >
-                            {busy ? (
-                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                            ) : null}
-                            {connected
-                              ? t('webService.switchHost')
-                              : t('webService.clientConnect')}
-                          </Button>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => void deleteHost(profile)}
-                        >
-                          {t('webService.deleteHost')}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       </SettingsSection>
     </div>

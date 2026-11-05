@@ -377,7 +377,9 @@ export const systemSettingsApi = {
   getDataDir: async (): Promise<SystemDataDirSettings> => {
     return backendCall<SystemDataDirSettings>('get_system_data_dir_settings');
   },
-  updateDataDir: async (dataDir: string): Promise<UpdateSystemDataDirResult> => {
+  updateDataDir: async (
+    dataDir: string
+  ): Promise<UpdateSystemDataDirResult> => {
     return backendCall<UpdateSystemDataDirResult>(
       'update_system_data_dir_settings',
       { dataDir }

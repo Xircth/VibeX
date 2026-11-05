@@ -286,6 +286,7 @@ export const NOOP_PANEL_ACTIONS: PanelActions = {
   renameFilePreviews: noopPanelAction,
   openImagePreview: noopPanelAction,
   openWebPreview: noopPanelAction,
+  openDirectoryExplorer: noopPanelAction,
   revealInFileTree: noopPanelAction,
   openDiffPreview: noopPanelAction,
   openDiffPreviewAtPath: noopPanelAction,
@@ -677,8 +678,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
-      const normalizedRoot =
-        dirPath.replace(/[\\/]+$/, '') || dirPath;
+      const normalizedRoot = dirPath.replace(/[\\/]+$/, '') || dirPath;
       const activate = options?.activate ?? true;
       const basePanelId = `dir:${normalizedRoot}`;
       let panelId = basePanelId;
@@ -1457,7 +1457,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         openDirectoryExplorer(path, {
           title:
             options?.displayPath?.trim() ||
-            path.replace(/[\\/]+$/, '').split(/[/\\]/).pop() ||
+            path
+              .replace(/[\\/]+$/, '')
+              .split(/[/\\]/)
+              .pop() ||
             path,
         });
         return;

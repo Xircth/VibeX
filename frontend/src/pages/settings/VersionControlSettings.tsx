@@ -1,36 +1,63 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Bell,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   GitPullRequest,
   Github,
   Loader2,
   LogIn,
   LogOut,
+  Pencil,
   RefreshCw,
   TerminalSquare,
+  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
-import { DEFAULT_PR_DESCRIPTION_PROMPT, type Config } from 'shared/types';
+import {
+  DEFAULT_PR_DESCRIPTION_PROMPT,
+  type AgentManagementView,
+  type AgentSessionControlsSnapshot,
+  type Config,
+  type ExecutorProfileId,
+} from 'shared/types';
 
-import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConfigPicker';
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
+import { resolveEffectiveSessionConfig } from '@/components/settings/AgentSessionConfigPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { agentManagementApi } from '@/features/agent-management/api';
+import { agentsApi } from '@/features/agents/api';
+import {
+  CustomRoleSessionControls,
+  stringRecord,
+} from '@/features/collaboration/MultiAgentSettings';
+import i18n from '@/i18n';
 import {
   type GitHubCliStatus,
   type GitVersionStatus,
@@ -44,6 +71,25 @@ import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);
+}
+
+function extractErrorMessage(error: unknown): string | null {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string' &&
+    (error as { message: string }).message.trim()
+  ) {
+    return (error as { message: string }).message;
+  }
+  return null;
 }
 
 function StatusLine({
@@ -74,6 +120,7 @@ function StatusLine({
 
 export function VersionControlSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const portalContainer = usePortalContainer();
   const { config, loading, updateAndSaveConfig } = useUserSystem();
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
@@ -92,6 +139,88 @@ export function VersionControlSettings() {
   const [gitSaving, setGitSaving] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubInstalling, setGithubInstalling] = useState(false);
+
+  const [barAgents, setBarAgents] = useState<AgentManagementView[]>([]);
+  const [prDialogOpen, setPrDialogOpen] = useState(false);
+  const [prDialogSource, setPrDialogSource] = useState<'toggle' | 'edit'>(
+    'edit'
+  );
+  const [prDialogLeft, setPrDialogLeft] = useState('12.5rem');
+  const [prAgentId, setPrAgentId] = useState('');
+  const [prModeId, setPrModeId] = useState('');
+  const [prConfigValues, setPrConfigValues] = useState<Record<string, string>>(
+    {}
+  );
+  const [prCatalog, setPrCatalog] =
+    useState<AgentSessionControlsSnapshot | null>(null);
+  const [prCatalogReloadToken, setPrCatalogReloadToken] = useState(0);
+  const [prUseCustomPrompt, setPrUseCustomPrompt] = useState(false);
+  const [prCustomPrompt, setPrCustomPrompt] = useState(
+    DEFAULT_PR_DESCRIPTION_PROMPT
+  );
+
+  useEffect(() => {
+    let active = true;
+    void agentManagementApi
+      .bar()
+      .then((rows) => {
+        if (!active) return;
+        setBarAgents(rows.filter((row) => row.enabled && !row.retired));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const availablePrAgents = useMemo(
+    () =>
+      barAgents.map((row) => ({
+        value: row.agent_id,
+        label: row.display_name || getAgentName(row.agent_id) || row.agent_id,
+      })),
+    [barAgents]
+  );
+
+  useEffect(() => {
+    if (!prDialogOpen) return;
+    if (!prAgentId && availablePrAgents.length > 0) {
+      setPrAgentId(availablePrAgents[0].value);
+    }
+  }, [availablePrAgents, prAgentId, prDialogOpen]);
+
+  useEffect(() => {
+    if (!prDialogOpen) return;
+    const settingsShell = document.querySelector('.settings-page');
+    settingsShell?.classList.add('collaboration-settings-window-blurred');
+
+    const syncOverlayLeft = () => {
+      const settingsContent = document.querySelector<HTMLElement>(
+        '[data-settings-content]'
+      );
+      const settingsSidebar =
+        document.querySelector<HTMLElement>('.settings-sidebar');
+      const contentLeft = settingsContent?.getBoundingClientRect().left ?? 0;
+      const sidebarRight = settingsSidebar?.getBoundingClientRect().right ?? 0;
+      const measuredLeft = contentLeft > 0 ? contentLeft : sidebarRight;
+      if (measuredLeft > 0) {
+        setPrDialogLeft(`${Math.round(measuredLeft)}px`);
+        return;
+      }
+      setPrDialogLeft(
+        settingsSidebar?.classList.contains('settings-sidebar--flush')
+          ? '11rem'
+          : '12.5rem'
+      );
+    };
+
+    syncOverlayLeft();
+    window.addEventListener('resize', syncOverlayLeft);
+    return () => {
+      window.removeEventListener('resize', syncOverlayLeft);
+      settingsShell?.classList.remove('collaboration-settings-window-blurred');
+    };
+  }, [prDialogOpen]);
 
   const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
     async (next: Config) => {
@@ -137,6 +266,80 @@ export function VersionControlSettings() {
     [writeNow, writeSettled]
   );
 
+  const populatePrFormFromDraft = useCallback(
+    (currentDraft: Config) => {
+      const initialAgentId =
+        currentDraft.pr_auto_description_agent_id?.trim() ||
+        availablePrAgents[0]?.value ||
+        '';
+      setPrAgentId(initialAgentId);
+      setPrModeId(currentDraft.pr_auto_description_mode ?? '');
+      setPrConfigValues(
+        stringRecord(currentDraft.pr_auto_description_session_config)
+      );
+      const hasCustom = currentDraft.pr_auto_description_prompt != null;
+      setPrUseCustomPrompt(hasCustom);
+      setPrCustomPrompt(
+        currentDraft.pr_auto_description_prompt ?? DEFAULT_PR_DESCRIPTION_PROMPT
+      );
+    },
+    [availablePrAgents]
+  );
+
+  const handlePrAutoDescriptionToggle = (checked: boolean) => {
+    if (!draft) return;
+    if (!checked) {
+      setPrDialogOpen(false);
+      updateDraft({ pr_auto_description_enabled: false });
+      return;
+    }
+    populatePrFormFromDraft(draft);
+    setPrDialogSource('toggle');
+    setPrDialogOpen(true);
+  };
+
+  const openEditPrDescriptionDialog = () => {
+    if (!draft) return;
+    populatePrFormFromDraft(draft);
+    setPrDialogSource('edit');
+    setPrDialogOpen(true);
+  };
+
+  const handleCancelPrDescriptionDialog = () => {
+    setPrDialogOpen(false);
+    if (prDialogSource === 'toggle' && draft?.pr_auto_description_enabled) {
+      updateDraft({ pr_auto_description_enabled: false });
+    }
+  };
+
+  const handleRefreshPrSessionControls = async () => {
+    const trimmed = prAgentId.trim();
+    if (!trimmed) return;
+    try {
+      await agentsApi.refreshCapabilityCatalog(trimmed);
+      setPrCatalogReloadToken((prev) => prev + 1);
+    } catch {
+      // Ignore refresh error in offline/test mode
+    }
+  };
+
+  const handleSavePrDescriptionDialog = () => {
+    const effective = resolveEffectiveSessionConfig(
+      prCatalog,
+      prModeId.trim() || null,
+      prConfigValues
+    );
+    updateDraft({
+      pr_auto_description_enabled: true,
+      pr_auto_description_agent_id: prAgentId.trim(),
+      pr_auto_description_mode: effective.modeId?.trim() || null,
+      pr_auto_description_session_config: stringRecord(effective.configValues),
+      pr_auto_description_prompt: prUseCustomPrompt ? prCustomPrompt : null,
+    });
+    setPrDialogOpen(false);
+    toast.success(t('versionControl.settingsSaved'));
+  };
+
   const refreshGit = useCallback(async () => {
     try {
       setGitLoading(true);
@@ -144,9 +347,7 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.gitDetectFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.gitDetectFailedDesc'),
+          extractErrorMessage(error) ?? t('versionControl.gitDetectFailedDesc'),
       });
     } finally {
       setGitLoading(false);
@@ -162,9 +363,8 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.githubStatusFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.githubStatusFailedDesc'),
+          extractErrorMessage(error) ??
+          t('versionControl.githubStatusFailedDesc'),
       });
     } finally {
       setGithubLoading(false);
@@ -183,9 +383,8 @@ export function VersionControlSettings() {
       } catch (error) {
         toast.error(t('versionControl.settingsLoadFailed'), {
           description:
-            error instanceof Error
-              ? error.message
-              : t('versionControl.settingsLoadFailedDesc'),
+            extractErrorMessage(error) ??
+            t('versionControl.settingsLoadFailedDesc'),
         });
       }
     };
@@ -200,9 +399,8 @@ export function VersionControlSettings() {
       } catch (error) {
         toast.error(t('versionControl.githubStatusFailed'), {
           description:
-            error instanceof Error
-              ? error.message
-              : t('versionControl.githubStatusFailedDesc'),
+            extractErrorMessage(error) ??
+            t('versionControl.githubStatusFailedDesc'),
         });
       } finally {
         if (!cancelled) {
@@ -237,9 +435,8 @@ export function VersionControlSettings() {
         .catch((error) => {
           toast.error(t('versionControl.settingsLoadFailed'), {
             description:
-              error instanceof Error
-                ? error.message
-                : t('versionControl.settingsLoadFailedDesc'),
+              extractErrorMessage(error) ??
+              t('versionControl.settingsLoadFailedDesc'),
           });
         });
     };
@@ -278,9 +475,8 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.gitPathTestFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.gitPathTestFailedDesc'),
+          extractErrorMessage(error) ??
+          t('versionControl.gitPathTestFailedDesc'),
       });
     } finally {
       setGitLoading(false);
@@ -300,9 +496,8 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.gitSettingsSaveFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.gitSettingsSaveFailedDesc'),
+          extractErrorMessage(error) ??
+          t('versionControl.gitSettingsSaveFailedDesc'),
       });
     } finally {
       setGitSaving(false);
@@ -315,9 +510,8 @@ export function VersionControlSettings() {
       toast.info(t('versionControl.githubLoginTerminalOpened'));
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : t('versionControl.githubLoginStartFailed');
+        extractErrorMessage(error) ??
+        t('versionControl.githubLoginStartFailed');
       toast.error(t('versionControl.githubLoginTerminalFailed'), {
         description: /interactive Host terminal/i.test(message)
           ? t('versionControl.githubLoginNeedsHostTerminal')
@@ -345,9 +539,8 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.githubCliInstallFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.githubCliInstallFailedDesc'),
+          extractErrorMessage(error) ??
+          t('versionControl.githubCliInstallFailedDesc'),
       });
     } finally {
       setGithubInstalling(false);
@@ -366,9 +559,8 @@ export function VersionControlSettings() {
     } catch (error) {
       toast.error(t('versionControl.githubLogoutFailed'), {
         description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.githubLogoutFailedDesc'),
+          extractErrorMessage(error) ??
+          t('versionControl.githubLogoutFailedDesc'),
       });
     } finally {
       setGithubLoading(false);
@@ -382,6 +574,28 @@ export function VersionControlSettings() {
   if (!draft) {
     return null;
   }
+
+  const activePrAgentId =
+    draft.pr_auto_description_agent_id?.trim() ||
+    availablePrAgents[0]?.value ||
+    '';
+  const activePrAgentLabel =
+    availablePrAgents.find((item) => item.value === activePrAgentId)?.label ||
+    getAgentName(activePrAgentId) ||
+    activePrAgentId ||
+    t('general.selectAgentPlaceholder');
+  const prSessionParts = [
+    draft.pr_auto_description_mode?.trim() || '',
+    ...Object.values(stringRecord(draft.pr_auto_description_session_config)),
+  ].filter(Boolean);
+  const prSessionSummary =
+    prSessionParts.length > 0
+      ? prSessionParts.join(' · ')
+      : i18n.t('panels:ui.multiAgent.defaultSessionSettings');
+  const selectedPrModalAgentLabel =
+    availablePrAgents.find((item) => item.value === prAgentId)?.label ||
+    getAgentName(prAgentId) ||
+    prAgentId;
 
   return (
     <div className="settings-content">
@@ -409,24 +623,24 @@ export function VersionControlSettings() {
               </StatusLine>
             </div>
 
-            <div className="settings-row settings-row--stacked">
-              <div>
-                <Label>{t('versionControl.customGitPathLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('versionControl.customGitPathDescription')}
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <TextInput
-                  label={t('versionControl.customGitPathLabel')}
-                  isLabelHidden
-                  value={customGitPath}
-                  onChange={setCustomGitPath}
-                  placeholder={t('versionControl.customGitPathPlaceholder')}
-                  width="100%"
-                  className="[&_input]:text-sm"
-                />
-                <div className="flex shrink-0 gap-2">
+            <div className="space-y-2">
+              <div className="settings-row">
+                <div>
+                  <Label>{t('versionControl.customGitPathLabel')}</Label>
+                  <p className="settings-row__description">
+                    {t('versionControl.customGitPathDescription')}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <TextInput
+                    label={t('versionControl.customGitPathLabel')}
+                    isLabelHidden
+                    value={customGitPath}
+                    onChange={setCustomGitPath}
+                    placeholder={t('versionControl.customGitPathPlaceholder')}
+                    width="220px"
+                    className="w-[220px] [&_input]:text-sm"
+                  />
                   <Button
                     variant="outline"
                     type="button"
@@ -509,7 +723,7 @@ export function VersionControlSettings() {
                 id="commit-reminder-mode"
                 ariaLabel={t('versionControl.commitReminderModeLabel')}
                 value={draft.commit_reminder_mode ?? 'smart'}
-                className="min-w-32"
+                className="!w-36 shrink-0"
                 options={[
                   {
                     value: 'separate_turn',
@@ -578,80 +792,76 @@ export function VersionControlSettings() {
           <div className="space-y-4">
             <div className="settings-row">
               <div>
-                <Label>{t('versionControl.autoPrDescriptionLabel')}</Label>
+                <Label
+                  htmlFor="pr-auto-description-enabled"
+                  className="cursor-pointer"
+                >
+                  {t('versionControl.autoPrDescriptionLabel')}
+                </Label>
                 <p className="settings-row__description">
                   {t('versionControl.autoPrDescriptionDescription')}
                 </p>
               </div>
               <Switch
-                checked={draft.pr_auto_description_enabled ?? false}
-                onCheckedChange={(checked) =>
-                  updateDraft({ pr_auto_description_enabled: checked })
+                id="pr-auto-description-enabled"
+                aria-label={t('versionControl.autoPrDescriptionLabel')}
+                className="settings-switch"
+                checked={
+                  Boolean(draft.pr_auto_description_enabled) ||
+                  (prDialogOpen && prDialogSource === 'toggle')
                 }
+                onCheckedChange={handlePrAutoDescriptionToggle}
               />
             </div>
-            <AgentSessionConfigPicker
-              agentId={draft.pr_auto_description_agent_id ?? ''}
-              selectedModeId={draft.pr_auto_description_mode ?? null}
-              pendingConfigValues={
-                (draft.pr_auto_description_session_config ?? {}) as Record<
-                  string,
-                  string
-                >
-              }
-              agentLabel={t('versionControl.prDescriptionAgent')}
-              onAgentChange={(value) =>
-                updateDraft({
-                  pr_auto_description_agent_id: value,
-                  pr_auto_description_mode: null,
-                  pr_auto_description_session_config: {},
-                })
-              }
-              onSelectMode={(modeId) =>
-                updateDraft({ pr_auto_description_mode: modeId })
-              }
-              onSelectConfigValue={(key, value) =>
-                updateDraft({
-                  pr_auto_description_session_config: {
-                    ...draft.pr_auto_description_session_config,
-                    [key]: value,
-                  },
-                })
-              }
-            />
-            <div className="settings-row">
-              <div>
-                <Label>{t('versionControl.customPrPromptLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('versionControl.customPrPromptDescription')}
-                </p>
+
+            {draft.pr_auto_description_enabled ? (
+              <div
+                className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+                data-testid="pr-description-list-container"
+              >
+                <div className="divide-y divide-border/60">
+                  <div
+                    data-testid="pr-description-config-row"
+                    className="flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                      {activePrAgentId ? (
+                        <AgentIcon
+                          agent={
+                            activePrAgentId as ExecutorProfileId['executor']
+                          }
+                          className="h-4 w-4 shrink-0"
+                        />
+                      ) : null}
+                      <span className="max-w-[12rem] shrink-0 truncate text-xs font-medium text-foreground">
+                        {activePrAgentLabel}
+                      </span>
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {prSessionSummary}
+                      </span>
+                      <span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {draft.pr_auto_description_prompt != null
+                          ? t('general.customPromptEnabledStatus')
+                          : t('general.customPromptDisabledStatus')}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        data-testid="pr-description-edit-btn"
+                        aria-label={t('versionControl.editPrDescription')}
+                        onClick={openEditPrDescriptionDialog}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <Switch
-                checked={draft.pr_auto_description_prompt != null}
-                onCheckedChange={(checked) =>
-                  updateDraft({
-                    pr_auto_description_prompt: checked
-                      ? DEFAULT_PR_DESCRIPTION_PROMPT
-                      : null,
-                  })
-                }
-              />
-            </div>
-            <Textarea
-              value={
-                draft.pr_auto_description_prompt ??
-                DEFAULT_PR_DESCRIPTION_PROMPT
-              }
-              disabled={draft.pr_auto_description_prompt == null}
-              onChange={(event) =>
-                updateDraft(
-                  { pr_auto_description_prompt: event.target.value },
-                  true
-                )
-              }
-              onBlur={() => void flush()}
-              rows={7}
-            />
+            ) : null}
           </div>
         </SettingsSection>
 
@@ -699,14 +909,14 @@ export function VersionControlSettings() {
               </div>
             </div>
 
-            <div className="settings-row settings-row--stacked">
+            <div className="settings-row">
               <div>
                 <Label>GitHub Host</Label>
                 <p className="settings-row__description">
                   {t('versionControl.githubHostDescription')}
                 </p>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex shrink-0 items-center gap-2">
                 <TextInput
                   label="GitHub Host"
                   isLabelHidden
@@ -714,55 +924,263 @@ export function VersionControlSettings() {
                   onChange={setGithubHost}
                   placeholder="github.com"
                   isDisabled={githubInstalling}
-                  width="100%"
-                  className="[&_input]:text-sm"
+                  width="180px"
+                  className="w-[180px] [&_input]:text-sm"
                 />
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    variant="outline"
-                    type="button"
-                    onClick={refreshGithub}
-                    disabled={githubLoading || githubInstalling}
-                  >
-                    {githubLoading ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    {t('versionControl.refresh')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    type="button"
-                    onClick={handleOpenGithubLogin}
-                    disabled={
-                      githubLoading ||
-                      githubInstalling ||
-                      !githubStatus?.gh_installed
-                    }
-                  >
-                    <LogIn className="mr-2 h-4 w-4" />
-                    {t('versionControl.login')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    type="button"
-                    onClick={handleGithubLogout}
-                    disabled={
-                      githubLoading ||
-                      githubInstalling ||
-                      !githubStatus?.authenticated
-                    }
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    {t('versionControl.logout')}
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={refreshGithub}
+                  disabled={githubLoading || githubInstalling}
+                >
+                  {githubLoading ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  {t('versionControl.refresh')}
+                </Button>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleOpenGithubLogin}
+                  disabled={
+                    githubLoading ||
+                    githubInstalling ||
+                    !githubStatus?.gh_installed
+                  }
+                >
+                  <LogIn className="mr-2 h-4 w-4" />
+                  {t('versionControl.login')}
+                </Button>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleGithubLogout}
+                  disabled={
+                    githubLoading ||
+                    githubInstalling ||
+                    !githubStatus?.authenticated
+                  }
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {t('versionControl.logout')}
+                </Button>
               </div>
             </div>
           </div>
         </SettingsSection>
       </div>
+
+      {prDialogOpen
+        ? createPortal(
+            <div
+              data-testid="pr-description-modal-overlay"
+              className="collaboration-thread-overlay collaboration-settings-modal-overlay fixed inset-y-0 right-0 z-[9999] flex items-center justify-center p-6"
+              style={{
+                left: prDialogLeft,
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              }}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  handleCancelPrDescriptionDialog();
+                }
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('versionControl.prSectionTitle')}
+                className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[440px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-[14px] font-semibold text-foreground">
+                    {t('versionControl.prSectionTitle')}
+                  </h3>
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon"
+                    className="collaboration-expand h-7 w-7"
+                    aria-label={i18n.t('panels:tabCreation.close', '关闭')}
+                    onClick={handleCancelPrDescriptionDialog}
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+
+                <form
+                  className="flex flex-col gap-3.5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleSavePrDescriptionDialog();
+                  }}
+                >
+                  <div className="space-y-1.5">
+                    <Label>{t('versionControl.prDescriptionAgentLabel')}</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-label={t(
+                            'versionControl.prDescriptionAgentLabel'
+                          )}
+                          data-value={prAgentId}
+                          className="custom-role-agent-trigger raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
+                        >
+                          <span className="flex min-w-0 items-center gap-2 truncate">
+                            {prAgentId ? (
+                              <AgentIcon
+                                agent={
+                                  prAgentId as ExecutorProfileId['executor']
+                                }
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                            ) : null}
+                            <span className="truncate">
+                              {selectedPrModalAgentLabel ||
+                                t('general.selectAgentPlaceholder')}
+                            </span>
+                          </span>
+                          <ChevronDown
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+                      >
+                        {availablePrAgents.map((agent) => {
+                          const isSelected = prAgentId === agent.value;
+                          return (
+                            <DropdownMenuItem
+                              key={agent.value}
+                              data-state={isSelected ? 'checked' : undefined}
+                              onSelect={() => {
+                                setPrAgentId(agent.value);
+                                setPrModeId('');
+                                setPrConfigValues({});
+                              }}
+                            >
+                              <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                                <AgentIcon
+                                  agent={
+                                    agent.value as ExecutorProfileId['executor']
+                                  }
+                                  className="h-3.5 w-3.5 shrink-0"
+                                />
+                                <span className="truncate">{agent.label}</span>
+                              </span>
+                              {isSelected ? (
+                                <Check
+                                  className="h-3.5 w-3.5 shrink-0"
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <div
+                    className="space-y-1.5"
+                    data-testid="pr-description-session-config"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>
+                        {t('versionControl.prDescriptionSessionConfig')}
+                      </Label>
+                      {prAgentId ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          aria-label={t('general.refreshSessionControls')}
+                          onClick={() => void handleRefreshPrSessionControls()}
+                        >
+                          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                        </Button>
+                      ) : null}
+                    </div>
+                    <CustomRoleSessionControls
+                      agentId={prAgentId}
+                      modeId={prModeId}
+                      values={prConfigValues}
+                      onModeId={setPrModeId}
+                      onValues={setPrConfigValues}
+                      onCatalogChange={setPrCatalog}
+                      reloadToken={prCatalogReloadToken}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="settings-row flex min-h-7 items-center justify-between gap-3">
+                      <Label
+                        htmlFor="use-custom-pr-prompt"
+                        className="cursor-pointer leading-none"
+                      >
+                        {t('versionControl.customPrPromptLabel')}
+                      </Label>
+                      <Switch
+                        id="use-custom-pr-prompt"
+                        className="settings-switch shrink-0"
+                        checked={prUseCustomPrompt}
+                        onCheckedChange={(checked: boolean) => {
+                          setPrUseCustomPrompt(checked);
+                          if (checked && !prCustomPrompt.trim()) {
+                            setPrCustomPrompt(DEFAULT_PR_DESCRIPTION_PROMPT);
+                          }
+                        }}
+                      />
+                    </div>
+                    {prUseCustomPrompt ? (
+                      <Textarea
+                        aria-label={t('versionControl.customPrPromptLabel')}
+                        value={prCustomPrompt}
+                        onChange={(event) =>
+                          setPrCustomPrompt(event.target.value)
+                        }
+                        placeholder={t(
+                          'versionControl.customPrPromptPlaceholder'
+                        )}
+                        className="min-h-28 font-mono text-xs"
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-testid="pr-description-cancel-btn"
+                      onClick={handleCancelPrDescriptionDialog}
+                    >
+                      {i18n.t('panels:ui.multiAgent.cancel')}
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      data-dialog-primary="true"
+                      data-testid="pr-description-save-btn"
+                    >
+                      {i18n.t('panels:ui.multiAgent.save')}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </div>,
+            portalContainer ?? document.body
+          )
+        : null}
     </div>
   );
 }

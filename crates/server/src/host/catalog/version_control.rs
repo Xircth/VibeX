@@ -192,7 +192,9 @@ async fn resolve_gh_path() -> Option<PathBuf> {
     if managed.is_file() {
         return Some(managed);
     }
-    which::which("gh").ok()
+    which::which_all("gh")
+        .ok()
+        .and_then(utils::process::first_spawnable_command)
 }
 
 fn host_from_args(args: &HostArgs) -> String {
@@ -299,24 +301,27 @@ pub(super) async fn open_login(args: Value) -> Result<Value, ApplicationError> {
     let gh_path = resolve_gh_path()
         .await
         .ok_or_else(|| ApplicationError::bad_request("GitHub CLI is not installed."))?;
-    let gh_command = quote_terminal_program(&gh_path);
     let host = host_from_args(&args);
+    let command = build_github_login_terminal_command(&gh_path, &host);
 
-    let command = if host == DEFAULT_GITHUB_HOST {
-        format!("{gh_command} auth login --web --git-protocol https")
-    } else {
-        format!(
-            "{gh_command} auth login --web --git-protocol https --hostname {}",
-            quote_terminal_argument(&host)
-        )
-    };
-
-    spawn_visible_terminal(&command).map_err(|error| {
+    spawn_visible_terminal(&gh_path, &host, &command).map_err(|error| {
         ApplicationError::bad_request(format!(
             "GitHub login requires an interactive Host terminal ({error})."
         ))
     })?;
     Ok(Value::Null)
+}
+
+fn build_github_login_terminal_command(gh_path: &Path, host: &str) -> String {
+    let gh_command = quote_terminal_program(gh_path);
+    if host == DEFAULT_GITHUB_HOST {
+        format!("{gh_command} auth login --web --git-protocol https")
+    } else {
+        format!(
+            "{gh_command} auth login --web --git-protocol https --hostname {}",
+            quote_terminal_argument(host)
+        )
+    }
 }
 
 fn quote_terminal_program(path: &Path) -> String {
@@ -334,15 +339,39 @@ fn quote_terminal_argument(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", "cmd", "/K", command])
+fn build_windows_cmd_args(gh_path: &Path, host: &str) -> Vec<String> {
+    let mut args = vec!["/K".to_string()];
+    if utils::process::is_windows_batch_script(gh_path) {
+        args.push("call".to_string());
+    }
+    args.push(gh_path.to_string_lossy().into_owned());
+    args.extend([
+        "auth".to_string(),
+        "login".to_string(),
+        "--web".to_string(),
+        "--git-protocol".to_string(),
+        "https".to_string(),
+    ]);
+    if host != DEFAULT_GITHUB_HOST {
+        args.push("--hostname".to_string());
+        args.push(host.to_string());
+    }
+    args
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_visible_terminal(gh_path: &Path, host: &str, _command: &str) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    std::process::Command::new("cmd.exe")
+        .args(build_windows_cmd_args(gh_path, host))
+        .creation_flags(CREATE_NEW_CONSOLE)
         .spawn()
         .map(|_| ())
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
+fn spawn_visible_terminal(_gh_path: &Path, _host: &str, command: &str) -> std::io::Result<()> {
     let script = format!(
         "tell application \"Terminal\" to do script \"{}\"",
         command.replace('\\', "\\\\").replace('"', "\\\"")
@@ -354,7 +383,7 @@ fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
+fn spawn_visible_terminal(_gh_path: &Path, _host: &str, command: &str) -> std::io::Result<()> {
     let run = format!("{command}; exec $SHELL");
     for terminal in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
         if which::which(terminal).is_ok()
@@ -578,6 +607,49 @@ mod tests {
         assert_eq!(
             error.envelope().message,
             "A Git user name and email are required."
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_cmd_args_avoid_backslash_escaped_quotes_for_batch_shims_and_exe() {
+        let shim_args =
+            build_windows_cmd_args(Path::new(r"C:\Users\18190\.local\bin\gh.cmd"), "github.com");
+        assert_eq!(
+            shim_args,
+            vec![
+                "/K",
+                "call",
+                r"C:\Users\18190\.local\bin\gh.cmd",
+                "auth",
+                "login",
+                "--web",
+                "--git-protocol",
+                "https",
+            ]
+        );
+        assert!(
+            !shim_args.iter().any(|arg| arg.contains("\\\"")),
+            "cmd.exe args must not contain literal quotes that Rust CRT escapes as \\\""
+        );
+
+        let exe_args = build_windows_cmd_args(
+            Path::new(r"C:\Program Files\GitHub CLI\gh.exe"),
+            "ghe.example.com",
+        );
+        assert_eq!(
+            exe_args,
+            vec![
+                "/K",
+                r"C:\Program Files\GitHub CLI\gh.exe",
+                "auth",
+                "login",
+                "--web",
+                "--git-protocol",
+                "https",
+                "--hostname",
+                "ghe.example.com",
+            ]
         );
     }
 }

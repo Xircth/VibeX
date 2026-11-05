@@ -295,7 +295,26 @@ pub async fn install_resolved_plan_with_progress<F>(
 where
     F: FnMut(u8, &str),
 {
-    on_progress(10, "正在进行基础环境检查");
+    on_progress(
+        10,
+        &format!(
+            "[env] agent={} platform={}",
+            plan.agent_id.as_str(),
+            plan.platform
+        ),
+    );
+    for component in &plan.components {
+        on_progress(
+            12,
+            &format!(
+                "[plan] {} ({:?}) -> {}@{}",
+                component.component_id,
+                component.distribution_kind,
+                component.resolved_source,
+                component.version
+            ),
+        );
+    }
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
     let managed_artifacts = utils::path::managed_artifacts_directory(&home, data_dir);
@@ -304,7 +323,16 @@ where
         .iter()
         .any(|component| component.distribution_kind == PlannedDistributionKind::Npx)
     {
-        Some(resolve_node_runtime(&managed_artifacts).await?)
+        let resolved = resolve_node_runtime(&managed_artifacts).await?;
+        on_progress(
+            16,
+            &format!(
+                "[env] node={} | npm={}",
+                resolved.node.display(),
+                resolved.npm.display()
+            ),
+        );
+        Some(resolved)
     } else {
         None
     };
@@ -313,7 +341,9 @@ where
         .iter()
         .any(|component| component.distribution_kind == PlannedDistributionKind::Uvx)
     {
-        Some(resolve_uv_runtime(&managed_artifacts).await?)
+        let resolved = resolve_uv_runtime(&managed_artifacts).await?;
+        on_progress(18, &format!("[env] uv={}", resolved.display()));
+        Some(resolved)
     } else {
         None
     };
@@ -323,37 +353,92 @@ where
     if let Some(executable) = uv.as_ref().and_then(|path| path.parent()) {
         utils::shell::expose_user_bin_to_process_path(executable);
     }
-    on_progress(22, "正在检查本地 ACP 组件");
+    on_progress(
+        22,
+        &format!(
+            "[probe] checking local executables for {}",
+            plan.agent_id.as_str()
+        ),
+    );
     let mut user_env = UserEnvironmentLayout::for_current_user(&home);
     user_env =
         user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix(node.as_ref()).await);
-    on_progress(35, "正在准备安装环境");
+    on_progress(
+        35,
+        &format!(
+            "[env] npm_prefix={} | user_bin={}",
+            user_env.npm_prefix.display(),
+            user_env.user_bin.display()
+        ),
+    );
     prepare_user_environment(&user_env).await?;
     let installation = if let Some(adopted) = try_adopt(&plan.agent_id, plan, &user_env).await? {
         println!("Using the user-environment CLI that already matches the planned versions.");
-        on_progress(55, "已复用本地匹配的 ACP 组件");
+        for component in &adopted.components {
+            on_progress(
+                60,
+                &format!(
+                    "[adopt] {} {} ({})",
+                    component.kind,
+                    component.version,
+                    component.absolute_path.display()
+                ),
+            );
+        }
         adopted
     } else {
-        on_progress(55, "正在安装 ACP 组件");
-        install_plan(plan, &mut user_env, node.as_ref(), uv.as_deref()).await?
+        install_plan(
+            plan,
+            &mut user_env,
+            node.as_ref(),
+            uv.as_deref(),
+            &mut on_progress,
+        )
+        .await?
     };
-    on_progress(85, "正在验证 ACP 组件与握手");
+    on_progress(
+        85,
+        &format!(
+            "$ {} {} (verify ACP handshake)",
+            installation.launch_lock.absolute_acp_program.display(),
+            installation.launch_lock.args.join(" ")
+        ),
+    );
     ensure_installation_matches_plan(plan, &installation)?;
     persist_lock(pool, plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(plan.agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
     match verify_handshake(&plan.agent_id, &installation.launch_lock, &working_dir).await {
-        Ok(()) => {}
+        Ok(()) => {
+            on_progress(95, "[handshake] ACP initialize check passed");
+        }
         Err(error) => {
-            println!("Installed CLI; ACP handshake will be retried when a session starts ({error})")
+            println!(
+                "Installed CLI; ACP handshake will be retried when a session starts ({error})"
+            );
+            on_progress(
+                95,
+                &format!("[handshake] deferred until session start: {error}"),
+            );
         }
     }
+    let summary = format!(
+        "[ready] {} runtime={} acp={}",
+        plan.agent_id.as_str(),
+        if installation.launch_lock.runtime_version.is_empty() {
+            "n/a"
+        } else {
+            &installation.launch_lock.runtime_version
+        },
+        installation.launch_lock.acp_version
+    );
     println!(
         "Installed {} runtime {} / ACP {}",
         plan.agent_id.as_str(),
         installation.launch_lock.runtime_version,
         installation.launch_lock.acp_version
     );
+    on_progress(98, &summary);
     Ok(())
 }
 
@@ -612,12 +697,16 @@ async fn try_adopt(
     )?))
 }
 
-async fn install_plan(
+async fn install_plan<F>(
     plan: &ResolvedInstallPlan,
     user_env: &mut UserEnvironmentLayout,
     node: Option<&NodeRuntime>,
     uv: Option<&Path>,
-) -> anyhow::Result<InstalledPlan> {
+    on_progress: &mut F,
+) -> anyhow::Result<InstalledPlan>
+where
+    F: FnMut(u8, &str),
+{
     let mut components = Vec::new();
     for component in &plan.components {
         let version_args = component_version_args(&plan.agent_id, &component.component_id);
@@ -628,6 +717,15 @@ async fn install_plan(
                 existing.1,
                 existing.0.display()
             );
+            on_progress(
+                58,
+                &format!(
+                    "[reuse] {} {} ({})",
+                    component.component_id,
+                    existing.1,
+                    existing.0.display()
+                ),
+            );
             components.push(InstalledComponent {
                 kind: component.component_id.clone(),
                 absolute_path: existing.0,
@@ -637,15 +735,28 @@ async fn install_plan(
             continue;
         }
         let path = match component.distribution_kind {
-            PlannedDistributionKind::Npx => install_npm(component, user_env, node).await?,
-            PlannedDistributionKind::Uvx => install_uv(component, user_env, uv).await?,
+            PlannedDistributionKind::Npx => {
+                install_npm(component, user_env, node, on_progress).await?
+            }
+            PlannedDistributionKind::Uvx => {
+                install_uv(component, user_env, uv, on_progress).await?
+            }
             PlannedDistributionKind::Binary => {
-                install_binary(&plan.agent_id, component, user_env).await?
+                install_binary(&plan.agent_id, component, user_env, on_progress).await?
             }
         };
         let version = probe_version(&path, version_args)
             .await
             .unwrap_or_else(|| component.version.clone());
+        on_progress(
+            75,
+            &format!(
+                "[installed] {} {} -> {}",
+                component.component_id,
+                version,
+                path.display()
+            ),
+        );
         components.push(InstalledComponent {
             kind: component.component_id.clone(),
             absolute_path: path,
@@ -1064,17 +1175,23 @@ async fn ensure_managed_uv(managed_artifacts_dir: &Path) -> anyhow::Result<PathB
     result
 }
 
-async fn run_npm_global_install(
+async fn run_npm_global_install<F>(
     npm: &Path,
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
     node: Option<&NodeRuntime>,
-) -> anyhow::Result<()> {
-    println!(
+    on_progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(u8, &str),
+{
+    let cmd_line = format!(
         "$ npm install -g --force --prefix {} {}",
         user_env.npm_prefix.display(),
         component.resolved_source
     );
+    println!("{cmd_line}");
+    on_progress(55, &cmd_line);
     let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
     if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
         command.env("NODE_USE_ENV_PROXY", "1");
@@ -1087,27 +1204,38 @@ async fn run_npm_global_install(
         &user_env.npm_prefix,
         &component.resolved_source,
     ));
-    run_command("npm install -g", command).await
+    run_command_with_progress("npm install -g", command, 68, on_progress).await
 }
 
-async fn install_npm(
+async fn install_npm<F>(
     component: &PlannedInstallComponent,
     user_env: &mut UserEnvironmentLayout,
     node: Option<&NodeRuntime>,
-) -> anyhow::Result<PathBuf> {
+    on_progress: &mut F,
+) -> anyhow::Result<PathBuf>
+where
+    F: FnMut(u8, &str),
+{
     let npm = node
         .map(|runtime| runtime.npm.clone())
         .or(utils::shell::resolve_executable_path("npm").await)
         .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
-    if let Err(error) = run_npm_global_install(&npm, component, user_env, node).await {
+    if let Err(error) = run_npm_global_install(&npm, component, user_env, node, on_progress).await {
         let fallback = user_env.user_npm_prefix();
         if !npm_install_permission_denied(&error.to_string()) || fallback == user_env.npm_prefix {
             return Err(error);
         }
         println!("Permission denied, retrying with user prefix...");
+        on_progress(
+            62,
+            &format!(
+                "[npm] permission denied on global prefix, retrying with {}",
+                fallback.display()
+            ),
+        );
         *user_env = user_env.clone().with_npm_prefix(fallback);
         prepare_user_environment(user_env).await?;
-        run_npm_global_install(&npm, component, user_env, node).await?;
+        run_npm_global_install(&npm, component, user_env, node, on_progress).await?;
     }
     let package = npm_spec_name(&component.resolved_source);
     let name = if command_is_placeholder(&component.command) {
@@ -1161,16 +1289,25 @@ async fn live_npm_global_prefix(node: Option<&NodeRuntime>) -> Option<PathBuf> {
     }
 }
 
-async fn install_uv(
+async fn install_uv<F>(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
     uv: Option<&Path>,
-) -> anyhow::Result<PathBuf> {
+    on_progress: &mut F,
+) -> anyhow::Result<PathBuf>
+where
+    F: FnMut(u8, &str),
+{
     let uv = uv
         .map(Path::to_path_buf)
         .or(utils::shell::resolve_executable_path("uv").await)
         .ok_or_else(|| anyhow::anyhow!("uv was not found; install uv first"))?;
+    let cmd_line = format!(
+        "$ uv tool install --force --no-config {}",
+        component.resolved_source
+    );
     println!("$ uv tool install {}", component.resolved_source);
+    on_progress(55, &cmd_line);
     let mut command = utils::process::new_hidden_tokio_command(&uv, std::iter::empty::<&str>());
     command
         .arg("tool")
@@ -1186,7 +1323,7 @@ async fn install_uv(
         .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin)
         .env("UV_PYTHON_INSTALL_DIR", &user_env.uv_python_dir)
         .env("UV_CACHE_DIR", &user_env.uv_cache_dir);
-    run_command("uv tool install", command).await?;
+    run_command_with_progress("uv tool install", command, 68, on_progress).await?;
     let name = Path::new(&component.command)
         .file_name()
         .and_then(|name| name.to_str())
@@ -1204,23 +1341,37 @@ async fn install_uv(
     ))
 }
 
-async fn install_binary(
+async fn install_binary<F>(
     agent_id: &AgentId,
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
-) -> anyhow::Result<PathBuf> {
+    on_progress: &mut F,
+) -> anyhow::Result<PathBuf>
+where
+    F: FnMut(u8, &str),
+{
     if is_kiro_official_installer(agent_id, &component.resolved_source) {
+        on_progress(55, &format!("GET {}", component.resolved_source));
         return install_kiro_from_official_installer(component, user_env).await;
     }
     println!(
         "Downloading {} ({})",
         component.component_id, component.version
     );
+    on_progress(55, &format!("GET {}", component.resolved_source));
     let bytes = reqwest::get(&component.resolved_source)
         .await?
         .error_for_status()?
         .bytes()
         .await?;
+    on_progress(
+        65,
+        &format!(
+            "[download] {} ({} bytes)",
+            component.component_id,
+            bytes.len()
+        ),
+    );
     let staging = utils::path::unique_vibex_scratch_dir("agent")?;
     let extract_result = extract_archive(&bytes, &component.resolved_source, &staging);
     let staged =
@@ -1688,7 +1839,9 @@ fn gzip_member_name(source: &str) -> String {
 fn extract_tar(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
     let archive = destination.join("download.archive");
     std::fs::write(&archive, bytes)?;
-    let status = std::process::Command::new("tar")
+    let mut command = std::process::Command::new("tar");
+    utils::process::configure_std_command_no_window(&mut command);
+    let status = command
         .arg("-xf")
         .arg(&archive)
         .arg("-C")
@@ -1926,6 +2079,35 @@ async fn file_sha256(path: &Path) -> anyhow::Result<String> {
 
 async fn run_command(label: &str, mut command: tokio::process::Command) -> anyhow::Result<()> {
     let output = command.output().await?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = utils::process::command_output_detail(&output)
+        .unwrap_or_else(|| format!("exit status {}", output.status));
+    anyhow::bail!("{label} failed: {detail}")
+}
+
+async fn run_command_with_progress<F>(
+    label: &str,
+    mut command: tokio::process::Command,
+    percent: u8,
+    on_progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(u8, &str),
+{
+    let output = command.output().await?;
+    let stdout = utils::process::decode_process_output(&output.stdout);
+    let stderr = utils::process::decode_process_output(&output.stderr);
+    for line in stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(40)
+    {
+        on_progress(percent, line);
+    }
     if output.status.success() {
         return Ok(());
     }

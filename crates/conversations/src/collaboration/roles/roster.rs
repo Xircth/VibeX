@@ -802,10 +802,7 @@ pub fn merge_bot_config_values(
     thinking_level: Option<&str>,
     thinking_option_key: &str,
 ) -> Value {
-    let mut map = base
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let mut map = base.and_then(Value::as_object).cloned().unwrap_or_default();
     if let Some(extra) = extra_config_values.and_then(Value::as_object) {
         for (k, v) in extra {
             map.insert(k.clone(), v.clone());
@@ -840,9 +837,7 @@ pub async fn list_available_bot_agents(
         .ok()
         .flatten()
         .and_then(|s| s.agent_id);
-    let filter = agent_id_filter
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let filter = agent_id_filter.map(str::trim).filter(|s| !s.is_empty());
 
     let managed_views =
         services::services::agent_management::AgentManagementApplicationService::new(pool.clone())
@@ -994,9 +989,8 @@ async fn build_bot_agent_catalog_entry(
         .iter()
         .find(|opt| is_model_option(opt));
     let model_option_key = model_opt.map(|opt| opt.key.clone());
-    let current_model = default_model.or_else(|| {
-        model_opt.and_then(|opt| config_string_value(opt.value.as_ref()))
-    });
+    let current_model =
+        default_model.or_else(|| model_opt.and_then(|opt| config_string_value(opt.value.as_ref())));
     let models: Vec<Value> = model_opt
         .map(|opt| {
             opt.choices
@@ -1017,9 +1011,8 @@ async fn build_bot_agent_catalog_entry(
         .iter()
         .find(|opt| is_thinking_option(opt));
     let thinking_option_key = thinking_opt.map(|opt| opt.key.clone());
-    let current_thinking_level = default_thinking.or_else(|| {
-        thinking_opt.and_then(|opt| config_string_value(opt.value.as_ref()))
-    });
+    let current_thinking_level = default_thinking
+        .or_else(|| thinking_opt.and_then(|opt| config_string_value(opt.value.as_ref())));
     let thinking_levels: Vec<Value> = thinking_opt
         .map(|opt| {
             opt.choices

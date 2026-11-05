@@ -961,7 +961,9 @@ impl AgentConnectionManager {
         let mut pids = Vec::new();
         if let Ok(mut connections) = self.connections.try_lock() {
             for (_, connection) in connections.drain() {
-                let _ = connection.cmd_tx.try_send(AgentConnectionCommand::Disconnect);
+                let _ = connection
+                    .cmd_tx
+                    .try_send(AgentConnectionCommand::Disconnect);
                 connection.task.abort();
                 if let Ok(mut guard) = connection.child_pid.lock()
                     && let Some(pid) = guard.take()

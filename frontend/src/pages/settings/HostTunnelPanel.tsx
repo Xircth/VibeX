@@ -491,7 +491,7 @@ export function HostTunnelPanel({
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 shrink-0 px-2.5 text-xs"
+              className="shrink-0"
               disabled={busy}
               onClick={openCreateModal}
             >
@@ -501,8 +501,15 @@ export function HostTunnelPanel({
           </div>
 
           {listExpanded ? (
-            <div className="settings-pairing-devices">
-              <div id={savedListId} className="settings-pairing-devices__list">
+            <div
+              className="settings-pairing-devices settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+              data-testid="saved-tunnels-list-container"
+            >
+              <div
+                id={savedListId}
+                className="settings-pairing-devices__list settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+                data-testid="saved-tunnels-scroll-box"
+              >
                 {status.saved.length === 0 ? (
                   <p className="settings-pairing-devices__empty">
                     {t('webService.tunnelSavedEmpty')}
@@ -516,13 +523,13 @@ export function HostTunnelPanel({
                       status.relay_state !== 'connected';
                     return (
                       <div
-                        className="settings-pairing-devices__row flex items-center justify-between gap-3"
+                        className="settings-pairing-devices__row flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
                         key={item.id}
                       >
-                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_8.5rem] items-center gap-3 text-sm">
-                          <div className="flex min-w-0 items-center gap-2">
+                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_8.5rem] items-center gap-3">
+                          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                             <span
-                              className="truncate font-medium"
+                              className="truncate text-xs font-medium text-foreground"
                               title={item.origin}
                             >
                               {item.origin}
@@ -533,21 +540,23 @@ export function HostTunnelPanel({
                               t={t}
                             />
                           </div>
-                          <span
-                            className="truncate font-mono text-xs text-muted-foreground"
-                            title={`${item.host}:${item.port}`}
-                          >
-                            {item.host}:{item.port}
-                          </span>
+                          <div className="flex min-w-0 items-center">
+                            <span
+                              className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+                              title={`${item.host}:${item.port}`}
+                            >
+                              {item.host}:{item.port}
+                            </span>
+                          </div>
                           <span className="truncate text-xs tabular-nums text-muted-foreground">
                             {formatTunnelCreatedAt(item.created_at)}
                           </span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-1.5">
                           <Button
                             type="button"
                             size="sm"
-                            className="h-8 shrink-0"
+                            className="h-7 shrink-0 px-2.5 text-xs"
                             disabled={busy || togglingId === item.id}
                             onClick={() => void toggleSavedTunnel(item, active)}
                           >
@@ -562,7 +571,7 @@ export function HostTunnelPanel({
                             type="button"
                             variant="destructive"
                             size="sm"
-                            className="h-8 shrink-0 !border-destructive/30 !bg-destructive/10 !text-destructive hover:!bg-destructive/15"
+                            className="h-7 shrink-0 px-2.5 text-xs"
                             onClick={() => void removeSaved(item)}
                             disabled={removingId === item.id}
                           >
@@ -606,7 +615,7 @@ export function HostTunnelPanel({
                 role="dialog"
                 aria-modal="true"
                 aria-label={t('webService.tunnelModeCreate')}
-                className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[480px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
+                className="dialog-surface relative flex max-h-[calc(100dvh-3rem)] w-full max-w-[480px] flex-col overflow-y-auto rounded-lg border border-border/70 p-4 shadow-xl"
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h3 className="text-[14px] font-semibold text-foreground">
@@ -645,8 +654,8 @@ export function HostTunnelPanel({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0 text-xs"
+                        size="default"
+                        className="shrink-0 text-xs"
                         disabled={busy}
                         onClick={() => void startCreate()}
                       >
@@ -657,8 +666,8 @@ export function HostTunnelPanel({
                       </Button>
                       <Button
                         type="button"
-                        size="sm"
-                        className="h-8 shrink-0 text-xs"
+                        size="default"
+                        className="shrink-0 text-xs"
                         disabled={busy}
                         onClick={() => void testConnectivity()}
                       >
@@ -685,8 +694,8 @@ export function HostTunnelPanel({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
-                        className="h-8 w-8 shrink-0 p-0"
+                        size="icon"
+                        className="shrink-0"
                         onClick={() => void copyCommand(activeCommand)}
                         aria-label={t('webService.copyOrigin')}
                       >
@@ -704,7 +713,6 @@ export function HostTunnelPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 px-3 text-xs"
                       onClick={() => void closeCreateModal()}
                     >
                       {t('common:cancel', '取消')}
@@ -712,7 +720,6 @@ export function HostTunnelPanel({
                     <Button
                       type="button"
                       size="sm"
-                      className="h-8 px-3 text-xs"
                       disabled={!testResult?.connected || busy}
                       onClick={() => void handleSaveModal()}
                     >

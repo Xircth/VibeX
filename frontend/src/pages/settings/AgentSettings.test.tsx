@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/toast';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { pickAuthModeTab } from './agentSettingsTestUtils';
+import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
 import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
 import { AgentSettings } from './AgentSettings';
 
@@ -2661,6 +2662,58 @@ describe('AgentSettings', () => {
       )
     );
     expect(confirmShow).not.toHaveBeenCalled();
+  });
+
+  it('reuses cached update status immediately without waiting for preflight and shows progress immediately on click', async () => {
+    const user = userEvent.setup();
+    recordAgentAcpUpdateCheck({
+      agent_id: 'codex',
+      current_version: '1.0.0',
+      available_version: '1.1.0',
+      runtime_current: '1.0.0',
+      runtime_available: '1.0.0',
+      acp_current: '1.0.0',
+      acp_available: '1.1.0',
+      update_available: true,
+      snapshot_id: 'snap-1',
+      fetched_at: '2026-11-05T00:00:00Z',
+      fresh: true,
+      compatibility_warning: undefined,
+    });
+    api.preflight.mockImplementation(() => new Promise(() => {}));
+    api.checkUpdate.mockImplementation(() => new Promise(() => {}));
+    let resolveUpdate: ((value: unknown) => void) | null = null;
+    api.applyUpdate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        })
+    );
+
+    render(<AgentSettings />);
+
+    const updateButton = await screen.findByRole('button', { name: '可更新' });
+    expect(updateButton).toBeVisible();
+
+    await user.click(updateButton);
+
+    expect(screen.getByText('基础环境检查')).toHaveAttribute(
+      'data-state',
+      'current'
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('log', { name: '安装日志' })).toHaveTextContent(
+      '$ vibex agent update codex'
+    );
+
+    await act(async () => {
+      resolveUpdate?.({
+        operation_id: 'op-update-1',
+        agent_id: 'codex',
+        kind: 'update',
+        status: 'queued',
+      });
+    });
   });
 });
 

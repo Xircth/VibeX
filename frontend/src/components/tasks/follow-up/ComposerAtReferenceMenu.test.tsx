@@ -128,6 +128,9 @@ describe('ComposerAtReferenceMenu', () => {
 
     const options = screen.getAllByRole('option');
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
+    expect(options[0]).toHaveAttribute('data-active', 'true');
+    expect(options[0]).toHaveClass('bg-accent', 'text-accent-foreground');
+    expect(options[1]).not.toHaveClass('bg-accent');
     fireEvent.mouseEnter(options[1]);
     expect(onHighlight).not.toHaveBeenCalled();
     expect(options[0]).toHaveAttribute('aria-selected', 'true');

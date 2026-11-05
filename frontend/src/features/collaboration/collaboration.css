@@ -808,6 +808,16 @@
   box-sizing: border-box;
 }
 
+.collaboration-message .collaboration-question-card-msg {
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .collaboration-card-actions {
   min-width: 0;
   max-width: 100%;
@@ -3143,7 +3153,7 @@ body.is-dragging-collaboration-member * {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-element, var(--radius));
   background: var(--surface-control);
   color: var(--text-muted);
   cursor: pointer;
@@ -3986,7 +3996,7 @@ body.is-dragging-collaboration-member * {
   justify-content: center;
   padding: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: 999px;
+  border-radius: var(--radius-element, var(--radius));
   background: var(--surface-control);
   color: var(--text-muted);
   cursor: pointer;

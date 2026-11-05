@@ -2755,6 +2755,82 @@ describe('CollaborationSpacePage', () => {
     });
   });
 
+  it('immediately clears unread count badge in sidebar when clicking into a space or DM', async () => {
+    const user = userEvent.setup();
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            items: [
+              {
+                kind: 'group',
+                thread_id: 's1',
+                space_id: 's1',
+                name: '设计',
+                tag_color: null,
+                last_message: { id: 1, seq: 1, preview: '最新进展' },
+                last_activity_at: '2026-10-24T10:00:00Z',
+                unread_count: 2,
+                members_preview: [
+                  {
+                    member_id: 'mem-a',
+                    name: '小A',
+                    conversation_id: 'conv-1',
+                  },
+                ],
+                member_count: 2,
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                last_message: { id: 2, seq: 5, preview: '私聊消息' },
+                unread_count: 3,
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'thread.markRead') {
+          return {};
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+    expect(
+      await screen.findByTestId('collaboration-chat-meta-group:s1')
+    ).toHaveTextContent('2');
+    expect(
+      await screen.findByTestId('collaboration-chat-meta-direct:direct:mem-a')
+    ).toHaveTextContent('3');
+
+    await user.click(screen.getByRole('button', { name: '小A' }));
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('collaboration-chat-meta-direct:direct:mem-a')
+      ).toBeNull();
+    });
+
+    await user.click(screen.getByRole('button', { name: '设计' }));
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('collaboration-chat-meta-group:s1')
+      ).toBeNull();
+    });
+  });
+
   it('hides 已回复 and 已跳过 receipts and still shows failed or cancelled outcomes', async () => {
     const defaultImpl = collaborationCall.getMockImplementation();
     collaborationCall.mockImplementation(

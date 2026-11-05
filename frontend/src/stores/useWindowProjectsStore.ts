@@ -173,7 +173,12 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       focusRequests: {},
       setRailVisible: (visible) =>
         set((state) =>
-          state.railVisible === visible ? state : { railVisible: visible }
+          state.railVisible === visible
+            ? state
+            : {
+                railVisible: visible,
+                ...(visible ? { railPosition: null } : {}),
+              }
         ),
       setRailPosition: (position) =>
         set((state) =>
@@ -183,7 +188,13 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
             : { railPosition: position }
         ),
       toggleRailVisible: () =>
-        set((state) => ({ railVisible: !state.railVisible })),
+        set((state) => {
+          const nextVisible = !state.railVisible;
+          return {
+            railVisible: nextVisible,
+            ...(nextVisible ? { railPosition: null } : {}),
+          };
+        }),
       ensureProjectOpen: (projectId) =>
         set((state) => {
           const nextOpenProjectIds = [
@@ -348,7 +359,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
     }),
     {
       name: 'vibex-window-projects',
-      version: 6,
+      version: 7,
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as PersistedWindowProjectsState;
         const normalizedLastRouteByProject = Object.fromEntries(

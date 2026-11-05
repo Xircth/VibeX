@@ -127,7 +127,7 @@ impl LocalDeployment {
             let hook = EventService::create_hook(
                 events_msg_store.clone(),
                 events_entry_count.clone(),
-                DBService::new_at(data_dir.as_ref()).await?, // Temporary DB service for the hook
+                DBService::new_lazy_at(data_dir.as_ref())?, // Lazy DB service for the hook (avoids double migration)
             );
             DBService::new_at_with_after_connect(data_dir.as_ref(), hook).await?
         };

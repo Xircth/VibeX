@@ -1724,7 +1724,7 @@ fn map_agent_event(
         ),
         AgentEvent::RawAcpDiagnostic { raw } => Some(ConversationEvent::RawDiagnosticRecorded {
             label: diagnostic_label(raw),
-            payload: Some(raw.clone()),
+            payload: Some(agents::cap_json_value(raw.clone())),
         }),
         AgentEvent::AnnouncementsUpdated {
             generation,

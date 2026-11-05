@@ -26,9 +26,9 @@ import {
 } from './browserChromeStore';
 
 const FIELD_BTN =
-  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 const SHARE_AVATAR_BTN =
-  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full disabled:pointer-events-none disabled:opacity-40';
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-40';
 
 const ACTIVITY_KEYS: Record<string, Record<string, string>> = {
   read: {

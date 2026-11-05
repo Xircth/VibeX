@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import type { AgentOperationState } from '@/features/agent-management';
+import { readCachedAgentAcpUpdate } from '@/features/agent-management/agentAcpUpdates';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 
@@ -122,7 +123,11 @@ export function AgentDetail({
   const [preflightExpanded, setPreflightExpanded] = useState(true);
   const busy = operation != null || agent.active_operation != null;
   const items = presentPreflightItems(
-    preflight?.items ?? fallbackPreflight(t, agent)
+    enrichPreflightItemsWithKnownUpdate(
+      preflight?.items ?? fallbackPreflight(t, agent, updateCheck),
+      agent,
+      updateCheck
+    )
   );
   const provisioningAction = agentProvisioningAction(agent, items);
   const needsInstall = provisioningAction === 'install';
@@ -652,10 +657,56 @@ function formatDiagnosticTime(language: string, value: string): string {
   }).format(date);
 }
 
+function enrichPreflightItemsWithKnownUpdate(
+  items: AgentPreflightItemView[],
+  agent: AgentManagementView,
+  updateCheck: AgentUpdateCheckView | null
+): AgentPreflightItemView[] {
+  const cachedUpdate = readCachedAgentAcpUpdate(
+    agent.agent_id,
+    agent.acp_version
+  );
+  const hasKnownUpdate =
+    updateCheck != null
+      ? updateCheck.update_available
+      : Boolean(cachedUpdate?.available);
+  if (!hasKnownUpdate) return items;
+  const knownAvailableVersion =
+    updateCheck?.acp_available ??
+    updateCheck?.available_version ??
+    cachedUpdate?.availableVersion ??
+    null;
+  return items.map((item) => {
+    if (item.id !== 'acp' || item.status === 'fail' || item.update_available) {
+      return item;
+    }
+    return {
+      ...item,
+      update_available: true,
+      available_version: item.available_version ?? knownAvailableVersion,
+    };
+  });
+}
+
 function fallbackPreflight(
   t: TFunction<'settings'>,
-  agent: AgentManagementView
+  agent: AgentManagementView,
+  updateCheck?: AgentUpdateCheckView | null
 ): AgentPreflightItemView[] {
+  const cachedUpdate = readCachedAgentAcpUpdate(
+    agent.agent_id,
+    agent.acp_version
+  );
+  const updateAvailable =
+    updateCheck != null
+      ? updateCheck.update_available
+      : Boolean(cachedUpdate?.available);
+  const availableVersion = updateAvailable
+    ? (updateCheck?.acp_available ??
+      updateCheck?.available_version ??
+      cachedUpdate?.availableVersion ??
+      null)
+    : null;
   return [
     {
       id: 'membership',
@@ -683,8 +734,8 @@ function fallbackPreflight(
       path: null,
       source: null,
       repairable: true,
-      update_available: false,
-      available_version: null,
+      update_available: Boolean(agent.acp_version && updateAvailable),
+      available_version: agent.acp_version ? availableVersion : null,
       update_group: null,
     },
   ];

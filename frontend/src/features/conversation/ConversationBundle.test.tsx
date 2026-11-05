@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConversationBundlePanel } from './ConversationBundle';
 
@@ -33,7 +39,7 @@ vi.mock('@/components/ui/toast', () => ({
 }));
 
 describe('ConversationBundlePanel', () => {
-  it('places the JSON workspace below the conversation controls', () => {
+  it('places the JSON workspace below the conversation controls inside the modal', () => {
     render(
       <div className="legacy-design settings-page">
         <style>{bundlePanelRule}</style>
@@ -42,14 +48,16 @@ describe('ConversationBundlePanel', () => {
     );
 
     const panel = screen.getByRole('region', { name: '会话包导入导出' });
+    expect(panel).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '导入会话包' }));
+    const dialog = screen.getByRole('dialog', { name: '会话包导入导出' });
     const importControls = screen.getByRole('group', {
       name: '导入会话包',
     });
     const jsonWorkspace = screen.getByPlaceholderText(/导出的会话包/);
 
-    expect(getComputedStyle(panel).display).toBe('flex');
-    expect(getComputedStyle(panel).flexDirection).toBe('column');
-    expect(panel).toContainElement(jsonWorkspace);
+    expect(dialog).toContainElement(jsonWorkspace);
     expect(
       importControls.compareDocumentPosition(jsonWorkspace) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -83,10 +91,13 @@ describe('ConversationBundlePanel', () => {
 
     render(<ConversationBundlePanel />);
 
-    fireEvent.change(screen.getByPlaceholderText('会话 ID'), {
+    fireEvent.click(screen.getByRole('button', { name: '导出会话包' }));
+    const dialog = screen.getByRole('dialog', { name: '会话包导入导出' });
+
+    fireEvent.change(within(dialog).getByPlaceholderText('会话 ID'), {
       target: { value: 'conversation-1' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '导出会话包' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '导出会话包' }));
 
     await waitFor(() =>
       expect(exportMock).toHaveBeenCalledWith({
@@ -95,7 +106,11 @@ describe('ConversationBundlePanel', () => {
       })
     );
     expect(
-      (screen.getByPlaceholderText(/导出的会话包/) as HTMLTextAreaElement).value
+      (
+        within(dialog).getByPlaceholderText(
+          /导出的会话包/
+        ) as HTMLTextAreaElement
+      ).value
     ).toContain('"bundle_version": "v1"');
   });
 });

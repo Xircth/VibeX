@@ -181,20 +181,26 @@ describe('GeneralSettings Agent model catalogs', () => {
     agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
   });
 
-  it('lists enabled Agents for prompt enhancement', async () => {
+  it('lists enabled Agents for prompt enhancement inside the modal', async () => {
+    const user = userEvent.setup();
     renderSettings();
 
     await waitFor(() => {
       expect(agentManagementApiMock.bar).toHaveBeenCalledTimes(1);
-      expect(
-        screen.getByRole('combobox', { name: 'Agent' })
-      ).not.toBeDisabled();
     });
+
+    await user.click(screen.getByTestId('prompt-enhancement-edit-btn'));
+
+    expect(
+      await screen.findByRole('combobox', { name: '提示词优化Agent' })
+    ).not.toBeDisabled();
   });
 
-  it('refreshes the selected Agent session config on demand', async () => {
+  it('refreshes the selected Agent session config on demand in the prompt enhancement modal', async () => {
     const user = userEvent.setup();
     renderSettings('unused', { prompt_enhancement_agent_id: 'opencode' });
+
+    await user.click(screen.getByTestId('prompt-enhancement-edit-btn'));
 
     await waitFor(() => {
       expect(agentsApiMock.capabilityCatalog).toHaveBeenCalled();
@@ -209,7 +215,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
-  it('turns MultiAgent collaboration on immediately and keeps host records closed until that save lands', async () => {
+  it('turns MultiAgent collaboration on immediately and renders default Agent roles in Custom Roles', async () => {
     const user = userEvent.setup();
     const { updateAndSaveConfig } = renderSettings(
       'opencode/minimax-m2.5-free',
@@ -227,10 +233,12 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(
       screen.queryByRole('heading', { name: '角色' })
     ).not.toBeInTheDocument();
-    expect(screen.queryByText('默认Agent委派配置')).toBeInTheDocument();
+    expect(screen.queryByText('默认Agent委派配置')).not.toBeInTheDocument();
+    expect(await screen.findByText('OpenCode · 默认配置')).toBeInTheDocument();
   });
 
-  it('shows Default Agent delegation config list without legacy limits or team/role sections when MultiAgent is enabled', async () => {
+  it('merges default Agent configs into Custom Roles with locked name/Agent and editable session config/persona', async () => {
+    const user = userEvent.setup();
     agentsApiMock.capabilityCatalog.mockResolvedValue({
       modes: [{ id: 'code', label: 'Code' }],
       current_mode: 'code',
@@ -238,67 +246,96 @@ describe('GeneralSettings Agent model catalogs', () => {
         {
           key: 'model',
           label: 'Model',
-          selected_value: 'gpt-5',
-          options: [{ value: 'gpt-5', label: 'GPT-5' }],
+          description: null,
+          category: 'model',
+          value: 'gpt-5',
+          choices: [
+            { value: 'gpt-5', label: 'GPT-5', description: null },
+            { value: 'gpt-4o', label: 'GPT-4o', description: null },
+          ],
         },
       ],
     });
 
-    renderSettings('opencode/minimax-m2.5-free', {
-      multi_agent_enabled: true,
-    });
-
-    expect(await screen.findByText('默认Agent委派配置')).toBeInTheDocument();
-    expect(screen.getByTestId('multi-agent-default-picker')).toHaveClass(
-      'multi-agent-default-picker'
+    const { updateAndSaveConfig } = renderSettings(
+      'opencode/minimax-m2.5-free',
+      {
+        multi_agent_enabled: true,
+      }
     );
-    const defaultAgentSelect = await screen.findByRole('combobox', {
-      name: '默认Agent委派配置',
-    });
-    expect(defaultAgentSelect).toBeInTheDocument();
+
+    expect(screen.queryByText('默认Agent委派配置')).not.toBeInTheDocument();
     expect(
-      screen.queryByTestId('session-control-mode')
+      screen.queryByTestId('multi-agent-default-picker')
     ).not.toBeInTheDocument();
 
-    // Custom Roles section has header create button and empty container create button
     expect(screen.getByText('自定义角色')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('custom-roles-header-create-btn')
-    ).toBeInTheDocument();
+    const headerCreateBtn = screen.getByTestId(
+      'custom-roles-header-create-btn'
+    );
+    expect(headerCreateBtn).toBeInTheDocument();
     const rolesContainer = screen.getByTestId('custom-roles-list-container');
     expect(rolesContainer).toBeInTheDocument();
-    const emptyCreateBtn = screen.getByTestId('custom-roles-empty-create-btn');
-    expect(emptyCreateBtn).toBeInTheDocument();
 
-    // Clicking 新建角色 opens the creation modal with 角色名称 (placeholder 前端工程师), Agent, 会话配置, 人设（可选）
-    await userEvent.setup().click(emptyCreateBtn);
+    const defaultRoleRow = await screen.findByTestId(
+      'custom-role-row-default-agent:opencode'
+    );
+    expect(defaultRoleRow).toBeInTheDocument();
+    expect(screen.getByText('OpenCode · 默认配置')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: '删除角色 OpenCode · 默认配置',
+      })
+    ).not.toBeInTheDocument();
+
+    // Edit default Agent role: name and Agent are disabled, session config and persona are editable
+    await user.click(
+      screen.getByRole('button', { name: '编辑角色 OpenCode · 默认配置' })
+    );
     const overlay = await screen.findByTestId('custom-role-modal-overlay');
     expect(overlay).toHaveClass('collaboration-settings-modal-overlay');
-    expect(overlay).not.toHaveClass('inset-0');
     expect(overlay).toHaveClass('inset-y-0', 'right-0');
     expect(overlay.style.left).toBe('12.5rem');
     expect(overlay.style.backdropFilter).toBe('blur(16px)');
-    const dialog = await screen.findByRole('dialog', { name: '新建角色' });
-    expect(dialog).toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: '编辑角色' })
+    ).toBeInTheDocument();
+
     const roleNameInput = screen.getByRole('textbox', { name: '角色名称' });
-    expect(roleNameInput).toHaveAttribute('placeholder', '前端工程师');
+    expect(roleNameInput).toHaveValue('OpenCode · 默认配置');
+    expect(roleNameInput).toBeDisabled();
+
     const roleAgentTrigger = screen.getByRole('combobox', {
       name: '选择角色 Agent',
     });
-    expect(roleAgentTrigger).toBeInTheDocument();
-    expect(roleAgentTrigger).toHaveClass('custom-role-agent-trigger');
+    expect(roleAgentTrigger).toBeDisabled();
+
     const sessionConfigSection = screen.getByTestId(
       'custom-role-session-config'
     );
     expect(sessionConfigSection).toBeInTheDocument();
-    expect(sessionConfigSection).not.toHaveClass('border');
+
     const personaInput = screen.getByRole('textbox', {
       name: '人设（可选）',
     });
-    expect(personaInput).toBeInTheDocument();
-    expect(personaInput).toHaveAttribute('rows', '3');
-    expect(personaInput).toHaveClass('custom-role-persona-textarea');
-    expect(personaInput.style.height).toBe('68px');
+    expect(personaInput).not.toBeDisabled();
+    await user.type(personaInput, '专注于严谨架构审查');
+
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          multi_agent_agent_defaults: {
+            opencode: {
+              mode_id: 'code',
+              config_values: { model: 'gpt-5' },
+            },
+          },
+        })
+      );
+    });
+    expect(screen.getByText('专注于严谨架构审查')).toBeInTheDocument();
 
     expect(screen.queryByText('委派深度')).not.toBeInTheDocument();
     expect(screen.queryByText('完成缓存 (MB)')).not.toBeInTheDocument();
@@ -355,7 +392,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     ).toHaveTextContent('仅当应用失焦时');
   });
 
-  it('groups composer utilities, basics, sessions, and crash reports', () => {
+  it('groups composer utilities, basics, and notifications', () => {
     renderSettings();
 
     expect(
@@ -365,8 +402,8 @@ describe('GeneralSettings Agent model catalogs', () => {
       screen.getByRole('heading', { name: '基础功能' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: '会话功能' })
-    ).toBeInTheDocument();
+      screen.queryByRole('heading', { name: '会话功能' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '通知' })).toBeInTheDocument();
 
     expect(
@@ -385,13 +422,25 @@ describe('GeneralSettings Agent model catalogs', () => {
         '在会话输入框Composer中添加手动压缩按钮，部分Agent可能无效'
       )
     ).toBeInTheDocument();
+    expect(screen.getByText('界面语言')).toBeInTheDocument();
     expect(screen.getByText('外部查看器')).toBeInTheDocument();
     expect(
-      screen.getByRole('switch', { name: '创建时Fork已有会话' })
+      screen.getByRole('switch', { name: 'Fork会话以创建' })
     ).toBeInTheDocument();
     expect(screen.getByText('本地会话导入')).toBeInTheDocument();
     expect(
+      screen.getByText(
+        '点击导入按钮以进行本地Agent会话数据导入，需先将对应项目导入VibeX，否则无法选择数据'
+      )
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole('switch', { name: '启动时提示未处理的崩溃报告' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('在权限请求、提醒或对话完成时播放提示音。')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('在权限请求、提醒或对话完成时弹出系统桌面通知窗口。')
     ).toBeInTheDocument();
 
     expect(
@@ -423,19 +472,65 @@ describe('GeneralSettings Agent model catalogs', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('hides prompt-enhancement Agent config until the toggle is on', async () => {
+  it('opens a right-side blurred modal when enabling prompt enhancement and reverts the toggle if canceled', async () => {
     const user = userEvent.setup();
     renderSettings('unused', { prompt_enhancement_enabled: false });
 
+    const peToggle = screen.getByRole('switch', { name: '提示词优化' });
+    expect(peToggle).not.toBeChecked();
+    expect(
+      screen.queryByTestId('prompt-enhancement-list-container')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('combobox', { name: 'Agent' })
     ).not.toBeInTheDocument();
     expect(screen.queryByText('使用自定义优化提示词')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('switch', { name: '提示词优化' }));
+    await user.click(peToggle);
+    expect(peToggle).toBeChecked();
 
-    expect(screen.getByRole('combobox', { name: 'Agent' })).toBeInTheDocument();
-    expect(screen.getByText('使用自定义优化提示词')).toBeInTheDocument();
+    const overlay = await screen.findByTestId(
+      'prompt-enhancement-modal-overlay'
+    );
+    expect(overlay).toHaveClass('collaboration-settings-modal-overlay');
+    expect(overlay.style.backdropFilter).toBe('blur(16px)');
+
+    expect(
+      screen.getByRole('combobox', { name: '提示词优化Agent' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('prompt-enhancement-session-config')
+    ).toBeInTheDocument();
+    const customPromptSwitch = screen.getByRole('switch', {
+      name: '自定义优化提示词',
+    });
+    expect(customPromptSwitch).not.toBeChecked();
+    expect(customPromptSwitch.parentElement).toHaveClass(
+      'flex',
+      'items-center',
+      'justify-between'
+    );
+    expect(
+      screen.queryByRole('textbox', { name: '自定义优化提示词' })
+    ).not.toBeInTheDocument();
+
+    // Turning on custom prompt switch reveals the editable prompt input
+    await user.click(customPromptSwitch);
+    const customPromptTextarea = screen.getByRole('textbox', {
+      name: '自定义优化提示词',
+    });
+    expect(customPromptTextarea).toBeInTheDocument();
+    expect(customPromptTextarea).not.toBeDisabled();
+
+    // Clicking Cancel reverts the prompt enhancement switch to OFF and does not render the list
+    await user.click(screen.getByTestId('prompt-enhancement-cancel-btn'));
+    expect(
+      screen.queryByTestId('prompt-enhancement-modal-overlay')
+    ).not.toBeInTheDocument();
+    expect(peToggle).not.toBeChecked();
+    expect(
+      screen.queryByTestId('prompt-enhancement-list-container')
+    ).not.toBeInTheDocument();
   });
 
   it('keeps compact-context opt-in and persists it when enabled', async () => {
@@ -461,7 +556,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     const { updateAndSaveConfig } = renderSettings();
 
     const toggle = await screen.findByRole('switch', {
-      name: '创建时Fork已有会话',
+      name: 'Fork会话以创建',
     });
     expect(toggle).not.toBeChecked();
 
@@ -483,7 +578,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(screen.getByText('import-dialog')).toBeInTheDocument();
   });
 
-  it('saves prompt enhancement session config via the trailing Save button', async () => {
+  it('saves prompt enhancement config from the modal and renders the single-item list with edit action only', async () => {
     const user = userEvent.setup();
     agentsApiMock.capabilityCatalog.mockResolvedValue({
       modes: [],
@@ -503,21 +598,45 @@ describe('GeneralSettings Agent model catalogs', () => {
       ],
     });
     const { updateAndSaveConfig } = renderSettings('unused', {
-      prompt_enhancement_enabled: true,
+      prompt_enhancement_enabled: false,
       prompt_enhancement_agent_id: 'opencode',
     });
 
-    const saveBtn = await screen.findByTestId('agent-session-config-save-btn');
+    await user.click(screen.getByRole('switch', { name: '提示词优化' }));
+
+    await waitFor(() => {
+      expect(agentsApiMock.capabilityCatalog).toHaveBeenCalled();
+    });
+
+    const saveBtn = await screen.findByTestId('prompt-enhancement-save-btn');
     await user.click(saveBtn);
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({
+          prompt_enhancement_enabled: true,
           prompt_enhancement_agent_id: 'opencode',
           prompt_enhancement_session_config: { model: 'grok-4.6' },
         })
       );
     });
+
+    const listContainer = await screen.findByTestId(
+      'prompt-enhancement-list-container'
+    );
+    expect(listContainer).toHaveClass(
+      'min-w-0',
+      'overflow-hidden',
+      'rounded-lg',
+      'border'
+    );
+    const row = screen.getByTestId('prompt-enhancement-config-row');
+    expect(row).toHaveTextContent('OpenCode');
+    expect(row).toHaveTextContent('grok-4.6');
+    expect(row).toHaveTextContent('自定义提示词：未开启');
+    expect(
+      screen.getByTestId('prompt-enhancement-edit-btn')
+    ).toBeInTheDocument();
   });
 
   it('toggles Hide Bot sessions in the Collaboration space section', async () => {
@@ -563,6 +682,12 @@ describe('GeneralSettings Agent model catalogs', () => {
       expect(row).toHaveClass('min-w-0');
       const listContainer = screen.getByTestId('custom-roles-list-container');
       expect(listContainer).toHaveClass('min-w-0', 'overflow-hidden');
+      const scrollBox = screen.getByTestId('custom-roles-scroll-box');
+      expect(scrollBox).toHaveClass(
+        'settings-bounded-list',
+        'max-h-56',
+        'overflow-y-auto'
+      );
 
       const nameSpan = screen.getByText('Anber');
       expect(nameSpan).toHaveClass('shrink-0', 'truncate');

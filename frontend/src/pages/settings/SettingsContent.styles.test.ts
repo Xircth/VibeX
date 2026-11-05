@@ -408,6 +408,7 @@ describe('settings page alignment', () => {
       ':is( .settings-sidebar, .settings-nav-groups, .settings-search-results )::-webkit-scrollbar'
     );
     const navGroups = declarationsFor('.settings-nav-groups');
+    const searchResults = declarationsFor('.settings-search-results');
     const sectionTitle = declarationsFor('.settings-nav-section__title');
     const sectionDivider = declarationsFor(
       '.settings-nav-section + .settings-nav-section::before'
@@ -419,6 +420,10 @@ describe('settings page alignment', () => {
     expect(sidebar.get('border-radius')).toBe('var(--radius)');
     expect(sidebar.get('overflow')).toBe('hidden');
     expect(navGroups.get('overflow-y')).toBe('auto');
+    expect(navGroups.get('margin-inline-end')).toBe('-0.5rem');
+    expect(navGroups.get('padding-inline-end')).toBe('0.5rem');
+    expect(searchResults.get('margin-inline-end')).toBe('-0.5rem');
+    expect(searchResults.get('padding-inline-end')).toBe('0.5rem');
     expect(sidebar.get('background')).toBe(
       'var(--surface-wash), var(--surface-sidebar)'
     );
@@ -541,5 +546,15 @@ describe('settings page alignment', () => {
     expect(overlay?.get('left')).toBe(
       'var(--settings-modal-overlay-left, 12.5rem)'
     );
+  });
+
+  it('caps custom role and remote connection lists at 5 rows with a flush right-edge scrollbar', () => {
+    const boundedList = declarationsMatching('.settings-bounded-list');
+    expect(boundedList.get('max-height')).toBe('14rem');
+    expect(boundedList.get('overflow-y')).toBe('auto');
+    expect(boundedList.get('padding')).toBe('0');
+    expect(boundedList.get('padding-inline-end')).toBe('0');
+    expect(boundedList.get('margin')).toBe('0');
+    expect(boundedList.get('scrollbar-gutter')).toBe('auto');
   });
 });

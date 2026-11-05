@@ -37,6 +37,8 @@ import {
 import {
   ScratchType,
   type ExecutorProfileId,
+  type GitBranch,
+  type Repo,
   type Workspace,
 } from 'shared/types';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
@@ -54,6 +56,8 @@ import i18n from '@/i18n';
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 const CREATE_SESSION_ERROR_FALLBACK =
   'Failed to create session. Please try again.';
+const EMPTY_REPOS: Repo[] = [];
+const EMPTY_REPO_BRANCHES: GitBranch[] = [];
 
 function matchesBranch(branch: string, expectedBranch: string) {
   const normalized = branch.trim().toLowerCase();
@@ -221,14 +225,16 @@ export function RightPanelContent() {
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
-  const { data: repos = [], isPending: isReposPending } =
+  const { data: repos = EMPTY_REPOS, isPending: isReposPending } =
     useProjectRepos(effectiveProjectId);
   const isGitProject = Boolean(project?.is_git);
   const primaryRepo = repos[0];
-  const { data: primaryRepoBranches = [], isPending: isBranchesPending } =
-    useRepoBranches(primaryRepo?.id, {
-      enabled: Boolean(primaryRepo?.id),
-    });
+  const {
+    data: primaryRepoBranches = EMPTY_REPO_BRANCHES,
+    isPending: isBranchesPending,
+  } = useRepoBranches(primaryRepo?.id, {
+    enabled: Boolean(primaryRepo?.id),
+  });
   const { worktrees, isLoading: isLoadingWorktrees } =
     useProjectWorktrees(effectiveProjectId);
   const { data: fallbackWorkspace } = useTaskAttempt(fallbackWorkspaceId);
@@ -521,6 +527,8 @@ export function RightPanelContent() {
     },
   });
 
+  const { reset: resetCreateSessionMutation } = createSessionMutation;
+
   const handleCreateOverlayOpenChange = useCallback(
     (open: boolean) => {
       setIsCreateOverlayOpen(open);
@@ -536,14 +544,14 @@ export function RightPanelContent() {
         return;
       }
 
-      createSessionMutation.reset();
+      resetCreateSessionMutation();
     },
     [
-      createSessionMutation,
       currentOverlayWorkspaceId,
       defaultExecutorProfile,
       defaultWorkspaceValue,
       effectiveProjectId,
+      resetCreateSessionMutation,
       resetRepoBranchSelection,
     ]
   );
@@ -575,6 +583,11 @@ export function RightPanelContent() {
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
   }, [handleCreateOverlayOpenChange]);
+
+  const sessionCreationContextValue = useMemo(
+    () => ({ openCreateSessionOverlay }),
+    [openCreateSessionOverlay]
+  );
 
   useEffect(() => {
     if (searchParams.get('newSession') !== '1') {
@@ -691,7 +704,7 @@ export function RightPanelContent() {
   };
 
   return (
-    <RightPanelSessionCreationProvider value={{ openCreateSessionOverlay }}>
+    <RightPanelSessionCreationProvider value={sessionCreationContextValue}>
       <div className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
           {isGitProject ? <BranchInfoHeader /> : null}

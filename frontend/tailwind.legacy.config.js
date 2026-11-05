@@ -119,13 +119,14 @@ module.exports = {
         },
       },
       borderRadius: {
-        DEFAULT: 'var(--radius)',
-        sm: 'var(--radius)',
-        md: 'var(--radius)',
-        lg: 'var(--radius)',
-        xl: 'var(--radius)',
-        '2xl': 'var(--radius)',
-        '3xl': 'var(--radius)',
+        none: 'var(--radius-none, 0.25rem)',
+        sm: 'var(--radius-inner, var(--radius))',
+        DEFAULT: 'var(--radius-element, var(--radius))',
+        md: 'var(--radius-element, var(--radius))',
+        lg: 'var(--radius-container, var(--radius))',
+        xl: 'var(--radius-container, var(--radius))',
+        '2xl': 'var(--radius-container, var(--radius))',
+        '3xl': 'var(--radius-page, var(--radius))',
       },
       fontFamily: {
         // All product UI resolves through the Codex-like native system token.

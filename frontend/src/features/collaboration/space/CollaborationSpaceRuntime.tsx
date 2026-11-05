@@ -709,6 +709,32 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   );
   const sidebarItemsRef = useRef<SidebarItem[] | null>(null);
   sidebarItemsRef.current = sidebarItems;
+  const viewedThreadIdsRef = useRef<Set<string>>(new Set());
+  const patchSidebarUnread = useCallback(
+    (threadId: string, unreadCount: number) => {
+      if (!threadId) return;
+      setSidebarItems((items) => {
+        if (!items) return items;
+        let changed = false;
+        const next = items.map((item) => {
+          if (item.thread_id === threadId || item.space_id === threadId) {
+            if ((item.unread_count ?? 0) === unreadCount) {
+              return item;
+            }
+            changed = true;
+            return { ...item, unread_count: unreadCount };
+          }
+          return item;
+        });
+        if (changed) {
+          sidebarItemsRef.current = next;
+          return next;
+        }
+        return items;
+      });
+    },
+    [setSidebarItems]
+  );
   const inFlightSidebarRef = useRef<Promise<void> | null>(null);
   const inFlightSidebarWorkspaceRef = useRef('');
   const refreshSidebar = useCallback(async () => {
@@ -722,11 +748,35 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     const requestedWorkspace = workspace;
     const task = (async () => {
       try {
-        const items = await loadSidebarItems(
+        const rawItems = await loadSidebarItems(
           collaborationCall,
           requestedWorkspace
         );
         if (workspaceRef.current !== requestedWorkspace) return;
+        const activeThreadId = directThreadRef.current || selectedIdRef.current;
+        const items =
+          rawItems &&
+          activeThreadId &&
+          activeThreadId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          viewedThreadIdsRef.current.has(activeThreadId) &&
+          followThreadBottomRef.current
+            ? rawItems.map((item) => {
+                if (
+                  (item.thread_id === activeThreadId ||
+                    item.space_id === activeThreadId) &&
+                  (item.unread_count ?? 0) > 0
+                ) {
+                  const seq = item.last_message?.seq;
+                  void markThreadRead(
+                    collaborationCall,
+                    item.thread_id,
+                    typeof seq === 'number' ? seq : undefined
+                  );
+                  return { ...item, unread_count: 0 };
+                }
+                return item;
+              })
+            : rawItems;
         sidebarItemsRef.current = items;
         setSidebarItems(items);
         if (
@@ -1046,9 +1096,20 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         reconcilePendingDirectMessages(current, incoming)
       );
       const seq = latestMessageSeq(incoming);
+      if (
+        viewedThreadIdsRef.current.has(threadId) ||
+        threadId === directThreadRef.current
+      ) {
+        patchSidebarUnread(threadId, 0);
+      }
       void markThreadRead(collaborationCall, threadId, seq || undefined);
     },
-    [setMessagesBySpace, setThreadMessagesFor, setThreadScheduledFor]
+    [
+      patchSidebarUnread,
+      setMessagesBySpace,
+      setThreadMessagesFor,
+      setThreadScheduledFor,
+    ]
   );
   useEffect(() => {
     // Groups address their thread by space id; DMs are marked in openPrivateChat.
@@ -1870,6 +1931,30 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       if (!trimmedSpaceId || trimmedSpaceId === VIRTUAL_DEFAULT_SPACE_ID) {
         return;
       }
+      if (followThreadBottomRef.current) {
+        const activeThreadId = directThreadRef.current || trimmedSpaceId;
+        viewedThreadIdsRef.current.add(activeThreadId);
+        viewedThreadIdsRef.current.add(trimmedSpaceId);
+        patchSidebarUnread(activeThreadId, 0);
+        const sidebarEntry = sidebarItemsRef.current?.find(
+          (item) =>
+            item.thread_id === activeThreadId ||
+            item.space_id === activeThreadId
+        );
+        if ((sidebarEntry?.unread_count ?? 0) > 0) {
+          const latestSeq =
+            latestMessageSeq(
+              messagesBySpace[activeThreadId] ?? messagesRef.current
+            ) || sidebarEntry?.last_message?.seq;
+          void markThreadRead(
+            collaborationCall,
+            sidebarEntry?.thread_id || activeThreadId,
+            typeof latestSeq === 'number' && latestSeq > 0
+              ? latestSeq
+              : undefined
+          );
+        }
+      }
       const spaceRoster = agentRoster(
         membersBySpace[trimmedSpaceId] ?? EMPTY_MEMBERS
       );
@@ -1891,6 +1976,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       getMemberLastMessageInSpace,
       markMemberConversationViewed,
       membersBySpace,
+      messagesBySpace,
+      patchSidebarUnread,
     ]
   );
 
@@ -2020,6 +2107,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       replaceDraftRef.current?.(restoredDraft.text);
       setAttachedImages(restoredDraft.images);
     }
+    viewedThreadIdsRef.current.clear();
     overlayOpenedByUserRef.current = false;
     loadedMemberSpaceKeyRef.current = '';
     bootstrappedDefaultBotWorkspaceRef.current = '';
@@ -2386,6 +2474,14 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         ...current,
         [targetSpaceId]: nextMessages,
       }));
+      if (
+        viewedThreadIdsRef.current.has(targetSpaceId) &&
+        followThreadBottomRef.current
+      ) {
+        patchSidebarUnread(targetSpaceId, 0);
+        const seq = latestMessageSeq(nextMessages);
+        void markThreadRead(collaborationCall, targetSpaceId, seq || undefined);
+      }
     };
     void load().catch((cause: unknown) => {
       if (!cancelled) setError(surfaceErrorCopy(cause));
@@ -2397,6 +2493,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     activeDirectThreadId,
     applyDirectMessages,
     openSpaceKey,
+    patchSidebarUnread,
     selectedId,
     setMembersBySpace,
     setMessagesBySpace,
@@ -2497,9 +2594,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         setThreadCardsFor(spaceId, page.cards);
       }
       const incoming = page.messages ?? [];
+      let mergedMessages: SpaceMessage[] = incoming;
       setThreadMessagesFor(spaceId, (current) => {
         const merged =
           sinceSeq > 0 ? mergeSpaceMessages(current, incoming) : incoming;
+        mergedMessages = merged;
         setMessagesBySpace((bySpace) => ({
           ...bySpace,
           [spaceId]: merged,
@@ -2509,6 +2608,15 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setPendingDirectMessages((current) =>
         reconcilePendingDirectMessages(current, incoming)
       );
+      if (
+        spaceId === selectedIdRef.current &&
+        viewedThreadIdsRef.current.has(spaceId) &&
+        followThreadBottomRef.current
+      ) {
+        patchSidebarUnread(spaceId, 0);
+        const seq = latestMessageSeq(mergedMessages);
+        void markThreadRead(collaborationCall, spaceId, seq || undefined);
+      }
     };
 
     const refreshMessageReceipts = async (
@@ -2909,6 +3017,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     applyDirectMessages,
     loadConversations,
     openSpaceKey,
+    patchSidebarUnread,
     queryClient,
     refreshSidebar,
     selectedId,
@@ -3229,6 +3338,21 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     setActiveDirect(null);
     setSelectedMemberKey('');
     pendingViewedSpaceIdRef.current = spaceId;
+    if (spaceId && spaceId !== VIRTUAL_DEFAULT_SPACE_ID) {
+      viewedThreadIdsRef.current.add(spaceId);
+      patchSidebarUnread(spaceId, 0);
+      const sidebarItem = sidebarItems?.find(
+        (item) => item.thread_id === spaceId || item.space_id === spaceId
+      );
+      const knownSeq =
+        latestMessageSeq(messagesBySpace[spaceId] ?? EMPTY_MESSAGES) ||
+        sidebarItem?.last_message?.seq;
+      void markThreadRead(
+        collaborationCall,
+        sidebarItem?.thread_id || spaceId,
+        typeof knownSeq === 'number' && knownSeq > 0 ? knownSeq : undefined
+      );
+    }
     setSelectedId(spaceId);
     setThreadVisible(true);
     setExpanded((current) => ({ ...current, [spaceId]: nextExpanded }));
@@ -3244,6 +3368,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   ) => {
     const directThreadId = directThreadIdFor(member, threadId);
     const paneId = directThreadId || threadId || spaceId;
+    if (paneId) {
+      viewedThreadIdsRef.current.add(paneId);
+      patchSidebarUnread(paneId, 0);
+    }
     if (sidebarItems) {
       const lastSeq = sidebarItems.find((item) => item.thread_id === paneId)
         ?.last_message?.seq;
@@ -5389,13 +5517,36 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       followThreadBottomRef.current = true;
       setIsAtThreadBottom(true);
       setActiveNavIndex(null);
+      const activeThreadId = directThreadRef.current || selectedIdRef.current;
+      if (
+        activeThreadId &&
+        activeThreadId !== VIRTUAL_DEFAULT_SPACE_ID &&
+        viewedThreadIdsRef.current.has(activeThreadId)
+      ) {
+        patchSidebarUnread(activeThreadId, 0);
+        const sidebarEntry = sidebarItemsRef.current?.find(
+          (item) =>
+            item.thread_id === activeThreadId ||
+            item.space_id === activeThreadId
+        );
+        if ((sidebarEntry?.unread_count ?? 0) > 0) {
+          const seq =
+            latestMessageSeq(messagesRef.current) ||
+            sidebarEntry?.last_message?.seq;
+          void markThreadRead(
+            collaborationCall,
+            sidebarEntry?.thread_id || activeThreadId,
+            typeof seq === 'number' && seq > 0 ? seq : undefined
+          );
+        }
+      }
       ignoreThreadScrollRef.current = true;
       scrollCollabThreadLogToBottom(el, behavior);
       requestAnimationFrame(() => {
         ignoreThreadScrollRef.current = false;
       });
     },
-    []
+    [patchSidebarUnread]
   );
 
   const pendingThreadCount = pendingDirectMessages.filter(
@@ -6629,17 +6780,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     event.stopPropagation();
     setContactMenu({ x: event.clientX, y: event.clientY, items });
   };
-  const patchSidebarUnread = (threadId: string, unreadCount: number) => {
-    setSidebarItems((items) =>
-      items
-        ? items.map((item) =>
-            item.thread_id === threadId
-              ? { ...item, unread_count: unreadCount }
-              : item
-          )
-        : items
-    );
-  };
   const deleteChatEntry = async (entry: ChatListEntry) => {
     if (!workspace) return;
     try {
@@ -6731,9 +6871,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         onMove: (sectionId) => void moveContactToSection(threadId, sectionId),
         onToggleUnread: () => {
           if (unread) {
+            viewedThreadIdsRef.current.add(threadId);
             patchSidebarUnread(threadId, 0);
             void markThreadRead(collaborationCall, threadId);
           } else {
+            viewedThreadIdsRef.current.delete(threadId);
             patchSidebarUnread(threadId, Math.max(1, entry.unreadCount ?? 1));
             void markThreadUnread(collaborationCall, threadId);
           }

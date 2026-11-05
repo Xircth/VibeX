@@ -46,6 +46,8 @@ struct BoundChild {
     progress: Map<String, Value>,
 }
 
+const MAX_TRACKED_SUBAGENTS: usize = 64;
+
 #[derive(Debug, Default)]
 pub struct GrokSubagentTracker {
     pending: Vec<PendingSpawn>,
@@ -92,6 +94,13 @@ impl GrokSubagentTracker {
                 self.mark_settled(call_id, status);
             }
         } else {
+            if self.pending.len() >= MAX_TRACKED_SUBAGENTS {
+                if let Some(idx) = self.pending.iter().position(|item| item.settled) {
+                    self.pending.remove(idx);
+                } else {
+                    self.pending.remove(0);
+                }
+            }
             self.pending.push(PendingSpawn {
                 call_id: call_id.to_string(),
                 description: fields.description,
@@ -138,6 +147,16 @@ impl GrokSubagentTracker {
                 && fields_match(&pending.subagent_type, event_type.as_deref())
         })?;
         let pending = self.pending.remove(idx);
+        if self.by_subagent.len() >= MAX_TRACKED_SUBAGENTS
+            && let Some(evict_key) = self
+                .by_subagent
+                .iter()
+                .find(|(_, child)| child.finished || child.settled)
+                .map(|(key, _)| key.clone())
+                .or_else(|| self.by_subagent.keys().next().cloned())
+        {
+            self.by_subagent.remove(&evict_key);
+        }
         self.by_subagent.insert(
             subagent_id.to_string(),
             BoundChild {
@@ -513,5 +532,20 @@ mod tests {
         );
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].meta["subagent"]["status"], "running");
+    }
+
+    #[test]
+    fn tracker_bounds_pending_spawns() {
+        let mut tracker = GrokSubagentTracker::default();
+        for idx in 0..(MAX_TRACKED_SUBAGENTS + 32) {
+            tracker.note_tool_call(
+                &format!("call-{idx}"),
+                Some("task"),
+                None,
+                None,
+                Some("completed"),
+            );
+        }
+        assert_eq!(tracker.pending.len(), MAX_TRACKED_SUBAGENTS);
     }
 }

@@ -100,3 +100,13 @@
   padding-block: 0 var(--spacing-4, 16px);
   padding-inline: var(--spacing-4, 16px);
 }
+
+.markdown-rich-text-mermaid-preview {
+  margin-block: 8px 12px;
+  max-width: 100%;
+  user-select: none;
+}
+
+.markdown-rich-text-mermaid-preview .conv-md-mermaid {
+  margin: 0;
+}

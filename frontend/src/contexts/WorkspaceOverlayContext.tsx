@@ -390,6 +390,14 @@ function FloatingLayerObserver({
     mutation?.observe(overlayRoot, {
       childList: true,
       subtree: true,
+      attributes: true,
+      attributeFilter: [
+        'data-state',
+        'hidden',
+        'aria-hidden',
+        'style',
+        'class',
+      ],
     });
     window.addEventListener('resize', publish);
     window.addEventListener('scroll', publish, true);
@@ -439,6 +447,15 @@ export function NativeSurfaceOcclusionHold() {
     if (!overlay) return;
 
     const publish = () => {
+      if (
+        overlay.getAttribute('data-state') === 'closed' ||
+        overlay.hasAttribute('hidden') ||
+        overlay.getAttribute('aria-hidden') === 'true' ||
+        overlay.closest('[data-state="closed"], [hidden], [aria-hidden="true"]')
+      ) {
+        setHtmlOverlayRect(id, null);
+        return;
+      }
       const rect = overlay.getBoundingClientRect();
       // Opening/closing animations can report an empty box for a frame.
       // Clearing the rect would flash the native page back in.
@@ -457,10 +474,25 @@ export function NativeSurfaceOcclusionHold() {
         ? null
         : new ResizeObserver(publish);
     observer?.observe(overlay);
+    const attrObserver =
+      typeof MutationObserver === 'undefined'
+        ? null
+        : new MutationObserver(publish);
+    attrObserver?.observe(overlay, {
+      attributes: true,
+      attributeFilter: [
+        'data-state',
+        'hidden',
+        'aria-hidden',
+        'style',
+        'class',
+      ],
+    });
     window.addEventListener('scroll', publish, true);
     window.addEventListener('resize', publish);
     return () => {
       observer?.disconnect();
+      attrObserver?.disconnect();
       window.removeEventListener('scroll', publish, true);
       window.removeEventListener('resize', publish);
       setHtmlOverlayRect(id, null);

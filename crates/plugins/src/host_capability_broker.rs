@@ -561,7 +561,9 @@ impl HostCapabilityBroker {
             .await
             .map_err(|error| broker_error("runtime_lock_failed", error))?
             .ok_or_else(|| broker_error("runtime_not_locked", "Runtime lock is missing"))?;
-        let mut child = Command::new(&runtime.executable_path)
+        let mut command = Command::new(&runtime.executable_path);
+        utils::process::configure_tokio_command_no_window(&mut command);
+        let mut child = command
             .arg(operation)
             .arg("--json")
             .stdin(Stdio::piped())
@@ -3077,6 +3079,7 @@ mod tests {
             let _ = stream.shutdown().await;
         });
 
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let client = reqwest::Client::new();
         let error = super::execute_network_fetch_limited(
             &client,

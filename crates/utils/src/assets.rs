@@ -627,22 +627,14 @@ mod tests {
 
         // 1. Fresh install: no legacy db.sqlite -> uses install_default
         assert_eq!(
-            super::resolve_release_data_dir(
-                None,
-                install_default.clone(),
-                legacy_roaming.clone()
-            ),
+            super::resolve_release_data_dir(None, install_default.clone(), legacy_roaming.clone()),
             install_default
         );
 
         // 2. Existing user: legacy db.sqlite exists, install_default db.sqlite does not -> uses legacy_roaming
         std::fs::write(legacy_roaming.join("db.sqlite"), b"sqlite").unwrap();
         assert_eq!(
-            super::resolve_release_data_dir(
-                None,
-                install_default.clone(),
-                legacy_roaming.clone()
-            ),
+            super::resolve_release_data_dir(None, install_default.clone(), legacy_roaming.clone()),
             legacy_roaming
         );
 

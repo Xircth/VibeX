@@ -84,4 +84,19 @@ describe('reconcileWorkspaceSessionSelection', () => {
     });
     expect(next.pendingSessionId).toBeNull();
   });
+
+  it('reuses the existing selection reference when the resolved sessionId is unchanged to prevent render loops', () => {
+    const prev = { mode: 'existing' as const, sessionId: 'session-pending' };
+    const next = reconcileWorkspaceSessionSelection({
+      prev,
+      sessionIds: [],
+      initialSessionId: 'session-pending',
+      pendingSessionId: 'session-pending',
+      autoSelectFirstSession: true,
+      workspaceChanged: false,
+    });
+
+    expect(next.selection).toBe(prev);
+    expect(next.pendingSessionId).toBe('session-pending');
+  });
 });

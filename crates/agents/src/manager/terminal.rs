@@ -1,5 +1,7 @@
 use super::*;
 
+const MAX_TRACKED_HOSTED_TERMINALS: usize = 64;
+
 impl AgentConnectionRunner {
     pub(in crate::manager) async fn hosted_terminal_output(
         &self,
@@ -11,6 +13,13 @@ impl AgentConnectionRunner {
         let marks = crate::hosted_terminal::hosted_terminal_meta_marks_shell(kind, meta);
         let chunk = crate::hosted_terminal::hosted_terminal_frame_chunk(kind, meta);
         let mut tracked = self.hosted_terminal_output.lock().await;
+        if (marks || chunk.is_some())
+            && !tracked.contains_key(id)
+            && tracked.len() >= MAX_TRACKED_HOSTED_TERMINALS
+            && let Some(evict_key) = tracked.keys().next().cloned()
+        {
+            tracked.remove(&evict_key);
+        }
         if marks {
             tracked.entry(id.to_string()).or_default();
         }
@@ -21,9 +30,12 @@ impl AgentConnectionRunner {
         let out = chunk.map(|chunk| {
             let acc = tracked.entry(id.to_string()).or_default();
             if acc.is_empty() {
-                *acc = chunk;
+                *acc = crate::conversation::cap_preview_bytes(chunk);
             } else {
                 acc.push_str(&chunk);
+                if acc.len() > crate::conversation::MAX_TIMELINE_PREVIEW_BYTES {
+                    *acc = crate::conversation::cap_preview_bytes(std::mem::take(acc));
+                }
             }
             if terminal {
                 std::mem::take(acc)

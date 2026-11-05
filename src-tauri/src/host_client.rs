@@ -1005,7 +1005,9 @@ fn local_ssh_target() -> Option<LocalSshTargetView> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("localhost"))
         .or_else(|| {
-            let output = std::process::Command::new("hostname").output().ok()?;
+            let mut command = std::process::Command::new("hostname");
+            utils::process::configure_std_command_no_window(&mut command);
+            let output = command.output().ok()?;
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if name.is_empty() || name.eq_ignore_ascii_case("localhost") {
                 None

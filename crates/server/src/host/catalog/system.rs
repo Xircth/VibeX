@@ -856,7 +856,11 @@ pub(super) async fn update_data_dir_settings(
     if target_db_path.is_file() {
         remap_sqlite_file_data_dir_paths(&target_db_path, &old_data_dir, &target_dir).await?;
     }
-    remap_settings_json_paths(&target_dir.join("settings.json"), &old_data_dir, &target_dir)?;
+    remap_settings_json_paths(
+        &target_dir.join("settings.json"),
+        &old_data_dir,
+        &target_dir,
+    )?;
 
     // 4. Persist custom_data_dir in bootstrap.json
     let updated = utils::assets::set_custom_data_dir(Some(&target_dir)).map_err(internal_error)?;
@@ -1080,7 +1084,11 @@ pub(crate) async fn remap_sqlite_data_dir_paths(
     Ok(())
 }
 
-pub(crate) fn remap_path_string_prefix(value: &str, old_dir: &Path, new_dir: &Path) -> Option<String> {
+pub(crate) fn remap_path_string_prefix(
+    value: &str,
+    old_dir: &Path,
+    new_dir: &Path,
+) -> Option<String> {
     let old_native = old_dir
         .to_string_lossy()
         .trim_end_matches(['\\', '/'])
@@ -1200,11 +1208,13 @@ mod tests {
         let external_repo = "D:/external/project".to_string();
         let old_doc = format!("{}/spaces/sp-1/doc.md", old_dir.to_string_lossy());
 
-        sqlx::query("INSERT INTO workspaces (id, container_ref, agent_working_dir) VALUES ('w1', ?1, ?1)")
-            .bind(&old_wt)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO workspaces (id, container_ref, agent_working_dir) VALUES ('w1', ?1, ?1)",
+        )
+        .bind(&old_wt)
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("INSERT INTO repos (id, path) VALUES ('r1', ?1), ('r2', ?2)")
             .bind(&old_repo)
             .bind(&external_repo)
@@ -1216,11 +1226,13 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO collaboration_space_collection_items (id, file_path) VALUES ('c1', ?1)")
-            .bind(&old_doc)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_space_collection_items (id, file_path) VALUES ('c1', ?1)",
+        )
+        .bind(&old_doc)
+        .execute(&pool)
+        .await
+        .unwrap();
         pool.close().await;
 
         let validated_target = validate_target_data_dir(&new_dir.to_string_lossy(), &old_dir)

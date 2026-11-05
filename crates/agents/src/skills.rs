@@ -1564,6 +1564,11 @@ fn sync_host_multi_agent_skill_with_layout(
     layout: &SkillHostingLayout,
     dest: &Path,
 ) -> Result<(), SkillError> {
+    static SYNC_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SYNC_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     remove_plugin_skill_projections_with_layout(
         HOST_MULTI_AGENT_PLUGIN_ID,
         &host_multi_agent_projection_skill_ids(),
@@ -1572,13 +1577,35 @@ fn sync_host_multi_agent_skill_with_layout(
     if !enabled {
         return remove_if_exists(dest);
     }
-    remove_if_exists(dest)?;
+    if let Ok(meta) = std::fs::symlink_metadata(dest)
+        && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+    {
+        remove_if_exists(dest)?;
+    }
     std::fs::create_dir_all(dest)
         .map_err(|error| SkillError::Other(format!("创建 {} 失败: {error}", display_path(dest))))?;
+
+    if let Ok(entries) = std::fs::read_dir(dest) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let keep = name.to_str().is_some_and(|file_name| {
+                HOST_BOT_SKILL_FILES
+                    .iter()
+                    .any(|(rel, _)| *rel == file_name)
+            });
+            if !keep {
+                let _ = remove_if_exists(&entry.path());
+            }
+        }
+    }
+
     for (relative_path, contents) in HOST_BOT_SKILL_FILES {
         let file_path = dest.join(relative_path);
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)?;
+        }
+        if std::fs::read_to_string(&file_path).ok().as_deref() == Some(*contents) {
+            continue;
         }
         std::fs::write(&file_path, contents).map_err(|error| {
             SkillError::Other(format!("写入 {} 失败: {error}", display_path(&file_path)))
@@ -2930,5 +2957,29 @@ mod tests {
         merge_hosting_destination(&mut destinations, shared.clone(), false);
 
         assert_eq!(destinations.get(&physical_path_key(&shared)), Some(&true));
+    }
+
+    #[test]
+    fn sync_host_multi_agent_skill_updates_in_place_without_deleting_live_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
+        };
+        let dest = temp.path().join("vibex-bot");
+
+        sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
+        assert!(dest.join("SKILL.md").is_file());
+        assert!(dest.join("SPACE-RULES.md").is_file());
+        assert!(dest.join("MEMORY.md").is_file());
+
+        // Write a stale file and hold an open file handle to SKILL.md while re-syncing
+        let stale = dest.join("STALE.md");
+        std::fs::write(&stale, "stale").unwrap();
+        let _open_handle = std::fs::File::open(dest.join("SKILL.md")).unwrap();
+
+        sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
+        assert!(!stale.exists(), "stale entry should be pruned");
+        assert!(dest.join("SKILL.md").is_file());
     }
 }

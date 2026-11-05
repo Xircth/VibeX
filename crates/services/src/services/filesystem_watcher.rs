@@ -47,8 +47,45 @@ fn canonicalize_lossy(path: &Path) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// System, profile-junction, and package-cache directories that must never be
+/// scanned or watched when a workspace points at a user home directory or
+/// parent folder. Watching `AppData` or `.vibex` on Windows walks tens of
+/// thousands of cache/diagnostic folders (`ElevatedDiagnostics`, `Temp\WinSAT`,
+/// WebView2 `EBWebView`, SQLite WAL/logs) and creates a self-triggering watch
+/// loop plus large `FileIdMap` cache allocations.
+const WATCHER_SKIP_DIRS: &[&str] = &[
+    "appdata",
+    "application data",
+    "local settings",
+    "cookies",
+    "nethood",
+    "printhood",
+    "recent",
+    "sendto",
+    "start menu",
+    "templates",
+    "elevateddiagnostics",
+    "system volume information",
+    "$recycle.bin",
+    "library",
+    ".trash",
+    ".vibex",
+    ".cache",
+    ".cargo",
+    ".rustup",
+    ".npm",
+    ".pnpm-store",
+    ".yarn",
+    ".gradle",
+    ".m2",
+    ".nuget",
+];
+
 fn should_skip_dir(name: &str) -> bool {
     ALWAYS_SKIP_DIRS.contains(&name)
+        || WATCHER_SKIP_DIRS
+            .iter()
+            .any(|skipped| name.eq_ignore_ascii_case(skipped))
 }
 
 /// Check if the platform supports efficient native recursive watching.
@@ -70,7 +107,7 @@ fn build_gitignore_set(root: &Path) -> Result<Gitignore, FilesystemWatcherError>
         .filter_entry(|entry| {
             let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
 
-            // Skip .git directory
+            // Skip .git and system/cache directories
             if is_dir
                 && let Some(name) = entry.file_name().to_str()
                 && should_skip_dir(name)
@@ -97,11 +134,17 @@ fn build_gitignore_set(root: &Path) -> Result<Gitignore, FilesystemWatcherError>
                 }
                 Err(err)
                     if err.io_error().is_some_and(|io_err| {
-                        io_err.kind() == std::io::ErrorKind::PermissionDenied
+                        matches!(
+                            io_err.kind(),
+                            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound
+                        )
                     }) =>
                 {
-                    // Skip entries we don't have permission to read
-                    tracing::warn!("Permission denied reading path: {}", err);
+                    // Skip OS-restricted or transient entries we cannot read
+                    tracing::debug!(
+                        "Skipping unreadable or transient path during gitignore scan: {}",
+                        err
+                    );
                     Ok(())
                 }
                 Err(e) => Err(FilesystemWatcherError::Ignore(e)),
@@ -407,7 +450,10 @@ fn collect_watch_directories(root: &Path, gi: &Gitignore) -> Vec<WatchTarget> {
         })
         .build()
         .filter_map(|result| result.ok())
-        .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .filter(|entry| {
+            entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
+                && std::fs::read_dir(entry.path()).is_ok()
+        })
         .map(|entry| entry.into_path())
         .collect();
 
@@ -921,5 +967,47 @@ mod tests {
         let root = canonicalize_lossy(temp.path());
         let watcher = async_watcher(root);
         assert!(watcher.is_ok());
+    }
+
+    #[test]
+    fn skips_appdata_and_system_cache_directories_when_watching_user_profile() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        std::fs::create_dir_all(root.join("AppData/Local/ElevatedDiagnostics")).unwrap();
+        std::fs::create_dir_all(root.join("AppData/Local/Temp/WinSAT")).unwrap();
+        std::fs::create_dir_all(root.join(".vibex/skills/vibex-bot")).unwrap();
+        std::fs::create_dir_all(root.join(".cargo/registry")).unwrap();
+        std::fs::create_dir_all(root.join("projects/demo")).unwrap();
+
+        let gi = build_gitignore_set(&root).unwrap();
+        let targets = collect_watch_directories(&root, &gi);
+        let watched_paths: Vec<PathBuf> = targets.into_iter().map(|t| t.path).collect();
+
+        assert!(
+            !watched_paths
+                .iter()
+                .any(|p| p.ends_with("AppData") || p.ends_with("ElevatedDiagnostics")),
+            "AppData and ElevatedDiagnostics must never be watched: {watched_paths:?}"
+        );
+        assert!(
+            !watched_paths.iter().any(|p| p.ends_with(".vibex")),
+            ".vibex runtime dir must never be watched: {watched_paths:?}"
+        );
+        assert!(
+            !watched_paths.iter().any(|p| p.ends_with(".cargo")),
+            ".cargo cache dir must never be watched: {watched_paths:?}"
+        );
+        assert!(!path_allowed(
+            &root.join("AppData/Local/ElevatedDiagnostics/test.log"),
+            &gi,
+            &root,
+            Some(PathKindHint::File)
+        ));
+        assert!(path_allowed(
+            &root.join("projects/demo/main.rs"),
+            &gi,
+            &root,
+            Some(PathKindHint::File)
+        ));
     }
 }

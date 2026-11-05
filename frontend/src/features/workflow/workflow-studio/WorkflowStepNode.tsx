@@ -156,7 +156,7 @@ export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
       <div className="flex min-h-8 items-center border-t px-2.5">
         <button
           type="button"
-          className="nodrag inline-flex !h-6 items-center gap-1.5 rounded-full bg-muted/70 px-2 text-[10px] font-medium text-foreground hover:bg-muted"
+          className="nodrag inline-flex !h-6 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-[10px] font-medium text-foreground hover:bg-muted"
           aria-expanded={data.logExpanded}
           onClick={(event) => {
             event.stopPropagation();

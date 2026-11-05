@@ -339,4 +339,3 @@ describe('SystemSettings', () => {
     expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/VibeXData');
   });
 });
-

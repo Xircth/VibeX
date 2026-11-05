@@ -81,9 +81,16 @@ describe('SpaceMessageBody cards', () => {
     ]);
   });
 
-  it('renders ask_user_question cards with the session question UI', async () => {
+  it('renders ask_user_question cards as a standalone message container without wrapping inside a member bubble', async () => {
     render(<SpaceMessageBody fromYou={false} text={askUserQuestion} />);
-    expect(await screen.findByTestId('agent-question-card')).toBeTruthy();
+    const questionCard = await screen.findByTestId('agent-question-card');
+    expect(questionCard).toBeTruthy();
+    const standaloneContainer = screen.getByTestId(
+      'collaboration-question-card-container'
+    );
+    expect(standaloneContainer).toContainElement(questionCard);
+    expect(questionCard.closest('.conv-assistant-msg')).toBeNull();
+    expect(questionCard.closest('.collaboration-member-bubble')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
     await waitFor(() =>
       expect(collaborationCall).toHaveBeenCalledWith(
@@ -95,6 +102,24 @@ describe('SpaceMessageBody cards', () => {
         })
       )
     );
+  });
+
+  it('splits preceding prose into its own bubble and renders the question card standalone below it', async () => {
+    render(
+      <SpaceMessageBody
+        fromYou={false}
+        text={`请先确认以下配置：\n\n${askUserQuestion}`}
+      />
+    );
+    const questionCard = await screen.findByTestId('agent-question-card');
+    expect(
+      screen.getByText('请先确认以下配置：').closest('.conv-assistant-msg')
+    ).toBeTruthy();
+    expect(questionCard.closest('.conv-assistant-msg')).toBeNull();
+    expect(questionCard.closest('.collaboration-member-bubble')).toBeNull();
+    expect(
+      screen.getByTestId('collaboration-question-card-container')
+    ).toContainElement(questionCard);
   });
 
   it('resolves an approval card', async () => {

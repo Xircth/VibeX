@@ -16,8 +16,12 @@ export function clampProjectRailPosition(
   viewportHeight: number,
   margin = PROJECT_RAIL_EDGE_MARGIN
 ): ProjectRailPosition {
-  const maxX = Math.max(margin, viewportWidth - width - margin);
-  const maxY = Math.max(margin, viewportHeight - height - margin);
+  const safeViewportWidth =
+    viewportWidth >= width + margin * 2 ? viewportWidth : 1280;
+  const safeViewportHeight =
+    viewportHeight >= height + margin * 2 ? viewportHeight : 800;
+  const maxX = Math.max(margin, safeViewportWidth - width - margin);
+  const maxY = Math.max(margin, safeViewportHeight - height - margin);
 
   return {
     x: Math.min(Math.max(margin, x), maxX),

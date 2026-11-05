@@ -80,8 +80,13 @@ export function beginQueuedOperation(
   state: AgentManagementState,
   receipt: AgentOperationReceipt
 ): AgentManagementState {
-  return reduceOperationEvent(state, {
-    sequence: Math.max(state.lastEventSequence, 0) + 1,
+  if (!receipt.agent_id || !receipt.operation_id) return state;
+  const existing = state.operations[receipt.agent_id];
+  if (existing && existing.operationId === receipt.operation_id) {
+    return state;
+  }
+  const lifecycle = lifecycleForOperation({
+    sequence: state.lastEventSequence,
     agent_id: receipt.agent_id,
     operation_id: receipt.operation_id,
     kind: receipt.kind,
@@ -89,6 +94,31 @@ export function beginQueuedOperation(
     progress_percent: 0,
     message: null,
   });
+  const agents = state.agents.map((agent) =>
+    agent.agent_id === receipt.agent_id
+      ? {
+          ...agent,
+          lifecycle,
+          active_operation: receipt.kind,
+        }
+      : agent
+  );
+  return {
+    ...state,
+    agents,
+    operations: {
+      ...state.operations,
+      [receipt.agent_id]: {
+        operationId: receipt.operation_id,
+        kind: receipt.kind,
+        status: receipt.status,
+        progressPercent: 0,
+        message: null,
+        logs: [`$ vibex agent ${receipt.kind} ${receipt.agent_id}`],
+        sequence: state.lastEventSequence,
+      },
+    },
+  };
 }
 
 export function reduceOperationEvent(
@@ -121,11 +151,17 @@ export function reduceOperationEvent(
     const sameOperation =
       previous != null && previous.operationId === event.operation_id;
     const previousLogs = sameOperation ? (previous.logs ?? []) : [];
-    const message = event.message?.trim();
-    const logs =
-      message && previousLogs.at(-1) !== message
-        ? [...previousLogs, message].slice(-200)
-        : previousLogs;
+    const incomingLines = (event.message ?? '')
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const nextLogs = [...previousLogs];
+    for (const line of incomingLines) {
+      if (nextLogs.at(-1) !== line) {
+        nextLogs.push(line);
+      }
+    }
+    const logs = nextLogs.slice(-200);
     operations[event.agent_id] = {
       operationId: event.operation_id,
       kind: event.kind,
@@ -133,7 +169,7 @@ export function reduceOperationEvent(
       progressPercent:
         event.progress_percent ??
         (sameOperation ? previous.progressPercent : null),
-      message: event.message,
+      message: incomingLines.at(-1) ?? event.message,
       logs,
       sequence: event.sequence,
     };

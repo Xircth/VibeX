@@ -381,6 +381,12 @@ describe('DevicePairingPanel', () => {
       .getByText('Pixel 9')
       .closest('.settings-pairing-devices') as HTMLElement;
     expect(pairedList).not.toContainElement(toggle);
+    expect(pairedList).toHaveClass(
+      'rounded-lg',
+      'border',
+      'border-border',
+      'bg-background/50'
+    );
 
     expect(within(pairedList).getByText('移动端')).toHaveClass(
       'settings-pairing-devices__preset'

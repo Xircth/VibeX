@@ -123,13 +123,14 @@ pub(super) async fn install() -> Result<PathBuf, ApplicationError> {
     )
     .await?;
     let expected = checksum_for_asset(&checksums, &asset_name)?;
-    let archive = download(
+    let archive = download_verified_archive(
         &client,
         &format!("{release_root}/{asset_name}"),
         MAX_ARCHIVE_BYTES,
+        &expected,
+        &asset_name,
     )
     .await?;
-    verify_checksum(&archive, &expected, &asset_name)?;
     let executable_path = managed_executable_path();
     install_archive(&archive, &target, &executable_path)?;
     if let Err(error) = validate_executable(&executable_path).await {
@@ -143,29 +144,65 @@ pub(super) async fn install() -> Result<PathBuf, ApplicationError> {
     Ok(executable_path)
 }
 
-async fn latest_version(client: &Client) -> Result<String, ApplicationError> {
-    let response = get(client, LATEST_RELEASE_URL).await?;
-    let tag = response
-        .url()
-        .path_segments()
-        .and_then(Iterator::last)
-        .and_then(|segment| segment.strip_prefix('v'))
-        .ok_or_else(|| {
-            ApplicationError::internal(format!(
-                "GitHub returned an unexpected latest-release URL: {}",
-                response.url()
-            ))
-        })?;
+fn parse_release_version(raw: &str) -> Option<String> {
+    let tag = raw.trim().strip_prefix('v').unwrap_or(raw.trim());
     if tag.is_empty()
         || !tag
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
     {
-        return Err(ApplicationError::internal(format!(
-            "GitHub returned an invalid release version `{tag}`"
-        )));
+        return None;
     }
-    Ok(tag.to_string())
+    Some(tag.to_string())
+}
+
+fn parse_version_from_url(url: &str) -> Option<String> {
+    if let Some((_, tail)) = url.rsplit_once("/releases/tag/") {
+        let segment = tail.split(['/', '?', '#']).next()?;
+        return parse_release_version(segment);
+    }
+    None
+}
+
+async fn latest_version(client: &Client) -> Result<String, ApplicationError> {
+    if let Ok((release, _)) =
+        super::release_download::github_latest_release(client, "cli", "cli").await
+        && let Some(version) = parse_release_version(&release.tag_name)
+    {
+        return Ok(version);
+    }
+
+    let mut last_error = None;
+    for url in candidate_urls(LATEST_RELEASE_URL) {
+        match client.get(&url).send().await {
+            Ok(response) => match response.error_for_status() {
+                Ok(response) => {
+                    if let Some(version) = parse_version_from_url(response.url().as_str()) {
+                        return Ok(version);
+                    }
+                    if let Some(segment) = response
+                        .url()
+                        .path_segments()
+                        .and_then(Iterator::last)
+                        .and_then(|seg| seg.strip_prefix('v'))
+                        && let Some(version) = parse_release_version(segment)
+                    {
+                        return Ok(version);
+                    }
+                    last_error = Some(format!(
+                        "GitHub returned an unexpected latest-release URL: {}",
+                        response.url()
+                    ));
+                }
+                Err(error) => last_error = Some(error.to_string()),
+            },
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+
+    Err(ApplicationError::internal(last_error.unwrap_or_else(
+        || format!("Failed to fetch {LATEST_RELEASE_URL}"),
+    )))
 }
 
 fn candidate_urls(official: &str) -> Vec<String> {
@@ -178,20 +215,33 @@ fn candidate_urls(official: &str) -> Vec<String> {
     urls
 }
 
-async fn get(client: &Client, official: &str) -> Result<reqwest::Response, ApplicationError> {
-    let mut last = None;
-    for url in candidate_urls(official) {
-        match client.get(&url).send().await {
-            Ok(response) => match response.error_for_status() {
-                Ok(response) => return Ok(response),
-                Err(error) => last = Some(error.to_string()),
-            },
-            Err(error) => last = Some(error.to_string()),
-        }
+async fn download_from_url(
+    client: &Client,
+    url: &str,
+    official: &str,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|error| error.to_string())?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(format!(
+            "Download exceeds the {limit}-byte safety limit: {official}"
+        ));
     }
-    Err(ApplicationError::internal(
-        last.unwrap_or_else(|| format!("Failed to fetch {official}")),
-    ))
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    if bytes.len() > limit {
+        return Err(format!(
+            "Download exceeds the {limit}-byte safety limit: {official}"
+        ));
+    }
+    Ok(bytes.to_vec())
 }
 
 async fn download(
@@ -199,25 +249,38 @@ async fn download(
     official: &str,
     limit: usize,
 ) -> Result<Vec<u8>, ApplicationError> {
-    let response = get(client, official).await?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > limit as u64)
-    {
-        return Err(ApplicationError::internal(format!(
-            "Download exceeds the {limit}-byte safety limit: {official}"
-        )));
+    let mut last = None;
+    for url in candidate_urls(official) {
+        match download_from_url(client, &url, official, limit).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) => last = Some(error),
+        }
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    if bytes.len() > limit {
-        return Err(ApplicationError::internal(format!(
-            "Download exceeds the {limit}-byte safety limit: {official}"
-        )));
+    Err(ApplicationError::internal(
+        last.unwrap_or_else(|| format!("Failed to fetch {official}")),
+    ))
+}
+
+async fn download_verified_archive(
+    client: &Client,
+    official: &str,
+    limit: usize,
+    expected_checksum: &str,
+    asset_name: &str,
+) -> Result<Vec<u8>, ApplicationError> {
+    let mut last = None;
+    for url in candidate_urls(official) {
+        match download_from_url(client, &url, official, limit).await {
+            Ok(bytes) => match verify_checksum(&bytes, expected_checksum, asset_name) {
+                Ok(()) => return Ok(bytes),
+                Err(error) => last = Some(error.envelope().message.clone()),
+            },
+            Err(error) => last = Some(error),
+        }
     }
-    Ok(bytes.to_vec())
+    Err(ApplicationError::internal(
+        last.unwrap_or_else(|| format!("Failed to fetch {official}")),
+    ))
 }
 
 fn checksum_for_asset(checksums: &[u8], asset_name: &str) -> Result<String, ApplicationError> {
@@ -228,7 +291,7 @@ fn checksum_for_asset(checksums: &[u8], asset_name: &str) -> Result<String, Appl
         .filter_map(|line| {
             let mut fields = line.split_whitespace();
             let checksum = fields.next()?;
-            let file_name = fields.next()?;
+            let file_name = fields.next()?.trim_start_matches('*');
             (file_name == asset_name && checksum.len() == 64).then(|| checksum.to_ascii_lowercase())
         })
         .next()
@@ -269,22 +332,32 @@ fn install_archive(
     let mut staged = std::fs::File::create(&staged_path).map_err(|error| {
         ApplicationError::internal(format!("Failed to stage GitHub CLI: {error}"))
     })?;
-    extract_executable(archive, target, &mut staged)?;
-    staged.flush().map_err(|error| {
-        ApplicationError::internal(format!("Failed to flush GitHub CLI: {error}"))
-    })?;
+    if let Err(error) = extract_executable(archive, target, &mut staged) {
+        drop(staged);
+        let _ = std::fs::remove_file(&staged_path);
+        return Err(error);
+    }
+    if let Err(error) = staged.flush() {
+        drop(staged);
+        let _ = std::fs::remove_file(&staged_path);
+        return Err(ApplicationError::internal(format!(
+            "Failed to flush GitHub CLI: {error}"
+        )));
+    }
     drop(staged);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&staged_path, std::fs::Permissions::from_mode(0o755)).map_err(
             |error| {
+                let _ = std::fs::remove_file(&staged_path);
                 ApplicationError::internal(format!("Failed to make GitHub CLI executable: {error}"))
             },
         )?;
     }
     if executable_path.exists() {
         std::fs::remove_file(executable_path).map_err(|error| {
+            let _ = std::fs::remove_file(&staged_path);
             ApplicationError::internal(format!(
                 "Failed to replace {}: {error}",
                 executable_path.display()
@@ -312,6 +385,11 @@ fn extract_executable<W: Write + Seek>(
     }
 }
 
+fn archive_entry_matches_bin(entry_path: &Path, executable_name: &str) -> bool {
+    let expected_suffix = Path::new("bin").join(executable_name);
+    entry_path.ends_with(&expected_suffix)
+}
+
 fn extract_zip<W: Write + Seek>(
     archive: &[u8],
     executable_name: &str,
@@ -319,12 +397,14 @@ fn extract_zip<W: Write + Seek>(
 ) -> Result<(), ApplicationError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(archive))
         .map_err(|error| ApplicationError::internal(format!("Invalid GitHub CLI zip: {error}")))?;
-    let expected_suffix = format!("/bin/{executable_name}");
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| {
             ApplicationError::internal(format!("Failed to read GitHub CLI zip: {error}"))
         })?;
-        if entry.is_file() && entry.name().ends_with(&expected_suffix) {
+        let normalized_name = entry.name().replace('\\', "/");
+        if entry.is_file()
+            && archive_entry_matches_bin(Path::new(&normalized_name), executable_name)
+        {
             std::io::copy(&mut entry, destination).map_err(|error| {
                 ApplicationError::internal(format!("Failed to extract GitHub CLI: {error}"))
             })?;
@@ -343,7 +423,6 @@ fn extract_tar_gz<W: Write + Seek>(
 ) -> Result<(), ApplicationError> {
     let decoder = GzDecoder::new(Cursor::new(archive));
     let mut archive = tar::Archive::new(decoder);
-    let expected_suffix = Path::new("bin").join(executable_name);
     let entries = archive.entries().map_err(|error| {
         ApplicationError::internal(format!("Invalid GitHub CLI tar archive: {error}"))
     })?;
@@ -354,7 +433,9 @@ fn extract_tar_gz<W: Write + Seek>(
         let path = entry.path().map_err(|error| {
             ApplicationError::internal(format!("Invalid path in GitHub CLI archive: {error}"))
         })?;
-        if entry.header().entry_type().is_file() && path.ends_with(&expected_suffix) {
+        if entry.header().entry_type().is_file()
+            && archive_entry_matches_bin(&path, executable_name)
+        {
             std::io::copy(&mut entry, destination).map_err(|error| {
                 ApplicationError::internal(format!("Failed to extract GitHub CLI: {error}"))
             })?;
@@ -387,16 +468,21 @@ async fn validate_executable(executable_path: &Path) -> Result<(), String> {
 fn publish_to_user_environment(executable_path: &Path) -> Result<(), String> {
     let home_dir = dirs::home_dir()
         .ok_or_else(|| "The user home directory could not be determined.".to_string())?;
+    let _ = agents::remove_orphaned_cli_shims(&home_dir);
     let managed_root = utils::assets::asset_dir().join("tools").join("github-cli");
     let owner = AgentId::parse("github-cli")
         .map_err(|error| format!("Invalid GitHub CLI installation identity: {error}"))?;
+    let runtime_paths = executable_path
+        .parent()
+        .map(|parent| vec![parent.to_path_buf()])
+        .unwrap_or_default();
     let shell = native_shell_family();
     let published = publish_managed_runtime_cli(
         &home_dir,
         &owner,
         &managed_root,
         executable_path,
-        &[],
+        &runtime_paths,
         shell,
     )
     .map_err(|error| format!("Failed to expose GitHub CLI to the user environment: {error}"))?;
@@ -419,7 +505,9 @@ fn native_shell_family() -> ShellFamily {
 
 #[cfg(test)]
 mod tests {
-    use super::ReleaseTarget;
+    use std::io::Cursor;
+
+    use super::{ReleaseTarget, extract_zip, parse_version_from_url};
 
     #[test]
     fn maps_official_release_assets_for_linux_macos_and_windows() {
@@ -440,6 +528,43 @@ mod tests {
                 .unwrap()
                 .asset_name("2.94.0"),
             "gh_2.94.0_windows_amd64.zip"
+        );
+    }
+
+    #[test]
+    fn extracts_gh_from_both_root_level_windows_zip_and_nested_zip() {
+        for entry_name in ["bin/gh.exe", "gh_2.94.0_windows_amd64/bin/gh.exe"] {
+            let mut buffer = Cursor::new(Vec::new());
+            {
+                let mut zip = zip::ZipWriter::new(&mut buffer);
+                let options = zip::write::SimpleFileOptions::default();
+                zip.start_file(entry_name, options).expect("start zip file");
+                std::io::Write::write_all(&mut zip, b"gh-windows-binary").expect("write zip");
+                zip.finish().expect("finish zip");
+            }
+            let mut output = Cursor::new(Vec::new());
+            extract_zip(buffer.get_ref(), "gh.exe", &mut output)
+                .expect("should extract gh.exe from zip");
+            assert_eq!(output.into_inner(), b"gh-windows-binary");
+        }
+    }
+
+    #[test]
+    fn parses_version_from_redirected_release_urls() {
+        assert_eq!(
+            parse_version_from_url("https://github.com/cli/cli/releases/tag/v2.94.0").as_deref(),
+            Some("2.94.0")
+        );
+        assert_eq!(
+            parse_version_from_url(
+                "https://ghfast.top/https://github.com/cli/cli/releases/tag/v2.94.0"
+            )
+            .as_deref(),
+            Some("2.94.0")
+        );
+        assert_eq!(
+            parse_version_from_url("https://ghfast.top/https://github.com/cli/cli/releases/latest"),
+            None
         );
     }
 }

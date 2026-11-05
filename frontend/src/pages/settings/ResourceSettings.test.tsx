@@ -257,6 +257,47 @@ describe('McpSettings', () => {
       );
     });
   });
+
+  it('renders local MCP and MCP marketplace list items with auto-height button classes to prevent row overlap', async () => {
+    const user = userEvent.setup();
+    mocks.scanMcp.mockResolvedValue([
+      {
+        id: 'node_repl',
+        spec: {
+          type: 'stdio',
+          command: 'C:\\Users\\18190\\AppData\\Local\\OpenAI\\Codex\\node.exe',
+        },
+        global: false,
+        apps: ['codex'],
+      },
+    ]);
+    mocks.searchMcp.mockResolvedValue([
+      {
+        provider_id: 'smithery',
+        server_id: '@smithery/github',
+        name: 'GitHub MCP',
+        description: 'GitHub integration',
+        icon_url: null,
+        verified: true,
+        remote: true,
+        protocols: ['http'],
+        downloads: 120,
+        homepage: null,
+      },
+    ]);
+
+    renderSettings(<McpSettings />);
+
+    const localItem = await screen.findByRole('button', { name: /node_repl/ });
+    expect(localItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
+
+    await user.click(screen.getByRole('button', { name: 'MCP 市场' }));
+
+    const marketItem = await screen.findByRole('button', {
+      name: /GitHub MCP/,
+    });
+    expect(marketItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
+  });
 });
 
 describe('SkillsSettings', () => {

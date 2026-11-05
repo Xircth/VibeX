@@ -75,6 +75,7 @@ const BUILT_IN_ICON_PATHS: Partial<
     dark: '/agents/command-code.svg',
   },
   zcode: { light: '/agents/zcode.svg', dark: '/agents/zcode.svg' },
+  omp: { light: '/agents/omp-light.svg', dark: '/agents/omp-dark.svg' },
   mimo_code: {
     light: '/agents/mimo-code-light.svg',
     dark: '/agents/mimo-code-dark.svg',
@@ -103,6 +104,7 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   trae: 'TRAE CLI',
   command_code: 'Command Code',
   zcode: 'ZCode',
+  omp: 'OMP',
   mimo_code: 'MiMo Code',
 };
 
@@ -143,6 +145,9 @@ export function normalizeAgentIconKey(
     case 'commandcode':
     case 'cmdc':
       return 'command_code';
+    case 'oh_my_pi':
+    case 'ohmypi':
+      return 'omp';
     case 'mimo':
     case 'mimocode':
       return 'mimo_code';

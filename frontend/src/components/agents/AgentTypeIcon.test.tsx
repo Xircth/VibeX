@@ -15,6 +15,7 @@ describe('AgentTypeIcon', () => {
     ['trae', 'TRAE CLI'],
     ['command_code', 'Command Code'],
     ['zcode', 'ZCode'],
+    ['omp', 'OMP'],
   ])(
     'renders brand artwork for %s instead of the generic glyph',
     (agent, name) => {

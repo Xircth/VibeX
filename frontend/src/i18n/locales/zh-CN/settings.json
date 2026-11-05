@@ -2095,6 +2095,8 @@
     "headlessAccountTokenSaved": "已保存",
     "headlessAccountTokenLoadFailed": "无法读取令牌",
     "headlessAccountTokenSaveFailed": "无法保存令牌",
+    "authDescOmpSubscription": "登录 OMP 账号。",
+    "authDescOmpProvider": "使用已保存的 OMP 供应商。",
     "authDescMimoSubscription": "使用小米 MiMo 账号登录。",
     "authDescMimoOfficialApi": "使用小米 MiMo 官方 API Key。",
     "authDescMimoProvider": "在 MiMo Code 中连接目录或自定义 OpenAI 兼容供应商。",
@@ -2572,6 +2574,12 @@
         "login": {
           "label": "登录 ZCode",
           "description": "打开官方 ZCode 登录流程。"
+        }
+      },
+      "omp": {
+        "login": {
+          "label": "登录 OMP",
+          "description": "在终端里为 OMP 登录模型供应商。"
         }
       },
       "kimi_code": {

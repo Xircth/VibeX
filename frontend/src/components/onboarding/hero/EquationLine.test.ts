@@ -33,6 +33,7 @@ const RUNNABLE_AGENTS: AgentKind[] = [
   'trae',
   'command_code',
   'zcode',
+  'omp',
 ];
 
 describe('onboarding equation slots', () => {

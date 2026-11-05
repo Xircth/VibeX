@@ -138,6 +138,7 @@ const KNOWN_AGENT_KINDS = new Set([
   'trae',
   'command_code',
   'zcode',
+  'omp',
   'qa_mock',
 ]);
 
@@ -158,6 +159,8 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
   traecli: 'trae',
   trae_cli: 'trae',
   commandcode: 'command_code',
+  ohmypi: 'omp',
+  'oh-my-pi': 'omp',
   cmdc: 'command_code',
 };
 

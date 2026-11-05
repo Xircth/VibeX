@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "guide.code-completion",
+      "kind": "guide",
+      "title": "AI Code Completion Guide",
+      "summary": "Configure OpenAI-compatible and Anthropic Messages endpoints for low-latency Ghost Text inline completion.",
+      "path": "contents/guides/code-completion.md",
+      "tags": [
+        "code-completion",
+        "ghost-text",
+        "fim",
+        "openai",
+        "anthropic"
+      ]
+    }
+  ]
+}

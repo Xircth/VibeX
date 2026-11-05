@@ -6,6 +6,8 @@ import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
+import { getCodeEditorService } from '@/features/plugins/providers/hostProviderServices';
+
 let configured = false;
 
 function configureLocalMonaco() {
@@ -28,10 +30,13 @@ function configureLocalMonaco() {
   };
 
   loader.config({ monaco });
+  getCodeEditorService().setMonacoInstance(monaco);
   configured = true;
 }
 
 export async function initializeLocalMonaco(): Promise<Monaco> {
   configureLocalMonaco();
-  return loader.init();
+  const initialized = await loader.init();
+  getCodeEditorService().setMonacoInstance(initialized);
+  return initialized;
 }

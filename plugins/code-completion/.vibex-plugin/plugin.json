@@ -1,0 +1,140 @@
+{
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.code-completion",
+  "name": "Code Completion",
+  "version": "2.0.0",
+  "publisher": "vibex",
+  "description": "Low-latency AI ghost-text inline code completion powered by OpenAI-compatible and Anthropic Messages endpoints.",
+  "readme": "README.md",
+  "engines": {
+    "vibex": "^0.4.1",
+    "pluginSdk": "^0.4.1"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AI inline ghost-text code completion in Monaco editors."
+        },
+        "providerProtocol": {
+          "type": "string",
+          "enum": [
+            "openai-compatible",
+            "anthropic-compatible",
+            "openai-fim"
+          ],
+          "default": "openai-compatible",
+          "description": "LLM endpoint protocol: OpenAI Chat Completions (/v1/chat/completions), Anthropic Messages (/v1/messages with <COMPLETION> prefill), or native OpenAI FIM (/v1/completions)."
+        },
+        "baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "Base URL of the OpenAI-compatible or Anthropic-compatible API endpoint."
+        },
+        "apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authenticating completion requests."
+        },
+        "model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model identifier used for low-latency inline completion (e.g. gpt-4o-mini, deepseek-chat, qwen2.5-coder-7b, claude-3-5-haiku-latest)."
+        },
+        "triggerMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "default": "auto",
+          "description": "Trigger mode: automatic debounced inline completion while typing or manual shortcut trigger only."
+        },
+        "completionScope": {
+          "type": "string",
+          "enum": [
+            "smart",
+            "single-line"
+          ],
+          "default": "smart",
+          "description": "Completion scope: smart block/single-line detection or strict single-line completion."
+        },
+        "ignoredGlobs": {
+          "type": "string",
+          "default": ".env*, *.pem, *.key, *secret*, *.min.js",
+          "description": "Comma-separated file glob patterns excluded from context extraction and completion requests."
+        },
+        "disabledLanguages": {
+          "type": "string",
+          "default": "markdown, plaintext",
+          "description": "Comma-separated language IDs where automatic inline completion is disabled."
+        },
+        "maxTokens": {
+          "type": "integer",
+          "default": 128,
+          "minimum": 16,
+          "maximum": 1024,
+          "description": "Maximum tokens generated for multi-line block completions."
+        },
+        "temperature": {
+          "type": "number",
+          "default": 0.1,
+          "description": "Sampling temperature for code completion generation."
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "permissions": [
+    {
+      "capability": "runtime.execute",
+      "reason": "Execute low-latency OpenAI and Anthropic FIM code completion requests in the plugin worker."
+    }
+  ],
+  "integrations": [
+    {
+      "id": "code-completion-status",
+      "kind": "app.status",
+      "slot": "status.after-mcp",
+      "title": "Code Completion",
+      "handler": "completion.status",
+      "icon": "sparkles",
+      "order": 30
+    },
+    {
+      "id": "code-completion-toggle",
+      "kind": "app.command",
+      "title": "Toggle AI Code Completion",
+      "handler": "completion.toggle",
+      "icon": "sparkles",
+      "order": 31
+    },
+    {
+      "id": "code-completion-trigger",
+      "kind": "app.command",
+      "title": "Trigger Inline Code Completion",
+      "handler": "completion.trigger",
+      "icon": "code",
+      "order": 32
+    }
+  ]
+}

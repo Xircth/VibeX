@@ -63,6 +63,7 @@ import { fileTreeApi } from '@/lib/api';
 import { desktopApi, fileToBase64 } from '@/lib/api/misc';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 import { subscribePreviewTabRefresh } from '@/utils/previewTabRefresh';
+import { getCodeEditorService } from '@/features/plugins/providers/hostProviderServices';
 import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
 import {
   insertPastedImagesAsMarkdown,
@@ -358,6 +359,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const readRangeDecorationRef =
     useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
   const markdownPasteCleanupRef = useRef<(() => void) | null>(null);
+  const editorBridgeCleanupRef = useRef<(() => void) | null>(null);
   const markdownBasePathRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<{
@@ -684,6 +686,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   );
 
   const disposeEditorModel = useCallback(() => {
+    editorBridgeCleanupRef.current?.();
+    editorBridgeCleanupRef.current = null;
     readRangeDecorationRef.current?.clear();
     readRangeDecorationRef.current = null;
     if (editorRef.current) {
@@ -701,6 +705,17 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         disposeEditorModel();
       }
       editorRef.current = editor;
+      editorBridgeCleanupRef.current?.();
+      const codeEditorService = getCodeEditorService();
+      codeEditorService.setMonacoInstance(monaco);
+      editorBridgeCleanupRef.current = codeEditorService.registerEditorInstance(
+        editor,
+        {
+          filePath: resolvedFilePath ?? filePath ?? 'untitled',
+          displayPath: resolvedDisplayPath ?? filePath ?? null,
+          languageId: filePath ? getLanguageFromPath(filePath) : 'plaintext',
+        }
+      );
 
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         persistEditorContent(editor.getValue());
@@ -760,10 +775,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     [
       applyReadRange,
       disposeEditorModel,
+      filePath,
       isMd,
       location,
       persistEditorContent,
       queryClient,
+      resolvedDisplayPath,
       resolvedFilePath,
       t,
     ]
@@ -785,6 +802,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
+    getCodeEditorService().setMonacoInstance(monaco);
   }, []);
 
   useEffect(() => {
@@ -1374,6 +1392,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               tabSize: 2,
               renderWhitespace: 'selection',
               bracketPairColorization: { enabled: true },
+              inlineSuggest: { enabled: true },
             }}
           />
         )}

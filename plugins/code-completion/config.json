@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "providerProtocol": "openai-compatible",
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "",
+  "model": "gpt-4o-mini",
+  "triggerMode": "auto",
+  "completionScope": "smart",
+  "ignoredGlobs": ".env*, *.pem, *.key, *secret*, *.min.js",
+  "disabledLanguages": "markdown, plaintext",
+  "maxTokens": 128,
+  "temperature": 0.1
+}

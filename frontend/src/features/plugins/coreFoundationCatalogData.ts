@@ -1448,7 +1448,13 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         '提供工作区文件树监听、@ 文件引用秒级检索、产物预览租约以及外部 IDE 一键跳转。',
       summaryEn:
         'Provides workspace file tree watching, `@` file reference indexing, artifact preview leases, and external IDE openers.',
-      provides: ['vibex.filesystem', 'vibex.editor', 'provider.editor.opener'],
+      provides: [
+        'vibex.filesystem',
+        'vibex.editor',
+        'provider.editor.opener',
+        'vibex.code-editor',
+        'provider.editor.monaco',
+      ],
       injects: [],
       onActivate: (ctx) => {
         registerBuiltinHostProviderServices({ ctx });
@@ -1503,6 +1509,14 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           },
           ['vibex.provider.editor-opener']
         );
+        registerBuiltinHostProviderServices({
+          ctx,
+          serviceKeys: [
+            'vibex.code-editor',
+            'provider.editor.monaco',
+            'vibex.provider.code-editor',
+          ],
+        });
       },
       parts: [
         {

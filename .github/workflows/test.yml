@@ -213,7 +213,14 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run Cargo tests
+        id: nextest
+        timeout-minutes: 10
+        continue-on-error: true
         run: cargo nextest run --workspace --no-fail-fast --status-level slow
+
+      - name: Check Cargo test outcome
+        if: steps.nextest.outcome != 'success'
+        run: exit 1
 
   backend-platform-check:
     name: cargo check ${{ matrix.name }}

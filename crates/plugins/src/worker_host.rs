@@ -467,12 +467,15 @@ pub(crate) fn kill_os_process_tree(pid: u32) {
     }
     #[cfg(unix)]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-KILL", &format!("-{pid}")])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let self_pid = std::process::id();
+        if pid > 1 && pid != self_pid {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &format!("-{pid}")])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
     }
 }
 

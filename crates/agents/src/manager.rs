@@ -858,10 +858,11 @@ impl AgentConnectionManager {
                 if let Some(pid) = connection.child_pid.lock().unwrap().take() {
                     #[cfg(unix)]
                     {
-                        // SAFETY: `getpgid` and `killpg` are standard POSIX syscalls; negative return indicates error.
+                        // SAFETY: `getpgid`, `getpgrp`, and `killpg` are standard POSIX syscalls; negative return indicates error.
                         unsafe {
                             let pgid = libc::getpgid(pid as libc::pid_t);
-                            if pgid > 0 {
+                            let self_pgid = libc::getpgrp();
+                            if pgid > 1 && pgid != self_pgid {
                                 let _ = libc::killpg(pgid, libc::SIGKILL);
                             }
                         }
@@ -975,10 +976,11 @@ impl AgentConnectionManager {
         for pid in pids {
             #[cfg(unix)]
             {
-                // SAFETY: `getpgid` and `killpg` are standard POSIX syscalls; negative return indicates error.
+                // SAFETY: `getpgid`, `getpgrp`, and `killpg` are standard POSIX syscalls; negative return indicates error.
                 unsafe {
                     let pgid = libc::getpgid(pid as libc::pid_t);
-                    if pgid > 0 {
+                    let self_pgid = libc::getpgrp();
+                    if pgid > 1 && pgid != self_pgid {
                         let _ = libc::killpg(pgid, libc::SIGKILL);
                     }
                 }

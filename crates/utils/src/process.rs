@@ -449,7 +449,11 @@ pub fn terminate_std_child_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = Pid::from_raw(child.id() as i32);
-        if let Ok(pgid) = getpgid(Some(pid)) {
+        let self_pgid = nix::unistd::getpgrp();
+        if let Ok(pgid) = getpgid(Some(pid))
+            && pgid.as_raw() > 1
+            && pgid != self_pgid
+        {
             let _ = killpg(pgid, Signal::SIGTERM);
             std::thread::sleep(std::time::Duration::from_millis(200));
             if child.try_wait().ok().flatten().is_some() {
@@ -469,22 +473,25 @@ pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<
         if let Some(pid) = child.inner().id() {
             let pgid = getpgid(Some(Pid::from_raw(pid as i32)))
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
+            let self_pgid = nix::unistd::getpgrp();
 
-            for sig in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGKILL] {
-                tracing::info!("Sending {:?} to process group {}", sig, pgid);
-                if let Err(e) = killpg(pgid, sig) {
-                    tracing::warn!(
-                        "Failed to send signal {:?} to process group {}: {}",
-                        sig,
-                        pgid,
-                        e
-                    );
-                }
-                tracing::info!("Waiting 2s for process group {} to exit", pgid);
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                if child.inner().try_wait()?.is_some() {
-                    tracing::info!("Process group {} exited after {:?}", pgid, sig);
-                    break;
+            if pgid.as_raw() > 1 && pgid != self_pgid {
+                for sig in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGKILL] {
+                    tracing::info!("Sending {:?} to process group {}", sig, pgid);
+                    if let Err(e) = killpg(pgid, sig) {
+                        tracing::warn!(
+                            "Failed to send signal {:?} to process group {}: {}",
+                            sig,
+                            pgid,
+                            e
+                        );
+                    }
+                    tracing::info!("Waiting 2s for process group {} to exit", pgid);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    if child.inner().try_wait()?.is_some() {
+                        tracing::info!("Process group {} exited after {:?}", pgid, sig);
+                        break;
+                    }
                 }
             }
         }

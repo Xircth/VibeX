@@ -124,11 +124,14 @@ struct ProviderIdArgs {
     provider_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DshDiscoverArgs {
+    #[serde(alias = "base_url")]
     base_url: String,
+    #[serde(alias = "api_key")]
     api_key: Option<String>,
+    #[serde(alias = "provider_id")]
     provider_id: Option<String>,
 }
 
@@ -601,7 +604,7 @@ pub async fn dispatch_dsh_provider_save(
     pool: &SqlitePool,
     args: Value,
 ) -> Result<Value, ApplicationError> {
-    let request: DshProviderSaveRequest = parse(args)?;
+    let request: DshProviderSaveRequest = parse_request(args)?;
     let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
     let env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
@@ -628,10 +631,15 @@ pub async fn dispatch_dsh_provider_delete(
     serialize(view)
 }
 
-pub async fn dispatch_dsh_provider_discover(args: Value) -> Result<Value, ApplicationError> {
-    let args: DshDiscoverArgs = parse(args)?;
+pub async fn dispatch_dsh_provider_discover(
+    pool: &SqlitePool,
+    args: Value,
+) -> Result<Value, ApplicationError> {
+    let args: DshDiscoverArgs = parse_request(args)?;
+    let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
+    let env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
-    let paths = dsh_configuration::resolve_paths(&home, &HashMap::new());
+    let paths = dsh_configuration::resolve_paths(&home, &env);
     serialize(
         dsh_configuration::discover_models(
             &paths,
@@ -1275,5 +1283,70 @@ mod tests {
         .expect("unbind");
         assert_eq!(parsed.agent_id.as_str(), "codex");
         assert_eq!(parsed.provider_id, None);
+    }
+
+    #[test]
+    fn dsh_discover_accepts_request_wrapper_and_flat_camel_case() {
+        let wrapped: DshDiscoverArgs = parse_request(json!({
+            "request": {
+                "baseUrl": "https://api.deepseek.com",
+                "apiKey": "sk-test",
+                "providerId": "deepseek-official"
+            }
+        }))
+        .expect("wrapped dsh discover");
+        assert_eq!(wrapped.base_url, "https://api.deepseek.com");
+        assert_eq!(wrapped.api_key.as_deref(), Some("sk-test"));
+        assert_eq!(wrapped.provider_id.as_deref(), Some("deepseek-official"));
+
+        let flat: DshDiscoverArgs = parse_request(json!({
+            "baseUrl": "https://api.deepseek.com/v1",
+            "apiKey": null,
+            "providerId": "custom-1"
+        }))
+        .expect("flat dsh discover");
+        assert_eq!(flat.base_url, "https://api.deepseek.com/v1");
+        assert_eq!(flat.api_key, None);
+        assert_eq!(flat.provider_id.as_deref(), Some("custom-1"));
+    }
+
+    #[test]
+    fn dsh_provider_save_accepts_request_wrapper_and_flat_camel_case() {
+        let wrapped: DshProviderSaveRequest = parse_request(json!({
+            "request": {
+                "id": "deepseek-official",
+                "displayName": "DeepSeek Official",
+                "notes": null,
+                "api": null,
+                "baseUrl": "https://api.deepseek.com",
+                "apiKey": "sk-123",
+                "models": [{"id": "deepseek-v4-flash", "name": "DeepSeek-V4-Flash"}],
+                "setDefault": true,
+                "defaultModel": "deepseek-v4-flash"
+            }
+        }))
+        .expect("wrapped dsh save");
+        assert_eq!(wrapped.id, "deepseek-official");
+        assert_eq!(wrapped.display_name.as_deref(), Some("DeepSeek Official"));
+        assert_eq!(wrapped.base_url.as_deref(), Some("https://api.deepseek.com"));
+        assert_eq!(wrapped.api_key.as_deref(), Some("sk-123"));
+        assert!(wrapped.set_default);
+        assert_eq!(wrapped.default_model.as_deref(), Some("deepseek-v4-flash"));
+
+        let flat: DshProviderSaveRequest = parse_request(json!({
+            "id": "custom-provider",
+            "displayName": "Custom Provider",
+            "notes": null,
+            "api": "openai-completions",
+            "baseUrl": "https://example.com/v1",
+            "apiKey": null,
+            "models": [],
+            "setDefault": false,
+            "defaultModel": null
+        }))
+        .expect("flat dsh save");
+        assert_eq!(flat.id, "custom-provider");
+        assert_eq!(flat.api.as_deref(), Some("openai-completions"));
+        assert!(!flat.set_default);
     }
 }

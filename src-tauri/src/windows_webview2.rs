@@ -46,6 +46,33 @@ pub fn should_relaunch_on_interactive_desktop(
         .is_some_and(|name| name.starts_with("exebox-"))
 }
 
+/// Returns true when the current process is running in an `exebox-*` sandbox
+/// desktop, was relaunched from a sandbox parent (`VIBEX_SANDBOX_PARENT_PID`),
+/// or is executing directly from a Cargo build directory (`target\debug` or
+/// `target\release`). Normal installed production builds skip SACL rewrites.
+pub fn should_apply_medium_integrity_sacl(
+    desktop_name: Option<&str>,
+    has_sandbox_parent: bool,
+    exe: Option<&std::path::Path>,
+) -> bool {
+    if has_sandbox_parent {
+        return true;
+    }
+    if desktop_name
+        .map(str::trim)
+        .is_some_and(|name| name.starts_with("exebox-"))
+    {
+        return true;
+    }
+    exe.and_then(|path| path.parent()).is_some_and(|exe_dir| {
+        let lower = exe_dir
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        lower.ends_with("\\target\\debug") || lower.ends_with("\\target\\release")
+    })
+}
+
 /// WebView2 user-data folder identifier for this executable.
 ///
 /// `pnpm run dev` uses `com.vibex.app.dev`; the installed product uses
@@ -286,7 +313,7 @@ pub(crate) fn build_reclaim_orphaned_webview2_script(
         "$false"
     };
     format!(
-        "$self = {self_pid}; $parentPid = {parent_pid}; $exe = [System.IO.Path]::GetFullPath({exe_literal}); $force = {force_kill_predecessor}; $deadline = [DateTime]::UtcNow.AddMilliseconds({wait_ms}); $others = @(); do {{ $others = @(Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | Where-Object {{ $_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid -and $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $exe) }}); if ($others.Count -eq 0) {{ break }}; Start-Sleep -Milliseconds 200 }} while ([DateTime]::UtcNow -lt $deadline); if ($others.Count -gt 0) {{ if (-not $force) {{ exit 0 }}; $others | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }} }}; Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object {{ $_.CommandLine -and $_.CommandLine -like '{like}' }} | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }}; Start-Sleep -Milliseconds 400"
+        "$self = {self_pid}; $parentPid = {parent_pid}; $exe = [System.IO.Path]::GetFullPath({exe_literal}); $force = {force_kill_predecessor}; $deadline = [DateTime]::UtcNow.AddMilliseconds({wait_ms}); $others = @(); do {{ $others = @(Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | Where-Object {{ $_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid -and $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $exe) }}); if ($others.Count -eq 0) {{ break }}; Start-Sleep -Milliseconds 200 }} while ([DateTime]::UtcNow -lt $deadline); $wv2 = @(Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object {{ $_.CommandLine -and $_.CommandLine -like '{like}' }}); if ($others.Count -gt 0) {{ if (-not $force -and $wv2.Count -gt 0) {{ exit 0 }}; $others | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }} }}; $wv2 | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }}; Start-Sleep -Milliseconds 400"
     )
 }
 
@@ -305,8 +332,8 @@ mod win32_desktop {
         INTERACTIVE_DESKTOP_RELAUNCHED_ENV, SANDBOX_PARENT_PID_ENV,
         build_reclaim_orphaned_webview2_script, debug_webview2_environment_dir,
         remove_stale_debug_run_user_data, remove_stale_webview2_user_data,
-        should_relaunch_on_interactive_desktop, webview2_identifier_for_executable,
-        webview2_user_data_dir, webview2_user_data_is_locked,
+        should_apply_medium_integrity_sacl, should_relaunch_on_interactive_desktop,
+        webview2_identifier_for_executable, webview2_user_data_dir, webview2_user_data_is_locked,
     };
 
     const PREVIOUS_EXE_WAIT: Duration = Duration::from_secs(3);
@@ -539,6 +566,16 @@ mod win32_desktop {
     /// with a Low Mandatory Integrity token (`S-1-16-4096`) that fails with
     /// `os error 5` (`ERROR_ACCESS_DENIED`) when writing to `%USERPROFILE%`.
     pub fn ensure_runtime_dirs_medium_integrity() {
+        let desktop_name = current_desktop_name();
+        let has_sandbox_parent = std::env::var_os(SANDBOX_PARENT_PID_ENV).is_some();
+        let current_exe = std::env::current_exe().ok();
+        if !should_apply_medium_integrity_sacl(
+            desktop_name.as_deref(),
+            has_sandbox_parent,
+            current_exe.as_deref(),
+        ) {
+            return;
+        }
         let dir_sddl: Vec<u16> = "S:P(ML;OICI;NW;;;ME)"
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -926,6 +963,46 @@ mod tests {
         );
         assert!(script.contains("$self = 2000; $parentPid = 1000;"));
         assert!(script.contains("$_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid"));
+        assert!(script.contains("if (-not $force -and $wv2.Count -gt 0) { exit 0 }"));
+    }
+
+    #[test]
+    fn only_applies_medium_integrity_sacl_in_sandbox_or_cargo_build_dirs() {
+        assert!(!super::should_apply_medium_integrity_sacl(
+            Some("Default"),
+            false,
+            Some(std::path::Path::new(
+                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+            )),
+        ));
+        assert!(super::should_apply_medium_integrity_sacl(
+            Some("exebox-123"),
+            false,
+            Some(std::path::Path::new(
+                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+            )),
+        ));
+        assert!(super::should_apply_medium_integrity_sacl(
+            Some("Default"),
+            true,
+            Some(std::path::Path::new(
+                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+            )),
+        ));
+        assert!(super::should_apply_medium_integrity_sacl(
+            Some("Default"),
+            false,
+            Some(std::path::Path::new(
+                r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"
+            )),
+        ));
+        assert!(super::should_apply_medium_integrity_sacl(
+            Some("Default"),
+            false,
+            Some(std::path::Path::new(
+                r"C:\Users\18190\Documents\projects\VibeX\target\release\vibex.exe"
+            )),
+        ));
     }
 
     #[test]

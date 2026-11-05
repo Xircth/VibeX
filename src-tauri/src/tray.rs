@@ -75,7 +75,7 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) -> bool {
     match id {
         TRAY_MENU_ID_SHOW => show_main_window(app),
         TRAY_MENU_ID_HIDE => hide_main_window(app),
-        TRAY_MENU_ID_QUIT => app.exit(0),
+        TRAY_MENU_ID_QUIT => crate::graceful_exit_app(app),
         _ => return false,
     }
     true

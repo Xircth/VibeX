@@ -1,3 +1,3 @@
-import { revealDesktopWindow } from '@/lib/revealDesktopWindow';
+import { revealDesktopWindowWithRetry } from '@/lib/revealDesktopWindow';
 
-void revealDesktopWindow();
+void revealDesktopWindowWithRetry();

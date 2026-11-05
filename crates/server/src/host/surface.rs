@@ -632,7 +632,7 @@ impl ServerApplicationDomains {
                 super::native_commands::dispatch_dsh_provider_delete(&self.pool, args).await
             }
             DomainCommand::DshProviderDiscoverModels => {
-                super::native_commands::dispatch_dsh_provider_discover(args).await
+                super::native_commands::dispatch_dsh_provider_discover(&self.pool, args).await
             }
             DomainCommand::OpenCodeProviderCatalog => {
                 super::native_commands::dispatch_opencode_provider_catalog(args).await

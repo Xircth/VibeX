@@ -43,7 +43,7 @@ const APP_ICON_LIGHT_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-light-lite.png");
 const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
-const MAIN_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
+const MAIN_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_millis(2500);
 const MAIN_WINDOW_REVEAL_POLL: Duration = Duration::from_millis(100);
 
 async fn release_startup_working_set(pool: &sqlx::SqlitePool) {
@@ -210,7 +210,7 @@ fn schedule_window_reveal_fallback(window: tauri::WebviewWindow) {
             }
         }
         tracing::warn!("main window was still hidden after startup; showing as a fallback");
-        let _ = window.show();
+        tray::show_main_window(window.app_handle());
     });
 }
 
@@ -272,8 +272,49 @@ async fn health_check() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+async fn reveal_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    tray::show_main_window(&app);
+    Ok(())
+}
+
+pub(crate) fn cleanup_processes_on_exit(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static EXIT_CLEANUP_RAN: AtomicBool = AtomicBool::new(false);
+    if EXIT_CLEANUP_RAN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(state) = app.try_state::<state::AppState>() {
+        state.agent_runtime.kill_all_processes_on_exit();
+    }
+    if tokio::runtime::Handle::try_current().is_ok() {
+        tokio::task::block_in_place(|| {
+            tauri::async_runtime::block_on(
+                agents::terminal::agent_terminal_registry().release_all(),
+            );
+        });
+    } else {
+        tauri::async_runtime::block_on(
+            agents::terminal::agent_terminal_registry().release_all(),
+        );
+    }
+    kill_companion_processes_on_exit();
+}
+
+pub(crate) fn graceful_exit_app(app: &tauri::AppHandle) {
+    for window in app.webview_windows().into_values() {
+        let _ = window.destroy();
+    }
+    cleanup_processes_on_exit(app);
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(1500));
+        std::process::exit(0);
+    });
     app.exit(0);
+}
+
+#[tauri::command]
+async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+    graceful_exit_app(&app);
     Ok(())
 }
 
@@ -605,6 +646,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
         health_check,
+        reveal_main_window,
         exit_app,
         set_app_icon,
         commands::projects::open_project_in_editor,
@@ -704,13 +746,7 @@ pub fn run() {
         }
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {
-            if let Some(state) = _app_handle.try_state::<state::AppState>() {
-                state.agent_runtime.kill_all_processes_on_exit();
-            }
-            tauri::async_runtime::block_on(
-                agents::terminal::agent_terminal_registry().release_all(),
-            );
-            kill_companion_processes_on_exit();
+            cleanup_processes_on_exit(_app_handle);
             log_guard.take();
         }
     });
@@ -789,10 +825,14 @@ mod tests {
     #[test]
     fn exit_and_updater_hooks_clean_up_companion_processes() {
         let source = include_str!("lib.rs");
+        let tray_source = include_str!("tray.rs");
         assert!(source.contains("if let tauri::RunEvent::Exit = event"));
         assert!(source.contains("kill_companion_processes_on_exit();"));
         assert!(source.contains("vibex-mcp.exe"));
         assert!(source.contains("vibex-workflow-mcp.exe"));
         assert!(source.contains("vibex-computer-helper.exe"));
+        assert!(source.contains("graceful_exit_app"));
+        assert!(source.contains("reveal_main_window"));
+        assert!(tray_source.contains("crate::graceful_exit_app(app)"));
     }
 }

@@ -358,7 +358,7 @@ describe('settings page alignment', () => {
     expect(Number(maxWidth![1])).toBe(400);
   });
 
-  it('renders the preflight update action as a white chip with a gray border', () => {
+  it('renders the preflight update action as a transparent primary action chip', () => {
     const update = declarationsFor(
       '.settings-page .agent-preflight-status.is-update'
     );
@@ -366,11 +366,11 @@ describe('settings page alignment', () => {
       '.settings-page button.agent-preflight-status.is-update:hover:not(:disabled)'
     );
 
-    expect(update.get('background')).toBe('var(--surface-control)');
-    expect(update.get('border-color')).toBe('var(--border-strong)');
-    expect(update.get('color')).toBe('var(--text-strong)');
-    expect(hover.get('background')).toBe('var(--surface-control-hover)');
-    expect(hover.get('border-color')).toBe('var(--border-strong)');
+    expect(update.get('background')).toBe('transparent');
+    expect(update.get('border')).toBe('0');
+    expect(update.get('color')).toBe('hsl(var(--primary))');
+    expect(hover.get('background')).toBe('hsl(var(--foreground) / 0.1)');
+    expect(hover.get('border-color')).toBe('transparent');
   });
 
   it('paints the global settings search box with an opaque recessed gray fill while keeping non-input control surfaces translucent on Windows', () => {

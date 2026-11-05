@@ -10,11 +10,16 @@ use sqlx::{
 use utils::assets::asset_dir;
 
 pub mod conversation_repository;
+pub mod data_dir_migration;
 mod local_data_reset;
 pub mod models;
 pub mod workflow_queries;
 
 pub use conversation_repository::SqliteConversationRepository;
+pub use data_dir_migration::{
+    checkpoint_and_remap_data_dir_paths, remap_sqlite_data_dir_paths,
+    remap_sqlite_file_data_dir_paths,
+};
 pub use local_data_reset::{clear_local_database_rows, reset_local_database};
 
 /// The SQLite pool every composition root hands to storage adapters.

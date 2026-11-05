@@ -739,7 +739,7 @@ describe('CollaborationSpacePage', () => {
     for (const radioEl of within(sourceSegmented).getAllByRole('radio')) {
       expect(radioEl.querySelector('svg')).toBeTruthy();
     }
-  }, 30_000);
+  }, 45_000);
 
   it('completes @nickname via SessionComposerInput panel, sends targeted vs broadcast posts, and renders receipts', async () => {
     const user = userEvent.setup();

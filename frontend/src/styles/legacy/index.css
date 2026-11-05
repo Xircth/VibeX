@@ -2853,7 +2853,7 @@ html.dark {
   .settings-page .settings-pairing-devices__preset {
     display: inline-flex;
     align-items: center;
-    border-radius: calc(var(--radius) - 4px);
+    border-radius: var(--radius-inner, var(--radius));
     background: hsl(var(--muted));
     padding: 0.125rem 0.375rem;
     color: hsl(var(--muted-foreground));
@@ -10203,7 +10203,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 4px;
   padding: 2px 6px;
   border: 0;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-inner, var(--radius));
   background: transparent;
   color: hsl(var(--primary));
   font-size: 0.75rem;

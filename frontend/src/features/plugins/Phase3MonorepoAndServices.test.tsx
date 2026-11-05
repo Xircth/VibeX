@@ -46,14 +46,14 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
     resetHostProviderServicesForTest();
   });
 
-  it('bootstraps all 13 monorepo official & capability plugins offline with zero network calls', async () => {
+  it('bootstraps all monorepo official & capability plugins offline with zero network calls', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockRejectedValue(new Error('Offline mode: network fetch is forbidden'));
 
     try {
       const activated = await bootstrapMonorepoOfficialPlugins();
-      expect(activated).toHaveLength(13);
+      expect(activated).toHaveLength(MONOREPO_OFFICIAL_PLUGIN_BUNDLES.length);
       expect(activated).toEqual(
         MONOREPO_OFFICIAL_PLUGIN_BUNDLES.map((b) => b.id)
       );

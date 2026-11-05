@@ -127,7 +127,9 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         disabledIds,
       });
 
-      expect(activated).toHaveLength(13 - disabledIds.length);
+      expect(activated).toHaveLength(
+        MONOREPO_OFFICIAL_PLUGIN_BUNDLES.length - disabledIds.length
+      );
       for (const disabledId of disabledIds) {
         expect(activated).not.toContain(disabledId);
         expect(isMonorepoPluginModuleLoaded(disabledId)).toBe(false);
@@ -177,9 +179,9 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     }
   });
 
-  it('registers all views, panels, kanbanViews, commands, slashCommands, and services when all 13 plugins are enabled and cleans up 100% on unloadPluginRuntime', async () => {
+  it('registers all views, panels, kanbanViews, commands, slashCommands, and services when all official plugins are enabled and cleans up 100% on unloadPluginRuntime', async () => {
     const activated = await bootstrapMonorepoOfficialPlugins();
-    expect(activated).toHaveLength(13);
+    expect(activated).toHaveLength(MONOREPO_OFFICIAL_PLUGIN_BUNDLES.length);
 
     for (const bundle of MONOREPO_OFFICIAL_PLUGIN_BUNDLES) {
       expect(isMonorepoPluginModuleLoaded(bundle.id)).toBe(true);

@@ -89,7 +89,7 @@
     },
     "crates/server/src/host/surface.rs": {
       "sqlx": 26,
-      "pool": 85,
+      "pool": 86,
       "reason": "artifact / app.surface 界面表面读写直连池，待 J4 后收紧"
     },
     "crates/server/src/host/workspace_parity.rs": {

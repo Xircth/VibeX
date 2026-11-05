@@ -1328,7 +1328,10 @@ mod tests {
         .expect("wrapped dsh save");
         assert_eq!(wrapped.id, "deepseek-official");
         assert_eq!(wrapped.display_name.as_deref(), Some("DeepSeek Official"));
-        assert_eq!(wrapped.base_url.as_deref(), Some("https://api.deepseek.com"));
+        assert_eq!(
+            wrapped.base_url.as_deref(),
+            Some("https://api.deepseek.com")
+        );
         assert_eq!(wrapped.api_key.as_deref(), Some("sk-123"));
         assert!(wrapped.set_default);
         assert_eq!(wrapped.default_model.as_deref(), Some("deepseek-v4-flash"));

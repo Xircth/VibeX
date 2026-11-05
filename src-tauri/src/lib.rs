@@ -293,9 +293,7 @@ pub(crate) fn cleanup_processes_on_exit(app: &tauri::AppHandle) {
             );
         });
     } else {
-        tauri::async_runtime::block_on(
-            agents::terminal::agent_terminal_registry().release_all(),
-        );
+        tauri::async_runtime::block_on(agents::terminal::agent_terminal_registry().release_all());
     }
     kill_companion_processes_on_exit();
 }

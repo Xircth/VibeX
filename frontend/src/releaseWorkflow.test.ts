@@ -130,7 +130,9 @@ describe('release workflow contract', () => {
     expect(workflow).toContain(
       'gh release upload "$RELEASE_TAG" "$file" --clobber'
     );
-    expect(workflow).toContain('gh release edit "$RELEASE_TAG" --latest');
+    expect(workflow).toContain(
+      'gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest'
+    );
     expect(workflow).not.toContain('tag_name: ${{ env.RELEASE_TAG }}');
     expect(workflow).not.toContain('RELEASE_TAG: ${{ inputs.release_tag }}');
     expect(workflow).not.toMatch(/\bzip\s+-/);

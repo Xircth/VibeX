@@ -349,6 +349,12 @@ impl ProjectionFold {
                         ..Default::default()
                     },
                 };
+                remove_side_row(
+                    side_rows,
+                    deleted_rows,
+                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                    record.sequence,
+                );
                 side_rows.retain(|row| row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
                 side_rows.push(TimelineRow {
                     row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
@@ -416,6 +422,12 @@ impl ProjectionFold {
                 remove_side_row(
                     side_rows,
                     deleted_rows,
+                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                    record.sequence,
+                );
+                remove_side_row(
+                    side_rows,
+                    deleted_rows,
                     AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
                     record.sequence,
                 );
@@ -466,6 +478,12 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
+                remove_side_row(
+                    side_rows,
+                    deleted_rows,
+                    AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                    record.sequence,
+                );
                 upsert_stable_notice(
                     side_rows,
                     AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
@@ -527,6 +545,12 @@ impl ProjectionFold {
                         .and_then(serde_json::Value::as_str)
                         == Some(agents::SESSION_CONNECT_ERROR_KIND)
                 {
+                    remove_side_row(
+                        side_rows,
+                        deleted_rows,
+                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
+                        record.sequence,
+                    );
                     let message = payload
                         .as_ref()
                         .and_then(|value| value.get("message"))

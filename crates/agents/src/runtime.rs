@@ -2477,6 +2477,10 @@ impl AgentRuntime {
             .await
     }
 
+    pub fn kill_all_processes_on_exit(&self) {
+        self.connection_manager.kill_all_processes_on_exit();
+    }
+
     pub async fn disconnect(
         &self,
         connection_id: AgentConnectionId,

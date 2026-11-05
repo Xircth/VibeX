@@ -116,10 +116,14 @@ async fn reconcile_one_install(
     let payload: FrozenLockPayload = serde_json::from_str(&install.resolved_json)
         .map_err(|error| format!("invalid lock payload: {error}"))?;
     let mut changed = false;
+    let mut all_present = !components.is_empty();
     for component in &mut components {
         let bytes = match tokio::fs::read(&component.absolute_path).await {
             Ok(bytes) => bytes,
-            Err(_) => continue, // 缺失由 refresh_component_integrity 置 needs_repair
+            Err(_) => {
+                all_present = false;
+                continue; // 缺失由 refresh_component_integrity 置 needs_repair
+            }
         };
         let actual = format!("{:x}", Sha256::digest(&bytes));
         if component.sha256.as_deref() == Some(actual.as_str()) {
@@ -203,6 +207,9 @@ async fn reconcile_one_install(
         }
     }
     if !changed {
+        if all_present {
+            mark_launch_gate_diagnostics_read(pool, &install.agent_id).await;
+        }
         return Ok(false);
     }
 
@@ -304,8 +311,9 @@ async fn probe_component_version(executable: &std::path::Path) -> Option<String>
     extract_version_from_output(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// 本地 ACP Registry snapshot 中该 Agent 当前平台 binary 分发的官方 SHA-256。
-/// snapshot 缺失、条目缺失或该平台无 binary 分发时返回 `None`(保持 fail-closed)。
+/// 本地 ACP Registry snapshot 中该 Agent 当前平台 binary 分发的官方单文件 SHA-256。
+/// 若 Registry 条目指向压缩归档包（`.zip` / `.tar.gz` 等），其 `sha256` 为归档包哈希而非
+/// 解压后单文件可执行文件哈希，返回 `None` 交由 `verify_external_component_change` 的 TOFU 分支处理。
 async fn registry_binary_sha256(pool: &sqlx::SqlitePool, agent_id: &str) -> Option<String> {
     let repository = db::models::agent_management::RegistrySnapshotRepository::new(pool.clone());
     let (_, entries) = repository.current().await.ok()??;
@@ -318,7 +326,35 @@ async fn registry_binary_sha256(pool: &sqlx::SqlitePool, agent_id: &str) -> Opti
         return None;
     };
     let target = binary.get(agents::current_platform().as_str())?;
+    if is_archive_distribution(&target.archive) {
+        return None;
+    }
     target.sha256.clone()
+}
+
+fn is_archive_distribution(archive_url: &str) -> bool {
+    let path_part = archive_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(archive_url)
+        .trim()
+        .to_ascii_lowercase();
+    [".zip", ".tar.gz", ".tgz", ".tar.xz", ".tar.bz2", ".tar"]
+        .iter()
+        .any(|ext| path_part.ends_with(ext))
+}
+
+async fn mark_launch_gate_diagnostics_read(pool: &sqlx::SqlitePool, agent_id: &str) {
+    let _ = sqlx::query(
+        r#"UPDATE agent_diagnostic
+           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE agent_id = ?
+             AND operation_kind = 'launch_gate'
+             AND read_at IS NULL"#,
+    )
+    .bind(agent_id)
+    .execute(pool)
+    .await;
 }
 
 /// Profile 的 `install_sources` 中该组件对应的 npx 包名。
@@ -365,7 +401,7 @@ async fn mark_repair_with_diagnostic(pool: &sqlx::SqlitePool, agent_id: &str, me
 
 #[cfg(test)]
 mod tests {
-    use super::extract_version_from_output;
+    use super::{extract_version_from_output, is_archive_distribution};
 
     #[test]
     fn extracts_a_clean_semver_from_mixed_version_outputs() {
@@ -405,5 +441,24 @@ mod tests {
             extract_version_from_output("v1.2.3"),
             Some("1.2.3".to_string())
         );
+    }
+
+    #[test]
+    fn detects_archive_distribution_urls_so_zip_hashes_are_not_compared_to_extracted_binaries() {
+        assert!(is_archive_distribution(
+            "https://github.com/example/releases/download/v1.4.5/agy-acp-server-1.4.5-windows-x86_64.zip"
+        ));
+        assert!(is_archive_distribution(
+            "https://cdn.example.com/agent-linux-x64.tar.gz?token=abc"
+        ));
+        assert!(is_archive_distribution(
+            "https://cdn.example.com/agent-darwin-arm64.tgz"
+        ));
+        assert!(!is_archive_distribution(
+            "https://cdn.example.com/agy_acp_server.exe"
+        ));
+        assert!(!is_archive_distribution(
+            "https://cdn.example.com/agy-acp-server-linux-x64"
+        ));
     }
 }

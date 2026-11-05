@@ -481,6 +481,12 @@ impl ConversationSessionService {
                 "released orphaned unsubmitted input claims"
             );
         }
+        if let Err(error) = self.recover_orphaned_connecting_conversations().await {
+            tracing::warn!(
+                %error,
+                "startup recovery: failed to reconcile orphaned connecting conversations"
+            );
+        }
         let in_flight = ConversationTurnRecord::list_in_flight(pool).await?;
         if in_flight.is_empty() {
             return Ok(0);
@@ -522,6 +528,15 @@ impl ConversationSessionService {
         Ok(recovered)
     }
 
+    async fn recover_orphaned_connecting_conversations(
+        &self,
+    ) -> Result<usize, ConversationServiceError> {
+        reconcile_orphaned_connecting_conversations_in_pool(
+            &self.ctx.deployment.db().pool,
+            Some(self.ctx.event_publisher.as_ref()),
+        )
+        .await
+    }
     /// Remove a conversation's entries from the in-memory coordination maps (turn
     /// locks, runtime state, and the cached incremental row projector).
     ///
@@ -768,14 +783,93 @@ pub(super) fn known_acp_session_id(
         .and_then(|binding| binding.acp_session_id.clone())
         .filter(|id| !is_placeholder_acp_session_id(id))
         .or_else(|| {
-            persisted_session
-                .filter(|session| {
-                    session
-                        .agent_id
-                        .as_ref()
-                        .is_some_and(|persisted_id| persisted_id == agent_id)
-                })
-                .and_then(|session| session.external_session_id.clone())
-                .filter(|id| !is_placeholder_acp_session_id(id))
+    persisted_session
+        .filter(|session| {
+            session
+                .agent_id
+                .as_ref()
+                .is_some_and(|persisted_id| persisted_id == agent_id)
         })
+        .and_then(|session| session.external_session_id.clone())
+        .filter(|id| !is_placeholder_acp_session_id(id))
+    })
+}
+
+pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
+    pool: &sqlx::SqlitePool,
+    publisher: Option<&dyn super::ConversationEventPublisher>,
+) -> Result<usize, ConversationServiceError> {
+    let mut candidates: Vec<Uuid> = sqlx::query_scalar(
+        r#"SELECT e.conversation_id
+           FROM conversation_events e
+           INNER JOIN (
+               SELECT conversation_id, MAX(sequence) AS max_seq
+               FROM conversation_events
+               WHERE event_kind IN (
+                   'agent_connection_status_changed',
+                   'agent_binding_ready',
+                   'agent_binding_recovered',
+                   'agent_binding_recovery_failed',
+                   'agent_binding_load_failed'
+               )
+               GROUP BY conversation_id
+           ) latest
+           ON e.conversation_id = latest.conversation_id AND e.sequence = latest.max_seq
+           WHERE e.event_kind = 'agent_connection_status_changed'"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let materialized_candidates: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT conversation_id FROM conversation_timeline_rows WHERE row_id = 'notice:agent-connection-recovering'",
+    )
+    .fetch_all(pool)
+    .await?;
+    for cid in materialized_candidates {
+        if !candidates.contains(&cid) {
+            candidates.push(cid);
+        }
+    }
+
+    let mut closed_count = 0usize;
+    for conversation_id in candidates {
+        let fold = ConversationProjector::fold(pool, conversation_id).await?;
+        let has_recovering_notice = fold
+            .side_rows
+            .iter()
+            .any(|row| row.row_id == "notice:agent-connection-recovering");
+        if has_recovering_notice {
+            let event = ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Closed,
+            };
+            let normalized_json = serde_json::to_string(&event)
+                .map_err(|e| ConversationServiceError::Internal(e.to_string()))?;
+            let idempotency_key = format!("recovery:connection-closed:{}", fold.last_sequence);
+            let record = crate::ConversationEventAppender::append(
+                pool,
+                db::models::conversation_event::AppendConversationEvent {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    source: "runtime",
+                    event_kind: "agent_connection_status_changed",
+                    normalized_json: &normalized_json,
+                    raw_json: None,
+                    idempotency_key: Some(&idempotency_key),
+                },
+            )
+            .await?;
+            if let Some(publisher) = publisher {
+                publisher.publish(&record).await;
+            }
+            closed_count += 1;
+        } else {
+            let _ =
+                ConversationProjector::persist_fold_to_pool(pool, conversation_id, &fold).await;
+        }
+    }
+    Ok(closed_count)
 }

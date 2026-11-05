@@ -324,18 +324,105 @@ pub fn new_hidden_std_command(
     }
 }
 
+#[cfg(windows)]
+struct GuardianJobHandle(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+// SAFETY: A Win32 Job Object HANDLE is a process-wide kernel handle that can be shared across threads.
+unsafe impl Send for GuardianJobHandle {}
+#[cfg(windows)]
+// SAFETY: AssignProcessToJobObject is thread-safe on a shared Job Object HANDLE.
+unsafe impl Sync for GuardianJobHandle {}
+
+#[cfg(windows)]
+fn guardian_job_object() -> Option<windows_sys::Win32::Foundation::HANDLE> {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        },
+    };
+
+    static GUARDIAN_JOB: OnceLock<Option<GuardianJobHandle>> = OnceLock::new();
+    GUARDIAN_JOB
+        .get_or_init(|| {
+            // SAFETY: Creating an unnamed Win32 Job Object and configuring extended limits.
+            unsafe {
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if job.is_null() {
+                    tracing::warn!("Failed to create Windows guardian Job Object");
+                    return None;
+                }
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags =
+                    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+                let ok = SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const info).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                if ok == 0 {
+                    tracing::warn!(
+                        "Failed to set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE on guardian Job Object"
+                    );
+                    let _ = CloseHandle(job);
+                    return None;
+                }
+                Some(GuardianJobHandle(job))
+            }
+        })
+        .as_ref()
+        .map(|h| h.0)
+}
+
+#[cfg(windows)]
+pub fn assign_pid_to_guardian_job(pid: u32) -> bool {
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::{
+            JobObjects::AssignProcessToJobObject,
+            Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE},
+        },
+    };
+
+    let Some(job) = guardian_job_object() else {
+        return false;
+    };
+    // SAFETY: Opening process handle for pid and assigning it to the guardian Job Object.
+    unsafe {
+        let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if process.is_null() {
+            return false;
+        }
+        let assigned = AssignProcessToJobObject(job, process) != 0;
+        let _ = CloseHandle(process);
+        assigned
+    }
+}
+
 /// Spawn a tokio Command as a process group with CREATE_NO_WINDOW on Windows.
 ///
 /// `command_group`'s `group_spawn()` overwrites any `creation_flags` previously
 /// set on the Command (it calls `command.creation_flags(builder_flags | CREATE_SUSPENDED)`).
-/// This helper uses the `CommandGroupBuilder` API to pass CREATE_NO_WINDOW correctly.
+/// This helper uses the `CommandGroupBuilder` API to pass CREATE_NO_WINDOW correctly,
+/// and on Windows binds the child to a host-wide `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+/// Job Object so the OS kernel terminates the entire child process tree when the host exits.
 pub fn group_spawn_no_window(
     command: &mut tokio::process::Command,
 ) -> std::io::Result<AsyncGroupChild> {
     let mut builder = command.group();
     #[cfg(windows)]
     builder.creation_flags(CREATE_NO_WINDOW);
-    builder.spawn()
+    let child = builder.spawn()?;
+    #[cfg(windows)]
+    if let Some(pid) = child.id() {
+        let _ = assign_pid_to_guardian_job(pid);
+    }
+    Ok(child)
 }
 
 /// Put a `std::process::Command` in its own process group so a later
@@ -400,6 +487,16 @@ pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<
                 }
             }
         }
+    }
+
+    #[cfg(windows)]
+    if let Some(pid) = child.id() {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
     }
 
     let _ = child.kill().await;
@@ -924,5 +1021,18 @@ mod tests {
             super::decode_process_output(&output.stdout).trim(),
             r"prefix=D:\Program Files\nodejs\node_global pkg=@zed-industries/claude-code-acp@0.12.0"
         );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn group_spawn_no_window_assigns_guardian_job_and_kills_process_tree() {
+        let mut command = new_hidden_tokio_command("cmd.exe", ["/C", "ping -n 30 127.0.0.1 >NUL"]);
+        let mut child = super::group_spawn_no_window(&mut command).expect("spawn group child");
+        assert!(child.id().is_some());
+        super::kill_process_group(&mut child)
+            .await
+            .expect("kill process group");
+        let status = child.wait().await.expect("wait after kill");
+        assert!(!status.success());
     }
 }

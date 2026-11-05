@@ -338,6 +338,16 @@ impl ConversationProjector {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<Vec<TimelineRow>, sqlx::Error> {
+        let latest = cache::latest_event_sequence(pool, conversation_id).await?;
+        let snapshot_fresh = match Self::usable_snapshot(pool, conversation_id).await? {
+            Some(snapshot) => snapshot.last_sequence >= latest,
+            None => latest == 0,
+        };
+        if !snapshot_fresh {
+            let fold = Self::fold(pool, conversation_id).await?;
+            let _ = Self::persist_fold_to_pool(pool, conversation_id, &fold).await;
+            return Ok(fold.side_rows);
+        }
         let records =
             ConversationTimelineRowRecord::list_non_message_rows(pool, conversation_id).await?;
         let rows = decode_timeline_row_records(&records)?;
@@ -369,6 +379,13 @@ impl ConversationProjector {
                 | "feedback_requested"
                 | "feedback_submitted"
                 | "agent_binding_load_failed"
+                | "agent_connection_status_changed"
+                | "agent_binding_ready"
+                | "agent_binding_recovered"
+                | "agent_binding_recovery_failed"
+                | "raw_diagnostic_recorded"
+                | "session_config_stale"
+                | "announcements_updated"
                 | "turn_blocked"
                 | "file_change_summary_updated"
                 | "artifact_revision_recorded"
@@ -510,8 +527,8 @@ pub(super) struct ProjectionFold {
     turn_order: Vec<Uuid>,
     /// Side rows carry their own `row_id` + `revision` (the incremental row-op protocol,
     /// 消灭双投影). `revision` is the sequence of the latest event that touched the row.
-    side_rows: Vec<TimelineRow>,
-    last_sequence: i64,
+    pub(crate) side_rows: Vec<TimelineRow>,
+    pub(crate) last_sequence: i64,
     auto_permission_approvals: u32,
     /// Antigravity reports view_file failures for cascade and provider errors
     /// that are not the read. Not part of the snapshot: set from the binding

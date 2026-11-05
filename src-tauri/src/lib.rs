@@ -704,6 +704,9 @@ pub fn run() {
         }
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {
+            if let Some(state) = _app_handle.try_state::<state::AppState>() {
+                state.agent_runtime.kill_all_processes_on_exit();
+            }
             tauri::async_runtime::block_on(
                 agents::terminal::agent_terminal_registry().release_all(),
             );

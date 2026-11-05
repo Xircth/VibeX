@@ -588,7 +588,7 @@ impl ConversationProjector {
         }
     }
 
-    pub(super) async fn persist_fold_to_pool(
+    pub(crate) async fn persist_fold_to_pool(
         pool: &SqlitePool,
         conversation_id: Uuid,
         fold: &ProjectionFold,
@@ -654,6 +654,10 @@ impl ConversationProjector {
         if snapshot.total_rows <= 0 {
             return Ok(None);
         }
+        let latest = latest_event_sequence(pool, conversation_id).await?;
+        if latest > snapshot.last_sequence {
+            return Ok(None);
+        }
         let bounded = limit.max(1) as i64;
         let records =
             ConversationTimelineRowRecord::list_tail(pool, conversation_id, bounded).await?;
@@ -690,6 +694,10 @@ impl ConversationProjector {
             return Ok(None);
         };
         if snapshot.total_rows <= 0 {
+            return Ok(None);
+        }
+        let latest = latest_event_sequence(pool, conversation_id).await?;
+        if latest > snapshot.last_sequence {
             return Ok(None);
         }
         let bounded_limit = limit.max(1) as i64;
@@ -740,7 +748,7 @@ impl ConversationProjector {
         Ok(Some((rows, snapshot.last_sequence)))
     }
 
-    async fn usable_snapshot(
+    pub(super) async fn usable_snapshot(
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<Option<ConversationProjectionSnapshotRecord>, sqlx::Error> {
@@ -773,7 +781,7 @@ fn decode_session_stats(json: Option<&str>) -> Result<Option<SessionStats>, sqlx
         .transpose()
 }
 
-async fn latest_event_sequence(
+pub(super) async fn latest_event_sequence(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<i64, sqlx::Error> {
@@ -1872,6 +1880,142 @@ mod tests {
             vec![ContentBlock::Text {
                 text: "这个报错是模型 ID ".into()
             }]
+        );
+    }
+
+    #[tokio::test]
+    async fn connection_status_and_binding_ready_refresh_snapshot_and_clear_recovering_notice() {
+        use agents::conversation::ConversationAgentConnectionStatus;
+
+        let pool = setup_pool().await;
+        let (conversation_id, _turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Connecting,
+            },
+            None,
+        )
+        .await;
+
+        let side_rows_connecting =
+            ConversationProjector::persisted_side_rows(&pool, conversation_id)
+                .await
+                .expect("persisted side rows after connecting");
+        assert!(
+            side_rows_connecting
+                .iter()
+                .any(|row| row.row_id == "notice:agent-connection-recovering"),
+            "connecting status should persist notice:agent-connection-recovering into snapshot"
+        );
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Ready,
+            },
+            None,
+        )
+        .await;
+
+        let side_rows_ready = ConversationProjector::persisted_side_rows(&pool, conversation_id)
+            .await
+            .expect("persisted side rows after ready");
+        assert!(
+            !side_rows_ready
+                .iter()
+                .any(|row| row.row_id == "notice:agent-connection-recovering"),
+            "ready status must immediately refresh snapshot and remove notice:agent-connection-recovering"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_snapshot_with_recovering_notice_self_heals_on_persisted_side_rows_and_project_open()
+     {
+        use agents::conversation::ConversationAgentConnectionStatus;
+
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "hello".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let connecting_rec = append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Connecting,
+            },
+            None,
+        )
+        .await;
+        let fold_at_connecting = ConversationProjector::fold(&pool, conversation_id)
+            .await
+            .expect("fold at connecting");
+        assert_eq!(fold_at_connecting.last_sequence, connecting_rec.sequence);
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Ready,
+            },
+            None,
+        )
+        .await;
+
+        // Simulate a historical stale snapshot frozen at the `Connecting` sequence.
+        ConversationProjector::persist_fold_to_pool(&pool, conversation_id, &fold_at_connecting)
+            .await
+            .expect("overwrite with stale snapshot");
+
+        let healed_side_rows = ConversationProjector::persisted_side_rows(&pool, conversation_id)
+            .await
+            .expect("self-healed persisted_side_rows");
+        assert!(
+            !healed_side_rows
+                .iter()
+                .any(|row| row.row_id == "notice:agent-connection-recovering"),
+            "persisted_side_rows must detect stale snapshot and fold tail events to clear notice"
+        );
+
+        // Overwrite again to test try_materialized_open / project_open self-healing.
+        ConversationProjector::persist_fold_to_pool(&pool, conversation_id, &fold_at_connecting)
+            .await
+            .expect("overwrite with stale snapshot again");
+
+        let open_proj = ConversationProjector::project_open(&pool, conversation_id, 50)
+            .await
+            .expect("project_open self-heals stale snapshot");
+        assert!(
+            !open_proj
+                .timeline
+                .rows
+                .iter()
+                .any(|row| row.row_id == "notice:agent-connection-recovering"),
+            "project_open must bypass stale snapshot and not return notice:agent-connection-recovering"
         );
     }
 }

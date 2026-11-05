@@ -955,6 +955,46 @@ impl AgentConnectionManager {
         }
     }
 
+    /// Synchronously abort all active connection tasks and force-kill their OS
+    /// process trees on application exit.
+    pub fn kill_all_processes_on_exit(&self) {
+        let mut pids = Vec::new();
+        if let Ok(mut connections) = self.connections.try_lock() {
+            for (_, connection) in connections.drain() {
+                let _ = connection.cmd_tx.try_send(AgentConnectionCommand::Disconnect);
+                connection.task.abort();
+                if let Ok(mut guard) = connection.child_pid.lock()
+                    && let Some(pid) = guard.take()
+                {
+                    pids.push(pid);
+                }
+            }
+        }
+        for pid in pids {
+            #[cfg(unix)]
+            {
+                // SAFETY: `getpgid` and `killpg` are standard POSIX syscalls; negative return indicates error.
+                unsafe {
+                    let pgid = libc::getpgid(pid as libc::pid_t);
+                    if pgid > 0 {
+                        let _ = libc::killpg(pgid, libc::SIGKILL);
+                    }
+                }
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .status();
+            }
+        }
+    }
+
     pub async fn list_connections(&self) -> Vec<ManagedAgentConnectionSnapshot> {
         self.connections
             .lock()

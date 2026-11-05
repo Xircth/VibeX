@@ -798,8 +798,11 @@ async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &s
                  SELECT 1 FROM agent_diagnostic diagnostic
                  WHERE diagnostic.agent_id = agent_installation.agent_id
                    AND diagnostic.read_at IS NULL
-                   AND diagnostic.redacted_output LIKE
-                     'terminal command `%` already resolves to `%` and is not managed by Agent `%`'
+                   AND (
+                     diagnostic.operation_kind = 'launch_gate'
+                     OR diagnostic.redacted_output LIKE
+                       'terminal command `%` already resolves to `%` and is not managed by Agent `%`'
+                   )
                )
              )
            ORDER BY agent_id"#,
@@ -847,6 +850,16 @@ async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &s
         if evidence.is_empty() || LaunchGate::verify_components(&evidence).await.is_err() {
             continue;
         }
+        let _ = sqlx::query(
+            r#"UPDATE agent_diagnostic
+               SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+               WHERE agent_id = ?
+                 AND read_at IS NULL
+                 AND operation_kind = 'launch_gate'"#,
+        )
+        .bind(agent_id.as_str())
+        .execute(pool)
+        .await;
         if let Err(error) = record_post_install_probe(app, pool, &agent_id).await {
             tracing::debug!(
                 agent_id = %agent_id,
@@ -872,8 +885,11 @@ async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &s
                SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
                WHERE agent_id = ?
                  AND read_at IS NULL
-                 AND redacted_output LIKE
-                   'terminal command `%` already resolves to `%` and is not managed by Agent `%`'"#,
+                 AND (
+                   operation_kind = 'launch_gate'
+                   OR redacted_output LIKE
+                     'terminal command `%` already resolves to `%` and is not managed by Agent `%`'
+                 )"#,
         )
         .bind(agent_id.as_str())
         .execute(pool)
@@ -1704,7 +1720,7 @@ async fn persist_installed_lock(
         r#"UPDATE agent_diagnostic
            SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
            WHERE agent_id = ?
-             AND severity = 'error'
+             AND (severity = 'error' OR operation_kind = 'launch_gate')
              AND read_at IS NULL"#,
     )
     .bind(plan.agent_id.as_str())

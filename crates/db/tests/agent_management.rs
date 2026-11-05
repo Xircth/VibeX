@@ -699,6 +699,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("trae", false),
             ("command_code", false),
             ("zcode", false),
+            ("omp", true),
         ]
     );
     assert!(
@@ -733,6 +734,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         "trae",
         "command_code",
         "zcode",
+        "omp",
     ] {
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")
@@ -867,6 +869,7 @@ async fn migration_rewrites_the_previous_default_agent_bar_order() {
             "trae",
             "command_code",
             "zcode",
+            "omp",
             "vendor.custom",
         ]
     );

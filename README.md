@@ -75,7 +75,7 @@ Tired of juggling half a dozen terminal windows to run different coding agents? 
 
 ## Highlights
 
-- **16+ Mainstream Coding Agents Out of the Box**: Built-in support for Claude Code, Codex, DeepSeek, Antigravity, Gemini CLI, Cursor, Kimi Code, OpenClaw, Cline, TRAE CLI, Kiro CLI, plus ACP Registry extensions. Automatic runtime detection, one-click repair, and model provider switching let Claude design architecture, Codex write unit tests, and Gemini polish UI in the same project.
+- **16+ Mainstream Coding Agents Out of the Box**: Built-in support for Claude Code, Codex, DeepSeek, Antigravity, Gemini CLI, Cursor, Kimi Code, OpenClaw, Cline, TRAE CLI, Kiro CLI, OMP, plus ACP Registry extensions. Automatic runtime detection, one-click repair, and model provider switching let Claude design architecture, Codex write unit tests, and Gemini polish UI in the same project.
 - **Infinite Canvas Board + 4-Column Kanban**: Switch seamlessly between a classic 4-column board and a zoomable **infinite canvas board** that lays out task cards, linked conversations, execution states, and dependency edges across a spatial canvas.
 - **Conflict-Free Parallelism via Git Worktrees**: Each task card can bind to its own dedicated branch and Git Worktree so multiple agents can refactor, fix bugs, and ship features simultaneously without polluting your working tree—complete with live Git diff review, staging, commits, rebasing, and merging.
 - **VibeX-Bot Multi-Role Collaboration Space (Group Handoffs + `&Agent` Delegation)**: Assemble specialized AI bots (PM, Architect, Frontend, QA, Docs) in direct or group spaces with `@Bot` mention handoffs and shared folders, or delegate background research and sub-tasks from any workspace input via `&Agent`.

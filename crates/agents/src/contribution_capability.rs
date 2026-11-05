@@ -34,6 +34,7 @@ pub fn builtin_contribution_capabilities() -> Vec<AgentContributionCapability> {
         AgentKind::Trae,
         AgentKind::CommandCode,
         AgentKind::ZCode,
+        AgentKind::Omp,
     ]
     .into_iter()
     .map(|agent| {

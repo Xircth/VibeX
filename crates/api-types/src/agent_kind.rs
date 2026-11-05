@@ -10,7 +10,7 @@
 //!
 //! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
 //! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`, `qoder`,
-//! `kiro`, `auggie`, `trae`, `command_code`, `zcode`, `qa_mock` — the `executor_key` form
+//! `kiro`, `auggie`, `trae`, `command_code`, `zcode`, `omp`, `qa_mock` — the `executor_key` form
 //! already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
@@ -62,13 +62,14 @@ pub enum AgentKind {
     #[sqlx(rename = "zcode")]
     #[ts(rename = "zcode")]
     ZCode,
+    Omp,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in Agent Bar / picker order. `QaMock` stays last because
     /// it is a test identity, not a product Agent.
-    pub const ALL: [AgentKind; 20] = [
+    pub const ALL: [AgentKind; 21] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Pi,
@@ -88,6 +89,7 @@ impl AgentKind {
         AgentKind::Trae,
         AgentKind::CommandCode,
         AgentKind::ZCode,
+        AgentKind::Omp,
         AgentKind::QaMock,
     ];
 
@@ -120,6 +122,7 @@ impl AgentKind {
             AgentKind::Trae => "trae",
             AgentKind::CommandCode => "command_code",
             AgentKind::ZCode => "zcode",
+            AgentKind::Omp => "omp",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -162,6 +165,7 @@ impl AgentKind {
             // identity. Bare `zcode` is the official app, and it normalizes to
             // the same wire id.
             "zcode" => AgentKind::ZCode,
+            "omp" | "ohmypi" => AgentKind::Omp,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -240,6 +244,7 @@ mod tests {
             (AgentKind::Trae, "trae"),
             (AgentKind::CommandCode, "command_code"),
             (AgentKind::ZCode, "zcode"),
+            (AgentKind::Omp, "omp"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         assert_eq!(
@@ -314,6 +319,9 @@ mod tests {
             ("cmdc", AgentKind::CommandCode),
             ("ZCode", AgentKind::ZCode),
             ("zcode", AgentKind::ZCode),
+            ("OMP", AgentKind::Omp),
+            ("omp", AgentKind::Omp),
+            ("oh-my-pi", AgentKind::Omp),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

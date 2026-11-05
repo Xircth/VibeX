@@ -75,7 +75,7 @@
 
 ## 优点
 
-- **主流 Coding Agent 开箱即用，自由混编**：内置 Claude Code、Codex、DeepSeek、Antigravity、Gemini CLI、Cursor、Kimi Code、OpenClaw、Cline、TRAE CLI、Kiro CLI 等主流 Agent 并支持 ACP Registry 扩展，自动探测本机环境、一键安装修复与供应商切换；同一个项目里可以让 Claude 写架构、Codex 写单测、Gemini 调前端。
+- **主流 Coding Agent 开箱即用，自由混编**：内置 Claude Code、Codex、DeepSeek、Antigravity、Gemini CLI、Cursor、Kimi Code、OpenClaw、Cline、TRAE CLI、Kiro CLI、OMP 等主流 Agent 并支持 ACP Registry 扩展，自动探测本机环境、一键安装修复与供应商切换；同一个项目里可以让 Claude 写架构、Codex 写单测、Gemini 调前端。
 - **无限画布看板 + 四栏看板，全局掌控并发任务**：在经典四栏看板之外提供自由缩放的**无限画布看板视图**，将任务卡片、关联对话、执行状态与依赖连线铺展在同一张空间画布上，几十个并发任务也一目了然。
 - **Git Worktree 零冲突并行隔离**：每张任务卡可自动绑定独立分支与 Git Worktree，多个 Agent 同时重构、修 Bug、写新功能互不污染工作区；内置实时 Git Diff 审查、文件树对比、一键暂存、提交、变基与合并。
 - **VibeX-Bot 多角色协作空间（群聊接力 + `&Agent` 异步委派）**：像拉工作群一样组建你的 AI 专家团队（产品经理、架构师、前端、QA、文档专家），支持 `@Bot` 点名接力、共享空间文件夹，也能在工作区任意输入框中通过 `&Agent` 将耗时调研或子任务异步委派给后台子会话。

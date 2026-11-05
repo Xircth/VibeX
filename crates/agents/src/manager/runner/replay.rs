@@ -430,6 +430,18 @@ impl AgentConnectionRunner {
                 servers.push(acp::schema::v1::McpServer::Stdio(stdio));
             }
         }
+        if self.snapshot.agent_id.as_str() == "omp" {
+            let offer = wire_mcp_offer(&*self.capabilities.read().await);
+            servers = crate::omp_mcp::merge_session_servers(
+                servers,
+                Self::omp_assigned_session_servers(&self.snapshot),
+                crate::omp_mcp::SessionMcpOffer {
+                    stdio: offer.stdio,
+                    http: offer.http,
+                    sse: offer.sse,
+                },
+            );
+        }
         servers
     }
 
@@ -461,5 +473,26 @@ impl AgentConnectionRunner {
             }
         }
         servers
+    }
+
+    fn omp_assigned_session_servers(
+        snapshot: &ManagedAgentConnectionSnapshot,
+    ) -> Vec<acp::schema::v1::McpServer> {
+        let mut environment = BTreeMap::new();
+        for (key, value) in &snapshot.env {
+            environment.insert(key.clone(), value.clone());
+        }
+        for (key, value) in &snapshot.launch_lock.env {
+            environment.insert(key.clone(), value.clone());
+        }
+        let home = environment
+            .get("HOME")
+            .or_else(|| environment.get("USERPROFILE"))
+            .map(PathBuf::from)
+            .or_else(dirs::home_dir);
+        let Some(home) = home else {
+            return Vec::new();
+        };
+        crate::omp_mcp::session_servers(&crate::omp_mcp::mcp_json_path(&home, &environment))
     }
 }

@@ -917,6 +917,9 @@ pub(super) async fn capture_projection(
             )
             .await?;
         }
+        "omp" => {
+            capture_files(&homes.omp, &["models.yml", "config.yml"], &mut backup).await?;
+        }
         "codebuddy" => capture_files(&homes.codebuddy, &[".env"], &mut backup).await?,
         "qoder" => capture_files(&homes.qoder, &["settings.json"], &mut backup).await?,
         "auggie" => capture_files(&homes.auggie, &["settings.json"], &mut backup).await?,
@@ -966,6 +969,7 @@ pub(super) fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionB
         "openclaw" => ["openclaw.json"].as_slice(),
         "cline" => ["globalState.json", "secrets.json"].as_slice(),
         "pi" => ["settings.json", "models.json", "auth.json"].as_slice(),
+        "omp" => ["models.yml", "config.yml"].as_slice(),
         "codebuddy" => [".env"].as_slice(),
         "qoder" | "auggie" | "zcode" => ["settings.json"].as_slice(),
         "trae" => ["traecli.toml"].as_slice(),
@@ -1033,6 +1037,14 @@ pub(super) async fn restore_projection(
                     ("models.json", false),
                     ("auth.json", true),
                 ],
+                backup,
+            )
+            .await
+        }
+        "omp" => {
+            restore_files(
+                &homes.omp,
+                &[("models.yml", true), ("config.yml", false)],
                 backup,
             )
             .await

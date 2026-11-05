@@ -21,7 +21,6 @@ import { Label } from '@/components/ui/label';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { projectsApi, repoApi } from '@/lib/api';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ProjectImportPreview } from '@/lib/api/projects';
 import { defineModal } from '@/lib/modals';
@@ -445,6 +444,11 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     const submitLabel = isOpenExistingFolderMode
       ? t('projectForm.submitOpenFolder')
       : t('projectForm.submitCreate');
+    const discoveredChildPaths =
+      importPreview?.children.map((child) => child.path) ?? [];
+    const allDiscoveredChildrenSelected =
+      discoveredChildPaths.length > 0 &&
+      discoveredChildPaths.every((path) => selectedChildPaths.includes(path));
 
     const handleOpenChange = (openState: boolean) => {
       if (!openState && !isBusy) {
@@ -542,12 +546,35 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     ) : null}
                     {importPreview && importPreview.children.length > 0 ? (
                       <div className="flex flex-col gap-2">
-                        <p className="text-sm font-medium">
-                          {t('projectForm.discoveredGitRepos', {
-                            count: importPreview.children.length,
-                          })}
-                        </p>
-                        <ScrollArea className="max-h-40 rounded-lg border border-border">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">
+                            {t('projectForm.discoveredGitRepos', {
+                              count: importPreview.children.length,
+                            })}
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 shrink-0 px-2 text-xs"
+                            disabled={isBusy}
+                            onClick={() =>
+                              setSelectedChildPaths(
+                                allDiscoveredChildrenSelected
+                                  ? []
+                                  : discoveredChildPaths
+                              )
+                            }
+                          >
+                            {allDiscoveredChildrenSelected
+                              ? t('projectForm.deselectAll')
+                              : t('projectForm.selectAll')}
+                          </Button>
+                        </div>
+                        <div
+                          data-testid="discovered-git-repos-list"
+                          className="max-h-40 overflow-y-auto overscroll-contain rounded-lg border border-border"
+                        >
                           <div className="flex flex-col gap-1 p-2">
                             {importPreview.children.map((child) => {
                               const checked = selectedChildPaths.includes(
@@ -583,7 +610,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                               );
                             })}
                           </div>
-                        </ScrollArea>
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {t('projectForm.discoveredGitReposHint')}
                         </p>

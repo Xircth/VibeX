@@ -196,6 +196,8 @@
     "nestedGitConfirmAction": "Initialize anyway",
     "discoveredGitRepos": "{{count}} Git repositories found",
     "discoveredGitReposHint": "None are imported by default. Selected folders become independent projects.",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
     "nameLabel": "Project name",
     "namePlaceholder": "e.g. Marketing Site",
     "descriptionLabel": "Project description (optional, used for README)",

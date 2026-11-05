@@ -196,6 +196,8 @@
     "nestedGitConfirmAction": "仍然初始化",
     "discoveredGitRepos": "发现 {{count}} 个 Git 仓库",
     "discoveredGitReposHint": "默认不导入。勾选后作为独立项目，可在项目栏切换。",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
     "nameLabel": "项目名称",
     "namePlaceholder": "例如：Marketing Site",
     "descriptionLabel": "项目简介（可选，用于 README）",

@@ -367,7 +367,7 @@ describe('VersionControlSettings', () => {
       screen.getByRole('combobox', { name: 'PR描述生成Agent' })
     ).not.toBeDisabled();
     const customPrPromptSwitch = screen.getByRole('switch', {
-      name: '自定义PR提示词',
+      name: '自定义 PR 提示词',
     });
     expect(customPrPromptSwitch.parentElement).toHaveClass(
       'flex',

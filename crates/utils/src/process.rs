@@ -623,7 +623,9 @@ pub fn command_output_detail(output: &std::process::Output) -> Option<String> {
 mod command_output_detail_tests {
     use std::process::{ExitStatus, Output};
 
-    use super::{command_output_detail, decode_process_output};
+    use super::command_output_detail;
+    #[cfg(windows)]
+    use super::decode_process_output;
 
     #[cfg(unix)]
     fn failure_status() -> ExitStatus {

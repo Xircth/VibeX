@@ -165,6 +165,39 @@ pub fn export_managed_node_to_user_environment(
     Ok(published)
 }
 
+/// Install Bun into the user environment after a managed bootstrap.
+///
+/// Puts `bun` on the user PATH (`~/.local/bin` plus the current process) so
+/// ACP packages such as `@oh-my-pi/pi-coding-agent` (`#!/usr/bin/env bun` /
+/// `omp.cmd` invoking `bun`) can run.
+pub fn export_managed_bun_to_user_environment(
+    home_dir: &Path,
+    bun_bin_dir: &Path,
+    shell: ShellFamily,
+) -> Result<Vec<PublishedCliCommand>, CliExposureError> {
+    let published = publish_user_toolchain_commands(home_dir, bun_bin_dir, &["bun"], shell)?;
+    let user_bin = home_dir.join(".local").join("bin");
+    #[cfg(windows)]
+    {
+        let source_exe = bun_bin_dir.join("bun.exe");
+        let dest_exe = user_bin.join("bun.exe");
+        if source_exe.is_file() && !paths_refer_to_same_file(&source_exe, &dest_exe) {
+            let temporary = dest_exe.with_file_name(format!(
+                ".bun.exe.vibex-toolchain-{}.tmp",
+                Uuid::new_v4()
+            ));
+            if fs::copy(&source_exe, &temporary).is_ok()
+                && replace_file_atomically(&temporary, &dest_exe).is_err()
+            {
+                let _ = fs::remove_file(&temporary);
+            }
+        }
+    }
+    workspace_utils::shell::expose_user_bin_to_process_path(&user_bin);
+    workspace_utils::shell::expose_user_bin_to_process_path(bun_bin_dir);
+    Ok(published)
+}
+
 pub fn publish_managed_runtime_cli(
     home_dir: &Path,
     agent_id: &AgentId,
@@ -776,6 +809,8 @@ fn toolchain_command_path(bin_dir: &Path, command: &str) -> PathBuf {
     if cfg!(windows) {
         match command {
             "node" => bin_dir.join("node.exe"),
+            "bun" => bin_dir.join("bun.exe"),
+            "uv" => bin_dir.join("uv.exe"),
             "npm" => bin_dir.join("npm.cmd"),
             "npx" => bin_dir.join("npx.cmd"),
             other => bin_dir.join(format!("{other}.cmd")),
@@ -1899,5 +1934,17 @@ mod tests {
     fn a_home_without_a_user_bin_directory_sweeps_nothing() {
         let temp = tempfile::tempdir().unwrap();
         assert!(remove_orphaned_cli_shims(temp.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn toolchain_command_path_resolves_bun_and_uv_executables() {
+        let bin = Path::new("/opt/toolchain/bin");
+        if cfg!(windows) {
+            assert_eq!(toolchain_command_path(bin, "bun"), bin.join("bun.exe"));
+            assert_eq!(toolchain_command_path(bin, "uv"), bin.join("uv.exe"));
+        } else {
+            assert_eq!(toolchain_command_path(bin, "bun"), bin.join("bun"));
+            assert_eq!(toolchain_command_path(bin, "uv"), bin.join("uv"));
+        }
     }
 }

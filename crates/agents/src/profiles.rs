@@ -766,7 +766,15 @@ const NODE_24_16_DEPENDENCIES: &[ProfileDependency] = &[
 const OMP_DEPENDENCIES: &[ProfileDependency] = &[
     dependency("node", "Node.js", "node", &["--version"], ">=20", true),
     dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
-    dependency("bun", "Bun", "bun", &["--version"], ">=1.3.14", true),
+    ProfileDependency {
+        id: "bun",
+        label: "Bun",
+        executable: "bun",
+        version_args: &["--version"],
+        requirement: ">=1.3.14",
+        required: true,
+        repairable: true,
+    },
 ];
 const ARCHIVE_DEPENDENCIES: &[ProfileDependency] = &[dependency(
     "archive",
@@ -3779,5 +3787,27 @@ const fn tofu_binary_artifact(
         platform,
         archive_url,
         sha256: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omp_profile_marks_bun_dependency_as_required_and_repairable() {
+        let catalog = BuiltInProfileCatalog::bundled();
+        let omp = catalog
+            .profile(&AgentId::parse("omp").unwrap())
+            .expect("omp profile");
+        let bun = omp
+            .dependencies
+            .iter()
+            .find(|dep| dep.id == "bun")
+            .expect("omp bun dependency");
+        assert_eq!(bun.executable, "bun");
+        assert_eq!(bun.requirement, ">=1.3.14");
+        assert!(bun.required);
+        assert!(bun.repairable);
     }
 }

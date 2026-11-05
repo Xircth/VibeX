@@ -373,7 +373,8 @@ pub async fn preflight(
             None => (None, true),
         };
 
-    let lifecycle = if !acp_ok {
+    let dependencies_ok = dependency_items.iter().all(|item| item.status != "fail");
+    let lifecycle = if !acp_ok || !dependencies_ok {
         AgentLifecycleState::NeedsRepair
     } else if !auth_mode_ready
         || (authentication_required
@@ -393,7 +394,7 @@ pub async fn preflight(
             lifecycle,
             authentication,
             runtime_ok,
-            acp_ok,
+            acp_ok && dependencies_ok,
             authentication_required,
         )
         .await

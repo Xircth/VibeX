@@ -7,6 +7,7 @@
 
 pub const MANAGED_NODE_VERSION: &str = "22.22.3";
 pub const MANAGED_UV_VERSION: &str = "0.8.10";
+pub const MANAGED_BUN_VERSION: &str = "1.4.4";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManagedNodeArtifact {
@@ -17,6 +18,13 @@ pub struct ManagedNodeArtifact {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManagedUvArtifact {
+    pub target: &'static str,
+    pub extension: &'static str,
+    pub sha256: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManagedBunArtifact {
     pub target: &'static str,
     pub extension: &'static str,
     pub sha256: &'static str,
@@ -122,6 +130,58 @@ pub fn managed_uv_artifact(platform: &str) -> Option<ManagedUvArtifact> {
     })
 }
 
+pub fn managed_bun_artifact(platform: &str) -> Option<ManagedBunArtifact> {
+    let (target, extension, sha256) = match platform {
+        "darwin-aarch64" => (
+            "darwin-aarch64",
+            "zip",
+            "c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510",
+        ),
+        "darwin-x86_64" => (
+            "darwin-x64",
+            "zip",
+            "50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e",
+        ),
+        "linux-aarch64" => (
+            "linux-aarch64",
+            "zip",
+            "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e",
+        ),
+        "linux-x86_64" => (
+            "linux-x64",
+            "zip",
+            "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c",
+        ),
+        "windows-aarch64" => (
+            "windows-aarch64",
+            "zip",
+            "2d57a0eec0cb44d95c918c3f9734f60455a1306ae5085d76fc68f44e3ee30d09",
+        ),
+        "windows-x86_64" => (
+            "windows-x64",
+            "zip",
+            "cd2c0fccc78f3ede1f50ca827a15f063eda13d4d150a3d0674f4f6e323d864a5",
+        ),
+        _ => return None,
+    };
+    Some(ManagedBunArtifact {
+        target,
+        extension,
+        sha256,
+    })
+}
+
+pub fn managed_bun_archive_name(artifact: &ManagedBunArtifact) -> String {
+    format!("bun-{}.{}", artifact.target, artifact.extension)
+}
+
+pub fn managed_bun_download_urls(artifact: &ManagedBunArtifact) -> Vec<String> {
+    let name = managed_bun_archive_name(artifact);
+    vec![format!(
+        "https://github.com/oven-sh/bun/releases/download/bun-v{MANAGED_BUN_VERSION}/{name}"
+    )]
+}
+
 /// Npx plans are installable when a system Node exists **or** VibeX can
 /// bootstrap the pinned Node distribution for this platform.
 pub fn node_verified_for_install(system_node_and_npm: bool, platform: &str) -> bool {
@@ -132,6 +192,12 @@ pub fn node_verified_for_install(system_node_and_npm: bool, platform: &str) -> b
 /// bootstrap the pinned uv distribution for this platform.
 pub fn uv_verified_for_install(system_uv: bool, platform: &str) -> bool {
     system_uv || managed_uv_artifact(platform).is_some()
+}
+
+/// Bun-dependent plans are installable when a system Bun exists **or** VibeX can
+/// bootstrap the pinned Bun distribution for this platform.
+pub fn bun_verified_for_install(system_bun: bool, platform: &str) -> bool {
+    system_bun || managed_bun_artifact(platform).is_some()
 }
 
 #[cfg(test)]
@@ -155,6 +221,18 @@ mod tests {
     }
 
     #[test]
+    fn bun_plans_do_not_require_a_system_bun_on_supported_hosts() {
+        assert!(bun_verified_for_install(false, "linux-x86_64"));
+        assert!(bun_verified_for_install(false, "linux-aarch64"));
+        assert!(bun_verified_for_install(false, "darwin-aarch64"));
+        assert!(bun_verified_for_install(false, "darwin-x86_64"));
+        assert!(bun_verified_for_install(false, "windows-aarch64"));
+        assert!(bun_verified_for_install(false, "windows-x86_64"));
+        assert!(!bun_verified_for_install(false, "unknown-os"));
+        assert!(bun_verified_for_install(true, "unknown-os"));
+    }
+
+    #[test]
     fn managed_node_artifact_matches_the_pinned_dist_url() {
         let artifact = managed_node_artifact("linux-x86_64").expect("linux node");
         assert_eq!(artifact.target, "linux-x64");
@@ -170,6 +248,21 @@ mod tests {
         assert!(
             urls.iter().any(|url| url.contains("npmmirror.com")),
             "Host bootstrap must not depend on a single Node.js origin"
+        );
+    }
+
+    #[test]
+    fn managed_bun_artifact_matches_the_pinned_github_release_url() {
+        let artifact = managed_bun_artifact("windows-x86_64").expect("windows bun");
+        assert_eq!(artifact.target, "windows-x64");
+        assert_eq!(artifact.extension, "zip");
+        assert_eq!(artifact.sha256.len(), 64);
+        let urls = managed_bun_download_urls(&artifact);
+        assert_eq!(
+            urls[0],
+            format!(
+                "https://github.com/oven-sh/bun/releases/download/bun-v{MANAGED_BUN_VERSION}/bun-windows-x64.zip"
+            )
         );
     }
 }

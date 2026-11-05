@@ -10,17 +10,18 @@ use std::{
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentId, BuiltInProfile, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
-    InstallPlanner, InstallPlanningInput, LockedInstallSource, MANAGED_NODE_VERSION,
-    MANAGED_UV_VERSION, ObservedUserComponent, OfficialRegistryHttpFetcher,
+    InstallPlanner, InstallPlanningInput, LockedInstallSource, MANAGED_BUN_VERSION,
+    MANAGED_NODE_VERSION, MANAGED_UV_VERSION, ObservedUserComponent, OfficialRegistryHttpFetcher,
     PlannedDistributionKind, PlannedInstallComponent, ProfileComponent, ProfileTopology,
     RegistryCache, RegistrySnapshotClient, ResolvedInstallPlan, SessionLaunchLock, ShellFamily,
     SystemClock, UserEnvironmentAdoptDecision, UserEnvironmentLayout, current_platform,
     decide_user_environment_adopt, existing_path_satisfies_component,
-    export_managed_node_to_user_environment, managed_node_artifact, managed_node_download_urls,
-    managed_uv_artifact, node_verified_for_install, npm_global_install_args,
-    npm_install_permission_denied, npm_package_name as npm_spec_name, overlay_npx_latest_from_npm,
-    plan_required_components, registry_target_for_built_in_update, resolve_npm_shim,
-    uv_verified_for_install,
+    export_managed_bun_to_user_environment, export_managed_node_to_user_environment,
+    managed_bun_artifact, managed_bun_download_urls, managed_node_artifact,
+    managed_node_download_urls, managed_uv_artifact, node_verified_for_install,
+    npm_global_install_args, npm_install_permission_denied, npm_package_name as npm_spec_name,
+    overlay_npx_latest_from_npm, plan_required_components, registry_target_for_built_in_update,
+    resolve_npm_shim, uv_verified_for_install, version_at_least,
 };
 use api_types::AgentSource;
 use chrono::Utc;
@@ -372,6 +373,17 @@ where
         ),
     );
     prepare_user_environment(&user_env).await?;
+    let _bun = if profile_requires_bun(&plan.agent_id) {
+        let resolved =
+            resolve_bun_runtime(&managed_artifacts, node.as_ref(), &user_env).await?;
+        on_progress(36, &format!("[env] bun={}", resolved.display()));
+        if let Some(executable) = resolved.parent() {
+            utils::shell::expose_user_bin_to_process_path(executable);
+        }
+        Some(resolved)
+    } else {
+        None
+    };
     let installation = if let Some(adopted) = try_adopt(&plan.agent_id, plan, &user_env).await? {
         println!("Using the user-environment CLI that already matches the planned versions.");
         for component in &adopted.components {
@@ -923,6 +935,17 @@ fn managed_node_runtime(managed_artifacts_dir: &Path) -> Option<NodeRuntime> {
     })
 }
 
+fn profile_requires_bun(agent_id: &AgentId) -> bool {
+    BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .is_some_and(|profile| {
+            profile
+                .dependencies
+                .iter()
+                .any(|dep| dep.executable == "bun" && dep.required)
+        })
+}
+
 fn managed_uv_executable(managed_artifacts_dir: &Path) -> Option<PathBuf> {
     let artifact = managed_uv_artifact(&current_platform())?;
     let executable = if cfg!(windows) { "uv.exe" } else { "uv" };
@@ -933,6 +956,20 @@ fn managed_uv_executable(managed_artifacts_dir: &Path) -> Option<PathBuf> {
             .join(MANAGED_UV_VERSION)
             .join(current_platform())
             .join(format!("uv-{}", artifact.target))
+            .join(executable),
+    )
+}
+
+fn managed_bun_executable(managed_artifacts_dir: &Path) -> Option<PathBuf> {
+    let artifact = managed_bun_artifact(&current_platform())?;
+    let executable = if cfg!(windows) { "bun.exe" } else { "bun" };
+    Some(
+        managed_artifacts_dir
+            .join("agent-tools")
+            .join("bun")
+            .join(MANAGED_BUN_VERSION)
+            .join(current_platform())
+            .join(format!("bun-{}", artifact.target))
             .join(executable),
     )
 }
@@ -979,6 +1016,26 @@ fn export_bootstrapped_node(runtime: &NodeRuntime) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn export_bootstrapped_bun(bin_dir: &Path) -> anyhow::Result<()> {
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
+    let published =
+        export_managed_bun_to_user_environment(&home, bin_dir, host_shell_family()).map_err(
+            |error| anyhow::anyhow!("failed to export Bun to the user environment: {error}"),
+        )?;
+    if published.is_empty() {
+        anyhow::bail!("managed Bun did not contain a bun executable to export");
+    }
+    for command in published {
+        println!(
+            "Exported {} to {}",
+            command.command_name,
+            command.shim_path.display()
+        );
+    }
+    Ok(())
+}
+
 fn host_shell_family() -> ShellFamily {
     #[cfg(windows)]
     {
@@ -997,6 +1054,108 @@ async fn resolve_uv_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<Path
     }
     println!("System uv is unavailable; falling back to VibeX-managed uv {MANAGED_UV_VERSION}");
     ensure_managed_uv(managed_artifacts_dir).await
+}
+
+async fn resolve_bun_runtime(
+    managed_artifacts_dir: &Path,
+    node: Option<&NodeRuntime>,
+    user_env: &UserEnvironmentLayout,
+) -> anyhow::Result<PathBuf> {
+    if let Some(bun) = utils::shell::resolve_executable_path("bun").await
+        && let Some(version) = probe_version(&bun, &["--version"]).await
+        && version_at_least(&version, ">=1.3.14")
+    {
+        println!("Using system Bun {version} at {}", bun.display());
+        #[cfg(windows)]
+        sync_windows_npm_bun_binary(&bun, user_env).await;
+        return Ok(bun);
+    }
+    println!(
+        "System Bun (>=1.3.14) is unavailable; falling back to VibeX-managed Bun {MANAGED_BUN_VERSION}"
+    );
+    let bun = match ensure_managed_bun(managed_artifacts_dir).await {
+        Ok(path) => path,
+        Err(download_error) => {
+            println!(
+                "Managed Bun archive download failed ({download_error}); trying npm fallback..."
+            );
+            install_bun_via_npm_fallback(node, user_env)
+                .await
+                .map_err(|npm_error| {
+                    anyhow::anyhow!(
+                        "failed to bootstrap Bun {MANAGED_BUN_VERSION} via GitHub release ({download_error}) or npm fallback ({npm_error})"
+                    )
+                })?
+        }
+    };
+    if let Some(bin_dir) = bun.parent() {
+        export_bootstrapped_bun(bin_dir)?;
+    }
+    #[cfg(windows)]
+    sync_windows_npm_bun_binary(&bun, user_env).await;
+    Ok(bun)
+}
+
+#[cfg(windows)]
+async fn sync_windows_npm_bun_binary(bun: &Path, user_env: &UserEnvironmentLayout) {
+    let is_exe = bun
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
+    if is_exe && bun.is_file() && user_env.npm_bin.is_dir() {
+        let npm_bun = user_env.npm_bin.join("bun.exe");
+        if !npm_bun.is_file() {
+            let _ = tokio::fs::copy(bun, &npm_bun).await;
+        }
+    }
+}
+
+async fn install_bun_via_npm_fallback(
+    node: Option<&NodeRuntime>,
+    user_env: &UserEnvironmentLayout,
+) -> anyhow::Result<PathBuf> {
+    let npm = node
+        .map(|runtime| runtime.npm.clone())
+        .or(utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
+            .await)
+        .ok_or_else(|| anyhow::anyhow!("npm is unavailable for Bun fallback install"))?;
+    let spec = format!("bun@{MANAGED_BUN_VERSION}");
+    let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
+    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
+        command.env("NODE_USE_ENV_PROXY", "1");
+    }
+    if let Some(runtime) = node {
+        prepend_command_path(&mut command, &runtime.bin_dir);
+        command.env("npm_config_prefix", &user_env.npm_prefix);
+    }
+    command.args(npm_global_install_args(&user_env.npm_prefix, &spec));
+    let mut noop_progress = |_: u8, _: &str| {};
+    run_command_with_progress("npm install -g bun", command, 36, &mut noop_progress).await?;
+    #[cfg(windows)]
+    {
+        for candidate in [
+            user_env
+                .npm_prefix
+                .join("node_modules")
+                .join("bun")
+                .join("bin")
+                .join("bun.exe"),
+            user_env.npm_bin.join("bun.exe"),
+        ] {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+    let shim = resolve_npm_shim(&user_env.npm_bin, "bun").ok_or_else(|| {
+        anyhow::anyhow!(
+            "npm install of {spec} did not produce `bun` under {}",
+            user_env.npm_bin.display()
+        )
+    })?;
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(shim).await?,
+    ))
 }
 
 async fn download_archive(url: &str, limit: usize) -> anyhow::Result<Vec<u8>> {
@@ -1166,6 +1325,69 @@ async fn ensure_managed_uv(managed_artifacts_dir: &Path) -> anyhow::Result<PathB
         }
         let _ = tokio::fs::remove_dir_all(&staging).await;
         println!("Managed uv {MANAGED_UV_VERSION} installed");
+        Ok(dest)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+    }
+    result
+}
+
+async fn ensure_managed_bun(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
+    let platform = current_platform();
+    let artifact = managed_bun_artifact(&platform)
+        .ok_or_else(|| anyhow::anyhow!("Bun is not supported on {platform}"))?;
+    let final_executable = managed_bun_executable(managed_artifacts_dir)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve managed Bun path"))?;
+    if tokio::fs::metadata(&final_executable).await.is_ok() {
+        println!(
+            "Using managed Bun {MANAGED_BUN_VERSION}: {}",
+            final_executable.display()
+        );
+        return Ok(final_executable);
+    }
+
+    let base = managed_artifacts_dir.join("agent-tools").join("bun");
+    tokio::fs::create_dir_all(&base).await?;
+    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&staging).await?;
+    let urls = managed_bun_download_urls(&artifact);
+    println!("Downloading managed Bun {MANAGED_BUN_VERSION} ({platform})");
+    let result = async {
+        let (url, bytes) = download_archive_from(&urls, MAX_MANAGED_TOOL_BYTES).await?;
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(artifact.sha256) {
+            anyhow::bail!(
+                "Bun archive SHA-256 mismatch: expected {}, found {actual}",
+                artifact.sha256
+            );
+        }
+        extract_archive(&bytes, &url, &staging)?;
+        let exe_name = if cfg!(windows) { "bun.exe" } else { "bun" };
+        let staged = staging
+            .join(format!("bun-{}", artifact.target))
+            .join(exe_name);
+        let staged = if staged.is_file() {
+            staged
+        } else {
+            find_staged_executable(&staging, exe_name)?
+        };
+        let version_root = base.join(MANAGED_BUN_VERSION).join(&platform);
+        tokio::fs::create_dir_all(&version_root).await?;
+        let dest_dir = version_root.join(format!("bun-{}", artifact.target));
+        tokio::fs::create_dir_all(&dest_dir).await?;
+        let dest = dest_dir.join(exe_name);
+        tokio::fs::copy(&staged, &dest).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = tokio::fs::metadata(&dest).await?.permissions();
+            permissions.set_mode(0o755);
+            tokio::fs::set_permissions(&dest, permissions).await?;
+        }
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        println!("Managed Bun {MANAGED_BUN_VERSION} installed");
         Ok(dest)
     }
     .await;

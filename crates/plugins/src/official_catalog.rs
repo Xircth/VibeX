@@ -34,6 +34,7 @@ pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
     ("kanban-views", "vibex.kanban-views"),
     ("notes", "vibex.notes"),
     ("prompt-enhancer", "vibex.prompt-enhancer"),
+    ("code-completion", "vibex.code-completion"),
 ];
 
 #[derive(Clone, Debug, Deserialize)]

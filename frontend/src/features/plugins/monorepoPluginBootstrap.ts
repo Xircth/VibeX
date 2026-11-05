@@ -112,6 +112,12 @@ const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
     version: '2.0.0',
     loader: () => import('../../../../plugins/prompt-enhancer/app/main.js'),
   },
+  {
+    dirName: 'code-completion',
+    name: 'AI Code Completion',
+    version: '2.0.0',
+    loader: () => import('../../../../plugins/code-completion/app/main.js'),
+  },
 ];
 
 function unwrapPluginModule(raw: RawPluginModuleExport): VibexPluginModule {

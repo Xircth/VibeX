@@ -74,6 +74,13 @@
       "repository": "https://github.com/Xircth/vibex-plugin-computer-use",
       "category": "ai-enhancement",
       "summary": "桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。"
+    },
+    {
+      "id": "vibex.code-completion",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-code-completion",
+      "category": "development",
+      "summary": "AI 代码内联补全（Ghost Text / FIM）：支持 OpenAI 兼容与 Anthropic 兼容双协议、智能上下文拼装、自适应防抖与一键原子级撤销。"
     }
   ]
 }

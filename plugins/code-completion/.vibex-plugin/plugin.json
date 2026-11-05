@@ -8,8 +8,8 @@
   "description": "Low-latency AI ghost-text inline code completion powered by OpenAI-compatible and Anthropic Messages endpoints.",
   "readme": "README.md",
   "engines": {
-    "vibex": "^0.4.1",
-    "pluginSdk": "^0.4.1"
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
   },
   "content": {
     "root": "contents",

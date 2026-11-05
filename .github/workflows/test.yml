@@ -194,7 +194,20 @@ jobs:
           wait $pid_fmt
 
   backend-test:
+    name: backend-test (${{ matrix.group }})
     runs-on: *runner_label
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core-a
+            flags: -p api-types -p application -p artifacts -p automation -p browser-host -p conversations
+          - group: core-b
+            flags: -p agents -p db -p delegation -p delegation-proto -p executors -p git -p local-deployment
+          - group: plugins
+            flags: -p plugins -p vibex-plugin-sdk
+          - group: server-services
+            flags: -p remote-protocol -p review -p server -p services -p tool-runtime -p utils -p vibex -p vibex-mcp -p vibex-workflow-mcp -p workflows
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -213,14 +226,7 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run Cargo tests
-        id: nextest
-        timeout-minutes: 10
-        continue-on-error: true
-        run: cargo nextest run --workspace --no-fail-fast --status-level slow
-
-      - name: Check Cargo test outcome
-        if: steps.nextest.outcome != 'success'
-        run: exit 1
+        run: cargo nextest run ${{ matrix.flags }} --no-fail-fast --status-level slow
 
   backend-platform-check:
     name: cargo check ${{ matrix.name }}

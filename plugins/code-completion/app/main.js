@@ -396,10 +396,12 @@ export default {
   async activate(context) {
     const cache = new ForwardTypingCache();
     let activeAbortController = null;
+    let activeRequestId = null;
     let inFlightWorkerRequestId = null;
     let activeEditorInstance = null;
     let cursorIdleTimer = null;
     let lastAutoCursorKey = '';
+    let lastKnownVersionId = -1;
     let enabled = true;
     let triggerMode = 'auto';
     let manualShortcut = 'Alt+\\';
@@ -446,16 +448,23 @@ export default {
     }
 
     const invokeWorker = async (method, params = {}) => {
-      if (typeof context?.invokeWorker === 'function') {
-        return await context.invokeWorker(method, params);
+      const callOnce = async () => {
+        if (typeof context?.invokeWorker === 'function') {
+          return await context.invokeWorker(method, params);
+        }
+        if (typeof context?.worker?.invoke === 'function') {
+          return await context.worker.invoke(method, params);
+        }
+        if (typeof context?.services?.call === 'function') {
+          return await context.services.call('worker', method, params);
+        }
+        return null;
+      };
+      try {
+        return await callOnce();
+      } catch {
+        return await callOnce();
       }
-      if (typeof context?.worker?.invoke === 'function') {
-        return await context.worker.invoke(method, params);
-      }
-      if (typeof context?.services?.call === 'function') {
-        return await context.services.call('worker', method, params);
-      }
-      return null;
     };
 
     // Hydrate runtime config from worker status asynchronously on startup
@@ -479,9 +488,12 @@ export default {
     };
 
     const cancelActiveCompletion = (requestId = null, notifyWorker = false) => {
-      if (activeAbortController) {
-        activeAbortController.abort();
-        activeAbortController = null;
+      if (!requestId || activeRequestId === requestId) {
+        if (activeAbortController) {
+          activeAbortController.abort();
+          activeAbortController = null;
+        }
+        activeRequestId = null;
       }
       const targetRequestId = requestId || inFlightWorkerRequestId;
       if (targetRequestId && inFlightWorkerRequestId === targetRequestId) {
@@ -497,10 +509,20 @@ export default {
         return { items: [] };
       }
 
+      if (cursorIdleTimer !== null) {
+        clearTimeout(cursorIdleTimer);
+        cursorIdleTimer = null;
+      }
+
       // Cancel any previous pending debounce or local signal
       cancelActiveCompletion(null, false);
 
       const docState = extractCompletionDocumentState(modelOrRequest, position);
+      if (modelOrRequest && typeof modelOrRequest.getVersionId === 'function') {
+        const vId = modelOrRequest.getVersionId();
+        lastKnownVersionId = vId;
+        lastAutoCursorKey = `${vId}:${docState.lineNumber}:${docState.column}`;
+      }
       const editorBridge = getEditorBridge();
       if (
         (!docState.filePath ||
@@ -577,22 +599,26 @@ export default {
 
       // 2. Wire cancellation token / AbortSignal
       const abortController = new AbortController();
-      activeAbortController = abortController;
       const requestId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      activeAbortController = abortController;
+      activeRequestId = requestId;
 
       if (token) {
         if (token.isCancellationRequested || token.aborted) {
+          abortController.abort();
           cancelActiveCompletion(requestId, false);
           return { items: [] };
         }
         if (typeof token.onCancellationRequested === 'function') {
           token.onCancellationRequested(() => {
+            abortController.abort();
             cancelActiveCompletion(requestId, false);
           });
         } else if (typeof token.addEventListener === 'function') {
           token.addEventListener(
             'abort',
             () => {
+              abortController.abort();
               cancelActiveCompletion(requestId, false);
             },
             { once: true },
@@ -639,9 +665,6 @@ export default {
           suffix: workerSuffix,
           neighbors,
           manual: isManual,
-          config: {
-            maxTokens: 72,
-          },
           range: {
             startLineNumber: docState.lineNumber,
             startColumn: docState.column,
@@ -691,6 +714,9 @@ export default {
         if (activeAbortController === abortController) {
           activeAbortController = null;
         }
+        if (activeRequestId === requestId) {
+          activeRequestId = null;
+        }
       }
     };
 
@@ -701,6 +727,7 @@ export default {
 
     const triggerCursorIdleInlineCompletion = () => {
       if (!enabled || triggerMode !== 'auto') return;
+      if (inFlightWorkerRequestId || activeAbortController) return;
       const editorBridge = getEditorBridge();
       const editor = activeEditorInstance || editorBridge?.getActiveEditor?.();
       if (!editor || typeof editor.trigger !== 'function') return;
@@ -732,7 +759,7 @@ export default {
       editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
     };
 
-    const scheduleCursorIdleAutoTrigger = (delayMs = 260) => {
+    const scheduleCursorIdleAutoTrigger = (delayMs = 320) => {
       if (cursorIdleTimer !== null) {
         clearTimeout(cursorIdleTimer);
         cursorIdleTimer = null;
@@ -750,16 +777,45 @@ export default {
         cursorWatcherDisposer = null;
       }
       if (!editor || typeof editor !== 'object') return;
+      const initialModel = typeof editor.getModel === 'function' ? editor.getModel() : null;
+      if (initialModel && typeof initialModel.getVersionId === 'function') {
+        lastKnownVersionId = initialModel.getVersionId();
+      }
       const subs = [];
+      if (typeof editor.onDidChangeModelContent === 'function') {
+        const sub = editor.onDidChangeModelContent(() => {
+          const m = typeof editor.getModel === 'function' ? editor.getModel() : null;
+          if (m && typeof m.getVersionId === 'function') {
+            lastKnownVersionId = m.getVersionId();
+          }
+          if (cursorIdleTimer !== null) {
+            clearTimeout(cursorIdleTimer);
+            cursorIdleTimer = null;
+          }
+        });
+        if (sub && typeof sub.dispose === 'function') subs.push(() => sub.dispose());
+      }
       if (typeof editor.onDidChangeCursorPosition === 'function') {
-        const sub = editor.onDidChangeCursorPosition(() => {
-          scheduleCursorIdleAutoTrigger(260);
+        const sub = editor.onDidChangeCursorPosition((e) => {
+          const m = typeof editor.getModel === 'function' ? editor.getModel() : null;
+          const currentVersionId =
+            m && typeof m.getVersionId === 'function' ? m.getVersionId() : lastKnownVersionId;
+          // If cursor position changed due to typing/editing, Monaco already triggers provideInlineCompletions
+          if (currentVersionId !== lastKnownVersionId || e?.reason === 2) {
+            lastKnownVersionId = currentVersionId;
+            if (cursorIdleTimer !== null) {
+              clearTimeout(cursorIdleTimer);
+              cursorIdleTimer = null;
+            }
+            return;
+          }
+          scheduleCursorIdleAutoTrigger(320);
         });
         if (sub && typeof sub.dispose === 'function') subs.push(() => sub.dispose());
       }
       if (typeof editor.onDidFocusEditorText === 'function') {
         const sub = editor.onDidFocusEditorText(() => {
-          scheduleCursorIdleAutoTrigger(260);
+          scheduleCursorIdleAutoTrigger(320);
         });
         if (sub && typeof sub.dispose === 'function') subs.push(() => sub.dispose());
       }

@@ -1094,9 +1094,10 @@ impl WorkerHost {
         match &self.backend {
             WorkerBackend::Lightweight => false,
             WorkerBackend::Dedicated(process) => process.lock().await.terminal_error.is_some(),
-            WorkerBackend::SharedNode { terminal_error, .. } => {
-                terminal_error.lock().await.is_some()
-            }
+            WorkerBackend::SharedNode {
+                host,
+                terminal_error,
+            } => terminal_error.lock().await.is_some() || !host.is_running().await,
         }
     }
 

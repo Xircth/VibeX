@@ -606,4 +606,83 @@ test('supports completion at any code position (mid-code, function-name-first, a
   );
 });
 
+test('disables thinking on reasoning-capable OpenAI-compatible models (e.g. deepseek-flash) and retries without thinking on HTTP 400', async () => {
+  const fimContext = buildFimContext({
+    filePath: 'test.py',
+    languageId: 'python',
+    prefix: '# 贪吃蛇游戏\ndef ',
+    suffix: '\n',
+  });
+  const dynamicScope = resolveDynamicScope({
+    prefix: '# 贪吃蛇游戏\ndef ',
+    suffix: '\n',
+    completionScope: 'smart',
+    maxTokens: 256,
+  });
 
+  const deepseekReq = buildProtocolHttpRequest({
+    config: {
+      providerProtocol: 'openai-compatible',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-test',
+      model: 'deepseek-flash',
+    },
+    fimContext,
+    dynamicScope,
+  });
+  assert.deepEqual(deepseekReq.body.thinking, { type: 'disabled' });
+  assert.equal(deepseekReq.body.max_tokens, 160);
+
+  let attempt = 0;
+  const bodies = [];
+  const engine = new CodeCompletionEngine({
+    config: {
+      enabled: true,
+      providerProtocol: 'openai-compatible',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-test',
+      model: 'deepseek-flash',
+    },
+    fetchImpl: async (_url, init) => {
+      attempt += 1;
+      bodies.push(JSON.parse(init.body));
+      if (attempt === 1) {
+        return {
+          ok: false,
+          status: 400,
+          async text() {
+            return 'unknown field thinking';
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            choices: [
+              {
+                message: {
+                  content: '<COMPLETION>move_snake(snake, direction):\n    return snake</COMPLETION>',
+                },
+              },
+            ],
+          };
+        },
+      };
+    },
+  });
+
+  const result = await engine.complete({
+    filePath: 'test.py',
+    languageId: 'python',
+    prefix: '# 贪吃蛇游戏\ndef ',
+    suffix: '\n',
+    manual: true,
+  });
+  assert.equal(attempt, 2);
+  assert.deepEqual(bodies[0].thinking, { type: 'disabled' });
+  assert.equal('thinking' in bodies[1], false);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].insertText, 'move_snake(snake, direction):\n    return snake');
+});

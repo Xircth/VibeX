@@ -142,7 +142,7 @@ export function resolveDynamicScope({
 
   return {
     isSingleLine: false,
-    maxTokens: Math.min(72, safeMaxTokens),
+    maxTokens: Math.min(160, safeMaxTokens),
     stopSequences: ['\n\n'],
   };
 }
@@ -403,11 +403,15 @@ export function buildProtocolHttpRequest({
   // Do not pass bare `\n` or `\r\n` to OpenAI chat completions since the model outputs `<COMPLETION>\n...`
   const safeOpenAiStops = extraStops.filter((seq) => seq !== '\n' && seq !== '\r\n');
   const stop = Array.from(new Set(['</COMPLETION>', ...safeOpenAiStops])).slice(0, 4);
+  const disableThinking = /deepseek|bigmodel|glm|doubao|volces|ark|kimi|moonshot|qwen/i.test(
+    `${mergedConfig.baseUrl || ''} ${model || ''}`,
+  );
   const body = {
     model,
     max_tokens: maxTokens,
     temperature,
     stop,
+    ...(disableThinking ? { thinking: { type: 'disabled' } } : {}),
     messages: [
       {
         role: 'system',
@@ -443,6 +447,17 @@ export function extractRawCompletionFromResponse(protocol, payload) {
 
   if (Array.isArray(payload.choices) && payload.choices.length > 0) {
     const choice = payload.choices[0] || {};
+    if (choice.message && typeof choice.message.content === 'string' && choice.message.content.length > 0) {
+      return choice.message.content;
+    }
+    if (choice.message && typeof choice.message.reasoning_content === 'string') {
+      const tagged = choice.message.reasoning_content.match(
+        /<COMPLETION>[\s\S]*?<\/COMPLETION>/i,
+      );
+      if (tagged) {
+        return tagged[0];
+      }
+    }
     if (choice.message && typeof choice.message.content === 'string') {
       return choice.message.content;
     }
@@ -638,12 +653,27 @@ async function performHttpRequest({ url, headers, body, signal, environment, fet
         : null;
 
   if (effectiveFetch) {
-    const response = await effectiveFetch(url, {
+    let response = await effectiveFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
     });
+    if (
+      !response.ok &&
+      response.status === 400 &&
+      body &&
+      typeof body === 'object' &&
+      'thinking' in body
+    ) {
+      const { thinking: _omitted, ...fallbackBody } = body;
+      response = await effectiveFetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(fallbackBody),
+        signal,
+      });
+    }
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       throw new Error(

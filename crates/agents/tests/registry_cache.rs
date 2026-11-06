@@ -203,6 +203,41 @@ fn registry(version: &str, agent_version: &str, icon: &str) -> String {
 }
 
 #[tokio::test]
+async fn registry_with_linux_musl_targets_remains_available_on_macos() {
+    let document = r#"{
+      "version": "1.0.0",
+      "agents": [{
+        "id": "vendor-agent",
+        "name": "Vendor Agent",
+        "version": "1.2.3",
+        "description": "ACP agent with cross-platform binaries",
+        "distribution": {
+          "binary": {
+            "darwin-aarch64": {"archive": "https://example.test/macos.tar.gz", "cmd": "vendor-agent"},
+            "linux-aarch64-musl": {"archive": "https://example.test/arm-musl.tar.gz", "cmd": "vendor-agent"},
+            "linux-x86_64-musl": {"archive": "https://example.test/x64-musl.tar.gz", "cmd": "vendor-agent"}
+          }
+        }
+      }]
+    }"#;
+    let fetcher = Arc::new(ScriptedFetcher::new([(
+        RegistrySnapshotClient::OFFICIAL_REGISTRY_URL,
+        vec![response(document, "musl-v1")],
+    )]));
+    let clock = Arc::new(SystemClock);
+    let client = RegistrySnapshotClient::new(fetcher, clock);
+    let mut cache = RegistryCache::default();
+
+    let view = client.open(&mut cache).await;
+    assert!(view.refresh_error.is_none(), "{:?}", view.refresh_error);
+    assert_eq!(view.entries.len(), 1);
+    let targets = view.entries[0].distributions.binary.as_ref().unwrap();
+    assert!(targets.contains_key("darwin-aarch64"));
+    assert!(targets.contains_key("linux-aarch64-musl"));
+    assert!(targets.contains_key("linux-x86_64-musl"));
+}
+
+#[tokio::test]
 async fn registry_cache_keeps_last_valid_snapshot_on_invalid_refresh() {
     let registry_url = RegistrySnapshotClient::OFFICIAL_REGISTRY_URL;
     let icon_url = "https://cdn.agentclientprotocol.com/registry/v1/latest/vendor-agent.svg";

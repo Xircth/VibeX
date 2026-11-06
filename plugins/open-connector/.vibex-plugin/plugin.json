@@ -51,23 +51,6 @@
   },
   "integrations": [
     {
-      "id": "console",
-      "kind": "app.tab",
-      "title": "Open Connector",
-      "icon": "plug",
-      "handler": "surface.createSession",
-      "allowedMethods": [
-        "surface.createSession",
-        "runtime.status",
-        "runtime.statusText",
-        "runtime.restart",
-        "runtime.health",
-        "runtime.wipeData",
-        "mcp.endpoint"
-      ],
-      "hidesBottomDock": true
-    },
-    {
       "id": "settings",
       "kind": "app.surface",
       "label": "Open Connector",
@@ -98,11 +81,10 @@
     {
       "id": "runtime-status",
       "kind": "app.status",
-      "slot": "status.main",
-      "text": "Open Connector",
+      "slot": "status.after-mcp",
+      "text": "连接器市场",
       "icon": "plug",
-      "handler": "runtime.statusText",
-      "refreshSeconds": 15
+      "handler": "surface.createSession"
     },
     {
       "id": "runtime-status-command",

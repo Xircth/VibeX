@@ -11,6 +11,7 @@ use crate::domains::{ServerApplicationDomains, internal_error, parse, serialize}
 struct SearchArgs {
     provider_id: String,
     query: Option<String>,
+    category: Option<String>,
     limit: Option<u32>,
 }
 
@@ -71,21 +72,34 @@ pub(super) async fn list_marketplaces() -> Result<Value, ApplicationError> {
     serialize(mcp::list_marketplaces().await.map_err(internal_error)?)
 }
 
-pub(super) async fn search(args: Value) -> Result<Value, ApplicationError> {
+pub(super) async fn search(
+    domains: &ServerApplicationDomains,
+    args: Value,
+) -> Result<Value, ApplicationError> {
     let args: SearchArgs = parse(args)?;
     serialize(
-        mcp::search_marketplace(args.provider_id, args.query, args.limit)
-            .await
-            .map_err(internal_error)?,
+        with_env(domains, || {
+            mcp::search_marketplace_with_category(
+                args.provider_id,
+                args.query,
+                args.category,
+                args.limit,
+            )
+        })
+        .await?,
     )
 }
 
-pub(super) async fn detail(args: Value) -> Result<Value, ApplicationError> {
+pub(super) async fn detail(
+    domains: &ServerApplicationDomains,
+    args: Value,
+) -> Result<Value, ApplicationError> {
     let args: DetailArgs = parse(args)?;
     serialize(
-        mcp::get_marketplace_server_detail(args.provider_id, args.server_id)
-            .await
-            .map_err(internal_error)?,
+        with_env(domains, || {
+            mcp::get_marketplace_server_detail(args.provider_id, args.server_id)
+        })
+        .await?,
     )
 }
 

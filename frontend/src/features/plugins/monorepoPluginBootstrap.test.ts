@@ -224,8 +224,13 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         ?.component
     ).toBeTypeOf('function');
     expect(
-      viewRegistry.get('vibex.open-connector:console')?.component
+      viewRegistry.get('vibex.open-connector:runtime-status')?.component
     ).toBeTypeOf('function');
+    expect(
+      slotRegistry
+        .getBySlot('status.after-mcp')
+        .some((item) => item.id === 'runtime-status')
+    ).toBe(true);
     expect(
       viewRegistry.get('vibex.open-connector:settings')?.component
     ).toBeTypeOf('function');

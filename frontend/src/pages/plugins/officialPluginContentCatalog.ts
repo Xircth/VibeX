@@ -327,12 +327,6 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
   ],
   openConnector: [
     {
-      path: 'app/tabs/console.md',
-      kind: 'app_tab',
-      title: 'Open Connector',
-      content: 'Open Connector',
-    },
-    {
       path: 'app/surfaces/settings.md',
       kind: 'app_surface',
       title: 'Open Connector',
@@ -341,8 +335,8 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
     {
       path: 'app/status/runtime-status.md',
       kind: 'status',
-      title: 'Open Connector',
-      content: 'Open Connector',
+      title: '连接器市场',
+      content: '连接器市场',
     },
     {
       path: 'app/commands/runtime-status-command.md',

@@ -7,16 +7,18 @@ import {
   useRef,
 } from 'react';
 
-const LazyOpenConnectorConsole = lazy(() => import('../src/views/view'));
+const LazyOpenConnectorMarketplace = lazy(() => import('../src/views/view'));
 
-function createOpenConnectorConsoleComponent(ctx) {
-  return function OpenConnectorConsoleAdapter(props = {}) {
+function createOpenConnectorStatusComponent(ctx) {
+  return function OpenConnectorStatusSurfaceAdapter(props = {}) {
     const surfaceId =
       typeof props.surfaceId === 'string' && props.surfaceId
         ? props.surfaceId
-        : 'console';
+        : 'runtime-status';
     const slot =
-      typeof props.slot === 'string' && props.slot ? props.slot : 'app.tab';
+      typeof props.slot === 'string' && props.slot
+        ? props.slot
+        : 'status.after-mcp';
     const workspaceId =
       typeof props.workspaceId === 'string' ? props.workspaceId : null;
     const projectId =
@@ -36,7 +38,7 @@ function createOpenConnectorConsoleComponent(ctx) {
     return createElement(
       Suspense,
       { fallback: null },
-      createElement(LazyOpenConnectorConsole, { environment })
+      createElement(LazyOpenConnectorMarketplace, { environment })
     );
   };
 }
@@ -75,19 +77,27 @@ function createOpenConnectorConfigComponent(ctx) {
   };
 }
 
+function triggerConnectorMarketplaceModal(ctx, extra = {}) {
+  ctx.events?.emit?.('open-connector:open-marketplace', extra);
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(
+      new CustomEvent('vibex:open-connector-marketplace', {
+        detail: {
+          pluginId: ctx.pluginId,
+          slot: 'status.after-mcp',
+          ...extra,
+        },
+      })
+    );
+  }
+}
+
 export default {
   apiVersion: '2.0',
   id: 'vibex.open-connector',
   activate(ctx) {
-    const ConsoleComponent = createOpenConnectorConsoleComponent(ctx);
+    const StatusMarketplaceComponent = createOpenConnectorStatusComponent(ctx);
     const ConfigComponent = createOpenConnectorConfigComponent(ctx);
-
-    ctx.ui.registerTab({
-      id: 'console',
-      title: 'Open Connector',
-      icon: 'plug',
-      component: ConsoleComponent,
-    });
 
     ctx.ui.registerView({
       id: 'settings',
@@ -98,16 +108,25 @@ export default {
 
     ctx.ui.registerStatusBarItem({
       id: 'runtime-status',
-      label: 'Open Connector',
+      label: '连接器市场',
+      tooltip: '打开连接器市场 (1700+ 应用与 MCP)',
       icon: 'plug',
-      slot: 'status.main',
+      slot: 'status.after-mcp',
       onActivate: async () => {
+        triggerConnectorMarketplaceModal(ctx, { trigger: 'status-bar' });
         try {
-          await ctx.worker.invoke('runtime.statusText', {});
+          return await ctx.worker.invoke('runtime.statusText', {});
         } catch {
-          // Ignore when connector runtime is not running locally.
+          return { text: '连接器市场' };
         }
       },
+    });
+
+    ctx.ui.registerView({
+      id: 'runtime-status',
+      title: '连接器市场',
+      slot: 'status.after-mcp',
+      component: StatusMarketplaceComponent,
     });
 
     ctx.ui.registerCommand({
@@ -116,6 +135,7 @@ export default {
       category: 'Open Connector',
       icon: 'plug',
       handler: async () => {
+        triggerConnectorMarketplaceModal(ctx, { trigger: 'command' });
         try {
           return await ctx.worker.invoke('runtime.statusText', {});
         } catch {
@@ -132,6 +152,9 @@ export default {
 
     ctx.services.provide('vibex.open-connector', {
       gatewayVersion: '2.0.0',
+      openMarketplace(options = {}) {
+        triggerConnectorMarketplaceModal(ctx, options);
+      },
       async getStatus() {
         return await ctx.worker.invoke('runtime.status', {});
       },

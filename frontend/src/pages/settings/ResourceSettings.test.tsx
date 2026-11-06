@@ -5,6 +5,10 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  StatusBarConnectorButton,
+  dispatchOpenConnectorMarketplace,
+} from '@/components/connectors/ConnectorMarketplace';
 import { InstructionsSettings } from './InstructionsSettings';
 import { McpSettings } from './McpSettings';
 import { SkillsSettings } from './SkillsSettings';
@@ -258,7 +262,7 @@ describe('McpSettings', () => {
     });
   });
 
-  it('renders local MCP and MCP marketplace list items with auto-height button classes to prevent row overlap', async () => {
+  it('renders Connectors header, SegmentedControl, local MCP list items, and full-width ConnectorMarketplace', async () => {
     const user = userEvent.setup();
     mocks.scanMcp.mockResolvedValue([
       {
@@ -288,15 +292,77 @@ describe('McpSettings', () => {
 
     renderSettings(<McpSettings />);
 
+    expect(
+      await screen.findByRole('heading', { name: '连接器' })
+    ).toBeVisible();
+
     const localItem = await screen.findByRole('button', { name: /node_repl/ });
     expect(localItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
 
-    await user.click(screen.getByRole('button', { name: 'MCP 市场' }));
+    await user.click(screen.getByRole('radio', { name: 'MCP 市场' }));
+
+    expect(await screen.findByPlaceholderText('搜索应用')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'MCP 服务器' })
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '开发者工具' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '分析' })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'model context protocol' })
+    ).toBeVisible();
 
     const marketItem = await screen.findByRole('button', {
       name: /GitHub MCP/,
     });
     expect(marketItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
+  });
+
+  it('opens the centered ConnectorMarketplace dialog from StatusBarConnectorButton and supports custom MCP creation', async () => {
+    const user = userEvent.setup();
+    mocks.scanMcp.mockResolvedValue([]);
+    mocks.searchMcp.mockResolvedValue([]);
+    mocks.upsertMcp.mockResolvedValue([
+      {
+        id: 'custom-mcp',
+        spec: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/path'],
+        },
+        global: true,
+        apps: [],
+      },
+    ]);
+
+    renderSettings(<StatusBarConnectorButton />);
+
+    await user.click(screen.getByRole('button', { name: '连接器市场' }));
+
+    expect(
+      await screen.findByText(
+        '只需连接一次应用或你自己的 MCP 服务器，再选择哪些机器人可以使用。'
+      )
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'MCP 服务器' }));
+    await user.type(
+      await screen.findByPlaceholderText('例如 filesystem'),
+      'custom-mcp'
+    );
+    await user.click(screen.getByRole('button', { name: '新建' }));
+
+    await waitFor(() => {
+      expect(mocks.upsertMcp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverId: 'custom-mcp',
+          global: true,
+          apps: [],
+        })
+      );
+    });
+
+    dispatchOpenConnectorMarketplace({ searchQuery: 'Supabase' });
+    expect(await screen.findByDisplayValue('Supabase')).toBeVisible();
   });
 });
 

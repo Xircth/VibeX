@@ -21,7 +21,12 @@ use std::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 
+mod catalog;
 mod error;
+pub use catalog::{
+    CONNECTOR_CATEGORIES, MARKETPLACE_BUILTIN, MARKETPLACE_CONNECTOR_CATALOG,
+    MARKETPLACE_OPEN_CONNECTOR, catalog_total_count, normalize_connector_category,
+};
 pub use error::McpError;
 
 const MARKETPLACE_SMITHERY: &str = "smithery";
@@ -186,6 +191,14 @@ pub struct McpMarketplaceItem {
     pub downloads: Option<u64>,
     pub score: Option<f64>,
     pub is_deployed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_spec: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +242,12 @@ pub struct McpMarketplaceServerDetail {
     pub downloads: Option<u64>,
     pub score: Option<f64>,
     pub is_deployed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     pub default_option_id: Option<String>,
     pub install_options: Vec<McpMarketplaceInstallOption>,
     pub spec: Value,
@@ -3843,17 +3862,23 @@ fn official_entry_to_item(entry: &OfficialServerResponse) -> McpMarketplaceItem 
         .and_then(|official| official.get("status"))
         .and_then(Value::as_str)
         == Some("active");
+    let description = server
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("No description")
+        .to_string();
+    let category = Some(catalog::normalize_connector_category(
+        None,
+        &name,
+        &description,
+    ));
     McpMarketplaceItem {
         provider_id: MARKETPLACE_OFFICIAL.to_string(),
         server_id: server.name.clone(),
         name,
-        description: server
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("No description")
-            .to_string(),
+        description,
         homepage,
         remote: server
             .remotes
@@ -3881,6 +3906,10 @@ fn official_entry_to_item(entry: &OfficialServerResponse) -> McpMarketplaceItem 
         downloads: None,
         score: None,
         is_deployed: None,
+        category,
+        kind: Some("mcp".to_string()),
+        status: None,
+        default_spec: None,
     }
 }
 
@@ -4079,28 +4108,40 @@ async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceIt
     Ok(payload
         .servers
         .into_iter()
-        .map(|item| McpMarketplaceItem {
-            provider_id: MARKETPLACE_SMITHERY.to_string(),
-            server_id: item.qualified_name,
-            name: item.display_name,
-            description: item
+        .map(|item| {
+            let description = item
                 .description
-                .unwrap_or_else(|| "No description".to_string()),
-            homepage: clean_opt(item.homepage),
-            remote: item.remote,
-            verified: item.verified,
-            icon_url: clean_opt(item.icon_url),
-            latest_version: None,
-            protocols: if item.remote {
-                vec!["http".to_string()]
-            } else {
-                Vec::new()
-            },
-            owner: clean_opt(item.owner),
-            namespace: clean_opt(item.namespace),
-            downloads: item.use_count,
-            score: item.score,
-            is_deployed: item.is_deployed,
+                .unwrap_or_else(|| "No description".to_string());
+            let category = Some(catalog::normalize_connector_category(
+                None,
+                &item.display_name,
+                &description,
+            ));
+            McpMarketplaceItem {
+                provider_id: MARKETPLACE_SMITHERY.to_string(),
+                server_id: item.qualified_name,
+                name: item.display_name,
+                description,
+                homepage: clean_opt(item.homepage),
+                remote: item.remote,
+                verified: item.verified,
+                icon_url: clean_opt(item.icon_url),
+                latest_version: None,
+                protocols: if item.remote {
+                    vec!["http".to_string()]
+                } else {
+                    Vec::new()
+                },
+                owner: clean_opt(item.owner),
+                namespace: clean_opt(item.namespace),
+                downloads: item.use_count,
+                score: item.score,
+                is_deployed: item.is_deployed,
+                category,
+                kind: Some("mcp".to_string()),
+                status: None,
+                default_spec: None,
+            }
         })
         .collect())
 }
@@ -4481,6 +4522,22 @@ fn resolve_smithery_install_spec(
 // Command entry points (wrapped by `#[tauri::command]` in config.rs)
 // ---------------------------------------------------------------------------
 
+fn installed_server_ids() -> BTreeSet<String> {
+    scan_local_servers()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.id.to_ascii_lowercase())
+        .collect()
+}
+
+fn annotate_item_status(item: &mut McpMarketplaceItem, installed_ids: &BTreeSet<String>) {
+    if installed_ids.contains(&item.server_id.to_ascii_lowercase()) {
+        item.status = Some("connected".to_string());
+    } else if item.status.is_none() {
+        item.status = Some("available".to_string());
+    }
+}
+
 pub async fn scan_local() -> Result<Vec<LocalMcpServer>, McpError> {
     scan_local_servers()
 }
@@ -4498,6 +4555,18 @@ pub async fn list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, McpError
             name: "Smithery".to_string(),
             description: "smithery.ai MCP server marketplace".to_string(),
         },
+        McpMarketplaceProvider {
+            id: MARKETPLACE_CONNECTOR_CATALOG.to_string(),
+            name: "Connector Marketplace".to_string(),
+            description:
+                "1,700+ built-in connectors and MCP servers across Developer Tools, Analytics, MCP, Marketing Automation, Social, Productivity, Communication, and Design"
+                    .to_string(),
+        },
+        McpMarketplaceProvider {
+            id: MARKETPLACE_OPEN_CONNECTOR.to_string(),
+            name: "Open Connector".to_string(),
+            description: "Oomol / Composio 1,500+ SaaS application connectors".to_string(),
+        },
     ])
 }
 
@@ -4506,11 +4575,101 @@ pub async fn search_marketplace(
     query: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<McpMarketplaceItem>, McpError> {
+    search_marketplace_with_category(provider_id, query, None, limit).await
+}
+
+pub async fn search_marketplace_with_category(
+    provider_id: String,
+    query: Option<String>,
+    category: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<McpMarketplaceItem>, McpError> {
     let q = query.unwrap_or_default();
-    let max = limit.unwrap_or(30).clamp(1, 100);
+    let max_catalog = match limit {
+        Some(100) if q.trim().is_empty() => catalog::catalog_total_count(),
+        Some(n) => (n as usize).clamp(1, 2500),
+        None => catalog::catalog_total_count(),
+    };
+    let installed_ids = installed_server_ids();
+
     match provider_id.as_str() {
-        MARKETPLACE_OFFICIAL => search_official_registry(&q, max).await,
-        MARKETPLACE_SMITHERY => search_smithery(&q, max).await,
+        "" | "all" | MARKETPLACE_CONNECTOR_CATALOG | MARKETPLACE_OPEN_CONNECTOR
+        | MARKETPLACE_BUILTIN => Ok(catalog::search_builtin_catalog(
+            &q,
+            category.as_deref(),
+            max_catalog,
+            &installed_ids,
+        )),
+        MARKETPLACE_OFFICIAL => {
+            let mut snapshot_items = catalog::search_builtin_catalog(
+                &q,
+                category.as_deref(),
+                max_catalog,
+                &installed_ids,
+            );
+            if !q.trim().is_empty()
+                && let Ok(online) = search_official_registry(&q, limit.unwrap_or(50).clamp(1, 100)).await
+            {
+                let mut seen: BTreeSet<String> = snapshot_items
+                    .iter()
+                    .map(|item| item.server_id.to_ascii_lowercase())
+                    .collect();
+                for mut item in online {
+                    annotate_item_status(&mut item, &installed_ids);
+                    if let Some(ref cat) = category
+                        && !cat.trim().is_empty()
+                        && !cat.trim().eq_ignore_ascii_case("all")
+                    {
+                        let want = catalog::normalize_connector_category(Some(cat), "", "");
+                        if item.category.as_deref() != Some(want.as_str()) {
+                            continue;
+                        }
+                    }
+                    let key = item.server_id.to_ascii_lowercase();
+                    if seen.insert(key) {
+                        snapshot_items.push(item);
+                    }
+                }
+            }
+            if snapshot_items.len() > max_catalog {
+                snapshot_items.truncate(max_catalog);
+            }
+            Ok(snapshot_items)
+        }
+        MARKETPLACE_SMITHERY => {
+            let max = limit.unwrap_or(30).clamp(1, 100);
+            match search_smithery(&q, max).await {
+                Ok(mut items) => {
+                    for item in &mut items {
+                        annotate_item_status(item, &installed_ids);
+                    }
+                    let mut seen: BTreeSet<String> = items
+                        .iter()
+                        .map(|item| item.server_id.to_ascii_lowercase())
+                        .collect();
+                    for item in catalog::search_builtin_catalog(
+                        &q,
+                        category.as_deref(),
+                        max_catalog,
+                        &installed_ids,
+                    ) {
+                        if seen.insert(item.server_id.to_ascii_lowercase()) {
+                            items.push(item);
+                        }
+                        if items.len() >= max_catalog {
+                            break;
+                        }
+                    }
+                    Ok(items)
+                }
+                Err(_) => Ok(catalog::search_builtin_catalog(
+                    &q,
+                    category.as_deref(),
+                    max_catalog,
+                    &installed_ids,
+                )),
+            }
+        }
         _ => Err(bad(format!(
             "unsupported marketplace provider: {provider_id}"
         ))),
@@ -4521,10 +4680,23 @@ pub async fn get_marketplace_server_detail(
     provider_id: String,
     server_id: String,
 ) -> Result<McpMarketplaceServerDetail, McpError> {
+    let installed_ids = installed_server_ids();
     match provider_id.as_str() {
+        MARKETPLACE_CONNECTOR_CATALOG | MARKETPLACE_OPEN_CONNECTOR | MARKETPLACE_BUILTIN => {
+            catalog::get_snapshot_server_detail(&server_id, &installed_ids).ok_or_else(|| {
+                not_found(format!(
+                    "connector '{}' not found in built-in catalog",
+                    server_id
+                ))
+            })
+        }
         MARKETPLACE_OFFICIAL => {
+            if let Some(detail) = catalog::get_snapshot_server_detail(&server_id, &installed_ids) {
+                return Ok(detail);
+            }
             let detail = fetch_official_server_detail(&server_id).await?;
-            let item = official_entry_to_item(&detail);
+            let mut item = official_entry_to_item(&detail);
+            annotate_item_status(&mut item, &installed_ids);
             let install_options = build_official_install_options(&detail.server)?;
             let default_option = select_default_install_option(&install_options);
             let spec = default_option
@@ -4546,13 +4718,26 @@ pub async fn get_marketplace_server_detail(
                 downloads: item.downloads,
                 score: item.score,
                 is_deployed: item.is_deployed,
+                category: item.category,
+                kind: item.kind,
+                status: item.status,
                 default_option_id: default_option.map(|option| option.id.clone()),
                 install_options,
                 spec,
             })
         }
         MARKETPLACE_SMITHERY => {
-            let detail = fetch_smithery_server_detail(&server_id).await?;
+            let detail = match fetch_smithery_server_detail(&server_id).await {
+                Ok(detail) => detail,
+                Err(err) => {
+                    if let Some(fallback) =
+                        catalog::get_snapshot_server_detail(&server_id, &installed_ids)
+                    {
+                        return Ok(fallback);
+                    }
+                    return Err(err);
+                }
+            };
             let summary = fetch_smithery_server_summary(&server_id).await;
             let install_options = build_smithery_install_options(&detail)?;
             let default_option = select_default_install_option(&install_options);
@@ -4564,17 +4749,28 @@ pub async fn get_marketplace_server_detail(
                         detail.qualified_name
                     ))
                 })?;
+            let description = clean_opt(detail.description.clone())
+                .or_else(|| {
+                    summary
+                        .as_ref()
+                        .and_then(|s| clean_opt(s.description.clone()))
+                })
+                .unwrap_or_else(|| "No description".to_string());
+            let category = Some(catalog::normalize_connector_category(
+                None,
+                &detail.display_name,
+                &description,
+            ));
+            let status = if installed_ids.contains(&detail.qualified_name.to_ascii_lowercase()) {
+                Some("connected".to_string())
+            } else {
+                Some("available".to_string())
+            };
             Ok(McpMarketplaceServerDetail {
                 provider_id: MARKETPLACE_SMITHERY.to_string(),
                 server_id: detail.qualified_name.clone(),
                 name: detail.display_name.clone(),
-                description: clean_opt(detail.description.clone())
-                    .or_else(|| {
-                        summary
-                            .as_ref()
-                            .and_then(|s| clean_opt(s.description.clone()))
-                    })
-                    .unwrap_or_else(|| "No description".to_string()),
+                description,
                 homepage: clean_opt(detail.homepage.clone())
                     .or_else(|| summary.as_ref().and_then(|s| clean_opt(s.homepage.clone()))),
                 remote: detail.remote,
@@ -4599,6 +4795,9 @@ pub async fn get_marketplace_server_detail(
                 is_deployed: detail
                     .is_deployed
                     .or_else(|| summary.as_ref().and_then(|s| s.is_deployed)),
+                category,
+                kind: Some("mcp".to_string()),
+                status,
                 default_option_id: default_option.map(|item| item.id.clone()),
                 install_options,
                 spec,
@@ -4629,13 +4828,32 @@ pub async fn install_marketplace_server(
         canonicalize_spec(raw_spec, "marketplace install override")?
     } else {
         match provider_id.as_str() {
+            MARKETPLACE_CONNECTOR_CATALOG | MARKETPLACE_OPEN_CONNECTOR | MARKETPLACE_BUILTIN => {
+                catalog::resolve_snapshot_install_spec(&server_id, &option_id, &values)?
+            }
             MARKETPLACE_OFFICIAL => {
-                let detail = fetch_official_server_detail(&server_id).await?;
-                resolve_official_install_spec(&detail.server, &option_id, &values)?
+                if let Ok(resolved) =
+                    catalog::resolve_snapshot_install_spec(&server_id, &option_id, &values)
+                {
+                    resolved
+                } else {
+                    let detail = fetch_official_server_detail(&server_id).await?;
+                    resolve_official_install_spec(&detail.server, &option_id, &values)?
+                }
             }
             MARKETPLACE_SMITHERY => {
-                let detail = fetch_smithery_server_detail(&server_id).await?;
-                resolve_smithery_install_spec(&detail, &option_id, &values)?
+                match fetch_smithery_server_detail(&server_id).await {
+                    Ok(detail) => resolve_smithery_install_spec(&detail, &option_id, &values)?,
+                    Err(err) => {
+                        if let Ok(resolved) =
+                            catalog::resolve_snapshot_install_spec(&server_id, &option_id, &values)
+                        {
+                            resolved
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
             }
             _ => {
                 return Err(bad(format!(
@@ -5360,12 +5578,113 @@ command = "other"
     #[tokio::test]
     async fn marketplace_catalog_includes_official_and_smithery() {
         let providers = list_marketplaces().await.expect("providers");
+        let ids = providers
+            .iter()
+            .map(|provider| provider.id.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(
-            providers
-                .iter()
-                .map(|provider| provider.id.as_str())
-                .collect::<Vec<_>>(),
-            vec![MARKETPLACE_OFFICIAL, MARKETPLACE_SMITHERY]
+            ids,
+            vec![
+                MARKETPLACE_OFFICIAL,
+                MARKETPLACE_SMITHERY,
+                MARKETPLACE_CONNECTOR_CATALOG,
+                MARKETPLACE_OPEN_CONNECTOR,
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn connector_catalog_has_over_1700_entries_across_all_8_categories() {
+        assert!(
+            catalog::catalog_total_count() >= 1700,
+            "expected >= 1700 connectors, got {}",
+            catalog::catalog_total_count()
+        );
+
+        let all_items = search_marketplace_with_category(
+            MARKETPLACE_OFFICIAL.to_string(),
+            None,
+            None,
+            Some(100),
+        )
+        .await
+        .expect("full catalog on initial empty query");
+        assert_eq!(all_items.len(), catalog::catalog_total_count());
+
+        for expected_cat in catalog::CONNECTOR_CATEGORIES {
+            let filtered = search_marketplace_with_category(
+                MARKETPLACE_CONNECTOR_CATALOG.to_string(),
+                None,
+                Some(expected_cat.to_string()),
+                Some(500),
+            )
+            .await
+            .expect("category search");
+            assert!(
+                !filtered.is_empty(),
+                "category '{expected_cat}' must have connectors"
+            );
+            assert!(
+                filtered
+                    .iter()
+                    .all(|item| item.category.as_deref() == Some(expected_cat))
+            );
+        }
+
+        // Verify featured items from the reference UI exist with expected status/category
+        let composio = all_items
+            .iter()
+            .find(|item| item.server_id == "composio")
+            .expect("composio in catalog");
+        assert_eq!(composio.status.as_deref(), Some("included"));
+        assert_eq!(composio.category.as_deref(), Some("developer_tools"));
+
+        let aiwyn = all_items
+            .iter()
+            .find(|item| item.server_id == "aiwyn-tax-mcp")
+            .expect("aiwyn-tax-mcp in catalog");
+        assert_eq!(aiwyn.status.as_deref(), Some("included"));
+
+        let context7 = all_items
+            .iter()
+            .find(|item| item.server_id == "context7")
+            .expect("context7 in catalog");
+        assert_eq!(context7.category.as_deref(), Some("developer_tools"));
+    }
+
+    #[tokio::test]
+    async fn connector_catalog_detail_and_status_sync_with_installed_servers() {
+        let installed = BTreeSet::from(["supabase-mcp".to_string()]);
+        let results =
+            catalog::search_builtin_catalog("supabase", Some("开发者工具"), 50, &installed);
+        let supa = results
+            .iter()
+            .find(|item| item.server_id == "supabase")
+            .expect("supabase");
+        assert_eq!(supa.status.as_deref(), Some("connected"));
+        assert_eq!(supa.category.as_deref(), Some("developer_tools"));
+
+        let detail =
+            catalog::get_snapshot_server_detail("supabase-mcp", &installed).expect("detail");
+        assert_eq!(detail.status.as_deref(), Some("connected"));
+        assert_eq!(detail.category.as_deref(), Some("developer_tools"));
+        assert!(!detail.install_options.is_empty());
+
+        // Resolve install spec with required API key parameter
+        let err = catalog::resolve_snapshot_install_spec("supabase-mcp", &None, &Map::new());
+        assert!(err.is_err(), "missing required API key should error");
+
+        let values = Map::from_iter([(
+            "SUPABASE_ACCESS_TOKEN".to_string(),
+            Value::String("sbp_test_token".to_string()),
+        )]);
+        let spec = catalog::resolve_snapshot_install_spec("supabase-mcp", &None, &values)
+            .expect("resolved spec");
+        assert_eq!(spec.get("type").and_then(Value::as_str), Some("stdio"));
+        assert_eq!(
+            spec.pointer("/env/SUPABASE_ACCESS_TOKEN")
+                .and_then(Value::as_str),
+            Some("sbp_test_token")
         );
     }
 

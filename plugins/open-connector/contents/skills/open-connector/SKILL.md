@@ -16,6 +16,6 @@ Use them when the user wants to act in a third-party app (mail, issues, files, c
 3. `get_action_guide` for that action before calling it.
 4. `execute_action` with the connection the user named.
 
-Do not invent connection IDs. Do not ask the user to paste tokens. If nothing is connected, tell them to open the Open Connector tab and connect there.
+Do not invent connection IDs. Do not ask the user to paste tokens. If nothing is connected, tell them to open the Connector Marketplace from the bottom-right status bar or Settings → Connectors and connect there.
 
 If a tool call fails because the sidecar is down, say the connector is not running and they should enable or restart the plugin. Do not retry in a tight loop.

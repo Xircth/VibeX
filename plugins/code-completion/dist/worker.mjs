@@ -1,4 +1,9 @@
-import { definePluginWorker } from '@vibex/plugin-sdk';
+function definePluginWorker(setup) {
+  return {
+    apiVersion: '2.0',
+    setup,
+  };
+}
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,

@@ -18,7 +18,11 @@ const require = createRequire(import.meta.url);
 beforeAll(() => {
   if (typeof document === 'undefined') {
     const jsdomPath = require.resolve('jsdom', {
-      paths: [path.resolve(process.cwd(), '../VibeX/frontend/node_modules')],
+      paths: [
+        path.resolve(process.cwd(), 'frontend/node_modules'),
+        path.resolve(process.cwd(), '../../frontend/node_modules'),
+        path.resolve(process.cwd(), '../VibeX/frontend/node_modules'),
+      ],
     });
     const { JSDOM } = require(jsdomPath);
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -517,5 +521,181 @@ describe('status popover Worker broker', () => {
       generation: 1,
     });
   });
+
+  it('positions Entire Screen SettingsSelect menu relative to transformed Radix popover and updates screen grant level', async () => {
+    let currentScreenLevel: 'none' | 'read' | 'control' = 'none';
+    const invokeMock = vi.fn(
+      async (handler: string, input?: Record<string, unknown> | null) => {
+        const method = (input?.rpcMethod as string) ?? handler;
+        const params = (input?.rpcParams as Record<string, unknown>) ?? input ?? {};
+        switch (method) {
+          case 'computer.snapshotState':
+            return {
+              settings: {
+                enabled: true,
+                envOverride: null,
+                grantTimeoutSecs: 1800,
+                stopShortcut: 'Control+Alt+Escape',
+                defaultStopShortcut: 'Control+Alt+Escape',
+                allowForeground: true,
+                defaultDelivery: 'background',
+                defaultBlocklist: [],
+                customBlocklist: [],
+                launchEnabled: true,
+                clipboardEnabled: true,
+                screenEnabled: true,
+                showIndicator: true,
+              },
+              status: {
+                enabled: true,
+                platform: 'windows',
+                screenOffered: true,
+              },
+              sharedState: {
+                shared: [],
+                apps: [],
+                screen:
+                  currentScreenLevel === 'none'
+                    ? null
+                    : {
+                        level: currentScreenLevel,
+                        windows: 2,
+                      },
+              },
+            };
+          case 'computer.listShareableWindows':
+            return [
+              {
+                targetId: 'w1',
+                windowId: 101,
+                pid: 1234,
+                appName: 'Tabbit Browser',
+                title: 'Fine-grained Personal Access Tokens',
+                bounds: { x: 0, y: 0, width: 800, height: 600 },
+                minimized: false,
+                hidden: false,
+                wholeScreen: currentScreenLevel !== 'none',
+                level: currentScreenLevel,
+              },
+            ];
+          case 'computer.shareScreen': {
+            const nextLevel = (params.level as 'none' | 'read' | 'control') ?? 'none';
+            currentScreenLevel = nextLevel;
+            return {
+              shared: [],
+              apps: [],
+              screen:
+                nextLevel === 'none'
+                  ? null
+                  : {
+                      level: nextLevel,
+                      windows: 2,
+                    },
+            };
+          }
+          default:
+            return {};
+        }
+      }
+    );
+
+    const radixWrapper = document.createElement('div');
+    radixWrapper.setAttribute('data-radix-popper-content-wrapper', '');
+    radixWrapper.style.position = 'fixed';
+    radixWrapper.style.transform = 'translate3d(260px, 120px, 0px)';
+    radixWrapper.getBoundingClientRect = () =>
+      ({
+        x: 260,
+        y: 120,
+        left: 260,
+        top: 120,
+        right: 980,
+        bottom: 740,
+        width: 720,
+        height: 620,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const popoverContent = document.createElement('div');
+    popoverContent.className = 'tahoe-popover';
+    popoverContent.style.overflow = 'hidden';
+    popoverContent.getBoundingClientRect = radixWrapper.getBoundingClientRect;
+    radixWrapper.appendChild(popoverContent);
+    document.body.appendChild(radixWrapper);
+
+    const root = createRoot(popoverContent);
+
+    try {
+      await act(async () => {
+        root.render(
+          React.createElement(ComputerUseSettingsView, {
+            environment: {
+              pluginId: 'vibex-plugin-computer-use',
+              surfaceId: 'computer-use-status',
+              slot: 'status.after-mcp',
+              invoke: invokeMock,
+            },
+          })
+        );
+      });
+
+      const screenCombobox = popoverContent.querySelector(
+        '[role="combobox"][aria-label="共享整个屏幕权限级别"]'
+      ) as HTMLElement | null;
+      expect(screenCombobox).not.toBeNull();
+      expect(screenCombobox?.textContent).toContain('关闭');
+
+      screenCombobox!.getBoundingClientRect = () =>
+        ({
+          x: 830,
+          y: 270,
+          left: 830,
+          top: 270,
+          right: 942,
+          bottom: 298,
+          width: 112,
+          height: 28,
+          toJSON: () => ({}),
+        }) as DOMRect;
+
+      await act(async () => {
+        screenCombobox?.click();
+      });
+
+      const listbox = popoverContent.querySelector(
+        '[role="listbox"][aria-label="共享整个屏幕权限级别"]'
+      ) as HTMLElement | null;
+      expect(listbox).not.toBeNull();
+      // Should be offset-corrected relative to radixWrapper (830 - 260 = 570, 298 + 4 - 120 = 182)
+      expect(listbox?.style.left).toBe('570px');
+      expect(listbox?.style.top).toBe('182px');
+
+      const readOption = Array.from(
+        listbox?.querySelectorAll('[role="option"]') ?? []
+      ).find((el) => el.textContent?.includes('仅查看')) as
+        | HTMLElement
+        | undefined;
+      expect(readOption).toBeDefined();
+
+      await act(async () => {
+        readOption?.click();
+      });
+
+      expect(screenCombobox?.textContent).toContain('仅查看');
+      expect(invokeMock).toHaveBeenCalledWith(
+        'surface.createSession',
+        expect.objectContaining({
+          rpcMethod: 'computer.shareScreen',
+          rpcParams: { level: 'read' },
+        })
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      radixWrapper.remove();
+    }
+  });
 });
+
 

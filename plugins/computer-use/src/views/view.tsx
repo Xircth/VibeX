@@ -895,6 +895,38 @@ interface SettingsSelectOption<T extends string | number> {
   disabled?: boolean;
 }
 
+function findFixedContainingBlock(startEl: Element | null): HTMLElement | null {
+  if (typeof window === 'undefined' || !startEl) return null;
+  let curr: HTMLElement | null =
+    startEl instanceof HTMLElement ? startEl : startEl.parentElement;
+  while (curr && curr !== document.body && curr !== document.documentElement) {
+    if (curr.hasAttribute('data-radix-popper-content-wrapper')) {
+      return curr;
+    }
+    const style = window.getComputedStyle(curr);
+    const webkitBackdrop = (
+      style as unknown as { webkitBackdropFilter?: string }
+    ).webkitBackdropFilter;
+    if (
+      (style.transform && style.transform !== 'none') ||
+      (style.translate && style.translate !== 'none') ||
+      (style.scale && style.scale !== 'none') ||
+      (style.rotate && style.rotate !== 'none') ||
+      (style.perspective && style.perspective !== 'none') ||
+      (style.backdropFilter && style.backdropFilter !== 'none') ||
+      (webkitBackdrop && webkitBackdrop !== 'none') ||
+      (style.filter && style.filter !== 'none') ||
+      (style.contain && /(paint|layout|strict|content)/.test(style.contain)) ||
+      (style.willChange &&
+        /(transform|perspective|filter|backdrop-filter)/.test(style.willChange))
+    ) {
+      return curr;
+    }
+    curr = curr.parentElement;
+  }
+  return null;
+}
+
 function SettingsSelect<T extends string | number>({
   id,
   value,
@@ -925,6 +957,8 @@ function SettingsSelect<T extends string | number>({
     left: number;
     width: number;
     maxHeight: number;
+    viewportTop: number;
+    viewportLeft: number;
   } | null>(null);
 
   const selectedIndex = options.findIndex((opt) => opt.value === value);
@@ -943,26 +977,78 @@ function SettingsSelect<T extends string | number>({
       typeof width === 'number'
         ? Math.max(rect.width, width)
         : Math.max(rect.width, 120);
-    const spaceBelow = viewportH - rect.bottom - gap;
-    const spaceAbove = rect.top - gap;
+
+    const portalEl =
+      rootRef.current?.closest(
+        '.settings-page, [data-astryx-theme], .legacy-design'
+      ) ?? (typeof document !== 'undefined' ? document.body : null);
+    const fixedContainer = findFixedContainingBlock(portalEl);
+
+    let offsetLeft = 0;
+    let offsetTop = 0;
+    if (fixedContainer) {
+      const cbRect = fixedContainer.getBoundingClientRect();
+      if (
+        cbRect.width > 0 ||
+        cbRect.height > 0 ||
+        cbRect.left !== 0 ||
+        cbRect.top !== 0
+      ) {
+        offsetLeft = cbRect.left;
+        offsetTop = cbRect.top;
+      }
+    }
+
+    let boundsLeft = 0;
+    let boundsTop = 0;
+    let boundsRight = viewportW;
+    let boundsBottom = viewportH;
+    if (typeof window !== 'undefined' && portalEl) {
+      let clipCurr: HTMLElement | null =
+        portalEl instanceof HTMLElement ? portalEl : portalEl.parentElement;
+      while (
+        clipCurr &&
+        clipCurr !== document.body &&
+        clipCurr !== document.documentElement
+      ) {
+        const style = window.getComputedStyle(clipCurr);
+        const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`;
+        if (/(hidden|clip)/.test(overflow)) {
+          const clipRect = clipCurr.getBoundingClientRect();
+          if (clipRect.width > 0 && clipRect.height > 0) {
+            boundsLeft = Math.max(boundsLeft, clipRect.left);
+            boundsTop = Math.max(boundsTop, clipRect.top);
+            boundsRight = Math.min(boundsRight, clipRect.right);
+            boundsBottom = Math.min(boundsBottom, clipRect.bottom);
+          }
+        }
+        if (clipCurr === fixedContainer) break;
+        clipCurr = clipCurr.parentElement;
+      }
+    }
+
+    const spaceBelow = boundsBottom - rect.bottom - gap;
+    const spaceAbove = rect.top - boundsTop - gap;
     const openAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
     const maxHeight = Math.min(
       280,
       Math.max(120, openAbove ? spaceAbove - 8 : spaceBelow - 8)
     );
     const estimatedMenuHeight = Math.min(maxHeight, options.length * 32 + 10);
-    const top = openAbove
-      ? Math.max(8, rect.top - gap - estimatedMenuHeight)
+    const viewportTop = openAbove
+      ? Math.max(boundsTop + 8, rect.top - gap - estimatedMenuHeight)
       : rect.bottom + gap;
-    const left = Math.max(
-      8,
-      Math.min(rect.left, viewportW - minMenuWidth - 8)
+    const viewportLeft = Math.max(
+      boundsLeft + 8,
+      Math.min(rect.left, boundsRight - minMenuWidth - 8)
     );
     setMenuPos({
-      top,
-      left,
+      top: viewportTop - offsetTop,
+      left: viewportLeft - offsetLeft,
       width: minMenuWidth,
       maxHeight,
+      viewportTop,
+      viewportLeft,
     });
   }, [options.length, width]);
 
@@ -976,6 +1062,25 @@ function SettingsSelect<T extends string | number>({
       window.removeEventListener('resize', updatePosition);
     };
   }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open || !menuPos || !menuRef.current) return;
+    const actualRect = menuRef.current.getBoundingClientRect();
+    if (actualRect.width <= 0 && actualRect.height <= 0) return;
+    const deltaLeft = menuPos.viewportLeft - actualRect.left;
+    const deltaTop = menuPos.viewportTop - actualRect.top;
+    if (Math.abs(deltaLeft) > 1 || Math.abs(deltaTop) > 1) {
+      setMenuPos((prev) =>
+        prev
+          ? {
+              ...prev,
+              left: prev.left + deltaLeft,
+              top: prev.top + deltaTop,
+            }
+          : prev
+      );
+    }
+  }, [open, menuPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -1047,7 +1152,7 @@ function SettingsSelect<T extends string | number>({
         role="listbox"
         aria-label={ariaLabel}
         data-floating-layer="popover"
-        className="astryx-select-menu tahoe-popover x1n2onr6 x1prclbq x1hviunn x1i5ehqx xrzjruh"
+        className="astryx-select-menu tahoe-popover x1prclbq x1hviunn x1i5ehqx xrzjruh"
         style={{
           position: 'fixed',
           zIndex: 10005,
@@ -1068,7 +1173,14 @@ function SettingsSelect<T extends string | number>({
           boxSizing: 'border-box',
           overflowY: 'auto',
         }}
-        onPointerDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
       >
         {options.map((opt, idx) => {
           const isSelected = opt.value === value;
@@ -1630,6 +1742,12 @@ function WindowPickerModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [showBlocked, setShowBlocked] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [optimisticScreenLevel, setOptimisticScreenLevel] =
+    useState<GrantLevel | null>(null);
+
+  useEffect(() => {
+    setOptimisticScreenLevel(null);
+  }, [sharedState?.screen?.level]);
 
   const loadWindows = useCallback(async () => {
     setLoading(true);
@@ -1719,19 +1837,27 @@ function WindowPickerModal({
   const handleShareScreen = async (level: GrantLevel) => {
     setBusyId('screen');
     setError(null);
+    setOptimisticScreenLevel(level);
     try {
       const nextState = (await invoke('computer.shareScreen', {
         level,
       })) as SharedState;
       onSharedChanged(nextState);
+      setOptimisticScreenLevel(nextState?.screen?.level ?? 'none');
+      await loadWindows();
     } catch (err) {
+      setOptimisticScreenLevel(null);
       setError(formatErrorMessage(err));
     } finally {
       setBusyId(null);
     }
   };
 
-  const currentScreenLevel: GrantLevel = sharedState?.screen?.level ?? 'none';
+  const currentScreenLevel: GrantLevel =
+    optimisticScreenLevel ??
+    sharedState?.screen?.level ??
+    windows.find((w) => w.wholeScreen && w.level !== 'none')?.level ??
+    'none';
 
   return (
     <div
@@ -2457,6 +2583,11 @@ export default function ComputerUseSettingsView({
   useEffect(() => retainStyle('vibex-plugin-computer-use', appCss), [appCss]);
 
   const invokeQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const sharedStateEpochRef = useRef(0);
+  const applySharedState = useCallback((nextState: SharedState) => {
+    sharedStateEpochRef.current += 1;
+    setSharedState(nextState);
+  }, []);
   const daemonUrlRef = useRef<string | null>(readCachedDaemonUrl());
   const renewedSessionRef = useRef<{
     token: string;
@@ -2665,6 +2796,7 @@ export default function ComputerUseSettingsView({
 
   const refreshLiveState = useCallback(
     async (updateSettings = false) => {
+      const epochAtStart = sharedStateEpochRef.current;
       try {
         const snapshot = (await invoke('computer.snapshotState', {})) as {
           daemonUrl?: string;
@@ -2691,9 +2823,11 @@ export default function ComputerUseSettingsView({
           setStatus((prev) =>
             sameJson(prev, snapshot.status) ? prev : snapshot.status!
           );
-          setSharedState((prev) =>
-            sameJson(prev, snapshot.sharedState) ? prev : snapshot.sharedState!
-          );
+          if (sharedStateEpochRef.current === epochAtStart) {
+            setSharedState((prev) =>
+              sameJson(prev, snapshot.sharedState) ? prev : snapshot.sharedState!
+            );
+          }
           if (snapshot.stopKeyStatus) {
             setStopKeyStatus((prev) =>
               sameJson(prev, snapshot.stopKeyStatus)
@@ -2749,7 +2883,7 @@ export default function ComputerUseSettingsView({
         if (nextStatus) {
           setStatus((prev) => (sameJson(prev, nextStatus) ? prev : nextStatus));
         }
-        if (nextShared) {
+        if (nextShared && sharedStateEpochRef.current === epochAtStart) {
           setSharedState((prev) =>
             sameJson(prev, nextShared) ? prev : nextShared
           );
@@ -3186,7 +3320,7 @@ export default function ComputerUseSettingsView({
           screenEnabled={draft?.screenEnabled ?? savedSettings?.screenEnabled ?? false}
           sharedState={sharedState}
           invoke={invoke}
-          onSharedChanged={setSharedState}
+          onSharedChanged={applySharedState}
         />
       </div>
     );
@@ -4212,10 +4346,10 @@ export default function ComputerUseSettingsView({
       <WindowPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        screenEnabled={savedSettings?.screenEnabled ?? false}
+        screenEnabled={draft?.screenEnabled ?? savedSettings?.screenEnabled ?? false}
         sharedState={sharedState}
         invoke={invoke}
-        onSharedChanged={(nextState) => setSharedState(nextState)}
+        onSharedChanged={applySharedState}
       />
 
       <LocalAppPickerModal

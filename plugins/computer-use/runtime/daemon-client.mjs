@@ -26,6 +26,16 @@ export function resolvePluginRoot() {
   return process.cwd();
 }
 
+function defaultUserDataDir() {
+  const base =
+    process.platform === 'win32'
+      ? process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+      : process.platform === 'darwin'
+        ? path.join(os.homedir(), 'Library', 'Application Support')
+        : process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
+  return path.join(base, 'vibex-plugin-computer-use');
+}
+
 export function resolveDataDir(envOrCtx) {
   if (
     envOrCtx &&
@@ -38,13 +48,7 @@ export function resolveDataDir(envOrCtx) {
   if (process.env.VIBEX_PLUGIN_DATA_DIR) {
     return process.env.VIBEX_PLUGIN_DATA_DIR;
   }
-  const base =
-    process.platform === 'win32'
-      ? process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
-      : process.platform === 'darwin'
-        ? path.join(os.homedir(), 'Library', 'Application Support')
-        : process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-  return path.join(base, 'vibex-plugin-computer-use');
+  return defaultUserDataDir();
 }
 
 export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
@@ -58,6 +62,19 @@ export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
     path.join(pluginRoot, 'native', 'target', 'debug', exeName),
     path.join(pluginRoot, '.git', 'cargo-target', 'release', exeName),
     path.join(pluginRoot, '.git', 'cargo-target', 'debug', exeName),
+    path.join(
+      pluginRoot,
+      '..',
+      '..',
+      'dev_assets',
+      'plugins',
+      'runtimes',
+      'plugins',
+      'snapshots',
+      'vibex-plugin-computer-use',
+      'bin',
+      exeName
+    ),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -69,15 +86,20 @@ export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
 
 export async function isDaemonHealthy(url) {
   if (!url) return false;
+  let timer = null;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch(`${url}/health`, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) return false;
+    const res = await Promise.race([
+      fetch(`${url}/health`),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), 1500);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (!res || !res.ok) return false;
     const data = await res.json();
     return Boolean(data && data.ok);
   } catch {
+    if (timer) clearTimeout(timer);
     return false;
   }
 }
@@ -159,7 +181,7 @@ export async function ensureDaemon(envOrCtx) {
         cwd: pluginRoot,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
+        windowsHide: false,
       });
 
       const readyUrl = await new Promise((resolve, reject) => {

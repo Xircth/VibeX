@@ -137,6 +137,41 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     ) -> Result<Vec<application::ConversationLiveFeedbackNote>, ApplicationError> {
         self.inner.list_feedback(conversation_id).await
     }
+
+    async fn salvage_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+        note_id: &str,
+    ) -> Result<application::ConversationLiveFeedbackNote, ApplicationError> {
+        self.inner.salvage_feedback(conversation_id, note_id).await
+    }
+
+    async fn dismiss_feedback(
+        &self,
+        conversation_id: uuid::Uuid,
+        note_id: &str,
+    ) -> Result<application::ConversationLiveFeedbackNote, ApplicationError> {
+        self.inner.dismiss_feedback(conversation_id, note_id).await
+    }
+
+    async fn set_session_mode(
+        &self,
+        conversation_id: uuid::Uuid,
+        mode_id: String,
+    ) -> Result<(), ApplicationError> {
+        self.inner.set_session_mode(conversation_id, mode_id).await
+    }
+
+    async fn set_session_config_option(
+        &self,
+        conversation_id: uuid::Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<(), ApplicationError> {
+        self.inner
+            .set_session_config_option(conversation_id, key, value)
+            .await
+    }
 }
 
 /// Shared Application Core used by `vibex-server` and the desktop remote listener.

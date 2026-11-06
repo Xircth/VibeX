@@ -144,6 +144,10 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
     const suffix = String(modelOrRequest.suffix || '');
     const prefixLines = prefix.split('\n');
     const linePrefix = prefixLines[prefixLines.length - 1] || '';
+    const lineSuffix =
+      typeof modelOrRequest.lineSuffix === 'string'
+        ? modelOrRequest.lineSuffix
+        : suffix.split('\n')[0] || '';
     const lineNumber = modelOrRequest.position?.lineNumber ?? prefixLines.length;
     const column = modelOrRequest.position?.column ?? linePrefix.length + 1;
     return {
@@ -154,6 +158,7 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
       prefix,
       suffix,
       linePrefix,
+      lineSuffix,
       manual: Boolean(
         modelOrRequest.manual ||
           modelOrRequest.triggerKind === 1 ||
@@ -185,6 +190,7 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
   }
 
   const linePrefix = prefix.split('\n').pop() || '';
+  const lineSuffix = suffix.split('\n')[0] || '';
   const rawUriPath =
     model?.filePath ||
     model?.uri?.fsPath ||
@@ -206,7 +212,90 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
     prefix,
     suffix,
     linePrefix,
+    lineSuffix,
     manual: false,
+  };
+}
+
+/**
+ * Normalize completion `insertText` and Monaco `range` so that:
+ * 1. Single-line constraint is enforced when non-closing tokens exist to the right on the current line.
+ * 2. Next-line indented completions at the end of a non-empty line (or after comments / block headers) start with `\n`.
+ * 3. Suffix overlap on the current line is deduplicated.
+ * 4. Multi-line completions on a line where `lineSuffix` is non-empty cover `lineSuffix` in `range.endColumn`
+ *    so Monaco's `computeGhostText` renders them at any position in code.
+ */
+export function resolveInlineCompletionRangeAndText(rawInsertText, docState) {
+  let insertText = String(rawInsertText || '');
+  const lineNumber = Number(docState?.lineNumber || 1);
+  const column = Number(docState?.column || 1);
+  const linePrefix = String(docState?.linePrefix || '');
+  const lineSuffix = String(docState?.lineSuffix || '');
+  const trimmedLinePrefix = linePrefix.trim();
+  const trimmedLineSuffix = lineSuffix.trim();
+
+  const isOnlyClosingDelimitersOnRight =
+    /^[}\]);,:\s]*$/.test(trimmedLineSuffix) && !trimmedLineSuffix.startsWith(',');
+  const forceSingleLine = trimmedLineSuffix.length > 0 && !isOnlyClosingDelimitersOnRight;
+
+  if (forceSingleLine && insertText.includes('\n')) {
+    insertText =
+      insertText
+        .split('\n')
+        .find((line) => line.trim().length > 0) || '';
+  }
+
+  // Deduplicate exact overlap with linePrefix if the worker echoed the current line
+  if (linePrefix.length > 0 && !insertText.startsWith('\n')) {
+    if (insertText.startsWith(linePrefix)) {
+      insertText = insertText.slice(linePrefix.length);
+    } else if (trimmedLinePrefix.length > 0 && insertText.startsWith(trimmedLinePrefix)) {
+      insertText = insertText.slice(trimmedLinePrefix.length);
+    }
+  }
+
+  // Ensure next-line completions after non-empty lines begin with `\n`
+  if (trimmedLinePrefix.length > 0 && !forceSingleLine && !insertText.startsWith('\n') && insertText.trim().length > 0) {
+    const isCommentLine =
+      trimmedLinePrefix.startsWith('#') || trimmedLinePrefix.startsWith('//');
+    const startsWithNextLineIndent = /^(?:  +|\t+)/.test(insertText);
+    if (isCommentLine || startsWithNextLineIndent) {
+      insertText = `\n${insertText}`;
+    }
+  }
+
+  // Deduplicate single-line suffix overlap with `lineSuffix`
+  if (!insertText.includes('\n') && lineSuffix.length > 0) {
+    if (insertText.endsWith(lineSuffix)) {
+      insertText = insertText.slice(0, insertText.length - lineSuffix.length);
+    }
+  }
+
+  let endColumn = column;
+  if (insertText.includes('\n') && lineSuffix.length > 0) {
+    endColumn = column + lineSuffix.length;
+    if (trimmedLineSuffix.length > 0) {
+      if (insertText.startsWith('\n')) {
+        insertText = `${lineSuffix}${insertText}`;
+      } else {
+        const firstLine = insertText.split('\n')[0] || '';
+        if (!firstLine.trimEnd().endsWith(trimmedLineSuffix)) {
+          const lines = insertText.split('\n');
+          lines[0] = `${lines[0]}${lineSuffix}`;
+          insertText = lines.join('\n');
+        }
+      }
+    }
+  }
+
+  return {
+    insertText,
+    range: {
+      startLineNumber: lineNumber,
+      startColumn: column,
+      endLineNumber: lineNumber,
+      endColumn,
+    },
   };
 }
 
@@ -301,18 +390,33 @@ export function doesEventMatchShortcut(event, shortcutString) {
   return eventKey === parsed.key || (Boolean(eventCode) && eventCode === parsed.key);
 }
 
+const SHORTCUT_STORAGE_KEY = 'vibex:code-completion:manualShortcut';
+
 export default {
   async activate(context) {
     const cache = new ForwardTypingCache();
     let activeAbortController = null;
     let inFlightWorkerRequestId = null;
     let activeEditorInstance = null;
+    let cursorIdleTimer = null;
+    let lastAutoCursorKey = '';
     let enabled = true;
     let triggerMode = 'auto';
     let manualShortcut = 'Alt+\\';
     let pendingManualTriggerUntil = 0;
-    let statusState = 'idle'; // 'idle' | 'Generating...' | 'disabled' | 'error'
+    let pendingAutoTriggerUntil = 0;
+    let statusState = 'idle'; // 'idle' | 'loading' | 'disabled' | 'error'
     let lastErrorMessage = null;
+
+    try {
+      const savedShortcut =
+        typeof localStorage !== 'undefined' ? localStorage.getItem(SHORTCUT_STORAGE_KEY) : null;
+      if (savedShortcut && savedShortcut.trim()) {
+        manualShortcut = savedShortcut.trim();
+      }
+    } catch {
+      // ignore storage errors
+    }
 
     const applyRuntimeConfig = (cfg) => {
       if (!cfg || typeof cfg !== 'object') return;
@@ -325,6 +429,13 @@ export default {
       }
       if (typeof cfg.manualShortcut === 'string' && cfg.manualShortcut.trim()) {
         manualShortcut = cfg.manualShortcut.trim();
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SHORTCUT_STORAGE_KEY, manualShortcut);
+          }
+        } catch {
+          // ignore
+        }
       }
     };
 
@@ -415,19 +526,27 @@ export default {
         }
       }
 
-      const isPendingManual = Date.now() < pendingManualTriggerUntil;
+      const now = Date.now();
+      const isPendingManual = now < pendingManualTriggerUntil;
       if (isPendingManual) {
         pendingManualTriggerUntil = 0;
       }
+      const isPendingAuto = !isPendingManual && now < pendingAutoTriggerUntil;
+      if (isPendingAuto) {
+        pendingAutoTriggerUntil = 0;
+      }
 
       // Note: In Monaco, InlineCompletionTriggerKind.Automatic === 0 and Explicit === 1.
-      const isManual = Boolean(
-        isPendingManual ||
-          docState.manual ||
-          completionContext?.manual === true ||
-          completionContext?.triggerKind === 1 ||
-          completionContext?.triggerKind === 'explicit',
-      );
+      // When auto-triggered by our cursor-idle watcher (`isPendingAuto`), treat as automatic (`isManual = false`).
+      const isManual = isPendingAuto
+        ? false
+        : Boolean(
+            isPendingManual ||
+              docState.manual ||
+              completionContext?.manual === true ||
+              completionContext?.triggerKind === 1 ||
+              completionContext?.triggerKind === 'explicit',
+          );
 
       if (!isManual && triggerMode === 'manual') {
         return { items: [] };
@@ -441,16 +560,12 @@ export default {
         docState.suffix,
       );
       if (cachedInsertText) {
+        const normalizedCached = resolveInlineCompletionRangeAndText(cachedInsertText, docState);
         return {
           items: [
             {
-              insertText: cachedInsertText,
-              range: {
-                startLineNumber: docState.lineNumber,
-                startColumn: docState.column,
-                endLineNumber: docState.lineNumber,
-                endColumn: docState.column,
-              },
+              insertText: normalizedCached.insertText,
+              range: normalizedCached.range,
               command: {
                 id: ACCEPT_COMMAND_ID,
                 title: 'Accept AI Inline Completion',
@@ -485,8 +600,10 @@ export default {
         }
       }
 
-      // 3. Adaptive debounce (60ms for structural trigger chars, 180ms for normal typing, 0ms for manual)
-      const debounceMs = computeAdaptiveDebounceMs(docState.prefix, isManual);
+      // 3. Adaptive debounce (60ms for structural trigger chars, 180ms for normal typing, 0ms for manual or cursor-idle auto)
+      const debounceMs = isPendingAuto
+        ? 0
+        : computeAdaptiveDebounceMs(docState.prefix, isManual);
       const shouldContinue = await waitForDebounce(debounceMs, abortController.signal);
       if (!shouldContinue || abortController.signal.aborted) {
         return { items: [] };
@@ -508,14 +625,23 @@ export default {
       statusState = 'loading';
       inFlightWorkerRequestId = requestId;
       try {
+        const trimmedLineSuffix = String(docState.lineSuffix || '').trim();
+        const workerSuffix =
+          trimmedLineSuffix.length > 0 && !String(docState.suffix || '').startsWith('\n')
+            ? `\n${docState.suffix}`
+            : docState.suffix;
+
         const result = await invokeWorker('completion.complete', {
           requestId,
           filePath: docState.filePath,
           languageId: docState.languageId,
           prefix: docState.prefix,
-          suffix: docState.suffix,
+          suffix: workerSuffix,
           neighbors,
           manual: isManual,
+          config: {
+            maxTokens: 72,
+          },
           range: {
             startLineNumber: docState.lineNumber,
             startColumn: docState.column,
@@ -535,21 +661,17 @@ export default {
         const items = result.items
           .filter((item) => item && typeof item.insertText === 'string' && item.insertText.length > 0)
           .map((item) => {
+            const normalized = resolveInlineCompletionRangeAndText(item.insertText, docState);
             cache.store(
               docState.filePath,
               docState.lineNumber,
               docState.linePrefix,
               docState.suffix,
-              item.insertText,
+              normalized.insertText,
             );
             return {
-              insertText: item.insertText,
-              range: item.range || {
-                startLineNumber: docState.lineNumber,
-                startColumn: docState.column,
-                endLineNumber: docState.lineNumber,
-                endColumn: docState.column,
-              },
+              insertText: normalized.insertText,
+              range: normalized.range,
               command: {
                 id: ACCEPT_COMMAND_ID,
                 title: 'Accept AI Inline Completion',
@@ -575,13 +697,96 @@ export default {
     let providerDisposable = null;
     let serviceWatchCleanup = null;
     let configUnsubscribe = null;
+    let cursorWatcherDisposer = null;
+
+    const triggerCursorIdleInlineCompletion = () => {
+      if (!enabled || triggerMode !== 'auto') return;
+      const editorBridge = getEditorBridge();
+      const editor = activeEditorInstance || editorBridge?.getActiveEditor?.();
+      if (!editor || typeof editor.trigger !== 'function') return;
+      if (typeof editor.hasTextFocus === 'function' && !editor.hasTextFocus()) return;
+
+      const model = typeof editor.getModel === 'function' ? editor.getModel() : null;
+      const position = typeof editor.getPosition === 'function' ? editor.getPosition() : null;
+      const selection = typeof editor.getSelection === 'function' ? editor.getSelection() : null;
+      if (
+        selection &&
+        typeof selection.isEmpty === 'function' &&
+        !selection.isEmpty()
+      ) {
+        return;
+      }
+
+      if (model && position) {
+        const versionId = typeof model.getVersionId === 'function' ? model.getVersionId() : 1;
+        const cursorKey = `${versionId}:${position.lineNumber}:${position.column}`;
+        if (cursorKey === lastAutoCursorKey) return;
+
+        const fullText = typeof model.getValue === 'function' ? model.getValue() : '';
+        if (!fullText || fullText.trim().length === 0) return;
+
+        lastAutoCursorKey = cursorKey;
+      }
+
+      pendingAutoTriggerUntil = Date.now() + 1000;
+      editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
+    };
+
+    const scheduleCursorIdleAutoTrigger = (delayMs = 260) => {
+      if (cursorIdleTimer !== null) {
+        clearTimeout(cursorIdleTimer);
+        cursorIdleTimer = null;
+      }
+      if (!enabled || triggerMode !== 'auto') return;
+      cursorIdleTimer = setTimeout(() => {
+        cursorIdleTimer = null;
+        triggerCursorIdleInlineCompletion();
+      }, delayMs);
+    };
+
+    const bindEditorCursorListeners = (editor) => {
+      if (typeof cursorWatcherDisposer === 'function') {
+        cursorWatcherDisposer();
+        cursorWatcherDisposer = null;
+      }
+      if (!editor || typeof editor !== 'object') return;
+      const subs = [];
+      if (typeof editor.onDidChangeCursorPosition === 'function') {
+        const sub = editor.onDidChangeCursorPosition(() => {
+          scheduleCursorIdleAutoTrigger(260);
+        });
+        if (sub && typeof sub.dispose === 'function') subs.push(() => sub.dispose());
+      }
+      if (typeof editor.onDidFocusEditorText === 'function') {
+        const sub = editor.onDidFocusEditorText(() => {
+          scheduleCursorIdleAutoTrigger(260);
+        });
+        if (sub && typeof sub.dispose === 'function') subs.push(() => sub.dispose());
+      }
+      cursorWatcherDisposer = () => {
+        for (const dispose of subs) {
+          try {
+            dispose();
+          } catch {
+            // ignore
+          }
+        }
+      };
+    };
 
     const attachToEditorBridge = (editorBridge) => {
       if (!editorBridge || providerDisposable) return;
 
+      const currentActive = editorBridge.getActiveEditor?.();
+      if (currentActive) {
+        activeEditorInstance = currentActive;
+        bindEditorCursorListeners(currentActive);
+      }
+
       if (typeof editorBridge.onDidActiveEditorChange === 'function') {
         editorBridge.onDidActiveEditorChange((editor) => {
           activeEditorInstance = editor;
+          bindEditorCursorListeners(editor);
         });
       }
 
@@ -628,37 +833,69 @@ export default {
       }
     };
 
-    const onWindowKeyDown = (event) => {
-      if (!enabled || !manualShortcut) return;
-      if (!doesEventMatchShortcut(event, manualShortcut)) return;
-
+    const onWindowMouseUp = (event) => {
+      if (!enabled || triggerMode !== 'auto') return;
       const targetEl = event?.target;
-      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
-      const inMonacoDom =
-        Boolean(targetEl && typeof targetEl.closest === 'function' && targetEl.closest('.monaco-editor')) ||
-        Boolean(activeEl && typeof activeEl.closest === 'function' && activeEl.closest('.monaco-editor'));
+      if (
+        targetEl &&
+        typeof targetEl.closest === 'function' &&
+        targetEl.closest('.monaco-editor')
+      ) {
+        scheduleCursorIdleAutoTrigger(260);
+      }
+    };
 
-      const editorBridge = getEditorBridge();
-      const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
-      const hasEditorFocus =
-        inMonacoDom ||
-        Boolean(typeof activeEditor?.hasTextFocus === 'function' && activeEditor.hasTextFocus());
+    const onWindowKeyDown = (event) => {
+      if (!enabled) return;
+      if (manualShortcut && doesEventMatchShortcut(event, manualShortcut)) {
+        const targetEl = event?.target;
+        const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+        const inMonacoDom =
+          Boolean(targetEl && typeof targetEl.closest === 'function' && targetEl.closest('.monaco-editor')) ||
+          Boolean(activeEl && typeof activeEl.closest === 'function' && activeEl.closest('.monaco-editor'));
 
-      if (!hasEditorFocus) return;
+        const editorBridge = getEditorBridge();
+        const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
+        const hasEditorFocus =
+          inMonacoDom ||
+          Boolean(typeof activeEditor?.hasTextFocus === 'function' && activeEditor.hasTextFocus());
 
-      event.preventDefault?.();
-      event.stopPropagation?.();
-      pendingManualTriggerUntil = Date.now() + 1500;
-      if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
-        void editorBridge.triggerInlineCompletion(activeEditor);
-      } else if (typeof activeEditor?.trigger === 'function') {
-        activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.trigger', {});
+        if (!hasEditorFocus) return;
+
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        pendingManualTriggerUntil = Date.now() + 1500;
+        if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
+          void editorBridge.triggerInlineCompletion(activeEditor);
+        } else if (typeof activeEditor?.trigger === 'function') {
+          activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.trigger', {});
+        }
+        return;
+      }
+
+      if (
+        triggerMode === 'auto' &&
+        (event?.key === 'ArrowDown' ||
+          event?.key === 'ArrowUp' ||
+          event?.key === 'ArrowRight' ||
+          event?.key === 'ArrowLeft' ||
+          event?.key === 'End')
+      ) {
+        const targetEl = event?.target;
+        if (
+          targetEl &&
+          typeof targetEl.closest === 'function' &&
+          targetEl.closest('.monaco-editor')
+        ) {
+          scheduleCursorIdleAutoTrigger(280);
+        }
       }
     };
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
       window.addEventListener('keydown', onWindowKeyDown, true);
+      window.addEventListener('mouseup', onWindowMouseUp, true);
     }
 
     const registerHandler = (name, fn) => {
@@ -729,11 +966,20 @@ export default {
       cancelActiveCompletion,
       cache,
       dispose() {
+        if (cursorIdleTimer !== null) {
+          clearTimeout(cursorIdleTimer);
+          cursorIdleTimer = null;
+        }
+        if (typeof cursorWatcherDisposer === 'function') {
+          cursorWatcherDisposer();
+          cursorWatcherDisposer = null;
+        }
         cancelActiveCompletion(null, true);
         cache.clear();
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
           window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
           window.removeEventListener('keydown', onWindowKeyDown, true);
+          window.removeEventListener('mouseup', onWindowMouseUp, true);
         }
         if (typeof configUnsubscribe === 'function') {
           configUnsubscribe();

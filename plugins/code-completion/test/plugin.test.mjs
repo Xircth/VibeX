@@ -26,6 +26,7 @@ import appPlugin, {
   doesEventMatchShortcut,
   ForwardTypingCache,
   parseShortcutDescriptor,
+  resolveInlineCompletionRangeAndText,
 } from '../app/main.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -559,6 +560,50 @@ test('supports customizable manualShortcut and enforces triggerMode === manual',
   });
   assert.equal(allowedManual.items.length, 1);
   assert.equal(allowedManual.items[0].insertText, 'manualResult()');
+});
+
+test('supports completion at any code position (mid-code, function-name-first, and end-of-line next-line block)', () => {
+  // 1. Writing a function name first in the middle of code completes signature + body inline
+  const fnNameCompletion = postProcessCompletion(
+    '<COMPLETION>\n    def restart_game(self) -> None:\n        self.reset()\n</COMPLETION>',
+    {
+      prefix: 'class SnakeGame:\n    def restart_game',
+      suffix: '\n\n    def step(self) -> bool:',
+      isSingleLine: false,
+    },
+  );
+  assert.equal(fnNameCompletion, '(self) -> None:\n        self.reset()');
+
+  // 2. Cursor at the end of a non-empty statement line preserves leading `\n` for next-line indented block
+  const endOfLineNextBlock = postProcessCompletion(
+    '<COMPLETION>\n        if new_head in self.snake:\n            self.alive = False\n</COMPLETION>',
+    {
+      prefix: '        new_head = (head_x + dx, head_y + dy)',
+      suffix: '\n        self.snake.insert(0, new_head)',
+      isSingleLine: false,
+    },
+  );
+  assert.equal(
+    endOfLineNextBlock,
+    '\n        if new_head in self.snake:\n            self.alive = False',
+  );
+
+  // 3. Multi-line completion when closing delimiters exist on current line adjusts range.endColumn for Monaco
+  const normalizedMidLine = resolveInlineCompletionRangeAndText(
+    'self, direction: tuple[int, int]):\n        self.direction = direction',
+    {
+      lineNumber: 12,
+      column: 18,
+      linePrefix: '    def set_dir(',
+      lineSuffix: '):',
+    },
+  );
+  assert.equal(normalizedMidLine.range.startColumn, 18);
+  assert.equal(normalizedMidLine.range.endColumn, 20);
+  assert.equal(
+    normalizedMidLine.insertText,
+    'self, direction: tuple[int, int]):\n        self.direction = direction',
+  );
 });
 
 

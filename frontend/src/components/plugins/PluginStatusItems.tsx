@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { CodeCompletionStatusPopover } from '@/components/plugins/CodeCompletionStatusPopover';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import { Slot } from '@/components/plugins/Slot';
@@ -337,6 +338,9 @@ function AfterMcpStatusButton({
   const label = entry.tooltip ?? entry.text;
   const buttonClass =
     'flex h-4 w-4 items-center justify-center rounded-sm text-secondary-foreground hover:bg-accent/70';
+  if (entry.pluginId === 'vibex.code-completion') {
+    return <CodeCompletionStatusPopover icon={entry.icon} label={label} />;
+  }
   if (!entry.hasPopoverView) {
     return (
       <button

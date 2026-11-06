@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { CodeCompletionStatusPopover } from '@/components/plugins/CodeCompletionStatusPopover';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { BackendTransportProvider } from '@/lib/transport';
 import type { BackendTransport } from '@/lib/backendTransport';
 import type { PluginProductDetail } from '@/lib/api/plugins';
@@ -429,5 +431,77 @@ describe('PluginConfigForm', () => {
       });
     });
   });
+
+  it('opens CodeCompletionStatusPopover from the status bar icon to toggle enabled, switch model, and record shortcut', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        enabled: true,
+        baseUrl: 'https://api.deepseek.com',
+        apiKey: 'sk-test',
+        model: 'deepseek-flash',
+        triggerMode: 'auto',
+        manualShortcut: 'Alt+\\',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {},
+      },
+    };
+
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn().mockImplementation(async (command, args) => {
+        if (command === 'plugin_product_detail') {
+          return detail;
+        }
+        if (command === 'plugin_save_config') {
+          return {
+            ...detail,
+            config: (args as { config: Record<string, unknown> }).config,
+          };
+        }
+        return {};
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <CodeCompletionStatusPopover
+            icon={contributionIconComponent('sparkles')}
+            label="AI代码补全"
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByTestId('code-completion-status-trigger'));
+
+    const switchEl = await screen.findByRole('switch');
+    await user.click(switchEl);
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith(
+        'plugin_save_config',
+        expect.objectContaining({
+          pluginId: 'vibex.code-completion',
+          config: expect.objectContaining({
+            enabled: false,
+          }),
+        })
+      );
+    });
+  });
 });
+
 

@@ -17,10 +17,10 @@ const DEFAULT_CONFIG = Object.freeze({
 
 const MAX_SINGLE_LINE_LENGTH = 2000;
 const CHARS_PER_TOKEN = 4;
-const MAX_PREFIX_TOKENS = 1500;
-const MAX_SUFFIX_TOKENS = 500;
-const MAX_NEIGHBOR_TOKENS = 400;
-const MAX_NEIGHBOR_COUNT = 3;
+const MAX_PREFIX_TOKENS = 600;
+const MAX_SUFFIX_TOKENS = 200;
+const MAX_NEIGHBOR_TOKENS = 200;
+const MAX_NEIGHBOR_COUNT = 2;
 
 const OPENAI_SYSTEM_PROMPT = [
   'You are an ultra-low-latency inline code completion engine (Fill-in-the-Middle).',
@@ -29,7 +29,8 @@ const OPENAI_SYSTEM_PROMPT = [
   '1. Wrap your raw code continuation strictly inside <COMPLETION> and </COMPLETION> tags.',
   '2. NEVER output markdown code fences (```), language identifiers, explanations, or prose.',
   '3. NEVER repeat the code already present at the end of <PREFIX> or at the start of <SUFFIX>.',
-  '4. Preserve the exact indentation, naming conventions, and syntax of the surrounding file.',
+  '4. If <PREFIX> ends with a function/method/class name or partial signature (e.g. `def calc_score`, `function parseData`), complete its parameters and body directly from the cursor.',
+  '5. Preserve the exact indentation, naming conventions, and syntax of the surrounding file.',
 ].join('\n');
 
 const ANTHROPIC_SYSTEM_PROMPT = [
@@ -111,46 +112,38 @@ export function resolveDynamicScope({
   maxTokens = DEFAULT_CONFIG.maxTokens,
 } = {}) {
   const safeMaxTokens = Math.max(16, Math.min(1024, Number(maxTokens) || DEFAULT_CONFIG.maxTokens));
-  const prefixLines = String(prefix).split('\n');
-  const currentLinePrefix = prefixLines[prefixLines.length - 1] || '';
   const suffixLines = String(suffix).split('\n');
   const currentLineSuffix = suffixLines[0] || '';
 
   if (completionScope === 'single-line') {
     return {
       isSingleLine: true,
-      maxTokens: Math.min(64, safeMaxTokens),
+      maxTokens: Math.min(48, safeMaxTokens),
       stopSequences: ['\n', '\r\n'],
     };
   }
 
-  // If non-whitespace characters exist on the right side of the cursor on the same line
+  // If non-closing tokens exist on the right side of the cursor on the same line
   // (e.g., inside function call arguments `foo(|, 0)`), constrain to single-line completion.
+  // Otherwise (end of line, blank line, after a function name, or inside closing delimiters `)`, `):`, `}`, `];`),
+  // allow smart multi-line completion at any position in code.
   const trimmedSuffixLine = currentLineSuffix.trim();
   const hasNonWhitespaceOnRight = trimmedSuffixLine.length > 0;
-  // Block header patterns (`{`, `:`, `=>`, `(`, empty indented line) allow multi-line block completions
-  // when the right side of the current line is empty or only closing delimiters (`}`, `)`, `]`, `);`).
-  const isOnlyClosingDelimitersOnRight = /^[}\]);,\s]*$/.test(trimmedSuffixLine) && !trimmedSuffixLine.startsWith(',');
-  const trimmedPrefixLine = currentLinePrefix.trim();
-  const isBlockOpener =
-    trimmedPrefixLine.endsWith('{') ||
-    trimmedPrefixLine.endsWith(':') ||
-    trimmedPrefixLine.endsWith('=>') ||
-    trimmedPrefixLine.endsWith('(') ||
-    trimmedPrefixLine.length === 0;
+  const isOnlyClosingDelimitersOnRight =
+    /^[}\]);,:\s]*$/.test(trimmedSuffixLine) && !trimmedSuffixLine.startsWith(',');
 
-  if (hasNonWhitespaceOnRight && (!isBlockOpener || !isOnlyClosingDelimitersOnRight)) {
+  if (hasNonWhitespaceOnRight && !isOnlyClosingDelimitersOnRight) {
     return {
       isSingleLine: true,
-      maxTokens: Math.min(64, safeMaxTokens),
+      maxTokens: Math.min(48, safeMaxTokens),
       stopSequences: ['\n', '\r\n'],
     };
   }
 
   return {
     isSingleLine: false,
-    maxTokens: Math.min(256, safeMaxTokens),
-    stopSequences: ['\n\n\n'],
+    maxTokens: Math.min(72, safeMaxTokens),
+    stopSequences: ['\n\n'],
   };
 }
 
@@ -407,7 +400,9 @@ export function buildProtocolHttpRequest({
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
-  const stop = Array.from(new Set(['</COMPLETION>', ...extraStops])).slice(0, 4);
+  // Do not pass bare `\n` or `\r\n` to OpenAI chat completions since the model outputs `<COMPLETION>\n...`
+  const safeOpenAiStops = extraStops.filter((seq) => seq !== '\n' && seq !== '\r\n');
+  const stop = Array.from(new Set(['</COMPLETION>', ...safeOpenAiStops])).slice(0, 4);
   const body = {
     model,
     max_tokens: maxTokens,
@@ -465,11 +460,12 @@ export function extractRawCompletionFromResponse(protocol, payload) {
 
 /**
  * Deterministic Output Post-Processor:
- * 1. Extract content inside `<COMPLETION>...</COMPLETION>` or strip dangling tags.
+ * 1. Extract content inside `<COMPLETION>...</COMPLETION>` or strip tags.
  * 2. Strip Markdown code fences (```lang ... ```).
  * 3. Deduplicate prefix overlap (current line before cursor or last line of prefix).
- * 4. Deduplicate suffix overlap (current line after cursor, first non-empty line of suffix, or redundant closing brackets).
- * 5. Enforce single-line constraint if `isSingleLine` is true.
+ * 4. Preserve or prepend `\n` when the cursor is at the end of a non-empty line and the completion is an indented next-line block.
+ * 5. Deduplicate suffix overlap (current line after cursor, first non-empty line of suffix, or redundant closing brackets).
+ * 6. Enforce single-line constraint if `isSingleLine` is true.
  */
 export function postProcessCompletion(
   rawText,
@@ -480,6 +476,8 @@ export function postProcessCompletion(
   }
 
   let text = rawText.replace(/\r\n/g, '\n');
+  const hadLeadingNewlineInTag =
+    /<COMPLETION>\n/i.test(text) || (text.startsWith('\n') && !text.startsWith('\n\n'));
 
   // 1. Extract `<COMPLETION>...</COMPLETION>` if present, or strip tags
   const taggedMatch = text.match(/<COMPLETION>(?:\r?\n)?([\s\S]*?)(?:\r?\n)?<\/COMPLETION>/i);
@@ -499,23 +497,12 @@ export function postProcessCompletion(
     text = text.replace(/^\s*```[^\n]*\n?/, '').replace(/\n?```\s*$/, '');
   }
 
-  // When an assistant prefill `<COMPLETION>` is followed by an immediate newline from the model
-  // while the user is either on a fresh blank line (e.g. right after pressing Enter) or mid-line (`const x = |`),
-  // trim the single leading framing newline so ghost text renders inline on the cursor line.
   const prefixLines = String(prefix).replace(/\r\n/g, '\n').split('\n');
   const currentLinePrefix = prefixLines[prefixLines.length - 1] || '';
+
+  // Trim a single leading newline before prefix-overlap deduplication
   if (text.startsWith('\n') && !text.startsWith('\n\n')) {
-    if (currentLinePrefix.trim().length === 0) {
-      text = text.slice(1);
-    } else if (
-      !currentLinePrefix.trim().endsWith('{') &&
-      !currentLinePrefix.trim().endsWith(':')
-    ) {
-      const withoutNewline = text.slice(1);
-      if (withoutNewline.trim().length > 0 && !/^\s+/.test(withoutNewline)) {
-        text = withoutNewline;
-      }
-    }
+    text = text.slice(1);
   }
 
   // 3. Remove Prefix Overlap
@@ -523,7 +510,7 @@ export function postProcessCompletion(
   if (currentLinePrefix.length > 0) {
     if (text.startsWith(currentLinePrefix)) {
       text = text.slice(currentLinePrefix.length);
-    } else {
+    } else if (currentLinePrefix.trim().length > 0) {
       const trimmedCurrentPrefix = currentLinePrefix.trimStart();
       if (trimmedCurrentPrefix.length > 0 && text.startsWith(trimmedCurrentPrefix)) {
         text = text.slice(trimmedCurrentPrefix.length);
@@ -552,9 +539,32 @@ export function postProcessCompletion(
     }
   }
 
+  // 3c. When cursor is at the end of a non-empty line (`currentLinePrefix.trim().length > 0`)
+  // and the completion is a next-line statement (starts with 2+ spaces/tab, or follows a comment / block header),
+  // ensure it begins with `\n` so Monaco renders it on the next line rather than gluing it onto the current line.
+  const trimmedLinePrefix = currentLinePrefix.trim();
+  if (trimmedLinePrefix.length > 0 && !isSingleLine && !text.startsWith('\n') && text.trim().length > 0) {
+    const isCommentLine =
+      trimmedLinePrefix.startsWith('#') || trimmedLinePrefix.startsWith('//');
+    const startsWithNextLineIndent = /^(?:  +|\t+)/.test(text);
+    const isBlockHeaderNextLine =
+      (trimmedLinePrefix.endsWith(':') || trimmedLinePrefix.endsWith('{')) &&
+      hadLeadingNewlineInTag;
+
+    if (isCommentLine || startsWithNextLineIndent || isBlockHeaderNextLine) {
+      if (isBlockHeaderNextLine && !/^[ \t]/.test(text)) {
+        const currentIndent = currentLinePrefix.match(/^[ \t]*/)?.[0] || '';
+        text = `\n${currentIndent}    ${text}`;
+      } else {
+        text = `\n${text}`;
+      }
+    }
+  }
+
   // 4. Enforce single-line constraint when requested
   if (isSingleLine && text.includes('\n')) {
-    text = text.split('\n')[0];
+    const firstNonEmpty = text.split('\n').find((line) => line.trim().length > 0) || '';
+    text = firstNonEmpty;
   }
 
   // 5. Remove Suffix Overlap

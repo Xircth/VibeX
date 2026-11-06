@@ -428,3 +428,64 @@ test('app entrypoint supports adaptive debounce, forward-typing prefix cache, an
 
   instance.dispose();
 });
+
+test('handles comment + Enter newline framing in Python files and late vibex.code-editor registration', async () => {
+  assert.equal(
+    postProcessCompletion('<COMPLETION>\nimport pygame\nimport random\n</COMPLETION>', {
+      prefix: '//贪吃蛇游戏\n',
+      suffix: '',
+      isSingleLine: false,
+    }),
+    'import pygame\nimport random',
+  );
+  assert.equal(
+    postProcessCompletion('\nimport pygame\nimport random', {
+      prefix: '# 贪吃蛇游戏\n',
+      suffix: '',
+      isSingleLine: false,
+    }),
+    'import pygame\nimport random',
+  );
+
+  let registeredProvider = null;
+  let changeListener = null;
+  let cancelCalls = 0;
+
+  const instance = await appPlugin.activate({
+    services: {
+      get() {
+        return null;
+      },
+      onChange(serviceId, cb) {
+        if (serviceId === 'vibex.code-editor') {
+          changeListener = cb;
+        }
+        return () => {};
+      },
+    },
+    async invokeWorker(method) {
+      if (method === 'completion.cancel') {
+        cancelCalls += 1;
+      }
+      return { items: [{ insertText: 'import pygame' }] };
+    },
+  });
+
+  assert.equal(registeredProvider, null);
+  assert.equal(typeof changeListener, 'function');
+
+  changeListener({
+    registerInlineCompletionProvider(_selector, provider) {
+      registeredProvider = provider;
+      return { dispose() {} };
+    },
+  });
+  assert.ok(registeredProvider);
+
+  // Cancelling when no worker request is in flight should not emit completion.cancel IPC
+  instance.cancelActiveCompletion();
+  assert.equal(cancelCalls, 0);
+
+  instance.dispose();
+});
+

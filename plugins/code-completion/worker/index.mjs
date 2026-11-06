@@ -481,13 +481,13 @@ export function postProcessCompletion(
   let text = rawText.replace(/\r\n/g, '\n');
 
   // 1. Extract `<COMPLETION>...</COMPLETION>` if present, or strip tags
-  const taggedMatch = text.match(/<COMPLETION>([\s\S]*?)<\/COMPLETION>/i);
+  const taggedMatch = text.match(/<COMPLETION>(?:\r?\n)?([\s\S]*?)(?:\r?\n)?<\/COMPLETION>/i);
   if (taggedMatch) {
     text = taggedMatch[1];
   } else {
     text = text
-      .replace(/^\s*<COMPLETION>/i, '')
-      .replace(/<\/COMPLETION>\s*$/i, '');
+      .replace(/^\s*<COMPLETION>(?:\r?\n)?/i, '')
+      .replace(/(?:\r?\n)?<\/COMPLETION>\s*$/i, '');
   }
 
   // 2. Strip Markdown code fences (e.g. ```ts\n...\n```)
@@ -499,19 +499,21 @@ export function postProcessCompletion(
   }
 
   // When an assistant prefill `<COMPLETION>` is followed by an immediate newline from the model
-  // while the user is mid-line (`const x = |`), trim a single leading newline if the next line continues the expression.
+  // while the user is either on a fresh blank line (e.g. right after pressing Enter) or mid-line (`const x = |`),
+  // trim the single leading framing newline so ghost text renders inline on the cursor line.
   const prefixLines = String(prefix).replace(/\r\n/g, '\n').split('\n');
   const currentLinePrefix = prefixLines[prefixLines.length - 1] || '';
-  if (
-    currentLinePrefix.trim().length > 0 &&
-    !currentLinePrefix.trim().endsWith('{') &&
-    !currentLinePrefix.trim().endsWith(':') &&
-    text.startsWith('\n') &&
-    !text.startsWith('\n\n')
-  ) {
-    const withoutNewline = text.slice(1);
-    if (withoutNewline.trim().length > 0 && !/^\s+/.test(withoutNewline)) {
-      text = withoutNewline;
+  if (text.startsWith('\n') && !text.startsWith('\n\n')) {
+    if (currentLinePrefix.trim().length === 0) {
+      text = text.slice(1);
+    } else if (
+      !currentLinePrefix.trim().endsWith('{') &&
+      !currentLinePrefix.trim().endsWith(':')
+    ) {
+      const withoutNewline = text.slice(1);
+      if (withoutNewline.trim().length > 0 && !/^\s+/.test(withoutNewline)) {
+        text = withoutNewline;
+      }
     }
   }
 

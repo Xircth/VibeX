@@ -1129,7 +1129,7 @@ function attachInlineCompletionToMonaco(
 
   const selector =
     !registration.languages || registration.languages === '*'
-      ? { pattern: '**' }
+      ? '*'
       : registration.languages;
 
   const disposable = registerFn(selector, {

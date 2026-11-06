@@ -1356,6 +1356,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : (
           <Editor
             key={resolvedFilePath ?? filePath}
+            path={resolvedFilePath ?? filePath}
             value={editorContent}
             onChange={(value) => {
               if (resolvedFilePath && value !== undefined) {

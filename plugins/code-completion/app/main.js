@@ -181,9 +181,13 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
   }
 
   const linePrefix = prefix.split('\n').pop() || '';
-  const filePath = String(
-    model?.uri?.fsPath || model?.uri?.path || model?.uri?.toString?.() || model?.filePath || 'untitled',
-  );
+  const rawUriPath =
+    model?.filePath ||
+    model?.uri?.fsPath ||
+    model?.uri?.path ||
+    model?.uri?.toString?.() ||
+    'untitled';
+  const filePath = String(rawUriPath);
   const languageId = String(
     (typeof model?.getLanguageId === 'function' && model.getLanguageId()) ||
       model?.languageId ||
@@ -206,6 +210,7 @@ export default {
   async activate(context) {
     const cache = new ForwardTypingCache();
     let activeAbortController = null;
+    let inFlightWorkerRequestId = null;
     let activeEditorInstance = null;
     let enabled = true;
     let statusState = 'idle'; // 'idle' | 'Generating...' | 'disabled' | 'error'
@@ -240,7 +245,11 @@ export default {
         activeAbortController.abort();
         activeAbortController = null;
       }
-      void invokeWorker('completion.cancel', requestId ? { requestId } : {}).catch(() => {});
+      const targetRequestId = requestId || inFlightWorkerRequestId;
+      if (targetRequestId && inFlightWorkerRequestId === targetRequestId) {
+        inFlightWorkerRequestId = null;
+        void invokeWorker('completion.cancel', { requestId: targetRequestId }).catch(() => {});
+      }
     };
 
     const provideInlineCompletions = async (modelOrRequest, position, completionContext, token) => {
@@ -248,10 +257,34 @@ export default {
         return { items: [] };
       }
 
-      // Cancel any previous in-flight completion immediately
+      // Cancel any previous in-flight completion or pending debounce immediately
       cancelActiveCompletion();
 
       const docState = extractCompletionDocumentState(modelOrRequest, position);
+      const editorBridge = getEditorBridge();
+      if (
+        (!docState.filePath ||
+          docState.filePath === 'untitled' ||
+          docState.filePath.startsWith('inmemory:') ||
+          /^\/?model\/\d+$/.test(docState.filePath)) &&
+        editorBridge &&
+        typeof editorBridge.getActiveDocument === 'function'
+      ) {
+        try {
+          const activeDoc = editorBridge.getActiveDocument();
+          if (activeDoc?.filePath) {
+            docState.filePath = String(activeDoc.filePath);
+          }
+          if (
+            (!docState.languageId || docState.languageId === 'plaintext') &&
+            activeDoc?.languageId
+          ) {
+            docState.languageId = String(activeDoc.languageId);
+          }
+        } catch {
+          // ignore
+        }
+      }
       const isManual =
         docState.manual ||
         completionContext?.triggerKind === 0 ||
@@ -317,11 +350,11 @@ export default {
       }
 
       // 4. Collect open neighbor tabs from host editor bridge if available
-      const editorBridge = getEditorBridge();
+      const latestEditorBridge = editorBridge || getEditorBridge();
       let neighbors = [];
-      if (editorBridge && typeof editorBridge.getOpenDocuments === 'function') {
+      if (latestEditorBridge && typeof latestEditorBridge.getOpenDocuments === 'function') {
         try {
-          neighbors = (await editorBridge.getOpenDocuments()) || [];
+          neighbors = (await latestEditorBridge.getOpenDocuments()) || [];
         } catch {
           neighbors = [];
         }
@@ -330,6 +363,7 @@ export default {
       }
 
       statusState = 'loading';
+      inFlightWorkerRequestId = requestId;
       try {
         const result = await invokeWorker('completion.complete', {
           requestId,
@@ -386,15 +420,20 @@ export default {
         lastErrorMessage = String(error?.message || error);
         return { items: [] };
       } finally {
+        if (inFlightWorkerRequestId === requestId) {
+          inFlightWorkerRequestId = null;
+        }
         if (activeAbortController === abortController) {
           activeAbortController = null;
         }
       }
     };
 
-    const providerDisposable = (() => {
-      const editorBridge = getEditorBridge();
-      if (!editorBridge) return null;
+    let providerDisposable = null;
+    let serviceWatchCleanup = null;
+
+    const attachToEditorBridge = (editorBridge) => {
+      if (!editorBridge || providerDisposable) return;
 
       if (typeof editorBridge.onDidActiveEditorChange === 'function') {
         editorBridge.onDidActiveEditorChange((editor) => {
@@ -409,13 +448,22 @@ export default {
       };
 
       if (typeof editorBridge.registerInlineCompletionProvider === 'function') {
-        return editorBridge.registerInlineCompletionProvider('*', inlineProvider);
+        providerDisposable = editorBridge.registerInlineCompletionProvider('*', inlineProvider);
+      } else if (typeof editorBridge.registerInlineCompletionsProvider === 'function') {
+        providerDisposable = editorBridge.registerInlineCompletionsProvider('*', inlineProvider);
       }
-      if (typeof editorBridge.registerInlineCompletionsProvider === 'function') {
-        return editorBridge.registerInlineCompletionsProvider('*', inlineProvider);
-      }
-      return null;
-    })();
+    };
+
+    attachToEditorBridge(getEditorBridge());
+    if (!providerDisposable && typeof context?.services?.onChange === 'function') {
+      serviceWatchCleanup = context.services.onChange('vibex.code-editor', (bridge) => {
+        attachToEditorBridge(bridge || getEditorBridge());
+      });
+    } else if (!providerDisposable && typeof context?.services?.subscribe === 'function') {
+      serviceWatchCleanup = context.services.subscribe(() => {
+        attachToEditorBridge(getEditorBridge());
+      });
+    }
 
     const registerHandler = (name, fn) => {
       if (typeof context?.registerHandler === 'function') {
@@ -483,7 +531,13 @@ export default {
       dispose() {
         cancelActiveCompletion();
         cache.clear();
-        if (providerDisposable && typeof providerDisposable.dispose === 'function') {
+        if (typeof serviceWatchCleanup === 'function') {
+          serviceWatchCleanup();
+          serviceWatchCleanup = null;
+        }
+        if (typeof providerDisposable === 'function') {
+          providerDisposable();
+        } else if (providerDisposable && typeof providerDisposable.dispose === 'function') {
           providerDisposable.dispose();
         }
       },

@@ -925,10 +925,69 @@ pub async fn save_agent_skill_with_storage(
 /// Symlink-safe removal: drop a symlink/file directly, recurse real directories.
 fn remove_skill_entry(path: &Path) -> std::io::Result<()> {
     let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() || metadata.is_file() {
-        std::fs::remove_file(path)
-    } else {
-        std::fs::remove_dir_all(path)
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            if file_type.is_symlink_dir() {
+                return std::fs::remove_dir(path).or_else(|_| std::fs::remove_file(path));
+            }
+            return std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path));
+        }
+        #[cfg(not(windows))]
+        {
+            return std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path));
+        }
+    }
+    if metadata.is_file() {
+        clear_readonly_if_needed(path);
+        return std::fs::remove_file(path);
+    }
+    let mut last_err = None;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            clear_readonly_recursive(path);
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| std::io::Error::other("remove_dir_all failed")))
+}
+
+fn clear_readonly_if_needed(path: &Path) {
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+}
+
+fn clear_readonly_recursive(path: &Path) {
+    clear_readonly_if_needed(path);
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let child = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&child) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
+            clear_readonly_recursive(&child);
+        } else {
+            clear_readonly_if_needed(&child);
+        }
     }
 }
 
@@ -3518,5 +3577,34 @@ mod tests {
         sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
         assert!(!stale.exists(), "stale entry should be pruned");
         assert!(dest.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn remove_skill_entry_handles_directory_symlinks_and_readonly_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_dir = temp.path().join("target-skill");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("SKILL.md"), "---\nname: target\n---\n").unwrap();
+
+        let link_path = temp.path().join("linked-skill");
+        if symlink_dir(&target_dir, &link_path).is_ok() {
+            remove_if_exists(&link_path).expect("directory symlink must be removable");
+            assert!(!link_path.exists());
+            assert!(
+                target_dir.join("SKILL.md").is_file(),
+                "removing directory symlink must not delete target contents"
+            );
+        }
+
+        let readonly_dir = temp.path().join("readonly-skill");
+        std::fs::create_dir_all(&readonly_dir).unwrap();
+        let readonly_file = readonly_dir.join("SKILL.md");
+        std::fs::write(&readonly_file, "---\nname: ro\n---\n").unwrap();
+        let mut perms = std::fs::metadata(&readonly_file).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&readonly_file, perms).unwrap();
+
+        remove_if_exists(&readonly_dir).expect("readonly skill directory must be removable");
+        assert!(!readonly_dir.exists());
     }
 }

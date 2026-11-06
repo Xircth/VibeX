@@ -594,6 +594,13 @@ pub async fn create_host_device_pairing(
         )
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
+    // A device that pairs expects to find this Host again after a restart.
+    if let Ok(mut config) = load_config().await
+        && !config.auto_start
+    {
+        config.auto_start = true;
+        save_config(&config).await?;
+    }
     let host_id = load_or_create_host_id().await?;
     let addresses = {
         let runtime = WEB_SERVICE_RUNTIME.lock().await;

@@ -299,9 +299,21 @@ describe('McpSettings', () => {
     const localItem = await screen.findByRole('button', { name: /node_repl/ });
     expect(localItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
 
-    await user.click(screen.getByRole('radio', { name: 'MCP 市场' }));
+    const localTabRadio = screen.getByRole('radio', { name: '本地 MCP' });
+    const marketTabRadio = screen.getByRole('radio', { name: 'MCP 市场' });
+    expect(localTabRadio.querySelector('svg')).not.toBeNull();
+    expect(marketTabRadio.querySelector('svg')).not.toBeNull();
 
-    expect(await screen.findByPlaceholderText('搜索应用')).toBeVisible();
+    await user.click(marketTabRadio);
+
+    const searchInput = await screen.findByPlaceholderText('搜索应用');
+    expect(searchInput).toBeVisible();
+    const marketContainer = searchInput.closest('.dsh-connector-marketplace');
+    expect(marketContainer?.parentElement).not.toHaveClass(
+      'rounded-xl',
+      'border',
+      'bg-card'
+    );
     expect(
       screen.getByRole('button', { name: 'MCP 服务器' })
     ).toBeVisible();
@@ -336,13 +348,20 @@ describe('McpSettings', () => {
 
     renderSettings(<StatusBarConnectorButton />);
 
-    await user.click(screen.getByRole('button', { name: '连接器市场' }));
+    const triggerBtn = screen.getByRole('button', { name: '连接器市场' });
+    expect(triggerBtn).toHaveClass('h-4', 'w-4', 'opacity-80');
+    const storeSvg = triggerBtn.querySelector('svg');
+    expect(storeSvg).toHaveClass('h-3', 'w-3');
+    expect(storeSvg).toHaveAttribute('stroke-width', '1.6');
+
+    await user.click(triggerBtn);
 
     expect(
       await screen.findByText(
         '只需连接一次应用或你自己的 MCP 服务器，再选择哪些机器人可以使用。'
       )
     ).toBeVisible();
+    expect(screen.getAllByRole('button', { name: '关闭' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'MCP 服务器' }));
     await user.type(

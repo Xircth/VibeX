@@ -36,6 +36,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
 import {
   type LocalMcpServer,
@@ -806,7 +811,7 @@ export function ConnectorMarketplace({
   return (
     <div
       className={cn(
-        'flex flex-col text-foreground',
+        'dsh-connector-marketplace flex flex-col text-foreground',
         mode === 'dialog' ? ' max-h-[82vh] w-full' : 'h-full w-full'
       )}
     >
@@ -871,7 +876,7 @@ export function ConnectorMarketplace({
       <div
         className={cn(
           'flex flex-col gap-3',
-          mode === 'dialog' ? 'px-6 pb-3' : 'px-6 pt-5 pb-3'
+          mode === 'dialog' ? 'px-6 pb-3' : 'px-0 pt-1 pb-3'
         )}
       >
         <div className="flex items-center gap-2.5">
@@ -1027,7 +1032,12 @@ export function ConnectorMarketplace({
       </div>
 
       {error && (
-        <div className="mx-6 mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div
+          className={cn(
+            'mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive',
+            mode === 'dialog' ? 'mx-6' : 'mx-0'
+          )}
+        >
           {error}
         </div>
       )}
@@ -1035,8 +1045,8 @@ export function ConnectorMarketplace({
       {/* Scrollable Connector Stream */}
       <div
         className={cn(
-          'flex-1 overflow-y-auto px-6 pb-6',
-          mode === 'dialog' ? 'max-h-[60vh]' : ''
+          'flex-1 overflow-y-auto pb-6',
+          mode === 'dialog' ? 'max-h-[60vh] px-6' : 'px-0'
         )}
       >
         {isGroupedView ? (
@@ -1419,30 +1429,30 @@ export function StatusBarConnectorButton() {
   const label = t('mcp.marketplace.statusBarButtonTitle', '连接器市场');
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="status-bar__icon-btn"
-        title={label}
-        aria-label={label}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="status-bar__icon-btn inline-flex h-4 w-4 items-center justify-center rounded-sm text-secondary-foreground opacity-80 transition-opacity hover:bg-accent/70 hover:opacity-100"
+          title={label}
+          aria-label={label}
+        >
+          <Store className="h-3 w-3" strokeWidth={1.6} aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        className="flex max-h-[min(78vh,640px)] w-[min(740px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-background p-0 shadow-xl backdrop-blur-none"
       >
-        <Store className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-3xl overflow-hidden rounded-2xl border border-border/70 bg-background p-0 shadow-2xl [&>button]:hidden">
-          <DialogTitle className="sr-only">
-            {t('mcp.marketplace.dialogTitle', '应用')}
-          </DialogTitle>
-          <ConnectorMarketplace
-            mode="dialog"
-            onClose={() => setOpen(false)}
-            initialSearchQuery={initialSearchQuery}
-            initialCategory={initialCategory}
-          />
-        </DialogContent>
-      </Dialog>
-    </>
+        <ConnectorMarketplace
+          mode="dialog"
+          onClose={() => setOpen(false)}
+          initialSearchQuery={initialSearchQuery}
+          initialCategory={initialCategory}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

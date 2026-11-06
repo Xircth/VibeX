@@ -24,6 +24,7 @@ import {
   Save,
   Search,
   Server,
+  Store,
   Trash2,
 } from 'lucide-react';
 import {
@@ -445,16 +446,26 @@ export function McpSettings() {
             value={leftTab}
             onChange={(value) => setLeftTab(value as LeftTab)}
             label={t('mcp.connectorsTitle', '连接器')}
+            size="sm"
+            layout="hug"
             className="dsh-plugin-mode-segmented"
           >
-            <SegmentedControlItem value="local" label={t('mcp.localTab')} />
-            <SegmentedControlItem value="market" label={t('mcp.marketTab')} />
+            <SegmentedControlItem
+              value="local"
+              label={t('mcp.localTab')}
+              icon={<Server aria-hidden="true" />}
+            />
+            <SegmentedControlItem
+              value="market"
+              label={t('mcp.marketTab')}
+              icon={<Store aria-hidden="true" />}
+            />
           </SegmentedControl>
         </div>
       </div>
 
       {leftTab === 'market' ? (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border bg-card">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <ConnectorMarketplace
             mode="page"
             installedServers={installedServers}

@@ -2815,7 +2815,10 @@ fn parse_status_contribution(
         id: contribution_id(integration)?,
         text: contribution_text(integration, "text").or_else(|| {
             is_v2
-                .then(|| contribution_text(integration, "label"))
+                .then(|| {
+                    contribution_text(integration, "label")
+                        .or_else(|| contribution_text(integration, "title"))
+                })
                 .flatten()
         }),
         icon: contribution_icon(integration).ok()?,

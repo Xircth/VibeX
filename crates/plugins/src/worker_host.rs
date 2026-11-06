@@ -3264,6 +3264,7 @@ fn validate_registrations(
     package: &PluginPackage,
     handlers: &[String],
 ) -> Result<(), WorkerHostError> {
+    let is_v2_runtime = package.api_version == "2.0";
     let declared = package
         .invocations
         .iter()
@@ -3321,9 +3322,12 @@ fn validate_registrations(
                 .iter()
                 .map(|item| item.handler.as_str()),
         )
+        .filter(|handler| !(is_v2_runtime && *handler == "app.activate"))
         .collect::<BTreeSet<_>>();
     let actual = handlers.iter().map(String::as_str).collect::<BTreeSet<_>>();
-    if let Some(undeclared) = actual.difference(&declared).next() {
+    if !is_v2_runtime
+        && let Some(undeclared) = actual.difference(&declared).next()
+    {
         return Err(WorkerHostError::new(
             "handler_undeclared",
             format!("Worker registered undeclared handler {undeclared}"),
@@ -3638,5 +3642,37 @@ mod worker_host_tests {
             stdout_line_max_bytes(MAX_LOGICAL_MESSAGE_BYTES),
             MAX_LOGICAL_MESSAGE_BYTES
         );
+    }
+
+    #[test]
+    fn validate_registrations_allows_v2_runtime_rpc_handlers_for_code_completion() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let code_completion_dir = repo_root.join("plugins").join("code-completion");
+        let package = PluginPackage::inspect(&code_completion_dir, crate::PluginSourceKind::Snapshot)
+            .expect("inspect code-completion");
+        assert_eq!(package.api_version, "2.0");
+        assert_eq!(
+            package.app.status_items.first().and_then(|s| s.text.as_deref()),
+            Some("AI代码补全")
+        );
+
+        let handlers = vec![
+            "completion.cancel".to_owned(),
+            "completion.complete".to_owned(),
+            "completion.configure".to_owned(),
+            "completion.status".to_owned(),
+            "completion.toggle".to_owned(),
+            "completion.trigger".to_owned(),
+        ];
+        validate_registrations(&package, &handlers)
+            .expect("v2.0 plugin worker may register internal RPC handlers alongside declared status/command handlers");
+
+        let incomplete_handlers = vec!["completion.cancel".to_owned()];
+        let err = validate_registrations(&package, &incomplete_handlers)
+            .expect_err("missing declared status/command handlers must still fail");
+        assert_eq!(err.code(), "handler_required_missing");
     }
 }

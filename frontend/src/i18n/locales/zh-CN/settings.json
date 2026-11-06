@@ -2211,7 +2211,7 @@
     "piPluginRemoved": "已移除 {{name}}",
     "piPluginRemoveFailed": "移除 Pi 插件失败",
     "providerTitle": "模型供应商",
-    "providerEmpty": "还没有供应商。",
+    "providerEmpty": "暂无供应商",
     "providerNoneDetected": "暂未识别到供应商",
     "providerCreateButton": "新建供应商",
     "providerImport": "从外部导入",

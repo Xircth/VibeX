@@ -11352,9 +11352,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-plugin-empty {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
   padding: 0 16px 16px;
   color: var(--text-muted);
   font-size: 0.75rem;
+  text-align: center;
 }
 
 .settings-page .dsh-auth-fields,
@@ -11362,6 +11368,23 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: grid;
   gap: 14px;
   padding: 0 16px 16px;
+}
+
+.settings-page .dsh-auth-fields .agent-model-provider-secret {
+  position: relative;
+  align-items: center;
+}
+
+.settings-page .dsh-auth-fields .agent-model-provider-secret > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-page .dsh-auth-fields .agent-model-provider-secret > button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
 }
 
 .settings-page .dsh-auth-model-row {

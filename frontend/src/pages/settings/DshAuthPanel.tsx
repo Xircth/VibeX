@@ -1,11 +1,13 @@
 import {
   ArrowLeft,
   Check,
+  Eye,
+  EyeOff,
   KeyRound,
   Loader2,
   Pencil,
   Plus,
-  Search,
+  ScanSearch,
   Server,
   Trash2,
 } from 'lucide-react';
@@ -51,6 +53,17 @@ const AUTH_TABS = [
 const OFFICIAL_ID = 'deepseek-official';
 const CUSTOM_ID = 'custom-gateway';
 const OFFICIAL_URL = 'https://api.deepseek.com';
+const OFFICIAL_ANTHROPIC_URL = 'https://api.deepseek.com/anthropic';
+const OFFICIAL_URLS = [OFFICIAL_URL, OFFICIAL_ANTHROPIC_URL] as const;
+
+function normalizeOfficialUrl(url?: string | null): string {
+  return (url ?? '').trim().replace(/\/+$/u, '');
+}
+
+function isOfficialBaseUrl(url?: string | null): boolean {
+  const normalized = normalizeOfficialUrl(url);
+  return OFFICIAL_URLS.some((candidate) => candidate === normalized);
+}
 
 type Draft = {
   mode: string;
@@ -79,11 +92,16 @@ export function DshAuthPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [apiKeyRevealed, setApiKeyRevealed] = useState(false);
   const [draft, setDraft] = useState<Draft>(
     () => peekAgentSettingsDraft<Draft>(DRAFT_KEY) ?? emptyDraft('deepseek')
   );
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const [availableModels, setAvailableModels] = useState<
+    DshProviderModelView[]
+  >(() => peekAgentSettingsDraft<Draft>(DRAFT_KEY)?.models ?? []);
+  const skipBlurSaveRef = useRef(false);
   const [customSurface, setCustomSurface] = useState<'list' | 'form'>(() =>
     peekAgentSettingsDraft<Draft>(DRAFT_KEY)?.mode === 'custom'
       ? 'form'
@@ -116,13 +134,17 @@ export function DshAuthPanel({
           (provider.id === next.default_provider || provider.credential_present)
       );
     const officialCustomUrl = officialProvider?.base_url?.trim();
+    const normalizedOfficialUrl = normalizeOfficialUrl(officialCustomUrl);
     if (mode !== 'custom') {
+      const officialBaseUrl = OFFICIAL_URLS.find(
+        (candidate) => candidate === normalizedOfficialUrl
+      );
       return {
         mode: 'deepseek',
-        apiKey: '',
+        apiKey: officialProvider?.api_key ?? '',
         displayName: officialProvider?.display_name ?? 'DeepSeek',
         notes: '',
-        baseUrl: OFFICIAL_URL,
+        baseUrl: officialBaseUrl ?? OFFICIAL_URL,
         models: officialProvider?.models ?? [],
         model:
           next.default_provider === OFFICIAL_ID
@@ -133,10 +155,10 @@ export function DshAuthPanel({
     const fromOfficialCustom =
       !customProvider &&
       Boolean(officialCustomUrl) &&
-      officialCustomUrl !== OFFICIAL_URL;
+      !isOfficialBaseUrl(officialCustomUrl);
     return {
       mode: 'custom',
-      apiKey: '',
+      apiKey: customProvider?.api_key ?? '',
       displayName: customProvider?.display_name ?? '',
       notes: customProvider?.notes ?? '',
       baseUrl: fromOfficialCustom
@@ -163,9 +185,11 @@ export function DshAuthPanel({
       ]);
       setView(next);
       setSavedMode(auth.mode);
-      setDraft(
-        peekAgentSettingsDraft<Draft>(DRAFT_KEY) ?? hydrate(next, auth.mode)
-      );
+      const initialDraft =
+        peekAgentSettingsDraft<Draft>(DRAFT_KEY) ?? hydrate(next, auth.mode);
+      draftRef.current = initialDraft;
+      setDraft(initialDraft);
+      setAvailableModels(initialDraft.models);
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.dshProviderLoadFailed'))
@@ -179,16 +203,42 @@ export function DshAuthPanel({
     void load();
   }, [load]);
 
-  const saved = view ? hydrate(view, savedMode) : emptyDraft(savedMode);
+  const editingCustom = editingId
+    ? (view?.providers.find((provider) => provider.id === editingId) ?? custom)
+    : custom;
+
+  const saved = useMemo(() => {
+    if (!view) return emptyDraft(savedMode);
+    if (draft.mode === 'custom' && editingId) {
+      const provider = view.providers.find((entry) => entry.id === editingId);
+      if (provider) {
+        return {
+          mode: 'custom',
+          apiKey: provider.api_key ?? '',
+          displayName: provider.display_name,
+          notes: provider.notes ?? '',
+          baseUrl: provider.base_url ?? '',
+          model:
+            view.default_provider === provider.id
+              ? view.default_model
+              : (provider.models[0]?.id ?? ''),
+          models: provider.models,
+        };
+      }
+    }
+    return hydrate(view, savedMode);
+  }, [draft.mode, editingId, hydrate, savedMode, view]);
+
   const dirty = useMemo(() => {
     if (!view) return false;
     return (
       draft.mode !== saved.mode ||
-      draft.apiKey.trim().length > 0 ||
+      draft.apiKey !== saved.apiKey ||
       draft.displayName !== saved.displayName ||
       draft.notes !== saved.notes ||
       draft.baseUrl !== saved.baseUrl ||
-      draft.model !== saved.model
+      draft.model !== saved.model ||
+      JSON.stringify(draft.models) !== JSON.stringify(saved.models)
     );
   }, [draft, saved, view]);
 
@@ -203,51 +253,13 @@ export function DshAuthPanel({
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange, saving]);
 
-  const editingCustom = editingId
-    ? (view?.providers.find((provider) => provider.id === editingId) ?? custom)
-    : custom;
-
-  const discover = async () => {
-    const url = officialMode ? OFFICIAL_URL : draft.baseUrl.trim();
-    if (!url) {
-      toast.warning(t('settings:agents.dshProviderUrlRequired'));
-      return;
-    }
-    setDiscovering(true);
-    try {
-      const discovered = await agentManagementApi.discoverDshModels({
-        base_url: url,
-        api_key: draft.apiKey.trim() || null,
-        provider_id: officialMode
-          ? OFFICIAL_ID
-          : editingId || custom?.id || CUSTOM_ID,
-      });
-      const models = discovered.length ? discovered : draftRef.current.models;
-      const next = {
-        ...draftRef.current,
-        models,
-        model: models.some((entry) => entry.id === draftRef.current.model)
-          ? draftRef.current.model
-          : (models[0]?.id ?? ''),
-      };
-      draftRef.current = next;
-      setDraft(next);
-      void save(next);
-    } catch (error) {
-      toast.error(
-        errorMessage(error, t('settings:agents.dshProviderDiscoverFailed'))
-      );
-    } finally {
-      setDiscovering(false);
-    }
-  };
-
   const draftChanged = (next: Draft) => {
     if (!view) return false;
-    const baseline = hydrate(view, savedMode);
+    const baseline =
+      next.mode === 'custom' && editingId ? saved : hydrate(view, savedMode);
     return (
       next.mode !== baseline.mode ||
-      next.apiKey.trim().length > 0 ||
+      next.apiKey !== baseline.apiKey ||
       next.displayName !== baseline.displayName ||
       next.notes !== baseline.notes ||
       next.baseUrl !== baseline.baseUrl ||
@@ -274,27 +286,32 @@ export function DshAuthPanel({
         isOfficial ? 'deepseek' : 'custom',
         next.apiKey.trim() || null
       );
-      const saved = await agentManagementApi.saveDshProvider({
+      const savedView = await agentManagementApi.saveDshProvider({
         id: isOfficial ? OFFICIAL_ID : editingId || custom?.id || CUSTOM_ID,
         display_name: isOfficial
           ? 'DeepSeek'
           : next.displayName.trim() || CUSTOM_ID,
         notes: isOfficial ? null : next.notes.trim() || null,
         api: isOfficial ? null : 'openai-completions',
-        base_url: isOfficial ? null : next.baseUrl.trim(),
+        base_url: isOfficial
+          ? next.baseUrl.trim() || OFFICIAL_URL
+          : next.baseUrl.trim(),
         api_key: next.apiKey.trim() || null,
         models: next.models,
         set_default: true,
         default_model: next.model.trim() || null,
       });
-      setView(saved);
+      setView(savedView);
       setSavedMode(isOfficial ? 'deepseek' : 'custom');
       setCustomSurface('list');
       setEditingId(null);
       clearAgentSettingsDraft(DRAFT_KEY);
-      const hydrated = hydrate(saved, isOfficial ? 'deepseek' : 'custom');
+      const hydrated = hydrate(savedView, isOfficial ? 'deepseek' : 'custom');
       draftRef.current = hydrated;
       setDraft(hydrated);
+      setAvailableModels((current) =>
+        mergeModelLists(current, hydrated.models)
+      );
       await onChanged?.();
     } catch (error) {
       toast.error(
@@ -305,12 +322,97 @@ export function DshAuthPanel({
     }
   };
 
+  const handleFieldBlur = () => {
+    if (skipBlurSaveRef.current || discovering) {
+      skipBlurSaveRef.current = false;
+      return;
+    }
+    void save();
+  };
+
+  const discover = async () => {
+    const isOfficial = draftRef.current.mode !== 'custom';
+    const url = isOfficial
+      ? draftRef.current.baseUrl.trim() || OFFICIAL_URL
+      : draftRef.current.baseUrl.trim();
+    if (!url) {
+      toast.warning(t('settings:agents.dshProviderUrlRequired'));
+      return;
+    }
+    setDiscovering(true);
+    try {
+      const discovered = await agentManagementApi.discoverDshModels({
+        base_url: url,
+        api_key: draftRef.current.apiKey.trim() || null,
+        provider_id: isOfficial
+          ? OFFICIAL_ID
+          : editingId || custom?.id || CUSTOM_ID,
+      });
+      const models = discovered.length ? discovered : draftRef.current.models;
+      setAvailableModels(models);
+      const next = {
+        ...draftRef.current,
+        models,
+        model: models.some((entry) => entry.id === draftRef.current.model)
+          ? draftRef.current.model
+          : (models[0]?.id ?? ''),
+      };
+      draftRef.current = next;
+      setDraft(next);
+      void save(next);
+    } catch (error) {
+      toast.error(
+        errorMessage(error, t('settings:agents.dshProviderDiscoverFailed'))
+      );
+    } finally {
+      skipBlurSaveRef.current = false;
+      setDiscovering(false);
+    }
+  };
+
   const patchDraft = (patch: Partial<Draft>, commit = false) => {
     const next = { ...draftRef.current, ...patch };
     draftRef.current = next;
     setDraft(next);
     if (commit) void save(next);
   };
+
+  const toggleAvailableModel = (modelId: string, checked: boolean) => {
+    const currentSelectedIds = new Set(
+      draftRef.current.models.map((entry) => entry.id)
+    );
+    if (checked) {
+      currentSelectedIds.add(modelId);
+    } else {
+      currentSelectedIds.delete(modelId);
+    }
+    const pool = mergeModelLists(availableModels, draftRef.current.models);
+    const nextModels = pool.filter((entry) => currentSelectedIds.has(entry.id));
+    const nextDefaultModel = nextModels.some(
+      (entry) => entry.id === draftRef.current.model
+    )
+      ? draftRef.current.model
+      : (nextModels[0]?.id ?? '');
+    patchDraft({ models: nextModels, model: nextDefaultModel }, true);
+  };
+
+  const toggleAllAvailableModels = (checked: boolean) => {
+    const nextModels = checked ? [...availableModels] : [];
+    const nextDefaultModel = nextModels.some(
+      (entry) => entry.id === draftRef.current.model
+    )
+      ? draftRef.current.model
+      : (nextModels[0]?.id ?? '');
+    patchDraft({ models: nextModels, model: nextDefaultModel }, true);
+  };
+
+  const selectedModelIds = useMemo(
+    () => new Set(draft.models.map((entry) => entry.id)),
+    [draft.models]
+  );
+  const allAvailableSelected =
+    availableModels.length > 0 &&
+    availableModels.every((item) => selectedModelIds.has(item.id));
 
   const modelOptions = draft.models
     .filter((entry) => entry.id.trim())
@@ -322,9 +424,11 @@ export function DshAuthPanel({
   const selectMode = (mode: string) => {
     setCustomSurface('list');
     setEditingId(null);
+    setApiKeyRevealed(false);
     const next = view ? hydrate(view, mode) : { ...draftRef.current, mode };
     draftRef.current = next;
     setDraft(next);
+    setAvailableModels(next.models);
   };
 
   const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
@@ -333,8 +437,9 @@ export function DshAuthPanel({
       name: entry.name ?? null,
     }));
     setEndpointCandidates(template.endpoint_candidates ?? []);
-    setDraft((current) => ({
-      ...current,
+    setAvailableModels(models);
+    const next: Draft = {
+      ...draftRef.current,
       mode: 'custom',
       apiKey: '',
       displayName: template.display_name?.trim() || template.name,
@@ -342,14 +447,18 @@ export function DshAuthPanel({
       baseUrl: template.base_url?.trim() || '',
       models,
       model: template.default_model?.trim() || models[0]?.id || '',
-    }));
+    };
+    draftRef.current = next;
+    setDraft(next);
   };
 
   const openCustomCreate = () => {
     setEditingId(null);
     setEndpointCandidates([]);
-    setDraft((current) => ({
-      ...current,
+    setApiKeyRevealed(false);
+    setAvailableModels([]);
+    const next: Draft = {
+      ...draftRef.current,
       mode: 'custom',
       apiKey: '',
       displayName: '',
@@ -357,7 +466,9 @@ export function DshAuthPanel({
       baseUrl: '',
       model: '',
       models: [],
-    }));
+    };
+    draftRef.current = next;
+    setDraft(next);
     setCustomSurface('form');
   };
 
@@ -367,9 +478,11 @@ export function DshAuthPanel({
     if (!provider) return;
     setEditingId(provider.id);
     setEndpointCandidates([]);
-    setDraft({
+    setApiKeyRevealed(false);
+    setAvailableModels(provider.models);
+    const next: Draft = {
       mode: 'custom',
-      apiKey: '',
+      apiKey: provider.api_key ?? '',
       displayName: provider.display_name,
       notes: provider.notes ?? '',
       baseUrl: provider.base_url ?? '',
@@ -378,7 +491,9 @@ export function DshAuthPanel({
           ? view.default_model
           : (provider.models[0]?.id ?? ''),
       models: provider.models,
-    });
+    };
+    draftRef.current = next;
+    setDraft(next);
     setCustomSurface('form');
   };
 
@@ -401,7 +516,10 @@ export function DshAuthPanel({
       await agentManagementApi.setAuthMode('deepseek_harness', 'custom', null);
       setView(next);
       setSavedMode('custom');
-      setDraft(hydrate(next, 'custom'));
+      const hydrated = hydrate(next, 'custom');
+      draftRef.current = hydrated;
+      setDraft(hydrated);
+      setAvailableModels(hydrated.models);
       await onChanged?.();
     } catch (error) {
       toast.error(
@@ -441,6 +559,175 @@ export function DshAuthPanel({
       .getElementById(`deepseek_harness-auth-mode-${next.value}`)
       ?.focus();
   };
+
+  const renderSecretKeyInput = (credentialPresent?: boolean) => (
+    <label className="agent-auth-mode-field">
+      <span>{t('settings:agents.dshProviderApiKey')}</span>
+      <div className="agent-model-provider-secret">
+        <TextInput
+          label={t('settings:agents.dshProviderApiKey')}
+          isLabelHidden
+          type={apiKeyRevealed ? 'text' : 'password'}
+          htmlName="dsh_api_key"
+          placeholder={
+            credentialPresent
+              ? t('settings:agents.credentialSavedPlaceholder')
+              : t('settings:agents.credentialPlaceholder')
+          }
+          value={draft.apiKey}
+          onBlur={handleFieldBlur}
+          onChange={(value) => patchDraft({ apiKey: value })}
+          width="100%"
+          className="[&_input]:pr-9 [&_input]:text-sm"
+        />
+        <Button
+          size="sm"
+          type="button"
+          variant="ghost"
+          className="h-8 w-8 p-0"
+          aria-label={
+            apiKeyRevealed
+              ? t('settings:agents.providerHideKey')
+              : t('settings:agents.providerShowKey')
+          }
+          disabled={saving || !draft.apiKey}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setApiKeyRevealed((current) => !current)}
+        >
+          {apiKeyRevealed ? (
+            <EyeOff aria-hidden="true" className="h-3.5 w-3.5" />
+          ) : (
+            <Eye aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </div>
+    </label>
+  );
+
+  const renderModelSelection = () => (
+    <>
+      <div className="agent-model-provider-detection">
+        <div className="provider-detected-models-heading">
+          <span className="provider-detected-models-title">
+            {t('settings:agents.providerDetectedModels')}
+          </span>
+          <Button
+            className="h-8"
+            aria-busy={discovering}
+            disabled={discovering || saving}
+            size="sm"
+            type="button"
+            variant="outline"
+            onMouseDown={() => {
+              skipBlurSaveRef.current = true;
+            }}
+            onClick={() => void discover()}
+          >
+            {discovering ? (
+              <Loader2
+                aria-hidden="true"
+                className="mr-1.5 h-3.5 w-3.5 animate-spin"
+              />
+            ) : (
+              <ScanSearch aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {t('settings:agents.dshProviderFetchModels')}
+          </Button>
+          {discovering ? (
+            <p aria-live="polite">
+              {t('settings:agents.providerDetectingModels')}
+            </p>
+          ) : availableModels.length > 0 ? (
+            <p aria-live="polite">
+              {t('settings:agents.providerDetectedModelCount', {
+                count: availableModels.length,
+              })}
+            </p>
+          ) : null}
+          {availableModels.length > 0 ? (
+            <div className="provider-detected-models-heading-actions">
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                className="h-7"
+                disabled={saving || discovering || allAvailableSelected}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => toggleAllAvailableModels(true)}
+              >
+                {t('settings:agents.providerDetectedSelectAll')}
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                className="h-7"
+                disabled={
+                  saving || discovering || selectedModelIds.size === 0
+                }
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => toggleAllAvailableModels(false)}
+              >
+                {t('settings:agents.providerDetectedClear')}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        {availableModels.length > 0 ? (
+          <div
+            className="provider-detected-models"
+            role="group"
+            aria-label={t('settings:agents.providerDetectedModels')}
+          >
+            {availableModels.map((item) => {
+              const displayLabel = item.name?.trim() || item.id;
+              return (
+                <label key={item.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedModelIds.has(item.id)}
+                    disabled={saving || discovering}
+                    name={`detected_model_${item.id}`}
+                    onChange={(event) =>
+                      toggleAvailableModel(item.id, event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>{displayLabel}</strong>
+                    {item.name && item.name.trim() !== item.id ? (
+                      <code title={item.id}>{item.id}</code>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+      <label className="agent-auth-mode-field">
+        <span>{t('settings:agents.dshProviderDefaultModel')}</span>
+        {modelOptions.length ? (
+          <AstryxSelect
+            ariaLabel={t('settings:agents.dshProviderDefaultModel')}
+            options={modelOptions}
+            value={draft.model}
+            onChange={(model) => patchDraft({ model }, true)}
+          />
+        ) : (
+          <TextInput
+            label={t('settings:agents.dshProviderDefaultModel')}
+            isLabelHidden
+            htmlName="dsh_model"
+            value={draft.model}
+            onBlur={handleFieldBlur}
+            onChange={(value) => patchDraft({ model: value })}
+            width="100%"
+            className="[&_input]:text-sm"
+          />
+        )}
+      </label>
+    </>
+  );
 
   return (
     <>
@@ -527,83 +814,25 @@ export function DshAuthPanel({
                 <>
                   <label className="agent-auth-mode-field">
                     <span>API URL</span>
-                    <TextInput
-                      ref={(input) => {
-                        if (input) input.readOnly = true;
-                      }}
-                      label="API URL"
-                      isLabelHidden
-                      value={OFFICIAL_URL}
-                      onChange={() => undefined}
-                      width="100%"
-                      className="[&_input]:text-sm"
-                    />
-                  </label>
-                  <label className="agent-auth-mode-field">
-                    <span>{t('settings:agents.dshProviderApiKey')}</span>
-                    <TextInput
-                      label={t('settings:agents.dshProviderApiKey')}
-                      isLabelHidden
-                      type="password"
-                      htmlName="dsh_api_key"
-                      placeholder={
-                        official?.credential_present
-                          ? t('settings:agents.credentialSavedPlaceholder')
-                          : t('settings:agents.credentialPlaceholder')
+                    <AstryxSelect
+                      ariaLabel="API URL"
+                      disabled={saving}
+                      options={OFFICIAL_URLS.map((url) => ({
+                        value: url,
+                        label: url,
+                      }))}
+                      value={
+                        OFFICIAL_URLS.includes(
+                          draft.baseUrl as (typeof OFFICIAL_URLS)[number]
+                        )
+                          ? draft.baseUrl
+                          : OFFICIAL_URL
                       }
-                      value={draft.apiKey}
-                      onBlur={() => void save()}
-                      onChange={(value) => patchDraft({ apiKey: value })}
-                      width="100%"
-                      className="[&_input]:text-sm"
+                      onChange={(value) => patchDraft({ baseUrl: value }, true)}
                     />
                   </label>
-                  <div className="dsh-auth-model-row">
-                    <label className="agent-auth-mode-field">
-                      <span>
-                        {t('settings:agents.dshProviderDefaultModel')}
-                      </span>
-                      {modelOptions.length ? (
-                        <AstryxSelect
-                          ariaLabel={t(
-                            'settings:agents.dshProviderDefaultModel'
-                          )}
-                          options={modelOptions}
-                          value={draft.model}
-                          onChange={(model) => patchDraft({ model }, true)}
-                        />
-                      ) : (
-                        <TextInput
-                          label={t('settings:agents.dshProviderDefaultModel')}
-                          isLabelHidden
-                          htmlName="dsh_model"
-                          value={draft.model}
-                          onBlur={() => void save()}
-                          onChange={(value) => patchDraft({ model: value })}
-                          width="100%"
-                          className="[&_input]:text-sm"
-                        />
-                      )}
-                    </label>
-                    <Button
-                      className="h-8"
-                      disabled={discovering || saving}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                      onClick={() => void discover()}
-                    >
-                      {discovering ? (
-                        <Loader2
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 animate-spin"
-                        />
-                      ) : (
-                        <Search aria-hidden="true" className="h-3.5 w-3.5" />
-                      )}
-                      {t('settings:agents.dshProviderFetchModels')}
-                    </Button>
-                  </div>
+                  {renderSecretKeyInput(official?.credential_present)}
+                  {renderModelSelection()}
                 </>
               ) : customSurface === 'form' ? (
                 <div className="agent-model-provider-form">
@@ -614,8 +843,14 @@ export function DshAuthPanel({
                       className="h-8"
                       onClick={() => {
                         setEndpointCandidates([]);
+                        setApiKeyRevealed(false);
                         setCustomSurface('list');
-                        if (view) setDraft(hydrate(view, 'custom'));
+                        if (view) {
+                          const next = hydrate(view, 'custom');
+                          draftRef.current = next;
+                          setDraft(next);
+                          setAvailableModels(next.models);
+                        }
                       }}
                     >
                       <ArrowLeft
@@ -639,15 +874,18 @@ export function DshAuthPanel({
                       onSelect={(next) => {
                         if (next === 'custom') {
                           setEndpointCandidates([]);
-                          setDraft((current) => ({
-                            ...current,
+                          setAvailableModels([]);
+                          const cleared: Draft = {
+                            ...draftRef.current,
                             apiKey: '',
                             displayName: '',
                             notes: '',
                             baseUrl: '',
                             model: '',
                             models: [],
-                          }));
+                          };
+                          draftRef.current = cleared;
+                          setDraft(cleared);
                           return;
                         }
                         applyCatalogTemplate(next);
@@ -666,7 +904,7 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_name"
                       value={draft.displayName}
-                      onBlur={() => void save()}
+                      onBlur={handleFieldBlur}
                       onChange={(value) => patchDraft({ displayName: value })}
                       width="100%"
                       className="[&_input]:text-sm"
@@ -679,7 +917,7 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_notes"
                       value={draft.notes}
-                      onBlur={() => void save()}
+                      onBlur={handleFieldBlur}
                       onChange={(value) => patchDraft({ notes: value })}
                       width="100%"
                       className="[&_input]:text-sm"
@@ -692,7 +930,7 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_url"
                       value={draft.baseUrl}
-                      onBlur={() => void save()}
+                      onBlur={handleFieldBlur}
                       onChange={(value) => patchDraft({ baseUrl: value })}
                       width="100%"
                       className="[&_input]:text-sm"
@@ -709,71 +947,8 @@ export function DshAuthPanel({
                       onChange={(value) => patchDraft({ baseUrl: value }, true)}
                     />
                   ) : null}
-                  <label className="agent-auth-mode-field">
-                    <span>{t('settings:agents.dshProviderApiKey')}</span>
-                    <TextInput
-                      label={t('settings:agents.dshProviderApiKey')}
-                      isLabelHidden
-                      type="password"
-                      htmlName="dsh_api_key"
-                      placeholder={
-                        editingCustom?.credential_present
-                          ? t('settings:agents.credentialSavedPlaceholder')
-                          : t('settings:agents.credentialPlaceholder')
-                      }
-                      value={draft.apiKey}
-                      onBlur={() => void save()}
-                      onChange={(value) => patchDraft({ apiKey: value })}
-                      width="100%"
-                      className="[&_input]:text-sm"
-                    />
-                  </label>
-                  <div className="dsh-auth-model-row">
-                    <label className="agent-auth-mode-field">
-                      <span>
-                        {t('settings:agents.dshProviderDefaultModel')}
-                      </span>
-                      {modelOptions.length ? (
-                        <AstryxSelect
-                          ariaLabel={t(
-                            'settings:agents.dshProviderDefaultModel'
-                          )}
-                          options={modelOptions}
-                          value={draft.model}
-                          onChange={(model) => patchDraft({ model }, true)}
-                        />
-                      ) : (
-                        <TextInput
-                          label={t('settings:agents.dshProviderDefaultModel')}
-                          isLabelHidden
-                          htmlName="dsh_model"
-                          value={draft.model}
-                          onBlur={() => void save()}
-                          onChange={(value) => patchDraft({ model: value })}
-                          width="100%"
-                          className="[&_input]:text-sm"
-                        />
-                      )}
-                    </label>
-                    <Button
-                      className="h-8"
-                      disabled={discovering || saving}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                      onClick={() => void discover()}
-                    >
-                      {discovering ? (
-                        <Loader2
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 animate-spin"
-                        />
-                      ) : (
-                        <Search aria-hidden="true" className="h-3.5 w-3.5" />
-                      )}
-                      {t('settings:agents.dshProviderFetchModels')}
-                    </Button>
-                  </div>
+                  {renderSecretKeyInput(editingCustom?.credential_present)}
+                  {renderModelSelection()}
                 </div>
               ) : (
                 <div className="agent-model-provider-manager is-embedded">
@@ -872,6 +1047,20 @@ export function DshAuthPanel({
       </section>
     </>
   );
+}
+
+function mergeModelLists(
+  primary: DshProviderModelView[],
+  secondary: DshProviderModelView[]
+): DshProviderModelView[] {
+  const seen = new Set<string>();
+  const merged: DshProviderModelView[] = [];
+  for (const item of [...primary, ...secondary]) {
+    if (!item.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged;
 }
 
 function emptyDraft(mode: string): Draft {

@@ -32,7 +32,7 @@ pub async fn start_loopback_preview_proxy(
     registry: PreviewProxyRegistry,
 ) -> anyhow::Result<String> {
     let state = StandalonePreviewProxy {
-        registry,
+        registry: registry.clone(),
         client: preview_client()?,
     };
     let router = axum::Router::new()
@@ -47,15 +47,18 @@ pub async fn start_loopback_preview_proxy(
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
+    let endpoint = format!("http://{address}");
+    registry.set_loopback_endpoint(endpoint.clone()).await;
     tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
             tracing::warn!(%error, "Desktop preview proxy stopped");
         }
     });
-    Ok(format!("http://{address}"))
+    Ok(endpoint)
 }
 
 pub fn preview_client() -> Result<reqwest::Client, reqwest::Error> {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -75,9 +78,22 @@ struct PreviewRegistration {
 #[derive(Clone, Default)]
 pub struct PreviewProxyRegistry {
     registrations: Arc<RwLock<HashMap<Uuid, PreviewRegistration>>>,
+    loopback_endpoint: Arc<RwLock<Option<String>>>,
 }
 
 impl PreviewProxyRegistry {
+    pub async fn set_loopback_endpoint(&self, endpoint: String) {
+        *self.loopback_endpoint.write().await = Some(endpoint);
+    }
+
+    pub async fn preview_url(&self, lease_id: Uuid, capability: &str) -> Option<String> {
+        let endpoint = self.loopback_endpoint.read().await.clone()?;
+        Some(format!(
+            "{}/api/v1/previews/{lease_id}/c/{capability}/",
+            endpoint.trim_end_matches('/')
+        ))
+    }
+
     pub async fn register(
         &self,
         lease_id: Uuid,

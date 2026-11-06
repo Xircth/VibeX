@@ -350,3 +350,18 @@ async fn sse_proxy_yields_events_without_waiting_for_the_upstream_to_close() {
     assert!(first.contains(&format!("/api/v1/previews/{lease}/c/{CAPABILITY}/slides/1")));
     upstream.abort();
 }
+
+#[tokio::test]
+async fn loopback_preview_proxy_records_endpoint_and_builds_capability_url() {
+    let registry = server::PreviewProxyRegistry::default();
+    let lease = Uuid::new_v4();
+    assert_eq!(registry.preview_url(lease, CAPABILITY).await, None);
+
+    let endpoint = server::start_loopback_preview_proxy(registry.clone())
+        .await
+        .expect("loopback preview proxy");
+    assert_eq!(
+        registry.preview_url(lease, CAPABILITY).await,
+        Some(format!("{endpoint}/api/v1/previews/{lease}/c/{CAPABILITY}/"))
+    );
+}

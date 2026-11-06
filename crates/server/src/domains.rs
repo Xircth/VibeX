@@ -1788,6 +1788,10 @@ impl ServerApplicationDomains {
                     )
                     .await
                     .map_err(internal_error)?;
+                let preview_url = self
+                    .preview_proxy
+                    .preview_url(lease_id, &lease.capability_token)
+                    .await;
                 Ok(json!({
                     "pluginId": resolved.plugin_id,
                     "providerId": provider_id,
@@ -1796,6 +1800,7 @@ impl ServerApplicationDomains {
                     "capabilityToken": lease.capability_token,
                     "expiresAtUnixMs": lease.expires_at_unix_ms,
                     "port": lease.loopback_port,
+                    "previewUrl": preview_url,
                     "errorCode": Value::Null,
                     "errorMessage": Value::Null,
                 }))
@@ -1808,6 +1813,7 @@ impl ServerApplicationDomains {
                 "capabilityToken": Value::Null,
                 "expiresAtUnixMs": Value::Null,
                 "port": Value::Null,
+                "previewUrl": Value::Null,
                 "errorCode": "PREVIEW_WORKER_FAILED",
                 "errorMessage": error,
             })),
@@ -2048,6 +2054,10 @@ impl ServerApplicationDomains {
             )
             .await
             .map_err(internal_error)?;
+        let preview_url = self
+            .preview_proxy
+            .preview_url(lease_id, &lease.capability_token)
+            .await;
         Ok(json!({
             "leaseId": lease_id,
             "artifactId": args.artifact_id,
@@ -2055,6 +2065,7 @@ impl ServerApplicationDomains {
             "loopbackPort": lease.loopback_port,
             "capabilityToken": lease.capability_token,
             "expiresAtUnixMs": lease.expires_at_unix_ms,
+            "previewUrl": preview_url,
             "docxFallbackSupported": false,
         }))
     }

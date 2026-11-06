@@ -57,6 +57,28 @@ describe('PluginFilePreview', () => {
     });
   });
 
+  it('prefers the desktop loopback previewUrl returned by the host without calling transport.artifactPreviewUrl', async () => {
+    openFilePreview.mockResolvedValue({
+      pluginId: 'vibex.office',
+      providerId: 'office-preview',
+      generation: 1,
+      leaseId: 'lease-desktop',
+      capabilityToken: 'desktop-capability',
+      expiresAtUnixMs: 1000,
+      port: 43121,
+      previewUrl:
+        'http://127.0.0.1:55123/api/v1/previews/lease-desktop/c/desktop-capability/',
+      errorCode: null,
+      errorMessage: null,
+    });
+    render(<PluginFilePreview filePath="/workspace/sheet.xlsx" />);
+    const frame = await screen.findByTitle('vibex.office preview');
+    expect(frame).toHaveAttribute(
+      'src',
+      'http://127.0.0.1:55123/api/v1/previews/lease-desktop/c/desktop-capability/'
+    );
+  });
+
   it('contains provider failure without taking down the preview panel', async () => {
     openFilePreview.mockResolvedValue({
       pluginId: 'vibex.office',

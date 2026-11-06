@@ -1073,9 +1073,14 @@ function buildContextPayloadFromMonaco(
     triggerKind?: number | string;
     manual?: boolean;
   } | null;
+  const isPendingManual = Date.now() < pendingManualInlineTriggerUntil;
+  if (isPendingManual) {
+    pendingManualInlineTriggerUntil = 0;
+  }
   const manual =
+    isPendingManual ||
     Boolean(ctxLike?.manual) ||
-    ctxLike?.triggerKind === 0 ||
+    ctxLike?.triggerKind === 1 ||
     ctxLike?.triggerKind === 'explicit';
 
   return {
@@ -1095,6 +1100,8 @@ function buildContextPayloadFromMonaco(
     }),
   };
 }
+
+let pendingManualInlineTriggerUntil = 0;
 
 function attachInlineCompletionToMonaco(
   id: string,
@@ -1129,7 +1136,7 @@ function attachInlineCompletionToMonaco(
 
   const selector =
     !registration.languages || registration.languages === '*'
-      ? { pattern: '**' }
+      ? '*'
       : registration.languages;
 
   const disposable = registerFn(selector, {
@@ -1409,10 +1416,22 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
       languages,
       provideInlineCompletions: async (context, rawMonacoArgs) => {
         if (rawMonacoArgs) {
+          const completionCtx =
+            context.manual &&
+            rawMonacoArgs.completionContext &&
+            typeof rawMonacoArgs.completionContext === 'object'
+              ? {
+                  ...(rawMonacoArgs.completionContext as Record<
+                    string,
+                    unknown
+                  >),
+                  manual: true,
+                }
+              : rawMonacoArgs.completionContext;
           return provider.provideInlineCompletions(
             rawMonacoArgs.model,
             rawMonacoArgs.position,
-            rawMonacoArgs.completionContext,
+            completionCtx,
             rawMonacoArgs.token
           );
         }
@@ -1420,7 +1439,7 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
           context,
           context.position,
           {
-            triggerKind: context.manual ? 0 : 1,
+            triggerKind: context.manual ? 1 : 0,
             manual: context.manual,
           },
           context.signal
@@ -1484,6 +1503,7 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
       trigger?: (source: string, handlerId: string, payload?: unknown) => void;
     } | null;
     if (typeof editorLike?.trigger === 'function') {
+      pendingManualInlineTriggerUntil = Date.now() + 1500;
       editorLike.trigger(
         'vibex.code-editor',
         'editor.action.inlineSuggest.trigger',

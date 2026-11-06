@@ -186,11 +186,21 @@ export function usePluginContributionCatalogSync() {
     }
     let cancelled = false;
     void Promise.all([
+      import('@/features/plugins/providers/hostProviderServices'),
+      import('@/features/plugins/coreFoundationPlugins'),
       import('@/features/plugins/monorepoPluginBootstrap'),
       import('@/features/plugins/PluginRuntimeLoader'),
-    ]).then(([monorepoBootstrap, runtimeLoader]) => {
-      if (cancelled) return;
-      const activeIds = new Set<string>();
+    ]).then(
+      ([
+        providerServices,
+        coreFoundation,
+        monorepoBootstrap,
+        runtimeLoader,
+      ]) => {
+        if (cancelled) return;
+        providerServices.ensureHostProviderServicesRegistered();
+        coreFoundation.ensureCoreFoundationPluginsBootstrapped();
+        const activeIds = new Set<string>();
       for (const item of items) {
         activeIds.add(item.pluginId);
         const monorepoBundle = monorepoBootstrap.getMonorepoPluginBundle(

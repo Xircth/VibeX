@@ -407,6 +407,110 @@ mod tests {
             assert!(columns.iter().any(|c| c == column), "missing {column}");
         }
     }
+
+    #[tokio::test]
+    async fn duplicate_project_repo_paths_are_deduplicated_during_root_path_migration() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+
+        let migrator = sqlx::migrate!("./migrations");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+                version BIGINT PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time BIGINT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create _sqlx_migrations");
+
+        for migration in migrator.iter() {
+            if migration.migration_type.is_down_migration() || migration.version < 20260918010000 {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (?, ?, 1, ?, 1)",
+            )
+            .bind(migration.version)
+            .bind(migration.description.as_ref())
+            .bind(migration.checksum.as_ref())
+            .execute(&pool)
+            .await
+            .expect("pre-mark post-target migration");
+        }
+        migrator.run(&pool).await.expect("run pre-migrations");
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version >= 20260918010000")
+            .execute(&pool)
+            .await
+            .expect("unmark target and later migrations");
+
+        let repo_id = Uuid::new_v4();
+        let older_project_id = Uuid::new_v4();
+        let newer_project_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO repos (id, path, name, display_name, created_at, updated_at)
+             VALUES (?, '/workspace/dup-repo', 'dup-repo', 'Dup Repo', '2026-01-01 00:00:00', '2026-01-01 00:00:00')",
+        )
+        .bind(repo_id)
+        .execute(&pool)
+        .await
+        .expect("insert repo");
+
+        sqlx::query(
+            "INSERT INTO projects (id, name, created_at, updated_at)
+             VALUES (?, 'Older Dup', '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
+                    (?, 'Newer Dup', '2026-01-02 00:00:00', '2026-01-02 00:00:00')",
+        )
+        .bind(older_project_id)
+        .bind(newer_project_id)
+        .execute(&pool)
+        .await
+        .expect("insert duplicate projects");
+
+        sqlx::query(
+            "INSERT INTO project_repos (id, project_id, repo_id)
+             VALUES (?, ?, ?), (?, ?, ?)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(older_project_id)
+        .bind(repo_id)
+        .bind(Uuid::new_v4())
+        .bind(newer_project_id)
+        .bind(repo_id)
+        .execute(&pool)
+        .await
+        .expect("link duplicate projects to same repo");
+
+        run_migrations(&pool)
+            .await
+            .expect("migrations should deduplicate duplicate root_path rows");
+
+        let older_hidden: i64 =
+            sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
+                .bind(older_project_id)
+                .fetch_one(&pool)
+                .await
+                .expect("older hidden");
+        let newer_hidden: i64 =
+            sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
+                .bind(newer_project_id)
+                .fetch_one(&pool)
+                .await
+                .expect("newer hidden");
+        assert_eq!(older_hidden, 1, "older duplicate project must be soft-hidden");
+        assert_eq!(newer_hidden, 0, "newest duplicate project must remain visible");
+    }
 }
 
 fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
@@ -518,8 +622,17 @@ impl DBService {
             .idle_timeout(Duration::from_secs(30))
             .acquire_timeout(Duration::from_secs(30));
 
-        let pool = if let Some(hook) = after_connect {
-            pool_options
+        if let Some(hook) = after_connect {
+            let migration_pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .min_connections(1)
+                .acquire_timeout(Duration::from_secs(30))
+                .connect_with(options.clone())
+                .await?;
+            run_migrations(&migration_pool).await?;
+            migration_pool.close().await;
+
+            let pool = pool_options
                 .after_connect(move |conn, _meta| {
                     let hook = hook.clone();
                     Box::pin(async move {
@@ -528,12 +641,12 @@ impl DBService {
                     })
                 })
                 .connect_with(options)
-                .await?
+                .await?;
+            Ok(pool)
         } else {
-            pool_options.connect_with(options).await?
-        };
-
-        run_migrations(&pool).await?;
-        Ok(pool)
+            let pool = pool_options.connect_with(options).await?;
+            run_migrations(&pool).await?;
+            Ok(pool)
+        }
     }
 }

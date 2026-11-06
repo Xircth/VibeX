@@ -63,6 +63,11 @@
           "default": "auto",
           "description": "Trigger mode: automatic debounced inline completion while typing or manual shortcut trigger only."
         },
+        "manualShortcut": {
+          "type": "string",
+          "default": "Alt+\\",
+          "description": "Keyboard shortcut to manually trigger inline code completion in the editor (e.g. Alt+\\, Ctrl+Shift+Space, Alt+I)."
+        },
         "completionScope": {
           "type": "string",
           "enum": [

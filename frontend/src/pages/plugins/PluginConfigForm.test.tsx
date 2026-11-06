@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { CodeCompletionStatusPopover } from '@/components/plugins/CodeCompletionStatusPopover';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { BackendTransportProvider } from '@/lib/transport';
 import type { BackendTransport } from '@/lib/backendTransport';
 import type { PluginProductDetail } from '@/lib/api/plugins';
@@ -219,4 +221,287 @@ describe('PluginConfigForm', () => {
     expect(ConfirmDialog.show).not.toHaveBeenCalled();
     expect(toggle).toHaveAttribute('data-state', 'checked');
   });
+
+  it('does not save on every keystroke in text inputs and saves once on blur without losing focus', async () => {
+    const user = userEvent.setup();
+    const transport = renderForm(
+      {
+        summary: 'Code Completion',
+        readme: '# Code Completion',
+        contents: [],
+        config: {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: '',
+          model: 'gpt-4o-mini',
+        },
+        configSchema: {
+          type: 'object',
+          properties: {
+            baseUrl: { type: 'string', title: 'Base URL' },
+            apiKey: { type: 'string', title: 'API Key' },
+            model: { type: 'string', title: '补全模型', default: 'gpt-4o-mini' },
+          },
+        },
+      },
+      'vibex.code-completion'
+    );
+
+    const apiKeyInput = screen.getByLabelText('API Key');
+    await user.click(apiKeyInput);
+    await user.type(apiKeyInput, 'sk-test-123');
+
+    expect(apiKeyInput).toHaveValue('sk-test-123');
+    expect(apiKeyInput).toHaveFocus();
+    expect(transport.call).not.toHaveBeenCalledWith(
+      'plugin_save_config',
+      expect.anything()
+    );
+
+    await user.tab();
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledTimes(1);
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'sk-test-123',
+          model: 'gpt-4o-mini',
+        },
+      });
+    });
+  });
+
+  it('fetches models via button and populates the model selector dropdown', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-deepseek',
+        model: 'gpt-4o-mini',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          baseUrl: { type: 'string', title: 'Base URL' },
+          apiKey: { type: 'string', title: 'API Key' },
+          model: { type: 'string', title: '补全模型', default: 'gpt-4o-mini' },
+        },
+      },
+    };
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command, args) => {
+        if (command === 'dsh_provider_discover_models') {
+          return [
+            { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+            { id: 'deepseek-coder', name: 'DeepSeek Coder' },
+          ];
+        }
+        return {
+          ...detail,
+          config:
+            args && typeof args === 'object' && 'config' in args
+              ? (args as { config: Record<string, unknown> }).config
+              : detail.config,
+        };
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <PluginConfigForm
+            pluginId="vibex.code-completion"
+            detail={detail}
+            onSaved={vi.fn()}
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    const fetchButton = screen.getByRole('button', {
+      name: /拉取模型|Fetch models/i,
+    });
+    await user.click(fetchButton);
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith(
+        'dsh_provider_discover_models',
+        {
+          request: {
+            base_url: 'https://api.deepseek.com/v1',
+            api_key: 'sk-deepseek',
+            provider_id: null,
+          },
+        }
+      );
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: 'sk-deepseek',
+          model: 'deepseek-chat',
+        },
+      });
+    });
+  });
+
+  it('records and saves manualShortcut when clicking Record shortcut button', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        manualShortcut: 'Alt+\\',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          manualShortcut: {
+            type: 'string',
+            title: '手动补全快捷键',
+            default: 'Alt+\\',
+          },
+        },
+      },
+    };
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn().mockImplementation(async (command, args) => {
+        if (command === 'plugin_save_config') {
+          return {
+            ...detail,
+            config: (args as { config: Record<string, unknown> }).config,
+          };
+        }
+        return detail;
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <PluginConfigForm
+            pluginId="vibex.code-completion"
+            detail={detail}
+            onSaved={vi.fn()}
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    const recordButton = screen.getByRole('button', {
+      name: /录制快捷键|Record shortcut/i,
+    });
+    await user.click(recordButton);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'i',
+        code: 'KeyI',
+        altKey: true,
+        ctrlKey: true,
+        bubbles: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          manualShortcut: 'Ctrl+Alt+I',
+        },
+      });
+    });
+  });
+
+  it('opens CodeCompletionStatusPopover from the status bar icon to toggle enabled, switch model, and record shortcut', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        enabled: true,
+        baseUrl: 'https://api.deepseek.com',
+        apiKey: 'sk-test',
+        model: 'deepseek-flash',
+        triggerMode: 'auto',
+        manualShortcut: 'Alt+\\',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {},
+      },
+    };
+
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn().mockImplementation(async (command, args) => {
+        if (command === 'plugin_product_detail') {
+          return detail;
+        }
+        if (command === 'plugin_save_config') {
+          return {
+            ...detail,
+            config: (args as { config: Record<string, unknown> }).config,
+          };
+        }
+        return {};
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <CodeCompletionStatusPopover
+            icon={contributionIconComponent('sparkles')}
+            label="AI代码补全"
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByTestId('code-completion-status-trigger'));
+
+    const switchEl = await screen.findByRole('switch');
+    await user.click(switchEl);
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith(
+        'plugin_save_config',
+        expect.objectContaining({
+          pluginId: 'vibex.code-completion',
+          config: expect.objectContaining({
+            enabled: false,
+          }),
+        })
+      );
+    });
+  });
 });
+
+

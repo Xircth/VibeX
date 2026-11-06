@@ -20,6 +20,23 @@ SET root_path = COALESCE(
 )
 WHERE root_path = '';
 
+UPDATE projects
+SET hidden = 1
+WHERE hidden = 0
+  AND root_path != ''
+  AND rowid NOT IN (
+      SELECT rowid FROM (
+          SELECT rowid,
+                 ROW_NUMBER() OVER (
+                     PARTITION BY root_path
+                     ORDER BY updated_at DESC, rowid DESC
+                 ) AS rn
+          FROM projects
+          WHERE hidden = 0 AND root_path != ''
+      )
+      WHERE rn = 1
+  );
+
 CREATE INDEX idx_projects_parent_project_id ON projects(parent_project_id);
 CREATE INDEX idx_projects_hidden ON projects(hidden);
 

@@ -23,7 +23,10 @@ import {
 import appPlugin, {
   applyWithUndoStopBarrier,
   computeAdaptiveDebounceMs,
+  doesEventMatchShortcut,
   ForwardTypingCache,
+  parseShortcutDescriptor,
+  resolveInlineCompletionRangeAndText,
 } from '../app/main.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -428,3 +431,179 @@ test('app entrypoint supports adaptive debounce, forward-typing prefix cache, an
 
   instance.dispose();
 });
+
+test('handles comment + Enter newline framing in Python files and late vibex.code-editor registration', async () => {
+  assert.equal(
+    postProcessCompletion('<COMPLETION>\nimport pygame\nimport random\n</COMPLETION>', {
+      prefix: '//贪吃蛇游戏\n',
+      suffix: '',
+      isSingleLine: false,
+    }),
+    'import pygame\nimport random',
+  );
+  assert.equal(
+    postProcessCompletion('\nimport pygame\nimport random', {
+      prefix: '# 贪吃蛇游戏\n',
+      suffix: '',
+      isSingleLine: false,
+    }),
+    'import pygame\nimport random',
+  );
+
+  let registeredProvider = null;
+  let changeListener = null;
+  let cancelCalls = 0;
+
+  const instance = await appPlugin.activate({
+    services: {
+      get() {
+        return null;
+      },
+      onChange(serviceId, cb) {
+        if (serviceId === 'vibex.code-editor') {
+          changeListener = cb;
+        }
+        return () => {};
+      },
+    },
+    async invokeWorker(method) {
+      if (method === 'completion.cancel') {
+        cancelCalls += 1;
+      }
+      return { items: [{ insertText: 'import pygame' }] };
+    },
+  });
+
+  assert.equal(registeredProvider, null);
+  assert.equal(typeof changeListener, 'function');
+
+  changeListener({
+    registerInlineCompletionProvider(_selector, provider) {
+      registeredProvider = provider;
+      return { dispose() {} };
+    },
+  });
+  assert.ok(registeredProvider);
+
+  // Cancelling when no worker request is in flight should not emit completion.cancel IPC
+  instance.cancelActiveCompletion();
+  assert.equal(cancelCalls, 0);
+
+  instance.dispose();
+});
+
+test('supports customizable manualShortcut and enforces triggerMode === manual', async () => {
+  assert.deepEqual(parseShortcutDescriptor('Alt+\\'), {
+    ctrl: false,
+    alt: true,
+    shift: false,
+    meta: false,
+    key: '\\',
+  });
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, key: '\\', code: 'Backslash' },
+      'Alt+\\',
+    ),
+    true,
+  );
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: true, shiftKey: false, metaKey: false, key: ' ', code: 'Space' },
+      'Ctrl+Alt+Space',
+    ),
+    true,
+  );
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, key: 'ˆ', code: 'KeyI' },
+      'Alt+I',
+    ),
+    true,
+  );
+
+  // Worker skips automatic requests when triggerMode === 'manual', but runs manual requests
+  const engine = new CodeCompletionEngine({
+    config: {
+      enabled: true,
+      triggerMode: 'manual',
+      manualShortcut: 'Alt+I',
+      apiKey: 'sk-test',
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{ message: { content: '<COMPLETION>manualResult()</COMPLETION>' } }],
+        };
+      },
+    }),
+  });
+
+  const skippedAuto = await engine.complete({
+    filePath: 'src/app.py',
+    languageId: 'python',
+    prefix: 'def run():\n    ',
+    suffix: '',
+    manual: false,
+  });
+  assert.equal(skippedAuto.skippedReason, 'manual-trigger-only');
+  assert.equal(skippedAuto.items.length, 0);
+
+  const allowedManual = await engine.complete({
+    filePath: 'src/app.py',
+    languageId: 'python',
+    prefix: 'def run():\n    ',
+    suffix: '',
+    manual: true,
+  });
+  assert.equal(allowedManual.items.length, 1);
+  assert.equal(allowedManual.items[0].insertText, 'manualResult()');
+});
+
+test('supports completion at any code position (mid-code, function-name-first, and end-of-line next-line block)', () => {
+  // 1. Writing a function name first in the middle of code completes signature + body inline
+  const fnNameCompletion = postProcessCompletion(
+    '<COMPLETION>\n    def restart_game(self) -> None:\n        self.reset()\n</COMPLETION>',
+    {
+      prefix: 'class SnakeGame:\n    def restart_game',
+      suffix: '\n\n    def step(self) -> bool:',
+      isSingleLine: false,
+    },
+  );
+  assert.equal(fnNameCompletion, '(self) -> None:\n        self.reset()');
+
+  // 2. Cursor at the end of a non-empty statement line preserves leading `\n` for next-line indented block
+  const endOfLineNextBlock = postProcessCompletion(
+    '<COMPLETION>\n        if new_head in self.snake:\n            self.alive = False\n</COMPLETION>',
+    {
+      prefix: '        new_head = (head_x + dx, head_y + dy)',
+      suffix: '\n        self.snake.insert(0, new_head)',
+      isSingleLine: false,
+    },
+  );
+  assert.equal(
+    endOfLineNextBlock,
+    '\n        if new_head in self.snake:\n            self.alive = False',
+  );
+
+  // 3. Multi-line completion when closing delimiters exist on current line adjusts range.endColumn for Monaco
+  const normalizedMidLine = resolveInlineCompletionRangeAndText(
+    'self, direction: tuple[int, int]):\n        self.direction = direction',
+    {
+      lineNumber: 12,
+      column: 18,
+      linePrefix: '    def set_dir(',
+      lineSuffix: '):',
+    },
+  );
+  assert.equal(normalizedMidLine.range.startColumn, 18);
+  assert.equal(normalizedMidLine.range.endColumn, 20);
+  assert.equal(
+    normalizedMidLine.insertText,
+    'self, direction: tuple[int, int]):\n        self.direction = direction',
+  );
+});
+
+

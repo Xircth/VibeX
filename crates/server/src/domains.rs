@@ -578,7 +578,10 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
-        serialize(plugin.product_detail().map_err(internal_error)?)
+        let refreshed =
+            plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+                .unwrap_or_else(|_| plugin.package.clone());
+        serialize(refreshed.product_detail().map_err(internal_error)?)
     }
 
     async fn plugin_save_config(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -590,7 +593,12 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
-        plugin.write_config(args.config).map_err(internal_error)?;
+        let current_package =
+            plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+                .unwrap_or_else(|_| plugin.package.clone());
+        current_package
+            .write_config(args.config)
+            .map_err(internal_error)?;
         self.refresh_official_product_runtime().await?;
         // Re-inspect before projecting: `plugin` still carries the config loaded
         // before the write, and the Skill domain gate must read the one that was

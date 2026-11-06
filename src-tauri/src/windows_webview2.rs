@@ -609,10 +609,22 @@ mod win32_desktop {
                 &mut file_sd_size,
             ) != 0;
 
+            let create_dir_all_and_fix_il = |dir: &Path| {
+                let _ = std::fs::create_dir_all(dir);
+                set_path_sacl_sd(dir, dir_sd);
+            };
+
             let asset_dir = utils::assets::asset_dir();
             set_path_sacl_sd(&asset_dir, dir_sd);
             set_path_sacl_sd(&asset_dir.join("logs"), dir_sd);
-            set_path_sacl_sd(&asset_dir.join("webview-profiles"), dir_sd);
+            create_dir_all_and_fix_il(&asset_dir.join("webview-profiles"));
+            if let Ok(exe) = std::env::current_exe() {
+                let identifier = webview2_identifier_for_executable(&exe);
+                if let Some(user_data) = webview2_user_data_dir(identifier) {
+                    set_path_sacl_sd(&user_data, dir_sd);
+                    create_dir_all_and_fix_il(&user_data.join("EBWebView"));
+                }
+            }
             if has_file_sd {
                 for db_name in ["db.sqlite", "db.sqlite-wal", "db.sqlite-shm"] {
                     set_path_sacl_sd(&asset_dir.join(db_name), file_sd);

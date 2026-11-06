@@ -175,16 +175,71 @@ fn attach_main_window_handlers(main_window: &tauri::WebviewWindow, app: &tauri::
     });
 }
 
+fn create_main_window_with_fallback(app: &tauri::App) -> Option<tauri::WebviewWindow> {
+    let candidates = [
+        utils::assets::asset_dir()
+            .join("webview-profiles")
+            .join("main"),
+        std::env::temp_dir()
+            .join("vibex-webview2-profiles")
+            .join(format!("main-{}", std::process::id())),
+    ];
+    for data_dir in candidates {
+        if let Err(error) = std::fs::create_dir_all(&data_dir) {
+            tracing::warn!(
+                path = %data_dir.display(),
+                %error,
+                "failed to create fallback WebView2 user-data folder"
+            );
+            continue;
+        }
+        tracing::warn!(
+            path = %data_dir.display(),
+            "config-created main window is missing; building fallback main window with isolated data directory"
+        );
+        let builder = window_chrome::apply_app_window_chrome(
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+                .title("VibeX")
+                .inner_size(1400.0, 900.0)
+                .min_inner_size(800.0, 600.0)
+                .resizable(true)
+                .visible(false)
+                .center()
+                .data_directory(data_dir.clone()),
+        );
+        match builder.build() {
+            Ok(window) => {
+                #[cfg(windows)]
+                windows_webview2::set_active_debug_webview2_environment_dir(data_dir);
+                return Some(window);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    path = %data_dir.display(),
+                    %error,
+                    "failed to build fallback main webview window"
+                );
+            }
+        }
+    }
+    tracing::error!("all fallback attempts to create the main webview window failed");
+    None
+}
+
 fn prepare_main_window(app: &tauri::App) {
     #[cfg(windows)]
     if cfg!(debug_assertions) {
         queue_debug_main_window(app);
         return;
     }
-    let Some(main_window) = app.get_webview_window("main") else {
+    if let Some(main_window) = app.get_webview_window("main") {
+        attach_main_window_handlers(&main_window, app.handle());
         return;
-    };
-    attach_main_window_handlers(&main_window, app.handle());
+    }
+    if let Some(main_window) = create_main_window_with_fallback(app) {
+        attach_main_window_handlers(&main_window, app.handle());
+        schedule_window_reveal_fallback(main_window);
+    }
 }
 
 fn schedule_main_window_reveal(app: &tauri::App) {

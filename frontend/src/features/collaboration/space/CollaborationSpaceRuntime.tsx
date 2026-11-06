@@ -3302,19 +3302,27 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     if (spaceId && spaces.some((item) => item.space_id === spaceId)) {
       setSelectedId(spaceId);
     }
+    const resolvedSource: MemberSourceOption = defaultSource
+      ? defaultSource
+      : roles.length === 0 && agents.length > 0
+        ? 'custom'
+        : 'role';
+    const resolvedRoleId = newMemberRoleId || roles[0]?.id || '';
+    if (resolvedRoleId && resolvedRoleId !== newMemberRoleId) {
+      setNewMemberRoleId(resolvedRoleId);
+    }
     setCreateMemberSpaceId(resolvedSpaceId);
     setNewMemberName('');
     setNewMemberAvatar(randomMemberBotAvatar());
     setNewMemberSessionId('');
-    setNewMemberPersonaPrompt('');
+    setNewMemberPersonaPrompt(
+      resolvedSource === 'role'
+        ? (roles.find((item) => item.id === resolvedRoleId)?.persona_prompt ??
+            '')
+        : ''
+    );
     setCreateMemberError('');
-    if (defaultSource) {
-      setNewMemberSource(defaultSource);
-    } else if (roles.length === 0 && agents.length > 0) {
-      setNewMemberSource('custom');
-    } else {
-      setNewMemberSource('role');
-    }
+    setNewMemberSource(resolvedSource);
     setCreateMemberOpen(true);
   };
 
@@ -3699,7 +3707,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ...(avatarPayload ? { avatar: avatarPayload } : {}),
       color: defaultColor,
       ...(params.source === 'role'
-        ? { roleId: params.roleId }
+        ? {
+            roleId: params.roleId,
+            personaPrompt: params.personaPrompt,
+          }
         : {
             agentId: params.agentId,
             modeId: params.modeId,
@@ -3912,10 +3923,14 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               ? selectedId
               : '') || unassignedId;
       if (!targetSpaceId || !newMemberSessionId) return;
+      const trimmedPersonaPrompt = newMemberPersonaPrompt.trim();
       await collaborationCall('collaboration', 'space.addMember', {
         spaceId: targetSpaceId,
         conversationId: newMemberSessionId,
         nickname: trimmedNickname,
+        ...(trimmedPersonaPrompt
+          ? { personaPrompt: trimmedPersonaPrompt }
+          : {}),
         operationId: crypto.randomUUID(),
       });
       updateMemberAvatar(
@@ -3925,6 +3940,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       setNewMemberName('');
       setNewMemberAvatar(randomMemberBotAvatar());
       setNewMemberSessionId('');
+      setNewMemberPersonaPrompt('');
       setCreateMemberError('');
       setCreateMemberOpen(false);
       await loadConversations();
@@ -7919,9 +7935,23 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                   layout="hug"
                   className="collaboration-compact-segmented"
                   value={newMemberSource}
-                  onChange={(nextValue) =>
-                    setNewMemberSource(nextValue as MemberSourceOption)
-                  }
+                  onChange={(nextValue) => {
+                    const nextSource = nextValue as MemberSourceOption;
+                    setNewMemberSource(nextSource);
+                    if (nextSource === 'role') {
+                      const targetRoleId =
+                        newMemberRoleId || roles[0]?.id || '';
+                      if (targetRoleId && targetRoleId !== newMemberRoleId) {
+                        setNewMemberRoleId(targetRoleId);
+                      }
+                      setNewMemberPersonaPrompt(
+                        roles.find((role) => role.id === targetRoleId)
+                          ?.persona_prompt ?? ''
+                      );
+                    } else if (newMemberSource === 'role') {
+                      setNewMemberPersonaPrompt('');
+                    }
+                  }}
                 >
                   {memberSourceOptions.map((option) => (
                     <SegmentedControlItem
@@ -7942,7 +7972,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                     value={newMemberRoleId}
                     placeholder={COPY.chooseRole}
                     options={roleSelectOptions}
-                    onChange={setNewMemberRoleId}
+                    onChange={(nextRoleId) => {
+                      setNewMemberRoleId(nextRoleId);
+                      setNewMemberPersonaPrompt(
+                        roles.find((role) => role.id === nextRoleId)
+                          ?.persona_prompt ?? ''
+                      );
+                    }}
                   />
                 </div>
               ) : newMemberSource === 'session' ? (
@@ -7982,21 +8018,21 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                       onValues={setNewMemberConfigValues}
                     />
                   ) : null}
-
-                  <div className="space-y-1.5">
-                    <Label>{COPY.personaPromptLabel}</Label>
-                    <Textarea
-                      aria-label={COPY.personaPromptLabel}
-                      placeholder={COPY.personaPromptLabel}
-                      value={newMemberPersonaPrompt}
-                      onChange={(event) =>
-                        setNewMemberPersonaPrompt(event.target.value)
-                      }
-                      className="min-h-[64px] px-2.5 py-1.5 text-[13px]"
-                    />
-                  </div>
                 </div>
               )}
+
+              <div className="space-y-1.5">
+                <Label>{COPY.personaPromptLabel}</Label>
+                <Textarea
+                  aria-label={COPY.personaPromptLabel}
+                  placeholder={COPY.personaPromptPlaceholder}
+                  value={newMemberPersonaPrompt}
+                  onChange={(event) =>
+                    setNewMemberPersonaPrompt(event.target.value)
+                  }
+                  className="min-h-[64px] px-2.5 py-1.5 text-[13px]"
+                />
+              </div>
 
               {createMemberError ? (
                 <p className="collaboration-error">{createMemberError}</p>

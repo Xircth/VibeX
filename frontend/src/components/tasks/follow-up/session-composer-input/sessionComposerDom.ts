@@ -55,8 +55,13 @@ export function decorateStructuredTokenElement(
       element.dataset.mentionAll = 'true';
       element.classList.add('collaboration-member-mention-all');
       element.style.removeProperty('--member-mention-color');
-      element.querySelector('.collaboration-member-mention-avatar')?.remove();
-      element.querySelector('.session-composer-token-icon')?.remove();
+      const isRestoredToken = element.hasAttribute(
+        'data-astryx-restored-token'
+      );
+      if (isRestoredToken) {
+        element.querySelector('.collaboration-member-mention-avatar')?.remove();
+        element.querySelector('.session-composer-token-icon')?.remove();
+      }
       const labelEl =
         element.querySelector<HTMLElement>(
           '.collaboration-member-mention-name, .astryx-chat-composer__token-label, .session-composer-token-label'
@@ -331,6 +336,9 @@ export function restoreStructuredTokens(
     return;
   }
 
+  const hadPortalTokens = existingTokens.some((element) =>
+    element.hasAttribute('data-astryx-token-id')
+  );
   const wasFocused = document.activeElement === editor;
   const caretOffset = wasFocused
     ? (savedCaretOffset ?? getEditorCaretOffset(editor))
@@ -356,6 +364,9 @@ export function restoreStructuredTokens(
     fragment.append(token);
   }
   editor.replaceChildren(fragment);
+  if (hadPortalTokens) {
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 
   if (wasFocused) {
     restoreEditorCaretOffset(editor, caretOffset);

@@ -27,9 +27,9 @@
   --status-warning: hsl(var(--warning));
   --shadow-accent: hsl(var(--primary) / 0.25);
   --code-font-family: var(--font-mono, 'IBM Plex Mono', monospace);
-  --code-font-size: 11px;
+  --code-font-size: 12px;
   --code-font-weight: 400;
-  --code-line-height: 1.28;
+  --code-line-height: 1.35;
 }
 
 .file-tree-panel {
@@ -928,9 +928,9 @@
   background: var(--surface-command);
   padding: 6px 0;
   font-family: var(--code-font-family);
-  font-size: var(--code-font-size, 11px);
+  font-size: var(--code-font-size, 12px);
   font-weight: var(--code-font-weight, 400);
-  line-height: var(--code-line-height, 1.28);
+  line-height: var(--code-line-height, 1.35);
   color: var(--text-quiet);
   white-space: pre;
 }
@@ -953,9 +953,9 @@
   box-shadow: none;
   outline: none;
   font-family: var(--code-font-family);
-  font-size: var(--code-font-size, 11px);
+  font-size: var(--code-font-size, 12px);
   font-weight: var(--code-font-weight, 400);
-  line-height: var(--code-line-height, 1.28);
+  line-height: var(--code-line-height, 1.35);
 }
 
 .file-preview-line:not(.is-selected):hover {

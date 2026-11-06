@@ -50,7 +50,6 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { agentManagementApi } from '@/features/agent-management/api';
-import { agentsApi } from '@/features/agents/api';
 import { configApi } from '@/lib/api';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import {
@@ -290,15 +289,9 @@ export function GeneralSettings() {
     }
   };
 
-  const handleRefreshPeSessionControls = async () => {
-    const trimmed = peAgentId.trim();
-    if (!trimmed) return;
-    try {
-      await agentsApi.refreshCapabilityCatalog(trimmed);
-      setPeCatalogReloadToken((prev) => prev + 1);
-    } catch {
-      // Ignore refresh error in offline/test mode
-    }
+  const handleRefreshPeSessionControls = () => {
+    if (!peAgentId.trim()) return;
+    setPeCatalogReloadToken((prev) => prev + 1);
   };
 
   const handleSavePromptEnhancementDialog = () => {

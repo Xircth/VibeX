@@ -278,8 +278,10 @@ export function ComposerDock() {
               }}
               onChange={setDraft}
               onSubmit={(value) => {
-                if (composerDisabled) return;
+                if (composerDisabled) return false;
+                if (!value.trim() && attachedImages.length === 0) return false;
                 void send(value);
+                return true;
               }}
               onAttachImages={(files) => {
                 void handleAttachFiles(files);

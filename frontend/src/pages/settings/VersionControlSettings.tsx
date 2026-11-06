@@ -52,7 +52,6 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { agentManagementApi } from '@/features/agent-management/api';
-import { agentsApi } from '@/features/agents/api';
 import {
   CustomRoleSessionControls,
   stringRecord,
@@ -312,15 +311,9 @@ export function VersionControlSettings() {
     }
   };
 
-  const handleRefreshPrSessionControls = async () => {
-    const trimmed = prAgentId.trim();
-    if (!trimmed) return;
-    try {
-      await agentsApi.refreshCapabilityCatalog(trimmed);
-      setPrCatalogReloadToken((prev) => prev + 1);
-    } catch {
-      // Ignore refresh error in offline/test mode
-    }
+  const handleRefreshPrSessionControls = () => {
+    if (!prAgentId.trim()) return;
+    setPrCatalogReloadToken((prev) => prev + 1);
   };
 
   const handleSavePrDescriptionDialog = () => {

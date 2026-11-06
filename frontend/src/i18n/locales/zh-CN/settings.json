@@ -2636,6 +2636,8 @@
     "updateConfirmTitle": "将更新以下内容，请确认",
     "updateConfirmMessage": "确认后开始安装。",
     "installRuntimeAcp": "安装 ACP",
+    "installLatestVersion": "安装最新版",
+    "specifyVersion": "指定版本",
     "installLog": "安装日志",
     "installSpecifiedVersion": "安装此版本",
     "customVersionInstall": "指定版本安装",

@@ -1,3 +1,4 @@
+import { AgentSessionControlsErrorCard } from '@/components/sessions/SessionCreationStatusCard';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { Label } from '@/components/ui/label';
 import {
@@ -30,6 +31,7 @@ export function WorkflowStudioInspectorAgent({
     agentOptions,
     agentControls,
     agentControlsLoading,
+    agentControlsError,
     outputTab,
     setOutputTab,
     updateJson,
@@ -139,10 +141,18 @@ export function WorkflowStudioInspectorAgent({
             dropdownSide="bottom"
           />
         ) : (
-          <div className="flex min-h-9 items-center rounded-lg bg-muted/55 px-3 text-xs text-muted-foreground">
-            {agentControlsLoading
-              ? t('studio.sessionConfigurationLoading')
-              : t('studio.sessionConfigurationUnavailable')}
+          <div className="space-y-2">
+            <div className="flex min-h-9 items-center rounded-lg bg-muted/55 px-3 text-xs text-muted-foreground">
+              {agentControlsLoading
+                ? t('studio.sessionConfigurationLoading')
+                : t('studio.sessionConfigurationUnavailable')}
+            </div>
+            {!agentControlsLoading && agentControlsError ? (
+              <AgentSessionControlsErrorCard
+                agentId={selectedStep.agentId}
+                error={agentControlsError}
+              />
+            ) : null}
           </div>
         )}
       </div>

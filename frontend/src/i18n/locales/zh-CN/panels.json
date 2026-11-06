@@ -754,6 +754,7 @@
     "chooseRole": "选择角色",
     "chooseAgent": "选择 Agent",
     "personaPromptLabel": "人设（可选）",
+    "personaPromptPlaceholder": "例如：你是资深前端工程师，擅长 React 与交互设计，回答简洁直接。",
     "teamLabel": "归属团队（可选）",
     "noTeam": "不属于任何团队",
     "spaceMembersLabel": "群聊成员",

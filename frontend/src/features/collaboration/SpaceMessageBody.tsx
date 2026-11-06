@@ -688,17 +688,26 @@ export function estimateSpaceMessageOverflows(text: string): boolean {
 
 function CollapsibleSpaceBubbleContent({
   measureText,
+  streaming = false,
   children,
 }: {
   measureText: string;
+  streaming?: boolean;
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const wasStreamingRef = useRef(Boolean(streaming));
   const [needsCollapse, setNeedsCollapse] = useState(() =>
     estimateSpaceMessageOverflows(measureText)
   );
-  const isExpanded = expandedKey === measureText;
+
+  useLayoutEffect(() => {
+    if (wasStreamingRef.current && !streaming) {
+      setIsExpanded(false);
+    }
+    wasStreamingRef.current = Boolean(streaming);
+  }, [streaming]);
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -724,7 +733,7 @@ function CollapsibleSpaceBubbleContent({
     };
   }, [measureText]);
 
-  const isCollapsed = needsCollapse && !isExpanded;
+  const isCollapsed = !streaming && needsCollapse && !isExpanded;
   const expandLabel = i18n.t('panels:ui.spaceMessage.expandAll', '展开全部');
   const collapseLabel = i18n.t(
     'panels:ui.spaceMessage.collapseAll',
@@ -756,7 +765,7 @@ function CollapsibleSpaceBubbleContent({
             aria-label={expandLabel}
             onClick={(event) => {
               event.stopPropagation();
-              setExpandedKey(measureText);
+              setIsExpanded(true);
             }}
           >
             <span>{expandLabel}</span>
@@ -766,7 +775,7 @@ function CollapsibleSpaceBubbleContent({
             />
           </button>
         </div>
-      ) : needsCollapse && isExpanded ? (
+      ) : !streaming && needsCollapse && isExpanded ? (
         <div
           className="collaboration-bubble-collapsible-footer"
           data-testid="collaboration-bubble-collapsible-footer"
@@ -778,7 +787,7 @@ function CollapsibleSpaceBubbleContent({
             aria-label={collapseLabel}
             onClick={(event) => {
               event.stopPropagation();
-              setExpandedKey(null);
+              setIsExpanded(false);
             }}
           >
             <span>{collapseLabel}</span>
@@ -802,6 +811,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
   deliveryTickTestId,
   reactions,
   cards,
+  streaming = false,
 }: {
   fromYou: boolean;
   text: string;
@@ -811,6 +821,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
   deliveryTickTestId?: string;
   reactions?: readonly SpaceReaction[] | null;
   cards?: readonly SpaceCardRecord[] | null;
+  streaming?: boolean;
 }) {
   const memberMentionCtx = useCollaborationMemberMention();
   const effectiveMentionCtx = useMemo(
@@ -855,7 +866,10 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
               <div className="collaboration-bubble-outer-row collaboration-bubble-outer-row--user">
                 <div className="collaboration-bubble-shell">
                   <ChatMessageBubble className="conv-user-bubble">
-                    <CollapsibleSpaceBubbleContent measureText={source}>
+                    <CollapsibleSpaceBubbleContent
+                      measureText={source}
+                      streaming={streaming}
+                    >
                       {cleanText.trim() ? (
                         <UserMessageMarkdown
                           value={cleanText}
@@ -1005,7 +1019,10 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                       className="conv-assistant-body collaboration-member-bubble"
                       data-testid={bubbleTestId}
                     >
-                      <CollapsibleSpaceBubbleContent measureText={seg.text}>
+                      <CollapsibleSpaceBubbleContent
+                        measureText={seg.text}
+                        streaming={streaming}
+                      >
                         <AstryxMarkdown
                           value={seg.text}
                           workspacePath={workspacePath}
@@ -1062,6 +1079,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
                   >
                     <CollapsibleSpaceBubbleContent
                       measureText={handoff ? text : markdownValue}
+                      streaming={streaming}
                     >
                       {markdownValue ? (
                         <AstryxMarkdown
@@ -1101,6 +1119,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody({
               {hasMemberProse ? (
                 <CollapsibleSpaceBubbleContent
                   measureText={handoff ? text : markdownValue}
+                  streaming={streaming}
                 >
                   {markdownValue ? (
                     <AstryxMarkdown

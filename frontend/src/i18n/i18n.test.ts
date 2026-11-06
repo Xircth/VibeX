@@ -30,12 +30,15 @@ describe('i18n resources', () => {
     }
   );
 
-  it('resolves a known key in both languages', async () => {
+  it('resolves a known key in both languages and syncs documentElement.lang', async () => {
     await i18n.changeLanguage('zh-CN');
     expect(i18n.t('common:save')).toBe('保存');
+    expect(document.documentElement.lang).toBe('zh-CN');
     await i18n.changeLanguage('en');
     expect(i18n.t('common:save')).toBe('Save');
+    expect(document.documentElement.lang).toBe('en');
     await i18n.changeLanguage('zh-CN');
+    expect(document.documentElement.lang).toBe('zh-CN');
   });
 
   it('interpolates variables', async () => {

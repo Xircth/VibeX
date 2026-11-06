@@ -38,6 +38,10 @@
  * documentElement; the bundled 'IBM Plex Mono' stays the final fallback.
  */
 :root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+
   /*
    * Product UI font. Latin on Windows and Linux uses bundled Inter Variable:
    * Segoe UI and typical Linux UI sans render poorly in WebView2. CJK stays on
@@ -50,7 +54,8 @@
     'Segoe UI', sans-serif;
   --font-mono:
     'IBM Plex Mono', 'Noto Emoji', ui-monospace, SFMono-Regular, Menlo, Monaco,
-    Consolas, monospace;
+    Consolas, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
+    'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', monospace;
 }
 
 html[data-host-platform='windows'],

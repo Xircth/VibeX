@@ -602,6 +602,30 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
+        if let Some(persona_prompt) = optional_text(input, &["personaPrompt", "persona_prompt"])
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+        {
+            if let Some(ref mid) = identity_member_id {
+                let existing_cfg = collaboration::load_member_session_config(&self.pool, mid)
+                    .await
+                    .ok()
+                    .flatten();
+                let _ = collaboration::set_member_session_config(
+                    &self.pool,
+                    mid,
+                    collaboration::MemberSessionConfig {
+                        agent_id: existing_cfg.as_ref().and_then(|c| c.agent_id.clone()),
+                        mode_id: existing_cfg.as_ref().and_then(|c| c.mode_id.clone()),
+                        config_values: existing_cfg
+                            .map(|c| c.config_values)
+                            .unwrap_or_else(|| json!({})),
+                        persona_prompt: Some(persona_prompt),
+                    },
+                )
+                .await;
+            }
+        }
         let is_supervisor = if let Some(ref mid) = identity_member_id {
             collaboration::is_member_supervisor(&self.pool, mid)
                 .await

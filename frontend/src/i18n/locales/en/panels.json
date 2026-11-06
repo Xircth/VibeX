@@ -754,6 +754,7 @@
     "chooseRole": "Choose role",
     "chooseAgent": "Choose agent",
     "personaPromptLabel": "Persona (optional)",
+    "personaPromptPlaceholder": "e.g., You are a senior frontend engineer skilled in React and interaction design. Keep answers concise and direct.",
     "teamLabel": "Team (optional)",
     "noTeam": "No team",
     "spaceMembersLabel": "Group members",

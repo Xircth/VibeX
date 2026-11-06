@@ -313,7 +313,10 @@ export function SessionComposerInput({
     const editable = composerRootRef.current?.querySelector<HTMLElement>(
       '[contenteditable="true"]'
     );
-    if (editable) editable.replaceChildren();
+    if (editable) {
+      editable.replaceChildren();
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     onChange('');
   }, [onChange]);
 

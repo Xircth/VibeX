@@ -2636,6 +2636,8 @@
     "updateConfirmTitle": "The following will be updated",
     "updateConfirmMessage": "Confirm to start installing.",
     "installRuntimeAcp": "Install ACP",
+    "installLatestVersion": "Install latest version",
+    "specifyVersion": "Specify version",
     "installLog": "Installation log",
     "installSpecifiedVersion": "Install this version",
     "customVersionInstall": "Install a specific version",

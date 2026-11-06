@@ -292,6 +292,46 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(editor).toBeEmptyDOMElement();
   });
 
+  it('preserves plain-text draft in the visible editor when onSubmit returns false', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(() => false);
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={onSubmit}
+            onAttachImages={vi.fn()}
+          />
+          <output aria-label="Controlled draft">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '是否已经合并到master?');
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).toHaveBeenCalledWith('是否已经合并到master?');
+    expect(editor.textContent).toContain('是否已经合并到master?');
+    expect(
+      screen.getByRole('status', { name: 'Controlled draft' })
+    ).toHaveTextContent('是否已经合并到master?');
+  });
+
   it('gives the actual editable surface a two-to-seven-line height range', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

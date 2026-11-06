@@ -92,10 +92,14 @@ pub async fn host_create_space_member(
     let agent_id = AgentId::parse(&agent_raw)
         .map_err(|_| CollaborationError::new("not_found", "agent_id is required"))?;
     let (mode_id, config_values, persona_prompt, summary) = if let Some(role) = role.as_ref() {
+        let resolved_persona = match input.persona_prompt.as_ref() {
+            Some(prompt) => prompt.clone(),
+            None => role.persona_prompt.clone(),
+        };
         (
             role.mode_id.clone(),
             role.config_values.clone(),
-            role.persona_prompt.clone(),
+            resolved_persona,
             role.summary.clone(),
         )
     } else {

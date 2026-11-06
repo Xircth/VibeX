@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@astryxdesign/core/Badge';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
@@ -11,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   advertisedSessionConfigValues,
@@ -25,11 +22,6 @@ import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSett
 import { agentsApi } from '@/features/agents/api';
 import { BASIC_GUIDE_SESSION_AGENT_EVENT } from '@/features/basic-guide/basicGuideState';
 import { openAgentDiagnostics } from '@/features/agent-management/agentSettingsFocus';
-import {
-  invokeErrorText,
-  isAgentInstallLaunchError,
-  splitLaunchError,
-} from '@/features/agents/sessionControlsError';
 import { sessionDefaultsWritePayload } from '@/features/agents/sessionDefaults';
 import {
   loadAgentSessionControlsCatalog,
@@ -39,6 +31,10 @@ import {
 } from '@/features/agents/sessionControlsQuery';
 import { useUserSystem } from '@/components/ConfigProvider';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
+import {
+  SessionCreationStatusCard,
+  formatSessionControlsError,
+} from './SessionCreationStatusCard';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
 import {
@@ -870,80 +866,4 @@ export function SessionCreationForm({
       </div>
     </form>
   );
-}
-
-function SessionCreationStatusCard({
-  title,
-  detail,
-  action,
-}: {
-  title: string;
-  detail: string | null;
-  action?: ReactNode;
-}) {
-  const { t } = useTranslation('conversation');
-  return (
-    <div
-      className="composer-status-surface rounded-lg"
-      data-testid="session-creation-status-card"
-    >
-      <div
-        className="composer-status-row text-xs"
-        data-tone="error"
-        role="alert"
-      >
-        <div className="composer-status-header">
-          <div className="composer-status-heading">
-            <p className="composer-status-title whitespace-normal text-foreground [overflow-wrap:anywhere]">
-              {title}
-            </p>
-            <Badge
-              className="composer-status-badge"
-              variant="error"
-              label={t('statusDock.errorBadge')}
-            />
-          </div>
-          {action ? (
-            <div className="flex shrink-0 items-center gap-1">{action}</div>
-          ) : null}
-        </div>
-        {detail ? (
-          <ConversationStatusDetails
-            key={detail}
-            title={title}
-            label={t('statusDock.showDetails')}
-            accessibleLabel={t('statusDock.showDetailsFor', { title })}
-            mono
-          >
-            <p className="whitespace-pre-wrap break-words">{detail}</p>
-          </ConversationStatusDetails>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function formatSessionControlsError(
-  t: TFunction,
-  agent: string | null,
-  error: unknown
-): {
-  title: string;
-  detail: string | null;
-  showDiagnosticsLink: boolean;
-} {
-  const raw = invokeErrorText(error);
-  if (isAgentInstallLaunchError(raw)) {
-    const { detail } = splitLaunchError(raw);
-    return {
-      title: t('sessionCreation.agentNotInstalled'),
-      detail,
-      showDiagnosticsLink: true,
-    };
-  }
-  return {
-    title: t('sessionCreation.controlsPrepareFailed', { agent }),
-    detail: raw || null,
-    showDiagnosticsLink: false,
-  };
 }

@@ -15,7 +15,6 @@ import {
   type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
 import { cn } from '@/lib/utils';
-import { mentionedHostFileNames } from '@/lib/savedHostSshConfig';
 import { prepareImageFileForUpload } from '@/utils/clipboard';
 import { isAttachableFile } from '@/utils/mediaAttachments';
 import { QuoteTokenPreview } from '../QuoteTokenPreview';
@@ -57,7 +56,7 @@ export function SessionComposerSurface({
   sendShortcut,
   handleHistoryKeyDown,
   handleSubmit,
-  isMaterializingSubmitRef,
+  isMaterializingSubmitRef: _isMaterializingSubmitRef,
   onAttachImages,
   handleComposerPaste,
   activeHoverToken,
@@ -206,7 +205,7 @@ export function SessionComposerSurface({
                     next.remove();
                   }
                   insideToken.remove();
-                  onChange(composerHandleRef.current?.getValue() ?? '');
+                  editor.dispatchEvent(new Event('input', { bubbles: true }));
                   return;
                 }
               }
@@ -221,15 +220,10 @@ export function SessionComposerSurface({
             );
             if (action === 'defer') {
               if (!event.shiftKey && astryxHandlesComposerSubmit(event)) {
+                event.preventDefault();
                 const text = composerHandleRef.current?.getValue().trim() ?? '';
-                if (
-                  isMaterializingSubmitRef.current ||
-                  mentionedHostFileNames(text).length > 0
-                ) {
-                  event.preventDefault();
-                  if (text) {
-                    handleSubmit(text);
-                  }
+                if (text) {
+                  handleSubmit(text);
                 }
               }
               return;

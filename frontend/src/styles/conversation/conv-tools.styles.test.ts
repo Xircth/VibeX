@@ -115,6 +115,22 @@ describe('conversation tool-call typography', () => {
     expect(label['min-width']?.value).toBe('0');
     expect(label.flex?.value).toBe('1');
   });
+
+  it('uses UI sans fallback for Chinese artifact titles and legible code/terminal font sizes', () => {
+    const title = declarationsFor('.conv-tool-artifact-title');
+    const zhTitle = declarationsFor(':lang(zh) .conv-tool-artifact-title');
+    const toolCode = declarationsFor('.conv-tool-code');
+    const hitLoc = declarationsFor('.conv-tool-hit-loc');
+    const toolTerminal = declarationsFor('.conv-tool-terminal-output');
+    const streamTerminal = declarationsFor('.conv-terminal-output');
+
+    expect(title['font-variant-numeric']?.value).toBe('tabular-nums');
+    expect(zhTitle['font-family']?.value).toBe('var(--font-ui)');
+    expect(toolCode['font-size']?.value).toBe('13px');
+    expect(hitLoc['font-size']?.value).toBe('12px');
+    expect(toolTerminal['font-size']?.value).toBe('12px');
+    expect(streamTerminal['font-size']?.value).toBe('12px');
+  });
 });
 
 describe('conversation tool-call fold spacing and hover', () => {

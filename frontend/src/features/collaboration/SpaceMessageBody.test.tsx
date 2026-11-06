@@ -443,6 +443,49 @@ describe('messagePreviewText', () => {
     expect(collapsible).toHaveAttribute('data-collapsed', 'false');
     expect(screen.queryByTestId('collaboration-bubble-expand-pill')).toBeNull();
   });
+
+  it('defaults overflowing messages to expanded while streaming and collapses them once streaming finishes, without bouncing when manually expanded', () => {
+    const longText = Array.from(
+      { length: 14 },
+      (_, idx) =>
+        `第 ${idx + 1} 行：这是一段正在流式输出的长文本内容，用于在流式输出期间保持默认展开。`
+    ).join('\n');
+
+    const { rerender } = render(
+      <SpaceMessageBody fromYou={false} text={longText} streaming />
+    );
+    const collapsible = screen.getByTestId('collaboration-bubble-collapsible');
+    expect(collapsible).toHaveAttribute('data-collapsed', 'false');
+    expect(screen.queryByTestId('collaboration-bubble-expand-pill')).toBeNull();
+    expect(
+      screen.queryByTestId('collaboration-bubble-collapse-pill')
+    ).toBeNull();
+
+    // Streaming appends more tokens — still expanded
+    const longerText = `${longText}\n第 15 行：继续追加流式输出内容。`;
+    rerender(<SpaceMessageBody fromYou={false} text={longerText} streaming />);
+    expect(collapsible).toHaveAttribute('data-collapsed', 'false');
+
+    // Streaming completes — automatically collapses
+    rerender(
+      <SpaceMessageBody fromYou={false} text={longerText} streaming={false} />
+    );
+    expect(collapsible).toHaveAttribute('data-collapsed', 'true');
+    const expandPill = screen.getByTestId('collaboration-bubble-expand-pill');
+    expect(expandPill).toHaveTextContent('展开全部');
+
+    // Manual expand stays expanded even if text updates
+    fireEvent.click(expandPill);
+    expect(collapsible).toHaveAttribute('data-collapsed', 'false');
+    rerender(
+      <SpaceMessageBody
+        fromYou={false}
+        text={`${longerText}\n补充内容`}
+        streaming={false}
+      />
+    );
+    expect(collapsible).toHaveAttribute('data-collapsed', 'false');
+  });
 });
 
 describe('bubbleText', () => {

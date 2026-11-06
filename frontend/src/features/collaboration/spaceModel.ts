@@ -88,6 +88,9 @@ export const COPY = {
   get personaPromptLabel() {
     return i18n.t('panels:collabCopy.personaPromptLabel');
   },
+  get personaPromptPlaceholder() {
+    return i18n.t('panels:collabCopy.personaPromptPlaceholder');
+  },
   get teamLabel() {
     return i18n.t('panels:collabCopy.teamLabel');
   },
@@ -1420,7 +1423,7 @@ export function parseSpaceChangedEvent(
   };
 }
 
-function isStreamingSpaceMessage(message: unknown): boolean {
+export function isStreamingSpaceMessage(message: unknown): boolean {
   if (!message || typeof message !== 'object') return false;
   const record = message as {
     streaming?: unknown;

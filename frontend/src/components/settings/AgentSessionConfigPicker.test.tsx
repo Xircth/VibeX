@@ -188,4 +188,15 @@ describe('AgentSessionConfigPicker', () => {
       },
     });
   });
+
+  it('displays Agent connection error card when loading session controls fails', async () => {
+    capabilityCatalog.mockRejectedValue(
+      new Error("Executable `grok` was not found in the system's PATH")
+    );
+    renderPicker();
+
+    expect(
+      await screen.findByTestId('session-creation-status-card')
+    ).toBeInTheDocument();
+  });
 });

@@ -411,4 +411,19 @@ describe('VersionControlSettings', () => {
       );
     });
   });
+
+  it('displays Agent connection error card in PR auto description modal when loading session controls fails', async () => {
+    const user = userEvent.setup();
+    agentsApiMock.capabilityCatalog.mockRejectedValue(
+      new Error("Executable `opencode` was not found in the system's PATH")
+    );
+    render(<VersionControlSettings />);
+
+    await user.click(
+      await screen.findByRole('switch', { name: '自动生成 PR 描述' })
+    );
+    expect(
+      await screen.findByTestId('session-creation-status-card')
+    ).toBeInTheDocument();
+  });
 });

@@ -698,4 +698,26 @@ describe('GeneralSettings Agent model catalogs', () => {
       spy.mockRestore();
     }
   });
+
+  it('displays Agent connection error card in New Role and Prompt Enhancement modals when loading session controls fails', async () => {
+    const user = userEvent.setup();
+    agentsApiMock.capabilityCatalog.mockRejectedValue(
+      new Error("Executable `opencode` was not found in the system's PATH")
+    );
+    renderSettings('unused', {
+      multi_agent_enabled: true,
+      prompt_enhancement_agent_id: 'opencode',
+    });
+
+    await user.click(await screen.findByRole('button', { name: '新建角色' }));
+    expect(
+      await screen.findByTestId('session-creation-status-card')
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    await user.click(screen.getByTestId('prompt-enhancement-edit-btn'));
+    expect(
+      await screen.findByTestId('session-creation-status-card')
+    ).toBeInTheDocument();
+  });
 });

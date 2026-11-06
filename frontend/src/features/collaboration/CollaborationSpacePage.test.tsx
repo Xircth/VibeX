@@ -1906,6 +1906,19 @@ describe('CollaborationSpacePage', () => {
     expect(
       within(memberDialog).queryByRole('combobox', { name: /归属团队/ })
     ).toBeNull();
+    const avatarPropertySelector = within(memberDialog).getByRole(
+      'radiogroup',
+      {
+        name: '头像属性',
+      }
+    );
+    const avatarPropertyRadios = within(avatarPropertySelector).getAllByRole(
+      'radio'
+    );
+    expect(avatarPropertyRadios).toHaveLength(2);
+    expect(avatarPropertyRadios[0].querySelector('svg')).not.toBeNull();
+    expect(avatarPropertyRadios[1].querySelector('svg')).not.toBeNull();
+
     const sourceSelector = within(memberDialog).getByRole('radiogroup', {
       name: '创建方式',
     });
@@ -1915,7 +1928,31 @@ describe('CollaborationSpacePage', () => {
       '基于会话',
       '自定义',
     ]);
+    await user.click(sourceRadioItems[1]);
+    const sessionPersonaTextarea = within(memberDialog).getByRole('textbox', {
+      name: '人设（可选）',
+    });
+    expect(sessionPersonaTextarea).toHaveValue('');
+    expect(sessionPersonaTextarea).toHaveAttribute(
+      'placeholder',
+      '例如：你是资深前端工程师，擅长 React 与交互设计，回答简洁直接。'
+    );
+    await user.click(sourceRadioItems[2]);
+    const customPersonaTextarea = within(memberDialog).getByRole('textbox', {
+      name: '人设（可选）',
+    });
+    expect(customPersonaTextarea).toHaveValue('');
+    expect(customPersonaTextarea).toHaveAttribute(
+      'placeholder',
+      '例如：你是资深前端工程师，擅长 React 与交互设计，回答简洁直接。'
+    );
     await user.click(sourceRadioItems[0]);
+    const rolePersonaTextarea = within(memberDialog).getByRole('textbox', {
+      name: '人设（可选）',
+    });
+    expect(rolePersonaTextarea).toHaveValue('擅长前端架构的搭档');
+    await user.clear(rolePersonaTextarea);
+    await user.type(rolePersonaTextarea, '擅长前端架构与设计系统的搭档');
 
     await user.type(
       within(memberDialog).getByRole('textbox', { name: '助手名称' }),
@@ -1934,6 +1971,7 @@ describe('CollaborationSpacePage', () => {
           nickname: '架构助手',
           source: 'role',
           roleId: 'role-1',
+          personaPrompt: '擅长前端架构与设计系统的搭档',
         })
       );
     });
@@ -5464,6 +5502,11 @@ describe('CollaborationSpacePage', () => {
     const sendButton = screen.getByRole('button', { name: '发送' });
     expect(sendButton).toBeDisabled();
 
+    // Pressing Enter while Bot session is loading must NOT clear the message draft
+    fireEvent.keyDown(editor, { key: 'Enter', code: 'Enter' });
+    expect(editor.textContent).toContain('测试在加载期间输入文字');
+    expect(sendButton).toBeDisabled();
+
     timelineConnecting = false;
     await act(async () => {
       for (const listener of agentEventListeners) {
@@ -5480,6 +5523,7 @@ describe('CollaborationSpacePage', () => {
       expect(screen.queryByText('正在加载Bot会话...')).toBeNull()
     );
     expect(getComposerEditor().getAttribute('contenteditable')).toBe('true');
+    expect(getComposerEditor().textContent).toContain('测试在加载期间输入文字');
     expect(screen.getByRole('button', { name: '发送' })).not.toBeDisabled();
   });
 

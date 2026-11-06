@@ -90,6 +90,7 @@ export function useWorkflowStudio({
   const [agentControls, setAgentControls] =
     useState<AgentSessionControlsSnapshot | null>(null);
   const [agentControlsLoading, setAgentControlsLoading] = useState(false);
+  const [agentControlsError, setAgentControlsError] = useState<unknown>(null);
   const loadAgentSessionControlsRef = useRef(loadAgentSessionControls);
   loadAgentSessionControlsRef.current = loadAgentSessionControls;
   const graph = useWorkflowStudioGraph({
@@ -159,13 +160,24 @@ export function useWorkflowStudio({
     if (!selectedAgentId || !loadControls) {
       setAgentControls(null);
       setAgentControlsLoading(false);
+      setAgentControlsError(null);
       return;
     }
     let active = true;
     setAgentControlsLoading(true);
+    setAgentControlsError(null);
     void loadControls(selectedAgentId)
       .then((controls) => {
-        if (active) setAgentControls(controls);
+        if (active) {
+          setAgentControls(controls);
+          setAgentControlsError(null);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setAgentControls(null);
+          setAgentControlsError(error);
+        }
       })
       .finally(() => {
         if (active) setAgentControlsLoading(false);
@@ -364,6 +376,7 @@ export function useWorkflowStudio({
     setUnsavedStepIds,
     agentControls,
     agentControlsLoading,
+    agentControlsError,
     selectedStep,
     selectedRun,
     selectedStepSaved,

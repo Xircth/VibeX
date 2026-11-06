@@ -349,6 +349,7 @@
 
 .conv-file-card .conv-file-name {
   font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--conv-text-primary);
   cursor: pointer;
@@ -357,6 +358,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:lang(zh) .conv-file-card .conv-file-name {
+  font-family: var(--font-ui);
 }
 
 .conv-file-card .conv-file-name:hover {

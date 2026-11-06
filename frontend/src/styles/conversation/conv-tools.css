@@ -437,11 +437,16 @@
   background: transparent;
   color: var(--conv-text-primary);
   font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   line-height: 1.4;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:lang(zh) .conv-tool-artifact-title {
+  font-family: var(--font-ui);
 }
 
 button.conv-tool-artifact-title {
@@ -487,7 +492,7 @@ button.conv-tool-artifact-title:hover {
   min-width: max-content;
   padding: 6px 0;
   font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -633,7 +638,7 @@ button.conv-tool-artifact-title:hover {
   overflow: hidden;
   color: var(--conv-text-secondary);
   font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -690,7 +695,7 @@ button.conv-tool-artifact-title:hover {
     'IBM Plex Mono',
     monospace
   );
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   overflow-x: auto;
 }
@@ -975,7 +980,7 @@ button.vibex-tool-call-target-label:hover {
     'IBM Plex Mono',
     monospace
   );
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   overflow-x: auto;
 }

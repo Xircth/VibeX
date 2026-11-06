@@ -76,9 +76,11 @@ export function RetryEditorInline({
   ]);
 
   const handleSubmit = useCallback(() => {
-    if (canSend && !isSending) {
-      onSend();
+    if (!canSend || isSending) {
+      return false;
     }
+    onSend();
+    return true;
   }, [canSend, isSending, onSend]);
 
   return (

@@ -83,9 +83,22 @@ export const resources = {
   },
 } as const;
 
+function applyDocumentLanguage(language: string): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = language;
+  }
+}
+
+const initialLanguage = getUiLanguage();
+applyDocumentLanguage(initialLanguage);
+
+i18n.on('languageChanged', (language) => {
+  applyDocumentLanguage(language);
+});
+
 void i18n.use(initReactI18next).init({
   resources,
-  lng: getUiLanguage(),
+  lng: initialLanguage,
   fallbackLng: DEFAULT_LANGUAGE,
   ns: NAMESPACES,
   defaultNS: 'common',
@@ -100,6 +113,7 @@ void i18n.use(initReactI18next).init({
 /** Persist + apply a language change; subscribers re-render via i18next events. */
 export function setUiLanguage(language: UiLanguage): void {
   persistUiLanguage(language);
+  applyDocumentLanguage(language);
   void i18n.changeLanguage(language);
 }
 
@@ -111,6 +125,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key !== LANGUAGE_KEY) return;
     const next = getUiLanguage();
+    applyDocumentLanguage(next);
     if (i18n.language !== next) {
       void i18n.changeLanguage(next);
     }

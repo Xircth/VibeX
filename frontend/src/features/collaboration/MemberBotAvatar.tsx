@@ -3,7 +3,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
-import { Star } from 'lucide-react';
+import { Palette, Shapes, Star } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
@@ -1113,10 +1113,12 @@ export function MemberBotAvatarPicker({
           <SegmentedControlItem
             value="color"
             label={i18n.t('panels:botAvatar.ui.color')}
+            icon={<Palette className="h-3 w-3 shrink-0" aria-hidden="true" />}
           />
           <SegmentedControlItem
             value="shape"
             label={i18n.t('panels:botAvatar.ui.shape')}
+            icon={<Shapes className="h-3 w-3 shrink-0" aria-hidden="true" />}
           />
         </SegmentedControl>
       </div>

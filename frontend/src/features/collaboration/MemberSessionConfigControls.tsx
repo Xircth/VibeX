@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
+import { AgentSessionControlsErrorCard } from '@/components/sessions/SessionCreationStatusCard';
 import {
   advertisedSessionConfigValues,
   presentableSessionConfigOptions,
@@ -110,7 +111,18 @@ export function MemberSessionConfigControls({
         ))
   );
 
-  if (!agentId || !catalog || !hasControls) return null;
+  if (!agentId) return null;
+  if (!catalog || !hasControls) {
+    if (catalogQuery.error) {
+      return (
+        <AgentSessionControlsErrorCard
+          agentId={agentId.trim().toLowerCase()}
+          error={catalogQuery.error}
+        />
+      );
+    }
+    return null;
+  }
 
   const presentableConfigKeys = new Set(
     presentableConfigOptions.map((option) => option.key)

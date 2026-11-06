@@ -11,6 +11,7 @@ import {
   extractEnvelopeCrossChatMeta,
   formatRoundProgress,
   isCollaborationLimitNotice,
+  isStreamingSpaceMessage,
   messageAuthor,
   receiptStatusCopy,
   resolveMessageConversationId,
@@ -348,6 +349,7 @@ export function MessageStream() {
                         deliveryStatus={deliveryStatus}
                         reactions={messageReactions}
                         cards={threadCards}
+                        streaming={isStreamingSpaceMessage(message)}
                       />
                     </div>
                   </div>
@@ -361,6 +363,7 @@ export function MessageStream() {
                     deliveryStatus={deliveryStatus}
                     reactions={messageReactions}
                     cards={threadCards}
+                    streaming={isStreamingSpaceMessage(message)}
                   />
                 ) : null}
                 <CollaborationCrossChatNotice

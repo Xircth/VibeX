@@ -8,7 +8,8 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
  * xterm terminal which reads the computed value) picks it up. Every option ends
  * in the bundled 'IBM Plex Mono' so an OS-absent font degrades gracefully.
  */
-const BUNDLED_FALLBACK = `'IBM Plex Mono', monospace`;
+const CJK_MONO_FALLBACK = `'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', monospace`;
+const BUNDLED_FALLBACK = `'IBM Plex Mono', ${CJK_MONO_FALLBACK}`;
 
 export interface MonoFontOption {
   id: string;
@@ -20,19 +21,19 @@ export const MONO_FONT_OPTIONS: MonoFontOption[] = [
   {
     id: 'default',
     label: 'IBM Plex Mono',
-    stack: `'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`,
+    stack: `'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, ${CJK_MONO_FALLBACK}`,
   },
   { id: 'sf-mono', label: 'SF Mono', stack: `'SF Mono', ${BUNDLED_FALLBACK}` },
   { id: 'menlo', label: 'Menlo', stack: `Menlo, ${BUNDLED_FALLBACK}` },
   {
     id: 'jetbrains-mono',
     label: 'JetBrains Mono',
-    stack: `'JetBrains Mono', ${BUNDLED_FALLBACK}`,
+    stack: `'JetBrains Mono Variable', 'JetBrains Mono', ${BUNDLED_FALLBACK}`,
   },
   {
     id: 'fira-code',
     label: 'Fira Code',
-    stack: `'Fira Code', ${BUNDLED_FALLBACK}`,
+    stack: `'Fira Code Variable', 'Fira Code', ${BUNDLED_FALLBACK}`,
   },
   {
     id: 'cascadia-code',

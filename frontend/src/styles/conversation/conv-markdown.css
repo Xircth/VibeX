@@ -14,7 +14,7 @@
   overflow-wrap: break-word;
   word-break: break-word;
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.7;
   color: var(--conv-text-primary);
 }
@@ -24,7 +24,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.7;
   color: var(--conv-text-primary);
 }
@@ -80,7 +80,7 @@
     'Fira Code',
     monospace
   );
-  font-size: 0.9em;
+  font-size: 13px;
 }
 
 .conv-md-image-frame {
@@ -125,7 +125,7 @@
   color: var(--conv-text-primary);
   padding: 0.05em 5px;
   border-radius: var(--radius);
-  font-size: 0.88em;
+  font-size: 13px;
 }
 
 /* ── Code Block (fenced, multi-line) ── */
@@ -147,7 +147,7 @@
   padding: 3px 6px 3px 10px;
   background: var(--conv-surface-control);
   border-bottom: 1px solid var(--conv-border-subtle);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--conv-text-tertiary);
@@ -197,7 +197,7 @@
     'Fira Code',
     monospace
   );
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -239,7 +239,7 @@
     'Fira Code',
     monospace
   );
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 

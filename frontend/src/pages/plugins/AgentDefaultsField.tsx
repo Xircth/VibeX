@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionControlsSnapshot } from 'shared/types';
 
+import { AgentSessionControlsErrorCard } from '@/components/sessions/SessionCreationStatusCard';
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
@@ -166,26 +167,26 @@ function AgentDefaultRow({
   const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
     null
   );
-  const [failed, setFailed] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   useEffect(() => {
     if (!expanded) return;
     let active = true;
-    setFailed(false);
+    setLoadError(null);
     void loadAgentSessionControlsCatalog(agentId)
       .then((next) => {
         if (active) setCatalog(next);
       })
-      .catch(() => {
+      .catch((error) => {
         if (active) {
           setCatalog(null);
-          setFailed(true);
+          setLoadError(error ?? new Error(t('plugins.agentDefaultsUnavailable')));
         }
       });
     return () => {
       active = false;
     };
-  }, [agentId, expanded]);
+  }, [agentId, expanded, t]);
 
   return (
     <div className="product-plugin-agent-row">
@@ -208,10 +209,16 @@ function AgentDefaultRow({
       </button>
       {expanded ? (
         <div className="product-plugin-agent-row__body">
-          {failed ? (
-            <p className="product-plugin-muted">
-              {t('plugins.agentDefaultsUnavailable')}
-            </p>
+          {loadError ? (
+            <div className="space-y-2">
+              <p className="product-plugin-muted">
+                {t('plugins.agentDefaultsUnavailable')}
+              </p>
+              <AgentSessionControlsErrorCard
+                agentId={agentId}
+                error={loadError}
+              />
+            </div>
           ) : catalog ? (
             <SessionControlsFields
               modes={catalog.modes}

@@ -20,6 +20,7 @@ import type {
 
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
+import { AgentSessionControlsErrorCard } from '@/components/sessions/SessionCreationStatusCard';
 import { resolveEffectiveSessionConfig } from '@/components/settings/AgentSessionConfigPicker';
 import { Button } from '@/components/ui/button';
 import {
@@ -87,25 +88,49 @@ export function CustomRoleSessionControls({
   const [catalog, setCatalog] = useState<AgentSessionControlsSnapshot | null>(
     null
   );
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const prevReloadTokenRef = useRef(reloadToken);
 
   useEffect(() => {
     const trimmed = agentId.trim();
+    const isManualRefresh = prevReloadTokenRef.current !== reloadToken;
+    prevReloadTokenRef.current = reloadToken;
     if (!trimmed) {
       setCatalog(null);
+      setLoadError(null);
       onCatalogChange?.(null);
       return;
     }
     let active = true;
     setCatalog(null);
+    setLoadError(null);
     onCatalogChange?.(null);
-    void loadAgentSessionControlsCatalog(trimmed)
+    const loadPromise = isManualRefresh
+      ? agentsApi
+          .refreshCapabilityCatalog(trimmed.toLowerCase())
+          .then((refreshed) => {
+            if (refreshed === false) {
+              throw new Error('Agent session controls discovery failed');
+            }
+            return loadAgentSessionControlsCatalog(trimmed);
+          })
+      : loadAgentSessionControlsCatalog(trimmed);
+
+    void loadPromise
       .then((next) => {
         if (active) {
           setCatalog(next ?? null);
+          setLoadError(null);
           onCatalogChange?.(next ?? null);
         }
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (active) {
+          setCatalog(null);
+          setLoadError(error);
+          onCatalogChange?.(null);
+        }
+      });
     return () => {
       active = false;
     };
@@ -116,6 +141,15 @@ export function CustomRoleSessionControls({
       <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
         {i18n.t('panels:ui.multiAgent.chooseAnAgentFirst')}
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <AgentSessionControlsErrorCard
+        agentId={agentId.trim()}
+        error={loadError}
+      />
     );
   }
 
@@ -404,15 +438,9 @@ export function MultiAgentSettings({
     setRoleDialogOpen(true);
   };
 
-  const handleRefreshRoleSessionControls = async () => {
-    const trimmed = roleAgentId.trim();
-    if (!trimmed) return;
-    try {
-      await agentsApi.refreshCapabilityCatalog(trimmed);
-      setRoleCatalogReloadToken((prev) => prev + 1);
-    } catch {
-      // Ignore refresh error in offline/test mode
-    }
+  const handleRefreshRoleSessionControls = () => {
+    if (!roleAgentId.trim()) return;
+    setRoleCatalogReloadToken((prev) => prev + 1);
   };
 
   const handleSaveRole = async () => {

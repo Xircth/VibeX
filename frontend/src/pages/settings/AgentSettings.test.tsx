@@ -1149,6 +1149,9 @@ describe('AgentSettings', () => {
     await user.click(screen.getByRole('button', { name: '立即检查' }));
 
     await user.click(await screen.findByRole('button', { name: '安装 ACP' }));
+    await user.click(
+      await screen.findByRole('button', { name: '安装最新版' })
+    );
     expect(api.addAndInstall).toHaveBeenCalledWith('kimi');
   });
 

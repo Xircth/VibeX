@@ -1,7 +1,6 @@
 import {
   Download,
   ExternalLink,
-  FileDown,
   Loader2,
   RefreshCw,
   Stethoscope,
@@ -9,7 +8,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentDiagnosticView,
@@ -27,6 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  PRODUCT_MENU_CONTENT_CLASS,
+  PRODUCT_MENU_ITEM_CLASS,
+} from '@/components/ui/product-menu-classes';
 import { Switch } from '@/components/ui/switch';
 import type { AgentOperationState } from '@/features/agent-management';
 import { readCachedAgentAcpUpdate } from '@/features/agent-management/agentAcpUpdates';
@@ -72,7 +75,7 @@ type AgentDetailProps = {
   onCancelOperation: () => void;
   onUninstall: (options?: { clearData?: boolean }) => void;
   onRemove: () => void;
-  onExportDiagnostics: () => void;
+  onExportDiagnostics?: () => void;
   onMarkAllDiagnosticsRead?: () => void;
   onEnvironmentDiagnostics?: () => void;
   onUpdatePreflightItem?: (itemId: string) => void;
@@ -97,7 +100,6 @@ export function AgentDetail({
   onCancelOperation,
   onUninstall,
   onRemove,
-  onExportDiagnostics,
   onMarkAllDiagnosticsRead,
   onEnvironmentDiagnostics,
   onUpdatePreflightItem,
@@ -138,26 +140,57 @@ export function AgentDetail({
       ? 'https://kiro.dev/docs/getting-started/installation/'
       : null;
   const [customVersion, setCustomVersion] = useState('');
+  const [installPopoverStep, setInstallPopoverStep] = useState<
+    'menu' | 'custom_version' | null
+  >(null);
+  const installPopoverRef = useRef<HTMLDivElement>(null);
   const [specifiedCompatibilityWarning, setSpecifiedCompatibilityWarning] =
     useState<string | null>(null);
   useEffect(() => {
     setCustomVersion('');
+    setInstallPopoverStep(null);
     setSpecifiedCompatibilityWarning(null);
     setDisableDialogOpen(false);
   }, [agent.agent_id]);
+  useEffect(() => {
+    if (!needsInstall || busy || agent.retired) {
+      setInstallPopoverStep(null);
+    }
+  }, [agent.retired, busy, needsInstall]);
+  useEffect(() => {
+    if (installPopoverStep === null) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        installPopoverRef.current &&
+        !installPopoverRef.current.contains(event.target as Node)
+      ) {
+        setInstallPopoverStep(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setInstallPopoverStep(null);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [installPopoverStep]);
   useEffect(() => {
     if (!focusDiagnostics) return;
     setDiagnosticsOpen(true);
     setOperationDiagnosticsEnabled(true);
   }, [focusDiagnostics]);
   const customVersionValid = isValidCustomVersion(customVersion);
-  const supportsCustomVersion =
-    agent.built_in &&
-    agent.agent_id !== 'hermes' &&
-    agent.agent_id !== 'kiro' &&
-    onInstallVersion != null;
   useEffect(() => {
-    if (!supportsCustomVersion || !customVersionValid || !onPreviewVersions) {
+    if (
+      installPopoverStep !== 'custom_version' ||
+      !customVersionValid ||
+      !onPreviewVersions
+    ) {
       setSpecifiedCompatibilityWarning(null);
       return;
     }
@@ -178,8 +211,8 @@ export function AgentDetail({
   }, [
     customVersion,
     customVersionValid,
+    installPopoverStep,
     onPreviewVersions,
-    supportsCustomVersion,
   ]);
 
   return (
@@ -319,6 +352,7 @@ export function AgentDetail({
           <div className="flex flex-wrap items-center justify-end gap-2">
             {onEnvironmentDiagnostics ? (
               <Button
+                key="env-diagnostics"
                 size="sm"
                 variant="outline"
                 className="h-8"
@@ -332,28 +366,125 @@ export function AgentDetail({
                 {t('agents.environmentDiagnosticsAction')}
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              onClick={onExportDiagnostics}
-            >
-              <FileDown aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              {t('agents.exportDiagnostics')}
-            </Button>
             {needsInstall ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={busy || agent.retired}
-                onClick={onInstall}
+              <div
+                key="install-acp"
+                ref={installPopoverRef}
+                className="relative"
               >
-                <Download aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                {t('agents.installRuntimeAcp')}
-              </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  aria-expanded={installPopoverStep !== null}
+                  aria-haspopup="menu"
+                  disabled={busy || agent.retired}
+                  onClick={() =>
+                    setInstallPopoverStep((current) =>
+                      current === null ? 'menu' : null
+                    )
+                  }
+                >
+                  <Download aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                  {t('agents.installRuntimeAcp')}
+                </Button>
+                {installPopoverStep === 'menu' ? (
+                  <div
+                    key="install-menu"
+                    data-floating-layer="popover"
+                    className={cn(
+                      PRODUCT_MENU_CONTENT_CLASS,
+                      'tahoe-popover absolute right-0 top-full z-50 mt-1.5 min-w-[8.5rem] p-1 shadow-md'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className={cn(
+                        PRODUCT_MENU_ITEM_CLASS,
+                        'w-full whitespace-nowrap px-2.5 py-1.5'
+                      )}
+                      onClick={() => {
+                        setInstallPopoverStep(null);
+                        onInstall();
+                      }}
+                    >
+                      {t('agents.installLatestVersion')}
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        PRODUCT_MENU_ITEM_CLASS,
+                        'w-full whitespace-nowrap px-2.5 py-1.5'
+                      )}
+                      onClick={() => setInstallPopoverStep('custom_version')}
+                    >
+                      {t('agents.specifyVersion')}
+                    </button>
+                  </div>
+                ) : installPopoverStep === 'custom_version' ? (
+                  <form
+                    key="install-custom-version"
+                    data-floating-layer="popover"
+                    className="tahoe-popover absolute right-0 top-full z-50 mt-1.5 w-72 rounded-md border border-border bg-popover p-2.5 text-popover-foreground shadow-md"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (busy || agent.retired || !customVersionValid) return;
+                      setInstallPopoverStep(null);
+                      onInstallVersion?.({
+                        acpVersion: customVersion.trim(),
+                      });
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        aria-label={t('agents.customVersionLabel')}
+                        aria-invalid={Boolean(
+                          customVersion && !customVersionValid
+                        )}
+                        autoComplete="off"
+                        autoFocus
+                        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary"
+                        disabled={busy || agent.retired}
+                        placeholder={
+                          updateCheck?.acp_available ??
+                          updateCheck?.available_version ??
+                          agent.acp_version ??
+                          t('agents.customVersionPlaceholder')
+                        }
+                        spellCheck={false}
+                        value={customVersion}
+                        onChange={(event) =>
+                          setCustomVersion(event.target.value)
+                        }
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-8 shrink-0"
+                        disabled={busy || agent.retired || !customVersionValid}
+                      >
+                        {t('common:confirm')}
+                      </Button>
+                    </div>
+                    {customVersionValid ? null : customVersion ? (
+                      <p role="alert" className="mt-1.5 text-xs text-destructive">
+                        {t('agents.customVersionInvalid')}
+                      </p>
+                    ) : null}
+                    {specifiedCompatibilityWarning ? (
+                      <p
+                        role="status"
+                        className="mt-1.5 text-xs text-amber-700 dark:text-amber-400"
+                      >
+                        {specifiedCompatibilityWarning}
+                      </p>
+                    ) : null}
+                  </form>
+                ) : null}
+              </div>
             ) : needsRepair ? (
               <Button
+                key="repair-acp"
                 size="sm"
                 variant="outline"
                 className="h-8"
@@ -366,6 +497,7 @@ export function AgentDetail({
             ) : null}
             {externalInstallUrl ? (
               <Button
+                key="external-install-guide"
                 size="sm"
                 variant="outline"
                 className="h-8"
@@ -385,6 +517,7 @@ export function AgentDetail({
               </Button>
             ) : null}
             <Button
+              key="check-now"
               size="sm"
               variant="outline"
               className="h-8"
@@ -393,11 +526,16 @@ export function AgentDetail({
             >
               {checking ? (
                 <Loader2
+                  key="loading"
                   aria-hidden="true"
                   className="mr-1.5 h-3.5 w-3.5 animate-spin"
                 />
               ) : (
-                <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                <RefreshCw
+                  key="refresh"
+                  aria-hidden="true"
+                  className="mr-1.5 h-3.5 w-3.5"
+                />
               )}
               {t('agents.checkNow')}
             </Button>
@@ -406,57 +544,6 @@ export function AgentDetail({
 
         {preflightExpanded ? (
           <>
-            {supportsCustomVersion ? (
-              <details className="agent-custom-version">
-                <summary>{t('agents.customVersionInstall')}</summary>
-                <div className="agent-custom-version-body">
-                  <label>
-                    <span>{t('agents.customVersionLabel')}</span>
-                    <input
-                      aria-label={t('agents.customVersionLabel')}
-                      aria-invalid={Boolean(
-                        customVersion && !customVersionValid
-                      )}
-                      autoComplete="off"
-                      disabled={busy || agent.retired}
-                      placeholder={
-                        updateCheck?.acp_available ??
-                        updateCheck?.available_version ??
-                        agent.acp_version ??
-                        t('agents.customVersionPlaceholder')
-                      }
-                      spellCheck={false}
-                      value={customVersion}
-                      onChange={(event) => setCustomVersion(event.target.value)}
-                    />
-                  </label>
-                  <Button
-                    className="h-8 shrink-0"
-                    disabled={busy || agent.retired || !customVersionValid}
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      onInstallVersion?.({
-                        acpVersion: customVersion.trim(),
-                      })
-                    }
-                  >
-                    <Download aria-hidden="true" className="h-3.5 w-3.5" />
-                    {t('agents.installSpecifiedVersion')}
-                  </Button>
-                </div>
-                {customVersionValid ? null : customVersion ? (
-                  <p role="alert">{t('agents.customVersionInvalid')}</p>
-                ) : null}
-                {specifiedCompatibilityWarning ? (
-                  <p role="status" className="text-xs text-amber-700">
-                    {specifiedCompatibilityWarning}
-                  </p>
-                ) : null}
-                <small>{t('agents.customVersionTrustHint')}</small>
-              </details>
-            ) : null}
-
             {operation ? (
               <AgentOperationProgress
                 operation={operation}

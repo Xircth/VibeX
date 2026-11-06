@@ -112,7 +112,7 @@ describe('MemberSessionConfigControls', () => {
     expect(screen.queryByText('暂不可用')).not.toBeInTheDocument();
   });
 
-  it('does not show 暂不可用 when session control discovery fails', async () => {
+  it('shows error card and does not show 暂不可用 when session control discovery fails', async () => {
     capabilityCatalog.mockResolvedValue(null);
     refreshCapabilityCatalog.mockResolvedValue(false);
     renderControls();
@@ -124,6 +124,9 @@ describe('MemberSessionConfigControls', () => {
     expect(
       screen.queryByTestId('session-settings-summary')
     ).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId('session-creation-status-card')
+    ).toBeInTheDocument();
   });
 
   it('shows last matching Codex controls while a stale catalog refreshes in the background', async () => {

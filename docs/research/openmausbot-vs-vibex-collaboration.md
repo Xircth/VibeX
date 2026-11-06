@@ -438,3 +438,145 @@ OpenMausBot **绝不使用 Claude Sonnet / GPT-4o 这类重型推理大模型来
 3. **情况三：纯本地自托管且只配了 Anthropic/OpenAI 官方 Key 的用户**
    - 如果用户既没用 Cloud Pro，也没配 OpenRouter Key 或 TypeSafe Jev Key（`OMB_JEV_API_KEY`），决策模型开关会自动处于关闭/未激活状态，群聊无 `@` 时直接 **Fail-Open 走静态群主兜底（Lead Mode）**，不会报错也不会卡住对话。
 
+---
+
+## 九、专题深挖 C：OpenMausBot、`spacering-net/codeg` 与 VibeX 字体设计（Typography）三方横评
+
+源码依据：
+- **OpenMausBot (`milind-soni/OpenMausBot`)**：[`package.json`](https://github.com/milind-soni/OpenMausBot/blob/main/package.json)、[`src/styles.css`](https://github.com/milind-soni/OpenMausBot/blob/main/src/styles.css)、[`src/lib/fonts.ts`](https://github.com/milind-soni/OpenMausBot/blob/main/src/lib/fonts.ts)、[`src/locales/index.ts`](https://github.com/milind-soni/OpenMausBot/blob/main/src/locales/index.ts)
+- **codeg (`spacering-net/codeg`)**：[`package.json`](https://github.com/spacering-net/codeg/blob/main/package.json)、[`src/lib/font-presets.ts`](https://github.com/spacering-net/codeg/blob/main/src/lib/font-presets.ts)、[`src/app/globals.css`](https://github.com/spacering-net/codeg/blob/main/src/app/globals.css)、[`src/lib/appearance-script.ts`](https://github.com/spacering-net/codeg/blob/main/src/lib/appearance-script.ts)、[`src/components/appearance-provider.tsx`](https://github.com/spacering-net/codeg/blob/main/src/components/appearance-provider.tsx)、[`src/components/settings/font-settings-section.tsx`](https://github.com/spacering-net/codeg/blob/main/src/components/settings/font-settings-section.tsx)
+- **VibeX**：[`frontend/package.json`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/package.json)、[`frontend/src/styles/fonts.css`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/styles/fonts.css)、[`frontend/src/lib/uiFont.ts`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/lib/uiFont.ts)
+
+---
+
+### 9.1 OpenMausBot 的字体设计（按字体类型与各语言拆解）
+
+OpenMausBot 支持 16 种界面语言（`en`、`zh`、`zh-tw`、`ja`、`ko`、`de`、`es`、`fr`、`hi`、`pt-br`、`uk`、`vi`、`tr`、`pl`、`ru`、`it`）及阿拉伯语/希伯来语双向混排，其字体架构采用**「内置 Vercel Geist 可变字体 + 皮肤绑定字体 + 阿拉伯/希伯来语 `unicode-range` 劫持 + CJK 完全依赖系统无显式指定」**的设计：
+
+1. **内置打包字体（3 款 `@fontsource-variable/*`）**：
+   - `@fontsource-variable/geist`（**Geist Variable**，主默认西文字体）
+   - `@fontsource-variable/geist-mono`（**Geist Mono Variable**，全局唯一内置等宽字体）
+   - `@fontsource-variable/inter`（**Inter Variable**，用户手动切换备选）
+2. **主题皮肤绑定 + 用户 5 档 UI 字体切换（`src/lib/fonts.ts` & `src/styles.css`）**：
+   - `FONT_IDS = ["skin", "system", "inter", "poppins", "serif"]`；
+   - 默认 `skin` 模式下，现代/暗色皮肤用 `Geist Variable`，纸质/温暖皮肤（`Atelier`/`Lagoon`/`Linen`）自动切换为原生 `system-ui`，贴纸皮肤（`Pop`）切换为 `Plus Jakarta Sans`；
+   - 提供了专门的衬线阅读模式（`serif`：`"Iowan Old Style", "Charter", Georgia, "Times New Roman", serif`）；
+   - 等宽字体固定为 `"Geist Mono Variable", "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, "Liberation Mono", monospace`，不支持在 UI 中切换。
+3. **多语言字体表现**：
+   - **拉丁语系**：命中内置 `Geist Variable`。
+   - **阿拉伯语与希伯来语（RTL）**：专门定义虚拟字体族 `"omb-chat"`，通过 `unicode-range` 强制将阿拉伯语绑定到 `Noto Naskh Arabic / Geeza Pro / SF Arabic`，希伯来语绑定到 `Noto Sans Hebrew / Arial Hebrew / SF Hebrew`，配合 `unicode-bidi: plaintext` 和 `1.75` 行高。
+   - **中日韩（CJK）**：CSS 中无任何显式 CJK 字体声明，完全依赖 `<html lang>` + 浏览器 `system-ui / sans-serif` 兜底。
+
+---
+
+### 9.2 `spacering-net/codeg` 的字体设计深度拆解
+
+`codeg`（基于 Next.js 16 + Tailwind v4 + Tauri v2 的 AI 编程会话管理器，支持 `en`、`zh_cn`、`zh_tw`、`ja`、`ko`、`es`、`de`、`fr`、`pt`、`ar` 共 10 种语言）在字体工程上做得非常系统，核心亮点是**「界面 / 编辑器 / 终端 三域独立解耦」+「5 款可变字体按需惰性加载」+「多语言 `:lang()` 等宽自动退避与 WebKit 缩放汉字防裁切」**：
+
+#### 1. 内置打包字体（5 款 `@fontsource-variable/*` 自托管可变字体）
+在 [`package.json`](https://github.com/spacering-net/codeg/blob/main/package.json) 与 [`src/app/globals.css`](https://github.com/spacering-net/codeg/blob/main/src/app/globals.css)（第 6–10 行）中全量自托管了 5 款可变字体（`@font-face` 惰性声明，仅在被选中或下拉菜单预览时浏览器才加载 `.woff2`）：
+- **无衬线字体（Sans，2 款）**：
+  - `@fontsource-variable/inter`（`"Inter Variable"` —— **默认全局界面字体**）
+  - `@fontsource-variable/geist`（`"Geist Variable"`）
+- **等宽编程字体（Mono，3 款）**：
+  - `@fontsource-variable/jetbrains-mono`（`"JetBrains Mono Variable"`，带连字 `ligatures: true`）
+  - `@fontsource-variable/fira-code`（`"Fira Code Variable"`，带连字 `ligatures: true`）
+  - `@fontsource-variable/geist-mono`（`"Geist Mono Variable"`，无连字 `ligatures: false`）
+
+#### 2. 「界面 / 编辑器 / 终端」三域解耦架构（[`src/lib/font-presets.ts`](https://github.com/spacering-net/codeg/blob/main/src/lib/font-presets.ts) & [`font-settings-section.tsx`](https://github.com/spacering-net/codeg/blob/main/src/components/settings/font-settings-section.tsx)）
+`codeg` 共有 7 个预设项（`System UI`、`System Monospace`、`Inter`、`Geist`、`JetBrains Mono`、`Fira Code`、`Geist Mono`）外加 `custom`（允许用户输入任意本机安装的字体族名），并按职责拆分为三个完全正交的配置域：
+
+| 配置域 | 默认值 (`font-presets.ts`) | 作用范围与底层消费方式 | 可选字体范围 | 独立附加项 |
+| :--- | :--- | :--- | :--- | :--- |
+| **① 界面字体 (`uiFont`)** | `inter` (`"Inter Variable"`) | 写入 `<html style="--font-sans: ...">`，驱动全局 UI 组件与**会话消息区正文** | **全部 7 款预设（含 Sans 与 Mono）+ 自定义族名**（支持把整个 UI 设为等宽字体） | 随全局窗口缩放（80%~300%）变化 |
+| **② 编辑器字体 (`editorFont`)** | `system-mono` (`MONO_FALLBACK`) | **仅传给 Monaco Editor 的 `fontFamily` 选项**，不写任何全局 CSS 变量，不影响聊天区代码块 | 仅等宽预设（4 款）+ 自定义族名 | 独立字号（`10px~20px` 9 档，默认 `13px`）、**连字开关 (`editorLigatures`)**、自动换行开关 |
+| **③ 终端字体 (`terminalFont`)** | `system-mono` (`MONO_FALLBACK`) | **仅传给 xterm.js 的 `fontFamily` 选项**（配合 `@xterm/addon-ligatures`） | 仅等宽预设（4 款）+ 自定义族名 | 独立字号（`10px~20px` 9 档，默认 `13px`）、**终端连字开关 (`terminalLigatures`)** |
+
+> **聊天消息区内联代码与代码块（`--font-mono`）**：在 `globals.css` 中刻意不跟随 `editorFont` 改动，始终保持 Tailwind 默认等宽栈 `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`，保证消息气泡排版稳定。
+
+#### 3. 多语言（中日韩 CJK / 阿拉伯语）排版的 3 个精妙工程细节
+虽然 `codeg` 的基础回退栈 `SANS_FALLBACK`（`system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`）和 OpenMausBot 一样把中文交给了操作系统的 `system-ui` 兜底，但 `codeg` 在多语言与中文渲染细节上解决了 3 个非常真实的痛点：
+
+1. **`:lang(zh/ja/ko/ar)` 自动将时间线等宽标签退回无衬线字体（[`src/app/globals.css`](https://github.com/spacering-net/codeg/blob/main/src/app/globals.css)）**：
+   - 在 AI 执行时间线（Activity Timeline）中，耗时、行数与短状态标签使用了 `.activity-mono`（等宽字体 + `tabular-nums`）。
+   - 但当界面语言是**中文（`zh`）、日文（`ja`）、韩文（`ko`）或阿拉伯语（`ar`）**时，西文等宽字体没有对应字形，操作系统往往会回退到字间距松散、笔画生硬的等宽宋体（如 Windows 下的 `NSimSun` 新宋体）。
+   - 为此，`codeg` 专门编写了语言伪类退避规则：
+     ```css
+     .activity-mono {
+       font-family: var(--font-mono);
+       font-variant-numeric: tabular-nums;
+     }
+     :lang(zh) .activity-mono,
+     :lang(ja) .activity-mono,
+     :lang(ko) .activity-mono,
+     :lang(ar) .activity-mono {
+       font-family: var(--font-sans);
+     }
+     ```
+     在中日韩和阿拉伯语下直接改用 `--font-sans` 渲染短标签，同时保留 `font-variant-numeric: tabular-nums` 保证数字列严格对齐！
+2. **根元素 `line-height: 1.5em` 修复 WebKit/Tauri 缩放裁切汉字上下边缘的 Bug（[`src/app/globals.css`](https://github.com/spacering-net/codeg/blob/main/src/app/globals.css) 第 26–39 行）**：
+   - `codeg` 通过修改 `<html style="font-size: ...">` 实现 80%~300% 界面缩放。作者发现在 macOS Tauri（WKWebView）中，`:root` 上的 `line-height: 1.5rem` 会被 WebKit 永久钉死在初始字号 `24px`，导致缩放至 150%~300% 时，侧边栏、会话标题的汉字在 `truncate (overflow: hidden)` 下被上下切掉几像素。
+   - 改用 `line-height: 1.5em`（而在 ReactFlow 画布内部 `.canvas-board-units` 重置为无单位 `line-height: 1.5`）后，汉字在任意缩放档位下均不再被裁切。
+3. **流式 Markdown 引入 `@streamdown/cjk`**：
+   - 在 `package.json` 中专门引入 `@streamdown/cjk`（`^1.0.2`），解决大模型流式输出中文/日文/韩文 Markdown 时，加粗/斜体语法紧贴中文标点导致的解析失效与闪烁问题。
+
+#### 4. 零闪烁预水合（Zero-FOUC）与 CSS 注入防御
+- **预水合缓存栈（[`src/lib/appearance-script.ts`](https://github.com/spacering-net/codeg/blob/main/src/lib/appearance-script.ts) 第 140–145 行）**：`AppearanceProvider` 在用户修改界面字体时，不仅存 `codeg-ui-font`（ID），还把完整解析后的 CSS 字符串存入 `codeg-ui-font-stack`。首帧 HTML 内联脚本无需加载 `font-presets.ts` 字典，直接读取缓存栈并在通过长度与字符白名单校验（`uiFontStack.length < 512 && !/[;{}<>]/.test(uiFontStack)`）后写入 `--font-sans`。
+- **自定义字体名清洗（`sanitizeFontFamily`）**：剔除所有 ASCII `< 0x20` 的控制字符及 `"'\\;{}<>`，截断至 64 字符，杜绝用户通过自定义字体输入框注入恶意 CSS。
+
+---
+
+### 9.3 三方全景对比矩阵（OpenMausBot vs `codeg` vs VibeX）
+
+| 对比维度 | OpenMausBot (`milind-soni/OpenMausBot`) | codeg (`spacering-net/codeg`) | VibeX (`frontend/src/styles/fonts.css`) | 综合评估与胜出方 |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. 默认 UI 西文字体** | **Geist Variable**（随皮肤切换，温暖皮肤切 `system-ui`） | **Inter Variable**（全平台统一默认，可切 `Geist Variable` 或 `System UI`） | **按 OS 精准分流**：macOS 用原生 `SF Pro Text`；Windows/Linux 强制用内置 **Inter Variable** | **VibeX 与 codeg 更稳健**（Windows 下避开了发虚的 Segoe UI） |
+| **2. 中文与 CJK 回退栈** | 无显式声明，纯靠 `<html lang>` + `system-ui` | 无显式声明，纯靠 `system-ui`；但配套了 **`:lang(zh/ja/ko)` 等宽退避** + **`@streamdown/cjk`** + **`1.5em` 防汉字裁切** | **显式声明完整跨平台 CJK 字体栈**（`PingFang SC` → `Hiragino Sans GB` → `Microsoft YaHei UI` → `Noto Sans CJK SC` → `Source Han Sans SC`） | **VibeX 在基础中文字形确定性上最佳**；**codeg 在 CJK 局部组件退避与流式排版细节上最细腻** |
+| **3. 内置打包字体阵容** | 3 款（`Geist`、`Inter`、`Geist Mono`） | **5 款全可变字体**（`Inter`、`Geist`、`JetBrains Mono`、`Fira Code`、`Geist Mono`） | 2 款（`Inter Variable` + 自托管 `IBM Plex Mono` 4 字重 + `Noto Emoji`） | **codeg 最丰富**（直接内置了最受开发者欢迎的 JetBrains Mono 与 Fira Code 可变字体） |
+| **4. 字体自定义颗粒度** | 仅 **1 个维度**：全局 UI 字体（5 档预设，不支持自定义输入，不支持换代码字体） | **3 个独立维度**：**界面字体** + **Monaco 编辑器字体/字号/连字** + **xterm 终端字体/字号/连字**，且全部支持手输 `custom` 本机字体 + 实时三合一预览面板 | 仅 **1 个维度**：全局等宽字体（7 档预设，同时覆盖 `--font-mono` 与终端，不支持 UI 字体切换或自定义字体输入） | **codeg 显著领先**（三域分离 + 独立字号 + 连字开关 + 实时预览样张，体验最完整） |
+| **5. 编程连字（Ligatures）控制** | 无连字开关（`Geist Mono` 默认无连字） | **原生支持编辑器与终端独立连字开关**，且根据字体元数据（`fontSupportsLigatures`）自动启用/禁用开关 | 未提供显式连字开关 | **codeg 显著领先** |
+| **6. 阿拉伯语 / 希伯来语（RTL）** | 专门定义 `omb-chat` `unicode-range` 劫持 + `unicode-bidi: plaintext` | `:lang(ar) .activity-mono` 退避至 `--font-sans` | 依赖系统默认回退 | **OpenMausBot 最深入**，**codeg 次之** |
+
+---
+
+### 9.4 VibeX 可以从 `spacering-net/codeg` 借鉴的 4 项字体与排版实践
+
+1. **借鉴 `:lang(zh/ja/ko)` 等宽状态标签退避机制（极低成本，立竿见影）**：
+   - 在 VibeX 的工具调用卡片、步进状态栏或统计徽章中，如果某处同时用 `font-mono` 显示数字和中文短词（如“耗时 120ms · 已完成”），在中文环境下容易因为等宽字体不含汉字而触发劣质回退或字重不一致。可参考 `codeg` 的 `.activity-mono` 模式：对纯数字用 `font-variant-numeric: tabular-nums`，而在 `:lang(zh)` 下保持 `--font-ui` 字体栈。
+2. **将 `@fontsource-variable/jetbrains-mono` 与 `@fontsource-variable/fira-code` 纳入惰性自托管，并增加连字（Ligatures）开关**：
+   - 目前 VibeX 在 [`frontend/src/lib/uiFont.ts`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/lib/uiFont.ts) 中虽然列出了 `JetBrains Mono` 和 `Fira Code` 选项，但**并未内置打包它们的 `.woff2` 文件**（如果用户电脑本地没装这两款字体，选中后实际上会静默回退到 `IBM Plex Mono`）。借鉴 `codeg` 通过 `@fontsource-variable/*` 惰性引入（仅选中时浏览器才下载 `.woff2`），并配套 `font-variant-ligatures` 开关，能让这几个选项在任何裸机上都真正生效。
+3. **支持「自定义字体族名输入（Custom Font Input）」+「三合一实时预览卡片」**：
+   - 许多开发者本机安装了付费或定制字体（如 `Maple Mono`、`Sarasa Term SC 更纱黑体`、`MonoLisa`、`HarmonyOS Sans SC`）。借鉴 `codeg` 的 `CUSTOM_FONT_ID` + `sanitizeFontFamily()` 白名单清洗，允许用户在下拉菜单底部选择「自定义字体…」并输入本机字体名，再追加 VibeX 现有的跨平台 CJK 兜底栈。
+4. **注意 Tauri / WKWebView 下 `:root` 使用 `rem` 行高的缩放裁切陷阱**：
+   - 如果 VibeX 未来在桌面端支持通过根字号缩放视图，需像 `codeg` 一样在 `:root` 使用 `line-height: 1.5em` 或无单位比值 `1.5`，避免 `rem` 行高在 WebKit 下被锁死在初始 `16px` 基准导致大字号下中文标题被上下裁切。
+
+---
+
+## 十、专题深挖 D：VibeX 低分辨率屏幕（1080p / 1x~1.25x DPI）字体发虚/发糊根因诊断与修复方案
+
+### 10.1 五大源码级根因定位
+
+1. **根因一（最致命）：全局字号阶梯被人为整体下调一档 + 核心阅读区字号偏小 1~2px**
+   - [`frontend/tailwind.legacy.config.js`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/tailwind.legacy.config.js#L44-L51) 显式将所有字号下调一档（`xs=10px`, `sm=12px`, `base=14px`）；
+   - [`conv-markdown.css`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/styles/conversation/conv-markdown.css#L17) 聊天正文硬编码 `13px`，行内代码 `0.88em`（`11.44px` 非整数像素），代码块 `12px`，终端输出与文件树代码预览 `11px`；
+   - 在 1x DPI（96 DPI）屏幕上，`10px~12px` 的汉字实际字面框仅 8~10 个物理像素高，横画超过 5 笔即粘连成黑团，非整数像素导致横画粗细不一。
+
+2. **根因二：`<html lang="en">` 写死不随语言同步 + `--font-mono` 缺少中文字体兜底，触发「新宋体 / 异体字」劣化回退**
+   - [`frontend/index.html`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/index.html#L2) 写死 `<html lang="en">`，[`frontend/src/i18n/index.ts`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/i18n/index.ts#L86-L104) 切语言时未更新 `document.documentElement.lang`；
+   - [`frontend/src/styles/fonts.css`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/styles/fonts.css#L51-L53) 的 `--font-mono` 栈无任何中文字体声明；当代码注释、终端日志或 `.conv-tool-artifact-title` / `.conv-file-name` 出现中文时，直接跌落至系统底层 `monospace`（Windows 下常为点阵/细笔画新宋体 `NSimSun` 或日文漢字字形）。
+
+3. **根因三：默认等宽字体强制以 `IBM Plex Mono` 覆盖系统高 Hinting 字体（`Consolas` / `SF Mono`）**
+   - `IBM Plex Mono` 半衬线钩角细节多、x-height 比 `JetBrains Mono` 小约 8%，且 Web 静态切片缺乏针对 11px/12px 低 DPI 网格的强 Hinting，在 1080p 下远不如 Windows 原生 `Consolas` 或 `JetBrains Mono` 干脆。
+
+4. **根因四：低分屏（1x DPI）无差别强制开启 `antialiased`（灰度抗锯齿）削细笔画**
+   - [`frontend/src/styles/legacy/index.css`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/styles/legacy/index.css#L594) 对 `.legacy-design` 全局应用 `antialiased`；在 `< 2dppx` 的低分屏上关闭了亚像素平滑并将笔画削薄约 15%~20%，叠加 `10px~13px` 小字号与 `#a3a3a3` 浅灰字色，导致文字像蒙了一层雾。
+
+5. **根因五：Windows 下 `Inter Variable` 与 `Microsoft YaHei UI` 小字号混排断层，且缺少 `font-synthesis: none`**
+   - [`frontend/src/styles/fonts.css`](file:///C:/Users/18190/Documents/projects/VibeX/frontend/src/styles/fonts.css) 未声明 `font-synthesis: none; text-rendering: optimizeLegibility;`，`500/600` 字重下可变西文字体与中文字体合成粗体策略不一致，造成中英混排粗细与基线割裂。
+
+### 10.2 四步落地修复清单
+
+1. **在 `fonts.css` 与 `uiFont.ts` 中为 `--font-mono` 补齐中文黑体兜底，并在 `:root` 声明 `font-synthesis: none; text-rendering: optimizeLegibility;`**。
+2. **在 `i18n/index.ts` 中同步更新 `document.documentElement.lang = getUiLanguage()`，并对含中文标题/状态标签引入 `:lang(zh)` 无衬线退避**。
+3. **在 `legacy/index.css` 中按 DPI 媒体查询分流抗锯齿**：1x 低分屏保持 `-webkit-font-smoothing: auto`，仅在 `@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 2dppx)` 高分屏开启 `antialiased`。
+4. **回调核心阅读区与代码字号**：聊天正文 `.conv-markdown` 提升至 `14px`，行内代码改为整数 `12.5px/13px`，代码块与终端输出提升至 `12px~13px`，并引入 `@fontsource-variable/jetbrains-mono` / `fira-code` 自托管。

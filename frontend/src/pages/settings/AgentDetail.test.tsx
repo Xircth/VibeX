@@ -537,19 +537,20 @@ describe('AgentDetail', () => {
     localStorage.clear();
   });
 
-  it('validates and submits a concrete custom version for supported built-ins', async () => {
+  it('opens install options from Install ACP and validates/submits a custom version in a floating popover', async () => {
+    const onInstall = vi.fn();
     const onInstallVersion = vi.fn();
     render(
       <AgentDetail
-        agent={agent}
+        agent={{ ...agent, lifecycle: 'uninstalled', acp_version: null }}
         operation={null}
-        preflight={preflight}
+        preflight={null}
         checking={false}
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
         onPreflight={vi.fn()}
-        onInstall={vi.fn()}
+        onInstall={onInstall}
         onInstallVersion={onInstallVersion}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
@@ -561,9 +562,24 @@ describe('AgentDetail', () => {
       />
     );
 
-    await userEvent.click(screen.getByText('指定版本安装'));
+    expect(screen.queryByText('指定版本安装')).not.toBeInTheDocument();
+
+    const installButton = screen.getByRole('button', { name: '安装 ACP' });
+    await userEvent.click(installButton);
+    expect(
+      screen.getByRole('button', { name: '安装最新版' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '指定版本' })
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '指定版本' }));
+    expect(
+      screen.queryByRole('button', { name: '安装最新版' })
+    ).not.toBeInTheDocument();
+
     const versionInput = screen.getByLabelText('版本');
-    const submit = screen.getByRole('button', { name: '安装此版本' });
+    const submit = screen.getByRole('button', { name: '确认' });
     await userEvent.type(versionInput, 'latest');
     expect(submit).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('具体的点分版本号');
@@ -574,6 +590,7 @@ describe('AgentDetail', () => {
     expect(onInstallVersion).toHaveBeenCalledWith({
       acpVersion: 'v1.7.0',
     });
+    expect(screen.queryByLabelText('版本')).not.toBeInTheDocument();
   });
 
   it('previews a specified ACP version without requiring a vendor CLI pin', async () => {
@@ -581,9 +598,9 @@ describe('AgentDetail', () => {
     const onPreviewVersions = vi.fn().mockResolvedValue(null);
     render(
       <AgentDetail
-        agent={agent}
+        agent={{ ...agent, lifecycle: 'uninstalled', acp_version: null }}
         operation={null}
-        preflight={preflight}
+        preflight={null}
         checking={false}
         checkingUpdate={false}
         updateCheck={{
@@ -612,9 +629,10 @@ describe('AgentDetail', () => {
       />
     );
 
-    await userEvent.click(screen.getByText('指定版本安装'));
+    await userEvent.click(screen.getByRole('button', { name: '安装 ACP' }));
+    await userEvent.click(screen.getByRole('button', { name: '指定版本' }));
     await userEvent.type(screen.getByLabelText('版本'), '1.7.0');
-    const submit = screen.getByRole('button', { name: '安装此版本' });
+    const submit = screen.getByRole('button', { name: '确认' });
     expect(submit).toBeEnabled();
     await waitFor(() =>
       expect(onPreviewVersions).toHaveBeenCalledWith({
@@ -734,14 +752,16 @@ describe('AgentDetail', () => {
       within(preflightRegion).queryByRole('button', { name: '移除' })
     ).not.toBeInTheDocument();
 
+    expect(
+      screen.queryByRole('button', { name: '导出诊断记录' })
+    ).not.toBeInTheDocument();
+
     await userEvent.click(enable);
     const dialog = screen.getByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: '卸载' }));
     await userEvent.click(remove);
-    await userEvent.click(screen.getByRole('button', { name: '导出诊断记录' }));
     expect(onUninstall).toHaveBeenCalledWith({ clearData: false });
     expect(onRemove).toHaveBeenCalledOnce();
-    expect(onExportDiagnostics).toHaveBeenCalledOnce();
   });
 
   it('keeps update install on the preflight row instead of a separate banner', async () => {
@@ -1049,6 +1069,9 @@ describe('AgentDetail', () => {
       );
 
       await userEvent.click(screen.getByRole('button', { name: '安装 ACP' }));
+      await userEvent.click(
+        screen.getByRole('button', { name: '安装最新版' })
+      );
       expect(onInstall).toHaveBeenCalledOnce();
 
       await userEvent.click(

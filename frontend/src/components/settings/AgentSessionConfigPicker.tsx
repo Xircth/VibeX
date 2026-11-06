@@ -8,6 +8,7 @@ import type {
 } from 'shared/types';
 
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
+import { AgentSessionControlsErrorCard } from '@/components/sessions/SessionCreationStatusCard';
 import {
   configOptionDisplayState,
   presentableSessionConfigOptions,
@@ -173,6 +174,7 @@ export function AgentSessionConfigPicker({
   ]);
   const sessionControlsLoading = catalogQuery.isFetching;
   const backgroundRefreshAgent = useRef<string | null>(null);
+  const [refreshError, setRefreshError] = useState<unknown>(null);
 
   useEffect(() => {
     if (
@@ -195,13 +197,19 @@ export function AgentSessionConfigPicker({
 
   useEffect(() => {
     backgroundRefreshAgent.current = null;
+    setRefreshError(null);
   }, [selectedAgentId]);
 
   const loadSessionControls = useCallback(
     async (nextAgentId: string, refresh: boolean) => {
       try {
+        setRefreshError(null);
         if (refresh) {
-          await agentsApi.refreshCapabilityCatalog(nextAgentId);
+          const refreshed =
+            await agentsApi.refreshCapabilityCatalog(nextAgentId);
+          if (refreshed === false) {
+            throw new Error('Agent session controls discovery failed');
+          }
         }
         await queryClient.fetchQuery({
           queryKey: sessionControlsQueryKey(nextAgentId, null),
@@ -209,6 +217,7 @@ export function AgentSessionConfigPicker({
           staleTime: refresh ? 0 : 60_000,
         });
       } catch (error) {
+        setRefreshError(error);
         toast.error(
           error instanceof Error
             ? error.message
@@ -224,6 +233,7 @@ export function AgentSessionConfigPicker({
       (sessionControls.modes.length > 0 ||
         sessionControls.config_options.length > 0)
   );
+  const activeError = refreshError ?? catalogQuery.error;
 
   const handleSaveSessionConfig = () => {
     const effective = resolveEffectiveSessionConfig(
@@ -323,6 +333,13 @@ export function AgentSessionConfigPicker({
             {t('common:save', { defaultValue: '保存' })}
           </Button>
         </div>
+      ) : null}
+
+      {selectedAgentId && activeError && (!hasSessionControls || refreshError) ? (
+        <AgentSessionControlsErrorCard
+          agentId={selectedAgentId}
+          error={activeError}
+        />
       ) : null}
     </div>
   );

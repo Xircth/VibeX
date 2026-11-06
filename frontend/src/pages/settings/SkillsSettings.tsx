@@ -288,7 +288,7 @@ export function SkillsSettings() {
       Object.fromEntries(agentOptions.map((item) => [item.value, item.label])),
     [agentOptions]
   );
-  const [leftTab, setLeftTab] = useState<LeftTab>('local');
+  const [leftTab, setLeftTab] = useState<LeftTab>('market');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, triggerSuccess] = useTemporaryFlag(2500);

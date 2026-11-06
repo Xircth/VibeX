@@ -181,7 +181,9 @@ export function McpSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const pluginId = searchParams.get('plugin');
   const agentOptions = useManagedAgentOptions('native_mcp');
-  const [leftTab, setLeftTab] = useState<LeftTab>('local');
+  const [leftTab, setLeftTab] = useState<LeftTab>(
+    pluginId ? 'local' : 'market'
+  );
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, triggerSuccess] = useTemporaryFlag(2500);
@@ -198,6 +200,7 @@ export function McpSettings() {
       setPluginContext(null);
       return;
     }
+    setLeftTab('local');
     let active = true;
     setPluginMcpLoading(true);
     void pluginControlApi

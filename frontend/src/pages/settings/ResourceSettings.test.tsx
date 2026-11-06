@@ -203,6 +203,7 @@ describe('McpSettings', () => {
     mocks.upsertMcp.mockResolvedValue([created]);
     renderSettings(<McpSettings />);
 
+    await user.click(screen.getByRole('radio', { name: '本地 MCP' }));
     await user.click(await screen.findByRole('button', { name: '新建 MCP' }));
     await user.type(
       screen.getByPlaceholderText('例如 filesystem'),
@@ -296,15 +297,11 @@ describe('McpSettings', () => {
       await screen.findByRole('heading', { name: '连接器' })
     ).toBeVisible();
 
-    const localItem = await screen.findByRole('button', { name: /node_repl/ });
-    expect(localItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
-
     const localTabRadio = screen.getByRole('radio', { name: '本地 MCP' });
     const marketTabRadio = screen.getByRole('radio', { name: 'MCP 市场' });
     expect(localTabRadio.querySelector('svg')).not.toBeNull();
     expect(marketTabRadio.querySelector('svg')).not.toBeNull();
-
-    await user.click(marketTabRadio);
+    expect(marketTabRadio).toBeChecked();
 
     const searchInput = await screen.findByPlaceholderText('搜索应用');
     expect(searchInput).toBeVisible();
@@ -327,6 +324,11 @@ describe('McpSettings', () => {
       name: /GitHub MCP/,
     });
     expect(marketItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
+
+    await user.click(localTabRadio);
+
+    const localItem = await screen.findByRole('button', { name: /node_repl/ });
+    expect(localItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
   });
 
   it('opens the centered ConnectorMarketplace dialog from StatusBarConnectorButton and supports custom MCP creation', async () => {
@@ -475,6 +477,7 @@ describe('SkillsSettings', () => {
     mocks.uninstallSkill.mockResolvedValue([]);
     renderSettings(<SkillsSettings />);
 
+    await user.click(screen.getByRole('radio', { name: '本地 Skill' }));
     await user.click(
       await screen.findByRole('button', { name: /review-code/ })
     );
@@ -540,8 +543,7 @@ describe('SkillsSettings', () => {
     expect(
       screen.getByRole('heading', { name: 'Skill' })
     ).toBeVisible();
-
-    await user.click(screen.getByRole('radio', { name: 'Skill 市场' }));
+    expect(screen.getByRole('radio', { name: 'Skill 市场' })).toBeChecked();
 
     expect(
       await screen.findByPlaceholderText('Search skills...')

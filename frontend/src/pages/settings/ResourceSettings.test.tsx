@@ -325,6 +325,31 @@ describe('McpSettings', () => {
     });
     expect(marketItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
 
+    // Verify Composio and Aiwyn Tax MCP are not hardcoded as 'included' (show Connect button instead)
+    expect(
+      screen.getByRole('button', { name: '连接 Composio' })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: '连接 Aiwyn Tax MCP' })
+    ).toBeVisible();
+    expect(screen.queryByText('已包含')).not.toBeInTheDocument();
+
+    // Verify root container has min-h-0 flex-1 overflow-hidden w-full and browse-all button works
+    expect(marketContainer).toHaveClass(
+      'min-h-0',
+      'flex-1',
+      'overflow-hidden',
+      'w-full'
+    );
+    const browseAllBtn = screen.getByRole('button', {
+      name: /浏览全部连接器/,
+    });
+    expect(browseAllBtn).toBeVisible();
+    await user.click(browseAllBtn);
+    // In ungrouped browse-all view, items beyond the first 4 of developer_tools (e.g. Sentry, Vercel) are visible
+    expect(screen.getByRole('button', { name: '连接 Sentry' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '连接 Vercel' })).toBeVisible();
+
     await user.click(localTabRadio);
 
     const localItem = await screen.findByRole('button', { name: /node_repl/ });

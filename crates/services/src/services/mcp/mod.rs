@@ -5636,14 +5636,14 @@ command = "other"
             .iter()
             .find(|item| item.server_id == "composio")
             .expect("composio in catalog");
-        assert_eq!(composio.status.as_deref(), Some("included"));
+        assert_eq!(composio.status.as_deref(), Some("available"));
         assert_eq!(composio.category.as_deref(), Some("developer_tools"));
 
         let aiwyn = all_items
             .iter()
             .find(|item| item.server_id == "aiwyn-tax-mcp")
             .expect("aiwyn-tax-mcp in catalog");
-        assert_eq!(aiwyn.status.as_deref(), Some("included"));
+        assert_eq!(aiwyn.status.as_deref(), Some("available"));
 
         let context7 = all_items
             .iter()

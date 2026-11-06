@@ -731,6 +731,8 @@ export function ConnectorMarketplace({
     ConnectorCategoryId | 'all'
   >(initialCategory);
   const [connectedOnly, setConnectedOnly] = useState(false);
+  const [browseAllInAllTab, setBrowseAllInAllTab] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(60);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -741,6 +743,10 @@ export function ConnectorMarketplace({
   useEffect(() => {
     setActiveCategory(initialCategory);
   }, [initialCategory]);
+
+  useEffect(() => {
+    setVisibleLimit(60);
+  }, [activeCategory, searchQuery, connectedOnly, browseAllInAllTab]);
 
   // Connect / Install modal state
   const [connectingEntry, setConnectingEntry] =
@@ -902,8 +908,40 @@ export function ConnectorMarketplace({
       .length;
   }, [catalogEntries, getEntryStatus]);
 
+  const categoryCounts = useMemo(() => {
+    const counts: Record<ConnectorCategoryId, number> = {
+      developer_tools: 0,
+      analytics: 0,
+      model_context_protocol: 0,
+      marketing_automation: 0,
+      social: 0,
+      productivity: 0,
+      communication: 0,
+      design: 0,
+    };
+    const q = searchQuery.trim().toLowerCase();
+    for (const entry of catalogEntries) {
+      const status = getEntryStatus(entry);
+      if (connectedOnly && status === 'available') continue;
+      if (q) {
+        const categoryText = getCategoryLabel(entry.category).toLowerCase();
+        const matches =
+          entry.name.toLowerCase().includes(q) ||
+          entry.description.toLowerCase().includes(q) ||
+          entry.serverId.toLowerCase().includes(q) ||
+          categoryText.includes(q);
+        if (!matches) continue;
+      }
+      counts[entry.category] = (counts[entry.category] ?? 0) + 1;
+    }
+    return counts;
+  }, [catalogEntries, getEntryStatus, connectedOnly, searchQuery, getCategoryLabel]);
+
   const isGroupedView =
-    activeCategory === 'all' && !searchQuery.trim() && !connectedOnly;
+    activeCategory === 'all' &&
+    !searchQuery.trim() &&
+    !connectedOnly &&
+    !browseAllInAllTab;
 
   const groupedSections = useMemo(() => {
     if (!isGroupedView) return [];
@@ -916,6 +954,23 @@ export function ConnectorMarketplace({
       };
     }).filter((section) => section.items.length > 0);
   }, [isGroupedView, filteredEntries, getCategoryLabel]);
+
+  const visibleEntries = useMemo(() => {
+    return filteredEntries.slice(0, visibleLimit);
+  }, [filteredEntries, visibleLimit]);
+
+  const hasMoreEntries = !isGroupedView && visibleLimit < filteredEntries.length;
+
+  const handleStreamScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      if (!hasMoreEntries) return;
+      const el = e.currentTarget;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight <= 160) {
+        setVisibleLimit((prev) => Math.min(prev + 60, filteredEntries.length));
+      }
+    },
+    [hasMoreEntries, filteredEntries.length]
+  );
 
   const openConnectDialog = useCallback(
     async (entry: ConnectorCatalogEntry) => {
@@ -1249,13 +1304,13 @@ export function ConnectorMarketplace({
   return (
     <div
       className={cn(
-        'dsh-connector-marketplace flex flex-col text-foreground',
-        mode === 'dialog' ? ' max-h-[82vh] w-full' : 'h-full w-full'
+        'dsh-connector-marketplace flex min-h-0 flex-1 flex-col overflow-hidden w-full text-foreground',
+        mode === 'page' && 'h-full'
       )}
     >
       {/* Dialog Header (matches reference screenshot 1:1) */}
       {mode === 'dialog' && (
-        <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
+        <div className="flex shrink-0 items-start justify-between gap-4 px-6 pt-5 pb-3">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
               {t('mcp.marketplace.dialogTitle', '应用')}
@@ -1313,7 +1368,7 @@ export function ConnectorMarketplace({
       {/* Search & Custom MCP Server Toolbar */}
       <div
         className={cn(
-          'flex flex-col gap-3',
+          'flex shrink-0 flex-col gap-3',
           mode === 'dialog' ? 'px-6 pb-3' : 'px-0 pt-1 pb-3'
         )}
       >
@@ -1351,6 +1406,11 @@ export function ConnectorMarketplace({
                 )}
               >
                 <span>{t('mcp.marketplace.connectedFilter', '已连接')}</span>
+                {connectedCount > 0 && (
+                  <span className="rounded-full bg-muted/80 px-1.5 py-0.2 text-[10px] text-foreground">
+                    {connectedCount}
+                  </span>
+                )}
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
               <button
@@ -1383,15 +1443,20 @@ export function ConnectorMarketplace({
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => setActiveCategory('all')}
+            onClick={() => {
+              setActiveCategory('all');
+              setBrowseAllInAllTab(false);
+            }}
+            aria-label={t('mcp.marketplace.categoryAll', '全部')}
             className={cn(
-              'inline-flex h-7 items-center rounded-full px-3 text-xs transition-colors',
+              'inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs transition-colors',
               activeCategory === 'all'
                 ? 'bg-foreground font-medium text-background shadow-2xs'
                 : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
-            {t('mcp.marketplace.categoryAll', '全部')}
+            <span>{t('mcp.marketplace.categoryAll', '全部')}</span>
+            <span className="opacity-70">({catalogEntries.length})</span>
           </button>
 
           {PRIMARY_CONNECTOR_CATEGORIES.map((catId) => {
@@ -1400,15 +1465,20 @@ export function ConnectorMarketplace({
               <button
                 key={catId}
                 type="button"
-                onClick={() => setActiveCategory(catId)}
+                onClick={() => {
+                  setActiveCategory(catId);
+                  setBrowseAllInAllTab(false);
+                }}
+                aria-label={getCategoryLabel(catId)}
                 className={cn(
-                  'inline-flex h-7 items-center rounded-full px-3 text-xs transition-colors',
+                  'inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs transition-colors',
                   active
                     ? 'bg-foreground font-medium text-background shadow-2xs'
                     : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
-                {getCategoryLabel(catId)}
+                <span>{getCategoryLabel(catId)}</span>
+                <span className="opacity-70">({categoryCounts[catId] ?? 0})</span>
               </button>
             );
           })}
@@ -1416,10 +1486,19 @@ export function ConnectorMarketplace({
           {isMoreCategorySelected && (
             <button
               type="button"
-              onClick={() => setActiveCategory(activeCategory)}
-              className="inline-flex h-7 items-center rounded-full bg-foreground px-3 text-xs font-medium text-background shadow-2xs"
+              onClick={() => {
+                setActiveCategory(activeCategory);
+                setBrowseAllInAllTab(false);
+              }}
+              aria-label={getCategoryLabel(activeCategory as ConnectorCategoryId)}
+              className="inline-flex h-7 items-center gap-1 rounded-full bg-foreground px-3 text-xs font-medium text-background shadow-2xs"
             >
-              {getCategoryLabel(activeCategory as ConnectorCategoryId)}
+              <span>
+                {getCategoryLabel(activeCategory as ConnectorCategoryId)}
+              </span>
+              <span className="opacity-70">
+                ({categoryCounts[activeCategory as ConnectorCategoryId] ?? 0})
+              </span>
             </button>
           )}
 
@@ -1440,7 +1519,7 @@ export function ConnectorMarketplace({
             </button>
 
             {moreMenuOpen && (
-              <div className="absolute top-full left-0 z-50 mt-1.5 min-w-[140px] rounded-xl border border-border bg-popover p-1 shadow-md">
+              <div className="absolute top-full left-0 z-50 mt-1.5 min-w-[160px] rounded-xl border border-border bg-popover p-1 shadow-md">
                 {MORE_CONNECTOR_CATEGORIES.map((catId) => {
                   const selected = activeCategory === catId;
                   return (
@@ -1449,17 +1528,21 @@ export function ConnectorMarketplace({
                       type="button"
                       onClick={() => {
                         setActiveCategory(catId);
+                        setBrowseAllInAllTab(false);
                         setMoreMenuOpen(false);
                       }}
                       className={cn(
-                        'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors',
+                        'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors',
                         selected
                           ? 'bg-accent font-medium text-accent-foreground'
                           : 'text-popover-foreground hover:bg-muted'
                       )}
                     >
                       <span>{getCategoryLabel(catId)}</span>
-                      {selected && <Check className="h-3.5 w-3.5" />}
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <span>({categoryCounts[catId] ?? 0})</span>
+                        {selected && <Check className="h-3.5 w-3.5" />}
+                      </span>
                     </button>
                   );
                 })}
@@ -1472,7 +1555,7 @@ export function ConnectorMarketplace({
       {error && (
         <div
           className={cn(
-            'mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive',
+            'mb-2 shrink-0 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive',
             mode === 'dialog' ? 'mx-6' : 'mx-0'
           )}
         >
@@ -1482,9 +1565,10 @@ export function ConnectorMarketplace({
 
       {/* Scrollable Connector Stream */}
       <div
+        onScroll={handleStreamScroll}
         className={cn(
-          'flex-1 overflow-y-auto pb-6',
-          mode === 'dialog' ? 'max-h-[60vh] px-6' : 'px-0'
+          'min-h-0 flex-1 overflow-y-auto pb-6',
+          mode === 'dialog' ? 'px-6' : 'px-0'
         )}
       >
         {isGroupedView ? (
@@ -1493,14 +1577,14 @@ export function ConnectorMarketplace({
               <section key={section.categoryId} className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-medium text-muted-foreground">
-                    {section.label}
+                    {section.label} ({section.items.length})
                   </h3>
                   <button
                     type="button"
                     onClick={() => setActiveCategory(section.categoryId)}
                     className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    {t('mcp.marketplace.viewAll', '查看全部')}
+                    {t('mcp.marketplace.viewAll', '查看全部')} ({section.items.length})
                   </button>
                 </div>
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
@@ -1508,17 +1592,36 @@ export function ConnectorMarketplace({
                 </div>
               </section>
             ))}
+
+            {filteredEntries.length > 0 && (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBrowseAllInAllTab(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <span>
+                    {t('mcp.marketplace.browseAllConnectors', '浏览全部连接器')} ({filteredEntries.length})
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-3 pt-1">
-            {activeCategory !== 'all' && (
+            {(activeCategory !== 'all' || browseAllInAllTab) && (
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-medium text-muted-foreground">
-                  {getCategoryLabel(activeCategory)}
+                  {activeCategory === 'all'
+                    ? `${t('mcp.marketplace.categoryAll', '全部')} (${filteredEntries.length})`
+                    : `${getCategoryLabel(activeCategory)} (${filteredEntries.length})`}
                 </h3>
                 <button
                   type="button"
-                  onClick={() => setActiveCategory('all')}
+                  onClick={() => {
+                    setActiveCategory('all');
+                    setBrowseAllInAllTab(false);
+                  }}
                   className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {t('mcp.marketplace.categoryAll', '全部')}
@@ -1531,9 +1634,28 @@ export function ConnectorMarketplace({
                 {t('mcp.noMarketItems', '未找到匹配的应用或 MCP 服务')}
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-                {filteredEntries.map(renderConnectorCard)}
-              </div>
+              <>
+                <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                  {visibleEntries.map(renderConnectorCard)}
+                </div>
+                {hasMoreEntries && (
+                  <div className="flex justify-center pt-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVisibleLimit((prev) =>
+                          Math.min(prev + 60, filteredEntries.length)
+                        )
+                      }
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      <span>
+                        {t('mcp.marketplace.loadMore', '加载更多')} ({visibleEntries.length}/{filteredEntries.length})
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

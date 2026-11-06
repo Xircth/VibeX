@@ -549,6 +549,7 @@ impl From<RawRegistryDistributions> for RegistryDistributions {
             binary: raw.binary.map(|targets| {
                 targets
                     .into_iter()
+                    .filter(|(platform, _)| DESKTOP_PLATFORMS.contains(&platform.as_str()))
                     .map(|(platform, target)| {
                         (
                             platform,
@@ -624,10 +625,10 @@ fn validate_distributions(raw: &RawRegistryDistributions) -> Result<(), String> 
         if targets.is_empty() {
             return Err("Registry binary distribution has no platform targets".to_string());
         }
-        for (platform, target) in targets {
-            if !DESKTOP_PLATFORMS.contains(&platform.as_str()) {
-                return Err(format!("unsupported Registry platform `{platform}`"));
-            }
+        // Platforms this build does not know are skipped, not fatal: the
+        // official catalog gains targets over time and one of them must not
+        // make every other Agent uninstallable.
+        for target in targets.values() {
             validate_optional_url(Some(&target.archive))?;
             validate_non_empty("Registry binary command", &target.cmd)?;
             if target.sha256.as_ref().is_some_and(|hash| !is_sha256(hash)) {
@@ -711,6 +712,29 @@ pub fn sanitize_registry_svg(svg: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_platform_targets_this_build_does_not_know_are_ignored() {
+        let raw = r#"{"binary":{
+            "darwin-aarch64":{"archive":"https://example.com/a.tgz","cmd":"./a"},
+            "freebsd-x86_64":{"archive":"https://example.com/b.tgz","cmd":"./b"}
+        }}"#;
+        let distributions = parse_registry_distributions_json(raw).expect("registry stays usable");
+        let platforms: Vec<_> = distributions
+            .binary
+            .expect("supported target kept")
+            .into_keys()
+            .collect();
+        assert_eq!(platforms, ["darwin-aarch64"]);
+    }
+
+    #[test]
+    fn unknown_platform_targets_are_still_validated() {
+        let raw = r#"{"binary":{
+            "freebsd-x86_64":{"archive":"ftp://example.com/b.tgz","cmd":"./b"}
+        }}"#;
+        assert!(parse_registry_distributions_json(raw).is_err());
+    }
 
     #[test]
     fn official_registry_timeouts_outlast_slow_cloudflare_tls() {

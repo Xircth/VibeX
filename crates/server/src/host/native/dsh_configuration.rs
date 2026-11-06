@@ -14,6 +14,7 @@ use serde_yaml::Value;
 pub const OFFICIAL_PROVIDER_ID: &str = "deepseek-official";
 pub const OFFICIAL_API_KEY_ENV: &str = "DEEPSEEK_API_KEY";
 pub const OFFICIAL_BASE_URL: &str = "https://api.deepseek.com";
+pub const OFFICIAL_ANTHROPIC_BASE_URL: &str = "https://api.deepseek.com/anthropic";
 pub const DEFAULT_OFFICIAL_MODEL: &str = "deepseek-v4-flash";
 pub const ACP_PROVIDER_ENV: &str = "DEEPSEEK_ACP_PROVIDER";
 pub const ACP_MODEL_ENV: &str = "DEEPSEEK_ACP_MODEL";
@@ -22,6 +23,12 @@ pub const DSH_PROFILE: &str = "default";
 const DSH_CLI_PACKAGE: &str = "@deepseek-ai/dsh@0.1.0-rc.6";
 const PLUGIN_OPERATION_TIMEOUT: Duration = Duration::from_secs(180);
 const RESERVED_PLUGIN: &str = "@deepseek-ai/dsh-base";
+
+pub fn is_official_base_url(url: &str) -> bool {
+    let normalized = url.trim().trim_end_matches('/');
+    normalized.eq_ignore_ascii_case(OFFICIAL_BASE_URL)
+        || normalized.eq_ignore_ascii_case(OFFICIAL_ANTHROPIC_BASE_URL)
+}
 
 const OFFICIAL_MODELS: &[(&str, &str)] = &[
     ("deepseek-v4-flash", "DeepSeek-V4-Flash"),
@@ -384,6 +391,8 @@ pub async fn discover_models(
         let response = match client
             .get(endpoint)
             .bearer_auth(&key)
+            .header("x-api-key", &key)
+            .header("anthropic-version", "2023-06-01")
             .timeout(Duration::from_secs(15))
             .send()
             .await
@@ -530,7 +539,7 @@ pub fn inferred_auth_mode(paths: &DshPaths, configured: Option<&str>) -> &'stati
         .find(|provider| provider.id == OFFICIAL_PROVIDER_ID);
     if official
         .and_then(|provider| provider.base_url.as_deref())
-        .is_some_and(|url| !url.trim().is_empty() && url != OFFICIAL_BASE_URL)
+        .is_some_and(|url| !url.trim().is_empty() && !is_official_base_url(url))
     {
         return "custom";
     }
@@ -565,7 +574,7 @@ pub async fn remove_plugin(paths: &DshPaths, name: &str) -> Result<DshPluginSumm
 
 pub fn default_env_updates(
     request: &DshProviderSaveRequest,
-    _current: &HashMap<String, String>,
+    current: &HashMap<String, String>,
 ) -> BTreeMap<String, Option<String>> {
     let Ok(id) = normalize_provider_id(&request.id) else {
         return BTreeMap::new();
@@ -581,7 +590,25 @@ pub fn default_env_updates(
     {
         updates.insert(OFFICIAL_API_KEY_ENV.to_string(), Some(api_key.to_string()));
     }
+    let current_default_is_official = current
+        .get(ACP_PROVIDER_ENV)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none_or(|value| value == OFFICIAL_PROVIDER_ID);
     if !request.set_default {
+        if official && current_default_is_official {
+            updates.insert(
+                BASE_URL_ENV.to_string(),
+                request
+                    .base_url
+                    .as_deref()
+                    .map(str::trim)
+                    .map(|value| value.trim_end_matches('/'))
+                    .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case(OFFICIAL_BASE_URL))
+                    .map(str::to_string),
+            );
+        }
         return updates;
     }
     let model = request
@@ -605,7 +632,7 @@ pub fn default_env_updates(
                 .as_deref()
                 .map(str::trim)
                 .map(|value| value.trim_end_matches('/'))
-                .filter(|value| !value.is_empty() && *value != OFFICIAL_BASE_URL)
+                .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case(OFFICIAL_BASE_URL))
                 .map(str::to_string)
         } else {
             request
@@ -658,6 +685,7 @@ fn official_provider(
         })
         .filter(|models| !models.is_empty())
         .unwrap_or_else(official_models);
+    let api_key = read_credential_ref(credentials, OFFICIAL_API_KEY_ENV);
     DshProviderView {
         id: OFFICIAL_PROVIDER_ID.to_string(),
         display_name: "DeepSeek".to_string(),
@@ -671,7 +699,8 @@ fn official_provider(
             .filter(|value| !value.is_empty())
             .map(str::to_string),
         api_key_env: OFFICIAL_API_KEY_ENV.to_string(),
-        credential_present: credential_present(credentials, OFFICIAL_API_KEY_ENV),
+        credential_present: api_key.is_some(),
+        api_key,
         models,
     }
 }
@@ -699,6 +728,7 @@ fn project_pi_provider(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| api_key_env_for_id(id));
+    let api_key = read_credential_ref(credentials, &api_key_env);
     DshProviderView {
         id: id.to_string(),
         display_name: entry
@@ -723,7 +753,8 @@ fn project_pi_provider(
             .get(Value::String("baseURL".into()))
             .and_then(Value::as_str)
             .map(str::to_string),
-        credential_present: credential_present(credentials, &api_key_env),
+        credential_present: api_key.is_some(),
+        api_key,
         api_key_env,
         models: entry
             .get(Value::String("models".into()))
@@ -1192,10 +1223,6 @@ fn remove_credential_ref(credentials: &mut serde_yaml::Mapping, env_name: &str) 
     }
 }
 
-fn credential_present(credentials: &serde_yaml::Mapping, env_name: &str) -> bool {
-    read_credential_ref(credentials, env_name).is_some()
-}
-
 fn validate_secret(value: &str) -> Result<(), String> {
     if value.contains(['\n', '\r', '\0']) {
         return Err("API Key 不能包含换行或空字符".to_string());
@@ -1251,6 +1278,15 @@ fn normalize_models_urls(base_url: &str) -> Result<Vec<String>, String> {
     } else {
         push_unique(&mut urls, format!("{trimmed}/v1/models"));
         push_unique(&mut urls, format!("{trimmed}/models"));
+    }
+    let anthropic_root = trimmed
+        .strip_suffix("/anthropic/v1")
+        .or_else(|| trimmed.strip_suffix("/anthropic"))
+        .map(|root| root.trim_end_matches('/'))
+        .filter(|root| !root.is_empty());
+    if let Some(root) = anthropic_root {
+        push_unique(&mut urls, format!("{root}/v1/models"));
+        push_unique(&mut urls, format!("{root}/models"));
     }
     Ok(urls)
 }
@@ -1704,6 +1740,7 @@ mod tests {
             .find(|provider| provider.id == OFFICIAL_PROVIDER_ID)
             .unwrap();
         assert!(official.credential_present);
+        assert_eq!(official.api_key.as_deref(), Some("sk-legacy"));
         let healed: Value =
             serde_yaml::from_str(&std::fs::read_to_string(&paths.credentials).unwrap()).unwrap();
         assert_eq!(healed.get("version").and_then(Value::as_u64), Some(1));
@@ -1725,6 +1762,59 @@ mod tests {
                 "https://api.deepseek.com/v1/models".to_string(),
                 "https://api.deepseek.com/models".to_string(),
             ]
+        );
+        assert_eq!(
+            normalize_models_urls("https://api.deepseek.com/anthropic").unwrap(),
+            vec![
+                "https://api.deepseek.com/anthropic/v1/models".to_string(),
+                "https://api.deepseek.com/anthropic/models".to_string(),
+                "https://api.deepseek.com/v1/models".to_string(),
+                "https://api.deepseek.com/models".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn official_anthropic_base_url_stays_in_deepseek_auth_mode_and_updates_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = DshPaths {
+            home: dir.path().to_path_buf(),
+            settings: dir.path().join("settings.yaml"),
+            credentials: dir.path().join(".credentials.yaml"),
+            profile_dir: dir.path().join("profiles").join("default"),
+        };
+        let request = DshProviderSaveRequest {
+            id: OFFICIAL_PROVIDER_ID.into(),
+            display_name: Some("DeepSeek".into()),
+            notes: None,
+            api: None,
+            base_url: Some(OFFICIAL_ANTHROPIC_BASE_URL.into()),
+            api_key: Some("sk-official".into()),
+            models: vec![],
+            set_default: false,
+            default_model: None,
+        };
+        let (view, mutations) = save_provider(&paths, request.clone()).unwrap();
+        for mutation in &mutations {
+            if let Some(bytes) = &mutation.replacement {
+                std::fs::write(&mutation.path, bytes).unwrap();
+            }
+        }
+        let official = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == OFFICIAL_PROVIDER_ID)
+            .unwrap();
+        assert_eq!(
+            official.base_url.as_deref(),
+            Some(OFFICIAL_ANTHROPIC_BASE_URL)
+        );
+        assert_eq!(official.api_key.as_deref(), Some("sk-official"));
+        assert_eq!(inferred_auth_mode(&paths, None), "deepseek");
+        let updates = default_env_updates(&request, &HashMap::new());
+        assert_eq!(
+            updates.get(BASE_URL_ENV),
+            Some(&Some(OFFICIAL_ANTHROPIC_BASE_URL.to_string()))
         );
     }
 }

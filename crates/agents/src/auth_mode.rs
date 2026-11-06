@@ -332,7 +332,7 @@ pub fn resolve_built_in_auth_mode(
     if agent_id.as_str() == "deepseek_harness"
         && env
             .get("DEEPSEEK_BASE_URL")
-            .is_some_and(|value| !value.trim().is_empty())
+            .is_some_and(|value| !value.trim().is_empty() && !is_deepseek_official_base_url(value))
     {
         return "custom".to_string();
     }
@@ -364,6 +364,9 @@ pub fn is_non_official_api_url(agent_id: &AgentId, url: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
+    if agent_id.as_str() == "deepseek_harness" && is_deepseek_official_base_url(url) {
+        return false;
+    }
     let official = official_api_url(agent_id, "official_api")
         .or_else(|| official_api_url(agent_id, "custom"))
         .or_else(|| official_api_url(agent_id, "api_key"))
@@ -383,12 +386,27 @@ fn normalize_api_url(url: &str) -> String {
         .to_string()
 }
 
+pub const DEEPSEEK_OFFICIAL_BASE_URL: &str = "https://api.deepseek.com";
+pub const DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL: &str = "https://api.deepseek.com/anthropic";
+
+pub fn is_deepseek_official_base_url(url: &str) -> bool {
+    let normalized = url.trim().trim_end_matches('/');
+    normalized.eq_ignore_ascii_case(DEEPSEEK_OFFICIAL_BASE_URL)
+        || normalized.eq_ignore_ascii_case(DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL)
+}
+
+fn is_deepseek_official_anthropic_base_url(url: &str) -> bool {
+    url.trim()
+        .trim_end_matches('/')
+        .eq_ignore_ascii_case(DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL)
+}
+
 pub fn official_api_url(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
     match (agent_id.as_str(), mode) {
         ("claude_code", "official_api" | "custom") => Some("https://api.anthropic.com"),
         ("codex", "api_key") => Some("https://api.openai.com/v1"),
         ("grok", "api_key") => Some("https://api.x.ai/v1"),
-        ("deepseek_harness", "deepseek") => Some("https://api.deepseek.com"),
+        ("deepseek_harness", "deepseek") => Some(DEEPSEEK_OFFICIAL_BASE_URL),
         (id, "gemini-api-key") if AgentKind::Antigravity.matches_id(id) => {
             Some("https://generativelanguage.googleapis.com")
         }
@@ -415,9 +433,9 @@ fn resolved_auth_mode<'a>(
         .filter(|mode| policy.modes.contains(mode))
         .unwrap_or_else(|| {
             if agent_id.as_str() == "deepseek_harness"
-                && env
-                    .get("DEEPSEEK_BASE_URL")
-                    .is_some_and(|value| !value.trim().is_empty())
+                && env.get("DEEPSEEK_BASE_URL").is_some_and(|value| {
+                    !value.trim().is_empty() && !is_deepseek_official_base_url(value)
+                })
             {
                 "custom"
             } else {
@@ -432,6 +450,11 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
     };
     migrate_legacy_antigravity_auth_mode(agent_id, env);
     let mode = resolved_auth_mode(agent_id, policy, env).to_string();
+    let preserve_deepseek_anthropic_url = agent_id.as_str() == "deepseek_harness"
+        && mode == "deepseek"
+        && env
+            .get("DEEPSEEK_BASE_URL")
+            .is_some_and(|value| is_deepseek_official_anthropic_base_url(value));
     if mode != "official_api" {
         match agent_id.as_str() {
             "qoder" => {
@@ -452,6 +475,13 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
         }
     }
     for key in auth_mode_scrubbed_env_keys(agent_id, &mode) {
+        if *key == "DEEPSEEK_BASE_URL" && preserve_deepseek_anthropic_url {
+            env.insert(
+                "DEEPSEEK_BASE_URL".to_string(),
+                DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL.to_string(),
+            );
+            continue;
+        }
         env.remove(*key);
     }
     if agent_id.as_str() == "cursor" {
@@ -509,6 +539,14 @@ pub fn built_in_auth_mode_scrubbed_env_keys(
         return &[];
     };
     let mode = resolved_auth_mode(agent_id, policy, env);
+    if agent_id.as_str() == "deepseek_harness"
+        && mode == "deepseek"
+        && env
+            .get("DEEPSEEK_BASE_URL")
+            .is_some_and(|value| is_deepseek_official_anthropic_base_url(value))
+    {
+        return &[];
+    }
     auth_mode_scrubbed_env_keys(agent_id, mode)
 }
 
@@ -2019,7 +2057,7 @@ mod tests {
             ),
             (
                 "DEEPSEEK_BASE_URL".to_string(),
-                "https://api.deepseek.com/".to_string(),
+                "https://api.deepseek.com/anthropic/".to_string(),
             ),
             ("DEEPSEEK_ACP_PROVIDER".to_string(), "custom-id".to_string()),
         ]);
@@ -2032,7 +2070,7 @@ mod tests {
         );
         assert_eq!(
             env.get("DEEPSEEK_BASE_URL").map(String::as_str),
-            Some("https://api.deepseek.com")
+            Some("https://api.deepseek.com/anthropic")
         );
         assert_eq!(
             env.get("DEEPSEEK_ACP_PROVIDER").map(String::as_str),
@@ -2048,5 +2086,34 @@ mod tests {
             rewritten["refs"]["DEEPSEEK_API_KEY"],
             serde_json::json!("sk-legacy-dsh")
         );
+    }
+
+    #[test]
+    fn deepseek_harness_official_mode_preserves_anthropic_url_and_scrubs_custom_url() {
+        let dsh = AgentId::parse("deepseek_harness").unwrap();
+        let policy = built_in_auth_mode_policy(&dsh).unwrap();
+
+        let anthropic_env = HashMap::from([
+            (
+                "DEEPSEEK_BASE_URL".to_string(),
+                "https://api.deepseek.com/anthropic".to_string(),
+            ),
+            ("DEEPSEEK_API_KEY".to_string(), "sk-test".to_string()),
+        ]);
+        assert_eq!(
+            resolve_built_in_auth_mode(&dsh, policy, &anthropic_env, true, true, None),
+            "deepseek"
+        );
+        assert!(super::built_in_auth_mode_scrubbed_env_keys(&dsh, &anthropic_env).is_empty());
+
+        let mut scrubbed_custom = HashMap::from([
+            ("DSH_AUTH_MODE".to_string(), "deepseek".to_string()),
+            (
+                "DEEPSEEK_BASE_URL".to_string(),
+                "https://gateway.example.com/v1".to_string(),
+            ),
+        ]);
+        apply_built_in_auth_mode_policy(&dsh, &mut scrubbed_custom);
+        assert!(!scrubbed_custom.contains_key("DEEPSEEK_BASE_URL"));
     }
 }

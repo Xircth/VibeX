@@ -669,16 +669,27 @@ pub async fn dispatch_dsh_providers(pool: &SqlitePool) -> Result<Value, Applicat
     let env = env_for(pool, &agent_id).await?;
     let home = require_home()?;
     let paths = dsh_configuration::resolve_paths(&home, &env);
-    serialize(
-        dsh_configuration::load_providers(
-            &paths,
-            env.get(dsh_configuration::ACP_PROVIDER_ENV)
-                .map(String::as_str),
-            env.get(dsh_configuration::ACP_MODEL_ENV)
-                .map(String::as_str),
-        )
-        .map_err(bad)?,
+    let mut view = dsh_configuration::load_providers(
+        &paths,
+        env.get(dsh_configuration::ACP_PROVIDER_ENV)
+            .map(String::as_str),
+        env.get(dsh_configuration::ACP_MODEL_ENV)
+            .map(String::as_str),
     )
+    .map_err(bad)?;
+    for provider in &mut view.providers {
+        if provider.api_key.is_none()
+            && let Some(env_key) = env
+                .get(&provider.api_key_env)
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        {
+            provider.api_key = Some(env_key.to_string());
+            provider.credential_present = true;
+        }
+    }
+    serialize(view)
 }
 
 pub async fn dispatch_dsh_provider_save(

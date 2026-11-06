@@ -131,6 +131,15 @@ pub async fn resolve_account_label(agent_id: &AgentId) -> Option<String> {
         "cursor" => jwt_identity(cursor_auth::cursor_account_token().await?.as_str()),
         "grok" => account_label_from_grok_auth(&read_json_value(grok_auth_path()?).await?),
         "antigravity" | "gemini" => resolve_antigravity_account_label().await,
+        "omp" => {
+            let home = dirs::home_dir()?;
+            let mut env = std::collections::BTreeMap::new();
+            if let Ok(explicit) = std::env::var("PI_CODING_AGENT_DIR") {
+                env.insert("PI_CODING_AGENT_DIR".to_string(), explicit);
+            }
+            let agent_dir = crate::omp_auth::agent_dir(&home, &env);
+            crate::omp_auth::account_label(&agent_dir)
+        }
         _ => None,
     }
 }

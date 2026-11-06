@@ -823,6 +823,8 @@ pub struct DshProviderView {
     pub api: Option<String>,
     pub base_url: Option<String>,
     pub api_key_env: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
     pub credential_present: bool,
     pub models: Vec<DshProviderModelView>,
 }

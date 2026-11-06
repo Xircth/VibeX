@@ -1009,16 +1009,6 @@ function MarketLeaderboardView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-mono text-xs font-semibold uppercase tracking-widest text-foreground/90">
-          {t('skills.leaderboardTitle', 'SKILLS LEADERBOARD')}
-        </h3>
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Globe className="h-3.5 w-3.5" />
-          {t('skills.source')}
-        </span>
-      </div>
-
       {/* Full-width search bar with `/` shortcut badge */}
       <div className="relative flex items-center">
         <Search
@@ -1061,13 +1051,19 @@ function MarketLeaderboardView({
               aria-selected={active}
               onClick={() => onViewChange(tab.id)}
               className={cn(
-                '-mb-px border-b-2 pb-2.5 font-medium transition-colors',
+                'relative -mb-px !rounded-none border-b-2 px-0.5 pb-2.5 font-medium transition-colors',
                 active
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground/80'
               )}
             >
               {tab.label}
+              {active ? (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-0 -bottom-[2px] h-[2px] rounded-none bg-foreground"
+                />
+              ) : null}
             </button>
           );
         })}

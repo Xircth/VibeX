@@ -544,13 +544,22 @@ describe('SkillsSettings', () => {
     await user.click(screen.getByRole('radio', { name: 'Skill 市场' }));
 
     expect(
-      await screen.findByRole('heading', { name: 'SKILLS LEADERBOARD' })
+      await screen.findByPlaceholderText('Search skills...')
     ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'SKILLS LEADERBOARD' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('来源：skills.sh')).not.toBeInTheDocument();
     expect(screen.getByText('8W ACTIVITY')).toBeVisible();
     expect(screen.getByText('749.5K')).toBeVisible();
     expect(screen.getByText('/')).toBeVisible();
 
-    await user.click(screen.getByRole('tab', { name: 'Trending (24h)' }));
+    const allTimeTab = screen.getByRole('tab', { name: /All Time/ });
+    expect(allTimeTab).toHaveClass('!rounded-none');
+
+    const trendingTab = screen.getByRole('tab', { name: 'Trending (24h)' });
+    expect(trendingTab).toHaveClass('!rounded-none');
+    await user.click(trendingTab);
     await waitFor(() => {
       expect(mocks.searchSkills).toHaveBeenCalledWith('', 'trending');
     });

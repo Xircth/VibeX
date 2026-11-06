@@ -251,10 +251,10 @@ describe('product plugin experience', () => {
         plugins: [plugin],
         runtimes: [
           {
-            id: 'open-connector',
+            id: 'remote-ssh',
             version:
               '{"level":30,"msg":"SQLite migrations are applied automatically when the local runtime database opens."}',
-            referencedPlugins: ['vibex.open-connector'],
+            referencedPlugins: ['vibex.remote-ssh'],
           },
         ],
       })

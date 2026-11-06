@@ -403,6 +403,7 @@ impl PluginControlPlane {
         &self,
         enable_by_default: bool,
     ) -> Result<Vec<InstalledPlugin>, PluginError> {
+        self.retire_replaced_builtins().await?;
         let roots = crate::official_catalog::discover_monorepo_plugin_roots();
         let mut imported_ids = BTreeSet::new();
         for root in &roots {

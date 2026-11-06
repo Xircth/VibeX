@@ -28,7 +28,6 @@ pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
     ("office", "vibex.office"),
     ("workflow-creator", "vibex.workflow-creator"),
     ("remote-ssh", "vibex.remote-ssh"),
-    ("open-connector", "vibex.open-connector"),
     ("science", "vibex.science"),
     ("computer-use", "vibex-plugin-computer-use"),
     ("kanban-views", "vibex.kanban-views"),
@@ -284,7 +283,7 @@ mod tests {
                     && plugin.repository.contains("vibex-plugin-browser"))
         );
         assert!(
-            catalog
+            !catalog
                 .official
                 .iter()
                 .any(|plugin| plugin.id == "vibex.open-connector")

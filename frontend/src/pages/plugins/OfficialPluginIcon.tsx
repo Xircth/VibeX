@@ -525,7 +525,6 @@ export const OFFICIAL_GLYPHS: Record<
   remoteSsh: PluginArtworkTerminal,
   science: PluginArtworkScience,
   browser: PluginArtworkWebSearch,
-  openConnector: PluginArtworkOpenConnector,
   computerUse: PluginArtworkComputerUse,
   codeCompletion: PluginArtworkCodeCompletion,
 };

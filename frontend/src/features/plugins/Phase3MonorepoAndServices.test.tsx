@@ -81,7 +81,6 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
           'office-summary',
           'workflow',
           'ssh-connect',
-          'connector',
           'science-literature',
           'computer-use',
           'note',
@@ -112,7 +111,6 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       expect(serviceContainer.has('vibex.office')).toBe(true);
       expect(serviceContainer.has('vibex.workflow-creator')).toBe(true);
       expect(serviceContainer.has('vibex.remote-ssh')).toBe(true);
-      expect(serviceContainer.has('vibex.open-connector')).toBe(true);
       expect(serviceContainer.has('vibex.science')).toBe(true);
       expect(serviceContainer.has('vibex.computer-use')).toBe(true);
       expect(serviceContainer.has('vibex.kanban-views')).toBe(true);
@@ -130,17 +128,6 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       expect(
         viewRegistry.get('vibex-plugin-computer-use:computer-use-status')
           ?.component
-      ).toBeTypeOf('function');
-      expect(
-        viewRegistry.get('vibex.open-connector:runtime-status')?.component
-      ).toBeTypeOf('function');
-      expect(
-        slotRegistry
-          .getBySlot('status.after-mcp')
-          .some((item) => item.id === 'runtime-status')
-      ).toBe(true);
-      expect(
-        viewRegistry.get('vibex.open-connector:settings')?.component
       ).toBeTypeOf('function');
       expect(
         viewRegistry.get('vibex.remote-ssh:connect-panel')?.component

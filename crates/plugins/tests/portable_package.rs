@@ -1187,7 +1187,6 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         ("office", "vibex.office"),
         ("workflow-creator", "vibex.workflow-creator"),
         ("remote-ssh", "vibex.remote-ssh"),
-        ("open-connector", "vibex.open-connector"),
         ("science", "vibex.science"),
         ("computer-use", "vibex-plugin-computer-use"),
         ("kanban-views", "vibex.kanban-views"),
@@ -1220,8 +1219,8 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
     let installed = control
         .bootstrap_monorepo_plugins(true)
         .await
-        .expect("offline bootstrap of all 14 monorepo plugins");
-    assert_eq!(installed.len(), 14);
+        .expect("offline bootstrap of all 13 monorepo plugins");
+    assert_eq!(installed.len(), 13);
     assert_eq!(
         installed.len(),
         plugins::discover_monorepo_plugin_roots().len()

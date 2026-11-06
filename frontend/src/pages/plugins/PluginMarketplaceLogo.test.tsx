@@ -35,7 +35,7 @@ describe('PluginMarketplaceLogo', () => {
     expect(container.querySelector('.product-plugin-card-initials')).toBeNull();
   });
 
-  it('does not use Puzzle for browser or openConnector official keys', () => {
+  it('does not use Puzzle for browser or remoteSsh official keys', () => {
     const browser = render(
       <PluginMarketplaceLogo
         listing={listing({
@@ -54,21 +54,21 @@ describe('PluginMarketplaceLogo', () => {
     ).toBeNull();
     browser.unmount();
 
-    const connector = render(
+    const remoteSsh = render(
       <PluginMarketplaceLogo
         listing={listing({
           owner: 'vibex',
-          pluginName: 'open-connector',
-          offlinePluginId: 'vibex.open-connector',
+          pluginName: 'remote-ssh',
+          offlinePluginId: 'vibex.remote-ssh',
         })}
-        displayName="Open Connector"
+        displayName="Remote SSH"
       />
     );
     expect(
-      connector.container.querySelector('[data-official="openConnector"]')
+      remoteSsh.container.querySelector('[data-official="remoteSsh"]')
     ).not.toBeNull();
     expect(
-      connector.container.querySelector('[data-official="hostChrome"]')
+      remoteSsh.container.querySelector('[data-official="hostChrome"]')
     ).toBeNull();
   });
 

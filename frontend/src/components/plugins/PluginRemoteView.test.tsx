@@ -14,10 +14,10 @@ vi.mock('@/components/plugins/AppSurfaceHost', () => ({
 import { PluginRemoteView } from './PluginRemoteView';
 
 const item: PluginContributionCatalogItem = {
-  pluginId: 'vibex.open-connector',
+  pluginId: 'vibex.remote-ssh',
   id: 'console',
   kind: 'app_tab',
-  label: 'Open Connector',
+  label: 'Remote SSH',
   generation: 1,
   metadata: {},
 };
@@ -31,7 +31,7 @@ describe('PluginRemoteView', () => {
     const ctx = createPluginContext({ pluginId: item.pluginId });
     ctx.ui.registerTab({
       id: 'console',
-      title: 'Open Connector',
+      title: 'Remote SSH',
       component: ({ surfaceId }: { surfaceId?: string }) => (
         <div data-testid="v2-console-view">Surface:{surfaceId}</div>
       ),

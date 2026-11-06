@@ -35,9 +35,6 @@ describe('official plugin presentation', () => {
       '供应商预置'
     );
     expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
-    expect(officialPluginName('vibex.open-connector', 'fallback', t)).toBe(
-      'Open Connector'
-    );
     expect(officialPluginName('vibex-plugin-computer-use', 'fallback', t)).toBe(
       '电脑控制'
     );
@@ -69,9 +66,6 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
       'Scientific Research'
-    );
-    expect(officialPluginName('vibex.open-connector', 'fallback', en)).toBe(
-      'Open Connector'
     );
     expect(
       officialPluginName('vibex-plugin-computer-use', 'fallback', en)

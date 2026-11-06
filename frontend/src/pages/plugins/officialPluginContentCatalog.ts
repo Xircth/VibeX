@@ -325,44 +325,6 @@ export const OFFICIAL_PLUGIN_COMPONENTS: Partial<
       content: '会话 MCP',
     },
   ],
-  openConnector: [
-    {
-      path: 'app/surfaces/settings.md',
-      kind: 'app_surface',
-      title: 'Open Connector',
-      content: 'Open Connector',
-    },
-    {
-      path: 'app/status/runtime-status.md',
-      kind: 'status',
-      title: '连接器市场',
-      content: '连接器市场',
-    },
-    {
-      path: 'app/commands/runtime-status-command.md',
-      kind: 'command',
-      title: 'Open Connector 状态',
-      content: 'Open Connector 状态',
-    },
-    {
-      path: 'contents/skills/open-connector/SKILL.md',
-      kind: 'skill',
-      title: 'Open Connector',
-      content: 'Open Connector',
-    },
-    {
-      path: 'contents/mcps/open-connector.json',
-      kind: 'mcp',
-      title: 'Open Connector',
-      content: 'Open Connector',
-    },
-    {
-      path: 'depends/runtimes/open-connector.json',
-      kind: 'runtime',
-      title: 'open-connector',
-      content: 'open-connector',
-    },
-  ],
   remoteSsh: [
     {
       path: 'app/surfaces/connect-panel.md',
@@ -895,10 +857,6 @@ const OFFICIAL_COMPONENT_TITLE_KEYS: Record<
     zh: '会话增强',
   },
   'contents/mcps/session.json': { key: 'sessionMcp', zh: '会话 MCP' },
-  'app/commands/runtime-status-command.md': {
-    key: 'openConnectorStatus',
-    zh: 'Open Connector 状态',
-  },
   'contents/skills/vibex-plugin-development/SKILL.md': {
     key: 'pluginDevelopment',
     zh: 'VibeX 插件开发',

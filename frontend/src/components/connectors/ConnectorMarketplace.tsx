@@ -103,6 +103,412 @@ export interface ConnectorMarketplaceProps {
   initialCategory?: ConnectorCategoryId | 'all';
 }
 
+function sanitizeInferredServerId(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^@[^/]+\//, '')
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/^server-/, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function inferServerIdFromUrl(url: URL): string {
+  const pathSegments = url.pathname
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(
+      (segment) =>
+        segment &&
+        !['mcp', 'sse', 'v1', 'v2', 'api', 'stream'].includes(
+          segment.toLowerCase()
+        )
+    );
+  if (pathSegments.length > 0) {
+    const fromPath = sanitizeInferredServerId(
+      pathSegments[pathSegments.length - 1]
+    );
+    if (fromPath) return fromPath;
+  }
+  const hostParts = url.hostname
+    .split('.')
+    .filter(
+      (part) =>
+        part &&
+        ![
+          'www',
+          'mcp',
+          'api',
+          'com',
+          'org',
+          'net',
+          'io',
+          'ai',
+          'dev',
+          'sh',
+          'app',
+        ].includes(part.toLowerCase())
+    );
+  if (hostParts.length > 0) {
+    const fromHost = sanitizeInferredServerId(hostParts[0]);
+    if (fromHost) return fromHost;
+  }
+  return sanitizeInferredServerId(url.hostname) || 'remote-mcp';
+}
+
+function inferServerIdFromCommandTokens(
+  command: string,
+  args: string[]
+): string {
+  const candidates = [command, ...args];
+  for (const token of candidates) {
+    const trimmed = token.trim();
+    if (!trimmed || trimmed.startsWith('-')) continue;
+    if (
+      [
+        'npx',
+        'pnpx',
+        'bunx',
+        'uvx',
+        'node',
+        'python',
+        'python3',
+        'docker',
+        'run',
+        'exec',
+        'deno',
+      ].includes(trimmed.toLowerCase())
+    ) {
+      continue;
+    }
+    if (trimmed.includes('=') && !trimmed.startsWith('@')) continue;
+    const withoutVersion = trimmed.replace(/(.+)@[^/]+$/, '$1');
+    const inferred = sanitizeInferredServerId(withoutVersion);
+    if (inferred) return inferred;
+  }
+  return sanitizeInferredServerId(command) || 'custom-mcp';
+}
+
+function tokenizeCliCommand(input: string): string[] {
+  const tokens: string[] = [];
+  const regex = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(input)) !== null) {
+    const value = match[1] ?? match[2] ?? match[3] ?? '';
+    tokens.push(value.replace(/\\(["'\\])/g, '$1'));
+  }
+  return tokens;
+}
+
+function normalizeSpecRecord(
+  specObj: Record<string, JsonValue>
+): Record<string, JsonValue> {
+  const next: Record<string, JsonValue> = { ...specObj };
+  if (typeof next.type !== 'string' || !next.type.trim()) {
+    if (typeof next.url === 'string' && next.url.trim()) {
+      try {
+        const parsedUrl = new URL(next.url.trim());
+        next.type = parsedUrl.pathname.toLowerCase().endsWith('/sse')
+          ? 'sse'
+          : 'http';
+      } catch {
+        next.type = 'http';
+      }
+    } else if (typeof next.command === 'string' && next.command.trim()) {
+      next.type = 'stdio';
+    }
+  }
+  return next;
+}
+
+export interface ParsedCustomMcpInput {
+  serverId?: string;
+  spec: Record<string, JsonValue>;
+}
+
+/**
+ * Smart parser aligned with OpenMausBot Custom MCP Server input formats:
+ * 1. Remote HTTP/SSE URL (`https://...` or `http://...`)
+ * 2. CLI command (`claude mcp add ...`, `npx ...`, `uvx ...`, `docker run ...`, etc.)
+ * 3. JSON (`{ "mcpServers": { "id": { ... } } }`, `"id": { ... }`, or direct spec object)
+ */
+export function parseCustomMcpInput(
+  rawInput: string
+): ParsedCustomMcpInput | null {
+  const trimmed = rawInput.trim();
+  if (!trimmed) return null;
+
+  // 1. Single-line HTTP(S) URL
+  if (/^https?:\/\/\S+$/i.test(trimmed)) {
+    try {
+      const parsedUrl = new URL(trimmed);
+      const transport = parsedUrl.pathname.toLowerCase().endsWith('/sse')
+        ? 'sse'
+        : 'http';
+      return {
+        serverId: inferServerIdFromUrl(parsedUrl),
+        spec: {
+          type: transport,
+          url: parsedUrl.toString(),
+        },
+      };
+    } catch {
+      // Fall through
+    }
+  }
+
+  // 2. JSON object or `"server-name": { ... }` snippet
+  const jsonCandidate =
+    !trimmed.startsWith('{') &&
+    /^["'][^"']+["']\s*:\s*\{[\s\S]*\}\s*,?$/.test(trimmed)
+      ? `{${trimmed.replace(/,\s*$/, '')}}`
+      : trimmed;
+
+  if (jsonCandidate.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(jsonCandidate) as JsonValue;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, JsonValue>;
+
+        // Case 2a: { "mcpServers": { "my-server": { ... } } } or VS Code { "servers": { "my-server": { ... } } }
+        const serversWrapper =
+          record.mcpServers &&
+          typeof record.mcpServers === 'object' &&
+          !Array.isArray(record.mcpServers)
+            ? (record.mcpServers as Record<string, JsonValue>)
+            : record.servers &&
+                typeof record.servers === 'object' &&
+                !Array.isArray(record.servers)
+              ? (record.servers as Record<string, JsonValue>)
+              : null;
+        if (serversWrapper) {
+          const firstEntry = Object.entries(serversWrapper).find(
+            ([, v]) => v && typeof v === 'object' && !Array.isArray(v)
+          );
+          if (firstEntry) {
+            const [entryId, entrySpec] = firstEntry;
+            return {
+              serverId: entryId.trim() || undefined,
+              spec: normalizeSpecRecord(entrySpec as Record<string, JsonValue>),
+            };
+          }
+        }
+
+        // Case 2b: Direct spec object ({ command, args, ... } or { type, url, ... })
+        if (
+          typeof record.command === 'string' ||
+          typeof record.url === 'string' ||
+          typeof record.type === 'string'
+        ) {
+          const normalized = normalizeSpecRecord(record);
+          let inferredId: string | undefined;
+          if (typeof normalized.url === 'string') {
+            try {
+              inferredId = inferServerIdFromUrl(new URL(normalized.url));
+            } catch {
+              // ignore
+            }
+          } else if (typeof normalized.command === 'string') {
+            const args = Array.isArray(normalized.args)
+              ? normalized.args.filter(
+                  (a): a is string => typeof a === 'string'
+                )
+              : [];
+            inferredId = inferServerIdFromCommandTokens(
+              normalized.command,
+              args
+            );
+          }
+          return {
+            serverId: inferredId,
+            spec: normalized,
+          };
+        }
+
+        // Case 2c: { "my-server": { "command": "...", "args": [...] } }
+        const entries = Object.entries(record);
+        if (entries.length === 1) {
+          const [key, val] = entries[0];
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            const inner = val as Record<string, JsonValue>;
+            if (
+              typeof inner.command === 'string' ||
+              typeof inner.url === 'string' ||
+              typeof inner.type === 'string'
+            ) {
+              return {
+                serverId: key.trim() || undefined,
+                spec: normalizeSpecRecord(inner),
+              };
+            }
+          }
+        }
+
+        return {
+          spec: normalizeSpecRecord(record),
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 3. CLI command (`claude mcp add ...`, `npx ...`, `uvx ...`, `docker ...`, etc.)
+  const normalizedLine = trimmed.replace(/\\\r?\n/g, ' ').trim();
+  if (normalizedLine.includes('\n')) return null;
+
+  const tokens = tokenizeCliCommand(normalizedLine);
+  if (tokens.length === 0) return null;
+
+  const env: Record<string, string> = {};
+  let cursor = 0;
+
+  if (tokens[cursor] === 'env') {
+    cursor += 1;
+  }
+  while (
+    cursor < tokens.length &&
+    /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cursor])
+  ) {
+    const eqIdx = tokens[cursor].indexOf('=');
+    env[tokens[cursor].slice(0, eqIdx)] = tokens[cursor].slice(eqIdx + 1);
+    cursor += 1;
+  }
+
+  const remaining = tokens.slice(cursor);
+  if (remaining.length === 0) return null;
+
+  // Handle `claude mcp add [options] <name> <commandOrUrl> [args...]`
+  if (
+    remaining[0] === 'claude' &&
+    remaining[1] === 'mcp' &&
+    remaining[2] === 'add'
+  ) {
+    let idx = 3;
+    let explicitTransport: 'http' | 'sse' | 'stdio' | undefined;
+    const headers: Record<string, string> = {};
+
+    while (idx < remaining.length) {
+      const tok = remaining[idx];
+      if (tok === '--') {
+        idx += 1;
+        break;
+      }
+      if (tok === '--transport' || tok === '-t') {
+        const val = remaining[idx + 1]?.toLowerCase();
+        if (val === 'http' || val === 'sse' || val === 'stdio') {
+          explicitTransport = val;
+        }
+        idx += 2;
+        continue;
+      }
+      if (tok === '--scope' || tok === '-s') {
+        idx += 2;
+        continue;
+      }
+      if (tok === '--env' || tok === '-e') {
+        const pair = remaining[idx + 1] ?? '';
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx > 0) {
+          env[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+        }
+        idx += 2;
+        continue;
+      }
+      if (tok === '--header' || tok === '-H') {
+        const rawHeader = remaining[idx + 1] ?? '';
+        const colonIdx = rawHeader.indexOf(':');
+        if (colonIdx > 0) {
+          headers[rawHeader.slice(0, colonIdx).trim()] = rawHeader
+            .slice(colonIdx + 1)
+            .trim();
+        }
+        idx += 2;
+        continue;
+      }
+      if (tok.startsWith('-')) {
+        idx += 1;
+        continue;
+      }
+      break;
+    }
+
+    const serverName = remaining[idx];
+    let targetStart = idx + 1;
+    if (remaining[targetStart] === '--') {
+      targetStart += 1;
+    }
+    const targetTokens = remaining.slice(targetStart);
+    if (!serverName || targetTokens.length === 0) return null;
+
+    const firstTarget = targetTokens[0];
+    if (
+      explicitTransport === 'http' ||
+      explicitTransport === 'sse' ||
+      /^https?:\/\//i.test(firstTarget)
+    ) {
+      let transport: 'http' | 'sse' =
+        explicitTransport === 'sse' ? 'sse' : 'http';
+      try {
+        const parsedUrl = new URL(firstTarget);
+        if (
+          !explicitTransport &&
+          parsedUrl.pathname.toLowerCase().endsWith('/sse')
+        ) {
+          transport = 'sse';
+        }
+      } catch {
+        // ignore
+      }
+      const spec: Record<string, JsonValue> = {
+        type: transport,
+        url: firstTarget,
+      };
+      if (Object.keys(headers).length > 0) {
+        spec.headers = headers;
+      }
+      return {
+        serverId: sanitizeInferredServerId(serverName) || serverName,
+        spec,
+      };
+    }
+
+    const [cmd, ...cmdArgs] = targetTokens;
+    const spec: Record<string, JsonValue> = {
+      type: 'stdio',
+      command: cmd,
+      args: cmdArgs,
+    };
+    if (Object.keys(env).length > 0) {
+      spec.env = env;
+    }
+    return {
+      serverId: sanitizeInferredServerId(serverName) || serverName,
+      spec,
+    };
+  }
+
+  // Handle direct CLI commands (`npx ...`, `uvx ...`, `docker ...`, `node ...`, `python ...`, etc.)
+  const [command, ...args] = remaining;
+  if (!command) return null;
+
+  const spec: Record<string, JsonValue> = {
+    type: 'stdio',
+    command,
+    args,
+  };
+  if (Object.keys(env).length > 0) {
+    spec.env = env;
+  }
+
+  return {
+    serverId: inferServerIdFromCommandTokens(command, args),
+    spec,
+  };
+}
+
 export function ConnectorBrandIcon({
   entry,
   size = 'md',
@@ -679,8 +1085,36 @@ export function ConnectorMarketplace({
     [updateInstalledServers]
   );
 
+  const handleCustomSpecPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const pasted = e.clipboardData?.getData('text/plain')?.trim();
+      if (!pasted) return;
+      const textarea = e.currentTarget;
+      const currentVal = textarea.value;
+      const selectionStart = textarea.selectionStart ?? 0;
+      const selectionEnd = textarea.selectionEnd ?? currentVal.length;
+      const nextRaw =
+        currentVal.slice(0, selectionStart) +
+        pasted +
+        currentVal.slice(selectionEnd);
+
+      const parsed = parseCustomMcpInput(nextRaw.trim());
+      if (!parsed) return;
+
+      e.preventDefault();
+      setCustomError(null);
+      setCustomSpecText(JSON.stringify(parsed.spec, null, 2));
+      if (!customServerId.trim() && parsed.serverId) {
+        setCustomServerId(parsed.serverId);
+      }
+    },
+    [customServerId]
+  );
+
   const handleCreateCustomServer = useCallback(async () => {
-    const trimmedId = customServerId.trim();
+    const parsedInput = parseCustomMcpInput(customSpecText);
+    const trimmedId =
+      customServerId.trim() || parsedInput?.serverId?.trim() || '';
     if (!trimmedId) {
       setCustomError(t('mcp.validation.enterServerId'));
       return;
@@ -690,24 +1124,28 @@ export function ConnectorMarketplace({
       return;
     }
     let parsedSpec: Record<string, JsonValue>;
-    try {
-      const parsed = JSON.parse(customSpecText);
-      if (
-        typeof parsed !== 'object' ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        setCustomError(t('mcp.validation.specObject'));
+    if (parsedInput) {
+      parsedSpec = parsedInput.spec;
+    } else {
+      try {
+        const parsed = JSON.parse(customSpecText);
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
+          setCustomError(t('mcp.validation.specObject'));
+          return;
+        }
+        parsedSpec = parsed as Record<string, JsonValue>;
+      } catch (err) {
+        setCustomError(
+          t('mcp.validation.jsonSyntax', {
+            message: err instanceof Error ? err.message : String(err),
+          })
+        );
         return;
       }
-      parsedSpec = parsed as Record<string, JsonValue>;
-    } catch (err) {
-      setCustomError(
-        t('mcp.validation.jsonSyntax', {
-          message: err instanceof Error ? err.message : String(err),
-        })
-      );
-      return;
     }
 
     setCustomBusy(true);
@@ -1349,6 +1787,7 @@ export function ConnectorMarketplace({
                 className="font-mono text-xs"
                 value={customSpecText}
                 onChange={(e) => setCustomSpecText(e.target.value)}
+                onPaste={handleCustomSpecPaste}
                 disabled={customBusy}
               />
             </div>

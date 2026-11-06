@@ -918,17 +918,17 @@ mod tests {
         );
         assert_eq!(
             projected_mcp_server_id(
-                "vibex.open-connector",
+                "acme.connector",
                 "mcp",
                 &json!({
                     "managedRuntime": { "kind": "workerHttp", "handler": "mcp.endpoint" }
                 })
             ),
-            "vibex-open-connector-mcp"
+            "acme-connector-mcp"
         );
         assert_eq!(
-            legacy_projected_mcp_server_id("vibex.open-connector", "mcp", &json!({})),
-            "vibex.open-connector.mcp"
+            legacy_projected_mcp_server_id("acme.connector", "mcp", &json!({})),
+            "acme.connector.mcp"
         );
     }
 

@@ -188,7 +188,7 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       expect(getMonorepoPluginLoadCount(bundle.id)).toBeGreaterThanOrEqual(1);
     }
 
-    // Services from all 13 official plugins
+    // Services from all 12 official plugins
     const expectedServices = [
       'vibex.provider-catalog',
       'vibex.plugin-dev',
@@ -197,7 +197,6 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       'vibex.office',
       'vibex.workflow-creator',
       'vibex.remote-ssh',
-      'vibex.open-connector',
       'vibex.science',
       'vibex.computer-use',
       'vibex.kanban-views',
@@ -222,17 +221,6 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     expect(
       viewRegistry.get('vibex-plugin-computer-use:computer-use-status')
         ?.component
-    ).toBeTypeOf('function');
-    expect(
-      viewRegistry.get('vibex.open-connector:runtime-status')?.component
-    ).toBeTypeOf('function');
-    expect(
-      slotRegistry
-        .getBySlot('status.after-mcp')
-        .some((item) => item.id === 'runtime-status')
-    ).toBe(true);
-    expect(
-      viewRegistry.get('vibex.open-connector:settings')?.component
     ).toBeTypeOf('function');
     expect(
       viewRegistry.get('vibex.remote-ssh:connect-panel')?.component
@@ -266,7 +254,6 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
       'vibex.office.preview',
       'vibex.workflow-creator.new',
       'vibex.remote-ssh.connect',
-      'runtime-status-command',
       'vibex.science.configure-domains',
       'vibex.computer-use.emergency-stop',
       'vibex.kanban.triage',
@@ -289,7 +276,6 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
         'office-summary',
         'workflow',
         'ssh-connect',
-        'connector',
         'science-literature',
         'computer-use',
         'kanban-triage',

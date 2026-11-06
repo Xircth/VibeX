@@ -385,6 +385,101 @@ describe('McpSettings', () => {
     dispatchOpenConnectorMarketplace({ searchQuery: 'Supabase' });
     expect(await screen.findByDisplayValue('Supabase')).toBeVisible();
   });
+
+  it('parses URL, CLI command, and mcpServers JSON for custom MCP server input', async () => {
+    const { parseCustomMcpInput } = await import(
+      '@/components/connectors/ConnectorMarketplace'
+    );
+
+    // 1. Remote HTTP & SSE URLs
+    expect(parseCustomMcpInput('https://mcp.linear.app/mcp')).toEqual({
+      serverId: 'linear',
+      spec: {
+        type: 'http',
+        url: 'https://mcp.linear.app/mcp',
+      },
+    });
+    expect(parseCustomMcpInput('https://mcp.asana.com/sse')).toEqual({
+      serverId: 'asana',
+      spec: {
+        type: 'sse',
+        url: 'https://mcp.asana.com/sse',
+      },
+    });
+
+    // 2. Direct CLI command (npx) & `claude mcp add` command
+    expect(
+      parseCustomMcpInput(
+        'npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mydb'
+      )
+    ).toEqual({
+      serverId: 'postgres',
+      spec: {
+        type: 'stdio',
+        command: 'npx',
+        args: [
+          '-y',
+          '@modelcontextprotocol/server-postgres',
+          'postgresql://localhost/mydb',
+        ],
+      },
+    });
+
+    expect(
+      parseCustomMcpInput(
+        'claude mcp add --transport stdio -e API_KEY=secret twitter-mcp -- npx -y @enescinar/twitter-mcp'
+      )
+    ).toEqual({
+      serverId: 'twitter-mcp',
+      spec: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@enescinar/twitter-mcp'],
+        env: { API_KEY: 'secret' },
+      },
+    });
+
+    // 3. Full `mcpServers` and VS Code `servers` JSON config blocks
+    expect(
+      parseCustomMcpInput(
+        JSON.stringify({
+          mcpServers: {
+            'my-custom-server': {
+              command: 'uvx',
+              args: ['mcp-server-git'],
+            },
+          },
+        })
+      )
+    ).toEqual({
+      serverId: 'my-custom-server',
+      spec: {
+        type: 'stdio',
+        command: 'uvx',
+        args: ['mcp-server-git'],
+      },
+    });
+
+    expect(
+      parseCustomMcpInput(
+        JSON.stringify({
+          servers: {
+            'vscode-server': {
+              command: 'npx',
+              args: ['-y', '@modelcontextprotocol/server-memory'],
+            },
+          },
+        })
+      )
+    ).toEqual({
+      serverId: 'vscode-server',
+      spec: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-memory'],
+      },
+    });
+  });
 });
 
 describe('SkillsSettings', () => {

@@ -77,12 +77,6 @@ const MONOREPO_PLUGIN_DESCRIPTORS: readonly MonorepoPluginDescriptor[] = [
     loader: () => import('../../../../plugins/remote-ssh/app/main.js'),
   },
   {
-    dirName: 'open-connector',
-    name: 'Open Connector',
-    version: '2.0.0',
-    loader: () => import('../../../../plugins/open-connector/app/main.js'),
-  },
-  {
     dirName: 'science',
     name: 'Science Research Suite',
     version: '2.0.0',

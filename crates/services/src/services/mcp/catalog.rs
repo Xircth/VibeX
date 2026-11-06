@@ -351,6 +351,34 @@ fn build_snapshot_install_options(
             enum_values: Vec::new(),
             location: Some("env".to_string()),
         });
+    } else if entry.kind == "connector" {
+        parameters.push(McpMarketplaceInstallParameter {
+            key: "API_KEY".to_string(),
+            label: "API Key / Token (Optional)".to_string(),
+            description: None,
+            required: false,
+            secret: true,
+            kind: "string".to_string(),
+            default_value: None,
+            placeholder: Some("Optional API key or OAuth token".to_string()),
+            enum_values: Vec::new(),
+            location: Some("env".to_string()),
+        });
+    }
+
+    if entry.kind == "connector" {
+        parameters.push(McpMarketplaceInstallParameter {
+            key: "ACCOUNT_ALIAS".to_string(),
+            label: "Account Label (Optional)".to_string(),
+            description: None,
+            required: false,
+            secret: false,
+            kind: "string".to_string(),
+            default_value: None,
+            placeholder: Some("work / personal".to_string()),
+            enum_values: Vec::new(),
+            location: Some("env".to_string()),
+        });
     }
 
     Ok(vec![McpMarketplaceInstallOption {
@@ -447,5 +475,86 @@ pub fn resolve_snapshot_install_spec(
         }
     }
 
+    if entry.kind == "connector" {
+        if entry.api_key_field.is_none()
+            && let Some(optional_key) = values
+                .get("API_KEY")
+                .and_then(value_as_text)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+            && let Some(obj) = spec.as_object_mut()
+        {
+            let env = obj
+                .entry("env".to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if let Some(emap) = env.as_object_mut() {
+                emap.insert("OPEN_CONNECTOR_API_KEY".to_string(), Value::String(optional_key));
+            }
+        }
+
+        if let Some(alias) = values
+            .get("ACCOUNT_ALIAS")
+            .and_then(value_as_text)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            && let Some(obj) = spec.as_object_mut()
+        {
+            let env = obj
+                .entry("env".to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if let Some(emap) = env.as_object_mut() {
+                emap.insert("CONNECTOR_ACCOUNT_ALIAS".to_string(), Value::String(alias));
+            }
+        }
+    }
+
     canonicalize_spec(&spec, "connector catalog install")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connector_with_required_api_key_includes_account_alias_and_injects_both() {
+        let installed = BTreeSet::new();
+        let detail = get_snapshot_server_detail("stripe", &installed).expect("stripe detail");
+        assert_eq!(detail.kind.as_deref(), Some("connector"));
+        let params = &detail.install_options[0].parameters;
+        assert!(params.iter().any(|p| p.key == "STRIPE_API_KEY" && p.required));
+        assert!(params.iter().any(|p| p.key == "ACCOUNT_ALIAS" && !p.required));
+
+        let mut values = Map::new();
+        values.insert("STRIPE_API_KEY".to_string(), json!("sk_test_123"));
+        values.insert("ACCOUNT_ALIAS".to_string(), json!("work"));
+        let spec = resolve_snapshot_install_spec("stripe", &detail.default_option_id, &values)
+            .expect("resolve stripe spec");
+        assert_eq!(spec["env"]["STRIPE_API_KEY"], "sk_test_123");
+        assert_eq!(spec["env"]["CONNECTOR_ACCOUNT_ALIAS"], "work");
+    }
+
+    #[test]
+    fn oauth_connector_without_required_key_accepts_optional_api_key_and_alias() {
+        let installed = BTreeSet::new();
+        let detail = get_snapshot_server_detail("zoom", &installed).expect("zoom detail");
+        assert_eq!(detail.kind.as_deref(), Some("connector"));
+        let params = &detail.install_options[0].parameters;
+        assert!(params.iter().any(|p| p.key == "API_KEY" && !p.required));
+        assert!(params.iter().any(|p| p.key == "ACCOUNT_ALIAS" && !p.required));
+
+        let empty_values = Map::new();
+        let default_spec =
+            resolve_snapshot_install_spec("zoom", &detail.default_option_id, &empty_values)
+                .expect("resolve zoom spec with no params");
+        assert_eq!(default_spec["type"], "stdio");
+
+        let mut custom_values = Map::new();
+        custom_values.insert("API_KEY".to_string(), json!("zoom_tok_abc"));
+        custom_values.insert("ACCOUNT_ALIAS".to_string(), json!("personal"));
+        let custom_spec =
+            resolve_snapshot_install_spec("zoom", &detail.default_option_id, &custom_values)
+                .expect("resolve zoom spec with optional params");
+        assert_eq!(custom_spec["env"]["OPEN_CONNECTOR_API_KEY"], "zoom_tok_abc");
+        assert_eq!(custom_spec["env"]["CONNECTOR_ACCOUNT_ALIAS"], "personal");
+    }
 }

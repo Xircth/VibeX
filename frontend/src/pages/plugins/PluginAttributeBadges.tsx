@@ -67,11 +67,6 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
     repo: 'Xircth/vibex-plugin-provider-switch',
     trend: [46, 56, 66, 76, 86, 96, 106, 115, 124, 133, 141, 148],
   },
-  openConnector: {
-    installs: 119,
-    repo: 'Xircth/vibex-plugin-open-connector',
-    trend: [36, 44, 52, 60, 68, 76, 84, 92, 99, 106, 113, 119],
-  },
   pluginDevelopment: {
     installs: 84,
     repo: 'Xircth/vibex-plugin-development',

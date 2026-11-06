@@ -24,7 +24,6 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.provider-switch': 'providerSwitch',
   'vibex.remote-ssh': 'remoteSsh',
   'vibex.science': 'science',
-  'vibex.open-connector': 'openConnector',
   'vibex-plugin-computer-use': 'computerUse',
   'vibex.computer-use': 'computerUse',
   'vibex.code-completion': 'codeCompletion',
@@ -61,7 +60,6 @@ const OFFICIAL_PLUGIN_CATEGORY_BY_KEY: Record<
 > = {
   pluginDevelopment: 'development',
   remoteSsh: 'development',
-  openConnector: 'development',
   codeCompletion: 'development',
   science: 'science',
   sessionEnhance: 'ai-enhancement',
@@ -81,7 +79,6 @@ const BARE_OFFICIAL_ID_TO_KEY: Record<string, OfficialPluginI18nKey> = {
   'provider-switch': 'providerSwitch',
   'remote-ssh': 'remoteSsh',
   science: 'science',
-  'open-connector': 'openConnector',
   'computer-use': 'computerUse',
   'code-completion': 'codeCompletion',
 };

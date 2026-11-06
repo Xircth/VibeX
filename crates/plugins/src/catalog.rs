@@ -12,8 +12,12 @@ pub const COMMUNITY_PAGE_SIZE: u32 = 50;
 /// Retired package id → successor. Official marketplace must show one product.
 pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[];
 
-/// Retired plugin ids absorbed into the Host (MultiAgent collaboration) with no plugin successor.
-pub const RETIRED_PLUGIN_IDS: &[&str] = &["vibex.collaboration", "vibex.multi-agent"];
+/// Retired plugin ids absorbed into the Host (MultiAgent collaboration, Connector Marketplace) with no plugin successor.
+pub const RETIRED_PLUGIN_IDS: &[&str] = &[
+    "vibex.collaboration",
+    "vibex.multi-agent",
+    "vibex.open-connector",
+];
 
 /// SDK authoring samples. They stay in-repo for templates and Host tests, but
 /// they are not product marketplace listings and must not ship in a release Host.

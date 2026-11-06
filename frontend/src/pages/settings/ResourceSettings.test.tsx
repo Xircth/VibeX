@@ -569,11 +569,43 @@ describe('SkillsSettings', () => {
     expect(
       await screen.findByRole('heading', { name: 'Find Skills Guide' })
     ).toBeVisible();
+    expect(screen.getByRole('button', { name: '返回列表' })).toBeVisible();
+    expect(screen.queryByText('SKILL.md')).not.toBeInTheDocument();
+
+    const sourceLink = screen.getByRole('link', { name: /vercel-labs\/skills/ });
+    const installsBadge = screen.getByText(/749\.5K INSTALLS/);
+    expect(sourceLink.parentElement).toBe(installsBadge.parentElement);
+    expect(
+      sourceLink.compareDocumentPosition(installsBadge) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
     expect(
       screen.getByText('npx skills add vercel-labs/skills --skill find-skills')
     ).toBeVisible();
 
-    const showMoreBtn = screen.getByRole('button', { name: 'Show More' });
+    // Short SKILL.md content does not overflow page height -> Show More is hidden
+    expect(
+      screen.queryByRole('button', { name: 'Show More' })
+    ).not.toBeInTheDocument();
+
+    // Return to list and open a skill with long SKILL.md content (>24 lines) -> Show More appears
+    const longContent = [
+      '---',
+      'name: find-skills',
+      '---',
+      '# Find Skills Guide',
+      ...Array.from({ length: 30 }, (_, idx) => `- Step ${idx + 1}: Detailed instruction line`),
+    ].join('\n');
+    mocks.detailSkill.mockResolvedValueOnce({
+      description: 'Fallback description',
+      content: longContent,
+    });
+
+    await user.click(screen.getByRole('button', { name: '返回列表' }));
+    await user.click(await screen.findByText('find-skills'));
+
+    const showMoreBtn = await screen.findByRole('button', { name: 'Show More' });
     expect(showMoreBtn).toBeVisible();
     await user.click(showMoreBtn);
     expect(screen.getByRole('button', { name: 'Show Less' })).toBeVisible();
@@ -590,4 +622,5 @@ describe('SkillsSettings', () => {
     });
   });
 });
+
 

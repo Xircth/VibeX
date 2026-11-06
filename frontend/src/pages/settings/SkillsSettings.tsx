@@ -1184,11 +1184,44 @@ function MarketSkillDetailView({
   const installCommand = `npx skills add ${item.source} --skill ${item.skill_id}`;
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const contentContainerRef = useRef<HTMLDivElement | null>(null);
 
   const parsedMd = useMemo(
     () => (detailText ? splitFrontmatter(detailText) : null),
     [detailText]
   );
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [item.source, item.skill_id]);
+
+  useEffect(() => {
+    const el = contentContainerRef.current;
+    if (!el || !parsedMd) {
+      setIsOverflowing(false);
+      return;
+    }
+    const measure = () => {
+      if (el.scrollHeight > 0 && el.clientHeight > 0) {
+        if (el.scrollHeight > el.clientHeight + 2) {
+          setIsOverflowing(true);
+        } else if (!expanded) {
+          setIsOverflowing(false);
+        }
+        return;
+      }
+      // Fallback for non-layout test environments (jsdom) where clientHeight === 0
+      const lineCount = (detailText ?? '').split('\n').length;
+      setIsOverflowing(lineCount > 24 || (detailText?.length ?? 0) > 1200);
+    };
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, [detailText, expanded, parsedMd]);
 
   const copyCommand = useCallback(() => {
     void navigator.clipboard
@@ -1202,7 +1235,7 @@ function MarketSkillDetailView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Top Bar: Back button + Skill header */}
+      {/* Top Bar: Left (Back to list + Skill name), Right (Source link + INSTALLS badge) */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -1213,87 +1246,79 @@ function MarketSkillDetailView({
             className="h-8 gap-1.5 px-2.5 text-xs"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            {t('skills.backToLeaderboard', '返回排行榜')}
+            {t('skills.backToLeaderboard', '返回列表')}
           </Button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-base font-semibold">{item.name}</h2>
-              {item.is_official ? (
-                <Badge
-                  variant="secondary"
-                  className="h-5 gap-1 px-1.5 text-[10px]"
-                >
-                  <ShieldCheck className="h-3 w-3" />
-                  {t('skills.official', '官方')}
-                </Badge>
-              ) : null}
-              {typeof item.installs === 'number' ? (
-                <Badge variant="outline" className="font-mono text-[11px]">
-                  {formatInstallCount(item.installs)}{' '}
-                  {t('skills.colInstalls', 'INSTALLS')}
-                </Badge>
-              ) : null}
-            </div>
-            <a
-              href={homepage}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
-            >
-              <span>{item.source}</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-base font-semibold">{item.name}</h2>
+            {item.is_official ? (
+              <Badge
+                variant="secondary"
+                className="h-5 gap-1 px-1.5 text-[10px]"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                {t('skills.official', '官方')}
+              </Badge>
+            ) : null}
           </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3">
+          <a
+            href={homepage}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+          >
+            <span>{item.source}</span>
+            <ExternalLink className="h-3 w-3" />
+          </a>
+          {typeof item.installs === 'number' ? (
+            <Badge variant="outline" className="font-mono text-[11px]">
+              {formatInstallCount(item.installs)}{' '}
+              {t('skills.colInstalls', 'INSTALLS')}
+            </Badge>
+          ) : null}
         </div>
       </div>
 
-      {/* Two-Column Content: Left SKILL.md Markdown + Right Install Config */}
+      {/* Two-Column Content: Left unboxed SKILL.md Markdown + Right Install Config */}
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
-        {/* Left Column: SKILL.md Markdown preview with height limit + Show More */}
-        <div className="flex flex-col overflow-hidden rounded-xl border bg-card lg:col-span-7">
-          <div className="flex items-center justify-between border-b px-4 py-2.5">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <FileText className="h-3.5 w-3.5" />
-              <span>SKILL.md</span>
+        {/* Left Column: Direct unboxed SKILL.md Markdown limited to page height */}
+        <div className="flex flex-col lg:col-span-7">
+          {detailLoading ? (
+            <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('skills.reading')}
             </div>
-            <Badge variant="secondary" className="text-[10px]">
-              skills.sh
-            </Badge>
-          </div>
-
-          <div className="p-5">
-            {detailLoading ? (
-              <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t('skills.reading')}
+          ) : parsedMd && (parsedMd.body.trim() || parsedMd.frontmatter) ? (
+            <div className="space-y-3">
+              <div
+                ref={contentContainerRef}
+                className={cn(
+                  'relative overflow-hidden transition-all',
+                  !expanded && 'max-h-[calc(100vh-14rem)]'
+                )}
+              >
+                {parsedMd.frontmatter ? (
+                  <pre className="mb-3 overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                    {parsedMd.frontmatter}
+                  </pre>
+                ) : null}
+                {parsedMd.body.trim() ? (
+                  <AstryxMarkdown
+                    value={parsedMd.body}
+                    className="text-sm leading-relaxed"
+                  />
+                ) : null}
+                {isOverflowing && !expanded ? (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background via-background/80 to-transparent"
+                  />
+                ) : null}
               </div>
-            ) : parsedMd && (parsedMd.body.trim() || parsedMd.frontmatter) ? (
-              <div className="space-y-3">
-                <div
-                  className={cn(
-                    'relative overflow-hidden transition-all',
-                    !expanded && 'max-h-[420px]'
-                  )}
-                >
-                  {parsedMd.frontmatter ? (
-                    <pre className="mb-3 overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {parsedMd.frontmatter}
-                    </pre>
-                  ) : null}
-                  {parsedMd.body.trim() ? (
-                    <AstryxMarkdown
-                      value={parsedMd.body}
-                      className="text-sm leading-relaxed"
-                    />
-                  ) : null}
-                  {!expanded ? (
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-card via-card/80 to-transparent"
-                    />
-                  ) : null}
-                </div>
 
+              {isOverflowing ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -1313,13 +1338,13 @@ function MarketSkillDetailView({
                     </>
                   )}
                 </Button>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {t('skills.noDescription')}
-              </p>
-            )}
-          </div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t('skills.noDescription')}
+            </p>
+          )}
         </div>
 
         {/* Right Column: Inline Installation Configuration */}

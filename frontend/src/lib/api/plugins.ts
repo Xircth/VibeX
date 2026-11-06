@@ -566,6 +566,17 @@ export function createPluginControlApi(transport: BackendTransport) {
       );
       return detail;
     },
+    discoverModels: (request: {
+      baseUrl: string;
+      apiKey?: string | null;
+    }) =>
+      transport.call('dsh_provider_discover_models', {
+        request: {
+          base_url: request.baseUrl,
+          api_key: request.apiKey ?? null,
+          provider_id: null,
+        },
+      }) as Promise<Array<{ id: string; name?: string | null }>>,
     devConnection: () =>
       transport.call('plugin_dev_connection') as Promise<PluginDevConnection>,
     resolveFileOpener: (extension?: string, mediaType?: string) =>

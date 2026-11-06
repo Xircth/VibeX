@@ -978,7 +978,7 @@
           },
           "model": {
             "title": "Completion model",
-            "description": "Model identifier used for low-latency inline completion (e.g. gpt-4o-mini, deepseek-chat, qwen2.5-coder-7b)."
+            "description": "Click Fetch models, then choose the model used for low-latency inline completion from the dropdown."
           },
           "triggerMode": {
             "title": "Trigger mode",
@@ -1029,6 +1029,9 @@
     "unsavedConfig": "Plugin configuration has unsaved changes",
     "configSaved": "Plugin configuration saved",
     "configSaveFailed": "Could not save plugin configuration",
+    "fetchModels": "Fetch models",
+    "selectModelPlaceholder": "Fetch models first",
+    "modelDiscoverFailed": "Failed to fetch model list",
     "configEnablePackConfirm": "This domain pack contains {{count}} Skills. Enable it?",
     "configEnablePackConfirmAction": "Enable",
     "readiness": {

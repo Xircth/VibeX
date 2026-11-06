@@ -978,7 +978,7 @@
           },
           "model": {
             "title": "补全模型",
-            "description": "用于低延迟行内代码补全的模型标识（如 gpt-4o-mini、deepseek-chat、qwen2.5-coder-7b）。"
+            "description": "点击「拉取模型」后从下拉列表选择用于低延迟行内代码补全的模型。"
           },
           "triggerMode": {
             "title": "触发方式",
@@ -1029,6 +1029,9 @@
     "unsavedConfig": "插件配置有未保存的更改",
     "configSaved": "插件配置已保存",
     "configSaveFailed": "插件配置保存失败",
+    "fetchModels": "拉取模型",
+    "selectModelPlaceholder": "请先拉取模型",
+    "modelDiscoverFailed": "拉取模型列表失败",
     "configEnablePackConfirm": "该领域技能包一共包含 {{count}} 个 Skill，是否确认启用？",
     "configEnablePackConfirmAction": "启用",
     "readiness": {

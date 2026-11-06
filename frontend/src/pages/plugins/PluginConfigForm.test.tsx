@@ -219,4 +219,138 @@ describe('PluginConfigForm', () => {
     expect(ConfirmDialog.show).not.toHaveBeenCalled();
     expect(toggle).toHaveAttribute('data-state', 'checked');
   });
+
+  it('does not save on every keystroke in text inputs and saves once on blur without losing focus', async () => {
+    const user = userEvent.setup();
+    const transport = renderForm(
+      {
+        summary: 'Code Completion',
+        readme: '# Code Completion',
+        contents: [],
+        config: {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: '',
+          model: 'gpt-4o-mini',
+        },
+        configSchema: {
+          type: 'object',
+          properties: {
+            baseUrl: { type: 'string', title: 'Base URL' },
+            apiKey: { type: 'string', title: 'API Key' },
+            model: { type: 'string', title: '补全模型', default: 'gpt-4o-mini' },
+          },
+        },
+      },
+      'vibex.code-completion'
+    );
+
+    const apiKeyInput = screen.getByLabelText('API Key');
+    await user.click(apiKeyInput);
+    await user.type(apiKeyInput, 'sk-test-123');
+
+    expect(apiKeyInput).toHaveValue('sk-test-123');
+    expect(apiKeyInput).toHaveFocus();
+    expect(transport.call).not.toHaveBeenCalledWith(
+      'plugin_save_config',
+      expect.anything()
+    );
+
+    await user.tab();
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledTimes(1);
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'sk-test-123',
+          model: 'gpt-4o-mini',
+        },
+      });
+    });
+  });
+
+  it('fetches models via button and populates the model selector dropdown', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-deepseek',
+        model: 'gpt-4o-mini',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          baseUrl: { type: 'string', title: 'Base URL' },
+          apiKey: { type: 'string', title: 'API Key' },
+          model: { type: 'string', title: '补全模型', default: 'gpt-4o-mini' },
+        },
+      },
+    };
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command, args) => {
+        if (command === 'dsh_provider_discover_models') {
+          return [
+            { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+            { id: 'deepseek-coder', name: 'DeepSeek Coder' },
+          ];
+        }
+        return {
+          ...detail,
+          config:
+            args && typeof args === 'object' && 'config' in args
+              ? (args as { config: Record<string, unknown> }).config
+              : detail.config,
+        };
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <PluginConfigForm
+            pluginId="vibex.code-completion"
+            detail={detail}
+            onSaved={vi.fn()}
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    const fetchButton = screen.getByRole('button', {
+      name: /拉取模型|Fetch models/i,
+    });
+    await user.click(fetchButton);
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith(
+        'dsh_provider_discover_models',
+        {
+          request: {
+            base_url: 'https://api.deepseek.com/v1',
+            api_key: 'sk-deepseek',
+            provider_id: null,
+          },
+        }
+      );
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: 'sk-deepseek',
+          model: 'deepseek-chat',
+        },
+      });
+    });
+  });
 });

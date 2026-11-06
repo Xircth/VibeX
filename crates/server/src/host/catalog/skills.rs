@@ -29,6 +29,7 @@ struct SkillIdArgs {
 #[serde(rename_all = "camelCase")]
 struct MarketSearchArgs {
     query: Option<String>,
+    view: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -145,9 +146,12 @@ pub(super) async fn read_local(
 }
 
 pub(super) async fn search_market(args: Value) -> Result<Value, ApplicationError> {
-    let args: MarketSearchArgs = parse(args).unwrap_or(MarketSearchArgs { query: None });
+    let args: MarketSearchArgs = parse(args).unwrap_or(MarketSearchArgs {
+        query: None,
+        view: None,
+    });
     serialize(
-        skills::search_skill_market(args.query)
+        skills::search_skill_market_with_view(args.query, args.view)
             .await
             .map_err(internal_error)?,
     )

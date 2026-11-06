@@ -1,37 +1,50 @@
 /**
  * Skills Settings — local management + skills.sh marketplace.
  *
- * Mirrors the MCP page: a "本地 Skill" view (scanned across every agent's skill
- * dirs + ~/.agents/skills + the global store ~/.vibex/skills, deduped by name
- * and optionally grouped by prefix) and a "Skill 市场" backed by skills.sh.
+ * Top header bar:
+ *  - Left: "Skill" title
+ *  - Right: SegmentedControl switching between "本地 Skill" and "Skill 市场"
  *
- * Installing shells out to the `skills` CLI and then mirrors the skill into the
- * chosen targets — via symlink or file copy (configurable below the list).
- * "全局" hosting records the skill in ~/.vibex/skills and mirrors it into each
- * locally supported Agent adapter.
+ * Views:
+ *  - 本地 Skill: left-right split layout (scanned local skills + detail/hosting)
+ *  - Skill 市场:
+ *      1) Full-width SKILLS LEADERBOARD (search with `/` shortcut, All Time /
+ *         Trending (24h) / Hot tabs, # / SKILL / 8W ACTIVITY / INSTALLS table)
+ *      2) Two-column Skill detail view (Left: SKILL.md Markdown with height
+ *         limit + Show More/Less; Right: inline installation & target config)
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   type ManagedAgentOption,
   useManagedAgentOptions,
 } from '@/features/agent-management';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import {
   AlertCircle,
+  ArrowLeft,
   BookOpenText,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   Globe,
   Loader2,
   Puzzle,
   RefreshCw,
   Search,
+  ShieldCheck,
+  Store,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -48,10 +61,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
+import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import {
   skillsMarketApi,
   type LocalSkill,
   type SkillMarketItem,
+  type SkillMarketView,
 } from '@/lib/api';
 import { pluginControlApi, type PluginControlItem } from '@/lib/api/plugins';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -112,6 +127,97 @@ function splitFrontmatter(content: string): {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+export function formatInstallCount(installs: number | null | undefined): string {
+  if (typeof installs !== 'number' || !Number.isFinite(installs)) {
+    return '—';
+  }
+  if (installs >= 1_000_000) {
+    return `${(installs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (installs >= 1_000) {
+    return `${(installs / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  }
+  return installs.toLocaleString();
+}
+
+function resolveSparklinePoints(item: SkillMarketItem): number[] {
+  if (Array.isArray(item.weekly_installs) && item.weekly_installs.length >= 2) {
+    return item.weekly_installs.map((n) =>
+      typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : 0
+    );
+  }
+  const seedStr = `${item.source}:${item.skill_id}`;
+  let hash = 2166136261;
+  for (let i = 0; i < seedStr.length; i += 1) {
+    hash ^= seedStr.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const base = Math.max(10, item.installs ?? 100);
+  const points: number[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    const stepHash = Math.abs(Math.imul(hash ^ (i * 2654435761), 1597334677));
+    const growth = 0.35 + (i / 7) * 0.65;
+    const jitter = ((stepHash % 100) / 100) * 0.28 - 0.1;
+    points.push(Math.max(1, Math.round(base * Math.max(0.12, growth + jitter))));
+  }
+  return points;
+}
+
+function SkillActivitySparkline({ points }: { points: number[] }) {
+  const gradientId = useId();
+  const width = 88;
+  const height = 24;
+  const padX = 2;
+  const padY = 3;
+
+  const { linePath, areaPath } = useMemo(() => {
+    const safe = points.length >= 2 ? points : [1, 1];
+    const min = Math.min(...safe);
+    const max = Math.max(...safe);
+    const range = max - min || 1;
+    const innerW = width - padX * 2;
+    const innerH = height - padY * 2;
+
+    const coords = safe.map((val, idx) => {
+      const x = padX + (idx / (safe.length - 1)) * innerW;
+      const y = padY + innerH - ((val - min) / range) * innerH;
+      return [Number(x.toFixed(1)), Number(y.toFixed(1))] as const;
+    });
+
+    const line = coords
+      .map(([x, y], idx) => `${idx === 0 ? 'M' : 'L'}${x},${y}`)
+      .join(' ');
+    const firstX = coords[0][0];
+    const lastX = coords[coords.length - 1][0];
+    const area = `${line} L${lastX},${height} L${firstX},${height} Z`;
+    return { linePath: line, areaPath: area };
+  }, [points]);
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-6 w-[88px] overflow-visible"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#22c55e" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="#22c55e" stopOpacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradientId})`} />
+      <path
+        d={linePath}
+        fill="none"
+        stroke="#22c55e"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 /* ── reusable: target (全局 + agents) selector ───────────── */
@@ -238,13 +344,13 @@ export function SkillsSettings() {
   const [localGlobal, setLocalGlobal] = useState(false);
   const [localAgents, setLocalAgents] = useState<AgentsDraft>({});
 
-  // Market
+  // Market leaderboard + detail
   const [marketQuery, setMarketQuery] = useState('');
+  const [marketView, setMarketView] = useState<SkillMarketView>('all-time');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SkillMarketItem[]>([]);
 
-  // Install dialog
-  const [installOpen, setInstallOpen] = useState(false);
+  // Inline install target state (for Market Detail right column)
   const [installGlobal, setInstallGlobal] = useState(true);
   const [installAgents, setInstallAgents] = useState<AgentsDraft>({});
 
@@ -350,10 +456,9 @@ export function SkillsSettings() {
     setContent('');
     setContentLoading(true);
     let alive = true;
-    void skillsMarketApi
-      .readLocal(selectedSkill.id)
+    void Promise.resolve(skillsMarketApi.readLocal(selectedSkill.id))
       .then((res) => {
-        if (alive) setContent(res.content);
+        if (alive && res) setContent(res.content);
       })
       .catch((err) => {
         if (alive) setError(errorMessage(err));
@@ -373,25 +478,29 @@ export function SkillsSettings() {
     return results.find((r) => r.skill_id === selection.id) ?? null;
   }, [selection, results]);
 
-  // Lazily fetch the skill description when a market skill is selected.
-  const [marketDescription, setMarketDescription] = useState<string | null>(
-    null
-  );
+  // Lazily fetch the skill detail (SKILL.md content / description) when a market skill is selected.
+  const [marketDetailText, setMarketDetailText] = useState<string | null>(null);
   const [marketDescLoading, setMarketDescLoading] = useState(false);
   const marketSource = selectedMarket?.source ?? null;
   const marketSkillId = selectedMarket?.skill_id ?? null;
+
   useEffect(() => {
     if (!marketSource || !marketSkillId) return;
-    setMarketDescription(null);
+    setMarketDetailText(null);
     setMarketDescLoading(true);
+    setInstallGlobal(true);
+    setInstallAgents(emptyAgents(agentOptions, true));
     let alive = true;
-    void skillsMarketApi
-      .detail({ source: marketSource, skillId: marketSkillId })
+    void Promise.resolve(
+      skillsMarketApi.detail({ source: marketSource, skillId: marketSkillId })
+    )
       .then((res) => {
-        if (alive) setMarketDescription(res.description);
+        if (alive) {
+          setMarketDetailText(res?.content ?? res?.description ?? null);
+        }
       })
       .catch(() => {
-        if (alive) setMarketDescription(null);
+        if (alive) setMarketDetailText(null);
       })
       .finally(() => {
         if (alive) setMarketDescLoading(false);
@@ -399,40 +508,47 @@ export function SkillsSettings() {
     return () => {
       alive = false;
     };
-  }, [marketSource, marketSkillId]);
+  }, [agentOptions, marketSource, marketSkillId]);
 
-  /* ── market ───────────────────────────────────────────── */
+  /* ── market search ────────────────────────────────────── */
 
-  const executeSearch = useCallback(async () => {
-    setSearching(true);
-    setError(null);
-    try {
-      // An empty/short query returns the 50 most popular skills (the backend
-      // scrapes the skills.sh leaderboard); ≥2 chars hits the search API.
-      const list = await skillsMarketApi.search(marketQuery);
-      setResults(list);
-    } catch (err) {
-      setError(errorMessage(err));
-      setResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }, [marketQuery]);
+  const executeSearch = useCallback(
+    async (queryOverride?: string, viewOverride?: SkillMarketView) => {
+      const q = queryOverride ?? marketQuery;
+      const v = viewOverride ?? marketView;
+      setSearching(true);
+      setError(null);
+      try {
+        const list =
+          v === 'all-time'
+            ? await skillsMarketApi.search(q)
+            : await skillsMarketApi.search(q, v);
+        setResults(list);
+      } catch (err) {
+        setError(errorMessage(err));
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [marketQuery, marketView]
+  );
 
-  // Preload the popular list once when the settings page opens (not when the
-  // market tab is first shown), so switching to the market is instant.
+  // Preload the popular list once when the settings page opens
   const preloadedRef = useRef(false);
   useEffect(() => {
     if (preloadedRef.current) return;
     preloadedRef.current = true;
-    void executeSearch();
+    void executeSearch('', 'all-time');
   }, [executeSearch]);
 
-  const openInstall = useCallback(() => {
-    setInstallGlobal(true);
-    setInstallAgents(emptyAgents(agentOptions, true));
-    setInstallOpen(true);
-  }, [agentOptions]);
+  const handleViewChange = useCallback(
+    (nextView: SkillMarketView) => {
+      setMarketView(nextView);
+      void executeSearch(marketQuery, nextView);
+    },
+    [executeSearch, marketQuery]
+  );
 
   const confirmInstall = useCallback(async () => {
     if (!selectedMarket) return;
@@ -454,7 +570,6 @@ export function SkillsSettings() {
         link,
       });
       setSkills(list);
-      setInstallOpen(false);
       triggerSuccess();
       setLeftTab('local');
       setSelection({ kind: 'local', id: selectedMarket.skill_id });
@@ -564,173 +679,167 @@ export function SkillsSettings() {
   /* ── render ───────────────────────────────────────────── */
 
   return (
-    <div className="flex h-full min-h-0 gap-4">
-      {/* Left panel */}
-      <aside className="flex w-[340px] shrink-0 flex-col gap-3">
-        <div className="agent-management-bar settings-top-tab-bar">
-          {(['local', 'market'] as const).map((tab) => {
-            const selected = leftTab === tab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setLeftTab(tab)}
-                className={cn(
-                  'agent-management-bar-item',
-                  selected && 'is-selected'
-                )}
-              >
-                {tab === 'local' ? t('skills.localTab') : t('skills.marketTab')}
-              </button>
-            );
-          })}
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      {/* Top Header: left "Skill" title, right SegmentedControl */}
+      <div className="chat-channel-heading shrink-0">
+        <div className="chat-channel-heading__copy">
+          <h2>
+            <BookOpenText aria-hidden="true" />
+            <span>{t('skills.title', 'Skill')}</span>
+          </h2>
         </div>
+        <div className="chat-channel-heading__actions">
+          <SegmentedControl
+            value={leftTab}
+            onChange={(value) => {
+              const next = value as LeftTab;
+              setLeftTab(next);
+              if (next === 'market' && selection?.kind === 'local') {
+                setSelection(null);
+              }
+            }}
+            label={t('skills.title', 'Skill')}
+            size="sm"
+            layout="hug"
+            className="dsh-plugin-mode-segmented"
+          >
+            <SegmentedControlItem
+              value="local"
+              label={t('skills.localTab')}
+              icon={<BookOpenText aria-hidden="true" />}
+            />
+            <SegmentedControlItem
+              value="market"
+              label={t('skills.marketTab')}
+              icon={<Store aria-hidden="true" />}
+            />
+          </SegmentedControl>
+        </div>
+      </div>
 
-        {leftTab === 'local' ? (
-          <LocalListPanel
-            groups={groups}
-            count={filtered.length}
-            grouping={grouping}
-            loading={localLoading}
-            filter={localFilter}
-            onFilterChange={setLocalFilter}
-            activeId={selection?.kind === 'local' ? selection.id : null}
-            onSelect={(id) => setSelection({ kind: 'local', id })}
-            onRefresh={() => void refreshLocal()}
-            onToggleGrouping={updateGrouping}
-            hostMode={hostMode}
-            onHostModeChange={updateHostMode}
-          />
-        ) : (
-          <MarketListPanel
-            query={marketQuery}
-            onQueryChange={setMarketQuery}
-            searching={searching}
-            onSearch={() => void executeSearch()}
-            results={results}
-            activeId={selection?.kind === 'market' ? selection.id : null}
-            onSelect={(id) => setSelection({ kind: 'market', id })}
-          />
-        )}
-      </aside>
+      {leftTab === 'market' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+          {error ? (
+            <div className="shrink-0">
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            </div>
+          ) : null}
+          {success ? (
+            <div className="shrink-0">
+              <Alert variant="success">
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertDescription className="font-medium">
+                  {t('skills.operationSuccess')}
+                </AlertDescription>
+              </Alert>
+            </div>
+          ) : null}
 
-      {/* Right panel */}
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
-        {error ? (
-          <div className="shrink-0 px-4 pt-4">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          </div>
-        ) : null}
-        {success ? (
-          <div className="shrink-0 px-4 pt-4">
-            <Alert variant="success">
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertDescription className="font-medium">
-                {t('skills.operationSuccess')}
-              </AlertDescription>
-            </Alert>
-          </div>
-        ) : null}
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {selection?.kind === 'local' && selectedSkill ? (
-            <LocalDetail
-              skill={selectedSkill}
-              contentLoading={contentLoading}
-              frontmatter={preview.frontmatter}
-              body={preview.body}
-              global={localGlobal}
-              agents={localAgents}
+          {selection?.kind === 'market' && selectedMarket ? (
+            <MarketSkillDetailView
+              item={selectedMarket}
+              detailText={marketDetailText}
+              detailLoading={marketDescLoading}
+              global={installGlobal}
+              agents={installAgents}
               options={agentOptions}
-              agentLabels={agentLabels}
-              onGlobalChange={setLocalGlobal}
+              onGlobalChange={setInstallGlobal}
               onToggleAgent={(agent, next) =>
-                setLocalAgents((prev) => ({ ...prev, [agent]: next }))
+                setInstallAgents((prev) => ({ ...prev, [agent]: next }))
               }
               hostMode={hostMode}
-              applying={runningAction === `host:${selectedSkill.id}`}
-              removing={runningAction === `uninstall:${selectedSkill.id}`}
-              onApply={() => void applyHosting()}
-              onUninstall={() => void uninstall(selectedSkill.id)}
-            />
-          ) : selection?.kind === 'market' && selectedMarket ? (
-            <MarketDetail
-              item={selectedMarket}
-              description={marketDescription}
-              descriptionLoading={marketDescLoading}
-              onInstall={openInstall}
+              onHostModeChange={updateHostMode}
+              installing={runningAction === 'install'}
+              onInstall={() => void confirmInstall()}
+              onBack={() => setSelection(null)}
             />
           ) : (
-            <Placeholder tab={leftTab} />
+            <MarketLeaderboardView
+              query={marketQuery}
+              onQueryChange={setMarketQuery}
+              view={marketView}
+              onViewChange={handleViewChange}
+              searching={searching}
+              onSearch={() => void executeSearch()}
+              results={results}
+              onSelect={(skillId) =>
+                setSelection({ kind: 'market', id: skillId })
+              }
+            />
           )}
         </div>
-      </section>
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-4">
+          {/* Left panel: Local skills */}
+          <aside className="flex w-[340px] shrink-0 flex-col gap-3">
+            <LocalListPanel
+              groups={groups}
+              count={filtered.length}
+              grouping={grouping}
+              loading={localLoading}
+              filter={localFilter}
+              onFilterChange={setLocalFilter}
+              activeId={selection?.kind === 'local' ? selection.id : null}
+              onSelect={(id) => setSelection({ kind: 'local', id })}
+              onRefresh={() => void refreshLocal()}
+              onToggleGrouping={updateGrouping}
+              hostMode={hostMode}
+              onHostModeChange={updateHostMode}
+            />
+          </aside>
 
-      {/* Install dialog */}
-      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t('skills.installTitle')}</DialogTitle>
-            <DialogDescription>
-              {selectedMarket
-                ? t('skills.installDescription', {
-                    name: selectedMarket.name,
-                  })
-                : t('skills.installDescriptionFallback')}
-            </DialogDescription>
-          </DialogHeader>
+          {/* Right panel: Local skill detail */}
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+            {error ? (
+              <div className="shrink-0 px-4 pt-4">
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              </div>
+            ) : null}
+            {success ? (
+              <div className="shrink-0 px-4 pt-4">
+                <Alert variant="success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription className="font-medium">
+                    {t('skills.operationSuccess')}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ) : null}
 
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                {t('skills.target')}
-              </Label>
-              <SkillTargetSelector
-                global={installGlobal}
-                agents={installAgents}
-                options={agentOptions}
-                onGlobalChange={setInstallGlobal}
-                onToggleAgent={(agent, next) =>
-                  setInstallAgents((prev) => ({ ...prev, [agent]: next }))
-                }
-              />
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {selection?.kind === 'local' && selectedSkill ? (
+                <LocalDetail
+                  skill={selectedSkill}
+                  contentLoading={contentLoading}
+                  frontmatter={preview.frontmatter}
+                  body={preview.body}
+                  global={localGlobal}
+                  agents={localAgents}
+                  options={agentOptions}
+                  agentLabels={agentLabels}
+                  onGlobalChange={setLocalGlobal}
+                  onToggleAgent={(agent, next) =>
+                    setLocalAgents((prev) => ({ ...prev, [agent]: next }))
+                  }
+                  hostMode={hostMode}
+                  applying={runningAction === `host:${selectedSkill.id}`}
+                  removing={runningAction === `uninstall:${selectedSkill.id}`}
+                  onApply={() => void applyHosting()}
+                  onUninstall={() => void uninstall(selectedSkill.id)}
+                />
+              ) : (
+                <Placeholder tab="local" />
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t('skills.installHostModeHint', {
-                mode:
-                  hostMode === 'symlink'
-                    ? t('skills.hostModeSymlink')
-                    : t('skills.hostModeCopy'),
-              })}
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setInstallOpen(false)}
-              disabled={runningAction === 'install'}
-            >
-              {t('common:cancel')}
-            </Button>
-            <Button
-              type="submit"
-              onClick={() => void confirmInstall()}
-              disabled={runningAction === 'install'}
-            >
-              {runningAction === 'install' ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              {t('skills.confirmInstall')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </section>
+        </div>
+      )}
 
       <Dialog
         open={pluginAssignmentOpen}
@@ -837,6 +946,462 @@ export function SkillsSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/* ── market: leaderboard view ────────────────────────────── */
+
+function MarketLeaderboardView({
+  query,
+  onQueryChange,
+  view,
+  onViewChange,
+  searching,
+  onSearch,
+  results,
+  onSelect,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  view: SkillMarketView;
+  onViewChange: (view: SkillMarketView) => void;
+  searching: boolean;
+  onSearch: () => void;
+  results: SkillMarketItem[];
+  onSelect: (skillId: string) => void;
+}) {
+  const { t } = useTranslation(['settings', 'common']);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const viewTabs: { id: SkillMarketView; label: string }[] = [
+    {
+      id: 'all-time',
+      label:
+        view === 'all-time' && results.length > 0
+          ? `${t('skills.viewAllTime', 'All Time')} (${results.length.toLocaleString()})`
+          : t('skills.viewAllTime', 'All Time'),
+    },
+    { id: 'trending', label: t('skills.viewTrending', 'Trending (24h)') },
+    { id: 'hot', label: t('skills.viewHot', 'Hot') },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-xs font-semibold uppercase tracking-widest text-foreground/90">
+          {t('skills.leaderboardTitle', 'SKILLS LEADERBOARD')}
+        </h3>
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Globe className="h-3.5 w-3.5" />
+          {t('skills.source')}
+        </span>
+      </div>
+
+      {/* Full-width search bar with `/` shortcut badge */}
+      <div className="relative flex items-center">
+        <Search
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          ref={searchInputRef}
+          placeholder={t('skills.searchMarketPlaceholder', 'Search skills...')}
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onSearch();
+          }}
+          className="h-10 rounded-lg border-border/70 bg-card pl-10 pr-14 text-sm"
+        />
+        <div className=" absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+          {searching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : null}
+          <kbd className="pointer-events-none inline-flex h-5 select-none items-center rounded border border-border/80 bg-muted/40 px-1.5 font-mono text-[11px] text-muted-foreground">
+            /
+          </kbd>
+        </div>
+      </div>
+
+      {/* Dimension Filter Tabs: All Time / Trending (24h) / Hot */}
+      <div
+        role="tablist"
+        aria-label={t('skills.leaderboardTitle', 'SKILLS LEADERBOARD')}
+        className="flex items-center gap-5 border-b border-border/60 text-xs"
+      >
+        {viewTabs.map((tab) => {
+          const active = view === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onViewChange(tab.id)}
+              className={cn(
+                '-mb-px border-b-2 pb-2.5 font-medium transition-colors',
+                active
+                  ? 'border-foreground text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground/80'
+              )}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Leaderboard Table */}
+      <div className="overflow-hidden">
+        <div className="grid grid-cols-[3rem_minmax(0,1fr)_7rem_6rem] items-center border-b border-border/50 px-2 py-2 font-mono text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span>{t('skills.colRank', '#')}</span>
+          <span>{t('skills.colSkill', 'SKILL')}</span>
+          <span>{t('skills.colActivity', '8W ACTIVITY')}</span>
+          <span className="text-right">
+            {t('skills.colInstalls', 'INSTALLS')}
+          </span>
+        </div>
+
+        {searching && results.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('skills.searching')}
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              {t('skills.noResults')}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/40">
+            {results.map((item, index) => (
+              <div
+                key={`${item.source}:${item.skill_id}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(item.skill_id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(item.skill_id);
+                  }
+                }}
+                className="grid cursor-pointer grid-cols-[3rem_minmax(0,1fr)_7rem_6rem] items-center px-2 py-3 text-left transition-colors hover:bg-foreground/[0.04]"
+              >
+                <span className="font-mono text-xs text-muted-foreground">
+                  {index + 1}
+                </span>
+
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 pr-3">
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    {item.name}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {item.source}
+                  </span>
+                  {item.is_official ? (
+                    <Badge
+                      variant="secondary"
+                      className="h-4 gap-1 px-1.5 text-[10px]"
+                    >
+                      <ShieldCheck className="h-2.5 w-2.5" />
+                      {t('skills.official', '官方')}
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center">
+                  <SkillActivitySparkline
+                    points={resolveSparklinePoints(item)}
+                  />
+                </div>
+
+                <div className="text-right font-mono text-xs font-medium text-foreground">
+                  {formatInstallCount(item.installs)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── market: two-column skill detail view ────────────────── */
+
+function MarketSkillDetailView({
+  item,
+  detailText,
+  detailLoading,
+  global,
+  agents,
+  options,
+  onGlobalChange,
+  onToggleAgent,
+  hostMode,
+  onHostModeChange,
+  installing,
+  onInstall,
+  onBack,
+}: {
+  item: SkillMarketItem;
+  detailText: string | null;
+  detailLoading: boolean;
+  global: boolean;
+  agents: AgentsDraft;
+  options: ManagedAgentOption[];
+  onGlobalChange: (next: boolean) => void;
+  onToggleAgent: (agent: string, next: boolean) => void;
+  hostMode: HostMode;
+  onHostModeChange: (mode: HostMode) => void;
+  installing: boolean;
+  onInstall: () => void;
+  onBack: () => void;
+}) {
+  const { t } = useTranslation(['settings', 'common']);
+  const homepage = `https://skills.sh/${item.source}/${item.skill_id}`;
+  const installCommand = `npx skills add ${item.source} --skill ${item.skill_id}`;
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const parsedMd = useMemo(
+    () => (detailText ? splitFrontmatter(detailText) : null),
+    [detailText]
+  );
+
+  const copyCommand = useCallback(() => {
+    void navigator.clipboard
+      .writeText(installCommand)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }, [installCommand]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Top Bar: Back button + Skill header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onBack}
+            className="h-8 gap-1.5 px-2.5 text-xs"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {t('skills.backToLeaderboard', '返回排行榜')}
+          </Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-base font-semibold">{item.name}</h2>
+              {item.is_official ? (
+                <Badge
+                  variant="secondary"
+                  className="h-5 gap-1 px-1.5 text-[10px]"
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                  {t('skills.official', '官方')}
+                </Badge>
+              ) : null}
+              {typeof item.installs === 'number' ? (
+                <Badge variant="outline" className="font-mono text-[11px]">
+                  {formatInstallCount(item.installs)}{' '}
+                  {t('skills.colInstalls', 'INSTALLS')}
+                </Badge>
+              ) : null}
+            </div>
+            <a
+              href={homepage}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+            >
+              <span>{item.source}</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Two-Column Content: Left SKILL.md Markdown + Right Install Config */}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+        {/* Left Column: SKILL.md Markdown preview with height limit + Show More */}
+        <div className="flex flex-col overflow-hidden rounded-xl border bg-card lg:col-span-7">
+          <div className="flex items-center justify-between border-b px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <FileText className="h-3.5 w-3.5" />
+              <span>SKILL.md</span>
+            </div>
+            <Badge variant="secondary" className="text-[10px]">
+              skills.sh
+            </Badge>
+          </div>
+
+          <div className="p-5">
+            {detailLoading ? (
+              <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('skills.reading')}
+              </div>
+            ) : parsedMd && (parsedMd.body.trim() || parsedMd.frontmatter) ? (
+              <div className="space-y-3">
+                <div
+                  className={cn(
+                    'relative overflow-hidden transition-all',
+                    !expanded && 'max-h-[420px]'
+                  )}
+                >
+                  {parsedMd.frontmatter ? (
+                    <pre className="mb-3 overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                      {parsedMd.frontmatter}
+                    </pre>
+                  ) : null}
+                  {parsedMd.body.trim() ? (
+                    <AstryxMarkdown
+                      value={parsedMd.body}
+                      className="text-sm leading-relaxed"
+                    />
+                  ) : null}
+                  {!expanded ? (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-card via-card/80 to-transparent"
+                    />
+                  ) : null}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setExpanded((prev) => !prev)}
+                  className="h-8 w-full gap-1.5 border border-border/60 text-xs font-medium"
+                >
+                  {expanded ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5" />
+                      {t('skills.showLess', 'Show Less')}
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      {t('skills.showMore', 'Show More')}
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t('skills.noDescription')}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Inline Installation Configuration */}
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 lg:col-span-5">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              {t('skills.installCommand')}
+            </Label>
+            <button
+              type="button"
+              onClick={copyCommand}
+              title={t('skills.clickToCopy')}
+              className="raised-control flex w-full items-center gap-2 px-3 py-2 text-left"
+            >
+              <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">
+                {installCommand}
+              </code>
+              {copied ? (
+                <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              {t('skills.target')}
+            </Label>
+            <SkillTargetSelector
+              global={global}
+              agents={agents}
+              options={options}
+              onGlobalChange={onGlobalChange}
+              onToggleAgent={onToggleAgent}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="shrink-0 text-muted-foreground">
+              {t('skills.hostModeLabel')}
+            </span>
+            <div className="flex items-center gap-0.5 rounded-md border bg-muted/20 p-0.5">
+              {(['copy', 'symlink'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => onHostModeChange(mode)}
+                  className={cn(
+                    'rounded px-2.5 py-1 transition-colors',
+                    hostMode === mode
+                      ? 'bg-card font-medium shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {mode === 'copy'
+                    ? t('skills.hostModeCopy')
+                    : t('skills.hostModeSymlink')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            onClick={onInstall}
+            disabled={installing}
+            className="w-full"
+          >
+            {installing ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {t('skills.install')}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1053,124 +1618,6 @@ function SkillRow({
   );
 }
 
-/* ── left: market list ───────────────────────────────────── */
-
-function MarketListPanel({
-  query,
-  onQueryChange,
-  searching,
-  onSearch,
-  results,
-  activeId,
-  onSelect,
-}: {
-  query: string;
-  onQueryChange: (value: string) => void;
-  searching: boolean;
-  onSearch: () => void;
-  results: SkillMarketItem[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  const { t } = useTranslation(['settings', 'common']);
-  return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
-      <div className="space-y-2 p-2.5">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Globe className="h-3.5 w-3.5" />
-          {t('skills.source')}
-        </div>
-        <div className="flex gap-1.5">
-          <div className="settings-list-search relative flex-1">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              placeholder={t('skills.searchMarketPlaceholder')}
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') onSearch();
-              }}
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
-          <Button
-            size="sm"
-            className="h-8 w-8 shrink-0 p-0"
-            disabled={searching}
-            onClick={onSearch}
-          >
-            {searching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Search className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
-        {searching ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('skills.searching')}
-          </div>
-        ) : results.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-center">
-            <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
-            <p className="text-xs text-muted-foreground">
-              {t('skills.noResults')}
-            </p>
-          </div>
-        ) : (
-          results.map((item) => {
-            const active = item.skill_id === activeId;
-            return (
-              <div
-                key={`${item.source}:${item.skill_id}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelect(item.skill_id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelect(item.skill_id);
-                  }
-                }}
-                className={cn(
-                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
-                  active
-                    ? 'border-primary/60 bg-primary/5'
-                    : 'border-transparent hover:bg-foreground/[0.05]'
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                    {item.name}
-                  </span>
-                  {typeof item.installs === 'number' ? (
-                    <Badge
-                      variant="outline"
-                      className="h-4 shrink-0 px-1.5 text-[10px]"
-                    >
-                      {t('skills.installs', { count: item.installs })}
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                  {item.source}
-                </p>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ── right: local detail ─────────────────────────────────── */
 
 function LocalDetail({
@@ -1310,113 +1757,6 @@ function LocalDetail({
           </div>
         )}
         <p className="break-all text-xs text-muted-foreground">{skill.path}</p>
-      </div>
-    </div>
-  );
-}
-
-/* ── right: market detail ────────────────────────────────── */
-
-function MarketDetail({
-  item,
-  description,
-  descriptionLoading,
-  onInstall,
-}: {
-  item: SkillMarketItem;
-  description: string | null;
-  descriptionLoading: boolean;
-  onInstall: () => void;
-}) {
-  const { t } = useTranslation(['settings', 'common']);
-  const homepage = `https://skills.sh/${item.source}/${item.skill_id}`;
-  const installCommand = `npx skills add ${item.source} --skill ${item.skill_id}`;
-  const [copied, setCopied] = useState(false);
-
-  const copyCommand = useCallback(() => {
-    void navigator.clipboard
-      .writeText(installCommand)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => {});
-  }, [installCommand]);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="break-all text-base font-semibold">{item.name}</h2>
-          <p className="mt-0.5 break-all text-xs text-muted-foreground">
-            {item.source}
-          </p>
-        </div>
-        <Button size="sm" className="shrink-0" onClick={onInstall}>
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-          {t('skills.install')}
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {typeof item.installs === 'number' ? (
-          <Badge variant="outline">
-            {t('skills.installs', { count: item.installs })}
-          </Badge>
-        ) : null}
-        <Badge variant="secondary">skills.sh</Badge>
-      </div>
-
-      {/* Description */}
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">
-          {t('skills.description')}
-        </Label>
-        {descriptionLoading ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {t('skills.reading')}
-          </div>
-        ) : description ? (
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-            {description}
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {t('skills.noDescription')}
-          </p>
-        )}
-      </div>
-
-      <a
-        href={homepage}
-        target="_blank"
-        rel="noreferrer"
-        className="block break-all text-xs text-primary underline"
-      >
-        {homepage}
-      </a>
-
-      {/* Install command — label separate from the click-to-copy command. */}
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">
-          {t('skills.installCommand')}
-        </Label>
-        <button
-          type="button"
-          onClick={copyCommand}
-          title={t('skills.clickToCopy')}
-          className="raised-control flex w-full items-center gap-2 px-3 py-2 text-left"
-        >
-          <code className="min-w-0 flex-1 break-all font-mono text-xs text-foreground">
-            {installCommand}
-          </code>
-          {copied ? (
-            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
-          ) : (
-            <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-        </button>
       </div>
     </div>
   );

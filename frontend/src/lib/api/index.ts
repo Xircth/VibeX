@@ -150,6 +150,7 @@ export type {
   AgentSkillsListResult,
   AgentSkillContent,
   LocalSkill,
+  SkillMarketView,
   SkillMarketItem,
   LocalSkillContent,
   SkillMarketDetail,

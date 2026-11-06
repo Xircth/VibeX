@@ -629,12 +629,16 @@ export interface LocalSkill {
   path: string;
 }
 
+export type SkillMarketView = 'all-time' | 'trending' | 'hot';
+
 export interface SkillMarketItem {
   id: string;
   skill_id: string;
   name: string;
   installs: number | null;
   source: string;
+  weekly_installs?: number[] | null;
+  is_official?: boolean | null;
 }
 
 export interface LocalSkillContent {
@@ -645,6 +649,10 @@ export interface LocalSkillContent {
 
 export interface SkillMarketDetail {
   description: string | null;
+  content?: string | null;
+  installs?: number | null;
+  weekly_installs?: number[] | null;
+  is_official?: boolean | null;
 }
 
 export const skillsMarketApi = {
@@ -652,9 +660,13 @@ export const skillsMarketApi = {
     backendCall<LocalSkill[]>('scan_local_skills'),
   readLocal: (skillId: string): Promise<LocalSkillContent> =>
     backendCall<LocalSkillContent>('read_local_skill', { skillId }),
-  search: (query?: string | null): Promise<SkillMarketItem[]> =>
+  search: (
+    query?: string | null,
+    view?: SkillMarketView | string | null
+  ): Promise<SkillMarketItem[]> =>
     backendCall<SkillMarketItem[]>('search_skill_market', {
       query: query ?? null,
+      ...(view ? { view } : {}),
     }),
   detail: (params: {
     source: string;

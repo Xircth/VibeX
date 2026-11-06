@@ -500,4 +500,85 @@ describe('SkillsSettings', () => {
       'changing an uncontrolled input to be controlled'
     );
   });
+
+  it('renders the full-width Skills Leaderboard and opens the two-column SKILL.md detail view with inline installation', async () => {
+    const user = userEvent.setup();
+    mocks.searchSkills.mockResolvedValue([
+      {
+        id: 'vercel-labs/skills/find-skills',
+        skill_id: 'find-skills',
+        name: 'find-skills',
+        installs: 749500,
+        source: 'vercel-labs/skills',
+        weekly_installs: [120, 180, 240, 310, 420, 510, 630, 750],
+        is_official: true,
+      },
+    ]);
+    mocks.detailSkill.mockResolvedValue({
+      description: 'Fallback description',
+      content: '---\nname: find-skills\n---\n# Find Skills Guide\n\nDiscover and install skills easily.',
+    });
+    mocks.installSkill.mockResolvedValue([
+      {
+        id: 'find-skills',
+        name: 'find-skills',
+        description: 'Discover and install skills easily.',
+        group: 'find',
+        global: true,
+        apps: [],
+        path: '/tmp/find-skills/SKILL.md',
+      },
+    ]);
+    mocks.readSkill.mockResolvedValue({
+      id: 'find-skills',
+      path: '/tmp/find-skills/SKILL.md',
+      content: '# Find Skills Guide',
+    });
+
+    renderSettings(<SkillsSettings />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Skill' })
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('radio', { name: 'Skill 市场' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'SKILLS LEADERBOARD' })
+    ).toBeVisible();
+    expect(screen.getByText('8W ACTIVITY')).toBeVisible();
+    expect(screen.getByText('749.5K')).toBeVisible();
+    expect(screen.getByText('/')).toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: 'Trending (24h)' }));
+    await waitFor(() => {
+      expect(mocks.searchSkills).toHaveBeenCalledWith('', 'trending');
+    });
+
+    await user.click(screen.getByText('find-skills'));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Find Skills Guide' })
+    ).toBeVisible();
+    expect(
+      screen.getByText('npx skills add vercel-labs/skills --skill find-skills')
+    ).toBeVisible();
+
+    const showMoreBtn = screen.getByRole('button', { name: 'Show More' });
+    expect(showMoreBtn).toBeVisible();
+    await user.click(showMoreBtn);
+    expect(screen.getByRole('button', { name: 'Show Less' })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '安装' }));
+    await waitFor(() => {
+      expect(mocks.installSkill).toHaveBeenCalledWith({
+        source: 'vercel-labs/skills',
+        skillId: 'find-skills',
+        global: true,
+        apps: [],
+        link: false,
+      });
+    });
+  });
 });
+

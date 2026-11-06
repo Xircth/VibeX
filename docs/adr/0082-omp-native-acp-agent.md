@@ -18,5 +18,6 @@ OMP（`@oh-my-pi/pi-coding-agent`）自带 ACP server：`omp acp` 在 stdio 上�
 - 启动时把子进程的 `PI_CODING_AGENT_DIR` 钉到 VibeX 写入的同一目录。未单独指定时是 `~/.omp/agent`。进程环境里指向 `~/.pi/agent` 的值不采用，避免把 OMP 的配置写进 Pi，或把 Pi 的目录覆盖进 OMP。
 - Skills 写到 `~/.omp/agent/skills`（`PI_CODING_AGENT_DIR` 可覆盖）。项目侧是 `.agents/skills`。
 - 历史在 `~/.omp/agent/sessions/<编码工作区>/*.jsonl`。记录形状与 Pi 的 `session` / `message` 相同，标题来自第一条 `title` 记录。
+- 账号状态走通用的 `resolve_observed_authentication`，`server/src/host/management.rs` 里没有 OMP 特判分支。显式 `omp logout` 优先于 `agent.db` 里残留的账号：磁盘上有 oauth 行但用户已登出，就显示未登录。曾经加过的 `omp_live_account` 已删除——它只复刻了"有活账号即登录"这一半规则，绕过了登出判断。
 
 `registry_id = "omp"` 不是官方 Registry 条目。它只保证以后同名 Registry 条目绑到这个档案，而不是再造一个 Agent。

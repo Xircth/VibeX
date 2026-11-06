@@ -988,6 +988,10 @@
               "manual": "Manual only"
             }
           },
+          "manualShortcut": {
+            "title": "Manual completion shortcut",
+            "description": "Keyboard shortcut to manually trigger inline code completion in the editor (type or click Record, e.g. Alt+\\, Ctrl+Shift+Space, Alt+I)."
+          },
           "completionScope": {
             "title": "Completion scope",
             "description": "Smart multi-line/single-line detection or strict single-line completion.",
@@ -1032,6 +1036,8 @@
     "fetchModels": "Fetch models",
     "selectModelPlaceholder": "Fetch models first",
     "modelDiscoverFailed": "Failed to fetch model list",
+    "recordShortcut": "Record shortcut",
+    "recordingShortcut": "Press keys...",
     "configEnablePackConfirm": "This domain pack contains {{count}} Skills. Enable it?",
     "configEnablePackConfirmAction": "Enable",
     "readiness": {

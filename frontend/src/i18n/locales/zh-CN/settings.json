@@ -988,6 +988,10 @@
               "manual": "仅手动触发"
             }
           },
+          "manualShortcut": {
+            "title": "手动补全快捷键",
+            "description": "在编辑器中手动触发行内代码补全的快捷键（支持直接输入或点击录制，如 Alt+\\、Ctrl+Shift+Space、Alt+I）。"
+          },
           "completionScope": {
             "title": "补全范围",
             "description": "智能判定多行代码块/单行补全，或严格仅补全单行。",
@@ -1032,6 +1036,8 @@
     "fetchModels": "拉取模型",
     "selectModelPlaceholder": "请先拉取模型",
     "modelDiscoverFailed": "拉取模型列表失败",
+    "recordShortcut": "录制快捷键",
+    "recordingShortcut": "请按键...",
     "configEnablePackConfirm": "该领域技能包一共包含 {{count}} 个 Skill，是否确认启用？",
     "configEnablePackConfirmAction": "启用",
     "readiness": {

@@ -5,6 +5,7 @@
   "apiKey": "",
   "model": "gpt-4o-mini",
   "triggerMode": "auto",
+  "manualShortcut": "Alt+\\",
   "completionScope": "smart",
   "ignoredGlobs": ".env*, *.pem, *.key, *secret*, *.min.js",
   "disabledLanguages": "markdown, plaintext",

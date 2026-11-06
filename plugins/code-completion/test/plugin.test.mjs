@@ -23,7 +23,9 @@ import {
 import appPlugin, {
   applyWithUndoStopBarrier,
   computeAdaptiveDebounceMs,
+  doesEventMatchShortcut,
   ForwardTypingCache,
+  parseShortcutDescriptor,
 } from '../app/main.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -488,4 +490,75 @@ test('handles comment + Enter newline framing in Python files and late vibex.cod
 
   instance.dispose();
 });
+
+test('supports customizable manualShortcut and enforces triggerMode === manual', async () => {
+  assert.deepEqual(parseShortcutDescriptor('Alt+\\'), {
+    ctrl: false,
+    alt: true,
+    shift: false,
+    meta: false,
+    key: '\\',
+  });
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, key: '\\', code: 'Backslash' },
+      'Alt+\\',
+    ),
+    true,
+  );
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: true, shiftKey: false, metaKey: false, key: ' ', code: 'Space' },
+      'Ctrl+Alt+Space',
+    ),
+    true,
+  );
+  assert.equal(
+    doesEventMatchShortcut(
+      { altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, key: 'ˆ', code: 'KeyI' },
+      'Alt+I',
+    ),
+    true,
+  );
+
+  // Worker skips automatic requests when triggerMode === 'manual', but runs manual requests
+  const engine = new CodeCompletionEngine({
+    config: {
+      enabled: true,
+      triggerMode: 'manual',
+      manualShortcut: 'Alt+I',
+      apiKey: 'sk-test',
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{ message: { content: '<COMPLETION>manualResult()</COMPLETION>' } }],
+        };
+      },
+    }),
+  });
+
+  const skippedAuto = await engine.complete({
+    filePath: 'src/app.py',
+    languageId: 'python',
+    prefix: 'def run():\n    ',
+    suffix: '',
+    manual: false,
+  });
+  assert.equal(skippedAuto.skippedReason, 'manual-trigger-only');
+  assert.equal(skippedAuto.items.length, 0);
+
+  const allowedManual = await engine.complete({
+    filePath: 'src/app.py',
+    languageId: 'python',
+    prefix: 'def run():\n    ',
+    suffix: '',
+    manual: true,
+  });
+  assert.equal(allowedManual.items.length, 1);
+  assert.equal(allowedManual.items[0].insertText, 'manualResult()');
+});
+
 

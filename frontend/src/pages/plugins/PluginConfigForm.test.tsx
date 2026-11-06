@@ -353,4 +353,81 @@ describe('PluginConfigForm', () => {
       });
     });
   });
+
+  it('records and saves manualShortcut when clicking Record shortcut button', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Code Completion',
+      readme: '# Code Completion',
+      contents: [],
+      config: {
+        manualShortcut: 'Alt+\\',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          manualShortcut: {
+            type: 'string',
+            title: '手动补全快捷键',
+            default: 'Alt+\\',
+          },
+        },
+      },
+    };
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn().mockImplementation(async (command, args) => {
+        if (command === 'plugin_save_config') {
+          return {
+            ...detail,
+            config: (args as { config: Record<string, unknown> }).config,
+          };
+        }
+        return detail;
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+
+    render(
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <PluginConfigForm
+            pluginId="vibex.code-completion"
+            detail={detail}
+            onSaved={vi.fn()}
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
+    );
+
+    const recordButton = screen.getByRole('button', {
+      name: /录制快捷键|Record shortcut/i,
+    });
+    await user.click(recordButton);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'i',
+        code: 'KeyI',
+        altKey: true,
+        ctrlKey: true,
+        bubbles: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.code-completion',
+        config: {
+          manualShortcut: 'Ctrl+Alt+I',
+        },
+      });
+    });
+  });
 });
+

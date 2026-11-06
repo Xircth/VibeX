@@ -154,7 +154,11 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
       prefix,
       suffix,
       linePrefix,
-      manual: Boolean(modelOrRequest.manual || modelOrRequest.triggerKind === 0),
+      manual: Boolean(
+        modelOrRequest.manual ||
+          modelOrRequest.triggerKind === 1 ||
+          modelOrRequest.triggerKind === 'explicit',
+      ),
     };
   }
 
@@ -206,6 +210,97 @@ export function extractCompletionDocumentState(modelOrRequest, positionOrContext
   };
 }
 
+const CODE_TO_KEY_MAP = Object.freeze({
+  Backslash: '\\',
+  Slash: '/',
+  Period: '.',
+  Comma: ',',
+  Semicolon: ';',
+  Quote: "'",
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Space: 'space',
+});
+
+/**
+ * Normalize a key token from a shortcut string or KeyboardEvent.
+ */
+export function normalizeShortcutKeyToken(rawToken) {
+  const raw = String(rawToken ?? '').trim();
+  if (!raw) return '';
+  if (raw === ' ' || /^space(bar)?$/i.test(raw)) return 'space';
+  if (/^backslash$/i.test(raw)) return '\\';
+  if (/^slash$/i.test(raw)) return '/';
+  if (/^esc$/i.test(raw)) return 'escape';
+  if (/^return$/i.test(raw)) return 'enter';
+  if (/^Key([A-Z])$/.test(raw)) return raw.slice(3).toLowerCase();
+  if (/^Digit([0-9])$/.test(raw)) return raw.slice(5);
+  if (CODE_TO_KEY_MAP[raw]) return CODE_TO_KEY_MAP[raw];
+  return raw.toLowerCase();
+}
+
+/**
+ * Parse a shortcut string such as `"Alt+\\"` or `"Ctrl+Shift+Space"` into modifiers + key.
+ */
+export function parseShortcutDescriptor(shortcutString) {
+  const raw = String(shortcutString || '').trim();
+  if (!raw) return null;
+  const parts = raw
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+
+  let ctrl = false;
+  let alt = false;
+  let shift = false;
+  let meta = false;
+  let key = '';
+
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (lower === 'ctrl' || lower === 'control') {
+      ctrl = true;
+    } else if (lower === 'alt' || lower === 'option' || lower === 'opt') {
+      alt = true;
+    } else if (lower === 'shift') {
+      shift = true;
+    } else if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === 'win' || lower === 'super') {
+      meta = true;
+    } else {
+      key = normalizeShortcutKeyToken(part);
+    }
+  }
+
+  if (!key) return null;
+  return { ctrl, alt, shift, meta, key };
+}
+
+/**
+ * Test whether a DOM `KeyboardEvent` matches the configured shortcut string.
+ */
+export function doesEventMatchShortcut(event, shortcutString) {
+  if (!event || typeof event !== 'object') return false;
+  const parsed = parseShortcutDescriptor(shortcutString);
+  if (!parsed) return false;
+
+  if (
+    Boolean(event.ctrlKey) !== parsed.ctrl ||
+    Boolean(event.altKey) !== parsed.alt ||
+    Boolean(event.shiftKey) !== parsed.shift ||
+    Boolean(event.metaKey) !== parsed.meta
+  ) {
+    return false;
+  }
+
+  const eventKey = normalizeShortcutKeyToken(event.key);
+  const eventCode = normalizeShortcutKeyToken(event.code);
+  return eventKey === parsed.key || (Boolean(eventCode) && eventCode === parsed.key);
+}
+
 export default {
   async activate(context) {
     const cache = new ForwardTypingCache();
@@ -213,8 +308,31 @@ export default {
     let inFlightWorkerRequestId = null;
     let activeEditorInstance = null;
     let enabled = true;
+    let triggerMode = 'auto';
+    let manualShortcut = 'Alt+\\';
+    let pendingManualTriggerUntil = 0;
     let statusState = 'idle'; // 'idle' | 'Generating...' | 'disabled' | 'error'
     let lastErrorMessage = null;
+
+    const applyRuntimeConfig = (cfg) => {
+      if (!cfg || typeof cfg !== 'object') return;
+      if (typeof cfg.enabled === 'boolean') {
+        enabled = cfg.enabled;
+        statusState = enabled ? 'idle' : 'disabled';
+      }
+      if (cfg.triggerMode === 'auto' || cfg.triggerMode === 'manual') {
+        triggerMode = cfg.triggerMode;
+      }
+      if (typeof cfg.manualShortcut === 'string' && cfg.manualShortcut.trim()) {
+        manualShortcut = cfg.manualShortcut.trim();
+      }
+    };
+
+    const initialContextConfig =
+      (typeof context?.config?.get === 'function' ? context.config.get() : context?.config) || null;
+    if (initialContextConfig && typeof initialContextConfig === 'object') {
+      applyRuntimeConfig(initialContextConfig);
+    }
 
     const invokeWorker = async (method, params = {}) => {
       if (typeof context?.invokeWorker === 'function') {
@@ -229,6 +347,15 @@ export default {
       return null;
     };
 
+    // Hydrate runtime config from worker status asynchronously on startup
+    void invokeWorker('completion.status', {})
+      .then((status) => {
+        if (status && typeof status === 'object') {
+          applyRuntimeConfig(status);
+        }
+      })
+      .catch(() => {});
+
     const getEditorBridge = () => {
       if (typeof context?.services?.get === 'function') {
         return (
@@ -240,7 +367,7 @@ export default {
       return context?.editorBridge || null;
     };
 
-    const cancelActiveCompletion = (requestId = null) => {
+    const cancelActiveCompletion = (requestId = null, notifyWorker = false) => {
       if (activeAbortController) {
         activeAbortController.abort();
         activeAbortController = null;
@@ -248,7 +375,9 @@ export default {
       const targetRequestId = requestId || inFlightWorkerRequestId;
       if (targetRequestId && inFlightWorkerRequestId === targetRequestId) {
         inFlightWorkerRequestId = null;
-        void invokeWorker('completion.cancel', { requestId: targetRequestId }).catch(() => {});
+        if (notifyWorker) {
+          void invokeWorker('completion.cancel', { requestId: targetRequestId }).catch(() => {});
+        }
       }
     };
 
@@ -257,8 +386,8 @@ export default {
         return { items: [] };
       }
 
-      // Cancel any previous in-flight completion or pending debounce immediately
-      cancelActiveCompletion();
+      // Cancel any previous pending debounce or local signal
+      cancelActiveCompletion(null, false);
 
       const docState = extractCompletionDocumentState(modelOrRequest, position);
       const editorBridge = getEditorBridge();
@@ -285,10 +414,24 @@ export default {
           // ignore
         }
       }
-      const isManual =
-        docState.manual ||
-        completionContext?.triggerKind === 0 ||
-        completionContext?.manual === true;
+
+      const isPendingManual = Date.now() < pendingManualTriggerUntil;
+      if (isPendingManual) {
+        pendingManualTriggerUntil = 0;
+      }
+
+      // Note: In Monaco, InlineCompletionTriggerKind.Automatic === 0 and Explicit === 1.
+      const isManual = Boolean(
+        isPendingManual ||
+          docState.manual ||
+          completionContext?.manual === true ||
+          completionContext?.triggerKind === 1 ||
+          completionContext?.triggerKind === 'explicit',
+      );
+
+      if (!isManual && triggerMode === 'manual') {
+        return { items: [] };
+      }
 
       // 1. Check forward-typing prefix cache before waiting or hitting the network
       const cachedInsertText = cache.lookup(
@@ -324,25 +467,25 @@ export default {
 
       if (token) {
         if (token.isCancellationRequested || token.aborted) {
-          cancelActiveCompletion(requestId);
+          cancelActiveCompletion(requestId, false);
           return { items: [] };
         }
         if (typeof token.onCancellationRequested === 'function') {
           token.onCancellationRequested(() => {
-            cancelActiveCompletion(requestId);
+            cancelActiveCompletion(requestId, false);
           });
         } else if (typeof token.addEventListener === 'function') {
           token.addEventListener(
             'abort',
             () => {
-              cancelActiveCompletion(requestId);
+              cancelActiveCompletion(requestId, false);
             },
             { once: true },
           );
         }
       }
 
-      // 3. Adaptive debounce (60ms for structural trigger chars, 180ms for normal typing)
+      // 3. Adaptive debounce (60ms for structural trigger chars, 180ms for normal typing, 0ms for manual)
       const debounceMs = computeAdaptiveDebounceMs(docState.prefix, isManual);
       const shouldContinue = await waitForDebounce(debounceMs, abortController.signal);
       if (!shouldContinue || abortController.signal.aborted) {
@@ -431,6 +574,7 @@ export default {
 
     let providerDisposable = null;
     let serviceWatchCleanup = null;
+    let configUnsubscribe = null;
 
     const attachToEditorBridge = (editorBridge) => {
       if (!editorBridge || providerDisposable) return;
@@ -465,6 +609,58 @@ export default {
       });
     }
 
+    if (typeof context?.config?.subscribe === 'function') {
+      configUnsubscribe = context.config.subscribe((nextCfg) => {
+        applyRuntimeConfig(nextCfg);
+      });
+    }
+
+    const onWindowConfigUpdated = (event) => {
+      const detail = event?.detail;
+      if (
+        detail &&
+        (detail.pluginId === 'vibex.code-completion' || detail.pluginId === 'code-completion') &&
+        detail.config &&
+        typeof detail.config === 'object'
+      ) {
+        applyRuntimeConfig(detail.config);
+        void invokeWorker('completion.configure', detail.config).catch(() => {});
+      }
+    };
+
+    const onWindowKeyDown = (event) => {
+      if (!enabled || !manualShortcut) return;
+      if (!doesEventMatchShortcut(event, manualShortcut)) return;
+
+      const targetEl = event?.target;
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      const inMonacoDom =
+        Boolean(targetEl && typeof targetEl.closest === 'function' && targetEl.closest('.monaco-editor')) ||
+        Boolean(activeEl && typeof activeEl.closest === 'function' && activeEl.closest('.monaco-editor'));
+
+      const editorBridge = getEditorBridge();
+      const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
+      const hasEditorFocus =
+        inMonacoDom ||
+        Boolean(typeof activeEditor?.hasTextFocus === 'function' && activeEditor.hasTextFocus());
+
+      if (!hasEditorFocus) return;
+
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      pendingManualTriggerUntil = Date.now() + 1500;
+      if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
+        void editorBridge.triggerInlineCompletion(activeEditor);
+      } else if (typeof activeEditor?.trigger === 'function') {
+        activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.trigger', {});
+      }
+    };
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+      window.addEventListener('keydown', onWindowKeyDown, true);
+    }
+
     const registerHandler = (name, fn) => {
       if (typeof context?.registerHandler === 'function') {
         context.registerHandler(name, fn);
@@ -483,9 +679,12 @@ export default {
 
     registerHandler('completion.status', async () => {
       const workerStatus = (await invokeWorker('completion.status', {}).catch(() => null)) || {};
+      applyRuntimeConfig(workerStatus);
       return {
         ...workerStatus,
         enabled,
+        triggerMode,
+        manualShortcut,
         state: enabled ? statusState : 'disabled',
         lastError: lastErrorMessage || workerStatus.metrics?.lastError || null,
       };
@@ -497,7 +696,7 @@ export default {
       enabled = nextEnabled;
       statusState = enabled ? 'idle' : 'disabled';
       if (!enabled) {
-        cancelActiveCompletion();
+        cancelActiveCompletion(null, true);
         cache.clear();
       }
       const workerStatus =
@@ -510,6 +709,7 @@ export default {
     });
 
     registerHandler('completion.trigger', async (params) => {
+      pendingManualTriggerUntil = Date.now() + 1500;
       const editorBridge = getEditorBridge();
       if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
         await editorBridge.triggerInlineCompletion();
@@ -517,7 +717,7 @@ export default {
       }
       if (params && typeof params.prefix === 'string') {
         return await provideInlineCompletions({ ...params, manual: true }, params.position, {
-          triggerKind: 0,
+          triggerKind: 1,
           manual: true,
         });
       }
@@ -529,8 +729,16 @@ export default {
       cancelActiveCompletion,
       cache,
       dispose() {
-        cancelActiveCompletion();
+        cancelActiveCompletion(null, true);
         cache.clear();
+        if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+          window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+          window.removeEventListener('keydown', onWindowKeyDown, true);
+        }
+        if (typeof configUnsubscribe === 'function') {
+          configUnsubscribe();
+          configUnsubscribe = null;
+        }
         if (typeof serviceWatchCleanup === 'function') {
           serviceWatchCleanup();
           serviceWatchCleanup = null;

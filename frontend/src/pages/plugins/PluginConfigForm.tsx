@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Loader2, ScanSearch } from 'lucide-react';
+import { Keyboard, Loader2, ScanSearch } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -219,6 +219,150 @@ function ModelSchemaField({
   );
 }
 
+function formatShortcutFromKeyboardEvent(event: KeyboardEvent): string | null {
+  const modifierOnlyKeys = new Set([
+    'Control',
+    'Shift',
+    'Alt',
+    'Meta',
+    'OS',
+    'CapsLock',
+  ]);
+  if (modifierOnlyKeys.has(event.key)) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  if (event.ctrlKey) parts.push('Ctrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey) parts.push('Shift');
+  if (event.metaKey) parts.push('Meta');
+
+  const codeMap: Record<string, string> = {
+    Backslash: '\\',
+    Slash: '/',
+    Period: '.',
+    Comma: ',',
+    Semicolon: ';',
+    Quote: "'",
+    Backquote: '`',
+    Minus: '-',
+    Equal: '=',
+    BracketLeft: '[',
+    BracketRight: ']',
+    Space: 'Space',
+  };
+
+  let keyToken = '';
+  if (event.code && /^Key([A-Z])$/.test(event.code)) {
+    keyToken = event.code.slice(3).toUpperCase();
+  } else if (event.code && /^Digit([0-9])$/.test(event.code)) {
+    keyToken = event.code.slice(5);
+  } else if (event.code && codeMap[event.code]) {
+    keyToken = codeMap[event.code]!;
+  } else if (event.key === ' ' || event.key === 'Spacebar') {
+    keyToken = 'Space';
+  } else if (event.key.length === 1) {
+    keyToken = event.key.toUpperCase();
+  } else {
+    keyToken = event.key;
+  }
+
+  if (!keyToken) return null;
+  parts.push(keyToken);
+  return parts.join('+');
+}
+
+function ShortcutSchemaField({
+  label,
+  schema,
+  value,
+  disabled,
+  copy,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  schema: JsonSchema;
+  value: unknown;
+  disabled: boolean;
+  copy: ReactNode;
+  onChange: (value: unknown, commit?: boolean) => void;
+  onCommit?: () => void;
+}) {
+  const { t } = useTranslation('settings');
+  const [recording, setRecording] = useState(false);
+  const fallback =
+    typeof schema.default === 'string' ? schema.default : 'Alt+\\';
+  const stringValue =
+    value == null || String(value) === '' ? fallback : String(value);
+
+  useEffect(() => {
+    if (!recording) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (
+        event.key === 'Escape' &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.metaKey
+      ) {
+        setRecording(false);
+        return;
+      }
+      const formatted = formatShortcutFromKeyboardEvent(event);
+      if (formatted) {
+        setRecording(false);
+        onChange(formatted, true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [recording, onChange]);
+
+  return (
+    <div className="product-plugin-config-row">
+      {copy}
+      <div className="flex items-center gap-2">
+        <TextInput
+          label={label}
+          isLabelHidden
+          value={stringValue}
+          isDisabled={disabled || recording}
+          onChange={(next) => onChange(next, false)}
+          onBlur={() => onCommit?.()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onCommit?.();
+            }
+          }}
+          width="100%"
+          className="product-plugin-config-control [&_input]:font-mono [&_input]:text-sm"
+        />
+        <Button
+          type="button"
+          variant={recording ? 'default' : 'outline'}
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setRecording((prev) => !prev)}
+        >
+          <Keyboard aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+          {recording
+            ? t('plugins.recordingShortcut', { defaultValue: '请按键...' })
+            : t('plugins.recordShortcut', { defaultValue: '录制快捷键' })}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SchemaField({
   pluginId,
   name,
@@ -385,6 +529,23 @@ function SchemaField({
     );
   }
 
+  if (
+    schema.type === 'string' &&
+    (name === 'manualShortcut' || name.toLowerCase().endsWith('shortcut'))
+  ) {
+    return (
+      <ShortcutSchemaField
+        label={label}
+        schema={schema}
+        value={value}
+        disabled={disabled}
+        copy={copy}
+        onChange={onChange}
+        onCommit={onCommit}
+      />
+    );
+  }
+
   const inputType =
     schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text';
   const stringValue = value == null ? '' : String(value);
@@ -490,8 +651,20 @@ export function PluginConfigForm({
     try {
       savedConfigRef.current = next;
       const updated = await api.saveConfig(pluginId, next);
-      if (updated?.config && typeof updated.config === 'object') {
-        savedConfigRef.current = updated.config;
+      const effectiveConfig =
+        updated?.config && typeof updated.config === 'object'
+          ? updated.config
+          : next;
+      savedConfigRef.current = effectiveConfig;
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.dispatchEvent === 'function'
+      ) {
+        window.dispatchEvent(
+          new CustomEvent('vibex:plugin-config-updated', {
+            detail: { pluginId, config: effectiveConfig },
+          })
+        );
       }
       onSaved(updated);
     } catch (error) {

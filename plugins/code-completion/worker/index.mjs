@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = Object.freeze({
   apiKey: '',
   model: 'gpt-4o-mini',
   triggerMode: 'auto',
+  manualShortcut: 'Alt+\\',
   completionScope: 'smart',
   ignoredGlobs: '.env*, *.pem, *.key, *secret*, *.min.js',
   disabledLanguages: 'markdown, plaintext',
@@ -700,6 +701,7 @@ export class CodeCompletionEngine {
       model: this.config.model,
       baseUrl: this.config.baseUrl,
       triggerMode: this.config.triggerMode,
+      manualShortcut: this.config.manualShortcut,
       completionScope: this.config.completionScope,
       inFlightCount: this.activeControllers.size,
       metrics: { ...this.metrics },
@@ -748,6 +750,16 @@ export class CodeCompletionEngine {
     const prefix = String(params.prefix ?? '');
     const suffix = String(params.suffix ?? '');
     const requestId = String(params.requestId || `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+
+    // 0. Check manual trigger mode
+    if (!params.manual && effectiveConfig.triggerMode === 'manual') {
+      this.metrics.filteredRequests += 1;
+      return {
+        items: [],
+        requestId,
+        skippedReason: 'manual-trigger-only',
+      };
+    }
 
     // 1. Privacy Guard: check ignored globs
     if (isPrivacyIgnoredFile(filePath, effectiveConfig.ignoredGlobs)) {

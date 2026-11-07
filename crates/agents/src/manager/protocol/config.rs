@@ -351,9 +351,17 @@ pub(in crate::manager) fn ordered_session_config_overrides(
 /// auto-approval policy.
 pub(in crate::manager) async fn effective_auto_approve_mode(
     configured: AgentAutoApproveMode,
-    _session_controls: &RwLock<HashMap<AgentSessionId, SessionControlState>>,
-    _session_id: AgentSessionId,
+    session_controls: &RwLock<HashMap<AgentSessionId, SessionControlState>>,
+    session_id: AgentSessionId,
 ) -> AgentAutoApproveMode {
+    if session_controls
+        .read()
+        .await
+        .get(&session_id)
+        .is_some_and(|state| state.omp_yolo_mode)
+    {
+        return AgentAutoApproveMode::Yolo;
+    }
     configured
 }
 

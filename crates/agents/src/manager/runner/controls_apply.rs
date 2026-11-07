@@ -269,6 +269,82 @@ impl AgentConnectionRunner {
             self.publish_applied_config(session_id, &selection).await;
             return Ok(());
         }
+        if agent_kind == Some(AgentKind::Omp)
+            && advertised_option_is_mode(&config_options, &selection.config_id)
+        {
+            let Some(requested_mode) = selection.event_value.as_str() else {
+                return Ok(());
+            };
+            if requested_mode == OMP_YOLO_MODE_ID {
+                let (was_plan, mode_uses_set_mode) = {
+                    let mut controls = self.session_controls.write().await;
+                    let stored = controls.entry(session_id).or_default();
+                    let (_, current_mode) = session_modes_from_config_options(&stored.config_options);
+                    let was_plan = current_mode.as_deref() == Some("plan")
+                        || stored
+                            .modes
+                            .as_ref()
+                            .is_some_and(|m| m.current_mode_id.0.as_ref() == "plan");
+                    stored.omp_yolo_mode = true;
+                    (was_plan, stored.mode_uses_set_mode)
+                };
+                if was_plan {
+                    if mode_uses_set_mode {
+                        conn.send_request(SetSessionModeRequest::new(
+                            SessionId::new(acp_session_id.to_string()),
+                            "default".to_string(),
+                        ))
+                        .block_task()
+                        .await?;
+                    } else {
+                        let response = conn
+                            .send_request(SetSessionConfigOptionRequest::new(
+                                SessionId::new(acp_session_id.to_string()),
+                                selection.config_id.clone(),
+                                SessionConfigOptionValue::value_id("default".to_string()),
+                            ))
+                            .block_task()
+                            .await?;
+                        let mut controls = self.session_controls.write().await;
+                        let stored = controls.entry(session_id).or_default();
+                        stored.config_options = response.config_options;
+                        ensure_omp_yolo_config_option(&mut stored.config_options);
+                    }
+                }
+                {
+                    let mut controls = self.session_controls.write().await;
+                    let stored = controls.entry(session_id).or_default();
+                    stored.omp_yolo_mode = true;
+                    ensure_omp_yolo_config_option(&mut stored.config_options);
+                    apply_current_mode_to_config_options(
+                        &mut stored.config_options,
+                        OMP_YOLO_MODE_ID,
+                    );
+                    if let Some(ref mut mode_state) = stored.modes {
+                        ensure_omp_yolo_session_mode(mode_state);
+                        mode_state.current_mode_id =
+                            acp::schema::v1::SessionModeId::new(OMP_YOLO_MODE_ID);
+                    }
+                }
+                self.publish_applied_config(session_id, &selection).await;
+                self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::ModeChanged {
+                        mode_id: OMP_YOLO_MODE_ID.to_string(),
+                    },
+                );
+                return Ok(());
+            } else {
+                {
+                    let mut controls = self.session_controls.write().await;
+                    if let Some(stored) = controls.get_mut(&session_id) {
+                        stored.omp_yolo_mode = false;
+                    }
+                }
+            }
+        }
+
         if self
             .session_controls
             .read()
@@ -290,6 +366,14 @@ impl AgentConnectionRunner {
             .await?;
             self.store_vendor_config_selection(session_id, &selection)
                 .await;
+            if agent_kind == Some(AgentKind::Omp) {
+                let mut controls = self.session_controls.write().await;
+                if let Some(stored) = controls.get_mut(&session_id)
+                    && let Some(ref mut mode_state) = stored.modes
+                {
+                    mode_state.current_mode_id = acp::schema::v1::SessionModeId::new(mode_id);
+                }
+            }
             self.emit_derived_session_controls(session_id).await;
             self.emit(
                 Some(session_id),
@@ -313,6 +397,19 @@ impl AgentConnectionRunner {
             let mut controls = self.session_controls.write().await;
             let stored = controls.entry(session_id).or_default();
             stored.config_options = response.config_options;
+            if agent_kind == Some(AgentKind::Omp) {
+                ensure_omp_yolo_config_option(&mut stored.config_options);
+                if stored.omp_yolo_mode {
+                    let (_, current_mode) =
+                        session_modes_from_config_options(&stored.config_options);
+                    if current_mode.as_deref() == Some("default") {
+                        apply_current_mode_to_config_options(
+                            &mut stored.config_options,
+                            OMP_YOLO_MODE_ID,
+                        );
+                    }
+                }
+            }
         }
         if let Some(requested) = selection.event_value.as_str() {
             let updated = agent_session_config_options_from_acp(
@@ -334,6 +431,18 @@ impl AgentConnectionRunner {
         // republishes `SessionConfigOptions` leaves the summary on the old
         // mode. Republish both control surfaces from the stored snapshot.
         self.publish_applied_config(session_id, &selection).await;
+        if agent_kind == Some(AgentKind::Omp)
+            && advertised_option_is_mode(&config_options, &selection.config_id)
+            && let Some(mode_id) = selection.event_value.as_str()
+        {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::ModeChanged {
+                    mode_id: mode_id.to_string(),
+                },
+            );
+        }
         Ok(())
     }
 

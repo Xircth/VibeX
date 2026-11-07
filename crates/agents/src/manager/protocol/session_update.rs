@@ -382,18 +382,37 @@ impl AcpClientBridge {
                 })
             }
             SessionUpdate::CurrentModeUpdate(update) => {
-                let mode_id = update.current_mode_id.0.to_string();
+                let mut mode_id = update.current_mode_id.0.to_string();
+                let is_omp = self.apply.agent_kind() == Some(AgentKind::Omp);
                 if let Some(session_id) = session_id {
-                    let (options, drift) = {
+                    let (options, drift, effective_mode_id) = {
                         let mut controls = self.session_controls.write().await;
                         let entry = controls.entry(session_id).or_default();
-                        apply_current_mode_to_config_options(&mut entry.config_options, &mode_id);
+                        let effective_mode = if is_omp && entry.omp_yolo_mode {
+                            if mode_id == "default" {
+                                OMP_YOLO_MODE_ID.to_string()
+                            } else {
+                                entry.omp_yolo_mode = false;
+                                mode_id.clone()
+                            }
+                        } else {
+                            mode_id.clone()
+                        };
+                        apply_current_mode_to_config_options(
+                            &mut entry.config_options,
+                            &effective_mode,
+                        );
+                        if let Some(ref mut mode_state) = entry.modes {
+                            mode_state.current_mode_id =
+                                acp::schema::v1::SessionModeId::new(effective_mode.clone());
+                        }
                         let mapped =
                             agent_session_config_options_from_acp(entry.config_options.clone());
                         let drift =
                             take_asserted_config_drift(&mut entry.asserted_config_values, &mapped);
-                        (entry.config_options.clone(), drift)
+                        (entry.config_options.clone(), drift, effective_mode)
                     };
+                    mode_id = effective_mode_id;
                     let (modes, current) = session_modes_from_config_options(&options);
                     if self.pending_session_id.lock().await.is_none() {
                         send_manager_event(
@@ -417,28 +436,48 @@ impl AcpClientBridge {
             SessionUpdate::ConfigOptionUpdate(update) => {
                 // Mirror the pushed options into the stored controls so later
                 // `session/set_config_option` matching never works off stale data.
-                let mapped = agent_session_config_options_from_acp(update.config_options.clone());
+                let mut config_options = update.config_options;
+                let is_omp = self.apply.agent_kind() == Some(AgentKind::Omp);
+                if is_omp {
+                    ensure_omp_yolo_config_option(&mut config_options);
+                }
                 if let Some(session_id) = session_id {
-                    let drift = {
+                    let (mapped, drift) = {
                         let mut controls = self.session_controls.write().await;
                         let stored = controls.entry(session_id).or_default();
+                        if is_omp && stored.omp_yolo_mode {
+                            let (_, pushed_mode) =
+                                session_modes_from_config_options(&config_options);
+                            if pushed_mode.as_deref() == Some("default") {
+                                apply_current_mode_to_config_options(
+                                    &mut config_options,
+                                    OMP_YOLO_MODE_ID,
+                                );
+                            } else if pushed_mode.is_some() {
+                                stored.omp_yolo_mode = false;
+                            }
+                        }
+                        let mapped = agent_session_config_options_from_acp(config_options.clone());
                         let drift =
                             take_asserted_config_drift(&mut stored.asserted_config_values, &mapped);
-                        stored.config_options = update.config_options.clone();
+                        stored.config_options = config_options;
                         stored.mode_uses_set_mode = stored.mode_uses_set_mode
                             && config_options_have_mode_category(&stored.config_options);
                         if let Some(model) = current_grok_model_id(&stored.config_options) {
                             stored.last_model_id = Some(model);
                         }
-                        drift
+                        (mapped, drift)
                     };
                     self.apply.spawn_reassert_config_drift(
                         session_id,
                         acp_session_id.clone(),
                         drift,
                     );
+                    Some(AgentEvent::SessionConfigOptions { options: mapped })
+                } else {
+                    let mapped = agent_session_config_options_from_acp(config_options);
+                    Some(AgentEvent::SessionConfigOptions { options: mapped })
                 }
-                Some(AgentEvent::SessionConfigOptions { options: mapped })
             }
             SessionUpdate::UsageUpdate(update) => {
                 let usage = agent_usage_from_acp(update);

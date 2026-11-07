@@ -31,11 +31,33 @@ impl AgentConnectionRunner {
                 Vec::new(),
             )
         });
+        let is_omp = AgentKind::Omp.matches_id(self.snapshot.agent_id.as_str());
+        let initial_auto_approve_yolo =
+            *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
             entry.modes = raw_modes.clone();
             entry.config_options = config_options.clone();
+            if is_omp {
+                ensure_omp_yolo_config_option(&mut entry.config_options);
+                if let Some(ref mut mode_state) = entry.modes {
+                    ensure_omp_yolo_session_mode(mode_state);
+                }
+                let (_, current_mode) = session_modes_from_config_options(&entry.config_options);
+                if initial_auto_approve_yolo && current_mode.as_deref() == Some("default") {
+                    entry.omp_yolo_mode = true;
+                }
+                if entry.omp_yolo_mode && current_mode.as_deref() == Some("default") {
+                    apply_current_mode_to_config_options(
+                        &mut entry.config_options,
+                        OMP_YOLO_MODE_ID,
+                    );
+                    if let Some(ref mut mode_state) = entry.modes {
+                        mode_state.current_mode_id = acp::schema::v1::SessionModeId::new(OMP_YOLO_MODE_ID);
+                    }
+                }
+            }
             if let Some(reasoning) = entry.kiro_reasoning.as_ref() {
                 place_kiro_reasoning_selectors(&mut entry.config_options, reasoning);
             }

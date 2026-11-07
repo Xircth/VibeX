@@ -151,6 +151,10 @@ pub(in crate::manager) struct SessionControlState {
     pub(in crate::manager) async_tasks: Vec<crate::AsyncTaskRecord>,
     /// Latest ephemeral Composer prompt suggestion (`promptSuggestions`).
     pub(in crate::manager) prompt_suggestion: Option<String>,
+    /// Host-managed YOLO mode overlay for OMP (`omp acp` only natively supports
+    /// `default` and `plan`; selecting `yolo` runs OMP in `default` while the
+    /// host auto-approves all `session/request_permission` prompts).
+    pub(in crate::manager) omp_yolo_mode: bool,
 }
 
 #[derive(Debug)]

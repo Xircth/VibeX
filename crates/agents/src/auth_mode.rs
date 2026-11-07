@@ -1262,15 +1262,48 @@ pub fn auto_approve_mode_for_launch(
     agent_id: &AgentId,
     env: &HashMap<String, String>,
 ) -> AgentAutoApproveMode {
-    if agent_id.as_str() != "grok" {
-        return AgentAutoApproveMode::Off;
+    match agent_id.as_str() {
+        "grok" => {
+            let mode = env.get("GROK_PERMISSION_MODE").map(String::as_str);
+            if grok_mode_skips_permission_prompts(mode.map(str::trim)) {
+                AgentAutoApproveMode::Yolo
+            } else {
+                AgentAutoApproveMode::Off
+            }
+        }
+        "omp" => {
+            if read_omp_approval_mode(env).as_deref() == Some("yolo") {
+                AgentAutoApproveMode::Yolo
+            } else {
+                AgentAutoApproveMode::Off
+            }
+        }
+        _ => AgentAutoApproveMode::Off,
     }
-    let mode = env.get("GROK_PERMISSION_MODE").map(String::as_str);
-    if grok_mode_skips_permission_prompts(mode.map(str::trim)) {
-        AgentAutoApproveMode::Yolo
-    } else {
-        AgentAutoApproveMode::Off
-    }
+}
+
+fn read_omp_approval_mode(env: &HashMap<String, String>) -> Option<String> {
+    let home = env
+        .get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let btree_env: std::collections::BTreeMap<String, String> =
+        env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let config_path = crate::omp_auth::agent_dir(&home, &btree_env).join("config.yml");
+    let text = std::fs::read_to_string(config_path).ok()?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+    value
+        .get("tools")
+        .and_then(|tools| tools.get("approvalMode"))
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|mode| !mode.is_empty())
+        .map(str::to_string)
 }
 
 fn grok_mode_skips_permission_prompts(mode: Option<&str>) -> bool {
@@ -2116,4 +2149,42 @@ mod tests {
         apply_built_in_auth_mode_policy(&dsh, &mut scrubbed_custom);
         assert!(!scrubbed_custom.contains_key("DEEPSEEK_BASE_URL"));
     }
+
+    #[test]
+    fn omp_launch_auto_approve_mode_reflects_config_yml_yolo() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let agent_dir = temp.path().join(".omp").join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("create .omp/agent");
+        let omp = AgentId::parse("omp").unwrap();
+        let env = HashMap::from([(
+            "HOME".to_string(),
+            temp.path().to_string_lossy().to_string(),
+        )]);
+
+        assert_eq!(
+            auto_approve_mode_for_launch(&omp, &env),
+            crate::permissions::AgentAutoApproveMode::Off
+        );
+
+        std::fs::write(
+            agent_dir.join("config.yml"),
+            "tools:\n  approvalMode: write\n",
+        )
+        .expect("write config.yml");
+        assert_eq!(
+            auto_approve_mode_for_launch(&omp, &env),
+            crate::permissions::AgentAutoApproveMode::Off
+        );
+
+        std::fs::write(
+            agent_dir.join("config.yml"),
+            "tools:\n  approvalMode: yolo\n",
+        )
+        .expect("write config.yml");
+        assert_eq!(
+            auto_approve_mode_for_launch(&omp, &env),
+            crate::permissions::AgentAutoApproveMode::Yolo
+        );
+    }
 }
+

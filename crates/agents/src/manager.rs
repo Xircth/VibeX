@@ -5133,4 +5133,90 @@ mod tests {
             "PromptFinished must NOT be emitted when closing a lost connection"
         );
     }
+
+    #[tokio::test]
+    async fn omp_session_controls_advertise_yolo_mode_and_toggle_effective_auto_approve() {
+        let session_id = AgentSessionId::new();
+        let raw_modes = SessionModeState::new(
+            "default",
+            vec![
+                acp::schema::v1::SessionMode::new("default", "Default"),
+                acp::schema::v1::SessionMode::new("plan", "Plan"),
+            ],
+        );
+        let raw_options = vec![
+            AcpSessionConfigOption::select(
+                "mode",
+                "Mode",
+                "default",
+                SessionConfigSelectOptions::Ungrouped(vec![
+                    SessionConfigSelectOption::new("default", "Default"),
+                    SessionConfigSelectOption::new("plan", "Plan"),
+                ]),
+            )
+            .category(SessionConfigOptionCategory::Mode),
+        ];
+
+        let (modes, config_options, _) = session_controls_with_models_and_vendor_fallback(
+            Some(raw_modes),
+            Some(raw_options),
+            None,
+            None,
+            "omp",
+        );
+        let modes = modes.expect("modes");
+        let mode_ids: Vec<_> = modes
+            .available_modes
+            .iter()
+            .map(|m| m.id.0.as_ref())
+            .collect();
+        assert_eq!(mode_ids, ["default", "plan", "yolo"]);
+
+        let options = config_options.expect("config_options");
+        let (derived_modes, current_mode) = session_modes_from_config_options(&options);
+        let derived_ids: Vec<_> = derived_modes.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(derived_ids, ["default", "plan", "yolo"]);
+        assert_eq!(current_mode.as_deref(), Some("default"));
+
+        let session_controls = RwLock::new(HashMap::from([(
+            session_id,
+            SessionControlState {
+                modes: Some(modes),
+                config_options: options,
+                omp_yolo_mode: false,
+                ..Default::default()
+            },
+        )]));
+
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
+                .await,
+            AgentAutoApproveMode::Off
+        );
+
+        session_controls
+            .write()
+            .await
+            .get_mut(&session_id)
+            .unwrap()
+            .omp_yolo_mode = true;
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
+                .await,
+            AgentAutoApproveMode::Yolo
+        );
+
+        session_controls
+            .write()
+            .await
+            .get_mut(&session_id)
+            .unwrap()
+            .omp_yolo_mode = false;
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Off, &session_controls, session_id)
+                .await,
+            AgentAutoApproveMode::Off
+        );
+    }
 }
+

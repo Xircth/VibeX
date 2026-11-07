@@ -3688,6 +3688,13 @@ const OMP_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     &[program("omp", &["login"])],
 )];
 
+const OMP_APPROVAL_MODE_OPTIONS: &[(&str, &str)] = &[
+    ("always-ask", "每次询问"),
+    ("always-ask-cached", "询问并记忆文件/目录"),
+    ("write", "自动允许读写（命令询问）"),
+    ("yolo", "自动允许全部（YOLO）"),
+];
+
 /// Credentials live in `agent.db` and `models.yml`, not `auth.json`. ACP
 /// sessions do not discover disk MCP, so assignments saved to
 /// `~/.omp/agent/mcp.json` are injected on `session/new`.
@@ -3698,6 +3705,13 @@ const OMP_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
     override_relative_path: "config.yml",
     format: NativeConfigFormat::Yaml,
     fields: &[
+        select_field(
+            "omp_approval_mode",
+            "工具审批模式",
+            "控制读写与命令执行工具的默认审批策略",
+            &["tools", "approvalMode"],
+            OMP_APPROVAL_MODE_OPTIONS,
+        ),
         text_field(
             "omp_default_model",
             "默认模型",

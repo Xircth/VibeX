@@ -63,7 +63,7 @@ pub(in crate::manager) fn session_controls_with_models_and_vendor_fallback(
     Option<Vec<AcpSessionConfigOption>>,
     Option<VendorConfigWire>,
 ) {
-    let (modes, mut config_options, mut vendor_config) =
+    let (mut modes, mut config_options, mut vendor_config) =
         session_controls_with_vendor_fallback(modes, config_options, meta);
     // Kiro publishes its catalog only in top-level `models`. Other agents may
     // still send that field (Antigravity 1.4+ keeps variant ids next to a
@@ -85,7 +85,66 @@ pub(in crate::manager) fn session_controls_with_models_and_vendor_fallback(
             vendor_config = Some(VendorConfigWire::KiroSessionConfig);
         }
     }
+    if AgentKind::Omp.matches_id(agent_id) {
+        if let Some(ref mut mode_state) = modes {
+            ensure_omp_yolo_session_mode(mode_state);
+        }
+        if let Some(ref mut options) = config_options {
+            ensure_omp_yolo_config_option(options);
+        }
+    }
     (modes, config_options, vendor_config)
+}
+
+pub(in crate::manager) const OMP_YOLO_MODE_ID: &str = "yolo";
+pub(in crate::manager) const OMP_YOLO_MODE_NAME: &str = "YOLO";
+pub(in crate::manager) const OMP_YOLO_MODE_DESCRIPTION: &str =
+    "Auto-approve all tool calls without confirmation";
+
+pub(in crate::manager) fn ensure_omp_yolo_session_mode(modes: &mut SessionModeState) {
+    if !modes
+        .available_modes
+        .iter()
+        .any(|mode| mode.id.0.as_ref() == OMP_YOLO_MODE_ID)
+    {
+        modes.available_modes.push(
+            acp::schema::v1::SessionMode::new(OMP_YOLO_MODE_ID, OMP_YOLO_MODE_NAME)
+                .description(OMP_YOLO_MODE_DESCRIPTION.to_string()),
+        );
+    }
+}
+
+pub(in crate::manager) fn ensure_omp_yolo_config_option(options: &mut [AcpSessionConfigOption]) {
+    let yolo_choice = vendor_select_choice(
+        OMP_YOLO_MODE_ID.to_string(),
+        OMP_YOLO_MODE_NAME.to_string(),
+        Some(OMP_YOLO_MODE_DESCRIPTION.to_string()),
+    );
+    for option in options {
+        if option.category != Some(SessionConfigOptionCategory::Mode)
+            && option.id.0.as_ref() != "mode"
+        {
+            continue;
+        }
+        if let SessionConfigKind::Select(select) = &mut option.kind {
+            match &mut select.options {
+                SessionConfigSelectOptions::Ungrouped(choices) => {
+                    push_unique_select_choice(choices, yolo_choice.clone());
+                }
+                SessionConfigSelectOptions::Grouped(groups) => {
+                    let exists = groups
+                        .iter()
+                        .flat_map(|group| group.options.iter())
+                        .any(|choice| choice.value.0.as_ref() == OMP_YOLO_MODE_ID);
+                    if !exists && let Some(group) = groups.first_mut() {
+                        group.options.push(yolo_choice.clone());
+                    }
+                }
+                #[allow(unreachable_patterns)]
+                _ => {}
+            }
+        }
+    }
 }
 
 /// The model ids a session-establishing answer lists in its raw top-level

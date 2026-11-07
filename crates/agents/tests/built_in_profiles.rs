@@ -1450,3 +1450,19 @@ fn resolve_vendor_cli_hits_extra_dirs_while_spawn_ignores_vendor_cli() {
         .expect("adapter binary should be accepted for ACP launch");
     assert_eq!(lock.absolute_acp_program, adapter_bin);
 }
+
+#[test]
+fn omp_native_config_exposes_approval_mode_select_field() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let field = native_field(&catalog, "omp", "omp_approval_mode");
+    assert_eq!(field.label, "工具审批模式");
+    assert_eq!(field.path, &["tools", "approvalMode"]);
+    assert_eq!(field.kind, NativeConfigFieldKind::Select);
+    assert_eq!(field.surface, NativeConfigSurface::Configuration);
+    let values: Vec<_> = field.options.iter().map(|(value, _)| *value).collect();
+    assert_eq!(
+        values,
+        ["always-ask", "always-ask-cached", "write", "yolo"]
+    );
+}
+

@@ -56,6 +56,7 @@ import {
 } from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 import type { JsonValue } from 'shared/types';
+import { notifyLocalMcpServersChanged } from '@/components/layout/StatusBarMcp';
 import {
   ALL_CONNECTOR_CATEGORIES,
   type ConnectorCatalogEntry,
@@ -718,6 +719,7 @@ export function ConnectorMarketplace({
     (next: LocalMcpServer[]) => {
       setInternalServers(next);
       onInstalledServersChange?.(next);
+      notifyLocalMcpServersChanged();
     },
     [onInstalledServersChange]
   );

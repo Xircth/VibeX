@@ -8,9 +8,20 @@ import { HOST_MULTI_AGENT_ID } from '@/lib/api/plugins';
 
 const mcpStatus = vi.fn<() => Promise<PluginMcpStatusReport>>();
 const setEnabled = vi.fn<(id: string, enabled: boolean) => Promise<unknown>>();
+const scanLocal = vi.hoisted(() => vi.fn<() => Promise<unknown[]>>());
+const uninstallLocal = vi.hoisted(() =>
+  vi.fn<(id: string) => Promise<unknown[]>>()
+);
 const updateAndSaveConfig = vi.hoisted(() =>
   vi.fn<(updates: { multi_agent_enabled: boolean }) => Promise<boolean>>()
 );
+
+vi.mock('@/lib/api', () => ({
+  mcpMarketApi: {
+    scanLocal: () => scanLocal(),
+    uninstall: (id: string) => uninstallLocal(id),
+  },
+}));
 
 vi.mock('@/lib/api/plugins', async () => {
   const actual =
@@ -94,10 +105,14 @@ describe('StatusBarMcp', () => {
   beforeEach(() => {
     mcpStatus.mockReset();
     setEnabled.mockReset();
+    scanLocal.mockReset();
+    uninstallLocal.mockReset();
     updateAndSaveConfig.mockReset();
     openSettingsSurface.mockReset();
     mcpStatus.mockResolvedValue(report());
     setEnabled.mockResolvedValue({});
+    scanLocal.mockResolvedValue([]);
+    uninstallLocal.mockResolvedValue([]);
     updateAndSaveConfig.mockResolvedValue(true);
   });
 
@@ -292,6 +307,44 @@ describe('StatusBarMcp', () => {
     expect(openSettingsSurface).toHaveBeenCalledWith(
       expect.any(Function),
       '/plugins'
+    );
+  });
+
+  it('displays connected local MCP servers such as GitHub and allows disconnecting', async () => {
+    scanLocal.mockResolvedValue([
+      {
+        id: 'github',
+        spec: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+        },
+        global: true,
+        apps: ['claude_code', 'codex'],
+      },
+      {
+        id: 'vibex-delegation-mcp',
+        spec: { type: 'http', url: 'http://127.0.0.1:9999/mcp' },
+        global: true,
+        apps: [],
+      },
+    ]);
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+
+    expect(await screen.findByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByTestId('mcp-local-status-github')).toHaveTextContent(
+      '运行中'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
+    expect(
+      await screen.findByText('npx -y @modelcontextprotocol/server-github')
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'GitHub' }));
+    await waitFor(() =>
+      expect(uninstallLocal).toHaveBeenCalledWith('github')
     );
   });
 });

@@ -44,6 +44,7 @@ import {
 } from '@/features/agent-management';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { ConnectorMarketplace } from '@/components/connectors/ConnectorMarketplace';
+import { notifyLocalMcpServersChanged } from '@/components/layout/StatusBarMcp';
 import type { JsonValue } from 'shared/types';
 import {
   mcpMarketApi,
@@ -352,6 +353,7 @@ export function McpSettings() {
         apps: localGlobal ? [] : selectedApps(agentOptions, localApps),
       });
       setInstalledServers(list);
+      notifyLocalMcpServersChanged();
       triggerSuccess();
     } catch (err) {
       setError(errorMessage(err));
@@ -395,6 +397,7 @@ export function McpSettings() {
         apps: draftGlobal ? [] : selectedApps(agentOptions, draftApps),
       });
       setInstalledServers(list);
+      notifyLocalMcpServersChanged();
       triggerSuccess();
       setSelection({ kind: 'local', id });
     } catch (err) {
@@ -419,6 +422,7 @@ export function McpSettings() {
       try {
         const list = await mcpMarketApi.uninstall(serverId);
         setInstalledServers(list);
+        notifyLocalMcpServersChanged();
         if (selection?.kind === 'local' && selection.id === serverId) {
           setSelection(null);
         }

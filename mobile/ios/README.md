@@ -8,3 +8,7 @@ Wire models come from `docs/protocol/v1/generated/swift/RemoteProtocolModels.swi
 # pairing client and scope tests; needs a Swift 6 toolchain
 swift test
 ```
+
+## Run in Xcode
+
+Open `VibeXCompanion.xcodeproj`, choose the `VibeXCompanion` scheme and an iPhone simulator (iOS 17+), then Run. Pair with a Host using its Host origin and one-time pairing token.

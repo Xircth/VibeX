@@ -112,12 +112,17 @@ struct StreamingMessageText: View {
 
 // MARK: - Markdown AST & Parser
 
+private struct NumberedItem: Equatable {
+    let number: Int
+    var text: String
+}
+
 private enum MarkdownBlock: Equatable {
     case heading(level: Int, text: String)
     case paragraph(String)
     case codeBlock(language: String, code: String)
     case bulletList([String])
-    case numberedList([(Int, String)])
+    case numberedList([NumberedItem])
     case blockquote(String)
     case divider
 }
@@ -208,7 +213,7 @@ private enum MarkdownParser {
 
             // Numbered list (1. , 2. )
             if let firstNum = parseNumbered(trimmed) {
-                var items: [(Int, String)] = [firstNum]
+                var items: [NumberedItem] = [firstNum]
                 i += 1
                 while i < count {
                     let t = lines[i].trimmingCharacters(in: .whitespaces)
@@ -216,7 +221,7 @@ private enum MarkdownParser {
                         items.append(item)
                         i += 1
                     } else if !t.isEmpty && (lines[i].hasPrefix("  ") || lines[i].hasPrefix("\t")) {
-                        items[items.count - 1].1 += "\n" + t
+                        items[items.count - 1].text += "\n" + t
                         i += 1
                     } else {
                         break
@@ -272,7 +277,7 @@ private enum MarkdownParser {
         return nil
     }
 
-    private static func parseNumbered(_ line: String) -> (Int, String)? {
+    private static func parseNumbered(_ line: String) -> NumberedItem? {
         guard let dot = line.firstIndex(of: ".") else { return nil }
         let numPart = line[..<dot]
         guard let number = Int(numPart),
@@ -280,7 +285,7 @@ private enum MarkdownParser {
               line[line.index(after: dot)] == " "
         else { return nil }
         let body = String(line[line.index(dot, offsetBy: 2)...])
-        return (number, body)
+        return NumberedItem(number: number, text: body)
     }
 }
 
@@ -347,11 +352,11 @@ private struct MarkdownBlockView: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, pair in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(pair.0).")
+                        Text("\(pair.number).")
                             .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 20, alignment: .trailing)
-                        Text(MarkdownInline.attributed(pair.1))
+                        Text(MarkdownInline.attributed(pair.text))
                             .font(.system(size: 15))
                             .lineSpacing(3.5)
                             .foregroundStyle(.primary)

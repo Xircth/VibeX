@@ -2955,7 +2955,14 @@ export default function ComputerUseSettingsView({
     [savedSettings, draft]
   );
 
-  const platform: 'macos' | 'windows' | 'linux' = status?.platform ?? 'windows';
+  const detectedClientPlatform: 'macos' | 'windows' | 'linux' =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent || navigator.platform || '')
+      ? 'macos'
+      : typeof navigator !== 'undefined' && /Linux/i.test(navigator.userAgent || navigator.platform || '')
+        ? 'linux'
+        : 'windows';
+  const platform: 'macos' | 'windows' | 'linux' =
+    status?.platform ?? detectedClientPlatform;
 
   // Stop shortcut key recorder (matches StopShortcut::parse canonical spelling)
   useEffect(() => {

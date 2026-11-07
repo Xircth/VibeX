@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,12 +56,16 @@ export function resolveHelperBinary(pluginRoot = resolvePluginRoot()) {
     process.platform === 'win32'
       ? 'vibex-computer-helper.exe'
       : 'vibex-computer-helper';
+  const repoRootFromSnapshot = path.resolve(pluginRoot, '..', '..', '..', '..', '..');
   const candidates = [
     path.join(pluginRoot, 'bin', exeName),
     path.join(pluginRoot, 'native', 'target', 'release', exeName),
     path.join(pluginRoot, 'native', 'target', 'debug', exeName),
     path.join(pluginRoot, '.git', 'cargo-target', 'release', exeName),
     path.join(pluginRoot, '.git', 'cargo-target', 'debug', exeName),
+    path.join(repoRootFromSnapshot, 'plugins', 'computer-use', 'bin', exeName),
+    path.join(repoRootFromSnapshot, 'plugins', 'computer-use', 'native', 'target', 'release', exeName),
+    path.join(repoRootFromSnapshot, 'plugins', 'computer-use', 'native', 'target', 'debug', exeName),
     path.join(
       pluginRoot,
       '..',
@@ -171,7 +175,38 @@ export async function ensureDaemon(envOrCtx) {
 
   spawningPromise = (async () => {
     try {
-      const bin = resolveHelperBinary(pluginRoot);
+      let bin = resolveHelperBinary(pluginRoot);
+      if (!fs.existsSync(bin)) {
+        const repoRootFromSnapshot = path.resolve(
+          pluginRoot,
+          '..',
+          '..',
+          '..',
+          '..',
+          '..'
+        );
+        const manifestCandidates = [
+          path.join(pluginRoot, 'native', 'Cargo.toml'),
+          path.join(
+            repoRootFromSnapshot,
+            'plugins',
+            'computer-use',
+            'native',
+            'Cargo.toml'
+          ),
+        ];
+        const manifestPath = manifestCandidates.find((candidate) =>
+          fs.existsSync(candidate)
+        );
+        if (manifestPath) {
+          spawnSync(
+            'cargo',
+            ['build', '--release', '--manifest-path', manifestPath],
+            { stdio: 'ignore' }
+          );
+          bin = resolveHelperBinary(pluginRoot);
+        }
+      }
       if (!fs.existsSync(bin)) {
         throw new Error(`Computer helper binary not found at ${bin}`);
       }

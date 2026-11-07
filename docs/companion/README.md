@@ -10,6 +10,7 @@
 | [Host 事件](./host-events.md) | Conversation 事件权威、WS attach、Companion 折叠、写命令 |
 | [Android 前端](./android-frontend.md) | Companion App 信息架构、视觉、文案、屏幕 |
 | [ADR-0059](../adr/0059-host-identity-and-pairing-invitation.md) | Host 身份与配对邀请 |
+| [iOS 交付计划](../plans/2026-11-06-ios-companion.md) | iOS Companion 分期与验收（ADR-0084） |
 | [Remote Protocol v1](../protocol/v1/README.md) | 版本化 HTTP / WS 契约 |
 
 Android 产品仓在 `~/Projects/vibex-remote-android`。协议与 ADR 以本仓库为准；

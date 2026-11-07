@@ -4,6 +4,19 @@ import SwiftUI
 import UIKit
 #endif
 
+private struct CardChip: ViewModifier {
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        content
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.14), in: Capsule())
+            .foregroundStyle(tint)
+    }
+}
+
 struct BoardView: View {
     let client: HostClient
 
@@ -342,14 +355,21 @@ struct BoardView: View {
                 .padding(.vertical, 8)
 
                 if columnsLayout == .horizontalBoard {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 12) {
-                            ForEach(KanbanSessionStatus.activeColumns) { columnStatus in
-                                kanbanColumnView(status: columnStatus, width: 292)
+                    GeometryReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 10) {
+                                ForEach(KanbanSessionStatus.activeColumns) { columnStatus in
+                                    kanbanColumnView(
+                                        status: columnStatus,
+                                        width: min(proxy.size.width - 58, 340)
+                                    )
+                                }
                             }
+                            .scrollTargetLayout()
+                            .padding(.bottom, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
+                        .contentMargins(.horizontal, 16, for: .scrollContent)
+                        .scrollTargetBehavior(.viewAligned)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -445,38 +465,32 @@ struct BoardView: View {
         let items = sessionsForStatus(status)
         return VStack(alignment: .leading, spacing: 0) {
             // Column Header
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Circle()
                     .fill(statusColor(status))
                     .frame(width: 8, height: 8)
-                Text(status.columnHeaderLabel)
-                    .font(.caption.weight(.bold))
-                    .tracking(0.4)
                 Text(status.title)
-                    .font(.caption2)
+                    .font(.subheadline.weight(.semibold))
+                Text("\(items.count)")
+                    .font(.footnote.monospacedDigit().weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(items.count)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Color(.tertiarySystemFill), in: Capsule())
                 Button {
                     createSheetInitialStatus = status
                     showCreateSheet = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 24, height: 24)
-                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(Color(.tertiarySystemFill), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("在\(status.title)新建会话")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            Divider()
+            .padding(.vertical, 9)
+            .background(statusColor(status).opacity(0.06))
 
             if items.isEmpty {
                 VStack(spacing: 8) {
@@ -504,15 +518,16 @@ struct BoardView: View {
                             sessionCard(session, showStatusPill: false)
                         }
                     }
-                    .padding(10)
+                    .padding(8)
                 }
             }
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
         )
     }
@@ -970,7 +985,7 @@ struct BoardView: View {
                             .lineLimit(1)
                         Spacer()
                         if let date = session.updatedDate {
-                            Text(date, style: .relative)
+                            Text(Self.shortRelative(date))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -1275,13 +1290,17 @@ struct BoardView: View {
     // MARK: - Reusable Session Card (`SessionHubListItem` in `kanban-board` mode)
 
     private func sessionCard(_ session: KanbanSessionSummary, showStatusPill: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let member = session.collaboration?.memberName.flatMap { $0.isEmpty ? nil : $0 }
+        let showsStatus = !session.isRunning && (showStatusPill || session.status == .inreview)
+        let accent = session.isRunning ? Color.orange : statusColor(session.status)
+
+        return VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 6) {
                 if session.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.caption2)
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.orange)
-                        .padding(.top, 2)
+                        .padding(.top, 3)
                 }
 
                 Text(session.resolvedTitle)
@@ -1296,10 +1315,10 @@ struct BoardView: View {
                     sessionContextMenuItems(session)
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.caption.weight(.semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                        .background(Color(.tertiarySystemFill), in: Circle())
+                        .frame(width: 26, height: 20)
+                        .contentShape(Rectangle())
                 }
             }
 
@@ -1313,104 +1332,69 @@ struct BoardView: View {
                     .lineLimit(2)
             }
 
-            HStack(spacing: 6) {
-                if session.isRunning {
-                    HStack(spacing: 4) {
-                        ProgressView().controlSize(.mini)
-                        Text("进行中")
-                            .font(.caption2.weight(.semibold))
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.16), in: Capsule())
-                    .foregroundStyle(.orange)
-                } else if showStatusPill || session.status == .inreview {
-                    Text(session.status.title)
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(statusColor(session.status).opacity(0.15), in: Capsule())
-                        .foregroundStyle(statusColor(session.status))
-                }
-
-                if let collab = session.collaboration, let member = collab.memberName, !member.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "person.2.fill")
-                        Text(member)
-                    }
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.indigo.opacity(0.14), in: Capsule())
-                    .foregroundStyle(.indigo)
-                }
-
-                Spacer()
-
-                // Quick status move menu on card
-                Menu {
-                    ForEach(KanbanSessionStatus.activeColumns) { target in
-                        if target != session.status {
-                            Button {
-                                performStatusChange(session, to: target)
-                            } label: {
-                                Label("移至“\(target.title)”", systemImage: "arrow.right.circle")
-                            }
+            if session.isRunning || showsStatus || member != nil {
+                HStack(spacing: 5) {
+                    if session.isRunning {
+                        HStack(spacing: 4) {
+                            ProgressView().controlSize(.mini).tint(.orange)
+                            Text("进行中")
                         }
-                    }
-                    Divider()
-                    Button {
-                        performStatusChange(session, to: .archived)
-                    } label: {
-                        Label("归档", systemImage: "archivebox")
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Circle()
-                            .fill(statusColor(session.status))
-                            .frame(width: 6, height: 6)
+                        .modifier(CardChip(tint: .orange))
+                    } else if showsStatus {
                         Text(session.status.title)
-                            .font(.caption2.weight(.medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 8, weight: .bold))
+                            .modifier(CardChip(tint: statusColor(session.status)))
                     }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color(.tertiarySystemFill), in: Capsule())
-                    .foregroundStyle(.secondary)
+                    if let member {
+                        HStack(spacing: 3) {
+                            Image(systemName: "person.2.fill").font(.system(size: 8))
+                            Text(member).lineLimit(1)
+                        }
+                        .modifier(CardChip(tint: .indigo))
+                    }
                 }
             }
 
-            Divider()
-
-            HStack(spacing: 8) {
-                AgentModelLabel(agent: session.effectiveAgentKey, model: session.model ?? session.agentDisplayName, iconSize: 12)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 5) {
+                AgentIconView(agent: session.effectiveAgentKey, size: 13)
+                Text(session.model?.isEmpty == false ? session.model! : session.agentDisplayName)
                     .lineLimit(1)
-
+                    .layoutPriority(1)
                 if !session.workspaceDisplayLabel.isEmpty {
-                    Label(session.workspaceDisplayLabel, systemImage: "arrow.triangle.branch")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text("·").foregroundStyle(.quaternary)
+                    Text(session.workspaceDisplayLabel)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-
-                Spacer()
-
+                Spacer(minLength: 4)
                 if let date = session.updatedDate {
-                    Text(date, style: .relative)
-                        .font(.caption2)
+                    Text(Self.shortRelative(date))
                         .foregroundStyle(.tertiary)
+                        .layoutPriority(2)
                 }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .leading) {
+            if session.isRunning || session.status == .inreview {
+                Capsule()
+                    .fill(accent)
+                    .frame(width: 3)
+                    .padding(.vertical, 10)
+                    .padding(.leading, 1.5)
             }
         }
-        .padding(12)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 12))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    session.isRunning ? Color.orange.opacity(0.35) : Color.primary.opacity(0.06),
+                    lineWidth: session.isRunning ? 1 : 0.5
+                )
         )
+        .shadow(color: .black.opacity(0.035), radius: 3, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture {
             openSession(session)
@@ -1418,6 +1402,19 @@ struct BoardView: View {
         .contextMenu {
             sessionContextMenuItems(session)
         }
+    }
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "zh_Hans_CN")
+        f.unitsStyle = .short
+        f.dateTimeStyle = .named
+        return f
+    }()
+
+    static func shortRelative(_ date: Date) -> String {
+        if abs(date.timeIntervalSinceNow) < 60 { return "刚刚" }
+        return relativeFormatter.localizedString(for: date, relativeTo: .now)
     }
 
     @ViewBuilder
@@ -1428,7 +1425,7 @@ struct BoardView: View {
             Label("打开会话", systemImage: "bubble.left.and.bubble.right")
         }
 
-        Menu("移动状态") {
+        Menu("移动状态", systemImage: "arrow.left.arrow.right") {
             ForEach(KanbanSessionStatus.activeColumns) { status in
                 Button {
                     performStatusChange(session, to: status)

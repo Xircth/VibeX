@@ -106,7 +106,7 @@ struct ConversationDetailView: View {
             }
         }
         .onChange(of: menu) { _, kind in
-            if kind == .model { Task { await model.refreshCatalog() } }
+            if kind == .model || kind == .plusModel { Task { await model.refreshCatalog() } }
         }
     }
 
@@ -139,6 +139,7 @@ struct ConversationDetailView: View {
                 PromptChoice(id: "option:" + $0.key, title: $0.label, tag: $0.currentLabel, icon: "slider.horizontal.3")
             },
             effort: effort,
+            openFiles: { panel = .files },
             send: {
                 let text = draft
                 Task { if await model.send(text) { draft = "" } }
@@ -228,10 +229,12 @@ struct ConversationDetailView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 18) {
+                        LazyVStack(alignment: .leading, spacing: 16) {
                             ForEach(model.items) { item in
                                 MessageRow(
                                     item: item,
+                                    agentID: model.conversation.agent_id,
+                                    modelName: model.currentModelLabel,
                                     isLast: item.id == model.items.last?.id,
                                     running: model.session.isTurnRunning,
                                     openDiff: { diffChange = $0 }
@@ -242,7 +245,8 @@ struct ConversationDetailView: View {
                                 LoadingState(label: "正在思考").id("loading")
                             }
                         }
-                        .padding()
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: model.items.last) { _, last in
@@ -269,6 +273,8 @@ enum DetailPanel: String, Identifiable {
 
 private struct MessageRow: View {
     let item: TimelineItem
+    let agentID: String?
+    let modelName: String?
     let isLast: Bool
     let running: Bool
     let openDiff: (FileChangeItem) -> Void
@@ -277,15 +283,50 @@ private struct MessageRow: View {
         switch item.role {
         case .user:
             HStack {
-                Spacer(minLength: 40)
+                Spacer(minLength: 48)
                 Text(item.text)
+                    .font(.system(size: 15))
+                    .lineSpacing(3)
                     .textSelection(.enabled)
-                    .padding(12)
-                    .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 16,
+                            bottomLeadingRadius: 16,
+                            bottomTrailingRadius: 5,
+                            topTrailingRadius: 16
+                        )
+                        .fill(Color.accentColor.opacity(0.16))
+                    )
             }
         case .assistant:
             let streaming = running && isLast
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    AgentIconView(agent: agentID, size: 15)
+                        .frame(width: 22, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                    Text(AgentBrand.displayName(agentID))
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    if let modelName, !modelName.isEmpty, modelName != AgentBrand.displayName(agentID) {
+                        Text(modelName)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    if streaming {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 6, height: 6)
+                    }
+                    Spacer()
+                }
+
                 if !item.thinking.isEmpty {
                     ThinkingView(item: item, working: streaming && item.text.isEmpty)
                 }
@@ -294,6 +335,7 @@ private struct MessageRow: View {
                 }
                 if !item.text.isEmpty {
                     StreamingMessageText(text: item.text, streaming: streaming)
+                        .padding(.top, 2)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

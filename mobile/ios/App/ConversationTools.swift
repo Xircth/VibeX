@@ -88,7 +88,9 @@ struct DirectoryView: View {
 
     private func sections(_ entries: [WorkspaceEntry]) -> [BranchedSection] {
         let dirs = entries.filter(\.directory).map { BranchedItem(id: "d:" + $0.path, label: $0.name, icon: "folder") }
-        let files = entries.filter { !$0.directory }.map { BranchedItem(id: "f:" + $0.path, label: $0.name, icon: "doc.text") }
+        let files = entries.filter { !$0.directory }.map {
+            BranchedItem(id: "f:" + $0.path, label: $0.name, icon: FileGlyph.symbol(for: $0.name))
+        }
         return [
             BranchedSection(id: "dirs", label: "目录 \(dirs.count)", children: dirs),
             BranchedSection(id: "files", label: "文件 \(files.count)", children: files),
@@ -118,8 +120,12 @@ struct FileContentView: View {
                 if file.binary {
                     ContentUnavailableView("二进制文件无法预览", systemImage: "doc.zipper")
                 } else {
-                    CodeView(lines: (file.content ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init),
-                             note: file.truncated ? "只显示前 256 KB" : nil)
+                    CodeBlockView(
+                        code: file.content ?? "",
+                        title: path,
+                        language: CodeLanguage.detect(path: path),
+                        note: file.truncated ? "文件较大，只显示前 256 KB" : nil
+                    )
                 }
             } else if let errorMessage {
                 LoadFailureView(message: errorMessage) { Task { await load() } }
@@ -138,32 +144,6 @@ struct FileContentView: View {
             errorMessage = nil
         } catch {
             errorMessage = describeHostFailure(error)
-        }
-    }
-}
-
-private struct CodeView: View {
-    let lines: [String]
-    let note: String?
-
-    var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, text in
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("\(index + 1)")
-                            .foregroundStyle(.tertiary)
-                            .frame(minWidth: 36, alignment: .trailing)
-                        Text(text.isEmpty ? " " : text)
-                    }
-                    .font(.system(size: 12, design: .monospaced))
-                    .textSelection(.enabled)
-                }
-                if let note {
-                    Text(note).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)
-                }
-            }
-            .padding(12)
         }
     }
 }

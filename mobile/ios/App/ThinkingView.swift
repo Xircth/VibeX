@@ -2,54 +2,91 @@ import CompanionCore
 import SwiftUI
 
 /// Expandable reasoning the Agent produced before answering.
-/// Open while work is in progress, then settles and stays expandable.
+/// Collapsed by default; tap to inspect the full reasoning trace.
 struct ThinkingView: View {
     let item: TimelineItem
     let working: Bool
-    @State private var manual: Bool?
+    @State private var expanded = false
 
-    private var expanded: Bool { manual ?? working }
+    private var previewLine: String? {
+        let lines = item.thinking
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.last
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.4)) { manual = !expanded }
+                withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.3)) {
+                    expanded.toggle()
+                }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(working ? Color.primary.opacity(0.7) : Color.secondary)
+                HStack(spacing: 7) {
+                    if working {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
                     if working {
                         ShimmerText(text: workingLabel)
+                            .font(.system(size: 12.5, weight: .medium))
                     } else {
-                        Text(doneLabel).foregroundStyle(.secondary)
+                        Text(doneLabel)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+
+                    if !expanded, let previewLine {
+                        Text("·")
+                            .foregroundStyle(.quaternary)
+                        Text(previewLine)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .font(.system(size: 13, weight: .medium))
-                .padding(.vertical, 4)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            if expanded {
-                HStack(alignment: .top, spacing: 12) {
-                    Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
-                    VStack(alignment: .leading, spacing: 6) {
-                        if !item.thinking.isEmpty {
-                            Text(item.thinking)
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(3)
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .padding(.vertical, 2)
+            if expanded && !item.thinking.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.16))
+                        .frame(width: 2)
+                    Text(item.thinking)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.leading, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -58,7 +95,7 @@ struct ThinkingView: View {
     private var workingLabel: String { "思考中" }
 
     private var doneLabel: String {
-        if let ms = item.durationMs, ms >= 1000 { return "思考了 \(ms / 1000) 秒" }
+        if let ms = item.durationMs, ms >= 1000 { return "已思考 \(ms / 1000) 秒" }
         return "已思考"
     }
 }

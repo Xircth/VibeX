@@ -603,7 +603,7 @@ struct KanbanUsageDashboardView: View {
                             }
                             Text("\(Self.formatTokens(counts.resolvedTotal)) Token")
                             Spacer()
-                            Text(item.date, style: .relative)
+                            Text(BoardView.shortRelative(item.date))
                         }
                         .font(.caption2)
                         .foregroundStyle(.secondary)

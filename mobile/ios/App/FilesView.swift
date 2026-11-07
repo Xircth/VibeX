@@ -100,23 +100,43 @@ struct FilesView: View {
                             results: searchResults
                         )
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
-                    Section("已导入项目") {
+                    Section {
                         ForEach(groups) { group in
                             if let workspaceID = group.workspaceIds.first {
                                 NavigationLink(value: FilesRoute.project(workspaceID: workspaceID, title: group.name)) {
                                     ImportedProjectRow(group: group)
                                 }
+                                .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
+                                .swipeActions(edge: .trailing) {
+                                    Button {
+                                        diffWorkspaceID = workspaceID
+                                    } label: {
+                                        Label("代码差异", systemImage: "plus.forwardslash.minus")
+                                    }
+                                    .tint(.orange)
+                                }
                             } else {
                                 ImportedProjectRow(group: group)
+                                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                             }
                         }
+                    } header: {
+                        HStack(spacing: 6) {
+                            Text("项目")
+                            Text("\(groups.count)").foregroundStyle(.tertiary)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                        .padding(.leading, -6)
                     }
                 }
-                .listSectionSpacing(10)
+                .listSectionSpacing(14)
+                .contentMargins(.top, 2, for: .scrollContent)
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
             }
@@ -146,25 +166,39 @@ struct FilesView: View {
 private struct ImportedProjectRow: View {
     let group: ProjectGroup
 
+    private var tint: Color {
+        if group.isHome { return .teal }
+        return group.isGit ? .orange : .blue
+    }
+
+    private var displayPath: String {
+        // Collapse the macOS home prefix to "~" so paths stay readable.
+        if let range = group.rootPath.range(of: #"^/Users/[^/]+"#, options: .regularExpression) {
+            return "~" + group.rootPath[range.upperBound...]
+        }
+        return group.rootPath
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: group.isGit ? "arrow.triangle.branch" : "folder")
-                .font(.system(size: 16))
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
-            Text(group.name)
-                .font(.body.weight(.medium))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            if !group.rootPath.isEmpty {
-                Text(group.rootPath)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 11) {
+            Image(systemName: group.isHome ? "house" : (group.isGit ? "arrow.triangle.branch" : "folder"))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(.body.weight(.medium))
                     .lineLimit(1)
-                    .truncationMode(.head)
+                if !group.rootPath.isEmpty {
+                    Text(displayPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
             }
         }
-        .padding(.vertical, 2)
-        .padding(.leading, CGFloat(group.depth) * 16)
+        .padding(.leading, CGFloat(group.depth) * 18)
     }
 }

@@ -97,6 +97,31 @@ struct ConversationsView: View {
         return items
     }
 
+    /// Latest activity across every project, newest first.
+    private var recentConversations: [ConversationListItem] {
+        Array(
+            visibleConversations
+                .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+                .prefix(8)
+        )
+    }
+
+    private func projectName(for item: ConversationListItem) -> String? {
+        groups.first { group in group.conversations.contains { $0.id == item.id } }
+            .flatMap { $0.id == "other" ? nil : $0.name }
+    }
+
+    private func sectionHeader(_ title: String, count: Int?) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            if let count { Text("\(count)").foregroundStyle(.tertiary) }
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .textCase(nil)
+        .padding(.leading, -6)
+    }
+
     private func group(id: String) -> ProjectGroup {
         groups.first { $0.id == id } ?? ProjectGroup(id: id, name: "", conversations: [])
     }
@@ -139,9 +164,37 @@ struct ConversationsView: View {
                                 }
                             }
                         }
+                    } header: {
+                        sectionHeader("项目", count: groups.count)
+                    }
+
+                    if !recentConversations.isEmpty {
+                        Section {
+                            ForEach(recentConversations) { item in
+                                NavigationLink(value: item) {
+                                    ConversationRow(item: item, projectName: projectName(for: item))
+                                }
+                                .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        deleteSingleConversation(item)
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
+                                    Button {
+                                        archiveSingleConversation(item)
+                                    } label: {
+                                        Label("归档", systemImage: "archivebox")
+                                    }
+                                    .tint(.indigo)
+                                }
+                            }
+                        } header: {
+                            sectionHeader("最近对话", count: nil)
+                        }
                     }
                 }
-                .listSectionSpacing(8)
+                .listSectionSpacing(14)
                 .contentMargins(.top, 2, for: .scrollContent)
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
@@ -420,41 +473,48 @@ private struct ProjectRow: View {
         return result
     }
 
+    private var tint: Color {
+        if group.id == "other" { return .gray }
+        if group.isHome { return .teal }
+        return group.isGit ? .orange : .blue
+    }
+
+    private var isEmpty: Bool { group.conversations.isEmpty }
+
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             Image(systemName: iconName)
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(group.name)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    AgentIconStack(agents: recentAgents)
-                }
-                HStack(spacing: 6) {
-                    Text("\(group.conversations.count) 个对话")
-                    if let date = group.latest {
-                        Text("·")
-                        Text(relativeChinese(date))
-                    }
-                    Spacer(minLength: 4)
-                    if !group.rootPath.isEmpty {
-                        Text(group.rootPath)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.head)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(tint.opacity(0.13))
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if isEmpty {
+                        Text("暂无对话")
+                    } else {
+                        Text("\(group.conversations.count) 个对话")
+                        if let date = group.latest {
+                            Text("·")
+                            Text(relativeChinese(date))
+                        }
                     }
                 }
-                .font(.footnote)
+                .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
+            Spacer(minLength: 6)
+            AgentIconStack(agents: recentAgents)
         }
-        .padding(.vertical, 1)
-        .padding(.leading, CGFloat(group.depth) * 14)
+        .padding(.leading, CGFloat(group.depth) * 18)
     }
 }
 
@@ -464,10 +524,10 @@ private struct AgentIconStack: View {
 
     var body: some View {
         if !agents.isEmpty {
-            HStack(spacing: -5) {
+            HStack(spacing: -6) {
                 ForEach(Array(agents.prefix(3)), id: \.self) { agent in
-                    AgentIconView(agent: agent, size: 13)
-                        .padding(2.5)
+                    AgentIconView(agent: agent, size: 15)
+                        .padding(3.5)
                         .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
                         .overlay(Circle().stroke(Color(.separator).opacity(0.5), lineWidth: 0.5))
                 }
@@ -484,35 +544,47 @@ private struct AgentIconStack: View {
 
 private struct ConversationRow: View {
     let item: ConversationListItem
+    var projectName: String? = nil
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if let projectName, !projectName.isEmpty { parts.append(projectName) }
+        if let model = item.model, !model.isEmpty {
+            parts.append(model)
+        } else {
+            parts.append(AgentBrand.displayName(item.agent_id))
+        }
+        if item.message_count > 0 { parts.append("\(item.message_count) 条") }
+        return parts.joined(separator: " · ")
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            AgentIconView(agent: item.agent_id, size: 22)
-                .padding(5)
+        HStack(alignment: .center, spacing: 11) {
+            AgentIconView(agent: item.agent_id, size: 18)
+                .frame(width: 30, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(.tertiarySystemFill))
                 )
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title ?? "未命名对话")
-                    .font(.body.weight(.medium))
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(item.model?.isEmpty == false ? item.model! : AgentBrand.displayName(item.agent_id))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(item.title ?? "未命名对话")
+                        .font(.body.weight(.medium))
                         .lineLimit(1)
-                    Text("·")
-                    Text("\(item.message_count) 条")
+                    Spacer(minLength: 4)
                     if let date = item.updatedAt {
-                        Spacer(minLength: 4)
                         Text(relativeChinese(date))
+                            .font(.caption2)
                             .foregroundStyle(.tertiary)
+                            .layoutPriority(1)
                     }
                 }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
-        .padding(.vertical, 1)
     }
 }
 

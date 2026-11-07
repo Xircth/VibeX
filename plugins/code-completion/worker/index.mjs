@@ -5,6 +5,103 @@ function definePluginWorker(setup) {
   };
 }
 
+/**
+ * Monacopilot `CompletionCopilot` (from `monacopilot` / `@monacopilot/core` v1.2.12).
+ * Handles structured FIM metadata (`textBeforeCursor`, `textAfterCursor`, `filename`, `language`, `relatedFiles`)
+ * and delegates model execution to a custom async model handler.
+ */
+const MONACOPILOT_CURSOR_MARKER = '<|developer_cursor_is_here|>';
+
+function joinWithAnd(items) {
+  if (!items || items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(', ')} and ${items.slice(-1)}`;
+}
+
+function buildMonacopilotDefaultPrompt(metadata = {}) {
+  const {
+    technologies = [],
+    filename,
+    relatedFiles = [],
+    language,
+    textBeforeCursor = '',
+    textAfterCursor = '',
+  } = metadata;
+  const techStack = joinWithAnd([language, ...technologies].filter(Boolean));
+  const relatedBlock =
+    Array.isArray(relatedFiles) && relatedFiles.length > 0
+      ? relatedFiles
+          .map(({ path, content }) => `### ${path}\n${content}`)
+          .join('\n\n')
+      : '';
+  const headerLines = [
+    techStack ? `Technology stack: ${techStack}` : '',
+    `File: ${filename || 'unknown'}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const instruction =
+    'Provide concise and readable code completions that are syntactically and logically accurate, and seamlessly integrate with the existing context. Output only the raw code to be inserted at the cursor location without any additional text, comments, or text before or after the cursor.';
+  const context = `${relatedBlock ? `${relatedBlock}\n\n` : ''}${headerLines}`;
+  const fileContent = `**Current code:**\n\`\`\`\n${textBeforeCursor}${MONACOPILOT_CURSOR_MARKER}${textAfterCursor}\n\`\`\``;
+  return {
+    instruction,
+    context,
+    fileContent,
+    user: `${context ? `${context}\n\n` : ''}${instruction}\n\n${fileContent}`,
+  };
+}
+
+export class CompletionCopilot {
+  constructor(apiKey, options = {}) {
+    this.apiKey = apiKey ?? '';
+    this.provider = options.provider;
+    this.model = options.model;
+  }
+
+  getDefaultPrompt(metadata) {
+    return buildMonacopilotDefaultPrompt(metadata);
+  }
+
+  generatePrompt(metadata, customPrompt) {
+    const basePrompt = this.getDefaultPrompt(metadata);
+    return typeof customPrompt === 'function'
+      ? { ...basePrompt, ...customPrompt(metadata) }
+      : basePrompt;
+  }
+
+  async complete(request = {}) {
+    const { body = {}, options = {} } = request;
+    const { customPrompt, aiRequestHandler } = options;
+    const completionMetadata = body.completionMetadata || {};
+    const prompt = this.generatePrompt(completionMetadata, customPrompt);
+    if (typeof this.model === 'function') {
+      const response = await this.model(prompt, completionMetadata, aiRequestHandler);
+      const rawText = response?.text ?? null;
+      const formattedText =
+        typeof rawText === 'string' && response?.alreadyFormatted !== true
+          ? postProcessCompletion(rawText, {
+              prefix: completionMetadata.textBeforeCursor ?? '',
+              suffix: completionMetadata.textAfterCursor ?? '',
+              isSingleLine: false,
+              languageId: completionMetadata.language ?? '',
+            })
+          : rawText;
+      return {
+        completion: formattedText,
+        raw: response?.raw ?? rawText,
+        error: response?.error,
+      };
+    }
+    return {
+      completion: null,
+      error: 'Custom model function is required in VibeX worker CompletionCopilot.',
+    };
+  }
+}
+export { CompletionCopilot as Copilot };
+
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   providerProtocol: 'openai-compatible',
@@ -701,6 +798,9 @@ export function postProcessCompletion(
   }
 
   let text = rawText.replace(/\r\n/g, '\n');
+  if (text.includes(MONACOPILOT_CURSOR_MARKER)) {
+    text = text.replaceAll(MONACOPILOT_CURSOR_MARKER, '');
+  }
   const hadLeadingNewlineInTag =
     /<COMPLETION>[ \t]*\n/i.test(text) || text.startsWith('\n');
 
@@ -1022,21 +1122,46 @@ export class CodeCompletionEngine {
 
     if (!effectiveConfig.enabled) {
       return {
+        completion: null,
         items: [],
         skippedReason: 'disabled',
       };
     }
 
-    const filePath = String(params.filePath || params.uri || 'untitled');
-    const languageId = String(params.languageId || 'plaintext');
-    const prefix = String(params.prefix ?? '');
-    const suffix = String(params.suffix ?? '');
-    const requestId = String(params.requestId || `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+    const monacopilotMeta =
+      params?.body?.completionMetadata ||
+      params?.completionMetadata ||
+      null;
+
+    const filePath = String(
+      monacopilotMeta?.filename || params.filePath || params.uri || 'untitled',
+    );
+    const languageId = String(
+      monacopilotMeta?.language || params.languageId || 'plaintext',
+    );
+    const prefix = String(
+      monacopilotMeta?.textBeforeCursor ?? params.prefix ?? '',
+    );
+    const suffix = String(
+      monacopilotMeta?.textAfterCursor ?? params.suffix ?? '',
+    );
+    const neighbors = Array.isArray(monacopilotMeta?.relatedFiles)
+      ? monacopilotMeta.relatedFiles.map((f) => ({
+          path: f.path,
+          content: f.content,
+        }))
+      : Array.isArray(params.neighbors)
+        ? params.neighbors
+        : [];
+    const requestId = String(
+      params.requestId || `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    );
 
     // 0. Check manual trigger mode
     if (!params.manual && effectiveConfig.triggerMode === 'manual') {
       this.metrics.filteredRequests += 1;
       return {
+        completion: null,
         items: [],
         requestId,
         skippedReason: 'manual-trigger-only',
@@ -1047,6 +1172,7 @@ export class CodeCompletionEngine {
     if (isPrivacyIgnoredFile(filePath, effectiveConfig.ignoredGlobs)) {
       this.metrics.filteredRequests += 1;
       return {
+        completion: null,
         items: [],
         requestId,
         skippedReason: 'privacy-ignored-glob',
@@ -1057,6 +1183,7 @@ export class CodeCompletionEngine {
     if (!params.manual && isLanguageDisabled(languageId, effectiveConfig.disabledLanguages)) {
       this.metrics.filteredRequests += 1;
       return {
+        completion: null,
         items: [],
         requestId,
         skippedReason: 'language-disabled',
@@ -1068,6 +1195,7 @@ export class CodeCompletionEngine {
     if (currentLinePrefix.length > MAX_SINGLE_LINE_LENGTH) {
       this.metrics.filteredRequests += 1;
       return {
+        completion: null,
         items: [],
         requestId,
         skippedReason: 'line-too-long',
@@ -1095,7 +1223,7 @@ export class CodeCompletionEngine {
         prefix,
         suffix,
         imports: params.imports || '',
-        neighbors: params.neighbors || [],
+        neighbors,
         ignoredGlobs: effectiveConfig.ignoredGlobs,
       });
 
@@ -1105,29 +1233,52 @@ export class CodeCompletionEngine {
         dynamicScope,
       });
 
-      const rawResponse = await performHttpRequest({
-        url: httpRequest.url,
-        headers: httpRequest.headers,
-        body: httpRequest.body,
-        signal: controller.signal,
-        environment,
-        fetchImpl: this.fetchImpl,
+      const copilot = new CompletionCopilot(effectiveConfig.apiKey, {
+        model: async () => {
+          const rawResponse = await performHttpRequest({
+            url: httpRequest.url,
+            headers: httpRequest.headers,
+            body: httpRequest.body,
+            signal: controller.signal,
+            environment,
+            fetchImpl: this.fetchImpl,
+          });
+          const rawCompletion = extractRawCompletionFromResponse(
+            httpRequest.protocol,
+            rawResponse,
+          );
+          return {
+            text: rawCompletion,
+            raw: rawResponse,
+            alreadyFormatted: true,
+          };
+        },
+      });
+
+      const copilotResult = await copilot.complete({
+        body: {
+          completionMetadata: {
+            filename: filePath,
+            language: languageId,
+            technologies: monacopilotMeta?.technologies || [],
+            relatedFiles: fimContext.neighbors,
+            textBeforeCursor: fimContext.prefix,
+            textAfterCursor: fimContext.suffix,
+            cursorPosition: monacopilotMeta?.cursorPosition || params.position || { lineNumber: 1, column: 1 },
+          },
+        },
       });
 
       if (controller.signal.aborted) {
         return {
+          completion: null,
           items: [],
           requestId,
           cancelled: true,
         };
       }
 
-      const rawCompletion = extractRawCompletionFromResponse(
-        httpRequest.protocol,
-        rawResponse,
-      );
-
-      const insertText = postProcessCompletion(rawCompletion, {
+      const insertText = postProcessCompletion(copilotResult.completion || '', {
         prefix,
         suffix,
         isSingleLine: dynamicScope.isSingleLine,
@@ -1140,6 +1291,7 @@ export class CodeCompletionEngine {
 
       if (!insertText) {
         return {
+          completion: null,
           items: [],
           requestId,
           protocol: httpRequest.protocol,
@@ -1149,6 +1301,7 @@ export class CodeCompletionEngine {
       }
 
       return {
+        completion: insertText,
         items: [
           {
             insertText,
@@ -1170,6 +1323,7 @@ export class CodeCompletionEngine {
 
       if (isAbort) {
         return {
+          completion: null,
           items: [],
           requestId,
           cancelled: true,

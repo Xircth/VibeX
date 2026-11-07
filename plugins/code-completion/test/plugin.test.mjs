@@ -12,6 +12,7 @@ import {
   buildFimContext,
   buildProtocolHttpRequest,
   CodeCompletionEngine,
+  CompletionCopilot,
   createCodeCompletionWorkerDefinition,
   extractRawCompletionFromResponse,
   isLanguageDisabled,
@@ -26,6 +27,7 @@ import appPlugin, {
   doesEventMatchShortcut,
   ForwardTypingCache,
   parseShortcutDescriptor,
+  registerCompletion,
   resolveInlineCompletionRangeAndText,
 } from '../app/main.js';
 
@@ -854,4 +856,79 @@ test('App re-activation disposes previous singleton instance and clears Monaco I
   secondApp();
   assert.equal(secondDisposed, 1);
 });
+
+test('Monacopilot registerCompletion and CompletionCopilot end-to-end flow', async () => {
+  assert.equal(typeof registerCompletion, 'function');
+  assert.equal(typeof CompletionCopilot, 'function');
+
+  // 1. Verify standalone CompletionCopilot generates `<|developer_cursor_is_here|>` prompt and parses response
+  let capturedPrompt = null;
+  const directCopilot = new CompletionCopilot(undefined, {
+    model: async (prompt) => {
+      capturedPrompt = prompt;
+      return { text: '```python\nreturn x + y\n```' };
+    },
+  });
+  const directRes = await directCopilot.complete({
+    body: {
+      completionMetadata: {
+        language: 'python',
+        filename: 'calc.py',
+        textBeforeCursor: 'def add(x, y):\n    ',
+        textAfterCursor: '\n',
+        cursorPosition: { lineNumber: 2, column: 5 },
+      },
+    },
+  });
+  assert.ok(capturedPrompt);
+  assert.match(capturedPrompt.user, /<\|developer_cursor_is_here\|>/);
+  assert.equal(directRes.completion, 'return x + y');
+
+  // 2. Verify CodeCompletionEngine.complete() wraps CompletionCopilot with VibeX multi-protocol + FIM indentation
+  const engine = new CodeCompletionEngine({
+    config: {
+      enabled: true,
+      providerProtocol: 'openai-compatible',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-test',
+      model: 'deepseek-chat',
+    },
+    fetchImpl: async (_url, init) => {
+      const reqBody = JSON.parse(init.body);
+      assert.ok(Array.isArray(reqBody.messages));
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            choices: [
+              {
+                message: {
+                  content: '<COMPLETION>return x + y</COMPLETION>',
+                },
+              },
+            ],
+          };
+        },
+      };
+    },
+  });
+
+  const copilotResponse = await engine.complete({
+    body: {
+      completionMetadata: {
+        language: 'python',
+        filename: 'calc.py',
+        textBeforeCursor: 'def add(x, y):\n    ',
+        textAfterCursor: '\n',
+        cursorPosition: { lineNumber: 2, column: 5 },
+      },
+    },
+  });
+
+  assert.equal(copilotResponse.completion, 'return x + y');
+  assert.equal(copilotResponse.items.length, 1);
+  assert.equal(copilotResponse.items[0].insertText, 'return x + y');
+});
+
 

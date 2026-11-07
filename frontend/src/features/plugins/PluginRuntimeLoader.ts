@@ -7,6 +7,7 @@ import {
   setDefaultHostCallTransport,
   setDefaultWorkerInvokeTransport,
 } from '@vibex/plugin-sdk';
+import * as MonacopilotModule from 'monacopilot';
 import * as ReactModule from 'react';
 import { createElement } from 'react';
 import * as ReactJsxRuntime from 'react/jsx-runtime';
@@ -114,6 +115,7 @@ const SHARED_HOST_MODULES: Record<string, unknown> = {
   react: ReactModule,
   'react/jsx-runtime': ReactJsxRuntime,
   'react/jsx-dev-runtime': ReactJsxRuntime,
+  monacopilot: MonacopilotModule,
   '@vibex/plugin-sdk': PluginSdk,
   '@vibex/plugin-sdk/app': PluginSdk,
   '@vibex/plugin-sdk/context': PluginSdk,

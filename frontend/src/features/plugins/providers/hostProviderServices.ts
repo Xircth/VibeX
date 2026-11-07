@@ -1257,6 +1257,9 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
         attachInlineCompletionToMonaco(id, reg);
       }
     }
+    if (activeEditorId) {
+      notifyActiveEditorChanged();
+    }
   },
 
   getMonacoInstance() {

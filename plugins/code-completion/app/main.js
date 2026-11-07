@@ -5,6 +5,270 @@ const MAX_CACHE_ENTRIES = 32;
 const ACCEPT_COMMAND_ID = 'vibex.codeCompletion.acceptInlineCompletion';
 
 /**
+ * Monacopilot `registerCompletion` integration (compatible with `monacopilot` v1.2.12).
+ * Uses `globalThis.__VIBEX_HOST_MODULES__['monacopilot']` when running inside the VibeX host
+ * and provides a built-in Monacopilot-compliant fallback for standalone/worker test environments.
+ */
+const monacopilotEditorState = new WeakMap();
+
+export function registerCompletion(monaco, editor, options = {}) {
+  const hostMonacopilot =
+    typeof globalThis !== 'undefined' &&
+    globalThis.__VIBEX_HOST_MODULES__ &&
+    globalThis.__VIBEX_HOST_MODULES__.monacopilot;
+
+  // Ensure model & editor methods expected by Monacopilot exist even on lightweight test mocks
+  const ensureModelPolyfill = (rawModel) => {
+    if (!rawModel || typeof rawModel !== 'object') return rawModel;
+    if (typeof rawModel.getValueInRange === 'function' && typeof rawModel.getOffsetAt === 'function') {
+      return rawModel;
+    }
+    const getText = () => (typeof rawModel.getValue === 'function' ? String(rawModel.getValue() || '') : '');
+    const getLines = () => getText().split('\n');
+    return new Proxy(rawModel, {
+      get(target, prop) {
+        if (prop in target) {
+          const val = target[prop];
+          return typeof val === 'function' ? val.bind(target) : val;
+        }
+        if (prop === 'getLineCount') {
+          return () => getLines().length;
+        }
+        if (prop === 'getLineContent') {
+          return (ln) => getLines()[Math.max(0, (ln || 1) - 1)] ?? '';
+        }
+        if (prop === 'getLineMaxColumn') {
+          return (ln) => (getLines()[Math.max(0, (ln || 1) - 1)] ?? '').length + 1;
+        }
+        if (prop === 'getOffsetAt') {
+          return (pos) => {
+            const lines = getLines();
+            const lineIdx = Math.max(0, Math.min(lines.length - 1, (pos?.lineNumber || 1) - 1));
+            let offset = 0;
+            for (let i = 0; i < lineIdx; i += 1) {
+              offset += lines[i].length + 1;
+            }
+            return offset + Math.max(0, (pos?.column || 1) - 1);
+          };
+        }
+        if (prop === 'getPositionAt') {
+          return (offset) => {
+            const text = getText();
+            const clamped = Math.max(0, Math.min(text.length, Number(offset || 0)));
+            const sub = text.slice(0, clamped).split('\n');
+            return {
+              lineNumber: sub.length,
+              column: (sub[sub.length - 1]?.length || 0) + 1,
+            };
+          };
+        }
+        if (prop === 'getValueInRange') {
+          return (range) => {
+            const text = getText();
+            const lines = text.split('\n');
+            const toOff = (ln, col) => {
+              const idx = Math.max(0, Math.min(lines.length - 1, (ln || 1) - 1));
+              let off = 0;
+              for (let i = 0; i < idx; i += 1) off += lines[i].length + 1;
+              return off + Math.max(0, (col || 1) - 1);
+            };
+            return text.slice(
+              toOff(range.startLineNumber, range.startColumn),
+              toOff(range.endLineNumber, range.endColumn),
+            );
+          };
+        }
+        return undefined;
+      },
+    });
+  };
+
+  let polyfilledModelCache = null;
+  let lastRawModel = null;
+  const getPolyfilledModel = () => {
+    const raw = typeof editor?.getModel === 'function' ? editor.getModel() : null;
+    if (raw !== lastRawModel) {
+      lastRawModel = raw;
+      polyfilledModelCache = ensureModelPolyfill(raw);
+    }
+    return polyfilledModelCache;
+  };
+
+  const editorProxy = new Proxy(editor || {}, {
+    get(target, prop) {
+      if (prop === 'getModel') {
+        return () => getPolyfilledModel();
+      }
+      if (prop === 'getValue') {
+        return () => {
+          if (typeof target.getValue === 'function') return target.getValue();
+          const m = getPolyfilledModel();
+          return typeof m?.getValue === 'function' ? m.getValue() : '';
+        };
+      }
+      if (prop === 'updateOptions') {
+        return (opts) => {
+          if (typeof target.updateOptions === 'function') {
+            target.updateOptions(opts);
+          }
+        };
+      }
+      if (prop === 'onKeyDown') {
+        return (cb) => {
+          if (typeof target.onKeyDown === 'function') {
+            return target.onKeyDown(cb);
+          }
+          return { dispose() {} };
+        };
+      }
+      if (prop === 'trigger') {
+        return (source, handlerId, payload) => {
+          if (typeof target.trigger === 'function') {
+            target.trigger(source, handlerId, payload);
+          }
+        };
+      }
+      const val = target[prop];
+      return typeof val === 'function' ? val.bind(target) : val;
+    },
+  });
+
+  const monacoProxy = {
+    ...monaco,
+    KeyCode: monaco?.KeyCode || { Tab: 2, RightArrow: 17 },
+    Range: function SafeInlineRange(startLineNumber, startColumn, endLineNumber, endColumn) {
+      // Clamp endLineNumber to startLineNumber so Monaco GhostText never rejects cross-line ranges
+      const safeEndLine = startLineNumber;
+      const safeEndCol =
+        endLineNumber === startLineNumber ? Math.max(startColumn, endColumn) : startColumn;
+      if (typeof monaco?.Range === 'function') {
+        return new monaco.Range(startLineNumber, startColumn, safeEndLine, safeEndCol);
+      }
+      return {
+        startLineNumber,
+        startColumn,
+        endLineNumber: safeEndLine,
+        endColumn: safeEndCol,
+      };
+    },
+    languages: {
+      ...(monaco?.languages || {}),
+      registerInlineCompletionsProvider: (selector, provider) => {
+        const wrappedProvider = {
+          ...provider,
+          provideInlineCompletions: async (mdl, pos, ctx, token) => {
+            const targetModel = getPolyfilledModel() || ensureModelPolyfill(mdl);
+            return await provider.provideInlineCompletions(targetModel, pos, ctx, token);
+          },
+        };
+        const reg = monaco?.languages?.registerInlineCompletionsProvider?.(
+          selector,
+          wrappedProvider,
+        );
+        if (typeof reg === 'function') {
+          return { dispose: reg };
+        }
+        return reg || { dispose() {} };
+      },
+    },
+  };
+
+  if (hostMonacopilot && typeof hostMonacopilot.registerCompletion === 'function') {
+    return hostMonacopilot.registerCompletion(monacoProxy, editorProxy, options);
+  }
+
+  // Fallback self-contained Monacopilot registration when running outside host bundle
+  const state = {
+    isExplicitlyTriggered: false,
+    options: { ...options },
+  };
+  monacopilotEditorState.set(editorProxy, state);
+  editorProxy.updateOptions({ inlineSuggest: { enabled: true } });
+
+  const providerDisp = monacoProxy.languages.registerInlineCompletionsProvider(
+    options.language || '*',
+    {
+      provideInlineCompletions: async (mdl, pos, _ctx, token) => {
+        const currentOpts = state.options;
+        if (currentOpts.trigger === 'onDemand' && !state.isExplicitlyTriggered) {
+          return { items: [] };
+        }
+        const text = typeof mdl?.getValue === 'function' ? mdl.getValue() : '';
+        if (
+          typeof currentOpts.triggerIf === 'function' &&
+          !currentOpts.triggerIf({
+            text,
+            position: pos,
+            triggerType: currentOpts.trigger || 'onIdle',
+          })
+        ) {
+          return { items: [] };
+        }
+        const offset = typeof mdl?.getOffsetAt === 'function' ? mdl.getOffsetAt(pos) : text.length;
+        const textBeforeCursor = text.slice(0, offset);
+        const textAfterCursor = text.slice(offset);
+        if (typeof currentOpts.requestHandler !== 'function') {
+          return { items: [] };
+        }
+        const res = await currentOpts.requestHandler({
+          body: {
+            completionMetadata: {
+              filename: currentOpts.filename,
+              language: currentOpts.language,
+              technologies: currentOpts.technologies,
+              relatedFiles: currentOpts.relatedFiles,
+              textBeforeCursor,
+              textAfterCursor,
+              cursorPosition: pos,
+            },
+          },
+          token,
+        });
+        state.isExplicitlyTriggered = false;
+        if (!res || !res.completion) {
+          return { items: [] };
+        }
+        return {
+          items: [
+            {
+              insertText: res.completion,
+              range: new monacoProxy.Range(
+                pos.lineNumber,
+                pos.column,
+                pos.lineNumber,
+                pos.column,
+              ),
+            },
+          ],
+          enableForwardStability: true,
+        };
+      },
+      handleItemDidShow: () => {
+        state.isExplicitlyTriggered = false;
+      },
+      freeInlineCompletions: () => {},
+      disposeInlineCompletions: () => {},
+    },
+  );
+
+  return {
+    deregister: () => {
+      providerDisp?.dispose?.();
+      monacopilotEditorState.delete(editorProxy);
+    },
+    trigger: () => {
+      state.isExplicitlyTriggered = true;
+      editorProxy.trigger('keyboard', 'editor.action.inlineSuggest.trigger', {});
+    },
+    updateOptions: (cb) => {
+      if (typeof cb === 'function') {
+        state.options = { ...state.options, ...cb(state.options) };
+      }
+    },
+  };
+}
+
+/**
  * Determine adaptive debounce delay (60ms after structural trigger chars, 180ms on normal typing, 0ms on manual trigger).
  */
 export function computeAdaptiveDebounceMs(prefix = '', isManual = false) {
@@ -798,6 +1062,7 @@ export default {
     };
 
     let providerDisposable = null;
+    let activeMonacopilotRegistration = null;
     let serviceWatchCleanup = null;
     let configUnsubscribe = null;
     let cursorWatcherDisposer = null;
@@ -856,7 +1121,11 @@ export default {
       if (!hasVisibleInlineSuggestion) {
         clearMonacoInlineCompletionsCache(editor);
       }
-      editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
+      if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.trigger === 'function') {
+        activeMonacopilotRegistration.trigger();
+      } else {
+        editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
+      }
     };
 
     const scheduleCursorIdleAutoTrigger = (delayMs = 320) => {
@@ -937,6 +1206,200 @@ export default {
       };
     };
 
+    const bindMonacopilotToEditor = (editorBridge, editor) => {
+      if (activeMonacopilotRegistration) {
+        try {
+          activeMonacopilotRegistration.deregister();
+        } catch {
+          // ignore
+        }
+        activeMonacopilotRegistration = null;
+      }
+      if (!editor || typeof editor !== 'object') return;
+      const monacoInstance =
+        (typeof editorBridge?.getMonacoInstance === 'function'
+          ? editorBridge.getMonacoInstance()
+          : null) || null;
+      if (!monacoInstance || !monacoInstance.languages?.registerInlineCompletionsProvider) {
+        return;
+      }
+
+      const activeDoc =
+        typeof editorBridge?.getActiveDocument === 'function'
+          ? editorBridge.getActiveDocument()
+          : null;
+
+      const monacoBridgeAdapter = {
+        ...monacoInstance,
+        languages: {
+          ...monacoInstance.languages,
+          registerInlineCompletionsProvider: (selector, monacopilotProvider) => {
+            return monacoInstance.languages.registerInlineCompletionsProvider(selector, {
+              ...monacopilotProvider,
+              provideInlineCompletions: async (mdl, pos, ctx, token) => {
+                if (!enabled) return { items: [] };
+                const isExplicit =
+                  Date.now() < pendingManualTriggerUntil ||
+                  ctx?.triggerKind === 1 ||
+                  ctx?.manual === true;
+                if (!isExplicit && triggerMode === 'manual') {
+                  return { items: [] };
+                }
+                const result = await monacopilotProvider.provideInlineCompletions(
+                  mdl,
+                  pos,
+                  ctx,
+                  token,
+                );
+                const rawItems = Array.isArray(result?.items) ? result.items : [];
+                if (rawItems.length === 0) {
+                  hasVisibleInlineSuggestion = false;
+                  return { items: [] };
+                }
+                const docState = extractCompletionDocumentState(mdl, pos);
+                const normalizedItems = rawItems
+                  .filter((it) => it && typeof it.insertText === 'string' && it.insertText.length > 0)
+                  .map((it) => {
+                    const normalized = resolveInlineCompletionRangeAndText(
+                      it.insertText,
+                      docState,
+                    );
+                    return {
+                      insertText: normalized.insertText,
+                      range: normalized.range,
+                      command: {
+                        id: ACCEPT_COMMAND_ID,
+                        title: 'Accept AI Inline Completion',
+                      },
+                    };
+                  });
+                hasVisibleInlineSuggestion = normalizedItems.length > 0;
+                return {
+                  items: normalizedItems,
+                  enableForwardStability: true,
+                };
+              },
+              handleItemDidShow: (...args) => {
+                hasVisibleInlineSuggestion = true;
+                monacopilotProvider.handleItemDidShow?.(...args);
+              },
+            });
+          },
+        },
+      };
+
+      activeMonacopilotRegistration = registerCompletion(monacoBridgeAdapter, editor, {
+        language: '*',
+        filename: activeDoc?.filePath || 'untitled',
+        trigger: triggerMode === 'manual' ? 'onDemand' : 'onTyping',
+        maxContextLines: 120,
+        enableCaching: true,
+        allowFollowUpCompletions: true,
+        triggerIf: ({ text }) => {
+          if (!enabled) return false;
+          return Boolean(text && text.trim().length > 0);
+        },
+        requestHandler: async ({ body }) => {
+          if (!enabled) return { completion: null };
+          const now = Date.now();
+          const isManual = now < pendingManualTriggerUntil;
+          if (isManual) pendingManualTriggerUntil = 0;
+          const isAutoIdle = !isManual && now < pendingAutoTriggerUntil;
+          if (isAutoIdle) pendingAutoTriggerUntil = 0;
+
+          if (!isManual && triggerMode === 'manual') {
+            return { completion: null };
+          }
+
+          const currentDoc =
+            typeof editorBridge?.getActiveDocument === 'function'
+              ? editorBridge.getActiveDocument()
+              : null;
+          const openDocs =
+            typeof editorBridge?.getOpenDocumentsSnapshot === 'function'
+              ? editorBridge.getOpenDocumentsSnapshot({ excludeActive: true, maxDocuments: 5 })
+              : [];
+
+          const meta = body?.completionMetadata || {};
+          const filePath = String(currentDoc?.filePath || meta.filename || 'untitled');
+          const languageId = String(
+            currentDoc?.languageId ||
+              editor.getModel?.()?.getLanguageId?.() ||
+              meta.language ||
+              'typescript',
+          );
+          const prefix = String(meta.textBeforeCursor ?? '');
+          const suffix = String(meta.textAfterCursor ?? '');
+
+          statusState = 'loading';
+          lastErrorMessage = null;
+          const requestId = `cc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          inFlightWorkerRequestId = requestId;
+          inFlightStartedAt = Date.now();
+
+          try {
+            const response = await invokeWorker('completion.complete', {
+              requestId,
+              filePath,
+              languageId,
+              prefix,
+              suffix,
+              position: meta.cursorPosition || editor.getPosition?.() || { lineNumber: 1, column: 1 },
+              manual: isManual,
+              neighbors: openDocs.map((d) => ({
+                path: d.filePath || d.path || 'neighbor',
+                content: d.content || '',
+                languageId: d.languageId || '',
+              })),
+              body: {
+                completionMetadata: {
+                  ...meta,
+                  filename: filePath,
+                  language: languageId,
+                  relatedFiles: openDocs.map((d) => ({
+                    path: d.filePath || d.path || 'neighbor',
+                    content: d.content || '',
+                  })),
+                },
+              },
+            });
+            statusState = 'idle';
+            const completionText =
+              response?.completion ??
+              response?.insertText ??
+              response?.items?.[0]?.insertText ??
+              null;
+            return {
+              completion: completionText || null,
+            };
+          } catch (error) {
+            statusState = 'error';
+            lastErrorMessage = String(error?.message || error);
+            return {
+              completion: null,
+              error: lastErrorMessage,
+            };
+          } finally {
+            if (inFlightWorkerRequestId === requestId) {
+              inFlightWorkerRequestId = null;
+              inFlightStartedAt = 0;
+            }
+          }
+        },
+        onCompletionShown: () => {
+          hasVisibleInlineSuggestion = true;
+        },
+        onCompletionAccepted: () => {
+          hasVisibleInlineSuggestion = false;
+          lastAutoCursorKey = '';
+          applyWithUndoStopBarrier(editor, () => {});
+        },
+        onError: (err) => {
+          lastErrorMessage = String(err?.message || err);
+        },
+      });
+    };
+
     const attachToEditorBridge = (editorBridge) => {
       if (!editorBridge || providerDisposable) return;
 
@@ -944,6 +1407,7 @@ export default {
       if (currentActive) {
         activeEditorInstance = currentActive;
         bindEditorCursorListeners(currentActive);
+        bindMonacopilotToEditor(editorBridge, currentActive);
         scheduleCursorIdleAutoTrigger(350);
       }
 
@@ -951,12 +1415,19 @@ export default {
         editorBridge.onDidActiveEditorChange((editor) => {
           activeEditorInstance = editor;
           bindEditorCursorListeners(editor);
+          bindMonacopilotToEditor(editorBridge, editor);
           scheduleCursorIdleAutoTrigger(350);
         });
       }
 
+      // Register fallback bridge provider when Monacopilot is not directly attached to a live Monaco instance
       const inlineProvider = {
-        provideInlineCompletions,
+        provideInlineCompletions: async (...args) => {
+          if (activeMonacopilotRegistration) {
+            return { items: [] };
+          }
+          return await provideInlineCompletions(...args);
+        },
         freeInlineCompletions() {},
         handleItemDidShow() {
           hasVisibleInlineSuggestion = true;
@@ -984,6 +1455,11 @@ export default {
     if (typeof context?.config?.subscribe === 'function') {
       configUnsubscribe = context.config.subscribe((nextCfg) => {
         applyRuntimeConfig(nextCfg);
+        if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.updateOptions === 'function') {
+          activeMonacopilotRegistration.updateOptions(() => ({
+            trigger: triggerMode === 'manual' ? 'onDemand' : 'onTyping',
+          }));
+        }
       });
     }
 
@@ -996,6 +1472,11 @@ export default {
         typeof detail.config === 'object'
       ) {
         applyRuntimeConfig(detail.config);
+        if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.updateOptions === 'function') {
+          activeMonacopilotRegistration.updateOptions(() => ({
+            trigger: triggerMode === 'manual' ? 'onDemand' : 'onTyping',
+          }));
+        }
         void invokeWorker('completion.configure', detail.config).catch(() => {});
       }
     };
@@ -1036,7 +1517,9 @@ export default {
         hasVisibleInlineSuggestion = false;
         pendingManualTriggerUntil = Date.now() + 1500;
         clearMonacoInlineCompletionsCache(activeEditor);
-        if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
+        if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.trigger === 'function') {
+          activeMonacopilotRegistration.trigger();
+        } else if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
           void editorBridge.triggerInlineCompletion(activeEditor);
         } else if (typeof activeEditor?.trigger === 'function') {
           activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.trigger', {});
@@ -1127,6 +1610,10 @@ export default {
       const editorBridge = getEditorBridge();
       const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
       clearMonacoInlineCompletionsCache(activeEditor);
+      if (activeMonacopilotRegistration && typeof activeMonacopilotRegistration.trigger === 'function') {
+        activeMonacopilotRegistration.trigger();
+        return { triggered: true, via: 'monacopilot' };
+      }
       if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
         await editorBridge.triggerInlineCompletion(activeEditor);
         return { triggered: true, via: 'editor-bridge' };
@@ -1151,6 +1638,14 @@ export default {
       if (typeof cursorWatcherDisposer === 'function') {
         cursorWatcherDisposer();
         cursorWatcherDisposer = null;
+      }
+      if (activeMonacopilotRegistration) {
+        try {
+          activeMonacopilotRegistration.deregister();
+        } catch {
+          // ignore
+        }
+        activeMonacopilotRegistration = null;
       }
       cancelActiveCompletion(null, true);
       cache.clear();

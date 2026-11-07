@@ -1,31 +1,38 @@
 import type { DockviewApi } from 'dockview-react';
 import { ACTIVITY_RAIL_ITEMS } from '@/lib/activityRailOrder';
+import {
+  isBottomGroup,
+  isLeftGroup,
+  isSessionGroup,
+  listLeftDockGroups,
+} from '@/utils/dockviewGroupPolicy';
 
 /**
- * Apply header hiding to the left group (file tree / git / search / sessions).
- *
- * Dockview's `hideHeader` is honored during `addGroup()` but may not
- * survive a `fromJSON()` layout restore.  This function finds the group
- * containing a left dock panel and hides its tab header via DOM,
- * acting as a reliable post-restore fallback.
+ * Apply header hiding to the left group (file tree / git / search / sessions),
+ * while ensuring workspace (Zone B) and session dock (Zone C) groups remain
+ * unlocked and show their multi-tab header bars.
  */
 export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
   type GroupWithHeaderModel = {
+    locked?: boolean | string;
     model?: {
+      locked?: boolean | string;
       header?: {
         hidden?: boolean;
       };
     };
   };
 
-  const groups = new Set(
-    ACTIVITY_RAIL_ITEMS.map((panelId) => api.getPanel(panelId)?.group).filter(
-      (group): group is NonNullable<(typeof api.groups)[number]> =>
-        Boolean(group)
-    )
-  );
+  const leftGroups = new Set([
+    ...listLeftDockGroups(api.groups),
+    ...ACTIVITY_RAIL_ITEMS.map(
+      (panelId) => api.getPanel(panelId)?.group
+    ).filter((group): group is NonNullable<(typeof api.groups)[number]> =>
+      Boolean(group && isLeftGroup(group))
+    ),
+  ]);
 
-  for (const group of groups) {
+  for (const group of leftGroups) {
     try {
       const model = (group as GroupWithHeaderModel).model;
       if (model?.header && typeof model.header.hidden !== 'undefined') {
@@ -37,6 +44,33 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
 
     group.element?.classList.add('dv-header-hidden');
     group.element?.setAttribute('data-left-dock', 'true');
+  }
+
+  for (const group of api.groups) {
+    if (leftGroups.has(group) || isBottomGroup(group)) {
+      continue;
+    }
+
+    try {
+      const mutable = group as GroupWithHeaderModel;
+      mutable.locked = false;
+      if (mutable.model && typeof mutable.model.locked !== 'undefined') {
+        mutable.model.locked = false;
+      }
+      if (
+        mutable.model?.header &&
+        typeof mutable.model.header.hidden !== 'undefined'
+      ) {
+        mutable.model.header.hidden = false;
+      }
+    } catch {
+      // Ignore model access errors
+    }
+
+    group.element?.classList.remove('dv-header-hidden', 'dv-locked-groupview');
+    if (isSessionGroup(group)) {
+      group.element?.setAttribute('data-session-dock', 'true');
+    }
   }
 }
 
@@ -53,7 +87,18 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
 export function syncDockviewGroupRegistry(api: DockviewApi): void {
   const component = (
     api as unknown as {
-      component?: { _groups?: Map<string, { value?: { id?: string } }> };
+      component?: {
+        _groups?: Map<
+          string,
+          {
+            value?: {
+              id?: string;
+              model?: { id?: string };
+              api?: { id?: string };
+            };
+          }
+        >;
+      };
     }
   ).component;
   const registry = component?._groups;
@@ -61,6 +106,14 @@ export function syncDockviewGroupRegistry(api: DockviewApi): void {
 
   for (const [key, entry] of [...registry.entries()]) {
     const actualId = entry?.value?.id;
+    if (typeof actualId === 'string') {
+      if (entry.value?.model && typeof entry.value.model.id === 'string') {
+        entry.value.model.id = actualId;
+      }
+      if (entry.value?.api && typeof entry.value.api.id === 'string') {
+        (entry.value.api as { id: string }).id = actualId;
+      }
+    }
     if (
       typeof actualId === 'string' &&
       actualId !== key &&

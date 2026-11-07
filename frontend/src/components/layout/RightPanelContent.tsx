@@ -18,7 +18,8 @@ import {
   useRepoBranchSelection,
 } from '@/hooks';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
-import { useLayoutStore } from '@/stores/useLayoutStore';
+import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
+import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import {
@@ -28,7 +29,14 @@ import {
   resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
-import { getFirstAvailableProfile } from '@/utils/executor';
+import {
+  getDefaultProfileForExecutor,
+  getFirstAvailableProfile,
+} from '@/utils/executor';
+import {
+  CREATE_AGENT_SESSION_EVENT,
+  type CreateAgentSessionEventDetail,
+} from '@/lib/requestCreateSession';
 import {
   SessionCreationForm,
   type SessionControlsPreset,
@@ -36,6 +44,7 @@ import {
 } from '@/components/sessions/SessionCreationForm';
 import {
   ScratchType,
+  type AgentId,
   type ExecutorProfileId,
   type GitBranch,
   type Repo,
@@ -408,22 +417,45 @@ export function RightPanelContent() {
     ]
   );
 
+  const {
+    openSessionTab,
+    openOrFocusPanel,
+    runInEditorGroup,
+  } = usePanelActionsContext();
+  const pendingTargetGroupIdRef = useRef<string | null>(null);
+
   const handleCreatedSession = useCallback(
-    (session: { sessionId: string; workspaceId: string }) => {
+    (session: {
+      sessionId: string;
+      workspaceId: string;
+      agentId?: string | null;
+    }) => {
+      const targetGroupId = pendingTargetGroupIdRef.current;
+      pendingTargetGroupIdRef.current = null;
+      openSessionTab({
+        sessionId: session.sessionId,
+        workspaceId: session.workspaceId,
+        agentId: session.agentId ?? null,
+        targetGroupId,
+      });
       placeCreatedSession(session);
       syncWorkspaceRouteSession(session);
     },
-    [placeCreatedSession, syncWorkspaceRouteSession]
+    [openSessionTab, placeCreatedSession, syncWorkspaceRouteSession]
   );
 
   const handleSelectedSession = useCallback(
     (session: { sessionId: string; workspaceId: string }) => {
       setIsCreateOverlayOpen(false);
       setCreateOverlayWorkspaceId(null);
+      openSessionTab({
+        sessionId: session.sessionId,
+        workspaceId: session.workspaceId,
+      });
       activateExecutionSession(session);
       syncWorkspaceRouteSession(session);
     },
-    [activateExecutionSession, syncWorkspaceRouteSession]
+    [activateExecutionSession, openSessionTab, syncWorkspaceRouteSession]
   );
 
   useEffect(() => {
@@ -432,6 +464,32 @@ export function RightPanelContent() {
     }
     activateExecutionSession({ sessionId, workspaceId });
   }, [activateExecutionSession, isWorkspaceRoute, sessionId, workspaceId]);
+
+  const activeWorkspaceSessionId =
+    workspaceExecutionSessionId || rightSessionId;
+  const activeWorkspaceSessionWorkspaceId =
+    workspaceExecutionWorkspaceId || rightSessionWorkspaceId;
+
+  useEffect(() => {
+    if (
+      effectiveActiveTab !== 'workspace' ||
+      !activeWorkspaceSessionId ||
+      !activeWorkspaceSessionWorkspaceId ||
+      isCreateOverlayVisible
+    ) {
+      return;
+    }
+    openSessionTab({
+      sessionId: activeWorkspaceSessionId,
+      workspaceId: activeWorkspaceSessionWorkspaceId,
+    });
+  }, [
+    activeWorkspaceSessionId,
+    activeWorkspaceSessionWorkspaceId,
+    effectiveActiveTab,
+    isCreateOverlayVisible,
+    openSessionTab,
+  ]);
 
   const canCreateSession =
     !!selectedExecutorProfile?.executor &&
@@ -449,14 +507,23 @@ export function RightPanelContent() {
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
 
   const createSessionMutation = useMutation({
-    mutationFn: async (input?: { includeUncommitted?: boolean }) => {
+    mutationFn: async (input?: {
+      includeUncommitted?: boolean;
+      executorProfile?: ExecutorProfileId;
+    }) => {
       if (!effectiveProjectId) {
         throw new Error('Project is required');
       }
 
+      const activeProfile = input?.executorProfile ?? selectedExecutorProfile;
+      const fallbackWorkspaceId =
+        activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
+
       const workspaceSelection = isGitProject
-        ? createMode === 'existing_workspace'
-          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+        ? createMode === 'existing_workspace' || input?.executorProfile
+          ? selectedWorkspaceOption
+            ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+            : { workspaceId: fallbackWorkspaceId ?? null, branch: null }
           : { workspaceId: null, branch: null }
         : { workspaceId: null, branch: null };
 
@@ -465,23 +532,32 @@ export function RightPanelContent() {
         project_id: effectiveProjectId,
         workspace_id: workspaceSelection.workspaceId,
         branch: workspaceSelection.branch,
-        executor: selectedExecutorProfile?.executor ?? undefined,
+        executor: activeProfile?.executor ?? undefined,
         name: null,
-        create_workspace: isGitProject && createMode === 'new_workspace',
+        create_workspace:
+          isGitProject &&
+          createMode === 'new_workspace' &&
+          !input?.executorProfile,
         include_uncommitted:
-          isGitProject && createMode === 'new_workspace'
+          isGitProject &&
+          createMode === 'new_workspace' &&
+          !input?.executorProfile
             ? Boolean(input?.includeUncommitted)
             : undefined,
         repos:
-          isGitProject && createMode === 'new_workspace'
+          isGitProject &&
+          createMode === 'new_workspace' &&
+          !input?.executorProfile
             ? getWorkspaceRepoInputs()
             : undefined,
         mode_override: sessionControls?.modeOverride ?? null,
         config_overrides: sessionControls?.configOverrides ?? null,
       });
     },
-    onSuccess: async (newSession) => {
-      if (selectedExecutorProfile?.executor) {
+    onSuccess: async (newSession, variables) => {
+      const profileToPersist =
+        variables?.executorProfile ?? selectedExecutorProfile;
+      if (profileToPersist?.executor) {
         try {
           await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, newSession.id, {
             payload: {
@@ -489,7 +565,7 @@ export function RightPanelContent() {
               data: {
                 message: '',
                 images: [],
-                executor_config: selectedExecutorProfile,
+                executor_config: profileToPersist,
                 queued: false,
                 mode_override:
                   sessionControlsPresetRef.current?.modeOverride ?? undefined,
@@ -522,6 +598,8 @@ export function RightPanelContent() {
       handleCreatedSession({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
+        agentId:
+          newSession.executor ?? profileToPersist?.executor ?? null,
       });
       setIsCreateOverlayOpen(false);
     },
@@ -582,7 +660,26 @@ export function RightPanelContent() {
 
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
-  }, [handleCreateOverlayOpenChange]);
+    if (effectiveActiveTab === 'workspace') {
+      const targetGroupId = pendingTargetGroupIdRef.current;
+      const openPlaceholder = () =>
+        openOrFocusPanel(
+          PANEL_IDS.AI_CHAT,
+          t('rightPanelContent.newSession')
+        );
+      if (targetGroupId) {
+        runInEditorGroup(targetGroupId, openPlaceholder);
+      } else {
+        openPlaceholder();
+      }
+    }
+  }, [
+    effectiveActiveTab,
+    handleCreateOverlayOpenChange,
+    openOrFocusPanel,
+    runInEditorGroup,
+    t,
+  ]);
 
   const sessionCreationContextValue = useMemo(
     () => ({ openCreateSessionOverlay }),
@@ -608,6 +705,63 @@ export function RightPanelContent() {
     openCreateSessionOverlay,
     searchParams,
     setSearchParams,
+  ]);
+
+  useEffect(() => {
+    const handleCreateAgentSession = (event: Event) => {
+      const customEvent = event as CustomEvent<CreateAgentSessionEventDetail>;
+      const agentId = customEvent.detail?.agentId?.trim();
+      if (!agentId) return;
+      pendingTargetGroupIdRef.current =
+        customEvent.detail?.targetGroupId ?? null;
+
+      const targetProfile: ExecutorProfileId = getDefaultProfileForExecutor(
+        agentId as AgentId,
+        profiles
+      ) ?? {
+        executor: agentId as AgentId,
+        variant: null,
+      };
+
+      setSelectedExecutorProfile(targetProfile);
+
+      const fallbackWorkspaceId =
+        activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
+      const canCreateImmediately =
+        Boolean(effectiveProjectId) &&
+        (!isGitProject ||
+          Boolean(selectedWorkspaceOption || fallbackWorkspaceId));
+
+      if (canCreateImmediately) {
+        sessionControlsPresetRef.current = null;
+        createSessionMutation.mutate({ executorProfile: targetProfile });
+        return;
+      }
+
+      openCreateSessionOverlay();
+      setSelectedExecutorProfile(targetProfile);
+    };
+
+    window.addEventListener(
+      CREATE_AGENT_SESSION_EVENT,
+      handleCreateAgentSession
+    );
+    return () => {
+      window.removeEventListener(
+        CREATE_AGENT_SESSION_EVENT,
+        handleCreateAgentSession
+      );
+    };
+  }, [
+    activeWorktreeId,
+    createSessionMutation,
+    effectiveProjectId,
+    isGitProject,
+    openCreateSessionOverlay,
+    profiles,
+    selectedWorkspaceOption,
+    visibleRightSession?.workspaceId,
+    workspaceId,
   ]);
 
   // Stable props for the conversation view: the view mounts placement slots

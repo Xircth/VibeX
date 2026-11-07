@@ -260,4 +260,31 @@ describe('WorkspaceDockviewTab', () => {
       iconKind
     );
   });
+
+  it('renders small round color marker dot and session title text without Agent icon on session tabs', () => {
+    const { props } = tabProps({
+      component: PANEL_IDS.AI_CHAT,
+      id: 'ai-chat:session-1',
+      params: {
+        sessionId: 'session-1',
+        workspaceId: 'ws-1',
+        agentId: 'claude_code',
+      },
+      title: 'Fix authentication flow',
+    });
+
+    render(<WorkspaceDockviewTab {...props} />);
+
+    const marker = screen.getByTestId('workspace-session-tab-marker');
+    expect(marker).toHaveAttribute('data-tab-icon', 'session-marker');
+    expect(marker).toHaveClass(
+      'workspace-session-tab-marker',
+      'h-2',
+      'w-2',
+      'rounded-full',
+      'session-marker-slot-1'
+    );
+    expect(screen.queryByTestId('workspace-tab-icon')).not.toBeInTheDocument();
+    expect(screen.getByText('Fix authentication flow')).toBeInTheDocument();
+  });
 });

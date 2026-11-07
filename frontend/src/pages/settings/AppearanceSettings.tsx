@@ -48,12 +48,6 @@ import {
   type KanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
 import {
-  KANBAN_BOARD_STYLES,
-  getKanbanBoardStyle,
-  setKanbanBoardStyle,
-  type KanbanBoardStyle,
-} from '@/lib/kanbanBoardStyle';
-import {
   getSettingsNavFloat,
   setSettingsNavFloat,
 } from '@/lib/settingsNavFloat';
@@ -201,8 +195,6 @@ export function AppearanceSettings() {
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
-  const [kanbanBoardStyle, setKanbanBoardStyleState] =
-    useState<KanbanBoardStyle>(() => getKanbanBoardStyle());
   const [settingsNavFloat, setSettingsNavFloatState] = useState<boolean>(() =>
     getSettingsNavFloat()
   );
@@ -413,32 +405,6 @@ export function AppearanceSettings() {
                     key={view}
                     value={view}
                     label={t(`appearance.kanbanSessionList.${view}`)}
-                  />
-                ))}
-              </SegmentedControl>
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label>{t('appearance.kanbanBoardStyle.label')}</Label>
-              </div>
-              <SegmentedControl
-                className="shrink-0"
-                value={kanbanBoardStyle}
-                onChange={(value) => {
-                  const next = value as KanbanBoardStyle;
-                  setKanbanBoardStyleState(next);
-                  setKanbanBoardStyle(next);
-                }}
-                label={t('appearance.kanbanBoardStyle.label')}
-                size="sm"
-                layout="hug"
-              >
-                {KANBAN_BOARD_STYLES.map((style) => (
-                  <SegmentedControlItem
-                    key={style}
-                    value={style}
-                    label={t(`appearance.kanbanBoardStyle.${style}`)}
                   />
                 ))}
               </SegmentedControl>

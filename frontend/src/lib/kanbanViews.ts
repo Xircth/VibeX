@@ -45,7 +45,7 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
   },
 ];
 
-export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:sessions';
+export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:canvas';
 
 export function migrateKanbanViewId(
   panelView?: LegacyKanbanPanelView | string | null,
@@ -58,11 +58,11 @@ export function migrateKanbanViewId(
     return panelView;
   }
   if (
-    boardStyle === 'canvas' &&
+    boardStyle === 'fixed' &&
     panelView !== 'board' &&
     panelView !== 'usageDashboard'
   ) {
-    return 'builtin:canvas';
+    return 'builtin:sessions';
   }
   switch (panelView) {
     case 'board':

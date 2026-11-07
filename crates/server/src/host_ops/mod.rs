@@ -2007,7 +2007,7 @@ fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>)
         .map(str::trim)
         .filter(|prompt| !prompt.is_empty())
     {
-        return prompt.chars().take(40).collect();
+        return prompt.chars().take(32).collect();
     }
     NEW_SESSION_WORKSPACE_TITLE.to_string()
 }

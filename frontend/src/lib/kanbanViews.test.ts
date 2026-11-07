@@ -37,7 +37,8 @@ const views = [
 describe('kanbanViews', () => {
   it('migrates the old three-page plus canvas style model', () => {
     expect(migrateKanbanViewId('board')).toBe('builtin:columns');
-    expect(migrateKanbanViewId('sessionHub')).toBe('builtin:sessions');
+    expect(migrateKanbanViewId('sessionHub')).toBe('builtin:canvas');
+    expect(migrateKanbanViewId('sessionHub', 'fixed')).toBe('builtin:sessions');
     expect(migrateKanbanViewId('usageDashboard')).toBe('builtin:usage');
     expect(migrateKanbanViewId('sessionHub', 'canvas')).toBe('builtin:canvas');
   });

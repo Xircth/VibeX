@@ -382,9 +382,9 @@ describe('sessionListTitle', () => {
     ).toBe('Login review');
   });
 
-  it('uses the first prompt when the session has no manual name', () => {
+  it('uses the first prompt capped at 32 characters when the session has no manual name', () => {
     expect(sessionListTitle(session())).toBe(
-      'Double Password Prompt on Project Login'
+      'Double Password Prompt on Projec'
     );
   });
 

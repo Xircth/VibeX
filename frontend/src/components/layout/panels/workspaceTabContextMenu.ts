@@ -16,7 +16,11 @@ import {
   getTerminalWorkspaceKey,
 } from '@/lib/terminalPreferences';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
-import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
+import {
+  isEditorGroup,
+  isLeftGroup,
+  isSessionGroup,
+} from '@/utils/dockviewGroupPolicy';
 import { useContext } from 'react';
 import { QueryClientContext } from '@tanstack/react-query';
 import { terminalHostPlatform } from '@/utils/platform';
@@ -205,7 +209,12 @@ export function useWorkspaceEditorTabMenu(
   const browser = findHostBrowserContribution(pluginPanels);
 
   const group = api.group;
-  if (!group || !isEditorGroup(group)) return null;
+  if (
+    !group ||
+    (!isEditorGroup(group) && !isLeftGroup(group) && !isSessionGroup(group))
+  ) {
+    return null;
+  }
 
   const labels: WorkspaceTabMenuLabels = {
     refresh: t('tabCreation.refresh', '刷新'),
@@ -228,7 +237,14 @@ export function useWorkspaceEditorTabMenu(
   return {
     open(event) {
       const current = api.group;
-      if (!current || !isEditorGroup(current)) return;
+      if (
+        !current ||
+        (!isEditorGroup(current) &&
+          !isLeftGroup(current) &&
+          !isSessionGroup(current))
+      ) {
+        return;
+      }
       const panels = current.panels;
       const closePanel = (panel: (typeof panels)[number]) => {
         if (

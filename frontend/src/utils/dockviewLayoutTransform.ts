@@ -18,11 +18,17 @@
  * re-parented across slots without changing its meaning.
  */
 import { Orientation, type SerializedDockview } from 'dockview-core';
-import { GROUP_IDS, PANEL_IDS } from '@/stores/useLayoutStore';
+import {
+  EDITOR_GROUP_PREFIX,
+  GROUP_IDS,
+  PANEL_IDS,
+} from '@/stores/useLayoutStore';
 import {
   BOTTOM_PANEL_IDS,
+  isSessionPanelId,
+  LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
-  SESSION_PANEL_IDS,
+  RIGHT_GROUP_PREFIX,
 } from '@/utils/dockviewGroupPolicy';
 import {
   LAYOUT_SLOTS,
@@ -83,30 +89,41 @@ function isLeafNode(node: SerializedNode): node is SerializedLeaf {
 }
 
 export function classifyLeafZone(leaf: SerializedLeaf): LayoutZone {
-  const views = leaf.data.views ?? [];
-  if (
-    leaf.data.id === GROUP_IDS.LEFT ||
-    views.some((view) => LEFT_PANEL_IDS.has(view))
-  ) {
+  const id = leaf.data.id;
+  if (id === GROUP_IDS.LEFT || id.startsWith(LEFT_GROUP_PREFIX)) {
     return 'dock';
   }
-  if (
-    leaf.data.id === GROUP_IDS.BOTTOM ||
-    views.some((view) => BOTTOM_PANEL_IDS.has(view))
-  ) {
+  if (id === GROUP_IDS.BOTTOM) {
     return 'terminal';
   }
-  if (
-    leaf.data.id === GROUP_IDS.RIGHT ||
-    views.some((view) => SESSION_PANEL_IDS.has(view))
-  ) {
+  if (id === GROUP_IDS.RIGHT || id.startsWith(RIGHT_GROUP_PREFIX)) {
+    return 'session';
+  }
+  if (id.startsWith(EDITOR_GROUP_PREFIX)) {
+    return 'workspace';
+  }
+
+  const views = leaf.data.views ?? [];
+  if (views.some((view) => LEFT_PANEL_IDS.has(view))) {
+    return 'dock';
+  }
+  if (views.some((view) => BOTTOM_PANEL_IDS.has(view))) {
+    return 'terminal';
+  }
+  if (views.some((view) => isSessionPanelId(view))) {
     return 'session';
   }
   return 'workspace';
 }
 
 function cloneLeaf(leaf: SerializedLeaf): SerializedLeaf {
-  return JSON.parse(JSON.stringify(leaf)) as SerializedLeaf;
+  const cloned = JSON.parse(JSON.stringify(leaf)) as SerializedLeaf;
+  const zone = classifyLeafZone(cloned);
+  if (zone === 'workspace' || zone === 'session') {
+    delete cloned.data.locked;
+    delete cloned.data.hideHeader;
+  }
+  return cloned;
 }
 
 function collectLeaves(node: SerializedNode, out: SerializedLeaf[]): void {
@@ -205,8 +222,6 @@ function synthesizeSessionLeaf(visible: boolean): SerializedLeaf {
       views: [PANEL_IDS.AI_CHAT],
       activeView: PANEL_IDS.AI_CHAT,
       id: GROUP_IDS.RIGHT,
-      locked: 'no-drop-target',
-      hideHeader: true,
     },
     visible,
   };
@@ -230,22 +245,49 @@ export function serializedLayoutMatchesArrangement(
   if (!root || isLeafNode(root)) return false;
   if (layout.grid.orientation !== Orientation.HORIZONTAL) return false;
   const columns = root.data;
-  if (columns.length !== 3) return false;
+  if (columns.length < 3) return false;
 
-  const [left, center, right] = columns.map((column) => [
-    ...zonesInNode(column),
-  ]);
+  const columnZones = columns.map((column) => [...zonesInNode(column)]);
   const isExactly = (zones: LayoutZone[], expected: LayoutZone) =>
     zones.length === 1 && zones[0] === expected;
+  const isCenterColumn = (zones: LayoutZone[]) =>
+    zones.length > 0 &&
+    zones.every(
+      (zone) => zone === arrangement.center || zone === arrangement.bottom
+    );
 
-  if (!isExactly(left, arrangement.left)) return false;
-  if (!isExactly(right, arrangement.right)) return false;
-  // The center column holds the center zone, optionally with the bottom-slot
-  // zone as a strip underneath it.
-  if (!center.includes(arrangement.center)) return false;
-  return center.every(
-    (zone) => zone === arrangement.center || zone === arrangement.bottom
-  );
+  let idx = 0;
+  let leftCount = 0;
+  while (
+    idx < columnZones.length &&
+    isExactly(columnZones[idx], arrangement.left)
+  ) {
+    leftCount += 1;
+    idx += 1;
+  }
+  if (leftCount === 0) return false;
+
+  let centerCount = 0;
+  let hasCenterZone = false;
+  while (idx < columnZones.length && isCenterColumn(columnZones[idx])) {
+    if (columnZones[idx].includes(arrangement.center)) {
+      hasCenterZone = true;
+    }
+    centerCount += 1;
+    idx += 1;
+  }
+  if (centerCount === 0 || !hasCenterZone) return false;
+
+  let rightCount = 0;
+  while (
+    idx < columnZones.length &&
+    isExactly(columnZones[idx], arrangement.right)
+  ) {
+    rightCount += 1;
+    idx += 1;
+  }
+
+  return rightCount > 0 && idx === columnZones.length;
 }
 
 export function arrangeSerializedLayout(

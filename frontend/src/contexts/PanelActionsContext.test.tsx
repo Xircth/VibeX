@@ -569,4 +569,202 @@ describe('PanelActionsContext editor placement', () => {
       PanelActionsContext
     );
   });
+
+  it('keeps multiple tabs in the left dock group without deleting sibling tabs', () => {
+    class ResizeObserverStub {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??=
+      ResizeObserverStub;
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(900, 600, true);
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+      title: 'Welcome',
+    });
+    (welcome.group as { id: string }).id = 'group-editor-1';
+    const leftGroup = api.addGroup({
+      id: 'group-left',
+      referencePanel: welcome,
+      direction: 'left',
+    });
+    api.addPanel({
+      id: PANEL_IDS.FILE_TREE,
+      component: PANEL_IDS.FILE_TREE,
+      title: 'Files',
+      position: { referenceGroup: leftGroup, direction: 'within' },
+    });
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    act(() => {
+      actions?.toggleGitPanel();
+    });
+
+    expect(leftGroup.panels.map((p) => p.id)).toEqual([PANEL_IDS.GIT]);
+    expect(actions?.isPanelOpen(PANEL_IDS.GIT)).toBe(true);
+    expect(actions?.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
+
+    act(() => {
+      actions?.placeLeftDockPanel(PANEL_IDS.FILE_TREE, 'bottom');
+    });
+
+    expect(actions?.isLeftDockSplit()).toBe(true);
+    expect(leftGroup.panels.map((p) => p.id)).toEqual([PANEL_IDS.GIT]);
+    expect(actions?.isPanelOpen(PANEL_IDS.GIT)).toBe(true);
+    expect(actions?.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(true);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('opens session tabs in Zone C by default and allocates across split Zone C tab bars', () => {
+    class ResizeObserverStub {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??=
+      ResizeObserverStub;
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(1200, 600, true);
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+      title: 'Welcome',
+    });
+    (welcome.group as { id: string }).id = 'group-editor-1';
+    const rightGroup = api.addGroup({
+      id: 'group-right',
+      referencePanel: welcome,
+      direction: 'right',
+    });
+    api.addPanel({
+      id: PANEL_IDS.AI_CHAT,
+      component: PANEL_IDS.AI_CHAT,
+      title: 'Sessions',
+      position: { referenceGroup: rightGroup, direction: 'within' },
+    });
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-1',
+        workspaceId: 'ws-1',
+        title: 'First Session',
+      });
+    });
+
+    expect(rightGroup.panels.map((p) => p.id)).toEqual(['ai-chat:session-1']);
+    expect(api.getPanel(PANEL_IDS.AI_CHAT)).toBeUndefined();
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-2',
+        workspaceId: 'ws-1',
+        title: 'Second Session',
+      });
+    });
+
+    expect(rightGroup.panels.map((p) => p.id)).toEqual([
+      'ai-chat:session-1',
+      'ai-chat:session-2',
+    ]);
+
+    let split = false;
+    act(() => {
+      split = actions?.splitEditorPanel('ai-chat:session-2', 'below') ?? false;
+    });
+    expect(split).toBe(true);
+
+    const splitRightGroup = api.getGroup('group-right-1') as
+      | (ReturnType<typeof api.getGroup> & { element: HTMLElement })
+      | undefined;
+    expect(splitRightGroup).toBeDefined();
+    expect(splitRightGroup?.element.getAttribute('data-session-dock')).toBe(
+      'true'
+    );
+    expect(
+      splitRightGroup?.element.classList.contains('dv-header-hidden')
+    ).toBe(false);
+    expect(rightGroup.panels.map((p) => p.id)).toEqual(['ai-chat:session-1']);
+    expect(splitRightGroup?.panels.map((p) => p.id)).toEqual([
+      'ai-chat:session-2',
+    ]);
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-3',
+        workspaceId: 'ws-1',
+        title: 'Third Session',
+      });
+    });
+
+    // Active group is group-right-1 (1 tab vs 1 tab tie-breaker favors active group),
+    // then next session-4 goes to group-right (which now has 1 tab vs 2 tabs).
+    expect(splitRightGroup?.panels.map((p) => p.id)).toEqual([
+      'ai-chat:session-2',
+      'ai-chat:session-3',
+    ]);
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-4',
+        workspaceId: 'ws-1',
+        title: 'Fourth Session',
+      });
+    });
+
+    expect(rightGroup.panels.map((p) => p.id)).toEqual([
+      'ai-chat:session-1',
+      'ai-chat:session-4',
+    ]);
+
+    api.dispose();
+    container.remove();
+  });
 });

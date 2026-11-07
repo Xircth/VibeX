@@ -17,8 +17,9 @@ import {
   isEditorGroup,
   isLeftGroup,
   isSessionGroup,
+  isSessionPanelId,
   listLeftDockGroups,
-  SESSION_PANEL_IDS,
+  listSessionGroups,
 } from '@/utils/dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
 import { gridLocationFromElement } from '@/utils/dockviewEditorSplit';
@@ -348,6 +349,20 @@ export function setLeftDockVisible(
   );
 }
 
+export function setSessionDockVisible(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  visible: boolean
+): void {
+  const groups = listSessionGroups(api.groups);
+  if (groups.length === 0) return;
+  setColumnsVisible(
+    api,
+    arrangement,
+    groups.map((group) => ({ group, visible }))
+  );
+}
+
 export function setColumnsVisible(
   api: DockviewApi,
   arrangement: LayoutArrangement,
@@ -562,7 +577,7 @@ export function ensureWelcomeEditorGroup(
     leftGroup?.panels[0] ??
     api.panels.find(
       (panel) =>
-        !BOTTOM_PANEL_IDS.has(panel.id) && !SESSION_PANEL_IDS.has(panel.id)
+        !BOTTOM_PANEL_IDS.has(panel.id) && !isSessionPanelId(panel.id)
     );
 
   const leftWidth =

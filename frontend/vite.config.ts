@@ -141,7 +141,11 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
       };
     })(),
     fs: {
-      allow: [path.resolve(__dirname, '.'), path.resolve(__dirname, '..')],
+      allow: [
+        path.resolve(__dirname, '.'),
+        path.resolve(__dirname, '..'),
+        path.resolve(__dirname, '../../..'),
+      ],
     },
     open: process.env.VITE_OPEN === 'true',
     allowedHosts: [

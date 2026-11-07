@@ -173,7 +173,7 @@ describe('WorkspaceSessionList', () => {
 
     expect(
       screen.getByRole('button', {
-        name: /DeepSeek Harness full integration/,
+        name: /DeepSeek Harness full integratio/,
       })
     ).toBeInTheDocument();
 
@@ -181,7 +181,7 @@ describe('WorkspaceSessionList', () => {
 
     expect(
       screen.queryByRole('button', {
-        name: /DeepSeek Harness full integration/,
+        name: /DeepSeek Harness full integratio/,
       })
     ).not.toBeInTheDocument();
     expect(localStorage.getItem(WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY)).toBe(
@@ -191,7 +191,7 @@ describe('WorkspaceSessionList', () => {
     fireEvent.click(screen.getByRole('button', { name: 'main' }));
     fireEvent.click(
       screen.getByRole('button', {
-        name: /DeepSeek Harness full integration/,
+        name: /DeepSeek Harness full integratio/,
       })
     );
     expect(onSessionClick).toHaveBeenCalledTimes(1);

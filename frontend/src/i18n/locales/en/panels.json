@@ -169,6 +169,18 @@
     "review": "Review",
     "note": "Note",
     "terminal": "Terminal",
+    "fileTree": "File Tree",
+    "gitPanel": "Git Panel",
+    "sessionList": "Session List",
+    "processes": "Processes",
+    "sessionDetails": "Session Details",
+    "noEnabledAgents": "No enabled agents",
+    "sections": {
+      "features": "Features",
+      "info": "Info",
+      "agents": "Agent",
+      "other": "Other"
+    },
     "close": "Close",
     "closeCurrent": "Close tab",
     "closeOthers": "Close other tabs",

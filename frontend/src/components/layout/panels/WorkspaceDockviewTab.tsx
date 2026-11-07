@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   List,
   MessageSquare,
+  MessagesSquare,
   NotebookPen,
   Puzzle,
   ScrollText,
@@ -26,7 +27,14 @@ import {
 import { panelRegistry } from '@vibex/plugin-sdk';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import FileIcon from '@/components/FileIcon';
+import { cn } from '@/lib/utils';
+import {
+  extractSessionIdFromPanelId,
+  resolveSessionTabMarker,
+  useWorkspaceOpenSessionIds,
+} from '@/lib/workspaceSessionTabSlots';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+import { isSessionPanelId } from '@/utils/dockviewGroupPolicy';
 import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useAppContextMenu } from '@/components/context-menu';
@@ -47,6 +55,9 @@ export interface WorkspaceTabParams {
   imagePreviewId?: string | null;
   mode?: 'editor' | 'diff';
   icon?: string | null;
+  sessionId?: string | null;
+  workspaceId?: string | null;
+  agentId?: string | null;
 }
 
 const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
@@ -62,7 +73,7 @@ const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
   [PANEL_IDS.SESSION_DETAILS]: [ClipboardList, 'session-details'],
   [PANEL_IDS.PROCESSES]: [List, 'processes'],
   [PANEL_IDS.SEARCH]: [Search, 'search'],
-  [PANEL_IDS.SESSION_LIST]: [List, 'session-list'],
+  [PANEL_IDS.SESSION_LIST]: [MessagesSquare, 'session-list'],
   [PANEL_IDS.TERMINAL]: [SquareTerminal, 'terminal'],
   [PANEL_IDS.WELCOME]: [House, 'welcome'],
 };
@@ -70,9 +81,13 @@ const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
 function WorkspaceTabIcon({
   component,
   params,
+  isBoundSessionTab,
+  sessionMarker,
 }: {
   component: string;
   params: WorkspaceTabParams;
+  isBoundSessionTab?: boolean;
+  sessionMarker?: { bar: string; hue?: string } | null;
 }) {
   const faviconUrl = params.faviconUrl?.trim() || null;
   const [failedFaviconUrl, setFailedFaviconUrl] = React.useState<string | null>(
@@ -102,6 +117,25 @@ function WorkspaceTabIcon({
           onError={() => setFailedFaviconUrl(faviconUrl)}
         />
       </span>
+    );
+  }
+
+  if (isBoundSessionTab && sessionMarker) {
+    return (
+      <span
+        className={cn(
+          'workspace-tab-icon workspace-session-tab-marker h-2 w-2 shrink-0 rounded-full',
+          sessionMarker.bar
+        )}
+        data-tab-icon="session-marker"
+        data-testid="workspace-session-tab-marker"
+        style={
+          sessionMarker.hue
+            ? { backgroundColor: `hsl(${sessionMarker.hue})` }
+            : undefined
+        }
+        aria-hidden="true"
+      />
     );
   }
 
@@ -192,6 +226,7 @@ export function WorkspaceDockviewTab({
     params ?? {}
   );
   const isMiddleMouseButton = React.useRef(false);
+  const openSessionIds = useWorkspaceOpenSessionIds();
 
   React.useEffect(() => {
     const disposable = api.onDidTitleChange((event) => {
@@ -211,6 +246,23 @@ export function WorkspaceDockviewTab({
     });
     return () => disposable.dispose();
   }, [api]);
+
+  const sessionId =
+    tabParams.sessionId?.trim() || extractSessionIdFromPanelId(api.id);
+  const isSessionTab =
+    Boolean(sessionId) ||
+    isSessionPanelId(api.id) ||
+    api.component === PANEL_IDS.AI_CHAT;
+  const isBoundSessionTab = Boolean(sessionId);
+  const sessionMarker = React.useMemo(
+    () =>
+      isBoundSessionTab
+        ? resolveSessionTabMarker(sessionId, openSessionIds)
+        : null,
+    [isBoundSessionTab, openSessionIds, sessionId]
+  );
+
+  const effectiveHideClose = Boolean(hideClose);
 
   const queryClient = React.useContext(QueryClientContext);
   const refreshTab = React.useCallback(() => {
@@ -247,8 +299,13 @@ export function WorkspaceDockviewTab({
     <div
       {...rest}
       data-testid="dockview-dv-default-tab"
+      data-session-tab={isSessionTab ? 'true' : undefined}
       title={title}
-      className="dv-default-tab workspace-tab-surface"
+      aria-label={title}
+      className={cn(
+        'dv-default-tab workspace-tab-surface',
+        isSessionTab && 'workspace-session-tab'
+      )}
       onContextMenu={(event) => {
         if (editorTabMenu) {
           editorTabMenu.open(event.nativeEvent);
@@ -266,13 +323,13 @@ export function WorkspaceDockviewTab({
           {
             id: 'close',
             label: t('contextMenu.closeTab'),
-            disabled: hideClose,
+            disabled: effectiveHideClose,
             onSelect: () => onClose(event),
           },
           {
             id: 'close-others',
             label: t('contextMenu.closeOtherTabs'),
-            disabled: panels.length <= 1,
+            disabled: effectiveHideClose || panels.length <= 1,
             onSelect: () => {
               panels
                 .filter((panel) => panel.id !== api.id)
@@ -282,7 +339,8 @@ export function WorkspaceDockviewTab({
           {
             id: 'close-right',
             label: t('contextMenu.closeTabsToRight'),
-            disabled: index < 0 || index >= panels.length - 1,
+            disabled:
+              effectiveHideClose || index < 0 || index >= panels.length - 1,
             onSelect: () => {
               panels.slice(index + 1).forEach((panel) => panel.api.close());
             },
@@ -294,7 +352,11 @@ export function WorkspaceDockviewTab({
         onPointerDown?.(event);
       }}
       onPointerUp={(event) => {
-        if (isMiddleMouseButton.current && event.button === 1 && !hideClose) {
+        if (
+          isMiddleMouseButton.current &&
+          event.button === 1 &&
+          !effectiveHideClose
+        ) {
           isMiddleMouseButton.current = false;
           onClose(event);
         }
@@ -305,9 +367,14 @@ export function WorkspaceDockviewTab({
         onPointerLeave?.(event);
       }}
     >
-      <WorkspaceTabIcon component={api.component} params={tabParams} />
+      <WorkspaceTabIcon
+        component={api.component}
+        params={tabParams}
+        isBoundSessionTab={isBoundSessionTab}
+        sessionMarker={sessionMarker}
+      />
       <span className="dv-default-tab-content">{title}</span>
-      {!hideClose && (
+      {!effectiveHideClose && (
         <div
           className="dv-default-tab-action rounded-full"
           onPointerDown={(event) => event.preventDefault()}

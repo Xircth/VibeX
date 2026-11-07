@@ -2,7 +2,10 @@ import type { ExecutorProfileId } from 'shared/types';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { collaborationStoredSessionName } from '@/features/collaboration/sessionCollaboration';
-import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
+import {
+  sanitizeSessionListTitle,
+  truncateSessionTitle,
+} from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
 
 export { sanitizeSessionListTitle };
@@ -112,9 +115,9 @@ export function sessionListTitle(session: KanbanProjectSessionRecord): string {
   if (manualName) return manualName;
 
   const prompt = session.firstPrompt?.replace(/\s+/g, ' ').trim();
-  if (prompt) return prompt;
+  if (prompt) return truncateSessionTitle(prompt);
 
-  return session.fullName;
+  return truncateSessionTitle(session.fullName);
 }
 
 export function workspaceSessionStatusTone(session: {

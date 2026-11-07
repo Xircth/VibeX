@@ -75,8 +75,8 @@ import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   installEditorColumnWidthRebalance,
-  setColumnVisible,
   setLeftDockVisible,
+  setSessionDockVisible,
   setColumnsVisible,
   shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
@@ -122,14 +122,20 @@ import {
   BOTTOM_PANEL_IDS,
   compareEditorGroups,
   getGroupElement,
+  getNextEditorGroupId,
+  getNextRightGroupId,
   isBottomGroup,
   isEditorGroup,
   isLeftGroup,
   isSessionGroup,
+  isSessionPanelId,
   isPlaceholderPanelId,
   LEFT_PANEL_IDS,
-  SESSION_PANEL_IDS,
+  listSessionGroups,
+  RIGHT_GROUP_PREFIX,
 } from '@/utils/dockviewGroupPolicy';
+import { installDockviewPointerTabDnd } from '@/utils/dockviewPointerTabDnd';
+import { syncWorkspaceOpenSessionIdsFromDockview } from '@/lib/workspaceSessionTabSlots';
 import '@/styles/dockview-ayu.css';
 import {
   defaultSessionPanelWidth,
@@ -235,19 +241,6 @@ function zoneOrderMatchesArrangement(
   return true;
 }
 
-function hideGroupHeader(group: DockviewGroup) {
-  try {
-    const model = (group as { model?: { header?: { hidden?: boolean } } })
-      .model;
-    if (typeof model?.header?.hidden !== 'undefined') {
-      model.header.hidden = true;
-    }
-  } catch {
-    // Ignore internal model access failures and rely on CSS class fallback.
-  }
-  getGroupElement(group)?.classList.add('dv-header-hidden');
-}
-
 function getEditorGroups(api: DockviewApi): DockviewGroup[] {
   return api.groups
     .filter((group) => isEditorGroup(group))
@@ -263,16 +256,30 @@ function normalizeGroupIds(api: DockviewApi) {
     (leftGroup as { id: string }).id = GROUP_IDS.LEFT;
   }
 
-  const rightGroup = getRightGroup(api);
-  if (rightGroup) {
-    (rightGroup as { id: string }).id = GROUP_IDS.RIGHT;
-    rightGroup.locked = 'no-drop-target';
-    hideGroupHeader(rightGroup);
+  const sessionGroups = listSessionGroups(api.groups);
+  if (sessionGroups.length > 0) {
+    const primary =
+      sessionGroups.find((group) => group.id === GROUP_IDS.RIGHT) ??
+      sessionGroups[0];
+    (primary as { id: string }).id = GROUP_IDS.RIGHT;
+    for (const group of sessionGroups) {
+      if (group === primary) continue;
+      if (!group.id.startsWith(RIGHT_GROUP_PREFIX)) {
+        (group as { id: string }).id = getNextRightGroupId(api);
+      }
+    }
+  }
+
+  for (const group of api.groups) {
+    if (isEditorGroup(group) && !group.id.startsWith(EDITOR_GROUP_PREFIX)) {
+      (group as { id: string }).id = getNextEditorGroupId(api);
+    }
   }
 
   syncDockviewGroupRegistry(api);
   applyLeftGroupHeaderHiding(api);
   applyWorkspaceZoneConstraints(api);
+  syncWorkspaceOpenSessionIdsFromDockview(api);
 }
 
 function buildDefaultLayout(api: DockviewApi) {
@@ -309,13 +316,11 @@ function buildDefaultLayout(api: DockviewApi) {
     id: GROUP_IDS.RIGHT,
     referencePanel: welcomePanel,
     direction: 'right',
-    hideHeader: true,
     constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
     initialWidth: defaultSessionWidth(api.width),
   });
 
   addSessionPanelWithoutStealingFocus(api, rightGroup);
-  rightGroup.locked = 'no-drop-target';
   if (!useLayoutStore.getState().isRightPanelVisible) {
     rightGroup.api.setVisible(false);
   }
@@ -751,20 +756,23 @@ export function IDELayout({
         id: GROUP_IDS.RIGHT,
         referencePanel,
         direction: 'right',
-        hideHeader: true,
         constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
         initialWidth: defaultSessionWidth(api.width),
       });
     }
 
-    const sessionPanel = api.getPanel(PANEL_IDS.AI_CHAT);
-    if (sessionPanel) {
-      revealSessionPanelWithoutStealingFocus(sessionPanel);
+    const sessionGroups = listSessionGroups(api.groups);
+    const existingSessionPanel =
+      api.getPanel(PANEL_IDS.AI_CHAT) ??
+      api.panels.find((panel) => isSessionPanelId(panel.id)) ??
+      sessionGroups.find((group) => group.panels.length > 0)?.panels[0];
+
+    if (existingSessionPanel) {
+      revealSessionPanelWithoutStealingFocus(existingSessionPanel);
     } else {
       addSessionPanelWithoutStealingFocus(api, rightGroup);
     }
 
-    rightGroup.locked = 'no-drop-target';
     normalizeGroupIds(api);
     return rightGroup;
   }, []);
@@ -784,31 +792,39 @@ export function IDELayout({
     }
   };
 
+  const lastDropTargetZoneRef = useRef<'editor' | 'session' | null>(null);
+
   const registerDndGuard = useCallback((api: DockviewApi) => {
     return api.onWillShowOverlay((event) => {
       const ev: DockviewWillShowOverlayLocationEvent = event;
+      if (ev.kind === 'edge') {
+        event.preventDefault();
+        return;
+      }
+
       const targetGroup = ev.group;
-      const draggedPanelId = ev.panel?.id;
+      const panelData = ev.getData?.();
+      const draggedPanelId = panelData?.panelId ?? ev.panel?.id;
 
       if (!targetGroup || !draggedPanelId) {
         return;
       }
 
-      const isSourceLeftPanel = LEFT_PANEL_IDS.has(draggedPanelId);
-      const isSourceBottomPanel = BOTTOM_PANEL_IDS.has(draggedPanelId);
-      const isSourceSessionPanel = SESSION_PANEL_IDS.has(draggedPanelId);
-      const isSourceEditorPanel =
-        !isSourceLeftPanel && !isSourceBottomPanel && !isSourceSessionPanel;
+      const sourceGroup = panelData?.groupId
+        ? api.getGroup(panelData.groupId)
+        : undefined;
+      const isSourceLeftPanel = sourceGroup
+        ? isLeftGroup(sourceGroup)
+        : LEFT_PANEL_IDS.has(draggedPanelId);
+      const isSourceBottomPanel = sourceGroup
+        ? isBottomGroup(sourceGroup)
+        : BOTTOM_PANEL_IDS.has(draggedPanelId);
       const isTargetLeftGroup = isLeftGroup(targetGroup);
       const isTargetBottomGroup = isBottomGroup(targetGroup);
       const isTargetEditorGroup = isEditorGroup(targetGroup);
+      const isTargetSessionGroup = isSessionGroup(targetGroup);
 
       if (isSourceBottomPanel || isTargetBottomGroup) {
-        event.preventDefault();
-        return;
-      }
-
-      if (isSourceSessionPanel || isSessionGroup(targetGroup)) {
         event.preventDefault();
         return;
       }
@@ -824,13 +840,30 @@ export function IDELayout({
       }
 
       if (
-        isSourceEditorPanel &&
         isTargetEditorGroup &&
         getEditorGroups(api).length >= MAX_EDITOR_GROUPS &&
-        ev.position !== 'center'
+        ev.position !== 'center' &&
+        ev.kind === 'content'
       ) {
         event.preventDefault();
+        return;
       }
+
+      if (
+        isTargetSessionGroup &&
+        listSessionGroups(api.groups).length >= MAX_EDITOR_GROUPS &&
+        ev.position !== 'center' &&
+        ev.kind === 'content'
+      ) {
+        event.preventDefault();
+        return;
+      }
+
+      lastDropTargetZoneRef.current = isTargetSessionGroup
+        ? 'session'
+        : isTargetEditorGroup
+          ? 'editor'
+          : null;
     });
   }, []);
 
@@ -911,21 +944,31 @@ export function IDELayout({
         dockviewResizeObserver.observe(dockviewRootRef.current);
       }
 
+      const pointerTabDndDisposable = dockviewRootRef.current
+        ? installDockviewPointerTabDnd(dockviewRootRef.current)
+        : null;
       const dndGuardDisposable = registerDndGuard(api);
       const removePanelDisposable = api.onDidRemovePanel((panel) => {
         if (isResettingRef.current) return;
 
-        if (panel.id === PANEL_IDS.AI_CHAT) {
-          const rightGroup = ensureSessionPanel(api);
-          if (rightGroup) {
-            setColumnVisible(
-              api,
-              getLayoutArrangement(),
-              rightGroup,
-              useLayoutStore.getState().isRightPanelVisible
-            );
+        if (isSessionPanelId(panel.id)) {
+          const remainingSessionPanels = api.panels.some((item) =>
+            isSessionPanelId(item.id)
+          );
+          const sessionGroupsHavePanels = listSessionGroups(api.groups).some(
+            (group) => group.panels.length > 0
+          );
+          if (!remainingSessionPanels && !sessionGroupsHavePanels) {
+            const rightGroup = ensureSessionPanel(api);
+            if (rightGroup) {
+              setSessionDockVisible(
+                api,
+                getLayoutArrangement(),
+                useLayoutStore.getState().isRightPanelVisible
+              );
+            }
+            return;
           }
-          return;
         }
 
         normalizeGroupIds(api);
@@ -939,10 +982,82 @@ export function IDELayout({
         }
       });
 
-      const normalizeGroupsDisposable = api.onDidAddGroup(() => {
+      const normalizeGroupsDisposable = api.onDidAddGroup((group) => {
         if (!isResettingRef.current) {
+          const isUnassignedGroupId =
+            group.id !== GROUP_IDS.LEFT &&
+            !group.id.startsWith(EDITOR_GROUP_PREFIX) &&
+            group.id !== GROUP_IDS.RIGHT &&
+            !group.id.startsWith(RIGHT_GROUP_PREFIX) &&
+            group.id !== GROUP_IDS.BOTTOM;
+          if (
+            lastDropTargetZoneRef.current === 'session' &&
+            isUnassignedGroupId
+          ) {
+            (group as { id: string }).id = getNextRightGroupId(api);
+            group.element?.setAttribute('data-session-dock', 'true');
+          } else if (
+            lastDropTargetZoneRef.current === 'editor' &&
+            isUnassignedGroupId
+          ) {
+            (group as { id: string }).id = getNextEditorGroupId(api);
+            group.element?.removeAttribute('data-session-dock');
+          }
+          lastDropTargetZoneRef.current = null;
           normalizeGroupIds(api);
         }
+      });
+
+      const movePanelDisposable = api.onDidMovePanel(({ panel, from }) => {
+        if (isResettingRef.current) return;
+
+        if (panel.group === from) {
+          if (
+            lastDropTargetZoneRef.current === 'editor' &&
+            isSessionGroup(from)
+          ) {
+            from.element?.removeAttribute('data-session-dock');
+            (from as { id: string }).id = getNextEditorGroupId(api);
+          } else if (
+            lastDropTargetZoneRef.current === 'session' &&
+            isEditorGroup(from)
+          ) {
+            from.element?.setAttribute('data-session-dock', 'true');
+            (from as { id: string }).id = getNextRightGroupId(api);
+          }
+        }
+        lastDropTargetZoneRef.current = null;
+
+        if (
+          getEditorGroups(api).length === 0 &&
+          !useLayoutStore.getState().isWorkspaceEditorAreaCollapsed
+        ) {
+          recreateWelcomeEditorGroup(api);
+        }
+
+        if (listSessionGroups(api.groups).length === 0) {
+          const editorGroups = getEditorGroups(api);
+          const referenceGroup =
+            editorGroups[editorGroups.length - 1] ?? getLeftGroup(api);
+          const referencePanel = referenceGroup?.panels[0];
+          if (referencePanel) {
+            const rightGroup = api.addGroup({
+              id: GROUP_IDS.RIGHT,
+              referencePanel,
+              direction: 'right',
+              constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
+              initialWidth:
+                useLayoutStore.getState().rightPanelWidth ||
+                defaultSessionWidth(api.width),
+            });
+            rightGroup.element?.setAttribute('data-session-dock', 'true');
+            if (!useLayoutStore.getState().isRightPanelVisible) {
+              rightGroup.api.setVisible(false);
+            }
+          }
+        }
+
+        normalizeGroupIds(api);
       });
 
       const removeGroupDisposable = api.onDidRemoveGroup(() => {
@@ -1027,9 +1142,11 @@ export function IDELayout({
         if (resizeFrame !== null) {
           cancelAnimationFrame(resizeFrame);
         }
+        pointerTabDndDisposable?.dispose();
         dndGuardDisposable.dispose();
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();
+        movePanelDisposable.dispose();
         removeGroupDisposable.dispose();
         columnWidthRebalance.dispose();
         layoutDisposable.dispose();
@@ -1145,7 +1262,7 @@ export function IDELayout({
       : getRightGroup(api);
     if (!rightGroup) return;
 
-    setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
+    setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
   }, [ensureSessionPanel, isRightPanelVisible, rightPanelContent]);
 
   // Collapsed editor area: hide the editor column and terminal strip. The
@@ -1223,7 +1340,7 @@ export function IDELayout({
         ? (ensureSessionPanel(api) ?? getRightGroup(api))
         : getRightGroup(api);
       if (rightGroup) {
-        setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
+        setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
       }
     }
     setChromeOccluded(false);
@@ -1285,6 +1402,7 @@ export function IDELayout({
                     className="dockview-theme-light dockview-theme-ayu"
                     disableAutoResizing={true}
                     disableFloatingGroups={true}
+                    dndEdges={false}
                   />
                 </div>
               ) : null}

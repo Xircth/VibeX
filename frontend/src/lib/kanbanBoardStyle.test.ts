@@ -21,9 +21,9 @@ describe('kanbanBoardStyle', () => {
     persistFrontendPreference.mockReset();
   });
 
-  it('defaults to the fixed layout', () => {
+  it('defaults to the infinite canvas layout', () => {
     expect(getKanbanBoardStyle()).toBe(DEFAULT_KANBAN_BOARD_STYLE);
-    expect(getKanbanBoardStyle()).toBe('fixed');
+    expect(getKanbanBoardStyle()).toBe('canvas');
   });
 
   it('persists the infinite-canvas choice', () => {
@@ -40,7 +40,7 @@ describe('kanbanBoardStyle', () => {
   it('ignores invalid persisted values', () => {
     localStorage.setItem(KANBAN_BOARD_STYLE_KEY, 'whiteboard');
 
-    expect(getKanbanBoardStyle()).toBe('fixed');
+    expect(getKanbanBoardStyle()).toBe('canvas');
   });
 
   it('notifies subscribers on change', () => {
@@ -49,9 +49,9 @@ describe('kanbanBoardStyle', () => {
       notified += 1;
     });
 
-    setKanbanBoardStyle('canvas');
-    unsubscribe();
     setKanbanBoardStyle('fixed');
+    unsubscribe();
+    setKanbanBoardStyle('canvas');
 
     expect(notified).toBe(1);
   });

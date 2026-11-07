@@ -110,7 +110,7 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   if (theme === ThemeMode.SYSTEM) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
+    return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches
       ? 'dark'
       : 'light';
   }
@@ -191,6 +191,7 @@ export function AgentIcon({
       <img
         src={suffix === '-dark' ? paths.dark : paths.light}
         alt={getAgentName(agentKey)}
+        draggable={false}
         className={cn('block shrink-0 object-contain', className)}
       />
     );
@@ -215,6 +216,7 @@ export function AgentIcon({
         <source media="(prefers-color-scheme: dark)" srcSet={runtimeDark} />
         <img
           alt={getAgentName(agentKey)}
+          draggable={false}
           className="block h-full w-full object-contain"
           src={runtimeLight}
         />

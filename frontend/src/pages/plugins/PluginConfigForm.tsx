@@ -611,11 +611,7 @@ export async function savePluginConfigResilient(
   updated: PluginProductDetail;
   effectiveConfig: Record<string, unknown>;
 }> {
-  if (
-    pluginId === 'vibex.code-completion' &&
-    typeof next.manualShortcut === 'string' &&
-    next.manualShortcut.trim()
-  ) {
+  if (typeof next.manualShortcut === 'string' && next.manualShortcut.trim()) {
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(
@@ -633,7 +629,6 @@ export async function savePluginConfigResilient(
     updated = await api.saveConfig(pluginId, next);
   } catch (error) {
     if (
-      pluginId === 'vibex.code-completion' &&
       'manualShortcut' in next &&
       /manualShortcut|unknown|property/i.test(errorMessage(error))
     ) {
@@ -648,8 +643,7 @@ export async function savePluginConfigResilient(
     updated?.config && typeof updated.config === 'object'
       ? {
           ...updated.config,
-          ...(pluginId === 'vibex.code-completion' &&
-          typeof next.manualShortcut === 'string'
+          ...(typeof next.manualShortcut === 'string'
             ? { manualShortcut: next.manualShortcut }
             : {}),
         }
@@ -677,11 +671,16 @@ export async function savePluginConfigResilient(
   };
 }
 
-function hydrateCodeCompletionConfig(
-  pluginId: string,
-  config: Record<string, unknown>
+function hydratePluginShortcutConfig(
+  config: Record<string, unknown>,
+  configSchema?: JsonSchema
 ): Record<string, unknown> {
-  if (pluginId !== 'vibex.code-completion') return config;
+  const props = configSchema ? schemaProperties(configSchema) : [];
+  const hasShortcutSchema =
+    'manualShortcut' in config ||
+    'triggerMode' in config ||
+    props.some(([key]) => key === 'manualShortcut' || key === 'triggerMode');
+  if (!hasShortcutSchema) return config;
   if (
     typeof config.manualShortcut === 'string' &&
     config.manualShortcut.trim()
@@ -716,8 +715,8 @@ export function PluginConfigForm({
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const { supports } = useBackendCapabilities();
   const initialConfig = useMemo(
-    () => hydrateCodeCompletionConfig(pluginId, detail.config),
-    [detail.config, pluginId]
+    () => hydratePluginShortcutConfig(detail.config, detail.configSchema),
+    [detail.config, detail.configSchema]
   );
   const [draft, setDraft] = useState(initialConfig);
   const draftRef = useRef(initialConfig);
@@ -742,7 +741,10 @@ export function PluginConfigForm({
   }, [pluginId]);
 
   useEffect(() => {
-    const hydrated = hydrateCodeCompletionConfig(pluginId, detail.config);
+    const hydrated = hydratePluginShortcutConfig(
+      detail.config,
+      detail.configSchema
+    );
     if (
       commitTimerRef.current !== null ||
       JSON.stringify(hydrated) === JSON.stringify(savedConfigRef.current)
@@ -752,7 +754,7 @@ export function PluginConfigForm({
     savedConfigRef.current = hydrated;
     draftRef.current = hydrated;
     setDraft(hydrated);
-  }, [detail.config, pluginId]);
+  }, [detail.config, detail.configSchema]);
 
   const persist = async (next: Record<string, unknown>) => {
     setSaving(true);
@@ -811,11 +813,11 @@ export function PluginConfigForm({
     }
   };
 
-  const properties = useMemo(() => {
+  const properties = useMemo<Array<[string, JsonSchema]>>(() => {
     const base = schemaProperties(detail.configSchema);
+    const triggerIdx = base.findIndex(([key]) => key === 'triggerMode');
     if (
-      pluginId === 'vibex.code-completion' &&
-      base.length > 0 &&
+      triggerIdx >= 0 &&
       !base.some(([key]) => key === 'manualShortcut')
     ) {
       const manualShortcutSchema: JsonSchema = {
@@ -824,19 +826,15 @@ export function PluginConfigForm({
         description:
           'Keyboard shortcut to manually trigger inline code completion in the editor (e.g. Alt+\\, Ctrl+Shift+Space, Alt+I).',
       };
-      const triggerIdx = base.findIndex(([key]) => key === 'triggerMode');
-      if (triggerIdx >= 0) {
-        const next = [...base];
-        next.splice(triggerIdx + 1, 0, [
-          'manualShortcut',
-          manualShortcutSchema,
-        ]);
-        return next;
-      }
-      return [...base, ['manualShortcut', manualShortcutSchema]];
+      const next = [...base];
+      next.splice(triggerIdx + 1, 0, [
+        'manualShortcut',
+        manualShortcutSchema,
+      ]);
+      return next;
     }
     return base;
-  }, [detail.configSchema, pluginId]);
+  }, [detail.configSchema]);
 
   const supportsModelDiscovery = useMemo(() => {
     const keys = new Set(properties.map(([key]) => key));

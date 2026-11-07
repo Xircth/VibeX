@@ -478,6 +478,7 @@ describe('PluginConfigForm', () => {
       <MemoryRouter>
         <BackendTransportProvider transport={transport}>
           <CodeCompletionStatusPopover
+            pluginId="vibex.code-completion"
             icon={contributionIconComponent('sparkles')}
             label="AI代码补全"
           />

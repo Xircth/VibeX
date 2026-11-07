@@ -29,9 +29,11 @@ import {
   formatShortcutFromKeyboardEvent,
   savePluginConfigResilient,
 } from '@/pages/plugins/PluginConfigForm';
+import {
+  officialConfigFieldCopy,
+  officialPluginName,
+} from '@/pages/plugins/officialPlugins';
 import { errorMessage } from '@/pages/plugins/pluginQueries';
-
-const PLUGIN_ID = 'vibex.code-completion';
 
 interface DiscoveredModelOption {
   id: string;
@@ -51,9 +53,11 @@ function readStoredShortcut(): string {
 }
 
 export function CodeCompletionStatusPopover({
+  pluginId,
   icon,
   label,
 }: {
+  pluginId: string;
   icon: ReturnType<typeof contributionIconComponent>;
   label: string;
 }) {
@@ -81,7 +85,7 @@ export function CodeCompletionStatusPopover({
   const loadCurrentConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const detail = await api.productDetail(PLUGIN_ID);
+      const detail = await api.productDetail(pluginId);
       if (detail?.config && typeof detail.config === 'object') {
         const storedShortcut = readStoredShortcut();
         const nextConfig: Record<string, unknown> = {
@@ -101,7 +105,7 @@ export function CodeCompletionStatusPopover({
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, pluginId]);
 
   useEffect(() => {
     if (open) {
@@ -116,7 +120,7 @@ export function CodeCompletionStatusPopover({
       const detail = (event as CustomEvent)?.detail;
       if (
         detail &&
-        detail.pluginId === PLUGIN_ID &&
+        detail.pluginId === pluginId &&
         detail.config &&
         typeof detail.config === 'object'
       ) {
@@ -130,17 +134,17 @@ export function CodeCompletionStatusPopover({
         onConfigUpdated
       );
     };
-  }, []);
+  }, [pluginId]);
 
   const persistConfig = useCallback(
     async (nextConfig: Record<string, unknown>) => {
       setConfig(nextConfig);
       setSaving(true);
       try {
-        await savePluginConfigResilient(api, PLUGIN_ID, nextConfig);
+        await savePluginConfigResilient(api, pluginId, nextConfig);
         if (typeof nextConfig.enabled === 'boolean') {
           void api
-            .invokeContribution(PLUGIN_ID, 'completion.toggle', {
+            .invokeContribution(pluginId, 'completion.toggle', {
               enabled: nextConfig.enabled,
             })
             .catch(() => undefined);
@@ -156,7 +160,7 @@ export function CodeCompletionStatusPopover({
         setSaving(false);
       }
     },
-    [api, t]
+    [api, pluginId, t]
   );
 
   useEffect(() => {
@@ -260,6 +264,32 @@ export function CodeCompletionStatusPopover({
     return merged;
   }, [currentModel, discoveredModels]);
 
+  const titleText = officialPluginName(pluginId, label || 'AI代码补全', t);
+  const enabledCopy = officialConfigFieldCopy(
+    pluginId,
+    'enabled',
+    { title: '启用行内代码补全' },
+    t
+  );
+  const modelCopy = officialConfigFieldCopy(
+    pluginId,
+    'model',
+    { title: '补全模型' },
+    t
+  );
+  const triggerModeCopy = officialConfigFieldCopy(
+    pluginId,
+    'triggerMode',
+    { title: '触发方式' },
+    t
+  );
+  const manualShortcutCopy = officialConfigFieldCopy(
+    pluginId,
+    'manualShortcut',
+    { title: '手动补全快捷键' },
+    t
+  );
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -287,16 +317,11 @@ export function CodeCompletionStatusPopover({
             <div className="flex items-center gap-2">
               <Icon className="h-4 w-4 text-primary" />
               <span className="text-xs font-semibold text-foreground">
-                {t('plugins.official.vibex.code-completion.name', {
-                  defaultValue: 'AI代码补全',
-                })}
+                {titleText}
               </span>
             </div>
             <Switch
-              aria-label={t(
-                'plugins.official.vibex.code-completion.config.enabled.label',
-                { defaultValue: '启用行内代码补全' }
-              )}
+              aria-label={enabledCopy.title}
               checked={enabled}
               disabled={saving}
               onCheckedChange={(checked) => {
@@ -307,9 +332,7 @@ export function CodeCompletionStatusPopover({
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">
-              {t('plugins.official.vibex.code-completion.config.model.label', {
-                defaultValue: '补全模型',
-              })}
+              {modelCopy.title}
             </span>
             <div className="flex items-center gap-1.5">
               <Select
@@ -320,10 +343,7 @@ export function CodeCompletionStatusPopover({
                 }}
               >
                 <SelectTrigger
-                  aria-label={t(
-                    'plugins.official.vibex.code-completion.config.model.label',
-                    { defaultValue: '补全模型' }
-                  )}
+                  aria-label={modelCopy.title}
                   className="h-8 flex-1 text-xs"
                 >
                   <SelectValue
@@ -364,10 +384,7 @@ export function CodeCompletionStatusPopover({
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">
-              {t(
-                'plugins.official.vibex.code-completion.config.triggerMode.label',
-                { defaultValue: '触发方式' }
-              )}
+              {triggerModeCopy.title}
             </span>
             <Select
               value={triggerMode}
@@ -377,10 +394,7 @@ export function CodeCompletionStatusPopover({
               }}
             >
               <SelectTrigger
-                aria-label={t(
-                  'plugins.official.vibex.code-completion.config.triggerMode.label',
-                  { defaultValue: '触发方式' }
-                )}
+                aria-label={triggerModeCopy.title}
                 className="h-8 text-xs"
               >
                 <SelectValue />
@@ -402,17 +416,11 @@ export function CodeCompletionStatusPopover({
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">
-              {t(
-                'plugins.official.vibex.code-completion.config.manualShortcut.label',
-                { defaultValue: '手动补全快捷键' }
-              )}
+              {manualShortcutCopy.title}
             </span>
             <div className="flex items-center gap-1.5">
               <Input
-                aria-label={t(
-                  'plugins.official.vibex.code-completion.config.manualShortcut.label',
-                  { defaultValue: '手动补全快捷键' }
-                )}
+                aria-label={manualShortcutCopy.title}
                 value={
                   recordingShortcut
                     ? t('plugins.pressShortcutPlaceholder', {
@@ -470,7 +478,7 @@ export function CodeCompletionStatusPopover({
               className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setOpen(false);
-                openSettingsSurface(navigate, `/plugins/${PLUGIN_ID}`);
+                openSettingsSurface(navigate, `/plugins/${pluginId}`);
               }}
             >
               <Settings2 className="mr-1 h-3.5 w-3.5" />

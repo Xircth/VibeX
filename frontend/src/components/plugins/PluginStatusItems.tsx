@@ -338,8 +338,14 @@ function AfterMcpStatusButton({
   const label = entry.tooltip ?? entry.text;
   const buttonClass =
     'flex h-4 w-4 items-center justify-center rounded-sm text-secondary-foreground hover:bg-accent/70';
-  if (entry.pluginId === 'vibex.code-completion') {
-    return <CodeCompletionStatusPopover icon={entry.icon} label={label} />;
+  if (entry.handler === 'completion.status') {
+    return (
+      <CodeCompletionStatusPopover
+        pluginId={entry.pluginId}
+        icon={entry.icon}
+        label={label}
+      />
+    );
   }
   if (!entry.hasPopoverView) {
     return (

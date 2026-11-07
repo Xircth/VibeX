@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   activatePluginWorker,
   normalizePluginContext,
-} from '../../../packages/plugin-sdk/dist/index.js';
+} from '@vibex/plugin-sdk';
 import {
   buildFimContext,
   buildProtocolHttpRequest,

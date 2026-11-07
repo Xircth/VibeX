@@ -480,17 +480,10 @@ export function computeJaccardSimilarity(setA, setB) {
 export function extractTopImports(fullTextOrPrefix, maxLines = 25) {
   const lines = String(fullTextOrPrefix || '').split('\n').slice(0, 80);
   const imports = [];
+  const headerStmtPattern = /^(?:import\s|from\s|export\s|use\s|#include\s|require\(|const\s+.*\brequire\()/;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (
-      trimmed.startsWith('import ') ||
-      trimmed.startsWith('from ') ||
-      trimmed.startsWith('export ') ||
-      trimmed.startsWith('use ') ||
-      trimmed.startsWith('#include ') ||
-      trimmed.startsWith('require(') ||
-      trimmed.startsWith('const ') && trimmed.includes('require(')
-    ) {
+    if (headerStmtPattern.test(trimmed)) {
       imports.push(line);
       if (imports.length >= maxLines) break;
     }

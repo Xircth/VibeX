@@ -929,6 +929,182 @@ test('Monacopilot registerCompletion and CompletionCopilot end-to-end flow', asy
   assert.equal(copilotResponse.completion, 'return x + y');
   assert.equal(copilotResponse.items.length, 1);
   assert.equal(copilotResponse.items[0].insertText, 'return x + y');
+
+  // 3. Verify real host monacopilot (`r === e.getModel()` identity check) & cursor before closing `)`
+  let registeredInlineProvider = null;
+  const rawNativeModel = {
+    getValue: () =>
+      '    def step(self) -> bool:\n        head_x, head_y = self.snake[0]\n        dx, dy = self.direction\n        new_head = (head_x + dx, head_y + dy)',
+    getVersionId: () => 7,
+    getLanguageId: () => 'python',
+    getLineCount: () => 4,
+    getLineContent: (ln) =>
+      [
+        '    def step(self) -> bool:',
+        '        head_x, head_y = self.snake[0]',
+        '        dx, dy = self.direction',
+        '        new_head = (head_x + dx, head_y + dy)',
+      ][ln - 1] || '',
+    getLineMaxColumn: (ln) =>
+      ([
+        '    def step(self) -> bool:',
+        '        head_x, head_y = self.snake[0]',
+        '        dx, dy = self.direction',
+        '        new_head = (head_x + dx, head_y + dy)',
+      ][ln - 1]?.length || 0) + 1,
+    getOffsetAt: (pos) => {
+      const lines = [
+        '    def step(self) -> bool:',
+        '        head_x, head_y = self.snake[0]',
+        '        dx, dy = self.direction',
+        '        new_head = (head_x + dx, head_y + dy)',
+      ];
+      let off = 0;
+      for (let i = 0; i < pos.lineNumber - 1; i++) off += lines[i].length + 1;
+      return off + (pos.column - 1);
+    },
+    getPositionAt: (off) => ({ lineNumber: 4, column: 45 }),
+    getValueInRange: (r) => {
+      const full = rawNativeModel.getValue();
+      const startOff = rawNativeModel.getOffsetAt({
+        lineNumber: r.startLineNumber,
+        column: r.startColumn,
+      });
+      const endOff = rawNativeModel.getOffsetAt({
+        lineNumber: r.endLineNumber,
+        column: r.endColumn,
+      });
+      return full.slice(startOff, endOff);
+    },
+  };
+
+  let capturedEditorInMonacopilot = null;
+  globalThis.__VIBEX_HOST_MODULES__ = {
+    monacopilot: {
+      registerCompletion: (monacoArg, editorArg, optsArg) => {
+        capturedEditorInMonacopilot = editorArg;
+        const disp = monacoArg.languages.registerInlineCompletionsProvider(optsArg.language, {
+          provideInlineCompletions: async (mdl, pos, _ctx, token) => {
+            // Real monacopilot strict reference equality check: `if (r !== e.getModel()) return { items: [] }`
+            if (mdl !== capturedEditorInMonacopilot.getModel()) {
+              return { items: [] };
+            }
+            const before = mdl.getValueInRange({
+              startLineNumber: 1,
+              startColumn: 1,
+              endLineNumber: pos.lineNumber,
+              column: pos.column,
+            });
+            const after = mdl.getValueInRange({
+              startLineNumber: pos.lineNumber,
+              startColumn: pos.column,
+              endLineNumber: mdl.getLineCount(),
+              endColumn: mdl.getLineMaxColumn(mdl.getLineCount()),
+            });
+            const res = await optsArg.requestHandler({
+              body: {
+                completionMetadata: {
+                  filename: optsArg.filename,
+                  language: 'python',
+                  textBeforeCursor: before,
+                  textAfterCursor: after,
+                  cursorPosition: pos,
+                },
+              },
+              token,
+            });
+            if (!res?.completion) return { items: [] };
+            return {
+              items: [
+                {
+                  insertText: res.completion,
+                  range: new monacoArg.Range(pos.lineNumber, pos.column, pos.lineNumber + 2, 1),
+                },
+              ],
+            };
+          },
+        });
+        return {
+          deregister: () => disp?.dispose?.(),
+          trigger: () => {},
+          updateOptions: () => {},
+        };
+      },
+    },
+  };
+
+  try {
+    let workerSuffixSent = '';
+    const appInstance = await appPlugin.activate({
+      config: { enabled: true, triggerMode: 'auto' },
+      invokeWorker: async (method, payload) => {
+        if (method === 'completion.complete') {
+          workerSuffixSent = payload.suffix;
+          return {
+            completion: '\n        if new_head in self.snake:\n            return False',
+            items: [
+              {
+                insertText: '\n        if new_head in self.snake:\n            return False',
+              },
+            ],
+          };
+        }
+        return {};
+      },
+      editorBridge: {
+        getMonacoInstance: () => ({
+          KeyCode: { Tab: 2, RightArrow: 17 },
+          Range: class {
+            constructor(sl, sc, el, ec) {
+              this.startLineNumber = sl;
+              this.startColumn = sc;
+              this.endLineNumber = el;
+              this.endColumn = ec;
+            }
+          },
+          languages: {
+            registerInlineCompletionsProvider: (_sel, prov) => {
+              registeredInlineProvider = prov;
+              return { dispose() {} };
+            },
+          },
+        }),
+        getActiveDocument: () => ({ filePath: 'lander.py', languageId: 'python' }),
+        getOpenDocumentsSnapshot: () => [],
+        getActiveEditor: () => ({
+          getModel: () => rawNativeModel,
+          getPosition: () => ({ lineNumber: 4, column: 45 }),
+        }),
+        registerInlineCompletionProvider: () => () => {},
+      },
+    });
+
+    assert.ok(registeredInlineProvider);
+    // Simulate Monaco calling `provideInlineCompletions` with rawNativeModel at line 4, column 45 (just before closing `)`)
+    const completionList = await registeredInlineProvider.provideInlineCompletions(
+      rawNativeModel,
+      { lineNumber: 4, column: 45 },
+      { triggerKind: 0 },
+      { isCancellationRequested: false, onCancellationRequested: () => {} },
+    );
+
+    assert.equal(workerSuffixSent, '\n)');
+    assert.equal(completionList.items.length, 1);
+    assert.equal(
+      completionList.items[0].insertText,
+      ')\n        if new_head in self.snake:\n            return False',
+    );
+    assert.deepEqual(completionList.items[0].range, {
+      startLineNumber: 4,
+      startColumn: 45,
+      endLineNumber: 4,
+      endColumn: 46,
+    });
+
+    appInstance.dispose();
+  } finally {
+    delete globalThis.__VIBEX_HOST_MODULES__;
+  }
 });
 
 

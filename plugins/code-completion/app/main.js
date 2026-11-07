@@ -87,6 +87,9 @@ export function registerCompletion(monaco, editor, options = {}) {
   let lastRawModel = null;
   const getPolyfilledModel = () => {
     const raw = typeof editor?.getModel === 'function' ? editor.getModel() : null;
+    if (raw && typeof raw.getValueInRange === 'function' && typeof raw.getOffsetAt === 'function') {
+      return raw;
+    }
     if (raw !== lastRawModel) {
       lastRawModel = raw;
       polyfilledModelCache = ensureModelPolyfill(raw);
@@ -157,8 +160,21 @@ export function registerCompletion(monaco, editor, options = {}) {
         const wrappedProvider = {
           ...provider,
           provideInlineCompletions: async (mdl, pos, ctx, token) => {
-            const targetModel = getPolyfilledModel() || ensureModelPolyfill(mdl);
+            const targetModel =
+              mdl && typeof mdl.getValueInRange === 'function'
+                ? mdl
+                : getPolyfilledModel() || ensureModelPolyfill(mdl);
             return await provider.provideInlineCompletions(targetModel, pos, ctx, token);
+          },
+          freeInlineCompletions: (completions) => {
+            provider.freeInlineCompletions?.(completions);
+          },
+          disposeInlineCompletions: (completions, reason) => {
+            if (typeof provider.disposeInlineCompletions === 'function') {
+              provider.disposeInlineCompletions(completions, reason);
+            } else {
+              provider.freeInlineCompletions?.(completions);
+            }
           },
         };
         const reg = monaco?.languages?.registerInlineCompletionsProvider?.(
@@ -1283,6 +1299,16 @@ export default {
                 hasVisibleInlineSuggestion = true;
                 monacopilotProvider.handleItemDidShow?.(...args);
               },
+              freeInlineCompletions: (completions) => {
+                monacopilotProvider.freeInlineCompletions?.(completions);
+              },
+              disposeInlineCompletions: (completions, reason) => {
+                if (typeof monacopilotProvider.disposeInlineCompletions === 'function') {
+                  monacopilotProvider.disposeInlineCompletions(completions, reason);
+                } else {
+                  monacopilotProvider.freeInlineCompletions?.(completions);
+                }
+              },
             });
           },
         },
@@ -1293,7 +1319,7 @@ export default {
         filename: activeDoc?.filePath || 'untitled',
         trigger: triggerMode === 'manual' ? 'onDemand' : 'onTyping',
         maxContextLines: 120,
-        enableCaching: true,
+        enableCaching: false,
         allowFollowUpCompletions: true,
         triggerIf: ({ text }) => {
           if (!enabled) return false;
@@ -1329,7 +1355,21 @@ export default {
               'typescript',
           );
           const prefix = String(meta.textBeforeCursor ?? '');
-          const suffix = String(meta.textAfterCursor ?? '');
+          const rawSuffix = String(meta.textAfterCursor ?? '');
+          const linePrefix = prefix.split('\n').pop() || '';
+          const lineSuffix = rawSuffix.split('\n')[0] || '';
+          const trimmedLineSuffix = lineSuffix.trim();
+          const workerSuffix =
+            trimmedLineSuffix.length > 0 && !rawSuffix.startsWith('\n')
+              ? `\n${rawSuffix}`
+              : rawSuffix;
+          const posObj = meta.cursorPosition || editor.getPosition?.() || { lineNumber: 1, column: 1 };
+
+          // Check forward-typing prefix cache before network round-trip
+          const cachedHit = cache.lookup(filePath, posObj.lineNumber, linePrefix, rawSuffix);
+          if (cachedHit) {
+            return { completion: cachedHit };
+          }
 
           statusState = 'loading';
           lastErrorMessage = null;
@@ -1343,8 +1383,8 @@ export default {
               filePath,
               languageId,
               prefix,
-              suffix,
-              position: meta.cursorPosition || editor.getPosition?.() || { lineNumber: 1, column: 1 },
+              suffix: workerSuffix,
+              position: posObj,
               manual: isManual,
               neighbors: openDocs.map((d) => ({
                 path: d.filePath || d.path || 'neighbor',
@@ -1356,6 +1396,8 @@ export default {
                   ...meta,
                   filename: filePath,
                   language: languageId,
+                  textBeforeCursor: prefix,
+                  textAfterCursor: workerSuffix,
                   relatedFiles: openDocs.map((d) => ({
                     path: d.filePath || d.path || 'neighbor',
                     content: d.content || '',
@@ -1369,6 +1411,9 @@ export default {
               response?.insertText ??
               response?.items?.[0]?.insertText ??
               null;
+            if (completionText) {
+              cache.store(filePath, posObj.lineNumber, linePrefix, rawSuffix, completionText);
+            }
             return {
               completion: completionText || null,
             };

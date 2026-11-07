@@ -88,6 +88,7 @@ describe('KanbanLayoutToggles', () => {
   });
 
   it('does not mark the monitor toggle as pressed while nothing is monitored', () => {
+    setKanbanBoardStyle('fixed');
     render(
       <TooltipProvider>
         <KanbanLayoutToggles />
@@ -100,6 +101,7 @@ describe('KanbanLayoutToggles', () => {
   });
 
   it('toggles session list, monitor, and execution visibility', async () => {
+    setKanbanBoardStyle('fixed');
     const user = userEvent.setup();
 
     render(

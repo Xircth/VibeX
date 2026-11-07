@@ -195,13 +195,13 @@ describe('AppearanceSettings', () => {
     });
   });
 
-  it('groups Kanban session list view and board layout under session board style', () => {
+  it('renders Kanban session list view under session board style without board layout selector', () => {
     render(<AppearanceSettings />);
     expect(
       screen.getByRole('heading', { name: '会话看板样式' })
     ).toBeInTheDocument();
     expect(screen.getByText('看板会话列表视图')).toBeInTheDocument();
-    expect(screen.getByText('看板布局类型')).toBeInTheDocument();
+    expect(screen.queryByText('看板布局类型')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: 'Kanban 会话列表' })
     ).not.toBeInTheDocument();
@@ -217,15 +217,6 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('radio', { name: '工作区分组' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
-  });
-
-  it('applies the session board style immediately via SegmentedControl', async () => {
-    const user = userEvent.setup();
-    render(<AppearanceSettings />);
-
-    await user.click(screen.getByRole('radio', { name: '无限画布' }));
-
-    expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');
   });
 
   it('floats the settings menu by default and applies the choice immediately', async () => {

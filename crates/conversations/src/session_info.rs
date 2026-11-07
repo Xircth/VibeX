@@ -608,6 +608,8 @@ pub fn agent_session_title_from_patch(patch: &Value) -> Option<String> {
         .find_map(sanitize_agent_session_title)
 }
 
+pub const MAX_SESSION_TITLE_CHARS: usize = 32;
+
 pub fn sanitize_agent_session_title(title: &str) -> Option<String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
@@ -618,11 +620,11 @@ pub fn sanitize_agent_session_title(title: &str) -> Option<String> {
     if line.is_empty() {
         return None;
     }
-    Some(line.to_string())
+    Some(line.chars().take(MAX_SESSION_TITLE_CHARS).collect())
 }
 
 /// Collapse whitespace in a first user message so it can be used as a session
-/// name. Agents that never publish a title fall back to this full prompt.
+/// name, capped at 32 characters.
 pub fn first_prompt_session_name(first_prompt: &str) -> Option<String> {
     let normalized = first_prompt
         .split_whitespace()
@@ -631,12 +633,12 @@ pub fn first_prompt_session_name(first_prompt: &str) -> Option<String> {
     if normalized.is_empty() {
         None
     } else {
-        Some(normalized)
+        Some(normalized.chars().take(MAX_SESSION_TITLE_CHARS).collect())
     }
 }
 
-/// Prefer an Agent-returned title. When the Agent does not auto-name, keep the
-/// complete first message instead of a character-clipped preview.
+/// Prefer an Agent-returned title. When the Agent does not auto-name, fall back
+/// to the first message capped at 32 characters.
 pub fn derive_session_display_name(
     session_name: Option<&str>,
     first_prompt: Option<&str>,
@@ -830,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn display_name_keeps_the_full_first_prompt_when_the_agent_does_not_title() {
+    fn display_name_caps_the_first_prompt_at_32_chars_when_the_agent_does_not_title() {
         assert_eq!(
             derive_session_display_name(
                 None,
@@ -838,6 +840,14 @@ mod tests {
                 1
             ),
             "分析下我的项目根目录，是否有不应该存在于根目录中的文件"
+        );
+        assert_eq!(
+            derive_session_display_name(
+                None,
+                Some("现在会话的标题字数没有限制，默认按照第一条消息命名时，若第一条消息过长会导致会话名称超级长"),
+                1
+            ),
+            "现在会话的标题字数没有限制，默认按照第一条消息命名时，若第一条消"
         );
         assert_eq!(
             derive_session_display_name(Some("Implement auth"), Some("a much longer prompt"), 1),

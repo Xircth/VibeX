@@ -93,13 +93,29 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
 }
 
 describe('buildDefaultSessionName', () => {
-  it('uses the complete first prompt when the agent does not auto-name', () => {
+  it('uses the first prompt when the agent does not auto-name and caps at 32 characters', () => {
     const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
 
     expect(buildDefaultSessionName(summary(), t)).toEqual({
       name: '修复会话标题功能并保持手动标题',
       source: 'prompt',
       prompt: '修复会话标题功能并保持手动标题',
+    });
+
+    const longPrompt =
+      '现在会话的标题字数没有限制，默认按照第一条消息命名时，若第一条消息过长会导致会话名称超级长';
+    expect(
+      buildDefaultSessionName(
+        summary({
+          first_prompt: longPrompt,
+          display_name: longPrompt,
+        }),
+        t
+      )
+    ).toEqual({
+      name: '现在会话的标题字数没有限制，默认按照第一条消息命名时，若第一条消',
+      source: 'prompt',
+      prompt: longPrompt,
     });
   });
 

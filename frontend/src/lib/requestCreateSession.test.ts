@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CREATE_AGENT_SESSION_EVENT,
+  requestCreateAgentSessionInExecutionArea,
   requestCreateSessionInExecutionArea,
   resolveCreateSessionSurface,
 } from './requestCreateSession';
@@ -59,5 +61,22 @@ describe('requestCreateSessionInExecutionArea', () => {
     const next = setSearchParams.mock.calls[0]?.[0] as URLSearchParams;
     expect(next.get('newSession')).toBe('1');
     expect(next.get('view')).toBe('hub');
+  });
+
+  it('dispatches CREATE_AGENT_SESSION_EVENT and reveals the execution column', () => {
+    layout.activeTab = 'workspace';
+    const listener = vi.fn();
+    window.addEventListener(CREATE_AGENT_SESSION_EVENT, listener);
+
+    requestCreateAgentSessionInExecutionArea('CODEX');
+
+    expect(layout.setRightPanelVisible).toHaveBeenCalledWith(true);
+    expect(listener).toHaveBeenCalledOnce();
+    const event = listener.mock.calls[0]?.[0] as CustomEvent<{
+      agentId: string;
+    }>;
+    expect(event.detail.agentId).toBe('CODEX');
+
+    window.removeEventListener(CREATE_AGENT_SESSION_EVENT, listener);
   });
 });

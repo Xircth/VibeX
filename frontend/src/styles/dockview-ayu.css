@@ -244,6 +244,13 @@
   align-items: center;
 }
 
+[class*='dockview-theme-ayu']
+  .dv-tabs-and-actions-container
+  > .dv-void-container {
+  min-width: 16px;
+  min-height: var(--dv-tabs-and-actions-container-height, 36px);
+}
+
 [class*='dockview-theme-ayu'] .workspace-tab-add-button {
   display: inline-flex;
   width: 28px;
@@ -309,6 +316,9 @@
 
 /* Dockview 5.1 omits .dv-horizontal for the default horizontal direction. */
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   align-items: stretch;
   gap: 0;
   padding: 4px 4px 0 2px;
@@ -330,9 +340,10 @@
 [class*='dockview-theme-ayu'] .workspace-tab-surface {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 28px;
   padding: 0 4px 0 8px;
   border-radius: var(--radius);
@@ -414,6 +425,22 @@
   display: none !important;
 }
 
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab
+  + .dv-tab.dv-inactive-tab::before {
+  display: block !important;
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background-color: var(--dv-tab-divider-color);
+  pointer-events: none;
+}
+
 [class*='dockview-theme-ayu'] .dv-tab.dv-inactive-tab {
   z-index: 0;
   background-color: transparent !important;
@@ -423,13 +450,24 @@
 [class*='dockview-theme-ayu']
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab {
+  flex: 0 1 92px;
+  min-width: 48px;
+  max-width: 92px;
   align-items: flex-start;
+  overflow: hidden;
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
   z-index: 1;
   background-color: transparent !important;
   color: var(--dv-theme-text) !important;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab {
+  flex: 0 0 auto;
+  max-width: 200px;
 }
 
 [class*='dockview-theme-ayu']
@@ -443,9 +481,13 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab
   .workspace-tab-surface {
+  position: relative;
   height: 24px;
   min-height: 24px;
+  min-width: 0;
   margin: 2px 0 0;
+  padding: 0 8px;
+  overflow: hidden;
   background-color: transparent;
 }
 
@@ -453,6 +495,28 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab:hover
   .workspace-tab-surface {
+  background-color: var(--dv-connected-chrome);
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab
+  .workspace-tab-surface
+  .dv-default-tab-action {
+  display: none;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab:hover
+  .workspace-tab-surface
+  .dv-default-tab-action {
+  display: flex;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
   background-color: var(--dv-connected-chrome);
 }
 
@@ -509,11 +573,44 @@
 
 [class*='dockview-theme-ayu'] .dv-default-tab-content {
   display: block;
-  max-width: 14ch;
+  max-width: 15ch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .dv-default-tab-content {
+  max-width: 15ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab
+  .dv-default-tab-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 14px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 14px),
+    transparent 100%
+  );
 }
 
 .dark
@@ -651,6 +748,20 @@
 [class*='dockview-theme-ayu'] .dv-tabs-overflow-container .dv-tab:hover {
   background-color: var(--dv-tab-state-background) !important;
   color: var(--dv-theme-text) !important;
+}
+
+/* Zone C session tabs: small round color marker dot + session title */
+[class*='dockview-theme-ayu'] .workspace-session-tab {
+  gap: 6px;
+}
+
+[class*='dockview-theme-ayu']
+  .workspace-session-tab
+  .workspace-session-tab-marker {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
 }
 
 [class*='dockview-theme-ayu']

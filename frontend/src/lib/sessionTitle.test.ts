@@ -1,9 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeSessionListTitle, sessionTitleIsCjk } from './sessionTitle';
+import {
+  sanitizeSessionListTitle,
+  sessionTitleIsCjk,
+  truncateSessionTitle,
+} from './sessionTitle';
 
 describe('sanitizeSessionListTitle', () => {
   it('keeps a normal agent-returned title', () => {
     expect(sanitizeSessionListTitle('Implement auth')).toBe('Implement auth');
+  });
+
+  it('caps long titles at 32 characters', () => {
+    const longTitle = 'Double Password Prompt on Project Login';
+    expect(truncateSessionTitle(longTitle)).toBe(
+      'Double Password Prompt on Projec'
+    );
+    expect(Array.from(sanitizeSessionListTitle(longTitle))).toHaveLength(32);
   });
 
   it('strips a host-history prefix from an agent-returned name', () => {
@@ -35,3 +47,4 @@ describe('sanitizeSessionListTitle', () => {
     expect(sessionTitleIsCjk('Implement auth')).toBe(false);
   });
 });
+

@@ -74,8 +74,9 @@ import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import {
   BOTTOM_PANEL_IDS,
   compareEditorGroups,
-  getGroupElement,
   getNextEditorGroupId,
+  getNextLeftGroupId,
+  getNextRightGroupId,
   isEditorGroup,
   isLeftGroup,
   isPlaceholderPanelId,
@@ -83,6 +84,9 @@ import {
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
   listLeftDockGroups,
+  listSessionGroups,
+  RIGHT_GROUP_PREFIX,
+  sessionPanelId,
 } from '@/utils/dockviewGroupPolicy';
 import { getLayoutArrangement } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
@@ -130,6 +134,7 @@ import {
   releaseLegacyTerminalZones,
   rememberTerminalShelfFromApi,
 } from '@/utils/terminalZoneRelease';
+import { syncWorkspaceOpenSessionIdsFromDockview } from '@/lib/workspaceSessionTabSlots';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -186,8 +191,18 @@ function closeRemovedEditorTerminal(panelId: string): void {
   }
 }
 
+export interface OpenSessionTabOptions {
+  sessionId: string;
+  workspaceId: string;
+  title?: string | null;
+  agentId?: string | null;
+  activate?: boolean;
+  targetGroupId?: string | null;
+}
+
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
+  openSessionTab: (options: OpenSessionTabOptions) => void;
   openFilePreview: (
     filePath: string,
     options?: OpenFilePreviewOptions
@@ -282,6 +297,7 @@ const noopFalsePanelAction = () => false;
 
 export const NOOP_PANEL_ACTIONS: PanelActions = {
   openOrFocusPanel: noopPanelAction,
+  openSessionTab: noopPanelAction,
   openFilePreview: () => 'opened' as const,
   renameFilePreviews: noopPanelAction,
   openImagePreview: noopPanelAction,
@@ -378,6 +394,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     layoutDisposableRef.current = null;
     leftSplitSnapshotRef.current = null;
     apiRef.current = api;
+    syncWorkspaceOpenSessionIdsFromDockview(api);
     setDockviewEpoch((epoch) => epoch + 1);
     if (!api) {
       diffPreviewPanelQueueRef.current = [];
@@ -388,9 +405,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     imagePanelRemovalDisposableRef.current = api.onDidRemovePanel((panel) => {
       releaseImagePreviewSource(panel.id);
       closeRemovedEditorTerminal(panel.id);
+      syncWorkspaceOpenSessionIdsFromDockview(api);
     });
     const removeGroupDisposable = api.onDidRemoveGroup((group) => {
       clearTerminalShelf(group.id);
+      syncWorkspaceOpenSessionIdsFromDockview(api);
     });
 
     let frame = 0;
@@ -406,6 +425,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       });
     };
     const layoutDisposable = api.onDidLayoutChange(() => {
+      syncWorkspaceOpenSessionIdsFromDockview(api);
       if (applyingLeftSplitRef.current) return;
       if (frame) return;
       frame = requestAnimationFrame(syncSplit);
@@ -449,40 +469,33 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const normalizeEditorGroupIds = useCallback(
-    (dockviewApi: DockviewApi) => {
-      const leftGroups = listLeftDockGroups(dockviewApi.groups);
-      if (leftGroups.length === 1) {
-        (leftGroups[0] as { id: string }).id = GROUP_IDS.LEFT;
-      }
+  const normalizeEditorGroupIds = useCallback((dockviewApi: DockviewApi) => {
+    const leftGroups = listLeftDockGroups(dockviewApi.groups);
+    if (leftGroups.length === 1) {
+      (leftGroups[0] as { id: string }).id = GROUP_IDS.LEFT;
+    }
 
-      releaseLegacyTerminalZones(dockviewApi);
-      rememberTerminalShelfFromApi(dockviewApi);
+    releaseLegacyTerminalZones(dockviewApi);
+    rememberTerminalShelfFromApi(dockviewApi);
 
-      const rightGroup = getRightGroup(dockviewApi);
-      if (rightGroup) {
-        (rightGroup as { id: string }).id = GROUP_IDS.RIGHT;
-        rightGroup.locked = 'no-drop-target';
-        try {
-          const model = (
-            rightGroup as {
-              model?: { header?: { hidden?: boolean } };
-            }
-          ).model;
-          if (typeof model?.header?.hidden !== 'undefined') {
-            model.header.hidden = true;
-          }
-        } catch {
-          // Ignore internal model access failures and rely on CSS class fallback.
+    const sessionGroups = listSessionGroups(dockviewApi.groups);
+    if (sessionGroups.length > 0) {
+      const primary =
+        sessionGroups.find((group) => group.id === GROUP_IDS.RIGHT) ??
+        sessionGroups[0];
+      (primary as { id: string }).id = GROUP_IDS.RIGHT;
+      for (const group of sessionGroups) {
+        if (group === primary) continue;
+        if (!group.id.startsWith(RIGHT_GROUP_PREFIX)) {
+          (group as { id: string }).id = getNextRightGroupId(dockviewApi);
         }
-        getGroupElement(rightGroup)?.classList.add('dv-header-hidden');
       }
+    }
 
-      syncDockviewGroupRegistry(dockviewApi);
-      applyLeftGroupHeaderHiding(dockviewApi);
-    },
-    [getRightGroup]
-  );
+    syncDockviewGroupRegistry(dockviewApi);
+    applyLeftGroupHeaderHiding(dockviewApi);
+    syncWorkspaceOpenSessionIdsFromDockview(dockviewApi);
+  }, []);
 
   const recreateWelcomeEditorGroup = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -537,7 +550,29 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ? dockviewApi.getGroup(preferredId)
         : undefined;
       let targetGroup =
-        preferred && isEditorGroup(preferred) ? preferred : undefined;
+        preferred &&
+        (isEditorGroup(preferred) ||
+          isLeftGroup(preferred) ||
+          isSessionGroup(preferred))
+          ? preferred
+          : undefined;
+      if (!targetGroup && options.id === PANEL_IDS.AI_CHAT) {
+        const sessionGroups = listSessionGroups(dockviewApi.groups);
+        const visibleSessionGroups = sessionGroups.filter(
+          (group) => group.api.isVisible
+        );
+        const activeSessionId =
+          dockviewApi.activeGroup && isSessionGroup(dockviewApi.activeGroup)
+            ? dockviewApi.activeGroup.id
+            : undefined;
+        targetGroup =
+          leastPopulatedEditorGroup(
+            visibleSessionGroups.length > 0
+              ? visibleSessionGroups
+              : sessionGroups,
+            activeSessionId
+          ) ?? getRightGroup(dockviewApi);
+      }
       if (!targetGroup && placement === 'least') {
         const visible = getEditorGroups(dockviewApi).filter(
           (group) => group.api.isVisible
@@ -551,16 +586,25 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       targetGroup ??= getActiveEditorGroup();
       if (!targetGroup) return undefined;
 
-      targetGroup.api.setVisible(true);
-
-      if (isEditorColumnCrushed(dockviewApi)) {
-        const leftGroup = getLeftGroup(dockviewApi);
-        restoreFlexibleEditorColumn(
+      if (isLeftGroup(targetGroup) || isSessionGroup(targetGroup)) {
+        setColumnVisible(
           dockviewApi,
           getLayoutArrangement(),
-          useLayoutStore.getState().rightPanelWidth,
-          leftGroup?.api.isVisible ? leftGroup.api.width : undefined
+          targetGroup,
+          true
         );
+      } else {
+        targetGroup.api.setVisible(true);
+
+        if (isEditorColumnCrushed(dockviewApi)) {
+          const leftGroup = getLeftGroup(dockviewApi);
+          restoreFlexibleEditorColumn(
+            dockviewApi,
+            getLayoutArrangement(),
+            useLayoutStore.getState().rightPanelWidth,
+            leftGroup?.api.isVisible ? leftGroup.api.width : undefined
+          );
+        }
       }
 
       const placeholderPanels = targetGroup.panels.filter((panel) =>
@@ -601,6 +645,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       getActiveEditorGroup,
       getEditorGroups,
       getLeftGroup,
+      getRightGroup,
       normalizeEditorGroupIds,
     ]
   );
@@ -1106,6 +1151,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
+      if (isLeftGroup(panel.group)) {
+        return (
+          listLeftDockGroups(dockviewApi.groups).length < MAX_EDITOR_GROUPS
+        );
+      }
+
+      if (isSessionGroup(panel.group)) {
+        return listSessionGroups(dockviewApi.groups).length < MAX_EDITOR_GROUPS;
+      }
+
       return getEditorGroups(dockviewApi).length < MAX_EDITOR_GROUPS;
     },
     [getEditorGroups]
@@ -1121,12 +1176,23 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const panel = dockviewApi.getPanel(panelId);
       if (!panel) return false;
 
+      const isLeft = isLeftGroup(panel.group);
+      const isSession = !isLeft && isSessionGroup(panel.group);
       const newGroup = dockviewApi.addGroup({
-        id: getNextEditorGroupId(dockviewApi),
+        id: isLeft
+          ? getNextLeftGroupId(dockviewApi)
+          : isSession
+            ? getNextRightGroupId(dockviewApi)
+            : getNextEditorGroupId(dockviewApi),
         referencePanel: panel,
         direction,
         skipSetActive: true,
       });
+      if (isLeft) {
+        newGroup.element?.setAttribute('data-left-dock', 'true');
+      } else if (isSession) {
+        newGroup.element?.setAttribute('data-session-dock', 'true');
+      }
 
       const host = (
         dockviewApi as unknown as {
@@ -1177,7 +1243,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const sortEditorGroupByName = useCallback((groupId: string) => {
     const dockviewApi = apiRef.current;
     const group = dockviewApi?.getGroup(groupId);
-    if (!group || !isEditorGroup(group)) return;
+    if (
+      !group ||
+      (!isEditorGroup(group) && !isLeftGroup(group) && !isSessionGroup(group))
+    ) {
+      return;
+    }
 
     const ordered = [...group.panels].sort((a, b) =>
       (a.title ?? a.id).localeCompare(b.title ?? b.id, undefined, {
@@ -1231,7 +1302,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
     let leftGroup = existingLeftGroup ?? null;
     if (!leftGroup) {
-      const editorHost = recreateWelcomeEditorGroup();
+      const editorHost =
+        getEditorGroups(dockviewApi)[0] ?? recreateWelcomeEditorGroup();
       const referencePanel = editorHost?.panels[0];
       if (!referencePanel) return null;
 
@@ -1254,7 +1326,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     }
 
     return leftGroup;
-  }, [getLeftGroup, recreateWelcomeEditorGroup]);
+  }, [getEditorGroups, getLeftGroup, recreateWelcomeEditorGroup]);
 
   const finishLeftDockChange = useCallback(
     (zone?: LeftPanelDropZone) => {
@@ -1485,24 +1557,26 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (panelId === PANEL_IDS.FILE_TREE) {
-        toggleFileTree();
-        return;
-      }
+      if (!preferredEditorGroupIdRef.current) {
+        if (panelId === PANEL_IDS.FILE_TREE) {
+          toggleFileTree();
+          return;
+        }
 
-      if (panelId === PANEL_IDS.GIT) {
-        toggleGitPanel();
-        return;
-      }
+        if (panelId === PANEL_IDS.GIT) {
+          toggleGitPanel();
+          return;
+        }
 
-      if (panelId === PANEL_IDS.SEARCH) {
-        toggleSearchPanel();
-        return;
-      }
+        if (panelId === PANEL_IDS.SEARCH) {
+          toggleSearchPanel();
+          return;
+        }
 
-      if (panelId === PANEL_IDS.SESSION_LIST) {
-        toggleSessionList();
-        return;
+        if (panelId === PANEL_IDS.SESSION_LIST) {
+          toggleSessionList();
+          return;
+        }
       }
 
       const existingPanel = dockviewApi.getPanel(panelId);
@@ -1510,7 +1584,19 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         if (existingPanel.title !== title) {
           existingPanel.api.setTitle(title);
         }
-        existingPanel.group.api.setVisible(true);
+        if (
+          isLeftGroup(existingPanel.group) ||
+          isSessionGroup(existingPanel.group)
+        ) {
+          setColumnVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            existingPanel.group,
+            true
+          );
+        } else {
+          existingPanel.group.api.setVisible(true);
+        }
         existingPanel.api.setActive();
         return;
       }
@@ -1531,6 +1617,147 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleSearchPanel,
       toggleSessionList,
     ]
+  );
+
+  const openSessionTab = useCallback(
+    (options: OpenSessionTabOptions) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi || !options.sessionId || !options.workspaceId) return;
+
+      const activate = options.activate ?? true;
+      const panelId = sessionPanelId(options.sessionId);
+      const title = options.title?.trim() || 'AI Chat';
+      const existingPanel = dockviewApi.getPanel(panelId);
+      const existingAgentId = (
+        existingPanel?.params as { agentId?: string | null } | undefined
+      )?.agentId;
+      const params = {
+        sessionId: options.sessionId,
+        workspaceId: options.workspaceId,
+        title: options.title ?? null,
+        agentId: options.agentId ?? existingAgentId ?? null,
+      };
+
+      useLayoutStore.getState().setRightPanelVisible(true);
+
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        if (options.title?.trim() && existingPanel.title !== title) {
+          existingPanel.api.setTitle(title);
+        }
+        if (
+          isLeftGroup(existingPanel.group) ||
+          isSessionGroup(existingPanel.group)
+        ) {
+          setColumnVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            existingPanel.group,
+            true
+          );
+        } else {
+          existingPanel.group.api.setVisible(true);
+        }
+        if (activate) {
+          existingPanel.api.setActive();
+        }
+        syncWorkspaceOpenSessionIdsFromDockview(dockviewApi);
+        return;
+      }
+
+      const explicitGroupId =
+        options.targetGroupId ?? preferredEditorGroupIdRef.current;
+      const explicitGroup = explicitGroupId
+        ? dockviewApi.getGroup(explicitGroupId)
+        : undefined;
+
+      let targetGroup =
+        explicitGroup &&
+        (isSessionGroup(explicitGroup) ||
+          isEditorGroup(explicitGroup) ||
+          isLeftGroup(explicitGroup))
+          ? explicitGroup
+          : undefined;
+
+      if (!targetGroup) {
+        const sessionGroups = listSessionGroups(dockviewApi.groups);
+        const visibleSessionGroups = sessionGroups.filter(
+          (group) => group.api.isVisible
+        );
+        const activeSessionGroupId =
+          dockviewApi.activeGroup && isSessionGroup(dockviewApi.activeGroup)
+            ? dockviewApi.activeGroup.id
+            : undefined;
+        targetGroup =
+          leastPopulatedEditorGroup(
+            visibleSessionGroups.length > 0
+              ? visibleSessionGroups
+              : sessionGroups,
+            activeSessionGroupId
+          ) ?? getRightGroup(dockviewApi);
+      }
+
+      if (!targetGroup) {
+        const fallbackReference =
+          getEditorGroups(dockviewApi)[0]?.panels[0] ??
+          getLeftGroup(dockviewApi)?.panels[0] ??
+          dockviewApi.panels[0];
+        targetGroup = fallbackReference
+          ? dockviewApi.addGroup({
+              id: GROUP_IDS.RIGHT,
+              referencePanel: fallbackReference,
+              direction: 'right',
+            })
+          : dockviewApi.addGroup({
+              id: GROUP_IDS.RIGHT,
+              direction: 'right',
+            });
+        (
+          targetGroup as unknown as { element?: HTMLElement }
+        ).element?.setAttribute('data-session-dock', 'true');
+      }
+
+      setColumnVisible(
+        dockviewApi,
+        getLayoutArrangement(),
+        targetGroup,
+        true
+      );
+
+      const unboundPlaceholders = targetGroup.panels.filter(
+        (panel) =>
+          panel.id === PANEL_IDS.AI_CHAT || isPlaceholderPanelId(panel.id)
+      );
+
+      const panel = dockviewApi.addPanel({
+        id: panelId,
+        component: PANEL_IDS.AI_CHAT,
+        title,
+        params,
+        inactive: !activate,
+        position: {
+          referenceGroup: targetGroup.id,
+          direction: 'within',
+        },
+      });
+
+      for (const placeholder of unboundPlaceholders) {
+        const current = dockviewApi.getPanel(placeholder.id);
+        if (current) {
+          try {
+            dockviewApi.removePanel(current);
+          } catch {
+            // Ignore placeholder cleanup failures during layout transitions.
+          }
+        }
+      }
+
+      if (activate) {
+        panel.api.setActive();
+      }
+      normalizeEditorGroupIds(dockviewApi);
+    },
+    [getEditorGroups, getLeftGroup, getRightGroup, normalizeEditorGroupIds]
   );
 
   const openMergePanel = useCallback(
@@ -1878,6 +2105,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PanelActions>(() => {
     return {
       openOrFocusPanel,
+      openSessionTab,
       openFilePreview,
       renameFilePreviews,
       openImagePreview,
@@ -1942,6 +2170,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     openNotes,
     openPluginPanel,
     openOrFocusPanel,
+    openSessionTab,
     openPanelInNewEditorGroup,
     setDockviewApi,
     splitActiveEditor,

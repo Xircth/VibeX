@@ -37,10 +37,10 @@ export function shouldDismissEditorColumnAfterPanelRemoval(
   },
   editorGroups: ReadonlyArray<{ panels: ReadonlyArray<{ id: string }> }>
 ): boolean {
-  if (isZonePanelId(removedPanel.id)) {
+  if (removedPanel.group && !isEditorGroup(removedPanel.group)) {
     return false;
   }
-  if (removedPanel.group && !isEditorGroup(removedPanel.group)) {
+  if (!removedPanel.group && isZonePanelId(removedPanel.id)) {
     return false;
   }
   return editorColumnShouldDismiss(editorGroups);

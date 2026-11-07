@@ -169,6 +169,18 @@
     "review": "审阅",
     "note": "笔记",
     "terminal": "终端",
+    "fileTree": "文件树",
+    "gitPanel": "Git 面板",
+    "sessionList": "会话列表",
+    "processes": "执行进程",
+    "sessionDetails": "会话详情",
+    "noEnabledAgents": "暂无已启用 Agent",
+    "sections": {
+      "features": "功能",
+      "info": "信息",
+      "agents": "Agent",
+      "other": "其他"
+    },
     "close": "关闭",
     "closeCurrent": "关闭当前页",
     "closeOthers": "关闭其他页",

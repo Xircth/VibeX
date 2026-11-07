@@ -10,7 +10,10 @@ import {
   collaborationStoredSessionName,
   type KanbanSessionCollaboration,
 } from '@/features/collaboration/sessionCollaboration';
-import { sanitizeSessionListTitle } from '@/lib/sessionTitle';
+import {
+  sanitizeSessionListTitle,
+  truncateSessionTitle,
+} from '@/lib/sessionTitle';
 import { dateTimestamp } from '@/utils/date';
 import { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
 
@@ -80,7 +83,7 @@ export function kanbanSessionFromCreated(
   fallbackName: string
 ): KanbanProjectSessionRecord {
   const workspaceRecord = workspaceStubForCreatedSession(session, workspace);
-  const fullName = session.name?.trim() || fallbackName;
+  const fullName = truncateSessionTitle(session.name?.trim() || fallbackName);
   const workspaceLabel = workspaceRecord.name || workspaceRecord.branch;
   return {
     id: session.id,
@@ -204,7 +207,7 @@ export function buildDefaultSessionName(
 
   if (promptName.length > 0) {
     return {
-      name: promptName,
+      name: truncateSessionTitle(promptName),
       source: 'prompt' as const,
       prompt: promptName,
     };

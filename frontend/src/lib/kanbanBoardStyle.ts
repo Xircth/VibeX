@@ -10,7 +10,7 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 export const KANBAN_BOARD_STYLES = ['fixed', 'canvas'] as const;
 export type KanbanBoardStyle = (typeof KANBAN_BOARD_STYLES)[number];
 
-export const DEFAULT_KANBAN_BOARD_STYLE: KanbanBoardStyle = 'fixed';
+export const DEFAULT_KANBAN_BOARD_STYLE: KanbanBoardStyle = 'canvas';
 export const KANBAN_BOARD_STYLE_KEY = 'vibex:kanban-board-style' as const;
 
 const listeners = new Set<() => void>();

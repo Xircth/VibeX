@@ -12,6 +12,7 @@ import type { IDockviewPanelProps } from 'dockview-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from '@/components/ui/toast';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import {
@@ -36,8 +37,10 @@ import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import { useKanbanSessionMutations } from '@/components/kanban/session-hub/useKanbanSessionMutations';
 import {
   getBulkDeleteSessionSummary,
+  sessionListAgentKey,
   toggleStringValue,
 } from '@/components/kanban/session-hub/utils';
+import { useWorkspaceOpenSessionIds } from '@/lib/workspaceSessionTabSlots';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
 import {
@@ -81,6 +84,12 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { visibleRightSession, activateExecutionSession, pruneSessions } =
     useKanbanSessionContext();
+  const { openSessionTab } = usePanelActionsContext();
+  const openSessionIds = useWorkspaceOpenSessionIds();
+  const openSessionPlacements = useMemo(
+    () => openSessionIds.map((sessionId) => ({ sessionId })),
+    [openSessionIds]
+  );
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
@@ -180,6 +189,12 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
 
   const openSession = useCallback(
     (session: KanbanProjectSessionRecord) => {
+      openSessionTab({
+        sessionId: session.id,
+        workspaceId: session.workspace.id,
+        title: sessionListTitle(session),
+        agentId: sessionListAgentKey(session),
+      });
       activateExecutionSession(session.placement);
       setActiveWorktree(session.workspace.id, session.taskId);
       if (projectId) {
@@ -188,7 +203,13 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
         );
       }
     },
-    [activateExecutionSession, navigate, projectId, setActiveWorktree]
+    [
+      activateExecutionSession,
+      navigate,
+      openSessionTab,
+      projectId,
+      setActiveWorktree,
+    ]
   );
 
   const refreshWorkspaceSessions = useCallback(
@@ -461,7 +482,10 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
               isLoading={isLoading}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorktreeId}
-              currentExecutionPlacement={visibleRightSession}
+              monitorPlacements={openSessionPlacements}
+              currentExecutionPlacement={
+                openSessionPlacements.length > 0 ? null : visibleRightSession
+              }
               showPinnedSection={!isArchiveView}
               isDeleteMode={isDeleteMode}
               selectedSessionIds={selectedSessionIdSet}

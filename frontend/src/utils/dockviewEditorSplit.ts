@@ -1,4 +1,5 @@
 import { Orientation, type DockviewApi } from 'dockview-core';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { isPlaceholderPanelId } from '@/utils/dockviewGroupPolicy';
 
 export type EditorSplitDirection = 'left' | 'right' | 'below';
@@ -139,8 +140,10 @@ export function leastPopulatedEditorGroup<T extends GroupLike>(
   if (groups.length === 0) return undefined;
   const ranked = groups.map((group) => ({
     group,
-    count: group.panels.filter((panel) => !isPlaceholderPanelId(panel.id))
-      .length,
+    count: group.panels.filter(
+      (panel) =>
+        !isPlaceholderPanelId(panel.id) && panel.id !== PANEL_IDS.AI_CHAT
+    ).length,
   }));
   const min = Math.min(...ranked.map((entry) => entry.count));
   const tied = ranked.filter((entry) => entry.count === min);

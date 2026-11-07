@@ -22,8 +22,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useWorktree } from '@/contexts/WorktreeContext';
-import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { useOptionalWorktree } from '@/contexts/WorktreeContext';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useTask } from '@/hooks/useTask';
@@ -70,15 +70,22 @@ function getRebaseOldBaseBranch(
   return currentTargetBranch !== nextTargetBranch ? currentTargetBranch : null;
 }
 
-export function BranchInfoHeader() {
+export function BranchInfoHeader({
+  workspaceId: propWorkspaceId,
+}: {
+  workspaceId?: string | null;
+} = {}) {
   const glassStageRef = useRef<HTMLDivElement | null>(null);
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
   );
-  const { activeWorktreeId } = useWorktree();
-  const { visibleRightSession } = useKanbanSessionContext();
+  const worktree = useOptionalWorktree();
+  const kanbanSession = useOptionalKanbanSessionContext();
   const effectiveWorktreeId =
-    activeWorktreeId ?? visibleRightSession?.workspaceId ?? null;
+    propWorkspaceId ??
+    worktree?.activeWorktreeId ??
+    kanbanSession?.visibleRightSession?.workspaceId ??
+    null;
   const { data: branchStatus } = useWorkspaceBranchStatus(
     effectiveWorktreeId ?? undefined
   );

@@ -15,6 +15,18 @@ export const SESSION_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.AI_CHAT,
 ]);
 
+export const SESSION_PANEL_PREFIX = `${PANEL_IDS.AI_CHAT}:`;
+
+export function sessionPanelId(sessionId: string): string {
+  return `${SESSION_PANEL_PREFIX}${sessionId}`;
+}
+
+export function isSessionPanelId(panelId: string): boolean {
+  return (
+    SESSION_PANEL_IDS.has(panelId) || panelId.startsWith(SESSION_PANEL_PREFIX)
+  );
+}
+
 export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.WELCOME,
 ]);
@@ -38,11 +50,27 @@ export function isPlaceholderPanelId(panelId: string): boolean {
   return PLACEHOLDER_PANEL_IDS.has(panelId);
 }
 
+export const LEFT_GROUP_PREFIX = `${GROUP_IDS.LEFT}-`;
+export const RIGHT_GROUP_PREFIX = `${GROUP_IDS.RIGHT}-`;
+
 export function isLeftGroup(group: DockviewGroupLike): boolean {
-  return (
+  if (
     group.id === GROUP_IDS.LEFT ||
-    group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id))
-  );
+    group.id.startsWith(LEFT_GROUP_PREFIX) ||
+    group.element?.getAttribute('data-left-dock') === 'true'
+  ) {
+    return true;
+  }
+  if (
+    group.id.startsWith(EDITOR_GROUP_PREFIX) ||
+    group.id === GROUP_IDS.RIGHT ||
+    group.id.startsWith(RIGHT_GROUP_PREFIX) ||
+    group.id === GROUP_IDS.BOTTOM ||
+    group.element?.getAttribute('data-session-dock') === 'true'
+  ) {
+    return false;
+  }
+  return group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id));
 }
 
 export function listLeftDockGroups<T extends DockviewGroupLike>(
@@ -59,10 +87,29 @@ export function isBottomGroup(group: DockviewGroupLike): boolean {
 }
 
 export function isSessionGroup(group: DockviewGroupLike): boolean {
-  return (
+  if (
     group.id === GROUP_IDS.RIGHT ||
-    group.panels.some((panel) => SESSION_PANEL_IDS.has(panel.id))
-  );
+    group.id.startsWith(RIGHT_GROUP_PREFIX) ||
+    group.element?.getAttribute('data-session-dock') === 'true'
+  ) {
+    return true;
+  }
+  if (
+    group.id.startsWith(EDITOR_GROUP_PREFIX) ||
+    group.id === GROUP_IDS.LEFT ||
+    group.id.startsWith(LEFT_GROUP_PREFIX) ||
+    group.id === GROUP_IDS.BOTTOM ||
+    group.element?.getAttribute('data-left-dock') === 'true'
+  ) {
+    return false;
+  }
+  return group.panels.some((panel) => isSessionPanelId(panel.id));
+}
+
+export function listSessionGroups<T extends DockviewGroupLike>(
+  groups: readonly T[]
+): T[] {
+  return groups.filter((group) => isSessionGroup(group));
 }
 
 export function isEditorGroup(group: DockviewGroupLike): boolean {
@@ -70,7 +117,12 @@ export function isEditorGroup(group: DockviewGroupLike): boolean {
 }
 
 export function isSplittableEditorPanel(panel: DockviewPanelLike): boolean {
-  return isEditorGroup(panel.group) && !isPlaceholderPanelId(panel.id);
+  return (
+    (isEditorGroup(panel.group) ||
+      isLeftGroup(panel.group) ||
+      isSessionGroup(panel.group)) &&
+    !isPlaceholderPanelId(panel.id)
+  );
 }
 
 export function getGroupElement(group: DockviewGroupLike): HTMLElement | null {
@@ -95,6 +147,34 @@ export function compareEditorGroups(
   }
 
   return a.id.localeCompare(b.id);
+}
+
+export function getNextLeftGroupId(dockviewApi: DockviewApiLike): string {
+  const existing = new Set(dockviewApi.groups.map((group) => group.id));
+  if (!existing.has(GROUP_IDS.LEFT)) {
+    return GROUP_IDS.LEFT;
+  }
+
+  let index = 1;
+  while (existing.has(`${LEFT_GROUP_PREFIX}${index}`)) {
+    index += 1;
+  }
+
+  return `${LEFT_GROUP_PREFIX}${index}`;
+}
+
+export function getNextRightGroupId(dockviewApi: DockviewApiLike): string {
+  const existing = new Set(dockviewApi.groups.map((group) => group.id));
+  if (!existing.has(GROUP_IDS.RIGHT)) {
+    return GROUP_IDS.RIGHT;
+  }
+
+  let index = 1;
+  while (existing.has(`${RIGHT_GROUP_PREFIX}${index}`)) {
+    index += 1;
+  }
+
+  return `${RIGHT_GROUP_PREFIX}${index}`;
 }
 
 export function getNextEditorGroupId(dockviewApi: DockviewApiLike): string {

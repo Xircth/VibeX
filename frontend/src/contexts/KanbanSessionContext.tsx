@@ -227,7 +227,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   }, [setActiveViewId]);
 
   const goToSessionHub = useCallback(() => {
-    setActiveViewId('builtin:sessions');
+    setActiveViewId('builtin:canvas');
   }, [setActiveViewId]);
 
   const goToUsageDashboard = useCallback(() => {
@@ -237,7 +237,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const toggleSessionHub = useCallback(() => {
     setActiveViewIdState((current) => {
       const next =
-        current === 'builtin:sessions' ? 'builtin:columns' : 'builtin:sessions';
+        current === 'builtin:canvas' ? 'builtin:columns' : 'builtin:canvas';
       setPanelViewState(legacyKanbanPanelView(next));
       return next;
     });
@@ -245,7 +245,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
   const setSessionHubVisible = useCallback(
     (visible: boolean) => {
-      setActiveViewId(visible ? 'builtin:sessions' : 'builtin:columns');
+      setActiveViewId(visible ? 'builtin:canvas' : 'builtin:columns');
     },
     [setActiveViewId]
   );

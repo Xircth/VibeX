@@ -3,7 +3,7 @@
   "manifestVersion": 4,
   "apiVersion": "2.0",
   "id": "vibex.voice-input",
-  "name": "AI语音输入",
+  "name": "语音输入",
   "version": "2.0.0",
   "publisher": "vibex",
   "description": "AI voice dictation and speech-to-text plugin modeled after Orca, with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
@@ -144,7 +144,7 @@
       "id": "voice-input-status",
       "kind": "app.status",
       "slot": "status.after-mcp",
-      "title": "AI语音输入",
+      "title": "语音输入",
       "handler": "voice.status",
       "icon": "activity",
       "order": 35

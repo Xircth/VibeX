@@ -77,6 +77,11 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
     repo: 'Xircth/vibex-plugin-code-completion',
     trend: [68, 81, 95, 108, 121, 134, 146, 158, 170, 181, 193, 204],
   },
+  voiceInput: {
+    installs: 192,
+    repo: 'Xircth/vibex-plugin-voice-input',
+    trend: [62, 74, 86, 98, 110, 122, 134, 146, 158, 170, 181, 192],
+  },
 };
 
 const githubStarsCache = new Map<string, number>();

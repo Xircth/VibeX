@@ -998,6 +998,88 @@
             "description": "代码补全生成的采样温度。"
           }
         }
+      },
+      "voiceInput": {
+        "name": "语音输入",
+        "summary": "AI 语音输入与智能听写（参考 Orca）：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。",
+        "readme": "# 语音输入\n\n参考 Orca 的语音听写架构设计，为 VibeX 会话输入框与代码编辑器提供低延迟、高准确率的 AI 语音输入与听写后智能润色体验。\n\n## 核心特性\n\n- **多引擎混合识别**：支持 `hybrid`（Web Speech 实时流式字幕 + 云端 Whisper 后处理）、`openai-whisper`（`/v1/audio/transcriptions`）、`groq-whisper`（`whisper-large-v3-turbo` 亚秒级转写）、`openai-chat-audio` 与 `browser-speech`。\n- **自定义术语热词表**：自动注入 Whisper 提示词并在后处理阶段修正项目专有名词与技术术语大小写（如 `VibeX`、`Tauri`、`Monaco`、`TypeScript`、`Worktree`）。\n- **听写后智能润色**：自动剔除中英文口水词（“嗯”、“啊”、“那个就是说”、“um”、“uh”）与重复结巴词，规范化中英文间距与标点，同时保留原始识别结果随时可切换对比。",
+        "config": {
+          "enabled": {
+            "title": "启用语音输入",
+            "description": "开启会话输入框与全局快捷键的 AI 语音听写功能。"
+          },
+          "providerProtocol": {
+            "title": "识别引擎协议",
+            "description": "选择语音识别协议：混合流式+云端、OpenAI Whisper、Groq 极速 Whisper、多模态 Chat Audio 或浏览器原生实时听写。",
+            "enum": {
+              "hybrid": "混合流式 + 云端 Whisper（推荐）",
+              "openai-whisper": "OpenAI Whisper (/v1/audio/transcriptions)",
+              "groq-whisper": "Groq 极速 Whisper (whisper-large-v3-turbo)",
+              "openai-chat-audio": "多模态 Chat Audio (/v1/chat/completions)",
+              "browser-speech": "浏览器/系统原生实时听写（免 Key）"
+            }
+          },
+          "baseUrl": {
+            "title": "API 基础地址",
+            "description": "OpenAI / Groq / 兼容语音识别与润色接口的基础 URL。"
+          },
+          "apiKey": {
+            "title": "API 密钥",
+            "description": "用于调用云端 Whisper 转写与 AI 文本润色的 API Key（留空时自动尝试本机环境变量或回退实时流式识别）。"
+          },
+          "model": {
+            "title": "语音识别模型",
+            "description": "转写模型名称（如 gpt-4o-mini-transcribe、whisper-1、whisper-large-v3-turbo）。"
+          },
+          "cleanupModel": {
+            "title": "润色模型",
+            "description": "用于听写后去口水词、修正技术术语的轻量级 LLM 模型。"
+          },
+          "language": {
+            "title": "识别语言",
+            "description": "语音听写首选语言提示。",
+            "enum": {
+              "auto": "自动检测（中英混合）",
+              "zh": "中文 (zh-CN)",
+              "en": "English (en-US)",
+              "ja": "日本語 (ja-JP)",
+              "ko": "한국어 (ko-KR)"
+            }
+          },
+          "recordingMode": {
+            "title": "录音触发方式",
+            "description": "单击切换开始/结束录音，或按住说话松开即转写。",
+            "enum": {
+              "toggle": "单击切换开始/结束",
+              "push-to-talk": "按住说话松开转写"
+            }
+          },
+          "shortcut": {
+            "title": "语音输入快捷键",
+            "description": "快速开始/停止语音听写的全局快捷键（如 Alt+V、Ctrl+Shift+V）。"
+          },
+          "cleanupMode": {
+            "title": "听写后润色模式",
+            "description": "自动去口水词与标点规范化后直接插入、录音后弹出对照预览确认，或仅输出原始识别结果。",
+            "enum": {
+              "auto-clean": "自动润色后直接插入",
+              "preview": "弹出润色 vs 原文对照预览",
+              "off": "关闭润色（仅输出原始结果）"
+            }
+          },
+          "vocabulary": {
+            "title": "自定义术语热词表",
+            "description": "以逗号或换行分隔的项目专有名词与技术术语，作为 Whisper 提示词与专名纠错词典。"
+          },
+          "audioDeviceId": {
+            "title": "麦克风输入设备",
+            "description": "指定录音使用的麦克风设备 ID（default 为系统默认麦克风）。"
+          },
+          "showFloatingHud": {
+            "title": "显示实时字幕悬浮胶囊",
+            "description": "在录音与预览时于工作区底部展示声波振幅与流式实时字幕胶囊。"
+          }
+        }
       }
     },
     "contentTab": "内容",

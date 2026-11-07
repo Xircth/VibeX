@@ -1,8 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="9" y="2" width="6" height="11" rx="3" />
-  <path d="M5 10a7 7 0 0 0 14 0" />
-  <line x1="12" y1="17" x2="12" y2="21" />
-  <line x1="8" y1="21" x2="16" y2="21" />
-  <path d="M3 8v4" />
-  <path d="M21 8v4" />
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2.5" y="2.5" width="31" height="31" rx="8.5" fill="url(#vi_bg)" />
+  <path d="M8.5 15.2V19.8" stroke="#7DD3FC" stroke-width="2.1" stroke-linecap="round" />
+  <path d="M27.5 15.2V19.8" stroke="#7DD3FC" stroke-width="2.1" stroke-linecap="round" />
+  <rect x="14.2" y="8.5" width="7.6" height="12" rx="3.8" fill="url(#vi_mic)" />
+  <path d="M16.2 11.8H19.8M16.2 14.5H19.8" stroke="#0284C7" stroke-width="1.4" stroke-linecap="round" stroke-opacity="0.7" />
+  <path d="M11.6 16.8C11.6 20.33 14.47 23.2 18 23.2C21.53 23.2 24.4 20.33 24.4 16.8" stroke="#E0F2FE" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M18 23.2V27.2M14.6 27.2H21.4" stroke="#E0F2FE" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M26.5 8L27.4 10.4L29.8 11.3L27.4 12.2L26.5 14.6L25.6 12.2L23.2 11.3L25.6 10.4L26.5 8Z" fill="#FDE047" />
+  <defs>
+    <linearGradient id="vi_bg" x1="3" y1="3" x2="33" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0284C7" />
+      <stop offset="0.55" stop-color="#2563EB" />
+      <stop offset="1" stop-color="#312E81" />
+    </linearGradient>
+    <linearGradient id="vi_mic" x1="14" y1="8.5" x2="22" y2="20.5" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" />
+      <stop offset="1" stop-color="#BAE6FD" />
+    </linearGradient>
+  </defs>
 </svg>

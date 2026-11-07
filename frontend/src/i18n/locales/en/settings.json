@@ -998,6 +998,88 @@
             "description": "Sampling temperature for code completion generation."
           }
         }
+      },
+      "voiceInput": {
+        "name": "Voice Input",
+        "summary": "AI voice dictation and speech-to-text modeled after Orca, with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
+        "readme": "# Voice Input\n\nModeled after Orca's voice dictation architecture, providing low-latency AI speech-to-text and post-transcription cleanup for VibeX's session composer and Monaco editors.\n\n## Key Capabilities\n\n- **Multi-Engine Speech-to-Text**: Supports `hybrid` (Web Speech live captions + cloud Whisper post-processing), `openai-whisper` (`/v1/audio/transcriptions`), `groq-whisper` (`whisper-large-v3-turbo`), `openai-chat-audio`, and `browser-speech`.\n- **Custom Vocabulary Hotwords**: Automatically biases Whisper decoding prompts and normalizes technical terminology spelling (`VibeX`, `Tauri`, `Monaco`, `TypeScript`, `Worktree`).\n- **Post-Transcription Cleanup**: Strips spoken filler words and stutters while preserving raw transcripts for comparison.",
+        "config": {
+          "enabled": {
+            "title": "Enable voice input",
+            "description": "Enable AI voice dictation in the session composer and via global shortcut."
+          },
+          "providerProtocol": {
+            "title": "Speech recognition protocol",
+            "description": "Choose the speech-to-text engine protocol.",
+            "enum": {
+              "hybrid": "Hybrid live captions + Cloud Whisper (Recommended)",
+              "openai-whisper": "OpenAI Whisper (/v1/audio/transcriptions)",
+              "groq-whisper": "Groq Fast Whisper (whisper-large-v3-turbo)",
+              "openai-chat-audio": "Multimodal Chat Audio (/v1/chat/completions)",
+              "browser-speech": "Browser / OS native live speech (No API key)"
+            }
+          },
+          "baseUrl": {
+            "title": "API Base URL",
+            "description": "Base URL for OpenAI, Groq, or compatible transcription and cleanup endpoints."
+          },
+          "apiKey": {
+            "title": "API Key",
+            "description": "API key for cloud Whisper transcription and LLM text cleanup."
+          },
+          "model": {
+            "title": "Transcription model",
+            "description": "Speech recognition model identifier (e.g. gpt-4o-mini-transcribe, whisper-1, whisper-large-v3-turbo)."
+          },
+          "cleanupModel": {
+            "title": "Cleanup model",
+            "description": "Lightweight LLM model used for post-transcription cleanup."
+          },
+          "language": {
+            "title": "Language hint",
+            "description": "Preferred language hint for voice dictation.",
+            "enum": {
+              "auto": "Auto-detect",
+              "zh": "Chinese (zh-CN)",
+              "en": "English (en-US)",
+              "ja": "Japanese (ja-JP)",
+              "ko": "Korean (ko-KR)"
+            }
+          },
+          "recordingMode": {
+            "title": "Recording mode",
+            "description": "Click to toggle start/stop or hold shortcut to talk.",
+            "enum": {
+              "toggle": "Toggle start / stop",
+              "push-to-talk": "Push to talk"
+            }
+          },
+          "shortcut": {
+            "title": "Voice input shortcut",
+            "description": "Global keyboard shortcut to start or stop voice dictation (e.g. Alt+V, Ctrl+Shift+V)."
+          },
+          "cleanupMode": {
+            "title": "Post-transcription cleanup",
+            "description": "Automatically remove spoken fillers and normalize punctuation, preview before inserting, or keep raw output.",
+            "enum": {
+              "auto-clean": "Auto-clean and insert",
+              "preview": "Preview cleaned vs. raw before insert",
+              "off": "Off (insert raw transcript)"
+            }
+          },
+          "vocabulary": {
+            "title": "Custom vocabulary hotwords",
+            "description": "Comma-separated project terms and technical jargon used as Whisper prompt context and post-processing glossary."
+          },
+          "audioDeviceId": {
+            "title": "Microphone input device",
+            "description": "Target microphone device ID (default uses system default microphone)."
+          },
+          "showFloatingHud": {
+            "title": "Show floating live caption pill",
+            "description": "Display a floating waveform and live caption pill while recording or previewing."
+          }
+        }
       }
     },
     "contentTab": "Content",

@@ -474,6 +474,74 @@ function PluginArtworkCodeCompletion(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function PluginArtworkVoiceInput(props: SVGProps<SVGSVGElement>) {
+  const uid = useId();
+  return (
+    <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
+      <defs>
+        <linearGradient
+          id={`${uid}-mic`}
+          x1="14"
+          y1="8"
+          x2="22"
+          y2="21"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#60A5FA" />
+          <stop offset="55%" stopColor="#3B82F6" />
+          <stop offset="100%" stopColor="#2563EB" />
+        </linearGradient>
+      </defs>
+      {/* Left & right acoustic wave bars */}
+      <path
+        d="M8.5 15.2V19.8"
+        stroke="#38BDF8"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M27.5 15.2V19.8"
+        stroke="#38BDF8"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      {/* Microphone capsule */}
+      <rect
+        x="14.2"
+        y="8.5"
+        width="7.6"
+        height="12"
+        rx="3.8"
+        fill={`url(#${uid}-mic)`}
+      />
+      <path
+        d="M16.2 11.8H19.8M16.2 14.5H19.8"
+        stroke="#DBEAFE"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      {/* U-shaped cradle & stand */}
+      <path
+        d="M11.6 16.8C11.6 20.33 14.47 23.2 18 23.2C21.53 23.2 24.4 20.33 24.4 16.8"
+        stroke="#2563EB"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18 23.2V27.2M14.6 27.2H21.4"
+        stroke="#2563EB"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      {/* AI sparkle */}
+      <path
+        d="M26.5 8.2L27.3 10.4L29.5 11.2L27.3 12L26.5 14.2L25.7 12L23.5 11.2L25.7 10.4L26.5 8.2Z"
+        fill="#6366F1"
+      />
+    </svg>
+  );
+}
+
 export function PluginArtworkDefault(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" {...props}>
@@ -527,6 +595,7 @@ export const OFFICIAL_GLYPHS: Record<
   browser: PluginArtworkWebSearch,
   computerUse: PluginArtworkComputerUse,
   codeCompletion: PluginArtworkCodeCompletion,
+  voiceInput: PluginArtworkVoiceInput,
 };
 
 const CORE_PLUGIN_ARTWORK_BY_ID: Record<string, CoreFoundationArtworkKey> = {

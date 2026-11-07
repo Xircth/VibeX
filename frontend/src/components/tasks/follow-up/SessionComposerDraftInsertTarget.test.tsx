@@ -72,4 +72,22 @@ describe('draft.insert composer targeting', () => {
     readOnly.hook.unmount();
     expect(hasActiveComposerDraftTarget()).toBe(false);
   });
+
+  it('appends plain text transcripts directly when text is provided without a token label', () => {
+    const composer = renderComposer(true);
+    act(() => composer.hook.result.current.markFocused());
+
+    let inserted = false;
+    act(() => {
+      inserted = insertIntoActiveComposer({
+        label: '',
+        markdown: '',
+        text: '请帮我运行单元测试',
+      });
+    });
+
+    expect(inserted).toBe(true);
+    expect(composer.onChange).toHaveBeenCalledWith('请帮我运行单元测试');
+    composer.hook.unmount();
+  });
 });

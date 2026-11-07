@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "providerProtocol": "hybrid",
+  "baseUrl": "https://api.openai.com/v1",
+  "apiKey": "",
+  "model": "gpt-4o-mini-transcribe",
+  "cleanupModel": "gpt-4o-mini",
+  "language": "auto",
+  "recordingMode": "toggle",
+  "shortcut": "Alt+V",
+  "cleanupMode": "auto-clean",
+  "vocabulary": "VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex",
+  "audioDeviceId": "default",
+  "showFloatingHud": true
+}

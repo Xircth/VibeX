@@ -1,0 +1,195 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.voice-input",
+  "name": "AI语音输入",
+  "version": "2.0.0",
+  "publisher": "vibex",
+  "description": "AI voice dictation and speech-to-text plugin modeled after Orca, with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
+  "readme": "README.md",
+  "interface": {
+    "icon": "assets/icon.svg"
+  },
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "title": "启用语音输入",
+          "description": "开启会话输入框与全局快捷键的 AI 语音听写功能。"
+        },
+        "providerProtocol": {
+          "type": "string",
+          "enum": [
+            "hybrid",
+            "openai-whisper",
+            "groq-whisper",
+            "openai-chat-audio",
+            "browser-speech"
+          ],
+          "default": "hybrid",
+          "title": "识别引擎协议",
+          "description": "语音识别协议：混合流式+云端（hybrid）、OpenAI Whisper（/v1/audio/transcriptions）、Groq 极速 Whisper、多模态 Chat Audio（/v1/chat/completions）或浏览器原生实时听写。"
+        },
+        "baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "title": "API 基础地址",
+          "description": "OpenAI / Groq / 兼容语音识别与润色接口的基础 URL。"
+        },
+        "apiKey": {
+          "type": "string",
+          "default": "",
+          "title": "API 密钥",
+          "description": "用于调用云端 Whisper 转写与 AI 文本润色的 API Key（留空时自动尝试本机环境变量或回退实时流式识别）。"
+        },
+        "model": {
+          "type": "string",
+          "default": "gpt-4o-mini-transcribe",
+          "title": "语音识别模型",
+          "description": "转写模型名称（如 whisper-1、gpt-4o-mini-transcribe、gpt-4o-transcribe、whisper-large-v3-turbo）。"
+        },
+        "cleanupModel": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "title": "润色模型",
+          "description": "用于听写后去口水词、修正技术术语的轻量级 LLM 模型。"
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "zh",
+            "en",
+            "ja",
+            "ko"
+          ],
+          "default": "auto",
+          "title": "识别语言",
+          "description": "语音听写首选语言提示（auto 自动检测、zh 中文、en 英文、ja 日文、ko 韩文）。"
+        },
+        "recordingMode": {
+          "type": "string",
+          "enum": [
+            "toggle",
+            "push-to-talk"
+          ],
+          "default": "toggle",
+          "title": "录音触发方式",
+          "description": "单击切换开始/结束录音（toggle），或按住说话松开即转写（push-to-talk）。"
+        },
+        "shortcut": {
+          "type": "string",
+          "default": "Alt+V",
+          "title": "语音输入快捷键",
+          "description": "快速开始/停止语音听写的全局快捷键（例如 Alt+V、Ctrl+Shift+V）。"
+        },
+        "cleanupMode": {
+          "type": "string",
+          "enum": [
+            "auto-clean",
+            "preview",
+            "off"
+          ],
+          "default": "auto-clean",
+          "title": "听写后润色模式",
+          "description": "自动去口水词与标点规范化后直接插入（auto-clean）、录音后弹出对照预览卡片确认（preview），或仅输出原始识别结果（off）。"
+        },
+        "vocabulary": {
+          "type": "string",
+          "default": "VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex",
+          "title": "自定义术语热词表",
+          "description": "以逗号或换行分隔的项目专有名词、技术术语与命令，作为 Whisper 提示词与听写后专名纠错词典。"
+        },
+        "audioDeviceId": {
+          "type": "string",
+          "default": "default",
+          "title": "麦克风输入设备",
+          "description": "指定录音使用的麦克风设备 ID（default 为系统默认麦克风）。"
+        },
+        "showFloatingHud": {
+          "type": "boolean",
+          "default": true,
+          "title": "显示实时字幕悬浮胶囊",
+          "description": "在录音与预览时于工作区底部展示声波振幅与流式实时字幕胶囊。"
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "voice-input-status",
+      "kind": "app.status",
+      "slot": "status.after-mcp",
+      "title": "AI语音输入",
+      "handler": "voice.status",
+      "icon": "activity",
+      "order": 35
+    },
+    {
+      "id": "voice-input-toggle",
+      "kind": "app.command",
+      "title": "开始/停止 AI 语音输入",
+      "handler": "voice.toggle",
+      "icon": "activity",
+      "order": 36
+    },
+    {
+      "id": "voice-input-transcribe",
+      "kind": "app.command",
+      "title": "执行语音转写与智能润色",
+      "handler": "voice.transcribe",
+      "icon": "sparkles",
+      "order": 37
+    },
+    {
+      "id": "voice-input-cleanup",
+      "kind": "app.command",
+      "title": "润色语音听写文本",
+      "handler": "voice.cleanup",
+      "icon": "sparkles",
+      "order": 38
+    },
+    {
+      "id": "voice-input-configure",
+      "kind": "app.command",
+      "title": "配置 AI 语音输入",
+      "handler": "voice.configure",
+      "icon": "settings",
+      "order": 39
+    },
+    {
+      "id": "voice-input-skill",
+      "kind": "content.skill",
+      "resource": "contents/skills/voice-input",
+      "targets": [
+        "codex",
+        "claude-code",
+        "acp"
+      ]
+    }
+  ]
+}

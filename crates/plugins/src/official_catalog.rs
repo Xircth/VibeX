@@ -34,6 +34,7 @@ pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
     ("notes", "vibex.notes"),
     ("prompt-enhancer", "vibex.prompt-enhancer"),
     ("code-completion", "vibex.code-completion"),
+    ("voice-input", "vibex.voice-input"),
 ];
 
 #[derive(Clone, Debug, Deserialize)]

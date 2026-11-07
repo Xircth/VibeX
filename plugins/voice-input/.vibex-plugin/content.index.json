@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "skill.voice-input",
+      "kind": "skill",
+      "title": "AI Voice Input & Dictation Skill",
+      "summary": "Configure and use Orca-inspired AI voice dictation, custom vocabulary hotwords, and post-transcription cleanup in VibeX.",
+      "path": "contents/skills/voice-input/SKILL.md",
+      "tags": [
+        "voice-input",
+        "speech-to-text",
+        "whisper",
+        "dictation",
+        "orca"
+      ]
+    }
+  ]
+}

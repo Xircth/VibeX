@@ -28,6 +28,8 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.computer-use': 'computerUse',
   'vibex.code-completion': 'codeCompletion',
   'code-completion': 'codeCompletion',
+  'vibex.voice-input': 'voiceInput',
+  'voice-input': 'voiceInput',
 } as const;
 
 export type PluginCategoryKey =
@@ -65,6 +67,7 @@ const OFFICIAL_PLUGIN_CATEGORY_BY_KEY: Record<
   sessionEnhance: 'ai-enhancement',
   providerSwitch: 'ai-enhancement',
   computerUse: 'ai-enhancement',
+  voiceInput: 'ai-enhancement',
   browser: 'utilities',
   office: 'aigc',
   workflowCreator: 'aigc',
@@ -81,6 +84,7 @@ const BARE_OFFICIAL_ID_TO_KEY: Record<string, OfficialPluginI18nKey> = {
   science: 'science',
   'computer-use': 'computerUse',
   'code-completion': 'codeCompletion',
+  'voice-input': 'voiceInput',
 };
 
 const CATEGORY_LABELS_ZH: Record<'all' | PluginCategoryKey, string> = {

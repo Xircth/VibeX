@@ -1,3 +1,4 @@
+import { Slot } from '@/components/plugins/Slot';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import type {
   AgentSessionConfigOption,
@@ -120,6 +121,11 @@ export function ActionBar({
       <ActionBarImageButton
         isEditable={isEditable}
         onAttachImages={onAttachImages}
+      />
+
+      <Slot
+        name="composer.toolbar"
+        slotProps={{ isEditable, isAttemptRunning }}
       />
 
       <ActionBarUtilityButtons

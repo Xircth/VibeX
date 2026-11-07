@@ -74,6 +74,13 @@
       "repository": "https://github.com/Xircth/vibex-plugin-code-completion",
       "category": "development",
       "summary": "AI 代码内联补全（Ghost Text / FIM）：支持 OpenAI 兼容与 Anthropic 兼容双协议、智能上下文拼装、自适应防抖与一键原子级撤销。"
+    },
+    {
+      "id": "vibex.voice-input",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-voice-input",
+      "category": "ai-enhancement",
+      "summary": "AI 语音输入与智能听写（参考 Orca）：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。"
     }
   ]
 }

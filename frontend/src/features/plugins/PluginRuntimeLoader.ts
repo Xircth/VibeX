@@ -64,9 +64,16 @@ export function handleLocalComposerDraftCall(
     record.token && typeof record.token === 'object'
       ? (record.token as Record<string, unknown>)
       : {};
+  const directText =
+    typeof record.text === 'string'
+      ? record.text
+      : typeof token.text === 'string'
+        ? token.text
+        : '';
   const inserted = insertIntoActiveComposer({
     label: typeof token.label === 'string' ? token.label : '',
     markdown: typeof token.markdown === 'string' ? token.markdown : '',
+    ...(directText ? { text: directText } : {}),
   });
   return { conversationId: null, inserted };
 }

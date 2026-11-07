@@ -8,6 +8,7 @@
 export interface ComposerDraftToken {
   label: string;
   markdown: string;
+  text?: string;
 }
 
 interface ComposerDraftTarget {
@@ -82,11 +83,16 @@ export function hasActiveComposerDraftTarget(): boolean {
 
 /** Inserts into the active composer only. Returns whether a composer took it. */
 export function insertIntoActiveComposer(token: ComposerDraftToken): boolean {
-  const label = token.label?.trim();
-  const markdown = token.markdown?.trim();
-  if (!label || !markdown) return false;
+  const label = token.label?.trim() ?? '';
+  const markdown = token.markdown?.trim() ?? '';
+  const text = token.text?.trim() ?? '';
+  if ((!label || !markdown) && !text) return false;
   const id = getActiveComposerDraftTargetId();
   if (id === null) return false;
-  targets.get(id)?.insert({ label, markdown });
+  targets.get(id)?.insert({
+    label,
+    markdown,
+    ...(text ? { text } : {}),
+  });
   return true;
 }

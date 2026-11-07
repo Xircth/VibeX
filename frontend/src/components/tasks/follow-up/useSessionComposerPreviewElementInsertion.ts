@@ -74,6 +74,17 @@ export function useSessionComposerPreviewElementInsertion({
       draftMessageRef.current = externalMessage;
     }
     const currentMessage = draftMessageRef.current;
+    const plainText = token.text?.trim() ?? '';
+    if (plainText && !token.label?.trim()) {
+      const needsSpace =
+        currentMessage.length > 0 &&
+        !/[\s\u3000-\u303f\uff00-\uffef]$/.test(currentMessage) &&
+        !/^[\s\u3000-\u303f\uff00-\uffef]/.test(plainText);
+      const nextValue = `${currentMessage}${needsSpace ? ' ' : ''}${plainText}`;
+      draftMessageRef.current = nextValue;
+      onChangeRef.current(nextValue);
+      return;
+    }
     const next = insertPreviewElementToken({
       value: currentMessage,
       selectionStart: currentMessage.length,
@@ -111,13 +122,22 @@ export function useSessionComposerPreviewElementInsertion({
     let unlisten: (() => void) | undefined;
     void backendListen(
       DRAFT_INSERT_EVENT,
-      (payload: { token?: { label?: string; markdown?: string } }) => {
-        const label = payload.token?.label?.trim();
-        const markdown = payload.token?.markdown?.trim();
-        if (!label || !markdown) return;
+      (payload: {
+        text?: string;
+        token?: { label?: string; markdown?: string; text?: string };
+      }) => {
+        const label = payload.token?.label?.trim() ?? '';
+        const markdown = payload.token?.markdown?.trim() ?? '';
+        const text =
+          payload.token?.text?.trim() ?? payload.text?.trim() ?? '';
+        if ((!label || !markdown) && !text) return;
         const handle = handleRef.current;
         if (!handle || getActiveComposerDraftTargetId() !== handle.id) return;
-        insertDraftToken({ label, markdown });
+        insertDraftToken({
+          label,
+          markdown,
+          ...(text ? { text } : {}),
+        });
       }
     ).then((dispose) => {
       if (disposed) dispose();

@@ -109,7 +109,7 @@ export function DevicePairingPanel({
   onEnsureListening?: () => Promise<string[]>;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const preset: PairingPreset = 'workstation';
+  const [preset, setPreset] = useState<PairingPreset>('workstation');
   const [challenge, setChallenge] = useState<DevicePairingChallenge | null>(
     null
   );
@@ -194,7 +194,10 @@ export function DevicePairingPanel({
   }, [invitation]);
 
   const createPairing = useCallback(
-    async (ttl: PairingTtlSeconds = ttlSeconds) => {
+    async (
+      ttl: PairingTtlSeconds = ttlSeconds,
+      issuePreset: PairingPreset = preset
+    ) => {
       if (!serviceRunning) {
         toast.error(t('webService.enableServiceFirst'));
         return;
@@ -206,10 +209,10 @@ export function DevicePairingPanel({
         }
         const created = transport.createDevicePairing
           ? await transport.createDevicePairing({
-              preset,
+              preset: issuePreset,
               ttl_seconds: ttl,
             })
-          : await webServiceApi.createPairing(preset, ttl);
+          : await webServiceApi.createPairing(issuePreset, ttl);
         setChallenge(created);
         setIssuedAt(Date.now());
         void loadDevices();
@@ -479,6 +482,38 @@ export function DevicePairingPanel({
                       </div>
                     </div>
                     <div className="settings-pairing-meta">
+                      <div className="settings-pairing-field">
+                        <Label
+                          htmlFor="pairing-preset"
+                          className="text-sm font-medium"
+                        >
+                          {t('webService.pairingPresetLabel')}
+                        </Label>
+                        <Select
+                          value={preset}
+                          onValueChange={(value) => {
+                            const next = value as PairingPreset;
+                            setPreset(next);
+                            void createPairing(ttlSeconds, next);
+                          }}
+                        >
+                          <SelectTrigger
+                            id="pairing-preset"
+                            className="h-8 w-40 text-sm"
+                            aria-label={t('webService.pairingPresetLabel')}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent align="end">
+                            <SelectItem value="companion">
+                              {t('webService.pairingPresetCompanion')}
+                            </SelectItem>
+                            <SelectItem value="workstation">
+                              {t('webService.pairingPresetWorkstation')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="settings-pairing-field">
                         <Label
                           htmlFor="pairing-ttl"

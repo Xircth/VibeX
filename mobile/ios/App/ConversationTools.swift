@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - 浏览文件
 
-private enum BrowseTarget: Hashable {
+enum BrowseTarget: Hashable {
     case directory(String)
     case file(String)
 }
@@ -12,11 +12,17 @@ private enum BrowseTarget: Hashable {
 struct FileBrowserView: View {
     let client: HostClient
     let workspaceID: String
+    @Environment(\.dismiss) private var dismiss
     @State private var stack: [BrowseTarget] = []
 
     var body: some View {
         NavigationStack(path: $stack) {
             DirectoryView(client: client, workspaceID: workspaceID, path: "", navigate: { stack.append($0) })
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                }
                 .navigationDestination(for: BrowseTarget.self) { target in
                     switch target {
                     case .directory(let path):
@@ -29,10 +35,11 @@ struct FileBrowserView: View {
     }
 }
 
-private struct DirectoryView: View {
+struct DirectoryView: View {
     let client: HostClient
     let workspaceID: String
     let path: String
+    var rootTitle: String = "浏览文件"
     let navigate: (BrowseTarget) -> Void
     @State private var list = RemoteList<WorkspaceEntry>()
     @State private var truncated = false
@@ -40,7 +47,7 @@ private struct DirectoryView: View {
 
     var body: some View {
         content
-            .navigationTitle(path.isEmpty ? "浏览文件" : (path as NSString).lastPathComponent)
+            .navigationTitle(path.isEmpty ? rootTitle : (path as NSString).lastPathComponent)
             .navigationBarTitleDisplayMode(.inline)
             .task { await load() }
     }
@@ -98,7 +105,7 @@ private struct DirectoryView: View {
     }
 }
 
-private struct FileContentView: View {
+struct FileContentView: View {
     let client: HostClient
     let workspaceID: String
     let path: String
@@ -167,6 +174,7 @@ private struct CodeView: View {
 struct DiffListView: View {
     let client: HostClient
     let workspaceID: String
+    @Environment(\.dismiss) private var dismiss
     @State private var list = RemoteList<FileDiff>()
 
     var body: some View {
@@ -174,6 +182,11 @@ struct DiffListView: View {
             content
                 .navigationTitle("代码差异")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                }
                 .navigationDestination(for: FileDiff.self) {
                     DiffFileView(client: client, workspaceID: workspaceID, diff: $0)
                 }
@@ -330,6 +343,7 @@ struct FileDiffSheet: View {
     let client: HostClient
     let workspaceID: String
     let path: String
+    @Environment(\.dismiss) private var dismiss
     @State private var diff: FileDiff?
     @State private var missing = false
     @State private var errorMessage: String?
@@ -347,6 +361,11 @@ struct FileDiffSheet: View {
                     LoadFailureView(message: errorMessage) { Task { await load() } }
                 } else {
                     ProgressView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
                 }
             }
         }

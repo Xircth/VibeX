@@ -262,6 +262,12 @@ private final class RecordingTransport: HttpTransport, @unchecked Sendable {
 
     try await host.setSessionConfigOption(conversationID: "c", key: "model", value: .string("b"))
     #expect((transport.lastBody["args"] as? [String: Any])?["value"] as? String == "b")
+
+    try await host.archiveConversation(conversationID: "c1")
+    #expect((transport.lastBody["args"] as? [String: Any])?["conversationId"] as? String == "c1")
+
+    try await host.deleteConversation(conversationID: "c2")
+    #expect((transport.lastBody["args"] as? [String: Any])?["conversationId"] as? String == "c2")
 }
 
 @Test func catalogListsDesktopAgentsWithTheirModels() throws {
@@ -435,3 +441,141 @@ private final class RecordingTransport: HttpTransport, @unchecked Sendable {
     #expect(item.changes.map(\.path) == ["a.rs"] && item.changes[0].additions == 3)
     #expect(item.tools[0].detail == ["a.rs", "line2", "line3", "line4"])
 }
+
+@Test func collaborationSidebarAndMessagesDecodeCleanly() throws {
+    let sidebarJson = """
+    [{"kind":"group","thread_id":"s1","space_id":"s1","name":"核心研发群","member_count":3,"unread_count":2,
+      "members_preview":[{"member_id":"m1","name":"架构师","is_supervisor":true}],
+      "last_message":{"seq":12,"preview":"已评审完成","origin":"agent","created_at":"2026-04-20T10:00:00Z"}}]
+    """
+    let sidebar = try JSONDecoder().decode([CollabSidebarItem].self, from: Data(sidebarJson.utf8))
+    #expect(sidebar.count == 1)
+    #expect(sidebar[0].isGroup == true)
+    #expect(sidebar[0].displayName == "核心研发群")
+    #expect(sidebar[0].unreadCount == 2)
+    #expect(sidebar[0].membersPreview.first?.isSupervisor == true)
+    #expect(sidebar[0].lastMessage?.preview == "已评审完成")
+
+    let pageJson = """
+    {"messages":[
+       {"id":"vibex://space-message/m-1","seq":1,"origin":"agent",
+        "receipts":[{"conversation_id":"conv-1","nickname":"架构师","state":"replied"}],
+        "envelope":{"id":"m-1","sender":"架构师","content":"请确认部署方案","to":["@全体成员"],
+                    "reactions":[{"emoji":"👍","actor":"Person"}]}}
+     ],
+     "cards":[
+       {"id":"c1","kind":"approval","status":"pending","payload":{"action":"执行迁移","reason":"更新 schema","options":["批准","拒绝"]}}
+     ],
+     "scheduled":[
+       {"id":"sch1","space_id":"s1","content":"稍后提醒","deliver_at":"2026-04-20T10:05:00Z"}
+     ]}
+    """
+    let page = try JSONDecoder().decode(CollabMessagesPage.self, from: Data(pageJson.utf8))
+    #expect(page.messages.count == 1)
+    #expect(page.messages[0].id == "m-1")
+    #expect(page.messages[0].envelope.displaySender == "架构师")
+    #expect(page.messages[0].receipts.first?.stateLabel == "已回复")
+    #expect(page.messages[0].groupedReactions.first?.emoji == "👍")
+    #expect(page.messages[0].groupedReactions.first?.byUser == true)
+    #expect(page.cards.first?.isPending == true)
+    #expect(page.cards.first?.action == "执行迁移")
+    #expect(page.scheduled.first?.content == "稍后提醒")
+
+    let masterAvatar = CollabBotAvatarConfig.derive(seed: "Master")
+    #expect(masterAvatar.color == "#000000")
+    #expect(masterAvatar.shape == .circle)
+
+    let customAvatar = CollabBotAvatarConfig.resolve(
+        rawAvatar: "{\"color\":\"#9a6433\",\"shape\":\"cloud\",\"expression\":\"happy\"}",
+        rawColor: nil,
+        fallbackSeed: "架构师"
+    )
+    #expect(customAvatar.color == "#9a6433")
+    #expect(customAvatar.shape == .cloud)
+    #expect(customAvatar.expression == .happy)
+    #expect(BotAvatarShape.allCases.count == 13)
+    #expect(CollabBotAvatarConfig.colorPresets.count == 11)
+}
+
+@Test func kanbanSessionSummariesAndUsageStatisticsDecodeCleanly() throws {
+    let summaryJson = """
+    [{"id":"s-1","workspace_id":"ws-1","name":null,"display_name":"新会话1","status":"inreview",
+      "executor":"claude_code","agent_id":"claude_code","workspace_name":"main","workspace_branch":"main",
+      "created_at":"2026-04-20T09:00:00Z","updated_at":"2026-04-20T10:00:00Z",
+      "first_prompt":"实现 iOS 看板功能","is_running":false,"pinned_at":"2026-04-20T09:30:00Z",
+      "model":"claude-opus-4-7","collaboration":{"member_id":"m1","member_name":"Master"}}]
+    """
+    let summaries = try JSONDecoder().decode([KanbanSessionSummary].self, from: Data(summaryJson.utf8))
+    #expect(summaries.count == 1)
+    let first = summaries[0]
+    #expect(first.status == .inreview)
+    #expect(first.isPinned == true)
+    #expect(first.completesWhenViewed == true)
+    #expect(first.resolvedTitle == "实现 iOS 看板功能")
+    #expect(first.agentDisplayName == "Claude Code")
+    #expect(first.workspaceDisplayLabel == "main")
+    #expect(first.collaboration?.memberName == "Master")
+    #expect(first.isForkSupported == true)
+
+    let statsJson = """
+    {"scope":"global","project_id":"global","project_name":"全局","total_sessions":4,
+     "total_tokens":{"protocol":{"input_tokens":1000,"output_tokens":500,"cache_write_tokens":200,"cache_read_tokens":8300,"total_tokens":10000},"vendor_log":null,"sources_disagree":false},
+     "estimated_cost":1.25,
+     "sessions":[{"session_id":"s-1","workspace_id":"ws-1","agent_id":"claude_code","timestamp":1776679200000,"model":"claude-opus-4-7","tokens":{"protocol":{"total_tokens":10000},"sources_disagree":false},"cost":1.25,"summary":"实现看板","turns":3}],
+     "daily_usage":[{"date":"2026-04-20","sessions":4,"tokens":{"protocol":{"total_tokens":10000},"sources_disagree":false},"cost":1.25,"models_used":["claude-opus-4-7"],"turns":3}],
+     "by_model":[{"model":"claude-opus-4-7","session_count":4,"tokens":{"protocol":{"total_tokens":10000},"sources_disagree":false},"cost":1.25}],
+     "by_folder":[{"workspace_id":"ws-1","folder":"/Users/ltf/Desktop/vibex","session_count":4,"tokens":{"protocol":{"total_tokens":10000},"sources_disagree":false},"cost":1.25}],
+     "by_agent":[{"agent_id":"claude_code","session_count":4,"tokens":{"protocol":{"total_tokens":10000},"sources_disagree":false},"cost":1.25}],
+     "unattributed_vendor_sessions":0,"last_updated":1776679200000}
+    """
+    let stats = try JSONDecoder().decode(ProjectUsageStatistics.self, from: Data(statsJson.utf8))
+    #expect(stats.totalSessions == 4)
+    #expect(stats.resolvedCost == 1.25)
+    #expect(stats.totalTokens.preferred.resolvedTotal == 10000)
+    #expect(stats.activeDaysCount == 1)
+    #expect(stats.byFolder.first?.displayName == "vibex")
+    #expect(stats.byAgent.first?.displayName == "Claude Code")
+
+    let planJson = """
+    {"type":"OK","usage":{"planType":"max","windows":[{"id":"five_hour","usedPercent":42.4,"windowMinutes":300,"resetsAtMs":1776686400000}],"credits":{"balance":"$20.00","unlimited":false}}}
+    """
+    let plan = try JSONDecoder().decode(PlanUsageResponse.self, from: Data(planJson.utf8))
+    if case .ok(let usage) = plan {
+        #expect(usage.planType == "max")
+        #expect(usage.windows.first?.localizedTitle == "5 小时窗口")
+        #expect(usage.windows.first?.clampedUsedPercent == 42)
+        #expect(usage.windows.first?.remainingPercent == 58)
+    } else {
+        Issue.record("Expected .ok PlanUsageResponse")
+    }
+}
+
+@Test func settingsSkillsMcpAndPluginsModelsDecodeCleanly() throws {
+    let skillsJson = """
+    [{"id":"maiden-skill","name":"maiden-skill","description":"Project-wide engineering principles","group":"maiden","global":true,"apps":["claude_code","codex"],"path":"/Users/ltf/.agents/skills/maiden-skill/SKILL.md"}]
+    """
+    let skills = try JSONDecoder().decode([LocalSkillItem].self, from: Data(skillsJson.utf8))
+    #expect(skills.count == 1)
+    #expect(skills[0].name == "maiden-skill")
+    #expect(skills[0].global == true)
+    #expect(skills[0].apps == ["claude_code", "codex"])
+
+    let mcpJson = """
+    [{"id":"vibex-delegation-mcp","spec":{"command":"vibex-mcp","args":["--stdio"],"type":"stdio"},"global":true,"apps":["claude_code"]}]
+    """
+    let mcpServers = try JSONDecoder().decode([LocalMcpServerItem].self, from: Data(mcpJson.utf8))
+    #expect(mcpServers.count == 1)
+    #expect(mcpServers[0].transportLabel == "STDIO")
+    #expect(mcpServers[0].commandSummary == "vibex-mcp --stdio")
+
+    let catalogJson = """
+    {"plugins":[{"id":"vibex.core.multi-agent","name":"Multi-Agent Collaboration","version":"0.4.2","description":"Collaboration Space","enabled":true,"builtin":true,"sourceKind":"builtin","formats":["vibex"],"skills":["collab"],"mcpCount":1,"mcpServers":["delegation"]}]}
+    """
+    let catalog = try JSONDecoder().decode(PluginControlCatalogResponse.self, from: Data(catalogJson.utf8))
+    #expect(catalog.plugins.count == 1)
+    #expect(catalog.plugins[0].name == "Multi-Agent Collaboration")
+    #expect(catalog.plugins[0].mcpCount == 1)
+}
+
+
+

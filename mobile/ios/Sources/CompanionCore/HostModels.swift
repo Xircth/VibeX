@@ -16,6 +16,26 @@ public struct ConversationListItem: Decodable, Identifiable, Equatable, Sendable
         case id, workspace_id, title, status, agent_id, model, message_count, updated_at
     }
 
+    public init(
+        id: String,
+        workspace_id: String,
+        title: String? = nil,
+        status: String? = nil,
+        agent_id: String? = nil,
+        model: String? = nil,
+        message_count: Int = 0,
+        updated_at: String = ""
+    ) {
+        self.id = id
+        self.workspace_id = workspace_id
+        self.title = title
+        self.status = status
+        self.agent_id = agent_id
+        self.model = model
+        self.message_count = message_count
+        self.updated_at = updated_at
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -395,6 +415,7 @@ public struct ProjectGroup: Identifiable, Equatable, Sendable {
     public let depth: Int
     public let isGit: Bool
     public let isHome: Bool
+    public let workspaceIds: [String]
     public let conversations: [ConversationListItem]
 
     public init(
@@ -404,6 +425,7 @@ public struct ProjectGroup: Identifiable, Equatable, Sendable {
         depth: Int = 0,
         isGit: Bool = false,
         isHome: Bool = false,
+        workspaceIds: [String] = [],
         conversations: [ConversationListItem]
     ) {
         self.id = id
@@ -412,6 +434,7 @@ public struct ProjectGroup: Identifiable, Equatable, Sendable {
         self.depth = depth
         self.isGit = isGit
         self.isHome = isHome
+        self.workspaceIds = workspaceIds
         self.conversations = conversations
     }
 
@@ -438,6 +461,7 @@ public struct ProjectGroup: Identifiable, Equatable, Sendable {
                 depth: entry.depth,
                 isGit: entry.project.isGit,
                 isHome: entry.project.isHome,
+                workspaceIds: entry.project.workspaceIds,
                 conversations: buckets[entry.project.id.lowercased()] ?? []
             )
         }

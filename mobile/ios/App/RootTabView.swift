@@ -5,6 +5,7 @@ enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
+    @Environment(AppAppearanceStore.self) private var appearance
     @State private var selection: AppTab = .conversations
 
     var body: some View {
@@ -12,10 +13,10 @@ struct RootTabView: View {
             RequiresServer(selection: $selection) { ConversationsView(client: $0) }
                 .tabItem { Label("对话", systemImage: "bubble.left.and.bubble.right") }
                 .tag(AppTab.conversations)
-            UnsupportedTab(title: "看板", icon: "square.grid.2x2")
+            RequiresServer(selection: $selection) { BoardView(client: $0) }
                 .tabItem { Label("看板", systemImage: "square.grid.2x2") }
                 .tag(AppTab.board)
-            UnsupportedTab(title: "协作空间", icon: "person.2")
+            RequiresServer(selection: $selection) { CollaborationSpaceView(client: $0) }
                 .tabItem { Label("协作空间", systemImage: "person.2") }
                 .tag(AppTab.space)
             RequiresServer(selection: $selection) { FilesView(client: $0) }
@@ -25,22 +26,25 @@ struct RootTabView: View {
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }
-    }
-}
-
-/// The Host does not grant the Companion preset access to this surface (ADR-0054).
-private struct UnsupportedTab: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(title, systemImage: icon, description: Text("手机端暂不支持"))
-                .navigationTitle(title)
+        .dynamicTypeSize(appearance.fontSizePreset.dynamicTypeSize)
+        .fontDesign(appearance.fontStylePreset.fontDesign)
+        .preferredColorScheme(appearance.themeMode.colorScheme)
+        .onAppear {
+            appearance.applyInterfaceStyleToAllWindows(appearance.themeMode.uiInterfaceStyle)
         }
+        .onChange(of: selection) { _, _ in
+            dismissKeyboard()
+        }
+        .background(
+            GlobalInteractionInstaller()
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+        )
     }
 }
 
 #Preview {
-    RootTabView().environment(ServerStore(defaults: UserDefaults(suiteName: "preview")!))
+    RootTabView()
+        .environment(ServerStore(defaults: UserDefaults(suiteName: "preview")!))
+        .environment(AppAppearanceStore(defaults: UserDefaults(suiteName: "preview")!))
 }

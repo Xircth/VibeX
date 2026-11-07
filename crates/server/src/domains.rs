@@ -2001,7 +2001,16 @@ impl ServerApplicationDomains {
     }
 
     async fn user_system_info(&self) -> Result<Value, ApplicationError> {
-        crate::host::catalog::config::user_system_info(self).await
+        let mut value = crate::host::catalog::config::user_system_info(self).await?;
+        if let (Some(object), Ok(catalog)) = (
+            value.as_object_mut(),
+            self.plugin_control_catalog().await,
+        ) {
+            if let Some(plugins) = catalog.get("plugins").cloned() {
+                object.insert("plugins".to_string(), plugins);
+            }
+        }
+        Ok(value)
     }
 
     async fn artifact_list(&self, args: Value) -> Result<Value, ApplicationError> {

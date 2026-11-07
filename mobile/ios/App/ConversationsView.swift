@@ -6,16 +6,39 @@ struct ConversationsView: View {
     let client: HostClient
     @State private var list = RemoteList<ConversationListItem>()
     @State private var projects: [ProjectSummary]?
+    @State private var path = NavigationPath()
+    @State private var searchQuery = ""
+    @State private var removedConversationIDs: Set<String> = []
+    @State private var actionErrorMessage: String?
+
+    private var isConnected: Bool {
+        list.errorMessage == nil && list.items != nil
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             content
                 .navigationTitle("对话")
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        ConnectedDeviceBar(isConnected: isConnected)
+                    }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    if let actionErrorMessage {
+                        Text(actionErrorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                    }
+                }
                 .navigationDestination(for: ProjectRoute.self) { route in
                     ProjectConversationsView(
                         client: client,
                         group: group(id: route.id),
                         projects: projects ?? [],
+                        removedIDs: $removedConversationIDs,
                         onRefresh: { await reload() }
                     )
                 }
@@ -31,8 +54,46 @@ struct ConversationsView: View {
         }
     }
 
+    private var visibleConversations: [ConversationListItem] {
+        (list.items ?? []).filter { !removedConversationIDs.contains($0.id) }
+    }
+
     private var groups: [ProjectGroup] {
-        ProjectGroup.make(conversations: list.items ?? [], projects: projects ?? [])
+        ProjectGroup.make(conversations: visibleConversations, projects: projects ?? [])
+    }
+
+    private var searchResults: [SearchResultItem] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+        var items: [SearchResultItem] = []
+
+        for group in groups where group.name.lowercased().contains(q) || group.rootPath.lowercased().contains(q) {
+            items.append(
+                SearchResultItem(
+                    id: "project-\(group.id)",
+                    title: group.name,
+                    subtitle: group.rootPath.isEmpty ? "\(group.conversations.count) 个对话" : group.rootPath,
+                    icon: group.isGit ? "arrow.triangle.branch" : "folder",
+                    action: { path.append(ProjectRoute(id: group.id)) }
+                )
+            )
+        }
+
+        for conv in visibleConversations {
+            let title = conv.title ?? "未命名对话"
+            if title.lowercased().contains(q) || (conv.model?.lowercased().contains(q) ?? false) {
+                items.append(
+                    SearchResultItem(
+                        id: "conv-\(conv.id)",
+                        title: title,
+                        subtitle: conv.model,
+                        icon: "bubble.left.and.bubble.right",
+                        action: { path.append(conv) }
+                    )
+                )
+            }
+        }
+        return items
     }
 
     private func group(id: String) -> ProjectGroup {
@@ -41,25 +102,82 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let items = list.items {
+        if list.items != nil {
             if let projects, !projects.isEmpty {
                 List {
+                    Section {
+                        SearchListCard(
+                            query: $searchQuery,
+                            placeholder: "搜索项目或对话…",
+                            results: searchResults
+                        )
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
                     Section("已导入项目") {
                         ForEach(groups) { group in
                             NavigationLink(value: ProjectRoute(id: group.id)) {
                                 ProjectRow(group: group)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if !group.conversations.isEmpty {
+                                    Button(role: .destructive) {
+                                        deleteGroupConversations(group)
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
+                                    Button {
+                                        archiveGroupConversations(group)
+                                    } label: {
+                                        Label("归档", systemImage: "archivebox")
+                                    }
+                                    .tint(.indigo)
+                                }
+                            }
                         }
                     }
                 }
+                .listSectionSpacing(10)
+                .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
-            } else if items.isEmpty {
+            } else if visibleConversations.isEmpty {
                 ContentUnavailableView("最近没有对话", systemImage: "bubble.left.and.bubble.right")
             } else {
-                // The Host did not describe its projects; fall back to one flat list.
-                List(items) { item in
-                    NavigationLink(value: item) { ConversationRow(item: item) }
+                List {
+                    Section {
+                        SearchListCard(
+                            query: $searchQuery,
+                            placeholder: "搜索对话…",
+                            results: searchResults
+                        )
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    Section {
+                        ForEach(visibleConversations) { item in
+                            NavigationLink(value: item) { ConversationRow(item: item) }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        deleteSingleConversation(item)
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
+                                    Button {
+                                        archiveSingleConversation(item)
+                                    } label: {
+                                        Label("归档", systemImage: "archivebox")
+                                    }
+                                    .tint(.indigo)
+                                }
+                        }
+                    }
                 }
+                .listSectionSpacing(10)
+                .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
             }
         } else if let message = list.errorMessage {
@@ -69,14 +187,83 @@ struct ConversationsView: View {
         }
     }
 
+    private func archiveSingleConversation(_ item: ConversationListItem) {
+        let id = item.id
+        withAnimation { _ = removedConversationIDs.insert(id) }
+        Task {
+            do {
+                try await client.archiveConversation(conversationID: id)
+                actionErrorMessage = nil
+                await reload()
+            } catch {
+                withAnimation { _ = removedConversationIDs.remove(id) }
+                actionErrorMessage = describeHostFailure(error)
+            }
+        }
+    }
+
+    private func deleteSingleConversation(_ item: ConversationListItem) {
+        let id = item.id
+        withAnimation { _ = removedConversationIDs.insert(id) }
+        Task {
+            do {
+                try await client.deleteConversation(conversationID: id)
+                actionErrorMessage = nil
+                await reload()
+            } catch {
+                withAnimation { _ = removedConversationIDs.remove(id) }
+                actionErrorMessage = describeHostFailure(error)
+            }
+        }
+    }
+
+    private func archiveGroupConversations(_ group: ProjectGroup) {
+        let ids = group.conversations.map(\.id)
+        guard !ids.isEmpty else { return }
+        withAnimation { removedConversationIDs.formUnion(ids) }
+        Task {
+            do {
+                for id in ids {
+                    try await client.archiveConversation(conversationID: id)
+                }
+                actionErrorMessage = nil
+                await reload()
+            } catch {
+                withAnimation { removedConversationIDs.subtract(ids) }
+                actionErrorMessage = describeHostFailure(error)
+            }
+        }
+    }
+
+    private func deleteGroupConversations(_ group: ProjectGroup) {
+        let ids = group.conversations.map(\.id)
+        guard !ids.isEmpty else { return }
+        withAnimation { removedConversationIDs.formUnion(ids) }
+        Task {
+            do {
+                for id in ids {
+                    try await client.deleteConversation(conversationID: id)
+                }
+                actionErrorMessage = nil
+                await reload()
+            } catch {
+                withAnimation { removedConversationIDs.subtract(ids) }
+                actionErrorMessage = describeHostFailure(error)
+            }
+        }
+    }
+
     private func reload() async {
         projects = try? await client.projects()
         await list.load {
-            try await client.call(
+            let fetched = try await client.call(
                 "conversation_list_recent",
                 args: ["sinceDays": 30, "limit": 100],
                 as: [ConversationListItem].self
             )
+            let activeIDs = Set(fetched.map(\.id))
+            removedConversationIDs.formIntersection(activeIDs)
+            return fetched
         }
     }
 }
@@ -91,6 +278,7 @@ private struct ProjectConversationsView: View {
     let client: HostClient
     let group: ProjectGroup
     let projects: [ProjectSummary]
+    @Binding var removedIDs: Set<String>
     let onRefresh: () async -> Void
 
     @State private var agents: [CatalogAgent] = []
@@ -98,8 +286,25 @@ private struct ProjectConversationsView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        List(group.conversations) { item in
-            NavigationLink(value: item) { ConversationRow(item: item) }
+        List {
+            ForEach(group.conversations) { item in
+                NavigationLink(value: item) {
+                    ConversationRow(item: item)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        delete(item)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                    Button {
+                        archive(item)
+                    } label: {
+                        Label("归档", systemImage: "archivebox")
+                    }
+                    .tint(.indigo)
+                }
+            }
         }
         .overlay {
             if group.conversations.isEmpty {
@@ -141,6 +346,36 @@ private struct ProjectConversationsView: View {
     private var workspaceID: String? {
         group.conversations.first?.workspace_id
             ?? projects.first { $0.id == group.id }?.workspaceIds.first
+    }
+
+    private func archive(_ item: ConversationListItem) {
+        let id = item.id
+        withAnimation { _ = removedIDs.insert(id) }
+        Task {
+            do {
+                try await client.archiveConversation(conversationID: id)
+                errorMessage = nil
+                await onRefresh()
+            } catch {
+                withAnimation { _ = removedIDs.remove(id) }
+                errorMessage = describeHostFailure(error)
+            }
+        }
+    }
+
+    private func delete(_ item: ConversationListItem) {
+        let id = item.id
+        withAnimation { _ = removedIDs.insert(id) }
+        Task {
+            do {
+                try await client.deleteConversation(conversationID: id)
+                errorMessage = nil
+                await onRefresh()
+            } catch {
+                withAnimation { _ = removedIDs.remove(id) }
+                errorMessage = describeHostFailure(error)
+            }
+        }
     }
 
     private func create(agent: CatalogAgent, workspace: String) {

@@ -9,6 +9,14 @@ struct ServerProfile: Codable, Identifiable, Hashable {
     var serverVersion: String
     var protocolVersion: String
     var scopes: [String]
+
+    var displayHost: String {
+        URL(string: origin)?.host ?? origin
+    }
+
+    var serverName: String {
+        "VibeX (\(displayHost))"
+    }
 }
 
 @Observable
@@ -54,6 +62,22 @@ final class ServerStore {
 
     /// The most recently paired computer is the one the tabs read from.
     var activeProfile: ServerProfile? { profiles.last }
+
+    func activeClient() -> HostClient? {
+        activeProfile.flatMap { client(for: $0) }
+    }
+
+    func setActive(_ profileID: String) {
+        guard let idx = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        let chosen = profiles.remove(at: idx)
+        profiles.append(chosen)
+        persist()
+    }
+
+    func remove(_ profileID: String) {
+        guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
+        forget(profile)
+    }
 
     func client(for profile: ServerProfile) -> HostClient? {
         guard let origin = try? HostOrigin.parse(profile.origin),

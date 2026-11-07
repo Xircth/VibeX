@@ -91,7 +91,10 @@ struct ConversationDetailView: View {
                 FileDiffSheet(client: model.client, workspaceID: model.conversation.workspace_id, path: change.path)
             }
         }
-        .onDisappear { model.stopActivity() }
+        .onDisappear {
+            dismissKeyboard()
+            model.stopActivity()
+        }
         .navigationDestination(item: $created) { ConversationDetailView(client: model.client, conversation: $0) }
         .background { Color(.systemGroupedBackground).ignoresSafeArea() }
         .task {

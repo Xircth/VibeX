@@ -742,7 +742,11 @@ impl HostCollaborationHost {
                     .await
                     .map_err(host_error)?
         {
-            let avatar = optional_text(input, &["avatar"]);
+            let avatar = input.get("avatar").and_then(|v| match v {
+                Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+                Value::Object(_) => Some(v.to_string()),
+                _ => None,
+            });
             let color = optional_text(input, &["color"]);
             if avatar.is_some() || color.is_some() {
                 sidebar::update_member_profile(
@@ -947,12 +951,22 @@ impl HostCollaborationHost {
             )
             .await
             .map_err(host_error)?;
-            let is_supervisor = if let Some(ref mid) = identity_member_id {
-                collaboration::is_member_supervisor(&self.pool, mid)
+            let (is_supervisor, avatar, color) = if let Some(ref mid) = identity_member_id {
+                let sup = collaboration::is_member_supervisor(&self.pool, mid)
                     .await
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let profile: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                    "SELECT avatar, color FROM collaboration_members WHERE id = ?",
+                )
+                .bind(mid)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+                let (av, col) = profile.unwrap_or((None, None));
+                (sup, av, col)
             } else {
-                false
+                (false, None, None)
             };
             let mut value = serde_json::to_value(&member).map_err(|error| {
                 CollaborationHostError::new("conversation_control_failed", error.to_string())
@@ -960,6 +974,12 @@ impl HostCollaborationHost {
             if let Some(object) = value.as_object_mut() {
                 object.insert("identity_member_id".into(), json!(identity_member_id));
                 object.insert("is_supervisor".into(), json!(is_supervisor));
+                if let Some(av) = avatar {
+                    object.insert("avatar".into(), json!(av));
+                }
+                if let Some(col) = color {
+                    object.insert("color".into(), json!(col));
+                }
             }
             listed.push(value);
         }

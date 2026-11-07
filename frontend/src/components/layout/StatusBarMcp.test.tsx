@@ -347,4 +347,36 @@ describe('StatusBarMcp', () => {
       expect(uninstallLocal).toHaveBeenCalledWith('github')
     );
   });
+
+  it('displays discovered tools and tool count for connected local MCP servers when tools are available', async () => {
+    scanLocal.mockResolvedValue([
+      {
+        id: 'github',
+        spec: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+        },
+        global: true,
+        apps: ['claude_code', 'codex'],
+        tools: ['search_repositories', 'create_pull_request'],
+      },
+    ]);
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+
+    expect(await screen.findByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByText('2 个工具')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
+    const toolsList = await screen.findByTestId('mcp-plugin-tools');
+    expect(toolsList).toHaveTextContent('search_repositories');
+    expect(toolsList).toHaveTextContent('create_pull_request');
+    expect(
+      screen.queryByText('npx -y @modelcontextprotocol/server-github')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '管理连接器配置' })
+    ).toBeInTheDocument();
+  });
 });

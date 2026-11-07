@@ -14,12 +14,13 @@ use std::{
     fs,
     future::Future,
     path::{Path, PathBuf},
-    sync::LazyLock,
+    sync::{LazyLock, Mutex},
     time::Duration,
 };
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 mod catalog;
 mod error;
@@ -165,6 +166,9 @@ pub struct LocalMcpServer {
     pub global: bool,
     /// Which agent config files currently carry this server.
     pub apps: Vec<McpAppType>,
+    /// Discovered or cached MCP tool names exposed by this server.
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3680,6 +3684,539 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
 // Scan + target application
 // ---------------------------------------------------------------------------
 
+static DISCOVERED_MCP_TOOLS_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn mcp_tools_cache_key(server_id: &str, spec: &Value) -> String {
+    let serialized = serde_json::to_string(spec).unwrap_or_default();
+    format!("{}:{serialized}", server_id.trim().to_ascii_lowercase())
+}
+
+fn extract_declared_tools_from_spec(spec: &Value) -> Vec<String> {
+    let Some(arr) = spec.get("tools").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        if let Some(name) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            if !out.iter().any(|existing| existing == name) {
+                out.push(name.to_string());
+            }
+        } else if let Some(name) = item
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if !out.iter().any(|existing| existing == name) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn parse_tools_list_from_jsonrpc(payload: &Value) -> Vec<String> {
+    let tools_arr = payload
+        .pointer("/result/tools")
+        .or_else(|| payload.get("tools"))
+        .and_then(Value::as_array);
+    let Some(arr) = tools_arr else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        let name = item
+            .get("name")
+            .and_then(Value::as_str)
+            .or_else(|| item.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let Some(name) = name
+            && !out.iter().any(|existing| existing == name)
+        {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+fn parse_jsonrpc_or_sse_tools(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+        let tools = parse_tools_list_from_jsonrpc(&val);
+        if !tools.is_empty() {
+            return tools;
+        }
+    }
+    for line in trimmed.lines() {
+        let line = line.trim();
+        let json_str = line.strip_prefix("data:").map(str::trim).unwrap_or(line);
+        if json_str.starts_with('{')
+            && let Ok(val) = serde_json::from_str::<Value>(json_str)
+        {
+            let tools = parse_tools_list_from_jsonrpc(&val);
+            if !tools.is_empty() {
+                return tools;
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn scan_cached_agent_mcp_schemas_in(gemini_home: &Path, server_id: &str) -> Vec<String> {
+    let brain_root = gemini_home.join("antigravity-acp").join("brain");
+    let Ok(conversations) = fs::read_dir(&brain_root) else {
+        return Vec::new();
+    };
+    let target_lower = server_id.trim().to_ascii_lowercase();
+    let target_short = target_lower
+        .rsplit('/')
+        .next()
+        .unwrap_or(&target_lower)
+        .trim_end_matches("-mcp-server")
+        .trim_end_matches("-mcp");
+
+    let mut best_tools: Vec<String> = Vec::new();
+    for conv_entry in conversations.flatten() {
+        let mcp_dir = conv_entry.path().join("mcp");
+        let Ok(servers) = fs::read_dir(&mcp_dir) else {
+            continue;
+        };
+        for srv_entry in servers.flatten() {
+            let folder_name = srv_entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let folder_short = folder_name
+                .rsplit('/')
+                .next()
+                .unwrap_or(&folder_name)
+                .trim_end_matches("-mcp-server")
+                .trim_end_matches("-mcp");
+            if folder_name != target_lower
+                && folder_short != target_short
+                && !target_lower.contains(&folder_name)
+                && !folder_name.contains(&target_lower)
+            {
+                continue;
+            }
+            let Ok(files) = fs::read_dir(srv_entry.path()) else {
+                continue;
+            };
+            let mut tools = Vec::new();
+            for file in files.flatten() {
+                let path = file.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let clean = stem.trim();
+                    if !clean.is_empty() {
+                        tools.push(clean.to_string());
+                    }
+                }
+            }
+            tools.sort();
+            tools.dedup();
+            if tools.len() > best_tools.len() {
+                best_tools = tools;
+            }
+        }
+    }
+    best_tools
+}
+
+fn builtin_fallback_mcp_tools(server_id: &str, spec: &Value) -> Vec<String> {
+    let id_lower = server_id.trim().to_ascii_lowercase();
+    let cmd_str = spec
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let args_joined = spec
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase()
+        })
+        .unwrap_or_default();
+    let url_str = spec
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let combined = format!("{id_lower} {cmd_str} {args_joined} {url_str}");
+
+    let names: &[&str] = if id_lower == "github"
+        || id_lower.contains("github-mcp-server")
+        || combined.contains("server-github")
+        || combined.contains("githubcopilot.com/mcp")
+    {
+        &[
+            "add_issue_comment",
+            "create_branch",
+            "create_issue",
+            "create_or_update_file",
+            "create_pull_request",
+            "create_pull_request_review",
+            "create_repository",
+            "fork_repository",
+            "get_file_contents",
+            "get_issue",
+            "get_pull_request",
+            "get_pull_request_comments",
+            "get_pull_request_files",
+            "get_pull_request_reviews",
+            "get_pull_request_status",
+            "list_commits",
+            "list_issues",
+            "list_pull_requests",
+            "merge_pull_request",
+            "push_files",
+            "search_code",
+            "search_issues",
+            "search_repositories",
+            "search_users",
+            "update_issue",
+            "update_pull_request_branch",
+        ]
+    } else if id_lower == "node_repl"
+        || id_lower == "node-repl"
+        || combined.contains("mcp-Auto-install/node-repl")
+        || combined.contains("node_repl")
+        || combined.contains("node-repl")
+    {
+        &["execute_javascript", "reset_repl", "list_globals"]
+    } else if id_lower == "filesystem" || combined.contains("server-filesystem") {
+        &[
+            "read_file",
+            "read_multiple_files",
+            "write_file",
+            "edit_file",
+            "create_directory",
+            "list_directory",
+            "directory_tree",
+            "move_file",
+            "search_files",
+            "get_file_info",
+            "list_allowed_directories",
+        ]
+    } else if id_lower == "fetch" || combined.contains("mcp-server-fetch") {
+        &["fetch"]
+    } else if id_lower == "memory" || combined.contains("server-memory") {
+        &[
+            "create_entities",
+            "create_relations",
+            "add_observations",
+            "delete_entities",
+            "delete_observations",
+            "delete_relations",
+            "read_graph",
+            "search_nodes",
+            "open_nodes",
+        ]
+    } else if id_lower == "postgres" || combined.contains("server-postgres") {
+        &["query"]
+    } else if id_lower == "sqlite" || combined.contains("mcp-server-sqlite") {
+        &[
+            "read_query",
+            "write_query",
+            "create_table",
+            "list_tables",
+            "describe_table",
+            "append_insight",
+        ]
+    } else if id_lower == "playwright" || combined.contains("@playwright/mcp") {
+        &[
+            "browser_navigate",
+            "browser_snapshot",
+            "browser_click",
+            "browser_type",
+            "browser_press_key",
+            "browser_take_screenshot",
+            "browser_tabs",
+            "browser_close",
+        ]
+    } else if id_lower == "puppeteer" || combined.contains("server-puppeteer") {
+        &[
+            "puppeteer_navigate",
+            "puppeteer_screenshot",
+            "puppeteer_click",
+            "puppeteer_fill",
+            "puppeteer_select",
+            "puppeteer_hover",
+            "puppeteer_evaluate",
+        ]
+    } else if combined.contains("@oomol-lab/open-connector-mcp") {
+        &[
+            "list_apps",
+            "search_actions",
+            "describe_action",
+            "execute_action",
+            "list_connections",
+        ]
+    } else {
+        &[]
+    };
+
+    names.iter().map(|s| (*s).to_string()).collect()
+}
+
+fn resolve_fast_local_tools(server_id: &str, spec: &Value) -> Vec<String> {
+    let key = mcp_tools_cache_key(server_id, spec);
+    if let Ok(guard) = DISCOVERED_MCP_TOOLS_CACHE.lock()
+        && let Some(cached) = guard.get(&key)
+        && !cached.is_empty()
+    {
+        return cached.clone();
+    }
+
+    let declared = extract_declared_tools_from_spec(spec);
+    if !declared.is_empty() {
+        return declared;
+    }
+
+    let gemini_home = configured_dir("GEMINI_HOME", home_dir_or_default().join(".gemini"));
+    let from_schema = scan_cached_agent_mcp_schemas_in(&gemini_home, server_id);
+    if !from_schema.is_empty() {
+        if let Ok(mut guard) = DISCOVERED_MCP_TOOLS_CACHE.lock() {
+            guard.insert(key, from_schema.clone());
+        }
+        return from_schema;
+    }
+
+    builtin_fallback_mcp_tools(server_id, spec)
+}
+
+async fn probe_stdio_mcp_tools(spec: &Value) -> Vec<String> {
+    let Some(command_str) = spec
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return Vec::new();
+    };
+
+    let mut cmd = tokio::process::Command::new(command_str);
+    if let Some(args) = spec.get("args").and_then(Value::as_array) {
+        for arg in args.iter().filter_map(Value::as_str) {
+            cmd.arg(arg);
+        }
+    }
+    if let Some(cwd) = spec
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        cmd.current_dir(cwd);
+    }
+    if let Some(env_obj) = spec.get("env").and_then(Value::as_object) {
+        for (k, v) in env_obj {
+            if let Some(val) = v.as_str() {
+                cmd.env(k, val);
+            }
+        }
+    }
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x0800_0000);
+    }
+
+    let probe_fut = async move {
+        let mut child = cmd.spawn().ok()?;
+        let mut stdin = child.stdin.take()?;
+        let stdout = child.stdout.take()?;
+        let mut lines = BufReader::new(stdout).lines();
+
+        let init_req = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "vibex-mcp-probe", "version": "1.0.0" }
+            }
+        });
+        let init_notif = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        });
+        let list_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        });
+
+        let init_line = format!("{init_req}\n");
+        stdin.write_all(init_line.as_bytes()).await.ok()?;
+        stdin.flush().await.ok()?;
+
+        // Wait for initialize response (id == 1) or immediately send notifications/initialized + tools/list
+        let mut sent_list = false;
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('{') {
+                continue;
+            }
+            let Ok(msg) = serde_json::from_str::<Value>(trimmed) else {
+                continue;
+            };
+            let tools = parse_tools_list_from_jsonrpc(&msg);
+            if !tools.is_empty() {
+                return Some(tools);
+            }
+            if !sent_list && msg.get("id").and_then(Value::as_i64) == Some(1) {
+                sent_list = true;
+                let batch = format!("{init_notif}\n{list_req}\n");
+                stdin.write_all(batch.as_bytes()).await.ok()?;
+                stdin.flush().await.ok()?;
+            } else if sent_list && msg.get("id").and_then(Value::as_i64) == Some(2) {
+                return Some(parse_tools_list_from_jsonrpc(&msg));
+            }
+        }
+        None
+    };
+
+    tokio::time::timeout(Duration::from_millis(2800), probe_fut)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+async fn probe_http_mcp_tools(spec: &Value) -> Vec<String> {
+    let Some(url) = spec
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return Vec::new();
+    };
+    let Ok(client) = marketplace_http_client() else {
+        return Vec::new();
+    };
+
+    let build_post = |body: Value, session_id: Option<&str>| {
+        let mut req = client
+            .post(url)
+            .timeout(Duration::from_millis(2500))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        if let Some(sid) = session_id {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        if let Some(headers) = spec.get("headers").and_then(Value::as_object) {
+            for (k, v) in headers {
+                if let Some(val) = v.as_str() {
+                    req = req.header(k, val);
+                }
+            }
+        }
+        req.json(&body)
+    };
+
+    let probe_fut = async {
+        let init_req = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "vibex-mcp-probe", "version": "1.0.0" }
+            }
+        });
+        let mut session_id: Option<String> = None;
+        if let Ok(init_resp) = build_post(init_req, None).send().await {
+            session_id = init_resp
+                .headers()
+                .get("mcp-session-id")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
+        }
+
+        let list_req = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        });
+        let resp = build_post(list_req, session_id.as_deref()).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let body = resp.text().await.ok()?;
+        let tools = parse_jsonrpc_or_sse_tools(&body);
+        (!tools.is_empty()).then_some(tools)
+    };
+
+    tokio::time::timeout(Duration::from_millis(3000), probe_fut)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+async fn discover_server_tools(server_id: &str, spec: &Value) -> Vec<String> {
+    let key = mcp_tools_cache_key(server_id, spec);
+    if let Ok(guard) = DISCOVERED_MCP_TOOLS_CACHE.lock()
+        && let Some(cached) = guard.get(&key)
+        && !cached.is_empty()
+    {
+        return cached.clone();
+    }
+
+    let declared = extract_declared_tools_from_spec(spec);
+    if !declared.is_empty() {
+        if let Ok(mut guard) = DISCOVERED_MCP_TOOLS_CACHE.lock() {
+            guard.insert(key, declared.clone());
+        }
+        return declared;
+    }
+
+    let gemini_home = configured_dir("GEMINI_HOME", home_dir_or_default().join(".gemini"));
+    let from_schema = scan_cached_agent_mcp_schemas_in(&gemini_home, server_id);
+    if !from_schema.is_empty() {
+        if let Ok(mut guard) = DISCOVERED_MCP_TOOLS_CACHE.lock() {
+            guard.insert(key, from_schema.clone());
+        }
+        return from_schema;
+    }
+
+    let probed = match spec.get("type").and_then(Value::as_str) {
+        Some("http" | "sse") => probe_http_mcp_tools(spec).await,
+        _ => probe_stdio_mcp_tools(spec).await,
+    };
+    if !probed.is_empty() {
+        if let Ok(mut guard) = DISCOVERED_MCP_TOOLS_CACHE.lock() {
+            guard.insert(key, probed.clone());
+        }
+        return probed;
+    }
+
+    let fallback = builtin_fallback_mcp_tools(server_id, spec);
+    if !fallback.is_empty()
+        && let Ok(mut guard) = DISCOVERED_MCP_TOOLS_CACHE.lock()
+    {
+        guard.insert(key, fallback.clone());
+    }
+    fallback
+}
+
 fn scan_local_servers() -> Result<Vec<LocalMcpServer>, McpError> {
     let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>)> = BTreeMap::new();
 
@@ -3696,14 +4233,31 @@ fn scan_local_servers() -> Result<Vec<LocalMcpServer>, McpError> {
         .into_iter()
         .map(|(id, (spec, apps))| {
             let global = targets_are_global(&spec, &apps);
+            let tools = resolve_fast_local_tools(&id, &spec);
             LocalMcpServer {
                 id,
                 spec,
                 global,
                 apps: apps.into_iter().collect(),
+                tools,
             }
         })
         .collect())
+}
+
+async fn scan_local_servers_with_tools() -> Result<Vec<LocalMcpServer>, McpError> {
+    let mut servers = scan_local_servers()?;
+    let futures = servers
+        .iter()
+        .map(|server| discover_server_tools(&server.id, &server.spec))
+        .collect::<Vec<_>>();
+    let discovered = futures::future::join_all(futures).await;
+    for (server, tools) in servers.iter_mut().zip(discovered) {
+        if !tools.is_empty() {
+            server.tools = tools;
+        }
+    }
+    Ok(servers)
 }
 
 /// Synchronous read used while constructing ACP `session/new` MCP inputs.
@@ -4539,7 +5093,7 @@ fn annotate_item_status(item: &mut McpMarketplaceItem, installed_ids: &BTreeSet<
 }
 
 pub async fn scan_local() -> Result<Vec<LocalMcpServer>, McpError> {
-    scan_local_servers()
+    scan_local_servers_with_tools().await
 }
 
 pub async fn list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, McpError> {
@@ -4864,7 +5418,7 @@ pub async fn install_marketplace_server(
     };
 
     install_targets(&server_id, &spec, global, &apps)?;
-    scan_local_servers()
+    scan_local_servers_with_tools().await
 }
 
 pub async fn upsert_local_server(
@@ -4881,12 +5435,12 @@ pub async fn upsert_local_server(
     }
     let canonical = canonicalize_spec(&spec, "local MCP save")?;
     set_targets(server_id.trim(), &canonical, global, &apps)?;
-    scan_local_servers()
+    scan_local_servers_with_tools().await
 }
 
 pub async fn uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, McpError> {
     uninstall_everywhere(&server_id)?;
-    scan_local_servers()
+    scan_local_servers_with_tools().await
 }
 
 #[cfg(test)]
@@ -5798,6 +6352,84 @@ command = "other"
             spec.pointer("/headers/Authorization")
                 .and_then(Value::as_str),
             Some("Bearer token")
+        );
+    }
+
+    #[test]
+    fn parses_mcp_tools_list_from_jsonrpc_and_sse_payloads() {
+        let jsonrpc = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"search_code","description":"Search"},{"name":"get_issue"},{"name":"search_code"}]}}"#;
+        assert_eq!(
+            parse_jsonrpc_or_sse_tools(jsonrpc),
+            vec!["search_code".to_string(), "get_issue".to_string()]
+        );
+
+        let sse = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\"}}\n\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"execute_javascript\"},{\"name\":\"reset_repl\"}]}}\n";
+        assert_eq!(
+            parse_jsonrpc_or_sse_tools(sse),
+            vec!["execute_javascript".to_string(), "reset_repl".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn discovers_mcp_tools_from_spec_cached_brain_schema_and_builtin_fallbacks() {
+        let spec_declared = json!({
+            "type": "stdio",
+            "command": "node",
+            "tools": [
+                { "name": "alpha_tool" },
+                "beta_tool",
+                { "name": "alpha_tool" }
+            ]
+        });
+        assert_eq!(
+            extract_declared_tools_from_spec(&spec_declared),
+            vec!["alpha_tool".to_string(), "beta_tool".to_string()]
+        );
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let schema_dir = temp
+            .path()
+            .join("antigravity-acp")
+            .join("brain")
+            .join("conv-1")
+            .join("mcp")
+            .join("rea");
+        fs::create_dir_all(&schema_dir).expect("create schema dir");
+        fs::write(schema_dir.join("binary_overview.json"), "{}").expect("write tool 1");
+        fs::write(schema_dir.join("analyze_function.json"), "{}").expect("write tool 2");
+        fs::write(schema_dir.join("instructions.md"), "# docs").expect("write md");
+
+        let rea_tools = scan_cached_agent_mcp_schemas_in(temp.path(), "rea");
+        assert_eq!(
+            rea_tools,
+            vec![
+                "analyze_function".to_string(),
+                "binary_overview".to_string()
+            ]
+        );
+
+        let gh_fallback = builtin_fallback_mcp_tools(
+            "com.github/github-mcp-server",
+            &json!({ "type": "http", "url": "https://api.githubcopilot.com/mcp/" }),
+        );
+        assert!(gh_fallback.contains(&"create_pull_request".to_string()));
+        assert!(gh_fallback.contains(&"search_code".to_string()));
+
+        let repl_fallback = builtin_fallback_mcp_tools(
+            "node_repl",
+            &json!({
+                "type": "stdio",
+                "command": "node",
+                "args": ["C:/Users/demo/.claude/mcp-Auto-install/node-repl/node_repl.js"]
+            }),
+        );
+        assert_eq!(
+            repl_fallback,
+            vec![
+                "execute_javascript".to_string(),
+                "reset_repl".to_string(),
+                "list_globals".to_string()
+            ]
         );
     }
 }

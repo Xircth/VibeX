@@ -832,6 +832,8 @@ export interface LocalMcpServer {
   global: boolean;
   /** Agent config files currently carrying this server. */
   apps: McpAppType[];
+  /** Discovered or declared MCP tool names for this server. */
+  tools?: string[];
 }
 
 export interface McpMarketplaceProvider {

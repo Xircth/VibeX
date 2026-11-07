@@ -244,6 +244,23 @@ export function StatusBarMcp() {
   const isFetchingAny = query.isFetching || localQuery.isFetching;
   const hasAnyItems =
     report.plugins.length > 0 || connectedLocalServers.length > 0;
+  const totalTools = useMemo(
+    () =>
+      report.plugins.reduce(
+        (sum, plugin) =>
+          sum +
+          plugin.servers.reduce(
+            (serverSum, server) => serverSum + server.tools.length,
+            0
+          ),
+        0
+      ) +
+      connectedLocalServers.reduce(
+        (sum, server) => sum + (server.tools?.length ?? 0),
+        0
+      ),
+    [connectedLocalServers, report.plugins]
+  );
 
   return (
     <Popover
@@ -270,6 +287,7 @@ export function StatusBarMcp() {
         align="end"
         side="top"
         sideOffset={6}
+        data-total-tools={totalTools}
         className="flex w-[22.5rem] max-h-[min(32rem,calc(100vh-3.5rem))] flex-col gap-2.5 overflow-hidden border border-border bg-background p-3 shadow-md backdrop-blur-none"
       >
         <div className="flex items-center justify-between gap-2">
@@ -445,6 +463,7 @@ export function StatusBarMcp() {
               const name = localServerDisplayName(server);
               const checked = pending[itemKey] ?? true;
               const summary = localServerSpecSummary(server);
+              const tools = server.tools ?? [];
               const hasTopBorder = report.plugins.length > 0 || index > 0;
               return (
                 <div
@@ -472,6 +491,11 @@ export function StatusBarMcp() {
                         </span>
                         <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span>{t('mcp.mcpCount', { count: 1 })}</span>
+                          {tools.length > 0 ? (
+                            <span>
+                              {t('mcp.toolCount', { count: tools.length })}
+                            </span>
+                          ) : null}
                           <span
                             className="inline-flex items-center gap-1"
                             data-testid={`mcp-local-status-${server.id}`}
@@ -504,9 +528,32 @@ export function StatusBarMcp() {
                   </div>
                   {isOpen ? (
                     <div className="space-y-1.5 border-t border-border bg-background px-2 py-1.5">
-                      <div className="rounded-md border border-border bg-muted/30 px-2 py-1 font-mono text-[11px] break-all text-muted-foreground">
-                        {summary}
-                      </div>
+                      {tools.length > 0 ? (
+                        <div
+                          data-testid="mcp-plugin-tools"
+                          className="max-h-64 space-y-1.5 overflow-y-auto overscroll-contain"
+                        >
+                          {tools.map((toolName) => (
+                            <div
+                              key={`${server.id}:${toolName}`}
+                              className="flex items-center gap-2 px-1 py-1"
+                            >
+                              <div className="min-w-0 flex-1 truncate text-[0.75rem] text-foreground">
+                                {t(`mcp.tools.${toolName}`, {
+                                  defaultValue: toolName,
+                                })}
+                              </div>
+                              <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                {toolName}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-border bg-muted/30 px-2 py-1 font-mono text-[11px] break-all text-muted-foreground">
+                          {summary}
+                        </div>
+                      )}
                       <button
                         type="button"
                         className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"

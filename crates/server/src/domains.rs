@@ -185,6 +185,16 @@ impl ServerApplicationDomains {
             DomainCommand::ConversationCheckpointPreview => {
                 self.conversation_checkpoint_preview(args).await
             }
+            DomainCommand::ConversationProjects => self.conversation_projects().await,
+            DomainCommand::ConversationWorkspaceTree => {
+                self.conversation_workspace_tree(args).await
+            }
+            DomainCommand::ConversationWorkspaceFile => {
+                self.conversation_workspace_file(args).await
+            }
+            DomainCommand::ConversationWorkspaceDiff => {
+                self.conversation_workspace_diff(args).await
+            }
             DomainCommand::ConversationImport => self.conversation_import_host(args).await,
             DomainCommand::ConversationFork => self.conversation_fork_host(args).await,
             DomainCommand::WorkspaceContinueConflicts

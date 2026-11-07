@@ -1438,7 +1438,7 @@ impl ServerApplicationDomains {
         self.primary_worktree(workspace_id, repo_id).await
     }
 
-    async fn primary_worktree(
+    pub(crate) async fn primary_worktree(
         &self,
         workspace_id: Uuid,
         repo_id: Option<Uuid>,

@@ -620,8 +620,11 @@ struct CollabContactRow: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     } else if let agent = item.member?.agent, !agent.isEmpty {
-                        Text(agent)
-                            .font(.system(size: 10, design: .monospaced))
+                        HStack(spacing: 3) {
+                            AgentIconView(agent: agent, size: 11)
+                            Text(AgentBrand.displayName(agent))
+                        }
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)

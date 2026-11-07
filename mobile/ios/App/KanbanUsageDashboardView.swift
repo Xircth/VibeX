@@ -390,10 +390,9 @@ struct KanbanUsageDashboardView: View {
                 Text("常用模型")
                     .font(.subheadline.weight(.semibold))
                 ForEach(stats.byModel.prefix(5)) { item in
-                    HStack {
-                        Text(item.model)
+                    HStack(spacing: 6) {
+                        AgentModelLabel(agent: AgentBrand.inferAgent(fromModel: item.model), model: item.model)
                             .font(.footnote.weight(.medium))
-                            .lineLimit(1)
                         Spacer()
                         Text("\(item.sessionCount) 会话")
                             .font(.caption)
@@ -509,8 +508,12 @@ struct KanbanUsageDashboardView: View {
                 let counts = item.tokens.preferred
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Image(systemName: "cube.transparent.fill")
-                            .foregroundStyle(.indigo)
+                        if let agent = AgentBrand.inferAgent(fromModel: item.model) {
+                            AgentIconView(agent: agent, size: 18)
+                        } else {
+                            Image(systemName: "cube.transparent.fill")
+                                .foregroundStyle(.indigo)
+                        }
                         Text(item.model)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
@@ -583,7 +586,10 @@ struct KanbanUsageDashboardView: View {
                         }
                         HStack(spacing: 8) {
                             if let agent = item.agentId, !agent.isEmpty {
-                                Text(KanbanSessionSummary.formatAgentDisplayName(agent))
+                                HStack(spacing: 3) {
+                                    AgentIconView(agent: agent, size: 11)
+                                    Text(KanbanSessionSummary.formatAgentDisplayName(agent))
+                                }
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -622,7 +628,10 @@ struct KanbanUsageDashboardView: View {
                                 selectedPlanAgent = descriptor
                                 Task { await loadPlanUsage(for: descriptor.id) }
                             } label: {
-                                Text(KanbanSessionSummary.formatAgentDisplayName(descriptor.id))
+                                HStack(spacing: 5) {
+                                    AgentIconView(agent: descriptor.id, size: 14)
+                                    Text(KanbanSessionSummary.formatAgentDisplayName(descriptor.id))
+                                }
                                     .font(.footnote.weight(isSelected ? .semibold : .medium))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)

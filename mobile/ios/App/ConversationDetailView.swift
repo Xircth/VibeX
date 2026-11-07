@@ -57,8 +57,10 @@ struct ConversationDetailView: View {
                 Menu {
                     Menu("新对话", systemImage: "square.and.pencil") {
                         ForEach(model.newConversationAgents) { agent in
-                            Button(agent.displayName) {
+                            Button {
                                 Task { created = await model.createConversation(agentID: agent.id) }
+                            } label: {
+                                AgentMenuLabel(agentID: agent.id, hostName: agent.displayName)
                             }
                         }
                     }
@@ -118,6 +120,7 @@ struct ConversationDetailView: View {
             busy: model.busy,
             hasAlert: !model.session.pendingPermissions.isEmpty,
             modelName: model.currentModelLabel,
+            agentID: model.conversation.agent_id,
             modelChoices: modelChoices,
             otherModelGroups: otherModelGroups,
             otherAgentNote: otherModelGroups.isEmpty
@@ -173,6 +176,7 @@ struct ConversationDetailView: View {
                     id: option.key + "|" + $0.id,
                     title: $0.label,
                     tag: $0.description,
+                    agentID: model.conversation.agent_id,
                     selected: $0.value == model.value(of: option)
                 )
             }
@@ -182,9 +186,10 @@ struct ConversationDetailView: View {
     private var otherModelGroups: [PromptGroup] {
         model.otherAgentsWithModels.map { agent in
             PromptGroup(
-                title: agent.displayName,
+                title: AgentBrand.displayName(agent.id, hostName: agent.displayName),
+                agentID: agent.id,
                 choices: agent.modelOptions.flatMap(\.choices).map {
-                    PromptChoice(id: agent.id + "|" + $0.id, title: $0.label, enabled: false)
+                    PromptChoice(id: agent.id + "|" + $0.id, title: $0.label, agentID: agent.id, enabled: false)
                 }
             )
         }

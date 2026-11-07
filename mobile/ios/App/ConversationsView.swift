@@ -86,7 +86,8 @@ struct ConversationsView: View {
                     SearchResultItem(
                         id: "conv-\(conv.id)",
                         title: title,
-                        subtitle: conv.model,
+                        subtitle: [AgentBrand.displayName(conv.agent_id), conv.model]
+                            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                         icon: "bubble.left.and.bubble.right",
                         action: { path.append(conv) }
                     )
@@ -112,15 +113,16 @@ struct ConversationsView: View {
                             results: searchResults
                         )
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
-                    Section("已导入项目") {
+                    Section {
                         ForEach(groups) { group in
                             NavigationLink(value: ProjectRoute(id: group.id)) {
                                 ProjectRow(group: group)
                             }
+                            .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 if !group.conversations.isEmpty {
                                     Button(role: .destructive) {
@@ -139,7 +141,8 @@ struct ConversationsView: View {
                         }
                     }
                 }
-                .listSectionSpacing(10)
+                .listSectionSpacing(8)
+                .contentMargins(.top, 2, for: .scrollContent)
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
             } else if visibleConversations.isEmpty {
@@ -153,13 +156,14 @@ struct ConversationsView: View {
                             results: searchResults
                         )
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
                     Section {
                         ForEach(visibleConversations) { item in
                             NavigationLink(value: item) { ConversationRow(item: item) }
+                                .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button(role: .destructive) {
                                         deleteSingleConversation(item)
@@ -176,7 +180,8 @@ struct ConversationsView: View {
                         }
                     }
                 }
-                .listSectionSpacing(10)
+                .listSectionSpacing(8)
+                .contentMargins(.top, 2, for: .scrollContent)
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await reload() }
             }
@@ -291,6 +296,7 @@ private struct ProjectConversationsView: View {
                 NavigationLink(value: item) {
                     ConversationRow(item: item)
                 }
+                .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         delete(item)
@@ -306,6 +312,8 @@ private struct ProjectConversationsView: View {
                 }
             }
         }
+        .listSectionSpacing(8)
+        .contentMargins(.top, 4, for: .scrollContent)
         .overlay {
             if group.conversations.isEmpty {
                 ContentUnavailableView("这个项目还没有对话", systemImage: "bubble.left.and.bubble.right")
@@ -318,7 +326,9 @@ private struct ProjectConversationsView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         ForEach(agents.filter(\.usable)) { agent in
-                            Button(agent.displayName) { create(agent: agent, workspace: workspace) }
+                            Button { create(agent: agent, workspace: workspace) } label: {
+                                AgentMenuLabel(agentID: agent.id, hostName: agent.displayName)
+                            }
                         }
                     } label: {
                         Image(systemName: "square.and.pencil")
@@ -398,37 +408,77 @@ private struct ProjectRow: View {
         return group.isGit ? "arrow.triangle.branch" : "folder"
     }
 
+    /// Distinct agents used in this project, most recent first.
+    private var recentAgents: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for conv in group.conversations {
+            guard let id = conv.agent_id, let key = AgentBrand.normalizedKey(id),
+                  seen.insert(key).inserted else { continue }
+            result.append(id)
+        }
+        return result
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: iconName)
-                .font(.system(size: 16))
+                .font(.system(size: 15))
                 .foregroundStyle(.secondary)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 4) {
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(group.name)
                         .font(.body.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 4)
+                    AgentIconStack(agents: recentAgents)
+                }
+                HStack(spacing: 6) {
+                    Text("\(group.conversations.count) 个对话")
+                    if let date = group.latest {
+                        Text("·")
+                        Text(relativeChinese(date))
+                    }
+                    Spacer(minLength: 4)
                     if !group.rootPath.isEmpty {
                         Text(group.rootPath)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.head)
-                    }
-                }
-                HStack(spacing: 8) {
-                    Text("\(group.conversations.count) 个对话")
-                    if let date = group.latest {
-                        Text(date, format: .relative(presentation: .named))
                     }
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, CGFloat(group.depth) * 16)
+        .padding(.vertical, 1)
+        .padding(.leading, CGFloat(group.depth) * 14)
+    }
+}
+
+/// Overlapping agent marks, capped at three with a "+N" overflow.
+private struct AgentIconStack: View {
+    let agents: [String]
+
+    var body: some View {
+        if !agents.isEmpty {
+            HStack(spacing: -5) {
+                ForEach(Array(agents.prefix(3)), id: \.self) { agent in
+                    AgentIconView(agent: agent, size: 13)
+                        .padding(2.5)
+                        .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
+                        .overlay(Circle().stroke(Color(.separator).opacity(0.5), lineWidth: 0.5))
+                }
+                if agents.count > 3 {
+                    Text("+\(agents.count - 3)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 8)
+                }
+            }
+        }
     }
 }
 
@@ -436,17 +486,36 @@ private struct ConversationRow: View {
     let item: ConversationListItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.title ?? "未命名对话").lineLimit(1)
-            HStack(spacing: 8) {
-                if let date = item.updatedAt {
-                    Text(date, format: .relative(presentation: .named))
+        HStack(alignment: .center, spacing: 10) {
+            AgentIconView(agent: item.agent_id, size: 22)
+                .padding(5)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(.tertiarySystemFill))
+                )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title ?? "未命名对话")
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(item.model?.isEmpty == false ? item.model! : AgentBrand.displayName(item.agent_id))
+                        .lineLimit(1)
+                    Text("·")
+                    Text("\(item.message_count) 条")
+                    if let date = item.updatedAt {
+                        Spacer(minLength: 4)
+                        Text(relativeChinese(date))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                Text("\(item.message_count) 条消息")
-                if let model = item.model { Text(model).lineLimit(1) }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
         }
+        .padding(.vertical, 1)
     }
+}
+
+private func relativeChinese(_ date: Date) -> String {
+    date.formatted(.relative(presentation: .named).locale(Locale(identifier: "zh_Hans_CN")))
 }

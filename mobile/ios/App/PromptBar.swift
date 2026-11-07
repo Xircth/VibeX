@@ -10,6 +10,8 @@ struct PromptChoice: Identifiable, Equatable {
     var detail: String?
     var tag: String?
     var icon: String?
+    /// Agent whose brand mark leads the row (model choices).
+    var agentID: String?
     var selected = false
     var enabled = true
 }
@@ -17,6 +19,7 @@ struct PromptChoice: Identifiable, Equatable {
 struct PromptGroup: Identifiable, Equatable {
     var id: String { title }
     let title: String
+    var agentID: String?
     let choices: [PromptChoice]
 }
 
@@ -33,6 +36,7 @@ struct PromptBar: View {
     let busy: Bool
     let hasAlert: Bool
     let modelName: String?
+    var agentID: String?
     let modelChoices: [PromptChoice]
     let otherModelGroups: [PromptGroup]
     let otherAgentNote: String?
@@ -115,6 +119,7 @@ struct PromptBar: View {
             }
             if let modelName {
                 PickPill(on: menu == .model, label: "选择模型") { toggle(.model) } content: {
+                    if agentID != nil { AgentIconView(agent: agentID, size: 14) }
                     Text(modelName).lineLimit(1)
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
                 }
@@ -342,7 +347,10 @@ private struct MenuList: View {
                     VStack(spacing: 0) {
                         ForEach(rows) { row in MenuRow(row: row) { select(row.id) } }
                         ForEach(groups) { group in
-                            Text(group.title)
+                            HStack(spacing: 5) {
+                                if group.agentID != nil { AgentIconView(agent: group.agentID, size: 12) }
+                                Text(group.title)
+                            }
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -372,7 +380,11 @@ private struct MenuRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                if let icon = row.icon {
+                if row.agentID != nil {
+                    AgentIconView(agent: row.agentID, size: 16)
+                        .frame(width: 20)
+                        .opacity(row.enabled ? 1 : 0.5)
+                } else if let icon = row.icon {
                     Image(systemName: icon)
                         .font(.system(size: 14))
                         .frame(width: 20)

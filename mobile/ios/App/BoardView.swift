@@ -622,11 +622,13 @@ struct BoardView: View {
                                         selectedAgentFilters.insert(agentKey)
                                     }
                                 } label: {
-                                    HStack {
-                                        Text(KanbanSessionSummary.formatAgentDisplayName(agentKey))
-                                        if selectedAgentFilters.contains(agentKey) {
-                                            Image(systemName: "checkmark")
-                                        }
+                                    if selectedAgentFilters.contains(agentKey) {
+                                        Label(KanbanSessionSummary.formatAgentDisplayName(agentKey), systemImage: "checkmark")
+                                    } else {
+                                        AgentMenuLabel(
+                                            agentID: agentKey,
+                                            hostName: KanbanSessionSummary.formatAgentDisplayName(agentKey)
+                                        )
                                     }
                                 }
                             }
@@ -981,7 +983,7 @@ struct BoardView: View {
                                 .foregroundStyle(.indigo)
                                 .lineLimit(1)
                         }
-                        Label(session.agentDisplayName, systemImage: "sparkles")
+                        AgentModelLabel(agent: session.effectiveAgentKey, model: session.model ?? session.agentDisplayName, iconSize: 12)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -1145,7 +1147,7 @@ struct BoardView: View {
                 .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 10) {
-                Label(session.agentDisplayName, systemImage: "sparkles")
+                AgentModelLabel(agent: session.effectiveAgentKey, model: session.model ?? session.agentDisplayName, iconSize: 12)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if !session.workspaceDisplayLabel.isEmpty {
@@ -1382,7 +1384,7 @@ struct BoardView: View {
             Divider()
 
             HStack(spacing: 8) {
-                Label(session.agentDisplayName, systemImage: "sparkles")
+                AgentModelLabel(agent: session.effectiveAgentKey, model: session.model ?? session.agentDisplayName, iconSize: 12)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1520,7 +1522,8 @@ struct BoardView: View {
                     Button {
                         toggleMonitor(session)
                     } label: {
-                        HStack {
+                        HStack(spacing: 10) {
+                            AgentIconView(agent: session.effectiveAgentKey, size: 20)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(session.resolvedTitle)
                                     .font(.subheadline.weight(.medium))
@@ -1969,13 +1972,16 @@ private struct KanbanCreateSessionSheet: View {
                         HStack {
                             Text("默认代理")
                             Spacer()
-                            Text(KanbanSessionSummary.formatAgentDisplayName(selectedAgentID))
+                            AgentModelLabel(
+                                agent: selectedAgentID,
+                                model: KanbanSessionSummary.formatAgentDisplayName(selectedAgentID)
+                            )
                                 .foregroundStyle(.secondary)
                         }
                     } else {
                         Picker("Agent", selection: $selectedAgentID) {
                             ForEach(agents) { agent in
-                                Text(agent.displayName).tag(agent.id)
+                                AgentMenuLabel(agentID: agent.id, hostName: agent.displayName).tag(agent.id)
                             }
                         }
                     }

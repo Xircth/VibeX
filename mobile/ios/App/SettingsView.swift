@@ -4,15 +4,6 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ServerStore.self) private var servers
     @Environment(AppAppearanceStore.self) private var appearance
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var effectiveIsDark: Bool {
-        switch appearance.themeMode {
-        case .dark: return true
-        case .light: return false
-        case .system: return colorScheme == .dark
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -25,10 +16,10 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             MemberBotAvatarView(
                                 config: appearance.avatarConfig,
-                                size: 46,
+                                size: 42,
                                 animated: true
                             )
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 1) {
                                 HStack(spacing: 6) {
                                     Text(appearance.userName)
                                         .font(.subheadline.weight(.semibold))
@@ -49,7 +40,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
                 }
 
                 // 2. 已配对的电脑 & 3. 技能
@@ -112,55 +103,27 @@ struct SettingsView: View {
 
                 // 4. 主题 & 5. 字体 & 6. 通知
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 10) {
-                            settingsIconBadge(
-                                systemImage: appearance.themeMode.icon,
-                                tint: .indigo
-                            )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("主题")
-                                    .font(.subheadline.weight(.medium))
-                                Text(appearance.themeMode.subtitle)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(appearance.themeMode.title)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(Color.accentColor)
-                        }
-
-                        HStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        settingsIconBadge(
+                            systemImage: appearance.themeMode.icon,
+                            tint: .indigo
+                        )
+                        Text("主题")
+                            .font(.subheadline.weight(.medium))
+                        Spacer(minLength: 8)
+                        Picker("主题", selection: Binding(
+                            get: { appearance.themeMode },
+                            set: { appearance.setThemeModeWithTopRightReveal($0) }
+                        )) {
                             ForEach(AppThemeMode.allCases) { mode in
-                                let isSelected = appearance.themeMode == mode
-                                Button {
-                                    appearance.setThemeModeWithTopRightReveal(mode)
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: mode.icon)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(isSelected ? Color.white : Color.primary)
-                                        Text(mode.title)
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(isSelected ? Color.white : Color.primary)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 7)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .fill(
-                                                isSelected
-                                                    ? Color.accentColor
-                                                    : Color.secondary.opacity(0.11)
-                                            )
-                                    )
-                                }
-                                .buttonStyle(.plain)
+                                Text(mode.title).tag(mode)
                             }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 210)
                     }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
 
                     NavigationLink {
                         FontSettingsDetailView()
@@ -244,23 +207,10 @@ struct SettingsView: View {
                     .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
                 }
             }
-            .listSectionSpacing(10)
-            .contentMargins(.top, 6, for: .scrollContent)
+            .listSectionSpacing(8)
+            .contentMargins(.top, 2, for: .scrollContent)
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        let nextMode: AppThemeMode = effectiveIsDark ? .light : .dark
-                        appearance.setThemeModeWithTopRightReveal(nextMode)
-                    } label: {
-                        Image(systemName: effectiveIsDark ? "sun.max.fill" : "moon.stars.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(effectiveIsDark ? .yellow : .primary)
-                    }
-                    .accessibilityLabel("切换深浅色主题")
-                }
-            }
         }
     }
 
@@ -923,8 +873,8 @@ struct SkillsHubSettingsView: View {
                                         .foregroundStyle(.indigo)
                                 }
                                 Spacer()
-                                Text(role.agentId)
-                                    .font(.caption2.monospaced())
+                                AgentModelLabel(agent: role.agentId, model: AgentBrand.displayName(role.agentId), iconSize: 12)
+                                    .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
                             let desc = role.summary.isEmpty ? role.personaPrompt : role.summary
@@ -944,11 +894,16 @@ struct SkillsHubSettingsView: View {
                 Section("可用 Agent 执行引擎 (\(matchedAgents.count))") {
                     ForEach(matchedAgents) { agent in
                         HStack(spacing: 10) {
-                            Circle()
-                                .fill(agent.usable ? Color.green : Color.orange)
-                                .frame(width: 8, height: 8)
+                            AgentIconView(agent: agent.id, size: 22)
+                                .overlay(alignment: .bottomTrailing) {
+                                    Circle()
+                                        .fill(agent.usable ? Color.green : Color.orange)
+                                        .frame(width: 7, height: 7)
+                                        .overlay(Circle().stroke(Color(.secondarySystemGroupedBackground), lineWidth: 1.5))
+                                        .offset(x: 2, y: 2)
+                                }
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(agent.displayName)
+                                Text(AgentBrand.displayName(agent.id, hostName: agent.displayName))
                                     .font(.body.weight(.medium))
                                 Text(agent.id)
                                     .font(.caption2.monospaced())

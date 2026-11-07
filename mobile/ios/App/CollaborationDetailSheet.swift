@@ -773,7 +773,7 @@ struct CreateAssistantSheet: View {
                     if !agents.isEmpty {
                         Picker("Agent", selection: $selectedAgentID) {
                             ForEach(agents.filter(\.usable)) { agent in
-                                Text(agent.displayName).tag(agent.id)
+                                AgentMenuLabel(agentID: agent.id, hostName: agent.displayName).tag(agent.id)
                             }
                         }
                     }
@@ -901,7 +901,7 @@ struct RolesAndTeamsSheet: View {
                         if !agents.isEmpty {
                             Picker("默认 Agent", selection: $roleAgentID) {
                                 ForEach(agents.filter(\.usable)) { agent in
-                                    Text(agent.displayName).tag(agent.id)
+                                    AgentMenuLabel(agentID: agent.id, hostName: agent.displayName).tag(agent.id)
                                 }
                             }
                         }
@@ -928,8 +928,8 @@ struct RolesAndTeamsSheet: View {
                                     HStack {
                                         Text(role.name).font(.system(size: 14, weight: .medium))
                                         Spacer()
-                                        Text(role.agentId)
-                                            .font(.system(size: 11, design: .monospaced))
+                                        AgentModelLabel(agent: role.agentId, model: AgentBrand.displayName(role.agentId), iconSize: 12)
+                                            .font(.system(size: 11))
                                             .foregroundStyle(.secondary)
                                     }
                                     if !role.summary.isEmpty {

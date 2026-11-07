@@ -1513,7 +1513,7 @@ impl ServerApplicationDomains {
         }
     }
 
-    async fn ensure_root_workspace(
+    pub(crate) async fn ensure_root_workspace(
         &self,
         project_id: Uuid,
         branch: Option<&str>,

@@ -42,17 +42,23 @@ struct ConversationsView: View {
     @ViewBuilder
     private var content: some View {
         if let items = list.items {
-            if items.isEmpty {
+            if let projects, !projects.isEmpty {
+                List {
+                    Section("已导入项目") {
+                        ForEach(groups) { group in
+                            NavigationLink(value: ProjectRoute(id: group.id)) {
+                                ProjectRow(group: group)
+                            }
+                        }
+                    }
+                }
+                .refreshable { await reload() }
+            } else if items.isEmpty {
                 ContentUnavailableView("最近没有对话", systemImage: "bubble.left.and.bubble.right")
-            } else if projects == nil {
+            } else {
                 // The Host did not describe its projects; fall back to one flat list.
                 List(items) { item in
                     NavigationLink(value: item) { ConversationRow(item: item) }
-                }
-                .refreshable { await reload() }
-            } else {
-                List(groups) { group in
-                    NavigationLink(value: ProjectRoute(id: group.id)) { ProjectRow(group: group) }
                 }
                 .refreshable { await reload() }
             }
@@ -152,14 +158,31 @@ private struct ProjectConversationsView: View {
 private struct ProjectRow: View {
     let group: ProjectGroup
 
+    private var iconName: String {
+        if group.id == "other" { return "tray" }
+        return group.isGit ? "arrow.triangle.branch" : "folder"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: group.id == "other" ? "tray" : "folder")
-                .font(.system(size: 18))
+            Image(systemName: iconName)
+                .font(.system(size: 16))
                 .foregroundStyle(.secondary)
-                .frame(width: 26)
+                .frame(width: 22)
             VStack(alignment: .leading, spacing: 4) {
-                Text(group.name).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(group.name)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if !group.rootPath.isEmpty {
+                        Text(group.rootPath)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                }
                 HStack(spacing: 8) {
                     Text("\(group.conversations.count) 个对话")
                     if let date = group.latest {
@@ -170,6 +193,7 @@ private struct ProjectRow: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .padding(.leading, CGFloat(group.depth) * 16)
     }
 }
 

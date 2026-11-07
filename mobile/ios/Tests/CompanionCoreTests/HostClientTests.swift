@@ -147,19 +147,39 @@ private func client(_ status: Int, _ body: String) throws -> HostClient {
     }
     let raw = "[" + [
         item("1", "W1", "2026-11-06T10:00:00Z"),
-        item("2", "W2", "2026-11-06T12:00:00Z"),
         item("3", "W1", "2026-11-06T11:00:00Z"),
         item("4", "ZZ", "2026-11-06T13:00:00Z"),
     ].joined(separator: ",") + "]"
     let conversations = try JSONDecoder().decode([ConversationListItem].self, from: Data(raw.utf8))
     let projects = [
-        ProjectSummary(id: "p1", name: "webhub", workspaceIds: ["w1"]),
-        ProjectSummary(id: "p2", name: "测试 hub", workspaceIds: ["W2"]),
+        ProjectSummary(
+            id: "p_parent",
+            name: "键盘驱动",
+            rootPath: "/Users/ltf/Desktop/键盘驱动",
+            workspaceIds: ["w1"]
+        ),
+        ProjectSummary(
+            id: "p_child",
+            name: "webhub",
+            rootPath: "/Users/ltf/Desktop/键盘驱动/webhub",
+            parentProjectId: "p_parent",
+            isGit: true,
+            workspaceIds: ["W2"]
+        ),
+        ProjectSummary(
+            id: "p_home",
+            name: "Global",
+            rootPath: "/Users/ltf",
+            isHome: true,
+            workspaceIds: ["W0"]
+        ),
     ]
     let groups = ProjectGroup.make(conversations: conversations, projects: projects)
-    #expect(groups.map(\.name) == ["测试 hub", "webhub", "其他"])
+    #expect(groups.map(\.name) == ["全局", "键盘驱动", "webhub", "其他"])
+    #expect(groups.map(\.depth) == [0, 0, 1, 0])
     #expect(groups[1].conversations.map(\.id) == ["1", "3"])
-    #expect(groups[2].conversations.map(\.id) == ["4"])
+    #expect(groups[2].conversations.isEmpty && groups[2].isGit)
+    #expect(groups[3].conversations.map(\.id) == ["4"])
 }
 
 @Test func sessionStateFoldsModesOptionsAndPendingPermission() throws {

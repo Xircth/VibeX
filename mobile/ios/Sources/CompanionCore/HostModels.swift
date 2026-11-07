@@ -345,49 +345,133 @@ struct ToolInput {
 public struct ProjectSummary: Decodable, Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public let name: String
+    public let rootPath: String
+    public let parentProjectId: String?
+    public let isGit: Bool
+    public let isHome: Bool
     public let workspaceIds: [String]
 
-    public init(id: String, name: String, workspaceIds: [String]) {
+    public var displayName: String { isHome ? "全局" : name }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, rootPath, parentProjectId, isGit, isHome, workspaceIds
+    }
+
+    public init(
+        id: String,
+        name: String,
+        rootPath: String = "",
+        parentProjectId: String? = nil,
+        isGit: Bool = false,
+        isHome: Bool = false,
+        workspaceIds: [String]
+    ) {
         self.id = id
         self.name = name
+        self.rootPath = rootPath
+        self.parentProjectId = parentProjectId
+        self.isGit = isGit
+        self.isHome = isHome
         self.workspaceIds = workspaceIds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        rootPath = (try? c.decode(String.self, forKey: .rootPath)) ?? ""
+        parentProjectId = try? c.decodeIfPresent(String.self, forKey: .parentProjectId)
+        isGit = (try? c.decode(Bool.self, forKey: .isGit)) ?? false
+        isHome = (try? c.decode(Bool.self, forKey: .isHome)) ?? false
+        workspaceIds = (try? c.decode([String].self, forKey: .workspaceIds)) ?? []
     }
 }
 
-/// Conversations bucketed by project, newest activity first.
+/// Conversations bucketed by imported project, ordered as a tree (matching the desktop's "已导入项目").
 public struct ProjectGroup: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
+    public let rootPath: String
+    public let depth: Int
+    public let isGit: Bool
+    public let isHome: Bool
     public let conversations: [ConversationListItem]
 
-    public init(id: String, name: String, conversations: [ConversationListItem]) {
+    public init(
+        id: String,
+        name: String,
+        rootPath: String = "",
+        depth: Int = 0,
+        isGit: Bool = false,
+        isHome: Bool = false,
+        conversations: [ConversationListItem]
+    ) {
         self.id = id
         self.name = name
+        self.rootPath = rootPath
+        self.depth = depth
+        self.isGit = isGit
+        self.isHome = isHome
         self.conversations = conversations
     }
 
     public var latest: Date? { conversations.compactMap(\.updatedAt).max() }
 
-    /// Projects that have conversations, most recently active first; conversations whose
-    /// workspace belongs to no known project fall into one trailing "其他" group.
+    /// Every imported project in tree order (home first, then roots and their children),
+    /// plus a trailing "其他" group when conversations belong to no known project.
     public static func make(conversations: [ConversationListItem], projects: [ProjectSummary]) -> [ProjectGroup] {
-        var owner: [String: ProjectSummary] = [:]
+        var owner: [String: String] = [:]
         for project in projects {
-            for workspace in project.workspaceIds { owner[workspace.lowercased()] = project }
+            for workspace in project.workspaceIds { owner[workspace.lowercased()] = project.id.lowercased() }
         }
         var buckets: [String: [ConversationListItem]] = [:]
-        var names: [String: String] = [:]
         for conversation in conversations {
-            let project = owner[conversation.workspace_id.lowercased()]
-            let key = project?.id ?? "other"
+            let key = owner[conversation.workspace_id.lowercased()] ?? "other"
             buckets[key, default: []].append(conversation)
-            names[key] = project?.name ?? "其他"
         }
-        let groups = buckets.map { ProjectGroup(id: $0.key, name: names[$0.key] ?? "其他", conversations: $0.value) }
-        return groups.sorted {
-            if $0.id == "other" { return false }
-            if $1.id == "other" { return true }
-            return ($0.latest ?? .distantPast) > ($1.latest ?? .distantPast)
+        let ordered = flattenTree(projects)
+        var groups = ordered.map { entry in
+            ProjectGroup(
+                id: entry.project.id,
+                name: entry.project.displayName,
+                rootPath: entry.project.rootPath,
+                depth: entry.depth,
+                isGit: entry.project.isGit,
+                isHome: entry.project.isHome,
+                conversations: buckets[entry.project.id.lowercased()] ?? []
+            )
         }
+        if let strays = buckets["other"], !strays.isEmpty {
+            groups.append(ProjectGroup(id: "other", name: "其他", conversations: strays))
+        }
+        return groups
+    }
+
+    private static func flattenTree(_ projects: [ProjectSummary]) -> [(project: ProjectSummary, depth: Int)] {
+        let home = projects.filter(\.isHome)
+        let rest = projects.filter { !$0.isHome }
+        let ordered = home + rest
+        let knownIds = Set(ordered.map { $0.id.lowercased() })
+        var byParent: [String?: [ProjectSummary]] = [:]
+        for project in ordered {
+            let parent = project.parentProjectId?.lowercased()
+            let key = (parent != nil && knownIds.contains(parent!)) ? parent : nil
+            byParent[key, default: []].append(project)
+        }
+        var result: [(project: ProjectSummary, depth: Int)] = []
+        var visited: Set<String> = []
+        func walk(_ parentId: String?, _ depth: Int) {
+            for project in byParent[parentId] ?? [] {
+                let key = project.id.lowercased()
+                guard visited.insert(key).inserted else { continue }
+                result.append((project, depth))
+                walk(key, depth + 1)
+            }
+        }
+        walk(nil, 0)
+        for project in ordered where !visited.contains(project.id.lowercased()) {
+            result.append((project, 0))
+        }
+        return result
     }
 }

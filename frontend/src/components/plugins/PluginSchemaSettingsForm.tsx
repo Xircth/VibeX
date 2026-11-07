@@ -308,6 +308,108 @@ export function PluginSchemaSettingsForm({
               );
             }
 
+            if (prop.format === 'token-list' || key === 'vocabulary') {
+              const tokens = (
+                Array.isArray(currentValue)
+                  ? currentValue.map((item) => String(item ?? '').trim())
+                  : String(currentValue ?? '')
+                      .split(/[,，;\n\r]+/)
+                      .map((item) => item.trim())
+              ).filter(Boolean);
+              const updateTokens = (nextTokens: string[]) => {
+                const deduped = Array.from(
+                  new Set(nextTokens.map((t) => t.trim()).filter(Boolean))
+                );
+                setSavedNotice(false);
+                setValues((prev) => ({
+                  ...prev,
+                  [key]:
+                    prop.type === 'array' ? deduped : deduped.join(', '),
+                }));
+              };
+
+              return (
+                <div key={key} className="space-y-1.5">
+                  <label
+                    htmlFor={fieldId}
+                    className="block text-xs font-medium text-foreground"
+                  >
+                    {label}
+                  </label>
+                  {prop.description && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {prop.description}
+                    </p>
+                  )}
+                  <div className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+                    {tokens.map((token, idx) => (
+                      <span
+                        key={`${token}-${idx}`}
+                        className="inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
+                      >
+                        <span>{token}</span>
+                        <button
+                          type="button"
+                          aria-label={`移除 ${token}`}
+                          onClick={() =>
+                            updateTokens(tokens.filter((_, i) => i !== idx))
+                          }
+                          className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/20 hover:text-foreground"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      id={fieldId}
+                      type="text"
+                      placeholder={
+                        prop.placeholder ?? '输入热词后按 Enter 添加…'
+                      }
+                      onKeyDown={(e) => {
+                        const draft = e.currentTarget.value.trim();
+                        if (
+                          e.key === 'Enter' ||
+                          e.key === ',' ||
+                          e.key === '，' ||
+                          e.key === ';'
+                        ) {
+                          e.preventDefault();
+                          if (draft) {
+                            const added = draft
+                              .split(/[,，;\n\r]+/)
+                              .map((s) => s.trim())
+                              .filter(Boolean);
+                            updateTokens([...tokens, ...added]);
+                            e.currentTarget.value = '';
+                          }
+                        } else if (
+                          e.key === 'Backspace' &&
+                          e.currentTarget.value === '' &&
+                          tokens.length > 0
+                        ) {
+                          e.preventDefault();
+                          updateTokens(tokens.slice(0, -1));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const draft = e.currentTarget.value.trim();
+                        if (draft) {
+                          const added = draft
+                            .split(/[,，;\n\r]+/)
+                            .map((s) => s.trim())
+                            .filter(Boolean);
+                          updateTokens([...tokens, ...added]);
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                      className="h-6 min-w-[120px] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                    />
+                  </div>
+                </div>
+              );
+            }
+
             const isNumeric = prop.type === 'number' || prop.type === 'integer';
             const isPassword =
               prop.secret === true || prop.format === 'password';

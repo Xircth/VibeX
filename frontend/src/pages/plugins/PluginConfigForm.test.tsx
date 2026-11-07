@@ -503,6 +503,67 @@ describe('PluginConfigForm', () => {
       );
     });
   });
+
+  it('renders vocabulary hotwords as individual tokens and supports adding and removing tokens', async () => {
+    const user = userEvent.setup();
+    const detail: PluginProductDetail = {
+      summary: 'Voice Input',
+      readme: '# Voice Input',
+      contents: [],
+      config: {
+        vocabulary: 'VibeX, Tauri, Monaco',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          vocabulary: {
+            type: 'string',
+            format: 'token-list',
+            title: '自定义术语热词表',
+            default: 'VibeX, Tauri, Monaco',
+          },
+        },
+      },
+    };
+    const transport = renderForm(detail, 'vibex.voice-input');
+
+    const pills = screen.getAllByTestId('plugin-config-token-pill');
+    expect(pills).toHaveLength(3);
+    expect(pills[0]).toHaveTextContent('VibeX');
+    expect(pills[1]).toHaveTextContent('Tauri');
+    expect(pills[2]).toHaveTextContent('Monaco');
+
+    const input = screen.getByLabelText('自定义术语热词表');
+    await waitFor(() => {
+      expect(input).not.toBeDisabled();
+    });
+    await user.click(input);
+    await user.type(input, 'Whisper{Enter}');
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.voice-input',
+        config: {
+          vocabulary: 'VibeX, Tauri, Monaco, Whisper',
+        },
+      });
+    });
+
+    const removeTauriButton = screen.getByRole('button', {
+      name: '移除 Tauri',
+    });
+    await user.click(removeTauriButton);
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.voice-input',
+        config: {
+          vocabulary: 'VibeX, Monaco, Whisper',
+        },
+      });
+    });
+  });
 });
+
 
 

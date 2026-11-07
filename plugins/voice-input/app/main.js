@@ -1043,6 +1043,7 @@ export default {
         const [devices, setDevices] = useState([]);
         const [testDraft, setTestDraft] = useState('');
         const [showRaw, setShowRaw] = useState(false);
+        const [hotwordDraft, setHotwordDraft] = useState('');
 
         useEffect(() => {
           if (snap.lastResult) {
@@ -1377,24 +1378,102 @@ export default {
             ),
           ),
 
-          // Custom Vocabulary / Hotwords
-          h(
-            'label',
-            { className: 'flex flex-col gap-1' },
-            h(
-              'span',
-              { className: 'font-medium text-muted-foreground' },
-              `自定义术语热词表 (${parseVocabularyList(cfg.vocabulary).length} 个词条 · 自动注入 Whisper 提示词与专名纠错)`,
-            ),
-            h('input', {
-              type: 'text',
-              value: cfg.vocabulary,
-              onChange: (e) => persistAndSyncConfig({ vocabulary: e.target.value }),
-              placeholder: 'VibeX, Tauri, Monaco, TypeScript, Rust, MCP, Skill, Worktree...',
-              className:
-                'h-8 rounded-md border border-border bg-background px-2 text-xs',
-            }),
-          ),
+          // Custom Vocabulary / Hotwords (Token Pill List)
+          (() => {
+            const vocabTokens = Array.from(
+              new Set(parseVocabularyList(cfg.vocabulary)),
+            );
+            const commitTokens = (nextTokens) => {
+              const deduped = Array.from(
+                new Set(parseVocabularyList(nextTokens)),
+              );
+              persistAndSyncConfig({ vocabulary: deduped.join(', ') });
+            };
+            const addFromDraft = (raw) => {
+              const added = parseVocabularyList(raw);
+              if (added.length > 0) {
+                commitTokens([...vocabTokens, ...added]);
+              }
+              setHotwordDraft('');
+            };
+            return h(
+              'div',
+              { className: 'flex flex-col gap-1.5' },
+              h(
+                'span',
+                { className: 'font-medium text-muted-foreground' },
+                `自定义术语热词表 (${vocabTokens.length} 个 Token · 自动注入 Whisper 提示词与专名纠错)`,
+              ),
+              h(
+                'div',
+                {
+                  'data-testid': 'voice-vocabulary-token-list',
+                  className:
+                    'flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5',
+                },
+                ...vocabTokens.map((term, idx) =>
+                  h(
+                    'span',
+                    {
+                      key: `${term}-${idx}`,
+                      'data-testid': 'voice-vocabulary-token',
+                      className:
+                        'inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground',
+                    },
+                    h('span', null, term),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        'aria-label': `移除 ${term}`,
+                        onClick: () =>
+                          commitTokens(vocabTokens.filter((_, i) => i !== idx)),
+                        className:
+                          'inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/20 hover:text-foreground',
+                      },
+                      '×',
+                    ),
+                  ),
+                ),
+                h('input', {
+                  type: 'text',
+                  'aria-label': '添加自定义术语热词',
+                  value: hotwordDraft,
+                  onChange: (e) => setHotwordDraft(e.target.value),
+                  onKeyDown: (e) => {
+                    if (
+                      e.key === 'Enter' ||
+                      e.key === ',' ||
+                      e.key === '，' ||
+                      e.key === ';'
+                    ) {
+                      e.preventDefault();
+                      if (hotwordDraft.trim()) {
+                        addFromDraft(hotwordDraft);
+                      }
+                      return;
+                    }
+                    if (
+                      e.key === 'Backspace' &&
+                      hotwordDraft === '' &&
+                      vocabTokens.length > 0
+                    ) {
+                      e.preventDefault();
+                      commitTokens(vocabTokens.slice(0, -1));
+                    }
+                  },
+                  onBlur: () => {
+                    if (hotwordDraft.trim()) {
+                      addFromDraft(hotwordDraft);
+                    }
+                  },
+                  placeholder: '输入热词后按 Enter 添加…',
+                  className:
+                    'h-6 min-w-[120px] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground',
+                }),
+              ),
+            );
+          })(),
 
           // Recent History
           snap.history.length > 0

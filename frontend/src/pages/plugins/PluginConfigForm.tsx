@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Keyboard, Loader2, ScanSearch } from 'lucide-react';
+import { Keyboard, Loader2, Plus, ScanSearch, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -368,6 +368,177 @@ function ShortcutSchemaField({
   );
 }
 
+export function parseTokenListValue(
+  value: unknown,
+  fallback?: unknown
+): string[] {
+  const effective = value === undefined || value === null ? fallback : value;
+  const rawItems: string[] = Array.isArray(effective)
+    ? effective.map((item) => String(item ?? '').trim())
+    : typeof effective === 'string'
+      ? effective.split(/[,，;\n\r]+/).map((item) => item.trim())
+      : [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of rawItems) {
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    result.push(item);
+  }
+  return result;
+}
+
+function TokenListSchemaField({
+  label,
+  schema,
+  value,
+  disabled,
+  copy,
+  onChange,
+}: {
+  label: string;
+  schema: JsonSchema;
+  value: unknown;
+  disabled: boolean;
+  copy: ReactNode;
+  onChange: (value: unknown, commit?: boolean) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [inputDraft, setInputDraft] = useState('');
+  const tokens = useMemo(
+    () => parseTokenListValue(value, schema.default),
+    [value, schema.default]
+  );
+
+  const emitTokens = (nextTokens: string[]) => {
+    const deduped = parseTokenListValue(nextTokens);
+    const nextValue =
+      schema.type === 'array' ? deduped : deduped.join(', ');
+    onChange(nextValue, true);
+  };
+
+  const appendTokensFromRaw = (raw: string) => {
+    const additions = parseTokenListValue(raw);
+    if (additions.length === 0) {
+      setInputDraft('');
+      return;
+    }
+    emitTokens([...tokens, ...additions]);
+    setInputDraft('');
+  };
+
+  const removeTokenAt = (index: number) => {
+    if (disabled) return;
+    const nextTokens = tokens.filter((_, idx) => idx !== index);
+    emitTokens(nextTokens);
+  };
+
+  return (
+    <div
+      className="product-plugin-config-row"
+      style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}
+    >
+      {copy}
+      <div
+        data-testid="plugin-config-token-list"
+        style={{ justifySelf: 'stretch', width: '100%' }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) {
+            inputRef.current?.focus();
+          }
+        }}
+        className="flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background/70 px-2.5 py-2 transition-colors focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-primary/25"
+      >
+        {tokens.map((token, index) => (
+          <span
+            key={`${token}-${index}`}
+            data-testid="plugin-config-token-pill"
+            className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
+          >
+            <span>{token}</span>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`移除 ${token}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                removeTokenAt(index);
+              }}
+              className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/20 hover:text-foreground disabled:opacity-40"
+            >
+              <X aria-hidden="true" className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+        <div className="flex min-w-[140px] flex-1 items-center gap-1">
+          <input
+            ref={inputRef}
+            aria-label={label}
+            type="text"
+            disabled={disabled}
+            value={inputDraft}
+            placeholder={t('plugins.addTokenPlaceholder', {
+              defaultValue: '输入热词后按 Enter 添加…',
+            })}
+            onChange={(event) => setInputDraft(event.target.value)}
+            onPaste={(event) => {
+              const pasted = event.clipboardData?.getData('text') ?? '';
+              if (/[,，;\n\r]/.test(pasted)) {
+                event.preventDefault();
+                appendTokensFromRaw(`${inputDraft},${pasted}`);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' ||
+                event.key === ',' ||
+                event.key === '，' ||
+                event.key === ';'
+              ) {
+                event.preventDefault();
+                if (inputDraft.trim()) {
+                  appendTokensFromRaw(inputDraft);
+                }
+                return;
+              }
+              if (
+                event.key === 'Backspace' &&
+                inputDraft === '' &&
+                tokens.length > 0
+              ) {
+                event.preventDefault();
+                removeTokenAt(tokens.length - 1);
+              }
+            }}
+            onBlur={() => {
+              if (inputDraft.trim()) {
+                appendTokensFromRaw(inputDraft);
+              }
+            }}
+            className="h-6 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+          {inputDraft.trim() ? (
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={t('plugins.addTokenButton', {
+                defaultValue: '添加热词',
+              })}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => appendTokensFromRaw(inputDraft)}
+              className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded bg-primary/15 px-1.5 text-[11px] font-medium text-primary hover:bg-primary/25"
+            >
+              <Plus aria-hidden="true" className="h-3 w-3" />
+              {t('plugins.addTokenShort', { defaultValue: '添加' })}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SchemaField({
   pluginId,
   name,
@@ -482,14 +653,46 @@ function SchemaField({
     );
   }
 
+  if (
+    schema.format === 'token-list' ||
+    schema['x-ui'] === 'token-list' ||
+    name === 'vocabulary'
+  ) {
+    return (
+      <TokenListSchemaField
+        label={label}
+        schema={schema}
+        value={value}
+        disabled={disabled}
+        copy={copy}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (schema.type === 'array') {
-    const items = Array.isArray(value) ? value : [];
     const itemSchema =
       schema.items &&
       typeof schema.items === 'object' &&
       !Array.isArray(schema.items)
         ? (schema.items as JsonSchema)
         : { type: 'string' };
+    if (
+      (itemSchema.type === 'string' || itemSchema.type === undefined) &&
+      !Array.isArray(itemSchema.enum)
+    ) {
+      return (
+        <TokenListSchemaField
+          label={label}
+          schema={schema}
+          value={value}
+          disabled={disabled}
+          copy={copy}
+          onChange={onChange}
+        />
+      );
+    }
+    const items = Array.isArray(value) ? value : [];
     return (
       <fieldset className="product-plugin-config-block">
         <legend>{copy}</legend>

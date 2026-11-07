@@ -1069,7 +1069,7 @@
           },
           "vocabulary": {
             "title": "Custom vocabulary hotwords",
-            "description": "Comma-separated project terms and technical jargon used as Whisper prompt context and post-processing glossary."
+            "description": "Each hotword is stored as an individual token. Press Enter or comma to add, click to remove; used as Whisper prompt context and post-processing glossary."
           },
           "audioDeviceId": {
             "title": "Microphone input device",

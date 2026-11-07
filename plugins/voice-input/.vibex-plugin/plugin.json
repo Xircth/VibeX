@@ -109,9 +109,10 @@
         },
         "vocabulary": {
           "type": "string",
+          "format": "token-list",
           "default": "VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex",
           "title": "自定义术语热词表",
-          "description": "以逗号或换行分隔的项目专有名词、技术术语与命令，作为 Whisper 提示词与听写后专名纠错词典。"
+          "description": "每个热词作为独立 Token 存在，支持按回车或逗号添加、点击删除，自动作为 Whisper 提示词与听写后专名纠错词典。"
         },
         "audioDeviceId": {
           "type": "string",

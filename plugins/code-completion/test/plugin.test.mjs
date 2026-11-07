@@ -686,3 +686,94 @@ test('disables thinking on reasoning-capable OpenAI-compatible models (e.g. deep
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].insertText, 'move_snake(snake, direction):\n    return snake');
 });
+
+test('normalizes indentation for dedented methods on indented blank lines, relative multi-line blocks, and after return statements', () => {
+  const snakePrefixToReturn = [
+    'import random',
+    '',
+    'class SnakeGame:',
+    '    def __init__(self, width: int = 20, height: int = 20) -> None:',
+    '        self.width = width',
+    '        self.height = height',
+    '        self.snake = [(width // 2, height // 2)]',
+    '',
+    '    def _spawn_food(self) -> tuple[int, int]:',
+    '        while True:',
+    '            pos = (random.randint(0, self.width - 1), random.randint(0, self.height - 1))',
+    '            if pos not in self.snake:',
+    '                return pos',
+  ].join('\n');
+
+  // 1. Dynamic scope in multi-line smart mode must NOT include `\n\n` in stopSequences so methods after `return pos` are not truncated
+  const scopeAfterReturn = resolveDynamicScope({
+    prefix: snakePrefixToReturn,
+    suffix: '',
+    completionScope: 'smart',
+    maxTokens: 256,
+  });
+  assert.equal(scopeAfterReturn.isSingleLine, false);
+  assert.equal(scopeAfterReturn.stopSequences.includes('\n\n'), false);
+
+  // 2. Cursor at end of `return pos` (16 spaces): model outputs `\n\n    def step(self) -> bool:` -> preserves `\n\n` and 4-space class method indent
+  const afterReturnMethod = postProcessCompletion(
+    '<COMPLETION>\n\n    def step(self) -> bool:\n        head_x, head_y = self.snake[0]\n        return True\n</COMPLETION>',
+    {
+      prefix: snakePrefixToReturn,
+      suffix: '',
+      isSingleLine: false,
+      languageId: 'python',
+    },
+  );
+  assert.equal(
+    afterReturnMethod,
+    '\n\n    def step(self) -> bool:\n        head_x, head_y = self.snake[0]\n        return True',
+  );
+
+  // 3. Cursor at end of `return pos` (16 spaces): if model mistakenly indents `def step` at 16 spaces, re-aligns it to 4 spaces
+  const overIndentedMethodAfterReturn = postProcessCompletion(
+    '<COMPLETION>\n                def step(self) -> bool:\n                    return True\n</COMPLETION>',
+    {
+      prefix: snakePrefixToReturn,
+      suffix: '',
+      isSingleLine: false,
+      languageId: 'python',
+    },
+  );
+  assert.equal(
+    overIndentedMethodAfterReturn,
+    '\n    def step(self) -> bool:\n        return True',
+  );
+
+  // 4. Cursor on a 16-space blank line (`                ` after pressing Enter after `return pos`):
+  //    Model outputs `    def step(self):` (4 spaces < 16 spaces). Must prepend `\n` instead of gluing onto 16 spaces (20 spaces).
+  const onIndentedBlankLineDedented = postProcessCompletion(
+    '<COMPLETION>\n    def step(self) -> bool:\n        return True\n</COMPLETION>',
+    {
+      prefix: `${snakePrefixToReturn}\n                `,
+      suffix: '',
+      isSingleLine: false,
+      languageId: 'python',
+    },
+  );
+  assert.equal(
+    onIndentedBlankLineDedented,
+    '\n    def step(self) -> bool:\n        return True',
+  );
+
+  // 5. Cursor on an 8-space blank line (`        `) where model outputs line 1 at 0 spaces (`while True:`)
+  //    and lines 2+ with relative indentation (`    pos = ...`): pads lines 2+ by 8 spaces to 12/16 spaces.
+  const relativeMultiLine = postProcessCompletion(
+    '<COMPLETION>while True:\n    pos = (0, 0)\n    if pos not in self.snake:\n        return pos</COMPLETION>',
+    {
+      prefix: 'class SnakeGame:\n    def _spawn_food(self):\n        ',
+      suffix: '',
+      isSingleLine: false,
+      languageId: 'python',
+    },
+  );
+  assert.equal(
+    relativeMultiLine,
+    'while True:\n            pos = (0, 0)\n            if pos not in self.snake:\n                return pos',
+  );
+});
+

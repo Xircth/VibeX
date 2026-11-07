@@ -1504,6 +1504,15 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
     } | null;
     if (typeof editorLike?.trigger === 'function') {
       pendingManualInlineTriggerUntil = Date.now() + 1500;
+      try {
+        editorLike.trigger(
+          'vibex.code-editor',
+          'editor.action.inlineSuggest.hide',
+          {}
+        );
+      } catch {
+        // ignore
+      }
       editorLike.trigger(
         'vibex.code-editor',
         'editor.action.inlineSuggest.trigger',

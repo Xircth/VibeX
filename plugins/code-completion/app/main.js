@@ -264,6 +264,47 @@ export function resolveInlineCompletionRangeAndText(rawInsertText, docState) {
     }
   }
 
+  // Normalize indentation when cursor is on a whitespace-only line (`trimmedLinePrefix.length === 0 && linePrefix.length > 0`)
+  if (
+    trimmedLinePrefix.length === 0 &&
+    linePrefix.length > 0 &&
+    !forceSingleLine &&
+    !insertText.startsWith('\n') &&
+    insertText.trim().length > 0
+  ) {
+    const lines = insertText.split('\n');
+    const firstLine = lines[0] || '';
+    const firstLineIndent = (firstLine.match(/^[ \t]*/)?.[0] || '').length;
+    const isTopLevelDeclAtZero =
+      firstLineIndent === 0 &&
+      /^(def |class |async def |@\w+|function |export |pub fn |fn )/.test(firstLine.trim());
+
+    if (
+      (firstLineIndent > 0 && firstLineIndent < linePrefix.length) ||
+      isTopLevelDeclAtZero
+    ) {
+      insertText = `\n${insertText}`;
+    } else if (firstLineIndent === 0 && lines.length > 1) {
+      const firstNonEmptyRestIdx = lines.findIndex(
+        (line, idx) => idx > 0 && line.trim().length > 0,
+      );
+      if (firstNonEmptyRestIdx !== -1) {
+        const secondLineIndent = (lines[firstNonEmptyRestIdx].match(/^[ \t]*/)?.[0] || '').length;
+        const firstLineTrimmed = firstLine.trim();
+        const firstLineOpensBlock =
+          firstLineTrimmed.endsWith(':') || firstLineTrimmed.endsWith('{');
+        const expectedMinSecondIndent = firstLineOpensBlock
+          ? linePrefix.length + 2
+          : linePrefix.length;
+        if (secondLineIndent < expectedMinSecondIndent) {
+          insertText = lines
+            .map((line, idx) => (idx === 0 || line.trim().length === 0 ? line : `${linePrefix}${line}`))
+            .join('\n');
+        }
+      }
+    }
+  }
+
   // Deduplicate single-line suffix overlap with `lineSuffix`
   if (!insertText.includes('\n') && lineSuffix.length > 0) {
     if (insertText.endsWith(lineSuffix)) {
@@ -301,6 +342,7 @@ export function resolveInlineCompletionRangeAndText(rawInsertText, docState) {
 
 const CODE_TO_KEY_MAP = Object.freeze({
   Backslash: '\\',
+  IntlBackslash: '\\',
   Slash: '/',
   Period: '.',
   Comma: ',',
@@ -321,7 +363,7 @@ export function normalizeShortcutKeyToken(rawToken) {
   const raw = String(rawToken ?? '').trim();
   if (!raw) return '';
   if (raw === ' ' || /^space(bar)?$/i.test(raw)) return 'space';
-  if (/^backslash$/i.test(raw)) return '\\';
+  if (/^(intl)?backslash$/i.test(raw)) return '\\';
   if (/^slash$/i.test(raw)) return '/';
   if (/^esc$/i.test(raw)) return 'escape';
   if (/^return$/i.test(raw)) return 'enter';
@@ -398,10 +440,12 @@ export default {
     let activeAbortController = null;
     let activeRequestId = null;
     let inFlightWorkerRequestId = null;
+    let inFlightStartedAt = 0;
     let activeEditorInstance = null;
     let cursorIdleTimer = null;
     let lastAutoCursorKey = '';
     let lastKnownVersionId = -1;
+    let hasVisibleInlineSuggestion = false;
     let enabled = true;
     let triggerMode = 'auto';
     let manualShortcut = 'Alt+\\';
@@ -498,6 +542,7 @@ export default {
       const targetRequestId = requestId || inFlightWorkerRequestId;
       if (targetRequestId && inFlightWorkerRequestId === targetRequestId) {
         inFlightWorkerRequestId = null;
+        inFlightStartedAt = 0;
         if (notifyWorker) {
           void invokeWorker('completion.cancel', { requestId: targetRequestId }).catch(() => {});
         }
@@ -518,10 +563,11 @@ export default {
       cancelActiveCompletion(null, false);
 
       const docState = extractCompletionDocumentState(modelOrRequest, position);
+      let currentCursorKey = '';
       if (modelOrRequest && typeof modelOrRequest.getVersionId === 'function') {
         const vId = modelOrRequest.getVersionId();
         lastKnownVersionId = vId;
-        lastAutoCursorKey = `${vId}:${docState.lineNumber}:${docState.column}`;
+        currentCursorKey = `${vId}:${docState.lineNumber}:${docState.column}`;
       }
       const editorBridge = getEditorBridge();
       if (
@@ -583,6 +629,9 @@ export default {
       );
       if (cachedInsertText) {
         const normalizedCached = resolveInlineCompletionRangeAndText(cachedInsertText, docState);
+        if (currentCursorKey) {
+          lastAutoCursorKey = currentCursorKey;
+        }
         return {
           items: [
             {
@@ -650,6 +699,7 @@ export default {
 
       statusState = 'loading';
       inFlightWorkerRequestId = requestId;
+      inFlightStartedAt = Date.now();
       try {
         const trimmedLineSuffix = String(docState.lineSuffix || '').trim();
         const workerSuffix =
@@ -702,14 +752,24 @@ export default {
             };
           });
 
+        if (items.length > 0 && currentCursorKey) {
+          lastAutoCursorKey = currentCursorKey;
+        } else if (items.length === 0 && lastAutoCursorKey === currentCursorKey) {
+          lastAutoCursorKey = '';
+        }
+
         return { items };
       } catch (error) {
         statusState = 'error';
         lastErrorMessage = String(error?.message || error);
+        if (lastAutoCursorKey === currentCursorKey) {
+          lastAutoCursorKey = '';
+        }
         return { items: [] };
       } finally {
         if (inFlightWorkerRequestId === requestId) {
           inFlightWorkerRequestId = null;
+          inFlightStartedAt = 0;
         }
         if (activeAbortController === abortController) {
           activeAbortController = null;
@@ -727,7 +787,13 @@ export default {
 
     const triggerCursorIdleInlineCompletion = () => {
       if (!enabled || triggerMode !== 'auto') return;
-      if (inFlightWorkerRequestId || activeAbortController) return;
+      if (inFlightWorkerRequestId || activeAbortController) {
+        if (inFlightStartedAt > 0 && Date.now() - inFlightStartedAt > 8000) {
+          cancelActiveCompletion(null, true);
+        } else {
+          return;
+        }
+      }
       const editorBridge = getEditorBridge();
       const editor = activeEditorInstance || editorBridge?.getActiveEditor?.();
       if (!editor || typeof editor.trigger !== 'function') return;
@@ -747,7 +813,7 @@ export default {
       if (model && position) {
         const versionId = typeof model.getVersionId === 'function' ? model.getVersionId() : 1;
         const cursorKey = `${versionId}:${position.lineNumber}:${position.column}`;
-        if (cursorKey === lastAutoCursorKey) return;
+        if (cursorKey === lastAutoCursorKey && hasVisibleInlineSuggestion) return;
 
         const fullText = typeof model.getValue === 'function' ? model.getValue() : '';
         if (!fullText || fullText.trim().length === 0) return;
@@ -756,6 +822,13 @@ export default {
       }
 
       pendingAutoTriggerUntil = Date.now() + 1000;
+      if (!hasVisibleInlineSuggestion) {
+        try {
+          editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.hide', {});
+        } catch {
+          // ignore
+        }
+      }
       editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
     };
 
@@ -784,6 +857,7 @@ export default {
       const subs = [];
       if (typeof editor.onDidChangeModelContent === 'function') {
         const sub = editor.onDidChangeModelContent(() => {
+          hasVisibleInlineSuggestion = false;
           const m = typeof editor.getModel === 'function' ? editor.getModel() : null;
           if (m && typeof m.getVersionId === 'function') {
             lastKnownVersionId = m.getVersionId();
@@ -797,6 +871,7 @@ export default {
       }
       if (typeof editor.onDidChangeCursorPosition === 'function') {
         const sub = editor.onDidChangeCursorPosition((e) => {
+          hasVisibleInlineSuggestion = false;
           const m = typeof editor.getModel === 'function' ? editor.getModel() : null;
           const currentVersionId =
             m && typeof m.getVersionId === 'function' ? m.getVersionId() : lastKnownVersionId;
@@ -851,7 +926,9 @@ export default {
       const inlineProvider = {
         provideInlineCompletions,
         freeInlineCompletions() {},
-        handleItemDidShow() {},
+        handleItemDidShow() {
+          hasVisibleInlineSuggestion = true;
+        },
       };
 
       if (typeof editorBridge.registerInlineCompletionProvider === 'function') {
@@ -922,7 +999,17 @@ export default {
 
         event.preventDefault?.();
         event.stopPropagation?.();
+        cancelActiveCompletion(null, false);
+        lastAutoCursorKey = '';
+        hasVisibleInlineSuggestion = false;
         pendingManualTriggerUntil = Date.now() + 1500;
+        if (typeof activeEditor?.trigger === 'function') {
+          try {
+            activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.hide', {});
+          } catch {
+            // ignore
+          }
+        }
         if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
           void editorBridge.triggerInlineCompletion(activeEditor);
         } else if (typeof activeEditor?.trigger === 'function') {
@@ -967,8 +1054,11 @@ export default {
 
     // Undo Stop Barrier handler invoked when accepting an inline completion
     registerHandler(ACCEPT_COMMAND_ID, (editorArg) => {
+      hasVisibleInlineSuggestion = false;
+      lastAutoCursorKey = '';
       const targetEditor = editorArg || activeEditorInstance || getEditorBridge()?.getActiveEditor?.();
       applyWithUndoStopBarrier(targetEditor, () => {});
+      scheduleCursorIdleAutoTrigger(180);
       return { accepted: true };
     });
 
@@ -1004,10 +1094,21 @@ export default {
     });
 
     registerHandler('completion.trigger', async (params) => {
+      cancelActiveCompletion(null, false);
+      lastAutoCursorKey = '';
+      hasVisibleInlineSuggestion = false;
       pendingManualTriggerUntil = Date.now() + 1500;
       const editorBridge = getEditorBridge();
+      const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
+      if (typeof activeEditor?.trigger === 'function') {
+        try {
+          activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.hide', {});
+        } catch {
+          // ignore
+        }
+      }
       if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
-        await editorBridge.triggerInlineCompletion();
+        await editorBridge.triggerInlineCompletion(activeEditor);
         return { triggered: true, via: 'editor-bridge' };
       }
       if (params && typeof params.prefix === 'string') {

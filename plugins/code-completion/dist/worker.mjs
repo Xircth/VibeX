@@ -147,7 +147,7 @@ export function resolveDynamicScope({
 
   return {
     isSingleLine: false,
-    maxTokens: Math.min(160, safeMaxTokens),
+    maxTokens: Math.min(160, Math.max(128, safeMaxTokens)),
     stopSequences: ['\n\n'],
   };
 }

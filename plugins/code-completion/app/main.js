@@ -837,12 +837,14 @@ export default {
       if (currentActive) {
         activeEditorInstance = currentActive;
         bindEditorCursorListeners(currentActive);
+        scheduleCursorIdleAutoTrigger(350);
       }
 
       if (typeof editorBridge.onDidActiveEditorChange === 'function') {
         editorBridge.onDidActiveEditorChange((editor) => {
           activeEditorInstance = editor;
           bindEditorCursorListeners(editor);
+          scheduleCursorIdleAutoTrigger(350);
         });
       }
 

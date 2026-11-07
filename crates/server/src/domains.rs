@@ -3035,8 +3035,10 @@ fn tag_matches_monorepo_official_plugin(
         return true;
     }
     let normalized = raw.strip_prefix('v').unwrap_or(raw);
-    monorepo_plugin_version(monorepo_root)
-        .is_some_and(|version| version.strip_prefix('v').unwrap_or(&version) == normalized)
+    monorepo_plugin_version(monorepo_root).is_some_and(|version| {
+        let monorepo_ver = version.strip_prefix('v').unwrap_or(&version);
+        monorepo_ver == normalized || plugins::is_newer_version(normalized, monorepo_ver)
+    })
 }
 
 fn remove_managed_plugin_snapshot(
@@ -3263,7 +3265,8 @@ mod plugin_invoke_contribution_args {
         assert!(tag_matches_monorepo_official_plugin(Some("latest"), temp.path()));
         assert!(tag_matches_monorepo_official_plugin(Some("2.0.0"), temp.path()));
         assert!(tag_matches_monorepo_official_plugin(Some("v2.0.0"), temp.path()));
-        assert!(!tag_matches_monorepo_official_plugin(Some("1.0.0"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(Some("1.0.0"), temp.path()));
+        assert!(!tag_matches_monorepo_official_plugin(Some("3.0.0"), temp.path()));
     }
 
     #[tokio::test]

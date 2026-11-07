@@ -194,6 +194,11 @@ export interface InlineCompletionHandlerRegistration {
     | undefined
   >;
   freeInlineCompletions?(completions: unknown): void;
+  handleItemDidShow?(
+    completions: unknown,
+    item: unknown,
+    updatedInsertText: string
+  ): void;
 }
 
 export interface InlineEditActionRegistration {
@@ -1124,6 +1129,11 @@ function attachInlineCompletionToMonaco(
           ) => Promise<{ items: InlineCompletionItemResult[] }>;
           freeInlineCompletions: (completions: unknown) => void;
           disposeInlineCompletions: (completions: unknown) => void;
+          handleItemDidShow?: (
+            completions: unknown,
+            item: unknown,
+            updatedInsertText: string
+          ) => void;
         }
       ) => { dispose?: () => void } | (() => void);
     };
@@ -1168,6 +1178,9 @@ function attachInlineCompletionToMonaco(
     },
     disposeInlineCompletions(completions) {
       registration.freeInlineCompletions?.(completions);
+    },
+    handleItemDidShow(completions, item, updatedInsertText) {
+      registration.handleItemDidShow?.(completions, item, updatedInsertText);
     },
   });
 
@@ -1449,6 +1462,9 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
         provider.freeInlineCompletions?.(completions);
         provider.disposeInlineCompletions?.(completions);
       },
+      handleItemDidShow: (completions, item, updatedInsertText) => {
+        provider.handleItemDidShow?.(completions, item, updatedInsertText);
+      },
     });
   },
 
@@ -1501,15 +1517,24 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
     const targetEditor = editor ?? this.getActiveEditor();
     const editorLike = targetEditor as {
       trigger?: (source: string, handlerId: string, payload?: unknown) => void;
+      getContribution?: (id: string) => {
+        model?: {
+          get?: () => {
+            stop?: (reason?: string) => void;
+          } | null;
+        };
+      } | null;
     } | null;
     if (typeof editorLike?.trigger === 'function') {
       pendingManualInlineTriggerUntil = Date.now() + 1500;
       try {
-        editorLike.trigger(
-          'vibex.code-editor',
-          'editor.action.inlineSuggest.hide',
-          {}
-        );
+        const controller =
+          typeof editorLike.getContribution === 'function'
+            ? editorLike.getContribution(
+                'editor.contrib.inlineCompletionsController'
+              )
+            : null;
+        controller?.model?.get?.()?.stop?.();
       } catch {
         // ignore
       }

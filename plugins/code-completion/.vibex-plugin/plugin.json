@@ -138,6 +138,30 @@
       "handler": "completion.trigger",
       "icon": "code",
       "order": 32
+    },
+    {
+      "id": "code-completion-complete",
+      "kind": "app.command",
+      "title": "Execute Inline Code Completion",
+      "handler": "completion.complete",
+      "icon": "code",
+      "order": 33
+    },
+    {
+      "id": "code-completion-cancel",
+      "kind": "app.command",
+      "title": "Cancel Inline Code Completion",
+      "handler": "completion.cancel",
+      "icon": "code",
+      "order": 34
+    },
+    {
+      "id": "code-completion-configure",
+      "kind": "app.command",
+      "title": "Configure Inline Code Completion",
+      "handler": "completion.configure",
+      "icon": "code",
+      "order": 35
     }
   ]
 }

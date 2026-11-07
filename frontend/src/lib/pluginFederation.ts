@@ -73,12 +73,18 @@ export function activatePluginModuleSync(
       configurable: true,
     });
   }
-  let returnedDisposer: void | (() => void);
+  let returnedDisposer: void | (() => void) | { dispose?: () => void };
   const dispose = () => {
     activePluginDisposers.delete(pluginId);
     try {
       if (typeof returnedDisposer === 'function') {
         returnedDisposer();
+      } else if (
+        returnedDisposer &&
+        typeof returnedDisposer === 'object' &&
+        typeof returnedDisposer.dispose === 'function'
+      ) {
+        returnedDisposer.dispose();
       }
     } finally {
       try {
@@ -96,7 +102,11 @@ export function activatePluginModuleSync(
       maybePromise &&
       typeof (maybePromise as Promise<unknown>).then === 'function'
     ) {
-      return (maybePromise as Promise<void | (() => void)>).then(
+      return (
+        maybePromise as Promise<
+          void | (() => void) | { dispose?: () => void }
+        >
+      ).then(
         (resolvedDisposer) => {
           returnedDisposer = resolvedDisposer;
           return dispose;
@@ -108,7 +118,10 @@ export function activatePluginModuleSync(
         }
       );
     }
-    returnedDisposer = maybePromise as void | (() => void);
+    returnedDisposer = maybePromise as
+      | void
+      | (() => void)
+      | { dispose?: () => void };
   } catch (error) {
     activePluginDisposers.delete(pluginId);
     ctx.dispose();

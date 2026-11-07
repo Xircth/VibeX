@@ -436,6 +436,15 @@ const SHORTCUT_STORAGE_KEY = 'vibex:code-completion:manualShortcut';
 
 export default {
   async activate(context) {
+    if (typeof globalThis.__vibexCodeCompletionActiveCleanup__ === 'function') {
+      try {
+        globalThis.__vibexCodeCompletionActiveCleanup__();
+      } catch {
+        // ignore
+      }
+      globalThis.__vibexCodeCompletionActiveCleanup__ = null;
+    }
+
     const cache = new ForwardTypingCache();
     let activeAbortController = null;
     let activeRequestId = null;
@@ -445,6 +454,7 @@ export default {
     let cursorIdleTimer = null;
     let lastAutoCursorKey = '';
     let lastKnownVersionId = -1;
+    let lastContentChangeAt = 0;
     let hasVisibleInlineSuggestion = false;
     let enabled = true;
     let triggerMode = 'auto';
@@ -629,6 +639,7 @@ export default {
       );
       if (cachedInsertText) {
         const normalizedCached = resolveInlineCompletionRangeAndText(cachedInsertText, docState);
+        hasVisibleInlineSuggestion = true;
         if (currentCursorKey) {
           lastAutoCursorKey = currentCursorKey;
         }
@@ -752,10 +763,16 @@ export default {
             };
           });
 
-        if (items.length > 0 && currentCursorKey) {
-          lastAutoCursorKey = currentCursorKey;
-        } else if (items.length === 0 && lastAutoCursorKey === currentCursorKey) {
-          lastAutoCursorKey = '';
+        if (items.length > 0) {
+          hasVisibleInlineSuggestion = true;
+          if (currentCursorKey) {
+            lastAutoCursorKey = currentCursorKey;
+          }
+        } else {
+          hasVisibleInlineSuggestion = false;
+          if (lastAutoCursorKey === currentCursorKey) {
+            lastAutoCursorKey = '';
+          }
         }
 
         return { items };
@@ -785,8 +802,22 @@ export default {
     let configUnsubscribe = null;
     let cursorWatcherDisposer = null;
 
+    const clearMonacoInlineCompletionsCache = (editor) => {
+      if (!editor || typeof editor !== 'object') return;
+      try {
+        const controller =
+          typeof editor.getContribution === 'function'
+            ? editor.getContribution('editor.contrib.inlineCompletionsController')
+            : null;
+        controller?.model?.get?.()?.stop?.();
+      } catch {
+        // ignore
+      }
+    };
+
     const triggerCursorIdleInlineCompletion = () => {
       if (!enabled || triggerMode !== 'auto') return;
+      if (Date.now() - lastContentChangeAt < 400) return;
       if (inFlightWorkerRequestId || activeAbortController) {
         if (inFlightStartedAt > 0 && Date.now() - inFlightStartedAt > 8000) {
           cancelActiveCompletion(null, true);
@@ -823,11 +854,7 @@ export default {
 
       pendingAutoTriggerUntil = Date.now() + 1000;
       if (!hasVisibleInlineSuggestion) {
-        try {
-          editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.hide', {});
-        } catch {
-          // ignore
-        }
+        clearMonacoInlineCompletionsCache(editor);
       }
       editor.trigger('vibex.code-completion.auto', 'editor.action.inlineSuggest.trigger', {});
     };
@@ -857,6 +884,7 @@ export default {
       const subs = [];
       if (typeof editor.onDidChangeModelContent === 'function') {
         const sub = editor.onDidChangeModelContent(() => {
+          lastContentChangeAt = Date.now();
           hasVisibleInlineSuggestion = false;
           const m = typeof editor.getModel === 'function' ? editor.getModel() : null;
           if (m && typeof m.getVersionId === 'function') {
@@ -876,7 +904,11 @@ export default {
           const currentVersionId =
             m && typeof m.getVersionId === 'function' ? m.getVersionId() : lastKnownVersionId;
           // If cursor position changed due to typing/editing, Monaco already triggers provideInlineCompletions
-          if (currentVersionId !== lastKnownVersionId || e?.reason === 2) {
+          if (
+            currentVersionId !== lastKnownVersionId ||
+            Date.now() - lastContentChangeAt < 350 ||
+            e?.reason === 2
+          ) {
             lastKnownVersionId = currentVersionId;
             if (cursorIdleTimer !== null) {
               clearTimeout(cursorIdleTimer);
@@ -1003,13 +1035,7 @@ export default {
         lastAutoCursorKey = '';
         hasVisibleInlineSuggestion = false;
         pendingManualTriggerUntil = Date.now() + 1500;
-        if (typeof activeEditor?.trigger === 'function') {
-          try {
-            activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.hide', {});
-          } catch {
-            // ignore
-          }
-        }
+        clearMonacoInlineCompletionsCache(activeEditor);
         if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
           void editorBridge.triggerInlineCompletion(activeEditor);
         } else if (typeof activeEditor?.trigger === 'function') {
@@ -1100,13 +1126,7 @@ export default {
       pendingManualTriggerUntil = Date.now() + 1500;
       const editorBridge = getEditorBridge();
       const activeEditor = activeEditorInstance || editorBridge?.getActiveEditor?.();
-      if (typeof activeEditor?.trigger === 'function') {
-        try {
-          activeEditor.trigger('vibex.code-completion', 'editor.action.inlineSuggest.hide', {});
-        } catch {
-          // ignore
-        }
-      }
+      clearMonacoInlineCompletionsCache(activeEditor);
       if (editorBridge && typeof editorBridge.triggerInlineCompletion === 'function') {
         await editorBridge.triggerInlineCompletion(activeEditor);
         return { triggered: true, via: 'editor-bridge' };
@@ -1120,40 +1140,48 @@ export default {
       return { triggered: false };
     });
 
-    return {
+    const disposeInstance = () => {
+      if (globalThis.__vibexCodeCompletionActiveCleanup__ === disposeInstance) {
+        globalThis.__vibexCodeCompletionActiveCleanup__ = null;
+      }
+      if (cursorIdleTimer !== null) {
+        clearTimeout(cursorIdleTimer);
+        cursorIdleTimer = null;
+      }
+      if (typeof cursorWatcherDisposer === 'function') {
+        cursorWatcherDisposer();
+        cursorWatcherDisposer = null;
+      }
+      cancelActiveCompletion(null, true);
+      cache.clear();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
+        window.removeEventListener('keydown', onWindowKeyDown, true);
+        window.removeEventListener('mouseup', onWindowMouseUp, true);
+      }
+      if (typeof configUnsubscribe === 'function') {
+        configUnsubscribe();
+        configUnsubscribe = null;
+      }
+      if (typeof serviceWatchCleanup === 'function') {
+        serviceWatchCleanup();
+        serviceWatchCleanup = null;
+      }
+      if (typeof providerDisposable === 'function') {
+        providerDisposable();
+      } else if (providerDisposable && typeof providerDisposable.dispose === 'function') {
+        providerDisposable.dispose();
+      }
+      providerDisposable = null;
+    };
+
+    globalThis.__vibexCodeCompletionActiveCleanup__ = disposeInstance;
+
+    return Object.assign(disposeInstance, {
       provideInlineCompletions,
       cancelActiveCompletion,
       cache,
-      dispose() {
-        if (cursorIdleTimer !== null) {
-          clearTimeout(cursorIdleTimer);
-          cursorIdleTimer = null;
-        }
-        if (typeof cursorWatcherDisposer === 'function') {
-          cursorWatcherDisposer();
-          cursorWatcherDisposer = null;
-        }
-        cancelActiveCompletion(null, true);
-        cache.clear();
-        if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-          window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
-          window.removeEventListener('keydown', onWindowKeyDown, true);
-          window.removeEventListener('mouseup', onWindowMouseUp, true);
-        }
-        if (typeof configUnsubscribe === 'function') {
-          configUnsubscribe();
-          configUnsubscribe = null;
-        }
-        if (typeof serviceWatchCleanup === 'function') {
-          serviceWatchCleanup();
-          serviceWatchCleanup = null;
-        }
-        if (typeof providerDisposable === 'function') {
-          providerDisposable();
-        } else if (providerDisposable && typeof providerDisposable.dispose === 'function') {
-          providerDisposable.dispose();
-        }
-      },
-    };
+      dispose: disposeInstance,
+    });
   },
 };

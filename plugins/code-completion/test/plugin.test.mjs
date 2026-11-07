@@ -777,3 +777,81 @@ test('normalizes indentation for dedented methods on indented blank lines, relat
   );
 });
 
+test('App re-activation disposes previous singleton instance and clears Monaco InlineCompletionsController model cache on trigger', async () => {
+  let firstDisposed = 0;
+  let secondDisposed = 0;
+  let stopCalled = 0;
+  const triggeredActions = [];
+
+  const mockEditor = {
+    hasTextFocus: () => true,
+    getModel: () => ({
+      getVersionId: () => 5,
+      getValue: () => 'def main():\n    ',
+    }),
+    getPosition: () => ({ lineNumber: 2, column: 5 }),
+    getSelection: () => ({ isEmpty: () => true }),
+    getContribution: (id) => {
+      if (id === 'editor.contrib.inlineCompletionsController') {
+        return {
+          model: {
+            get: () => ({
+              stop: () => {
+                stopCalled += 1;
+              },
+            }),
+          },
+        };
+      }
+      return null;
+    },
+    trigger: (_source, actionId) => {
+      triggeredActions.push(actionId);
+    },
+  };
+
+  const firstApp = await appPlugin.activate({
+    config: { enabled: true, triggerMode: 'auto' },
+    invokeWorker: async () => ({ items: [] }),
+    editorBridge: {
+      getActiveEditor: () => mockEditor,
+      registerInlineCompletionProvider: () => () => {
+        firstDisposed += 1;
+      },
+    },
+  });
+
+  assert.equal(typeof firstApp, 'function');
+  assert.equal(typeof firstApp.dispose, 'function');
+  assert.equal(firstDisposed, 0);
+
+  const handlers = {};
+  const secondApp = await appPlugin.activate({
+    config: { enabled: true, triggerMode: 'auto' },
+    invokeWorker: async () => ({ items: [] }),
+    registerHandler: (name, fn) => {
+      handlers[name] = fn;
+    },
+    editorBridge: {
+      getActiveEditor: () => mockEditor,
+      registerInlineCompletionProvider: () => () => {
+        secondDisposed += 1;
+      },
+      triggerInlineCompletion: async (ed) => {
+        ed.getContribution('editor.contrib.inlineCompletionsController')?.model?.get?.()?.stop?.();
+        ed.trigger('vibex.code-editor', 'editor.action.inlineSuggest.trigger', {});
+      },
+    },
+  });
+
+  // Activating secondApp must automatically dispose firstApp
+  assert.equal(firstDisposed, 1);
+
+  await handlers['completion.trigger']({});
+  assert.equal(stopCalled >= 1, true);
+  assert.equal(triggeredActions.includes('editor.action.inlineSuggest.trigger'), true);
+
+  secondApp();
+  assert.equal(secondDisposed, 1);
+});
+

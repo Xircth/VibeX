@@ -511,25 +511,6 @@ importers:
 
   plugins/office: {}
 
-  plugins/open-connector:
-    dependencies:
-      '@vibex/plugin-sdk':
-        specifier: ^1.0.0
-        version: link:../../packages/plugin-sdk
-      react:
-        specifier: ^19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: ^19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
-      '@module-federation/vite':
-        specifier: ^1.9.0
-        version: 1.21.3(typescript@5.9.2)(vite@8.3.6(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.8.0))
-      vite:
-        specifier: '>=6.4.4'
-        version: 8.3.6(@types/node@26.1.2)(esbuild@0.25.5)(jiti@2.7.0)(yaml@2.8.0)
-
   plugins/plugin-development: {}
 
   plugins/prompt-enhancer:
@@ -558,6 +539,12 @@ importers:
     dependencies:
       '@vibex/plugin-sdk':
         specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  plugins/voice-input:
+    dependencies:
+      '@vibex/plugin-sdk':
+        specifier: ^2.0.0
         version: link:../../packages/plugin-sdk
 
   plugins/workflow-creator:
@@ -6276,18 +6263,6 @@ snapshots:
       - utf-8-validate
       - vue-tsc
 
-  '@module-federation/vite@1.21.3(typescript@5.9.2)(vite@8.3.6(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.8.0))':
-    dependencies:
-      '@module-federation/dts-plugin': 2.9.0(typescript@5.9.2)
-      '@module-federation/runtime': 2.9.0
-      '@module-federation/sdk': 2.9.0
-      vite: 8.3.6(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.8.0)
-    transitivePeerDependencies:
-      - bufferutil
-      - typescript
-      - utf-8-validate
-      - vue-tsc
-
   '@monaco-editor/loader@1.7.0':
     dependencies:
       state-local: 1.0.7
@@ -9506,19 +9481,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.1.2
       esbuild: 0.25.5
-      fsevents: 2.3.3
-      jiti: 2.7.0
-      yaml: 2.8.0
-
-  vite@8.3.6(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.8.0):
-    dependencies:
-      lightningcss: 1.33.0
-      picomatch: 4.0.7
-      postcss: 8.5.28
-      rolldown: 1.2.16
-      tinyglobby: 0.2.17
-    optionalDependencies:
-      '@types/node': 26.1.2
       fsevents: 2.3.3
       jiti: 2.7.0
       yaml: 2.8.0

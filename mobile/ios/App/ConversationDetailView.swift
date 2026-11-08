@@ -9,6 +9,19 @@ struct ConversationDetailView: View {
     @State private var created: ConversationListItem?
     @State private var diffChange: FileChangeItem?
 
+    // Scroll safe-zone & floating bottom indicator state
+    @State private var distanceFromBottom: CGFloat = 0
+    @State private var userDetachedFromBottom = false
+    @State private var isUserDraggingScroll = false
+    @State private var unreadMessageUpdates = 0
+    @State private var hasPerformedInitialScroll = false
+
+    private let bottomSafeZoneThreshold: CGFloat = 110
+
+    private var isInBottomSafeZone: Bool {
+        !userDetachedFromBottom && !isUserDraggingScroll && distanceFromBottom <= bottomSafeZoneThreshold
+    }
+
     var onToggleSidebar: (() -> Void)?
     var onReturnToLanding: (() -> Void)?
 
@@ -255,6 +268,8 @@ struct ConversationDetailView: View {
             openFiles: { panel = .files },
             send: {
                 let text = draft
+                userDetachedFromBottom = false
+                unreadMessageUpdates = 0
                 Task { if await model.send(text) { draft = "" } }
             },
             stop: { Task { await model.cancelTurn() } },
@@ -342,51 +357,120 @@ struct ConversationDetailView: View {
             } else {
                 GeometryReader { scrollGeo in
                     let containerWidth = max(0, scrollGeo.size.width)
+                    let viewportHeight = max(0, scrollGeo.size.height)
                     let contentWidth = max(0, containerWidth - 28)
                     ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: true) {
-                            LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(model.items) { item in
-                                    MessageRow(
-                                        item: item,
-                                        agentID: model.conversation.agent_id,
-                                        modelName: model.currentModelLabel,
-                                        isLast: item.id == model.items.last?.id,
-                                        running: model.session.isTurnRunning,
-                                        openDiff: { diffChange = $0 }
-                                    )
-                                    .frame(width: contentWidth, alignment: .leading)
-                                    .id(item.id)
+                        ZStack(alignment: .bottom) {
+                            ScrollView(.vertical, showsIndicators: true) {
+                                LazyVStack(alignment: .leading, spacing: 16) {
+                                    ForEach(model.items) { item in
+                                        MessageRow(
+                                            item: item,
+                                            agentID: model.conversation.agent_id,
+                                            modelName: model.currentModelLabel,
+                                            isLast: item.id == model.items.last?.id,
+                                            running: model.session.isTurnRunning,
+                                            openDiff: { diffChange = $0 }
+                                        )
+                                        .frame(width: contentWidth, alignment: .leading)
+                                        .id(item.id)
+                                    }
+                                    if model.session.isTurnRunning && model.items.last?.role != .assistant {
+                                        LoadingState(label: "正在思考").id("loading")
+                                    }
+                                    Color.clear
+                                        .frame(height: 1)
+                                        .id("conversation-bottom")
+                                        .background(
+                                            GeometryReader { bottomGeo in
+                                                Color.clear.preference(
+                                                    key: ConversationBottomMaxYKey.self,
+                                                    value: bottomGeo.frame(in: .named("conversationScroll")).maxY
+                                                )
+                                            }
+                                        )
                                 }
-                                if model.session.isTurnRunning && model.items.last?.role != .assistant {
-                                    LoadingState(label: "正在思考").id("loading")
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .frame(width: containerWidth, alignment: .leading)
+                            }
+                            .coordinateSpace(name: "conversationScroll")
+                            .defaultScrollAnchor(.bottom)
+                            .scrollDismissesKeyboard(.interactively)
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 6)
+                                    .onChanged { value in
+                                        isUserDraggingScroll = true
+                                        // Finger pulling down (positive translation.height) = scrolling upward away from bottom
+                                        if value.translation.height > 10 {
+                                            userDetachedFromBottom = true
+                                        }
+                                    }
+                                    .onEnded { value in
+                                        isUserDraggingScroll = false
+                                        if value.translation.height < -24 && distanceFromBottom <= bottomSafeZoneThreshold {
+                                            userDetachedFromBottom = false
+                                            unreadMessageUpdates = 0
+                                        }
+                                    }
+                            )
+                            .onPreferenceChange(ConversationBottomMaxYKey.self) { bottomMaxY in
+                                guard viewportHeight > 0, bottomMaxY > 0 else { return }
+                                let delta = max(0, bottomMaxY - viewportHeight)
+                                distanceFromBottom = delta
+                                if delta <= 72 && !isUserDraggingScroll {
+                                    if userDetachedFromBottom {
+                                        userDetachedFromBottom = false
+                                    }
+                                    if unreadMessageUpdates != 0 {
+                                        unreadMessageUpdates = 0
+                                    }
+                                } else if delta > bottomSafeZoneThreshold && isUserDraggingScroll {
+                                    userDetachedFromBottom = true
                                 }
-                                Color.clear
-                                    .frame(height: 1)
-                                    .id("conversation-bottom")
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(width: containerWidth, alignment: .leading)
-                        }
-                        .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: model.items.count) { _, _ in
-                            withAnimation(.smooth(duration: 0.22)) {
-                                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            .onAppear {
+                                scrollToBottomImmediately(proxy: proxy)
                             }
-                        }
-                        .onChange(of: model.items.last?.text.count) { _, _ in
-                            if model.isActivelyStreaming {
-                                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            .onChange(of: model.items.count) { oldCount, newCount in
+                                guard newCount > oldCount else { return }
+                                if !hasPerformedInitialScroll {
+                                    scrollToBottomImmediately(proxy: proxy)
+                                } else if isInBottomSafeZone {
+                                    withAnimation(.smooth(duration: 0.2)) {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                } else {
+                                    unreadMessageUpdates += max(1, newCount - oldCount)
+                                }
                             }
-                        }
-                        .onChange(of: model.items.last?.segments.count) { _, _ in
-                            if model.isActivelyStreaming {
-                                withAnimation(.smooth(duration: 0.18)) {
+                            .onChange(of: model.items.last?.text.count) { _, _ in
+                                guard model.isActivelyStreaming else { return }
+                                if isInBottomSafeZone {
                                     proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                } else if unreadMessageUpdates == 0 {
+                                    unreadMessageUpdates = 1
                                 }
                             }
+                            .onChange(of: model.items.last?.segments.count) { oldSegs, newSegs in
+                                guard model.isActivelyStreaming else { return }
+                                if isInBottomSafeZone {
+                                    withAnimation(.smooth(duration: 0.16)) {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                } else if (newSegs ?? 0) > (oldSegs ?? 0) {
+                                    unreadMessageUpdates += 1
+                                }
+                            }
+
+                            if shouldShowScrollToBottomButton {
+                                scrollToBottomButton(proxy: proxy)
+                                    .padding(.bottom, 10)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
                         }
+                        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: shouldShowScrollToBottomButton)
+                        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: unreadMessageUpdates)
                     }
                 }
             }
@@ -395,6 +479,87 @@ struct ConversationDetailView: View {
         } else {
             ProgressView().frame(maxHeight: .infinity)
         }
+    }
+
+    private var shouldShowScrollToBottomButton: Bool {
+        distanceFromBottom > bottomSafeZoneThreshold || (userDetachedFromBottom && unreadMessageUpdates > 0)
+    }
+
+    private func scrollToBottomImmediately(proxy: ScrollViewProxy) {
+        userDetachedFromBottom = false
+        unreadMessageUpdates = 0
+        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            if !userDetachedFromBottom {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                hasPerformedInitialScroll = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func scrollToBottomButton(proxy: ScrollViewProxy) -> some View {
+        let showExtendedLabel = unreadMessageUpdates > 0 || model.session.isTurnRunning || distanceFromBottom > 360
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            userDetachedFromBottom = false
+            isUserDraggingScroll = false
+            unreadMessageUpdates = 0
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if model.session.isTurnRunning {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 6.5, height: 6.5)
+                }
+
+                if showExtendedLabel {
+                    if unreadMessageUpdates > 0 {
+                        Text("\(unreadMessageUpdates) 条新动态")
+                            .font(.system(size: 12, weight: .semibold))
+                            .monospacedDigit()
+                    } else if model.session.isTurnRunning {
+                        Text("跟随最新回答")
+                            .font(.system(size: 12, weight: .semibold))
+                    } else {
+                        Text("回到底部")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, showExtendedLabel ? 13 : 10)
+            .frame(height: 34)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground).opacity(0.88))
+                    )
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.75)
+            )
+            .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("滚动到最底部")
+    }
+}
+
+private struct ConversationBottomMaxYKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

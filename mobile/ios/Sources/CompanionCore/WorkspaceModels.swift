@@ -50,8 +50,8 @@ public struct FileDiff: Identifiable, Equatable, Sendable {
     public var id: String { path }
     public var additions: Int { count(.added) }
     public var deletions: Int { count(.removed) }
-    /// Untracked files carry no diff; the phone shows their whole content as additions instead.
-    public var needsContent: Bool { change == .untracked && !isBinary }
+    /// Untracked or newly added files with no unified diff payload fetch their whole content as additions instead.
+    public var needsContent: Bool { hunks.isEmpty && !isBinary && change != .deleted }
 
     private func count(_ kind: DiffLine.Kind) -> Int {
         hunks.reduce(0) { $0 + $1.lines.filter { $0.kind == kind }.count }

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { MessageSquare } from 'lucide-react';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';

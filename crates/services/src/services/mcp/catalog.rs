@@ -471,7 +471,10 @@ pub fn resolve_snapshot_install_spec(
                 }
             }
         } else {
-            return Err(bad(format!("missing required configuration '{}'", field.key)));
+            return Err(bad(format!(
+                "missing required configuration '{}'",
+                field.key
+            )));
         }
     }
 
@@ -488,7 +491,10 @@ pub fn resolve_snapshot_install_spec(
                 .entry("env".to_string())
                 .or_insert_with(|| Value::Object(Map::new()));
             if let Some(emap) = env.as_object_mut() {
-                emap.insert("OPEN_CONNECTOR_API_KEY".to_string(), Value::String(optional_key));
+                emap.insert(
+                    "OPEN_CONNECTOR_API_KEY".to_string(),
+                    Value::String(optional_key),
+                );
             }
         }
 
@@ -521,8 +527,16 @@ mod tests {
         let detail = get_snapshot_server_detail("stripe", &installed).expect("stripe detail");
         assert_eq!(detail.kind.as_deref(), Some("connector"));
         let params = &detail.install_options[0].parameters;
-        assert!(params.iter().any(|p| p.key == "STRIPE_API_KEY" && p.required));
-        assert!(params.iter().any(|p| p.key == "ACCOUNT_ALIAS" && !p.required));
+        assert!(
+            params
+                .iter()
+                .any(|p| p.key == "STRIPE_API_KEY" && p.required)
+        );
+        assert!(
+            params
+                .iter()
+                .any(|p| p.key == "ACCOUNT_ALIAS" && !p.required)
+        );
 
         let mut values = Map::new();
         values.insert("STRIPE_API_KEY".to_string(), json!("sk_test_123"));
@@ -540,7 +554,11 @@ mod tests {
         assert_eq!(detail.kind.as_deref(), Some("connector"));
         let params = &detail.install_options[0].parameters;
         assert!(params.iter().any(|p| p.key == "API_KEY" && !p.required));
-        assert!(params.iter().any(|p| p.key == "ACCOUNT_ALIAS" && !p.required));
+        assert!(
+            params
+                .iter()
+                .any(|p| p.key == "ACCOUNT_ALIAS" && !p.required)
+        );
 
         let empty_values = Map::new();
         let default_spec =

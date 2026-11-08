@@ -442,6 +442,7 @@ fn apply_user_agent(webview: &WebView, device: &str, sign_in_ua: bool) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn ephemeral_profile_dir() -> PathBuf {
     utils::path::get_vibex_temp_dir().join("browser-ephemeral")
 }
@@ -555,7 +556,7 @@ fn prefer_detached_inspector() {
             let registration: *mut AnyObject = msg_send![
                 class!(NSDictionary),
                 dictionaryWithObject: no,
-                forKey: &*key
+                forKey: key
             ];
             let defaults: *mut AnyObject = msg_send![class!(NSUserDefaults), standardUserDefaults];
             let _: () = msg_send![defaults, registerDefaults: registration];

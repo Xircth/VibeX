@@ -23,4 +23,3 @@ export function sanitizeSessionListTitle(title: string): string {
 export function sessionTitleIsCjk(title: string): boolean {
   return CJK_TITLE_RE.test(title);
 }
-

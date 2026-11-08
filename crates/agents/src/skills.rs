@@ -2199,9 +2199,7 @@ fn synthetic_weekly_installs(installs: Option<u64>, seed: &str) -> Vec<u64> {
         .map(|idx| {
             let growth = 60 + idx * 10;
             let wave = ((hash.wrapping_add(idx * 13)) % 23) + 90;
-            base.saturating_mul(growth)
-                .saturating_mul(wave)
-                / 10_000
+            base.saturating_mul(growth).saturating_mul(wave) / 10_000
         })
         .collect()
 }
@@ -2397,8 +2395,7 @@ pub async fn search_skill_market_with_view(
                 row.id
             };
             let known = snapshot.iter().find(|s| {
-                s.id.eq_ignore_ascii_case(&id)
-                    || s.skill_id.eq_ignore_ascii_case(&row.skill_id)
+                s.id.eq_ignore_ascii_case(&id) || s.skill_id.eq_ignore_ascii_case(&row.skill_id)
             });
             let weekly_installs = if !row.weekly_installs.is_empty() {
                 row.weekly_installs
@@ -2445,9 +2442,8 @@ fn parse_skill_description(html: &str) -> Option<String> {
 }
 
 fn html_fragment_to_markdown(fragment: &str) -> String {
-    static TAG_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"<[^>]+>").expect("valid html tag regex")
-    });
+    static TAG_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"<[^>]+>").expect("valid html tag regex"));
     let mut s = fragment
         .replace("<h1>", "\n# ")
         .replace("</h1>", "\n\n")
@@ -2517,9 +2513,7 @@ fn parse_skill_markdown_from_html(
         }
     }
     description.map(|desc| {
-        format!(
-            "---\nname: {skill_id}\nsource: {source}\n---\n\n# {skill_id}\n\n{desc}\n"
-        )
+        format!("---\nname: {skill_id}\nsource: {source}\n---\n\n# {skill_id}\n\n{desc}\n")
     })
 }
 
@@ -2536,7 +2530,9 @@ async fn fetch_github_raw_skill_markdown(
     let candidates = [
         format!("https://raw.githubusercontent.com/{clean_source}/HEAD/skills/{clean_id}/SKILL.md"),
         format!("https://raw.githubusercontent.com/{clean_source}/HEAD/{clean_id}/SKILL.md"),
-        format!("https://raw.githubusercontent.com/{clean_source}/HEAD/.claude/skills/{clean_id}/SKILL.md"),
+        format!(
+            "https://raw.githubusercontent.com/{clean_source}/HEAD/.claude/skills/{clean_id}/SKILL.md"
+        ),
         format!("https://raw.githubusercontent.com/{clean_source}/HEAD/SKILL.md"),
     ];
     for url in candidates {

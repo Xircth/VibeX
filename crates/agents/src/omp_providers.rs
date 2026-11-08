@@ -187,10 +187,9 @@ fn provider_key(providers: &Mapping, provider_id: &str, name: &str, api_url: &st
             .as_mapping()
             .is_some_and(|node| text(node, "baseUrl") == api_url);
         same_url.then(|| key.as_str().unwrap_or("").to_string())
-    }) {
-        if !existing.is_empty() {
-            return existing;
-        }
+    }) && !existing.is_empty()
+    {
+        return existing;
     }
     let slug = slug(name);
     if slug.is_empty() {
@@ -241,10 +240,10 @@ fn model_ids(raw: &str) -> Vec<String> {
             }
         }
     }
-    if ids.is_empty() {
-        if let Some(id) = value.as_str() {
-            ids.push(id.to_string());
-        }
+    if ids.is_empty()
+        && let Some(id) = value.as_str()
+    {
+        ids.push(id.to_string());
     }
     ids
 }

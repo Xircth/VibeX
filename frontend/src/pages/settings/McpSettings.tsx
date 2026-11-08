@@ -46,11 +46,7 @@ import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { ConnectorMarketplace } from '@/components/connectors/ConnectorMarketplace';
 import { notifyLocalMcpServersChanged } from '@/components/layout/StatusBarMcp';
 import type { JsonValue } from 'shared/types';
-import {
-  mcpMarketApi,
-  type LocalMcpServer,
-  type McpAppType,
-} from '@/lib/api';
+import { mcpMarketApi, type LocalMcpServer, type McpAppType } from '@/lib/api';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
 import { pluginControlApi, type PluginControlItem } from '@/lib/api/plugins';
@@ -60,10 +56,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 type LeftTab = 'local' | 'market';
 
-type Selection =
-  | { kind: 'local'; id: string }
-  | { kind: 'draft' }
-  | null;
+type Selection = { kind: 'local'; id: string } | { kind: 'draft' } | null;
 
 type AppsDraft = Record<McpAppType, boolean>;
 

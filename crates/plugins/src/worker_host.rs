@@ -3326,9 +3326,7 @@ fn validate_registrations(
         .filter(|handler| !(is_v2_runtime && *handler == "app.activate"))
         .collect::<BTreeSet<_>>();
     let actual = handlers.iter().map(String::as_str).collect::<BTreeSet<_>>();
-    if !is_v2_runtime
-        && let Some(undeclared) = actual.difference(&declared).next()
-    {
+    if !is_v2_runtime && let Some(undeclared) = actual.difference(&declared).next() {
         return Err(WorkerHostError::new(
             "handler_undeclared",
             format!("Worker registered undeclared handler {undeclared}"),
@@ -3652,11 +3650,16 @@ mod worker_host_tests {
             .and_then(Path::parent)
             .expect("workspace root");
         let code_completion_dir = repo_root.join("plugins").join("code-completion");
-        let package = PluginPackage::inspect(&code_completion_dir, crate::PluginSourceKind::Snapshot)
-            .expect("inspect code-completion");
+        let package =
+            PluginPackage::inspect(&code_completion_dir, crate::PluginSourceKind::Snapshot)
+                .expect("inspect code-completion");
         assert_eq!(package.api_version, "2.0");
         assert_eq!(
-            package.app.status_items.first().and_then(|s| s.text.as_deref()),
+            package
+                .app
+                .status_items
+                .first()
+                .and_then(|s| s.text.as_deref()),
             Some("AI代码补全")
         );
 

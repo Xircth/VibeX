@@ -1717,12 +1717,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ).element?.setAttribute('data-session-dock', 'true');
       }
 
-      setColumnVisible(
-        dockviewApi,
-        getLayoutArrangement(),
-        targetGroup,
-        true
-      );
+      setColumnVisible(dockviewApi, getLayoutArrangement(), targetGroup, true);
 
       const unboundPlaceholders = targetGroup.panels.filter(
         (panel) =>

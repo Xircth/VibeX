@@ -467,7 +467,10 @@ export function AgentDetail({
                       </Button>
                     </div>
                     {customVersionValid ? null : customVersion ? (
-                      <p role="alert" className="mt-1.5 text-xs text-destructive">
+                      <p
+                        role="alert"
+                        className="mt-1.5 text-xs text-destructive"
+                      >
                         {t('agents.customVersionInvalid')}
                       </p>
                     ) : null}

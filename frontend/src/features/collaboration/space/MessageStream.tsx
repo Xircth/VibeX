@@ -1,10 +1,4 @@
-import {
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  type MutableRefObject,
-} from 'react';
+import { memo, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import { Button } from '@/components/ui/button';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
@@ -51,8 +45,9 @@ import { useCollaborationSpacePick } from './SpaceContext';
 type SpaceMessage = CollaborationSpaceRuntime['filteredMessages'][number];
 type MessageClusterPosition =
   CollaborationSpaceRuntime['messageClusters'][number];
-type SpaceDeliveryReceipt =
-  NonNullable<CollaborationSpaceRuntime['receiptsBySeq'][number]>[number];
+type SpaceDeliveryReceipt = NonNullable<
+  CollaborationSpaceRuntime['receiptsBySeq'][number]
+>[number];
 type SpaceCardRecord = NonNullable<
   CollaborationSpaceRuntime['threadCards']
 >[number];
@@ -248,10 +243,9 @@ const SpaceMessageRow = memo(function SpaceMessageRow({
               <button
                 type="button"
                 className="collaboration-message-avatar"
-                aria-label={i18n.t(
-                  'panels:ui.collabPage.previewNameSession',
-                  { name: name }
-                )}
+                aria-label={i18n.t('panels:ui.collabPage.previewNameSession', {
+                  name: name,
+                })}
                 onClick={openAuthorPreview}
                 onContextMenu={(event) =>
                   openMemberAvatarMenu(
@@ -353,9 +347,7 @@ const SpaceMessageRow = memo(function SpaceMessageRow({
                 data-status={statusKey}
               >
                 <span>
-                  {receipt.nickname
-                    ? `${receipt.nickname} ${status}`
-                    : status}
+                  {receipt.nickname ? `${receipt.nickname} ${status}` : status}
                 </span>
               </li>
             );

@@ -760,9 +760,7 @@ export function AgentSettings() {
         inspectCacheRef.current.actions.set(targetAgentId, nextActions);
       }
       if (nextDiagnostics) {
-        const unread = nextDiagnostics.filter(
-          (diagnostic) => !diagnostic.read
-        );
+        const unread = nextDiagnostics.filter((diagnostic) => !diagnostic.read);
         inspectCacheRef.current.diagnostics.set(targetAgentId, unread);
       }
       if (

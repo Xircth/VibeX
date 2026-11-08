@@ -201,67 +201,72 @@ export function usePluginContributionCatalogSync() {
         providerServices.ensureHostProviderServicesRegistered();
         coreFoundation.ensureCoreFoundationPluginsBootstrapped();
         const activeIds = new Set<string>();
-      for (const item of items) {
-        activeIds.add(item.pluginId);
-        const monorepoBundle = monorepoBootstrap.getMonorepoPluginBundle(
-          item.pluginId
-        );
-        if (monorepoBundle) {
-          if (
-            loadedGenerationByPluginRef.current.get(item.pluginId) !==
-            item.generation
-          ) {
-            loadedGenerationByPluginRef.current.set(
-              item.pluginId,
+        for (const item of items) {
+          activeIds.add(item.pluginId);
+          const monorepoBundle = monorepoBootstrap.getMonorepoPluginBundle(
+            item.pluginId
+          );
+          if (monorepoBundle) {
+            if (
+              loadedGenerationByPluginRef.current.get(item.pluginId) !==
               item.generation
-            );
-            void runtimeLoader.loadPluginRuntime(
-              item.pluginId,
-              {
-                kind: 'module',
-                module: monorepoBundle.module,
-                spec: monorepoBundle.spec,
-              },
-              {
-                generation: item.generation,
-              }
-            );
+            ) {
+              loadedGenerationByPluginRef.current.set(
+                item.pluginId,
+                item.generation
+              );
+              void runtimeLoader.loadPluginRuntime(
+                item.pluginId,
+                {
+                  kind: 'module',
+                  module: monorepoBundle.module,
+                  spec: monorepoBundle.spec,
+                },
+                {
+                  generation: item.generation,
+                }
+              );
+            }
+            continue;
           }
-          continue;
+
+          const meta = contributionMetadata(item);
+          const runtimeSource = meta.runtimeSource as
+            | PluginRuntimeSource
+            | undefined;
+          if (
+            runtimeSource &&
+            typeof runtimeSource === 'object' &&
+            'kind' in runtimeSource
+          ) {
+            if (
+              loadedGenerationByPluginRef.current.get(item.pluginId) !==
+              item.generation
+            ) {
+              loadedGenerationByPluginRef.current.set(
+                item.pluginId,
+                item.generation
+              );
+              void runtimeLoader.loadPluginRuntime(
+                item.pluginId,
+                runtimeSource,
+                {
+                  generation: item.generation,
+                }
+              );
+            }
+          }
         }
 
-        const meta = contributionMetadata(item);
-        const runtimeSource = meta.runtimeSource as
-          | PluginRuntimeSource
-          | undefined;
-        if (
-          runtimeSource &&
-          typeof runtimeSource === 'object' &&
-          'kind' in runtimeSource
-        ) {
-          if (
-            loadedGenerationByPluginRef.current.get(item.pluginId) !==
-            item.generation
-          ) {
-            loadedGenerationByPluginRef.current.set(
-              item.pluginId,
-              item.generation
-            );
-            void runtimeLoader.loadPluginRuntime(item.pluginId, runtimeSource, {
-              generation: item.generation,
-            });
+        for (const previousId of knownHostPluginIdsRef.current) {
+          if (!activeIds.has(previousId)) {
+            loadedGenerationByPluginRef.current.delete(previousId);
+            runtimeLoader.unloadPluginRuntime(previousId);
           }
         }
+        knownHostPluginIdsRef.current = activeIds;
       }
-
-      for (const previousId of knownHostPluginIdsRef.current) {
-        if (!activeIds.has(previousId)) {
-          loadedGenerationByPluginRef.current.delete(previousId);
-          runtimeLoader.unloadPluginRuntime(previousId);
-        }
-      }
-      knownHostPluginIdsRef.current = activeIds;
-    });
+    );
     return () => {
       cancelled = true;
     };

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
@@ -554,7 +548,11 @@ export function ConnectorBrandIcon({
           'flex shrink-0 items-center justify-center bg-[#181717] text-white shadow-2xs'
         )}
       >
-        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          className="h-5 w-5 fill-current"
+          aria-hidden="true"
+        >
           <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.92.58.1.79-.25.79-.56v-2.01c-3.2.7-3.88-1.38-3.88-1.38-.52-1.33-1.28-1.68-1.28-1.68-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11.05 11.05 0 0 1 5.78 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.24 2.75.12 3.04.74.81 1.18 1.83 1.18 3.09 0 4.41-2.7 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
         </svg>
       </div>
@@ -570,7 +568,11 @@ export function ConnectorBrandIcon({
           'flex shrink-0 items-center justify-center bg-[#171717] text-[#3ecf8e] shadow-2xs'
         )}
       >
-        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          className="h-5 w-5 fill-current"
+          aria-hidden="true"
+        >
           <path d="M13.7 21.8c-.5.6-1.5.2-1.5-.6v-7.4h7.5c.9 0 1.4 1 .8 1.7l-6.8 6.3ZM10.3 2.2c.5-.6 1.5-.2 1.5.6v7.4H4.3c-.9 0-1.4-1-.8-1.7l6.8-6.3Z" />
         </svg>
       </div>
@@ -782,7 +784,9 @@ export function ConnectorMarketplace({
       setError(null);
       try {
         const [localResult, marketResult] = await Promise.allSettled([
-          externalServers ? Promise.resolve(externalServers) : mcpMarketApi.scanLocal(),
+          externalServers
+            ? Promise.resolve(externalServers)
+            : mcpMarketApi.scanLocal(),
           mcpMarketApi.search({
             providerId: 'connector_catalog',
             query: (queryOverride ?? searchQuery).trim() || null,
@@ -806,14 +810,16 @@ export function ConnectorMarketplace({
     [activeCategory, externalServers, searchQuery]
   );
 
+  const didInitialLoadRef = useRef(false);
   useEffect(() => {
+    if (didInitialLoadRef.current) return;
+    didInitialLoadRef.current = true;
     void loadMarketAndLocal('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadMarketAndLocal]);
 
   useEffect(() => {
     if (!moreMenuOpen) return;
-    const handlePointerDown = ( event: MouseEvent) => {
+    const handlePointerDown = (event: MouseEvent) => {
       if (
         moreMenuRef.current &&
         !moreMenuRef.current.contains(event.target as Node)
@@ -838,9 +844,7 @@ export function ConnectorMarketplace({
   }, [onlineItems]);
 
   const getEntryStatus = useCallback(
-    (
-      entry: ConnectorCatalogEntry
-    ): 'connected' | 'included' | 'available' => {
+    (entry: ConnectorCatalogEntry): 'connected' | 'included' | 'available' => {
       if (
         installedIdSet.has(entry.id.toLowerCase()) ||
         installedIdSet.has(entry.serverId.toLowerCase())
@@ -937,7 +941,13 @@ export function ConnectorMarketplace({
       counts[entry.category] = (counts[entry.category] ?? 0) + 1;
     }
     return counts;
-  }, [catalogEntries, getEntryStatus, connectedOnly, searchQuery, getCategoryLabel]);
+  }, [
+    catalogEntries,
+    getEntryStatus,
+    connectedOnly,
+    searchQuery,
+    getCategoryLabel,
+  ]);
 
   const isGroupedView =
     activeCategory === 'all' &&
@@ -961,7 +971,8 @@ export function ConnectorMarketplace({
     return filteredEntries.slice(0, visibleLimit);
   }, [filteredEntries, visibleLimit]);
 
-  const hasMoreEntries = !isGroupedView && visibleLimit < filteredEntries.length;
+  const hasMoreEntries =
+    !isGroupedView && visibleLimit < filteredEntries.length;
 
   const handleStreamScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -1349,9 +1360,7 @@ export function ConnectorMarketplace({
               aria-label={t('mcp.refresh', '刷新')}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <RefreshCw
-                className={cn('h-4 w-4', loading && 'animate-spin')}
-              />
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             </button>
             {onClose && (
               <button
@@ -1480,7 +1489,9 @@ export function ConnectorMarketplace({
                 )}
               >
                 <span>{getCategoryLabel(catId)}</span>
-                <span className="opacity-70">({categoryCounts[catId] ?? 0})</span>
+                <span className="opacity-70">
+                  ({categoryCounts[catId] ?? 0})
+                </span>
               </button>
             );
           })}
@@ -1492,7 +1503,9 @@ export function ConnectorMarketplace({
                 setActiveCategory(activeCategory);
                 setBrowseAllInAllTab(false);
               }}
-              aria-label={getCategoryLabel(activeCategory as ConnectorCategoryId)}
+              aria-label={getCategoryLabel(
+                activeCategory as ConnectorCategoryId
+              )}
               className="inline-flex h-7 items-center gap-1 rounded-full bg-foreground px-3 text-xs font-medium text-background shadow-2xs"
             >
               <span>
@@ -1586,7 +1599,8 @@ export function ConnectorMarketplace({
                     onClick={() => setActiveCategory(section.categoryId)}
                     className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    {t('mcp.marketplace.viewAll', '查看全部')} ({section.items.length})
+                    {t('mcp.marketplace.viewAll', '查看全部')} (
+                    {section.items.length})
                   </button>
                 </div>
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
@@ -1603,7 +1617,8 @@ export function ConnectorMarketplace({
                   className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                 >
                   <span>
-                    {t('mcp.marketplace.browseAllConnectors', '浏览全部连接器')} ({filteredEntries.length})
+                    {t('mcp.marketplace.browseAllConnectors', '浏览全部连接器')}{' '}
+                    ({filteredEntries.length})
                   </span>
                 </button>
               </div>
@@ -1652,7 +1667,8 @@ export function ConnectorMarketplace({
                       className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                     >
                       <span>
-                        {t('mcp.marketplace.loadMore', '加载更多')} ({visibleEntries.length}/{filteredEntries.length})
+                        {t('mcp.marketplace.loadMore', '加载更多')} (
+                        {visibleEntries.length}/{filteredEntries.length})
                       </span>
                     </button>
                   </div>
@@ -1866,7 +1882,9 @@ export function ConnectorMarketplace({
       <Dialog open={customModalOpen} onOpenChange={setCustomModalOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t('mcp.createDialogTitle', '新建 MCP 服务器')}</DialogTitle>
+            <DialogTitle>
+              {t('mcp.createDialogTitle', '新建 MCP 服务器')}
+            </DialogTitle>
             <DialogDescription className="text-xs">
               {t('mcp.newServerHint')}
             </DialogDescription>

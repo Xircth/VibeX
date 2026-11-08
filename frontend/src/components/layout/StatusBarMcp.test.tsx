@@ -343,9 +343,7 @@ describe('StatusBarMcp', () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('switch', { name: 'GitHub' }));
-    await waitFor(() =>
-      expect(uninstallLocal).toHaveBeenCalledWith('github')
-    );
+    await waitFor(() => expect(uninstallLocal).toHaveBeenCalledWith('github'));
   });
 
   it('displays discovered tools and tool count for connected local MCP servers when tools are available', async () => {

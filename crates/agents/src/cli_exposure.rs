@@ -182,10 +182,8 @@ pub fn export_managed_bun_to_user_environment(
         let source_exe = bun_bin_dir.join("bun.exe");
         let dest_exe = user_bin.join("bun.exe");
         if source_exe.is_file() && !paths_refer_to_same_file(&source_exe, &dest_exe) {
-            let temporary = dest_exe.with_file_name(format!(
-                ".bun.exe.vibex-toolchain-{}.tmp",
-                Uuid::new_v4()
-            ));
+            let temporary =
+                dest_exe.with_file_name(format!(".bun.exe.vibex-toolchain-{}.tmp", Uuid::new_v4()));
             if fs::copy(&source_exe, &temporary).is_ok()
                 && replace_file_atomically(&temporary, &dest_exe).is_err()
             {

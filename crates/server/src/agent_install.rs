@@ -374,8 +374,7 @@ where
     );
     prepare_user_environment(&user_env).await?;
     let _bun = if profile_requires_bun(&plan.agent_id) {
-        let resolved =
-            resolve_bun_runtime(&managed_artifacts, node.as_ref(), &user_env).await?;
+        let resolved = resolve_bun_runtime(&managed_artifacts, node.as_ref(), &user_env).await?;
         on_progress(36, &format!("[env] bun={}", resolved.display()));
         if let Some(executable) = resolved.parent() {
             utils::shell::expose_user_bin_to_process_path(executable);
@@ -1019,10 +1018,10 @@ fn export_bootstrapped_node(runtime: &NodeRuntime) -> anyhow::Result<()> {
 fn export_bootstrapped_bun(bin_dir: &Path) -> anyhow::Result<()> {
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
-    let published =
-        export_managed_bun_to_user_environment(&home, bin_dir, host_shell_family()).map_err(
-            |error| anyhow::anyhow!("failed to export Bun to the user environment: {error}"),
-        )?;
+    let published = export_managed_bun_to_user_environment(&home, bin_dir, host_shell_family())
+        .map_err(|error| {
+            anyhow::anyhow!("failed to export Bun to the user environment: {error}")
+        })?;
     if published.is_empty() {
         anyhow::bail!("managed Bun did not contain a bun executable to export");
     }
@@ -1116,8 +1115,10 @@ async fn install_bun_via_npm_fallback(
 ) -> anyhow::Result<PathBuf> {
     let npm = node
         .map(|runtime| runtime.npm.clone())
-        .or(utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
-            .await)
+        .or(
+            utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" })
+                .await,
+        )
         .ok_or_else(|| anyhow::anyhow!("npm is unavailable for Bun fallback install"))?;
     let spec = format!("bun@{MANAGED_BUN_VERSION}");
     let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());

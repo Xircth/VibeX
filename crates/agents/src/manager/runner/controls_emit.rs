@@ -54,7 +54,8 @@ impl AgentConnectionRunner {
                         OMP_YOLO_MODE_ID,
                     );
                     if let Some(ref mut mode_state) = entry.modes {
-                        mode_state.current_mode_id = acp::schema::v1::SessionModeId::new(OMP_YOLO_MODE_ID);
+                        mode_state.current_mode_id =
+                            acp::schema::v1::SessionModeId::new(OMP_YOLO_MODE_ID);
                     }
                 }
             }

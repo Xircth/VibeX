@@ -180,7 +180,9 @@ function AgentDefaultRow({
       .catch((error) => {
         if (active) {
           setCatalog(null);
-          setLoadError(error ?? new Error(t('plugins.agentDefaultsUnavailable')));
+          setLoadError(
+            error ?? new Error(t('plugins.agentDefaultsUnavailable'))
+          );
         }
       });
     return () => {

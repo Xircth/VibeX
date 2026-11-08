@@ -103,9 +103,7 @@ export function activatePluginModuleSync(
       typeof (maybePromise as Promise<unknown>).then === 'function'
     ) {
       return (
-        maybePromise as Promise<
-          void | (() => void) | { dispose?: () => void }
-        >
+        maybePromise as Promise<void | (() => void) | { dispose?: () => void }>
       ).then(
         (resolvedDisposer) => {
           returnedDisposer = resolvedDisposer;

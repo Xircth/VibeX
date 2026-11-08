@@ -128,8 +128,7 @@ export function useSessionComposerPreviewElementInsertion({
       }) => {
         const label = payload.token?.label?.trim() ?? '';
         const markdown = payload.token?.markdown?.trim() ?? '';
-        const text =
-          payload.token?.text?.trim() ?? payload.text?.trim() ?? '';
+        const text = payload.token?.text?.trim() ?? payload.text?.trim() ?? '';
         if ((!label || !markdown) && !text) return;
         const handle = handleRef.current;
         if (!handle || getActiveComposerDraftTargetId() !== handle.id) return;

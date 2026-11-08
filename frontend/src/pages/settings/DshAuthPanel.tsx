@@ -662,9 +662,7 @@ export function DshAuthPanel({
                 type="button"
                 variant="ghost"
                 className="h-7"
-                disabled={
-                  saving || discovering || selectedModelIds.size === 0
-                }
+                disabled={saving || discovering || selectedModelIds.size === 0}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => toggleAllAvailableModels(false)}
               >

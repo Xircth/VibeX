@@ -146,9 +146,7 @@ function ModelSchemaField({
   const defaultModel =
     typeof schema.default === 'string' ? schema.default.trim() : '';
   const currentValue =
-    typeof value === 'string' && value.trim()
-      ? value.trim()
-      : defaultModel;
+    typeof value === 'string' && value.trim() ? value.trim() : defaultModel;
 
   const options = useMemo(() => {
     const merged: DiscoveredModelOption[] = [];
@@ -413,8 +411,7 @@ function TokenListSchemaField({
 
   const emitTokens = (nextTokens: string[]) => {
     const deduped = parseTokenListValue(nextTokens);
-    const nextValue =
-      schema.type === 'array' ? deduped : deduped.join(', ');
+    const nextValue = schema.type === 'array' ? deduped : deduped.join(', ');
     onChange(nextValue, true);
   };
 
@@ -1019,10 +1016,7 @@ export function PluginConfigForm({
   const properties = useMemo<Array<[string, JsonSchema]>>(() => {
     const base = schemaProperties(detail.configSchema);
     const triggerIdx = base.findIndex(([key]) => key === 'triggerMode');
-    if (
-      triggerIdx >= 0 &&
-      !base.some(([key]) => key === 'manualShortcut')
-    ) {
+    if (triggerIdx >= 0 && !base.some(([key]) => key === 'manualShortcut')) {
       const manualShortcutSchema: JsonSchema = {
         type: 'string',
         default: 'Alt+\\',
@@ -1030,10 +1024,7 @@ export function PluginConfigForm({
           'Keyboard shortcut to manually trigger inline code completion in the editor (e.g. Alt+\\, Ctrl+Shift+Space, Alt+I).',
       };
       const next = [...base];
-      next.splice(triggerIdx + 1, 0, [
-        'manualShortcut',
-        manualShortcutSchema,
-      ]);
+      next.splice(triggerIdx + 1, 0, ['manualShortcut', manualShortcutSchema]);
       return next;
     }
     return base;

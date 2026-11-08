@@ -55,6 +55,7 @@ const view: DshProvidersView = {
       api: null,
       base_url: null,
       api_key_env: 'DEEPSEEK_API_KEY',
+      api_key: null,
       credential_present: true,
       models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' }],
     },
@@ -190,7 +191,7 @@ describe('DshAuthPanel', () => {
       'true'
     );
     expect(screen.getByRole('heading', { name: '模型供应商' })).toBeVisible();
-    expect(screen.getByText('暂无供应商')).toBeVisible();
+    expect(screen.getByText('还没有供应商。')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '新建供应商' }));
     expect(await screen.findByLabelText('显示名称')).toBeInTheDocument();
     expect(screen.getByLabelText('备注')).toBeInTheDocument();
@@ -238,6 +239,7 @@ describe('DshAuthPanel', () => {
           api: 'openai-completions',
           base_url: 'https://first.example.com/v1',
           api_key_env: 'DSH_CUSTOM_1_KEY',
+          api_key: null,
           credential_present: false,
           models: [{ id: 'm1', name: 'M1' }],
         },
@@ -249,6 +251,7 @@ describe('DshAuthPanel', () => {
           api: 'openai-completions',
           base_url: 'https://second.example.com/v1',
           api_key_env: 'DSH_CUSTOM_2_KEY',
+          api_key: null,
           credential_present: true,
           models: [{ id: 'm2', name: 'M2' }],
         },

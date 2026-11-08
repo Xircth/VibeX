@@ -496,20 +496,24 @@ mod tests {
             .await
             .expect("migrations should deduplicate duplicate root_path rows");
 
-        let older_hidden: i64 =
-            sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
-                .bind(older_project_id)
-                .fetch_one(&pool)
-                .await
-                .expect("older hidden");
-        let newer_hidden: i64 =
-            sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
-                .bind(newer_project_id)
-                .fetch_one(&pool)
-                .await
-                .expect("newer hidden");
-        assert_eq!(older_hidden, 1, "older duplicate project must be soft-hidden");
-        assert_eq!(newer_hidden, 0, "newest duplicate project must remain visible");
+        let older_hidden: i64 = sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
+            .bind(older_project_id)
+            .fetch_one(&pool)
+            .await
+            .expect("older hidden");
+        let newer_hidden: i64 = sqlx::query_scalar("SELECT hidden FROM projects WHERE id = ?")
+            .bind(newer_project_id)
+            .fetch_one(&pool)
+            .await
+            .expect("newer hidden");
+        assert_eq!(
+            older_hidden, 1,
+            "older duplicate project must be soft-hidden"
+        );
+        assert_eq!(
+            newer_hidden, 0,
+            "newest duplicate project must remain visible"
+        );
     }
 }
 

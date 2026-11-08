@@ -47,4 +47,3 @@ describe('sanitizeSessionListTitle', () => {
     expect(sessionTitleIsCjk('Implement auth')).toBe(false);
   });
 });
-

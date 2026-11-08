@@ -242,8 +242,7 @@ export function CodeCompletionStatusPopover({
 
   const enabled = Boolean(config.enabled ?? true);
   const currentModel = String(config.model ?? 'gpt-4o-mini').trim();
-  const triggerMode =
-    config.triggerMode === 'manual' ? 'manual' : 'auto';
+  const triggerMode = config.triggerMode === 'manual' ? 'manual' : 'auto';
   const manualShortcut =
     typeof config.manualShortcut === 'string' && config.manualShortcut.trim()
       ? config.manualShortcut.trim()
@@ -354,7 +353,11 @@ export function CodeCompletionStatusPopover({
                 </SelectTrigger>
                 <SelectContent>
                   {modelOptions.map((item) => (
-                    <SelectItem key={item.id} value={item.id} className="text-xs">
+                    <SelectItem
+                      key={item.id}
+                      value={item.id}
+                      className="text-xs"
+                    >
                       {item.name &&
                       item.name.trim() &&
                       item.name.trim() !== item.id

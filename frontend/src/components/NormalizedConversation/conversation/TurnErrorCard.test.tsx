@@ -115,7 +115,8 @@ describe('TurnErrorCard', () => {
       <TurnErrorCard
         error={
           {
-            message: 'Agent connection was lost and could not be re-established',
+            message:
+              'Agent connection was lost and could not be re-established',
             code: 'agent_connection_lost',
             raw: null,
           } as unknown as ConversationError

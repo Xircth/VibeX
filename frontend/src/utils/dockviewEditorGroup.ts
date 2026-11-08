@@ -576,8 +576,7 @@ export function ensureWelcomeEditorGroup(
     bottomReferencePanel ??
     leftGroup?.panels[0] ??
     api.panels.find(
-      (panel) =>
-        !BOTTOM_PANEL_IDS.has(panel.id) && !isSessionPanelId(panel.id)
+      (panel) => !BOTTOM_PANEL_IDS.has(panel.id) && !isSessionPanelId(panel.id)
     );
 
   const leftWidth =

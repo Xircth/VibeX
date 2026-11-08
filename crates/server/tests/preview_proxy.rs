@@ -362,6 +362,8 @@ async fn loopback_preview_proxy_records_endpoint_and_builds_capability_url() {
         .expect("loopback preview proxy");
     assert_eq!(
         registry.preview_url(lease, CAPABILITY).await,
-        Some(format!("{endpoint}/api/v1/previews/{lease}/c/{CAPABILITY}/"))
+        Some(format!(
+            "{endpoint}/api/v1/previews/{lease}/c/{CAPABILITY}/"
+        ))
     );
 }

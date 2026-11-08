@@ -64,16 +64,15 @@ pub async fn resolve_probe_api_key_from(
                 return Ok(api_key);
             }
         }
-    } else if let Some(bound_id) = store.bindings.get(agent_id.as_str()) {
-        if let Some(api_key) = store
+    } else if let Some(bound_id) = store.bindings.get(agent_id.as_str())
+        && let Some(api_key) = store
             .providers
             .iter()
             .find(|provider| &provider.id == bound_id && &provider.agent_id == agent_id)
             .map(|provider| provider.api_key.as_str())
             .filter(|value| !value.is_empty())
-        {
-            return Ok(api_key.to_string());
-        }
+    {
+        return Ok(api_key.to_string());
     }
 
     if let Some(environment) = environment
@@ -265,7 +264,10 @@ async fn resolve_native_fallback_api_key(
                 .await
                 .unwrap_or_default();
             let env = doc.get("env").unwrap_or(&doc);
-            let key = json_text(env, &["QODER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+            let key = json_text(
+                env,
+                &["QODER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+            );
             (!key.is_empty()).then_some(key)
         }
         "auggie" => {
@@ -631,8 +633,10 @@ pub async fn resolve_probe_target(
         }
         if agent_id.as_str() == "deepseek_harness" {
             let paths = crate::host::native::dsh_configuration::resolve_paths(home, environment);
-            let url =
-                crate::host::native::dsh_configuration::resolve_stored_base_url(&paths, Some(provider_id));
+            let url = crate::host::native::dsh_configuration::resolve_stored_base_url(
+                &paths,
+                Some(provider_id),
+            );
             let key = resolve_probe_api_key_from(
                 store_path,
                 agent_id,
@@ -744,10 +748,9 @@ async fn resolve_fallback_api_url(
                                     .map(|item| item.api_url.clone())
                             })
                             .or_else(|| {
-                                state
-                                    .providers
-                                    .into_iter()
-                                    .find_map(|item| (!item.api_url.is_empty()).then_some(item.api_url))
+                                state.providers.into_iter().find_map(|item| {
+                                    (!item.api_url.is_empty()).then_some(item.api_url)
+                                })
                             })
                     })
             }
@@ -1172,4 +1175,3 @@ mod tests {
         assert_eq!(dsh_key, "sk-dsh-saved");
     }
 }
-

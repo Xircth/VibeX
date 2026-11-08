@@ -201,7 +201,10 @@ function resolveDropTargetAtPoint(
   }
 
   const renderOverlay = hit.closest('.dv-render-overlay');
-  if (renderOverlay instanceof HTMLElement && rootElement.contains(renderOverlay)) {
+  if (
+    renderOverlay instanceof HTMLElement &&
+    rootElement.contains(renderOverlay)
+  ) {
     return {
       dropzone: renderOverlay,
       clientX,
@@ -230,9 +233,9 @@ function resolveDropTargetAtPoint(
  * for non-file HTML5 drags) never hijacks internal tab drags, while keeping
  * Dockview's own `LocalSelectionTransfer` and `Droptarget` pipeline intact.
  */
-export function installDockviewPointerTabDnd(
-  rootElement: HTMLElement
-): { dispose: () => void } {
+export function installDockviewPointerTabDnd(rootElement: HTMLElement): {
+  dispose: () => void;
+} {
   let pending: PendingTabPointer | null = null;
   let activeSourceTab: HTMLElement | null = null;
   let currentDropzone: HTMLElement | null = null;
@@ -246,7 +249,9 @@ export function installDockviewPointerTabDnd(
       const target = currentDropzone;
       currentDropzone = null;
       lastResolved = null;
-      target.dispatchEvent(createSyntheticDragEvent('dragleave', clientX, clientY));
+      target.dispatchEvent(
+        createSyntheticDragEvent('dragleave', clientX, clientY)
+      );
     }
   };
 
@@ -296,7 +301,11 @@ export function installDockviewPointerTabDnd(
 
     window.removeEventListener('pointermove', handleWindowPointerMove, true);
     window.removeEventListener('pointerup', handleWindowPointerUp, true);
-    window.removeEventListener('pointercancel', handleWindowPointerCancel, true);
+    window.removeEventListener(
+      'pointercancel',
+      handleWindowPointerCancel,
+      true
+    );
     window.removeEventListener('keydown', handleWindowKeyDown, true);
     window.removeEventListener('blur', handleWindowBlur);
 
@@ -314,7 +323,9 @@ export function installDockviewPointerTabDnd(
         const dropY = lastResolved.clientY;
         currentDropzone = null;
         lastResolved = null;
-        dropTarget.dispatchEvent(createSyntheticDragEvent('drop', dropX, dropY));
+        dropTarget.dispatchEvent(
+          createSyntheticDragEvent('drop', dropX, dropY)
+        );
       }
     } else {
       clearCurrentDropzone(clientX, clientY);
@@ -323,7 +334,9 @@ export function installDockviewPointerTabDnd(
     clearCurrentDropzone(clientX, clientY);
 
     if (sourceTab) {
-      sourceTab.dispatchEvent(createSyntheticDragEvent('dragend', clientX, clientY));
+      sourceTab.dispatchEvent(
+        createSyntheticDragEvent('dragend', clientX, clientY)
+      );
     }
   };
 
@@ -394,7 +407,11 @@ export function installDockviewPointerTabDnd(
     pending = null;
     window.removeEventListener('pointermove', handleWindowPointerMove, true);
     window.removeEventListener('pointerup', handleWindowPointerUp, true);
-    window.removeEventListener('pointercancel', handleWindowPointerCancel, true);
+    window.removeEventListener(
+      'pointercancel',
+      handleWindowPointerCancel,
+      true
+    );
   };
 
   const handleWindowPointerCancel = (event: PointerEvent) => {
@@ -405,7 +422,11 @@ export function installDockviewPointerTabDnd(
     pending = null;
     window.removeEventListener('pointermove', handleWindowPointerMove, true);
     window.removeEventListener('pointerup', handleWindowPointerUp, true);
-    window.removeEventListener('pointercancel', handleWindowPointerCancel, true);
+    window.removeEventListener(
+      'pointercancel',
+      handleWindowPointerCancel,
+      true
+    );
   };
 
   const handleWindowKeyDown = (event: KeyboardEvent) => {
@@ -502,7 +523,11 @@ export function installDockviewPointerTabDnd(
       );
       window.removeEventListener('keydown', handleWindowKeyDown, true);
       window.removeEventListener('blur', handleWindowBlur);
-      rootElement.removeEventListener('pointerdown', handleRootPointerDown, true);
+      rootElement.removeEventListener(
+        'pointerdown',
+        handleRootPointerDown,
+        true
+      );
       rootElement.removeEventListener('dragstart', handleRootDragStart, false);
     },
   };

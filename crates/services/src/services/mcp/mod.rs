@@ -3707,10 +3707,9 @@ fn extract_declared_tools_from_spec(spec: &Value) -> Vec<String> {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
+            && !out.iter().any(|existing| existing == name)
         {
-            if !out.iter().any(|existing| existing == name) {
-                out.push(name.to_string());
-            }
+            out.push(name.to_string());
         }
     }
     out
@@ -4155,7 +4154,10 @@ async fn probe_http_mcp_tools(spec: &Value) -> Vec<String> {
             "method": "tools/list",
             "params": {}
         });
-        let resp = build_post(list_req, session_id.as_deref()).send().await.ok()?;
+        let resp = build_post(list_req, session_id.as_deref())
+            .send()
+            .await
+            .ok()?;
         if !resp.status().is_success() {
             return None;
         }
@@ -5147,7 +5149,10 @@ pub async fn search_marketplace_with_category(
     let installed_ids = installed_server_ids();
 
     match provider_id.as_str() {
-        "" | "all" | MARKETPLACE_CONNECTOR_CATALOG | MARKETPLACE_OPEN_CONNECTOR
+        ""
+        | "all"
+        | MARKETPLACE_CONNECTOR_CATALOG
+        | MARKETPLACE_OPEN_CONNECTOR
         | MARKETPLACE_BUILTIN => Ok(catalog::search_builtin_catalog(
             &q,
             category.as_deref(),
@@ -5162,7 +5167,8 @@ pub async fn search_marketplace_with_category(
                 &installed_ids,
             );
             if !q.trim().is_empty()
-                && let Ok(online) = search_official_registry(&q, limit.unwrap_or(50).clamp(1, 100)).await
+                && let Ok(online) =
+                    search_official_registry(&q, limit.unwrap_or(50).clamp(1, 100)).await
             {
                 let mut seen: BTreeSet<String> = snapshot_items
                     .iter()
@@ -5395,20 +5401,18 @@ pub async fn install_marketplace_server(
                     resolve_official_install_spec(&detail.server, &option_id, &values)?
                 }
             }
-            MARKETPLACE_SMITHERY => {
-                match fetch_smithery_server_detail(&server_id).await {
-                    Ok(detail) => resolve_smithery_install_spec(&detail, &option_id, &values)?,
-                    Err(err) => {
-                        if let Ok(resolved) =
-                            catalog::resolve_snapshot_install_spec(&server_id, &option_id, &values)
-                        {
-                            resolved
-                        } else {
-                            return Err(err);
-                        }
+            MARKETPLACE_SMITHERY => match fetch_smithery_server_detail(&server_id).await {
+                Ok(detail) => resolve_smithery_install_spec(&detail, &option_id, &values)?,
+                Err(err) => {
+                    if let Ok(resolved) =
+                        catalog::resolve_snapshot_install_spec(&server_id, &option_id, &values)
+                    {
+                        resolved
+                    } else {
+                        return Err(err);
                     }
                 }
-            }
+            },
             _ => {
                 return Err(bad(format!(
                     "unsupported marketplace provider: {provider_id}"

@@ -1315,6 +1315,43 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
 }
 
 #[tokio::test]
+async fn enabling_session_enhance_alone_auto_installs_and_enables_provider_switch() {
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    let session_root =
+        plugins::monorepo_official_plugin_root("vibex.session-enhance").expect("session-enhance");
+    let package = PluginPackage::inspect(&session_root, PluginSourceKind::Marketplace)
+        .expect("inspect session-enhance");
+    control
+        .import(package, plugins::ConflictDecision::Reject)
+        .await
+        .expect("import session-enhance alone");
+
+    // Enabling `vibex.session-enhance` when `vibex.provider-switch` is not yet installed
+    // must automatically install and enable `vibex.provider-switch` first.
+    let enabled = control
+        .set_enabled("vibex.session-enhance", true)
+        .await
+        .expect("enable session-enhance with auto-satisfied dependency");
+    assert_eq!(enabled.activation, plugins::PluginActivation::Enabled);
+    assert!(
+        control
+            .active_generation("vibex.provider-switch")
+            .await
+            .is_some(),
+        "required upstream vibex.provider-switch must be auto-installed and active"
+    );
+    assert!(
+        control
+            .active_generation("vibex.session-enhance")
+            .await
+            .is_some(),
+        "vibex.session-enhance must be active after auto-satisfying dependency"
+    );
+}
+
+#[tokio::test]
 async fn tier0_declarative_root_plugin_json_inspects_and_emits_declarative_runtime_source() {
     let root = tempfile::tempdir().expect("tier0 root");
     write(

@@ -733,6 +733,8 @@ impl ServerApplicationDomains {
                 .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
             let has_worker = plugin.package.entrypoints.worker.is_some();
             self.ensure_plugin_runtimes(&plugin).await?;
+            self.ensure_required_plugin_dependencies(&plugin.package)
+                .await?;
             let grants = plugins::candidate_capability_grants(&plugin.package, &[], &[])
                 .map_err(plugin_error)?;
             control_plane
@@ -858,6 +860,70 @@ impl ServerApplicationDomains {
         Ok(())
     }
 
+    async fn ensure_required_plugin_dependencies(
+        &self,
+        package: &plugins::PluginPackage,
+    ) -> Result<(), ApplicationError> {
+        let mut visited = std::collections::BTreeSet::from([package.id.as_str().to_owned()]);
+        self.ensure_required_plugin_dependencies_inner(package, &mut visited)
+            .await
+    }
+
+    async fn ensure_required_plugin_dependencies_inner(
+        &self,
+        package: &plugins::PluginPackage,
+        visited: &mut std::collections::BTreeSet<String>,
+    ) -> Result<(), ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        for dependency in package.plugin_dependencies() {
+            if !dependency.required {
+                continue;
+            }
+            if !visited.insert(dependency.id.clone()) {
+                continue;
+            }
+            let installed = control_plane
+                .plugin(&dependency.id)
+                .await
+                .map_err(internal_error)?;
+            if installed.is_none() {
+                let owner = dependency
+                    .publisher
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("vibex");
+                let _ = Box::pin(self.plugin_marketplace_install(json!({
+                    "owner": owner,
+                    "pluginName": dependency.id,
+                    "conflict": "keep",
+                })))
+                .await;
+            }
+            if let Some(dep_plugin) = control_plane
+                .plugin(&dependency.id)
+                .await
+                .map_err(internal_error)?
+            {
+                Box::pin(
+                    self.ensure_required_plugin_dependencies_inner(&dep_plugin.package, visited),
+                )
+                .await?;
+                let is_live = control_plane
+                    .active_generation(&dependency.id)
+                    .await
+                    .is_some();
+                if dep_plugin.activation != plugins::PluginActivation::Enabled || !is_live {
+                    let _ = Box::pin(self.plugin_control_set_enabled(json!({
+                        "pluginId": dependency.id,
+                        "enabled": true,
+                    })))
+                    .await;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn install_declared_runtime(
         &self,
         plugin: &plugins::InstalledPlugin,
@@ -973,6 +1039,7 @@ impl ServerApplicationDomains {
                 .as_ref()
                 .is_some_and(|plugin| plugin.activation == plugins::PluginActivation::Enabled);
         if replacing_enabled {
+            self.ensure_required_plugin_dependencies(&package).await?;
             let grants =
                 plugins::candidate_capability_grants(&package, &[], &[]).map_err(plugin_error)?;
             let node = self

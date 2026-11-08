@@ -80,7 +80,7 @@
       "publisher": "vibex",
       "repository": "https://github.com/Xircth/vibex-plugin-voice-input",
       "category": "ai-enhancement",
-      "summary": "AI 语音输入与智能听写（参考 Orca）：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。"
+      "summary": "AI 语音输入与智能听写：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。"
     }
   ]
 }

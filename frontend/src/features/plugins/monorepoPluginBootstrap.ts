@@ -222,6 +222,16 @@ export async function activateMonorepoPlugin(
   ensureCoreFoundationPluginsBootstrapped();
   const bundle = MONOREPO_BUNDLE_BY_ID.get(pluginId);
   if (!bundle) return false;
+  for (const dep of bundle.spec.dependencies ?? []) {
+    if (
+      dep.kind === 'plugin' &&
+      dep.required !== false &&
+      dep.id !== bundle.id &&
+      !pluginRuntimeLoader.isActive(dep.id)
+    ) {
+      await activateMonorepoPlugin(dep.id, options);
+    }
+  }
   const loadedModule = await bundle.loadModule();
   await pluginRuntimeLoader.activateModule(bundle.id, loadedModule, {
     spec: bundle.spec,

@@ -13,6 +13,7 @@ impl PluginControlPlane {
             .plugin(plugin_id)
             .await?
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        let _ = self.auto_satisfy_plugin_dependencies(&plugin.package).await;
         self.require_plugin_dependencies(&plugin.package).await?;
         let generation = self.registry.create_candidate(plugin_id).await?;
         let grants = candidate_capability_grants(&plugin.package, &[], &[])?;
@@ -433,6 +434,101 @@ impl PluginControlPlane {
         Ok(dependents)
     }
 
+    pub(super) async fn auto_satisfy_plugin_dependencies(
+        &self,
+        package: &PluginPackage,
+    ) -> Result<(), WorkerHostError> {
+        let mut visited = BTreeSet::from([package.id.as_str().to_owned()]);
+        self.auto_satisfy_plugin_dependencies_inner(package, &mut visited)
+            .await
+    }
+
+    async fn auto_satisfy_plugin_dependencies_inner(
+        &self,
+        package: &PluginPackage,
+        visited: &mut BTreeSet<String>,
+    ) -> Result<(), WorkerHostError> {
+        for dependency in plugin_dependencies(package) {
+            if !dependency.required {
+                continue;
+            }
+            if !visited.insert(dependency.id.clone()) {
+                continue;
+            }
+            let mut installed = self
+                .registry
+                .plugin(&dependency.id)
+                .await
+                .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+            if installed.is_none()
+                && let Some(monorepo_root) = crate::monorepo_official_plugin_root(&dependency.id)
+                && let Ok(mut dep_package) =
+                    PluginPackage::inspect(&monorepo_root, crate::PluginSourceKind::Marketplace)
+            {
+                let publisher = dependency.publisher.as_deref().unwrap_or("vibex");
+                dep_package.source.origin =
+                    Some(crate::marketplace_listing_url(publisher, &dependency.id));
+                dep_package.source.git_ref = Some(dep_package.version.clone());
+                dep_package.source.locked = true;
+                if let Ok(imported) = self
+                    .import(dep_package, ConflictDecision::KeepInstalled)
+                    .await
+                {
+                    installed = Some(imported.plugin);
+                }
+            }
+            if let Some(installed_dep) = installed {
+                if let Some(ref expected_publisher) = dependency.publisher
+                    && package_publisher(&installed_dep.package) != expected_publisher
+                {
+                    continue;
+                }
+                if let Ok(requirement) = semver::VersionReq::parse(&dependency.version_range)
+                    && let Ok(version) = semver::Version::parse(&installed_dep.version)
+                    && !requirement.matches(&version)
+                {
+                    continue;
+                }
+                Box::pin(
+                    self.auto_satisfy_plugin_dependencies_inner(&installed_dep.package, visited),
+                )
+                .await?;
+                let is_live = self
+                    .plugin_is_live(&dependency.id)
+                    .await
+                    .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+                if installed_dep.activation != PluginActivation::Enabled || !is_live {
+                    if installed_dep.entrypoints.worker.is_none() {
+                        self.publish_live_generation(&dependency.id, None).await?;
+                        crate::clear_plugin_crashes(&dependency.id);
+                    } else if let Some(restore) = self.worker_restore.read().await.clone() {
+                        let grants = candidate_capability_grants(&installed_dep.package, &[], &[])
+                            .map_err(|error| {
+                                WorkerHostError::external("plugin_registry_failed", error)
+                            })?;
+                        self.publish_live_generation(
+                            &dependency.id,
+                            Some((
+                                restore.node_executable.as_path(),
+                                grants.as_slice(),
+                                restore.broker.clone(),
+                            )),
+                        )
+                        .await?;
+                        crate::clear_plugin_crashes(&dependency.id);
+                    } else if installed_dep.runtimes.is_empty() {
+                        Box::pin(self.enable_deferred_worker(&dependency.id))
+                            .await
+                            .map_err(|error| {
+                                WorkerHostError::external(error.code(), error.to_string())
+                            })?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) async fn require_plugin_dependencies(
         &self,
         package: &PluginPackage,
@@ -468,6 +564,7 @@ impl PluginControlPlane {
                     "Worker plugins must be enabled through candidate activation",
                 ));
             }
+            let _ = self.auto_satisfy_plugin_dependencies(&plugin.package).await;
             self.require_plugin_dependencies(&plugin.package).await?;
             self.publish_live_generation(plugin_id, None)
                 .await
@@ -519,6 +616,7 @@ impl PluginControlPlane {
             .await
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
             .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
+        let _ = self.auto_satisfy_plugin_dependencies(&plugin.package).await;
         self.ensure_plugin_dependencies(&plugin.package).await?;
         let active_matches = match self.activations.lease(plugin_id).await {
             Some(lease) => {
@@ -575,6 +673,7 @@ impl PluginControlPlane {
         }
         self.remember_worker_restore(node_executable, broker.clone())
             .await;
+        let _ = self.auto_satisfy_plugin_dependencies(&package).await;
         self.ensure_plugin_dependencies(&package).await?;
         self.ensure_runtime_readiness(&plugin_id, &package).await?;
         let generation = self

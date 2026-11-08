@@ -4792,3 +4792,44 @@ async fn cross_space_bot_message_recipient_reply_appears_in_recipient_space_and_
     assert_eq!(cross_receipts[0].state, "replied");
     assert_eq!(cross_receipts[0].outcome.as_deref(), Some("sent"));
 }
+
+#[tokio::test]
+async fn multiple_running_turns_for_same_bot_emit_single_streaming_draft() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let bot = Uuid::new_v4();
+    create_session(&pool, bot, workspace, Some("前端交互工程师")).await;
+    let space = space_of(&pool, bot).await;
+
+    let msg1 = post_as(&pool, None, &space, "@前端交互工程师 第一个任务", &["前端交互工程师"]).await;
+    mark_processing(&pool, &msg1.message_id, bot).await;
+
+    let msg2 = post_as(&pool, None, &space, "@前端交互工程师 补充说明", &["前端交互工程师"]).await;
+    assert_ne!(msg1.message_id, msg2.message_id);
+
+    reset_space_turn_streaming_step(bot);
+    append_space_turn_streaming_text(
+        bot,
+        "@首席架构师 协作空间前端侧性能优化已完成实现",
+        false,
+    );
+
+    let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    let streaming_drafts: Vec<&SpaceMessage> = messages
+        .iter()
+        .filter(|m| m.envelope.get("streaming") == Some(&json!(true)))
+        .collect();
+    assert_eq!(
+        streaming_drafts.len(),
+        1,
+        "a bot with multiple running turns in a space must only emit a single streaming draft: {messages:?}"
+    );
+    assert_eq!(
+        streaming_drafts[0].envelope["content"],
+        json!("@首席架构师 协作空间前端侧性能优化已完成实现")
+    );
+
+    reset_space_turn_streaming_step(bot);
+}

@@ -62,7 +62,7 @@ function WorkspaceSessionTabContent({
 
   useEffect(() => {
     const syncActiveSession = () => {
-      kanbanSession?.activateExecutionSession({ sessionId, workspaceId });
+      kanbanSession?.replaceRightSession({ sessionId, workspaceId });
       if (worktree && worktree.activeWorktreeId !== workspaceId) {
         worktree.setActiveWorktree(
           workspaceId,

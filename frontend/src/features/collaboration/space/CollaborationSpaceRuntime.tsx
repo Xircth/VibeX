@@ -2489,7 +2489,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         limit: 200,
       });
       if (cancelled) return;
-      const nextMessages = messagePage.messages ?? [];
+      const nextMessages = mergeSpaceMessages([], messagePage.messages ?? []);
       setThreadMessagesFor(targetSpaceId, nextMessages);
       if (Array.isArray(messagePage.scheduled)) {
         setThreadScheduledFor(targetSpaceId, messagePage.scheduled);
@@ -2623,8 +2623,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       const incoming = page.messages ?? [];
       let mergedMessages: SpaceMessage[] = incoming;
       setThreadMessagesFor(spaceId, (current) => {
-        const merged =
-          sinceSeq > 0 ? mergeSpaceMessages(current, incoming) : incoming;
+        const merged = mergeSpaceMessages(
+          sinceSeq > 0 ? current : [],
+          incoming
+        );
         mergedMessages = merged;
         setMessagesBySpace((bySpace) => ({
           ...bySpace,

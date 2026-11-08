@@ -197,7 +197,7 @@ describe('WorkspaceSessionList', () => {
     expect(onSessionClick).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a running indicator instead of a compact age', () => {
+  it('places the status indicator to the left of compact age and spins when in progress', () => {
     renderList(
       <WorkspaceSessionList
         sessions={[
@@ -219,35 +219,111 @@ describe('WorkspaceSessionList', () => {
         name: /Compare codeg vs custom APP.*进行中/,
       })
     ).toBeInTheDocument();
-    expect(document.querySelector('.workspace-session-age')).toBeNull();
+    const icon = document.querySelector('.workspace-session-icon')!;
+    expect(icon.querySelector('.workspace-session-status')).toBeNull();
+
+    const meta = document.querySelector('.workspace-session-meta-idle')!;
+    const rowStatus = meta.querySelector(
+      '.workspace-session-row-status.workspace-session-status--inprogress'
+    );
+    const age = meta.querySelector('.workspace-session-age');
+    expect(rowStatus).not.toBeNull();
+    expect(rowStatus).toHaveClass('animate-spin');
+    expect(age).not.toBeNull();
     expect(
-      document.querySelector('.workspace-session-status--inprogress')
-    ).not.toBeNull();
+      rowStatus!.compareDocumentPosition(age!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
-  it('colors a running session as in progress on the agent badge', () => {
+  it('colors a running session as in progress and reflects workspace group status priority (inprogress > inreview > todo > done)', () => {
+    const wsRunning = workspace({ id: 'ws-running', branch: 'feat/running' });
+    const wsReview = workspace({ id: 'ws-review', branch: 'feat/review' });
+    const wsTodo = workspace({ id: 'ws-todo', branch: 'feat/todo' });
+    const wsDone = workspace({ id: 'ws-done', branch: 'feat/done' });
+
     renderList(
       <WorkspaceSessionList
         sessions={[
           session({
-            firstPrompt: 'Compare codeg vs custom APP',
+            id: 's-running-1',
+            workspace: wsRunning,
+            branch: 'feat/running',
             isRunning: true,
             status: 'todo',
+          }),
+          session({
+            id: 's-running-2',
+            workspace: wsRunning,
+            branch: 'feat/running',
+            status: 'inreview',
+          }),
+          session({
+            id: 's-review-1',
+            workspace: wsReview,
+            branch: 'feat/review',
+            status: 'inreview',
+          }),
+          session({
+            id: 's-review-2',
+            workspace: wsReview,
+            branch: 'feat/review',
+            status: 'todo',
+          }),
+          session({
+            id: 's-todo-1',
+            workspace: wsTodo,
+            branch: 'feat/todo',
+            status: 'todo',
+          }),
+          session({
+            id: 's-todo-2',
+            workspace: wsTodo,
+            branch: 'feat/todo',
+            status: 'done',
+          }),
+          session({
+            id: 's-done-1',
+            workspace: wsDone,
+            branch: 'feat/done',
+            status: 'done',
           }),
         ]}
         isLoading={false}
         activeSessionId={null}
-        activeWorkspaceId="workspace-1"
+        activeWorkspaceId="ws-running"
         onSessionClick={vi.fn()}
       />
     );
 
     expect(
-      document.querySelector('.workspace-session-status--inprogress')
+      screen
+        .getByRole('button', { name: 'feat/running' })
+        .querySelector(
+          '.workspace-session-group-status.workspace-session-status--inprogress.animate-spin'
+        )
     ).not.toBeNull();
     expect(
-      document.querySelector('.workspace-session-status--todo')
-    ).toBeNull();
+      screen
+        .getByRole('button', { name: 'feat/review' })
+        .querySelector(
+          '.workspace-session-group-status.workspace-session-status--inreview'
+        )
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'feat/todo' })
+        .querySelector(
+          '.workspace-session-group-status.workspace-session-status--todo'
+        )
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'feat/done' })
+        .querySelector(
+          '.workspace-session-group-status.workspace-session-status--done'
+        )
+    ).not.toBeNull();
   });
 
   it('marks execution and monitor placements on the session rail', () => {

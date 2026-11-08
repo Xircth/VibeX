@@ -29,7 +29,6 @@ import {
   Archive,
   Bot,
   Check,
-  Folder,
   Loader2,
   MoreVertical,
   Pin,
@@ -85,6 +84,7 @@ import {
   readCollapsedWorkspaceIds,
   readWorkspaceSessionOrders,
   sessionListTitle,
+  workspaceGroupStatusTone,
   workspaceSessionStatusTone,
   writeCollapsedWorkspaceIds,
   writeWorkspaceSessionOrders,
@@ -427,6 +427,37 @@ function WorkspaceSessionListDndMonitor({
   return null;
 }
 
+function WorkspaceSessionStatusIndicator({
+  tone,
+  className,
+}: {
+  tone: WorkspaceSessionStatusTone;
+  className?: string;
+}) {
+  if (tone === 'inprogress') {
+    return (
+      <Loader2
+        className={cn(
+          'workspace-session-status workspace-session-status--inprogress h-3 w-3 shrink-0 animate-spin text-[hsl(var(--warning))]',
+          className
+        )}
+        aria-hidden="true"
+      />
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        'workspace-session-status',
+        `workspace-session-status--${tone}`,
+        className
+      )}
+      aria-hidden="true"
+    />
+  );
+}
+
 function WorkspaceSessionSection({
   sectionId,
   label,
@@ -476,7 +507,10 @@ function WorkspaceSessionSection({
   onRestoreSession?: (session: KanbanProjectSessionRecord) => void;
 }) {
   const listId = `workspace-session-group-${sectionId}`;
-  const Icon = icon === 'pin' ? Pin : Folder;
+  const groupStatusTone = useMemo(
+    () => workspaceGroupStatusTone(sessions),
+    [sessions]
+  );
 
   return (
     <section className="workspace-session-group min-w-0">
@@ -488,7 +522,19 @@ function WorkspaceSessionSection({
         aria-controls={listId}
         onClick={onToggle}
       >
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        {icon === 'pin' ? (
+          <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <span
+            className="workspace-session-group-icon inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            <WorkspaceSessionStatusIndicator
+              tone={groupStatusTone}
+              className="workspace-session-group-status"
+            />
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate text-left" title={label}>
           {label}
         </span>
@@ -1137,12 +1183,6 @@ export function WorkspaceSessionRow({
                   ) : (
                     <Bot className="h-4 w-4 text-muted-foreground" />
                   )}
-                  <span
-                    className={cn(
-                      'workspace-session-status',
-                      `workspace-session-status--${tone}`
-                    )}
-                  />
                 </span>
                 <span
                   className={cn(
@@ -1173,12 +1213,11 @@ export function WorkspaceSessionRow({
                       }}
                     />
                   ) : null}
-                  {session.isRunning ? (
-                    <Loader2
-                      className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
-                      aria-hidden="true"
-                    />
-                  ) : compactAge ? (
+                  <WorkspaceSessionStatusIndicator
+                    tone={tone}
+                    className="workspace-session-row-status"
+                  />
+                  {compactAge ? (
                     <span
                       className="workspace-session-age"
                       title={formatRelativeTime(session.updatedAt)}

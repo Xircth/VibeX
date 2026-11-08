@@ -1567,6 +1567,10 @@ html.dark {
 .legacy-design
   :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:not(
     .is-active
+  ):not([data-icon-only]):not(:has(> svg:only-child)):not(
+    .workspace-toolbar-button
+  ):not(.session-hub-action-button):not(.workspace-side-rail-button):not(
+    .collaboration-icon-btn
   ) {
   background-color: transparent !important;
   color: var(--text-primary, var(--color-text-primary)) !important;
@@ -1579,8 +1583,80 @@ html.dark {
 .legacy-design
   :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:not(
     .is-active
+  ):not([data-icon-only]):not(:has(> svg:only-child)):not(
+    .workspace-toolbar-button
+  ):not(.session-hub-action-button):not(.workspace-side-rail-button):not(
+    .collaboration-icon-btn
   ):hover:not(:disabled):not([aria-disabled='true']) {
   background-color: var(--surface-control-hover) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-icon-button[data-variant='ghost'],
+    .astryx-button[data-variant='ghost'][data-icon-only],
+    .astryx-button[data-variant='ghost']:has(> svg:only-child),
+    .astryx-button.workspace-toolbar-button,
+    .astryx-button.session-hub-action-button,
+    .astryx-button.workspace-side-rail-button,
+    .astryx-button.collaboration-icon-btn
+  ):not(.text-destructive) {
+  border-color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted, hsl(var(--muted-foreground))) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-icon-button[data-variant='ghost'],
+    .astryx-button[data-variant='ghost'][data-icon-only],
+    .astryx-button[data-variant='ghost']:has(> svg:only-child),
+    .astryx-button.workspace-toolbar-button,
+    .astryx-button.session-hub-action-button,
+    .astryx-button.workspace-side-rail-button,
+    .astryx-button.collaboration-icon-btn
+  ):not(.text-destructive):is(
+    :hover:not(:disabled):not([aria-disabled='true']),
+    :active:not(:disabled):not([aria-disabled='true']),
+    .is-active,
+    [aria-pressed='true'],
+    [aria-expanded='true'],
+    [data-state='open'],
+    .text-foreground
+  ) {
+  border-color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-strong, hsl(var(--foreground))) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-icon-button[data-variant='ghost'],
+    .astryx-button[data-variant='ghost'][data-icon-only],
+    .astryx-button[data-variant='ghost']:has(> svg:only-child),
+    .astryx-button.workspace-toolbar-button,
+    .astryx-button.session-hub-action-button,
+    .astryx-button.workspace-side-rail-button,
+    .astryx-button.collaboration-icon-btn
+  ).text-destructive,
+.legacy-design
+  :is(
+    .astryx-icon-button[data-variant='ghost'],
+    .astryx-button[data-variant='ghost'][data-icon-only],
+    .astryx-button[data-variant='ghost']:has(> svg:only-child),
+    .astryx-button.workspace-toolbar-button,
+    .astryx-button.session-hub-action-button,
+    .astryx-button.workspace-side-rail-button,
+    .astryx-button.collaboration-icon-btn
+  ).text-destructive:hover:not(:disabled):not([aria-disabled='true']) {
+  border-color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .legacy-design button.composer-primary-action.astryx-button {
@@ -3873,16 +3949,16 @@ html.dark {
     -webkit-backdrop-filter: blur(20px) saturate(1.28);
   }
 
-  /* Capsule hover tooltip: opaque dialog surface, visible hairline, no glass. */
+  /* Inverted hover tooltip: high-contrast foreground surface, no glass. */
   .app-hover-tooltip {
+    position: relative;
     width: max-content;
     max-width: min(22rem, calc(100vw - 16px));
-    padding: 5px 12px;
-    overflow: hidden;
-    border: 1px solid var(--border-strong);
-    border-radius: 999px;
-    background: var(--surface-dialog);
-    color: var(--text-strong);
+    padding: 5px 10px;
+    border: 1px solid hsl(var(--foreground));
+    border-radius: var(--radius);
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
     box-shadow: var(--shadow-popover);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -3894,6 +3970,30 @@ html.dark {
     letter-spacing: 0.01em;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+  }
+
+  .app-hover-tooltip-arrow {
+    fill: hsl(var(--foreground));
+  }
+
+  .app-hover-tooltip-native-arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  .app-hover-tooltip-native-arrow[data-side='bottom'] {
+    top: -5px;
+    border-bottom: 5px solid hsl(var(--foreground));
+  }
+
+  .app-hover-tooltip-native-arrow[data-side='top'] {
+    bottom: -5px;
+    border-top: 5px solid hsl(var(--foreground));
   }
 
   .session-create-checkout-banner-text {
@@ -3908,12 +4008,19 @@ html.dark {
     max-height: min(70vh, 28rem);
     padding: 10px 12px;
     overflow: auto;
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius);
+    background: var(--surface-dialog);
+    color: var(--text-strong);
     white-space: normal;
     pointer-events: auto;
     font-size: 12px;
     font-weight: 400;
     line-height: 1.4;
+  }
+
+  .session-card-hover-info .app-hover-tooltip-arrow {
+    display: none;
   }
 
   .session-card-hover-body {
@@ -4007,15 +4114,15 @@ html.dark {
     outline-offset: 2px;
   }
 
-  /* Astryx Tooltip uses inverted dark rectangles; match the product capsule. */
+  /* Astryx Tooltip matches the inverted hover tooltip contract. */
   .astryx-tooltip {
-    --radius-container: 999px;
+    --radius-container: var(--radius);
     max-width: min(22rem, calc(100vw - 16px));
     overflow: hidden;
-    border: 1px solid var(--border-strong) !important;
-    border-radius: 999px !important;
-    background: var(--surface-dialog) !important;
-    color: var(--text-strong) !important;
+    border: 1px solid hsl(var(--foreground)) !important;
+    border-radius: var(--radius) !important;
+    background: hsl(var(--foreground)) !important;
+    color: hsl(var(--background)) !important;
     box-shadow: var(--shadow-popover) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -4665,17 +4772,16 @@ html.dark {
     color: var(--text-muted);
     border: 1px solid transparent;
     border-radius: var(--radius);
+    background: transparent;
     transition:
-      background 150ms ease,
-      border-color 150ms ease,
       color 150ms ease,
       transform 150ms ease;
   }
 
   .workspace-toolbar-button:hover {
     color: var(--text-strong);
-    border-color: var(--border-subtle);
-    background: var(--surface-control-hover);
+    border-color: transparent;
+    background: transparent;
   }
 
   .home-logo-button,
@@ -4690,7 +4796,7 @@ html.dark {
   .workspace-toolbar-button.is-active {
     color: var(--text-strong);
     border-color: transparent;
-    background: var(--surface-active);
+    background: transparent;
   }
 
   .workspace-tab-switcher {
@@ -4726,12 +4832,12 @@ html.dark {
   }
 
   .workspace-side-rail-button {
+    position: relative;
     color: hsl(var(--muted-foreground));
     border: 0;
     border-radius: var(--radius);
     background: transparent;
     transition:
-      background 150ms ease,
       color 150ms ease,
       transform 150ms ease;
   }
@@ -4761,18 +4867,31 @@ html.dark {
 
   .workspace-side-rail-button:hover {
     color: hsl(var(--foreground));
-    background: hsl(var(--accent));
+    background: transparent;
   }
 
   .workspace-side-rail-button:active {
     color: hsl(var(--foreground));
-    background: hsl(var(--accent));
+    background: transparent;
     transform: scale(0.94);
   }
 
   .workspace-side-rail-button.is-active {
     color: hsl(var(--foreground));
-    background: hsl(var(--accent));
+    background: transparent;
+  }
+
+  .workspace-side-rail-button.is-active::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -3px;
+    width: 2px;
+    height: 14px;
+    border-radius: 999px;
+    background: hsl(var(--foreground));
+    transform: translateY(-50%);
+    pointer-events: none;
   }
 
   .workspace-side-rail-button.is-placeholder {
@@ -4784,8 +4903,8 @@ html.dark {
     cursor: grabbing;
     z-index: 3;
     color: hsl(var(--foreground));
-    background: hsl(var(--accent));
-    box-shadow: var(--shadow-control);
+    background: transparent;
+    box-shadow: none;
   }
 
   .workspace-side-rail-button:focus-visible {
@@ -5644,6 +5763,10 @@ html.dark {
     padding: 0 0.75rem 0.75rem;
   }
 
+  .session-hub-list-body.session-hub-list-body--workspace {
+    padding: 0 0 0.75rem;
+  }
+
   .session-hub-inset {
     display: flex;
     flex-shrink: 0;
@@ -5671,13 +5794,14 @@ html.dark {
   .workspace-session-group-header {
     display: flex;
     box-sizing: border-box;
-    width: 100%;
-    max-width: 100%;
+    width: calc(100% - 0.5rem);
+    max-width: calc(100% - 0.5rem);
     min-width: 0;
+    margin: 0 0.25rem;
     align-items: center;
     gap: 0.5rem;
     border-radius: var(--radius);
-    padding: 0.25rem 0.5rem;
+    padding: 0.25rem 0.375rem;
     color: var(--text-strong);
     font-size: 0.8125rem;
     font-weight: 600;
@@ -5719,9 +5843,19 @@ html.dark {
     gap: 0.25rem;
     min-width: 0;
     max-width: 100%;
+    max-height: calc(100vh - 7.5rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     margin-top: 0.125rem;
-    padding-left: 0.75rem;
-    padding-right: 0.5rem;
+    padding-left: 0.375rem;
+    padding-right: 0.25rem;
+  }
+
+  .legacy-design ::-webkit-scrollbar-button,
+  .workspace-session-rail::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .workspace-session-row {
@@ -5734,19 +5868,18 @@ html.dark {
     align-items: center;
     min-height: 2.25rem;
     overflow: hidden;
+    padding-left: 0.25rem;
     padding-right: 0.25rem;
-    border: 1px solid var(--border-subtle);
+    border: 0;
     border-radius: var(--radius);
     color: var(--text-primary);
   }
 
   .workspace-session-row-marker {
-    position: absolute;
-    top: 0.35rem;
-    bottom: 0.35rem;
-    left: 0;
-    width: 0.25rem;
-    border-radius: 0 999px 999px 0;
+    flex-shrink: 0;
+    width: 3px;
+    height: 0.875rem;
+    border-radius: 999px;
   }
 
   .workspace-session-row-main {
@@ -5759,7 +5892,7 @@ html.dark {
     border: 0;
     border-radius: var(--radius);
     background: transparent;
-    padding: 0.25rem 0.375rem 0.25rem 0.5rem;
+    padding: 0.25rem 0.25rem;
     color: inherit;
     cursor: grab;
     text-align: left;
@@ -5892,13 +6025,11 @@ html.dark {
   }
 
   .workspace-session-status {
-    position: absolute;
-    right: 0;
-    bottom: 0;
+    display: inline-flex;
     width: 0.5rem;
     height: 0.5rem;
+    flex-shrink: 0;
     border-radius: 999px;
-    box-shadow: 0 0 0 1.5px var(--workspace-session-row-bg);
   }
 
   .workspace-session-status--todo {
@@ -5906,7 +6037,10 @@ html.dark {
   }
 
   .workspace-session-status--inprogress {
-    background: var(--session-status-inprogress);
+    width: 0.75rem;
+    height: 0.75rem;
+    background: transparent;
+    color: var(--session-status-inprogress);
   }
 
   .workspace-session-status--inreview {
@@ -5932,10 +6066,14 @@ html.dark {
     box-shadow: none;
   }
 
-  .session-hub-action-button:hover {
+  .session-hub-action-button:hover,
+  .session-hub-action-button:active,
+  .session-hub-action-button.is-active,
+  .session-hub-action-button[aria-expanded='true'],
+  .session-hub-action-button[data-state='open'] {
     color: var(--text-strong);
-    border-color: var(--border-subtle);
-    background: var(--surface-control-hover);
+    border-color: transparent;
+    background: transparent;
   }
 
   .session-hub-filter-chip,

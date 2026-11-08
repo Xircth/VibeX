@@ -10,10 +10,12 @@ import { fileTreeApi } from '../../lib/api';
 vi.mock('../../lib/api', () => ({
   desktopApi: {
     openPath: vi.fn(),
+    revealInFileManager: vi.fn(),
   },
   fileTreeApi: {
     copyItem: vi.fn(),
     createDirectory: vi.fn(),
+    getTree: vi.fn(),
     listDirectoryChildren: vi.fn(),
     moveItem: vi.fn(),
     saveFile: vi.fn(),
@@ -37,8 +39,39 @@ function openSearchOptions() {
   fireEvent.click(screen.getByRole('button', { name: '搜索选项' }));
 }
 
+function openSearchFromMoreMenu(itemLabel: '搜索文件内容' | '搜索文件名称') {
+  fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+  fireEvent.mouseEnter(screen.getByRole('button', { name: '搜索' }));
+  fireEvent.click(screen.getByRole('button', { name: itemLabel }));
+}
+
 describe('FileTreePanel workspace search', () => {
   beforeEach(() => {
+    vi.mocked(fileTreeApi.getTree).mockReset();
+    vi.mocked(fileTreeApi.getTree).mockResolvedValue([
+      {
+        name: 'readme.md',
+        path: 'readme.md',
+        is_dir: false,
+        children: null,
+        git_status: null,
+      },
+      {
+        name: 'src',
+        path: 'src',
+        is_dir: true,
+        children: [
+          {
+            name: 'App.tsx',
+            path: 'src/App.tsx',
+            is_dir: false,
+            children: null,
+            git_status: null,
+          },
+        ],
+        git_status: null,
+      },
+    ]);
     vi.mocked(fileTreeApi.searchText).mockReset();
     vi.mocked(fileTreeApi.searchText).mockResolvedValue({
       files: [
@@ -61,7 +94,7 @@ describe('FileTreePanel workspace search', () => {
     });
   });
 
-  it('replaces the tree while a query is present and closes from blank space', async () => {
+  it('replaces the tree while a content query is present and closes from blank space', async () => {
     const { container } = renderTree(
       <FileTreePanel
         workspacePath="/repo"
@@ -74,7 +107,7 @@ describe('FileTreePanel workspace search', () => {
     expect(
       screen.getByRole('button', { name: 'readme.md' })
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+    openSearchFromMoreMenu('搜索文件内容');
 
     const input = screen.getByRole('textbox', { name: '搜索文件内容...' });
     expect(input).toBeInTheDocument();
@@ -153,6 +186,35 @@ describe('FileTreePanel workspace search', () => {
     expect(
       screen.queryByRole('textbox', { name: '搜索文件内容...' })
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument();
+  });
+
+  it('supports searching file names from the 3-dot menu and opens the clicked file', async () => {
+    const onOpenFile = vi.fn();
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={['readme.md', 'src/App.tsx']}
+        directories={['src']}
+        isLoading={false}
+        onOpenFile={onOpenFile}
+      />
+    );
+
+    openSearchFromMoreMenu('搜索文件名称');
+
+    const input = screen.getByRole('textbox', { name: '搜索文件名称...' });
+    expect(input).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'App.tsx' } });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /src\/App\.tsx/i })
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /src\/App\.tsx/i }));
+    expect(onOpenFile).toHaveBeenCalledWith('src/App.tsx', undefined);
   });
 });

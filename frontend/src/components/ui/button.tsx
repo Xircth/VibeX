@@ -21,7 +21,7 @@ const buttonVariants = cva(
         ghost:
           'bg-transparent text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
         link: 'h-auto p-0 text-primary underline-offset-4 hover:underline',
-        icon: 'bg-transparent p-0 text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
+        icon: 'bg-transparent p-0 text-muted-foreground hover:bg-transparent hover:text-foreground',
         /** Full-width, multi-line list row (template pickers, option lists). */
         row: 'w-full items-start justify-start whitespace-normal rounded-[var(--radius)] bg-transparent text-left font-normal text-foreground hover:bg-[var(--surface-control-hover)]',
       },
@@ -37,6 +37,7 @@ const buttonVariants = cva(
     },
     compoundVariants: [
       { variant: 'icon', class: 'h-8 w-8 p-0' },
+      { variant: 'ghost', size: 'icon', class: 'hover:bg-transparent' },
       { variant: 'row', class: 'h-auto min-h-0 gap-3 p-2.5' },
     ],
     defaultVariants: {
@@ -146,6 +147,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     const dataVariant = resolveAstryxVariant(variant);
     const dataSize = resolveAstryxSize(size);
+    const isIconButton = Boolean(
+      isIconOnly || size === 'icon' || variant === 'icon'
+    );
     const hasStructuredContent =
       !asChild &&
       (isLoadingState || icon != null || endContent != null || isIconOnly);
@@ -199,7 +203,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           dataVariant !== 'link' && !buttonDisabled ? '' : undefined
         }
         data-edge-comp={dataVariant === 'ghost' ? '' : undefined}
-        data-icon-only={isIconOnly ? '' : undefined}
+        data-icon-only={isIconButton ? '' : undefined}
         aria-busy={isLoadingState || undefined}
         aria-label={resolvedAriaLabel}
         onClick={asChild ? onClick : handleClick}

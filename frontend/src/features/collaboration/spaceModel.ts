@@ -1450,58 +1450,46 @@ export function latestMessageSeq(
   return max;
 }
 
-export function mergeSpaceMessages<T extends { seq: number }>(
-  existing: ReadonlyArray<T>,
-  incoming: ReadonlyArray<T>
-): T[] {
-  const bySeq = new Map<number, T>();
-  for (const message of existing) {
-    if (
-      message &&
-      !isStreamingSpaceMessage(message) &&
-      Number.isInteger(message.seq)
-    ) {
-      bySeq.set(message.seq, message);
-    }
-  }
-  for (const message of incoming) {
-    if (message && Number.isInteger(message.seq)) {
-      bySeq.set(message.seq, message);
-    }
-  }
-  return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+function directMessageTurnId(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as {
+    turnId?: unknown;
+    turn_id?: unknown;
+    envelope?: { turnId?: unknown; turn_id?: unknown } | null;
+  };
+  return String(
+    record.turnId ??
+      record.turn_id ??
+      record.envelope?.turnId ??
+      record.envelope?.turn_id ??
+      ''
+  ).trim();
 }
 
-function directMessageTurnId(message: {
-  turnId?: string | null;
-  turn_id?: string | null;
-}): string {
-  return String(message?.turnId ?? message?.turn_id ?? '').trim();
-}
-
-function directMessageOrigin(message: { origin?: string | null }): string {
-  return String(message?.origin ?? '')
+function directMessageOrigin(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as { origin?: unknown };
+  return String(record.origin ?? '')
     .trim()
     .toLowerCase();
 }
 
 /** Streaming drafts and persisted assistant posts share `turnId`. User space
  * bubbles do not — an in-flight session turn must not collapse them. */
-function isTurnScopedDirectMessage(message: {
-  origin?: string | null;
-  streaming?: boolean | null;
-  turnId?: string | null;
-  turn_id?: string | null;
-}): boolean {
+function isTurnScopedDirectMessage(message: unknown): boolean {
   if (directMessageOrigin(message) === 'user') return false;
-  return Boolean(message.streaming) || Boolean(directMessageTurnId(message));
+  return (
+    isStreamingSpaceMessage(message) || Boolean(directMessageTurnId(message))
+  );
 }
 
-function directMessageId(message: {
-  id?: string | null;
-  envelope?: { id?: string | null } | null;
-}): string {
-  return String(message?.id ?? message?.envelope?.id ?? '').trim();
+function directMessageId(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as {
+    id?: unknown;
+    envelope?: { id?: unknown } | null;
+  };
+  return String(record.id ?? record.envelope?.id ?? '').trim();
 }
 
 function directMessageText(message: unknown): string {
@@ -1520,6 +1508,121 @@ function directMessageText(message: unknown): string {
   return String(
     typeof record.text === 'string' ? record.text : (fromEnvelope ?? '')
   ).trim();
+}
+
+function spaceMessageBotKey(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as {
+    origin?: string | null;
+    conversation_id?: unknown;
+    conversationId?: unknown;
+    envelope?:
+      | (SpaceEnvelopeParties & {
+          sender_nickname?: unknown;
+          actor?: unknown;
+        })
+      | null;
+  };
+  if (directMessageOrigin(record) === 'user') return '';
+  const convId = String(
+    record.envelope?.conversation_id ??
+      record.envelope?.conversationId ??
+      record.conversation_id ??
+      record.conversationId ??
+      ''
+  ).trim();
+  if (convId) return `conv:${convId}`;
+  const author =
+    messageAuthor(record.envelope) ||
+    parseEnvelopePartyName(
+      record.envelope?.sender_nickname ?? record.envelope?.actor
+    );
+  if (author && author !== COPY.you && author !== 'Person') {
+    return `author:${author}`;
+  }
+  return '';
+}
+
+export function mergeSpaceMessages<T extends { seq: number }>(
+  existing: ReadonlyArray<T>,
+  incoming: ReadonlyArray<T>
+): T[] {
+  const bySeq = new Map<number, T>();
+  const upsertPersisted = (message: T) => {
+    const id = directMessageId(message);
+    if (id) {
+      for (const [seqKey, cand] of bySeq.entries()) {
+        if (seqKey !== message.seq && directMessageId(cand) === id) {
+          bySeq.delete(seqKey);
+        }
+      }
+    }
+    bySeq.set(message.seq, message);
+  };
+
+  for (const message of existing) {
+    if (
+      message &&
+      !isStreamingSpaceMessage(message) &&
+      Number.isInteger(message.seq)
+    ) {
+      upsertPersisted(message);
+    }
+  }
+  const incomingStreaming: T[] = [];
+  for (const message of incoming) {
+    if (!message || !Number.isInteger(message.seq)) continue;
+    if (isStreamingSpaceMessage(message)) {
+      incomingStreaming.push(message);
+    } else {
+      upsertPersisted(message);
+    }
+  }
+
+  const persisted = [...bySeq.values()].sort(
+    (left, right) => left.seq - right.seq
+  );
+  if (incomingStreaming.length === 0) {
+    return persisted;
+  }
+
+  const recentPersisted = persisted.slice(-10);
+  const streamingOut: T[] = [];
+  for (const draft of incomingStreaming) {
+    const draftText = directMessageText(draft);
+    const botKey = spaceMessageBotKey(draft);
+    const turnId = directMessageTurnId(draft);
+    if (draftText) {
+      const alreadyPersisted = recentPersisted.some((cand) => {
+        if (directMessageText(cand) !== draftText) return false;
+        const candBotKey = spaceMessageBotKey(cand);
+        if (botKey && candBotKey) return botKey === candBotKey;
+        const candTurnId = directMessageTurnId(cand);
+        if (turnId && candTurnId) return turnId === candTurnId;
+        return false;
+      });
+      if (alreadyPersisted) {
+        continue;
+      }
+    }
+    const existingIdx = streamingOut.findIndex((cand) => {
+      if (cand.seq === draft.seq) return true;
+      const candBotKey = spaceMessageBotKey(cand);
+      if (botKey && candBotKey && botKey === candBotKey) return true;
+      const candTurnId = directMessageTurnId(cand);
+      if (turnId && candTurnId && turnId === candTurnId) return true;
+      return false;
+    });
+    if (existingIdx >= 0) {
+      streamingOut[existingIdx] = draft;
+    } else {
+      streamingOut.push(draft);
+    }
+  }
+
+  return [...persisted, ...streamingOut].sort(
+    (left, right) => left.seq - right.seq
+  );
 }
 
 /**
@@ -1557,14 +1660,15 @@ export function mergeDirectSpaceMessages<
       }
     }
     const turnId = directMessageTurnId(item);
-    if (turnId && isTurnScopedDirectMessage(item)) {
-      if (item.streaming) {
+    if (isTurnScopedDirectMessage(item)) {
+      if (isStreamingSpaceMessage(item)) {
         const itemText = directMessageText(item);
         const alreadyPersisted = out.some(
           (cand) =>
-            !cand.streaming &&
+            !isStreamingSpaceMessage(cand) &&
             isTurnScopedDirectMessage(cand) &&
-            directMessageTurnId(cand) === turnId &&
+            (Boolean(turnId && directMessageTurnId(cand) === turnId) ||
+              Boolean(itemText && directMessageText(cand) === itemText)) &&
             (!itemText || directMessageText(cand) === itemText)
         );
         if (alreadyPersisted) {
@@ -1572,20 +1676,20 @@ export function mergeDirectSpaceMessages<
         }
         const streamingIdx = out.findIndex(
           (cand) =>
-            Boolean(cand.streaming) &&
-            isTurnScopedDirectMessage(cand) &&
-            directMessageTurnId(cand) === turnId
+            isStreamingSpaceMessage(cand) && isTurnScopedDirectMessage(cand)
         );
         if (streamingIdx >= 0) {
           out[streamingIdx] = item;
           return;
         }
-      } else {
+      } else if (turnId) {
         const streamingIdx = out.findIndex(
           (cand) =>
-            Boolean(cand.streaming) &&
+            isStreamingSpaceMessage(cand) &&
             isTurnScopedDirectMessage(cand) &&
-            directMessageTurnId(cand) === turnId
+            (directMessageTurnId(cand) === turnId ||
+              !directMessageTurnId(cand) ||
+              directMessageText(cand) === directMessageText(item))
         );
         if (streamingIdx >= 0) {
           out[streamingIdx] = item;

@@ -1349,11 +1349,14 @@ pub async fn on_space_turn_tool_call(
                 )
                 .await
                 .is_ok()
-                    && let Ok(space) = load_space_or_unassigned(pool, &space_id).await
-                    && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
                 {
-                    let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
-                    delivery.notify_space_changed(evt);
+                    clear_space_turn_flushing_step(conversation_id);
+                    if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
+                        && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
+                    {
+                        let evt = latest_space_changed_event(pool, ws_id, &space_id, None).await;
+                        delivery.notify_space_changed(evt);
+                    }
                 }
             }
             clear_space_turn_flushing_step(conversation_id);
@@ -1446,6 +1449,7 @@ pub async fn on_space_turn_tool_call(
                         Ok(_) => {
                             reopen_processing_deliveries(pool, conversation_id, &reopen_tuples)
                                 .await?;
+                            clear_space_turn_flushing_step(conversation_id);
                             if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
                                 && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
                             {
@@ -1606,6 +1610,7 @@ pub async fn finalize_space_turn_deliveries(
                         );
                     }
                 }
+                reset_space_turn_streaming_step(conversation_id);
                 if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
                     && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
                 {
@@ -1721,7 +1726,8 @@ pub async fn finalize_space_turn_deliveries(
                 "finalize-dm-turn"
             } else {
                 "finalize-space-turn"
-            };
+            }
+            .to_string();
             let op_id = Uuid::new_v5(
                 &Uuid::NAMESPACE_OID,
                 format!(
@@ -1790,6 +1796,7 @@ pub async fn finalize_space_turn_deliveries(
             .await?;
         }
 
+        reset_space_turn_streaming_step(conversation_id);
         advance_open_rounds_for_space(pool, &space_id, delivery).await?;
         notified_spaces.insert(space_id);
         for d in &deliveries {
@@ -1800,6 +1807,7 @@ pub async fn finalize_space_turn_deliveries(
         }
     }
 
+    reset_space_turn_streaming_step(conversation_id);
     for space_id in notified_spaces {
         if let Ok(space) = load_space_or_unassigned(pool, &space_id).await
             && let Ok(ws_id) = Uuid::parse_str(&space.workspace_id)
@@ -1810,7 +1818,6 @@ pub async fn finalize_space_turn_deliveries(
         }
     }
 
-    reset_space_turn_streaming_step(conversation_id);
     Ok(events)
 }
 

@@ -960,33 +960,50 @@ async fn dm_streaming_draft(
     thread_id: &str,
     cutover_seq: i64,
 ) -> Result<Option<DmMessage>, CollaborationError> {
-    let open_turn: Option<(String, String, String, i64, String)> = sqlx::query_as(
-        r#"SELECT t.id, t.space_message_id, m.space_id, m.seq, m.created_at
+    let open_turns: Vec<(String, String, String, i64, String, Option<String>)> = sqlx::query_as(
+        r#"SELECT t.id, t.space_message_id, m.space_id, m.seq, m.created_at, d.receipt_state
            FROM collaboration_turns t
            JOIN collaboration_space_messages m ON m.id = t.space_message_id
+           LEFT JOIN collaboration_space_deliveries d
+             ON d.space_message_id = t.space_message_id
+            AND d.conversation_id = t.conversation_id
            WHERE (t.space_id = ? OR m.space_id = ?) AND t.conversation_id = ? AND t.state = 'running'
-           ORDER BY t.created_at DESC, m.seq DESC
-           LIMIT 1"#,
+           ORDER BY m.seq ASC, t.created_at ASC"#,
     )
     .bind(thread_id)
     .bind(thread_id)
     .bind(conversation_id.to_string())
-    .fetch_optional(pool)
+    .fetch_all(pool)
     .await
     .map_err(db_err)?;
-    let Some((turn_id, trigger_msg_id, origin_space_id, origin_seq, origin_created_at)) = open_turn
-    else {
+    if open_turns.is_empty() {
+        return Ok(None);
+    }
+    let mut chosen_turn_id: Option<String> = None;
+    let mut chosen_processing = false;
+    let mut trigger_seq = i64::MAX;
+    for (tid, trigger_msg_id, origin_space_id, origin_seq, origin_created_at, receipt_state) in
+        open_turns
+    {
+        let resolved_seq = crate::collaboration::resolve_turn_trigger_seq_in_space(
+            pool,
+            thread_id,
+            &origin_space_id,
+            &trigger_msg_id,
+            origin_seq,
+            &origin_created_at,
+        )
+        .await?;
+        trigger_seq = trigger_seq.min(resolved_seq);
+        let is_processing = receipt_state.as_deref() == Some("processing");
+        if chosen_turn_id.is_none() || is_processing || !chosen_processing {
+            chosen_turn_id = Some(tid);
+            chosen_processing = chosen_processing || is_processing;
+        }
+    }
+    let Some(turn_id) = chosen_turn_id else {
         return Ok(None);
     };
-    let trigger_seq = crate::collaboration::resolve_turn_trigger_seq_in_space(
-        pool,
-        thread_id,
-        &origin_space_id,
-        &trigger_msg_id,
-        origin_seq,
-        &origin_created_at,
-    )
-    .await?;
     let posted_rows: Vec<(i64, String)> = sqlx::query_as(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ? AND origin = 'agent'

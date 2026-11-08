@@ -14,6 +14,7 @@ import {
   sortWorkspaceSessions,
   toggleSessionListSort,
   workspaceGroupLabel,
+  workspaceGroupStatusTone,
   workspaceSessionStatusTone,
 } from './workspaceSessionListModel';
 
@@ -477,6 +478,28 @@ describe('workspaceSessionStatusTone', () => {
     expect(
       workspaceSessionStatusTone({ status: 'inreview', isRunning: true })
     ).toBe('inreview');
+  });
+
+  it('aggregates workspace group status with priority inprogress > inreview > todo > done', () => {
+    expect(
+      workspaceGroupStatusTone([
+        { status: 'done' },
+        { status: 'todo' },
+        { status: 'inreview' },
+        { status: 'inprogress' },
+      ])
+    ).toBe('inprogress');
+    expect(
+      workspaceGroupStatusTone([
+        { status: 'done' },
+        { status: 'todo' },
+        { status: 'inreview' },
+      ])
+    ).toBe('inreview');
+    expect(
+      workspaceGroupStatusTone([{ status: 'done' }, { status: 'todo' }])
+    ).toBe('todo');
+    expect(workspaceGroupStatusTone([{ status: 'done' }])).toBe('done');
   });
 });
 

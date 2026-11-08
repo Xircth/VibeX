@@ -248,6 +248,8 @@ describe('FileTreePanel lazy directory loading', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '新建' }));
     fireEvent.click(screen.getByRole('button', { name: '新建文件' }));
     const input = screen.getByPlaceholderText('untitled');
     fireEvent.change(input, { target: { value: 'broken.ts' } });
@@ -263,6 +265,8 @@ describe('FileTreePanel lazy directory loading', () => {
     renderTree(
       <FileTreePanel workspacePath="/repo" files={[]} isLoading={false} />
     );
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '新建' }));
     fireEvent.click(screen.getByRole('button', { name: '新建文件' }));
     const input = screen.getByRole('textbox', { name: '新建文件' });
     fireEvent.change(input, { target: { value: '文档.md' } });
@@ -309,6 +313,8 @@ describe('FileTreePanel lazy directory loading', () => {
     renderTree(
       <FileTreePanel workspacePath="/repo" files={[]} isLoading={false} />
     );
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '新建' }));
     fireEvent.click(screen.getByRole('button', { name: '新建文件' }));
     const input = screen.getByRole('textbox', { name: '新建文件' });
     fireEvent.change(input, { target: { value: 'cancelled.ts' } });
@@ -317,6 +323,48 @@ describe('FileTreePanel lazy directory loading', () => {
       screen.queryByRole('textbox', { name: '新建文件' })
     ).not.toBeInTheDocument();
     expect(fileTreeApi.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('renders only Refresh, Expand/Collapse All, and More 3-dot buttons in header and exposes New, Search, Copy, and Open In submenus', async () => {
+    const onOpenInExternalEditor = vi.fn();
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={['src/index.ts']}
+        directories={['src']}
+        isLoading={false}
+        onRefreshFiles={vi.fn()}
+        onOpenInExternalEditor={onOpenInExternalEditor}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: '刷新文件树' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '展开所有文件夹' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '更多操作' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '新建文件' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '新建文件夹' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(screen.getByRole('button', { name: '新建' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开于' })).toBeInTheDocument();
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '打开于' }));
+    const vsCodeItem = screen.getByRole('button', { name: 'VS Code' });
+    expect(vsCodeItem).toBeInTheDocument();
+    fireEvent.click(vsCodeItem);
+    expect(onOpenInExternalEditor).toHaveBeenCalledWith('', 'VS_CODE');
   });
 
   it('shows a readable delete failure toast after confirmation', async () => {

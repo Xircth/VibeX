@@ -3,6 +3,11 @@ import { useLayoutEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
 } from '@/components/kanban/session-hub/utils';
@@ -34,27 +39,32 @@ export function SessionListSearchControl({
   return (
     <div
       className={cn(
-        'workspace-session-search-shell relative h-7 overflow-hidden',
-        isExpanded ? 'w-full' : 'w-7 shrink-0'
+        'workspace-session-search-shell relative overflow-hidden',
+        isExpanded ? 'h-7 w-full' : 'h-7 w-7'
       )}
     >
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        hidden={isExpanded}
-        className={cn(
-          SESSION_LIST_ACTION_BUTTON_CLASS,
-          'absolute inset-0',
-          searchQuery && 'text-foreground',
-          isExpanded && 'hidden'
-        )}
-        aria-label={searchLabel}
-        aria-expanded={false}
-        onClick={() => onExpandedChange(true)}
-      >
-        <Search className={SESSION_LIST_ACTION_ICON_CLASS} />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            hidden={isExpanded}
+            className={cn(
+              SESSION_LIST_ACTION_BUTTON_CLASS,
+              'absolute inset-0',
+              searchQuery && 'text-foreground',
+              isExpanded && 'hidden'
+            )}
+            aria-label={searchLabel}
+            aria-expanded={false}
+            onClick={() => onExpandedChange(true)}
+          >
+            <Search className={SESSION_LIST_ACTION_ICON_CLASS} />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{searchLabel}</TooltipContent>
+      </Tooltip>
       <Search
         aria-hidden="true"
         className={cn(

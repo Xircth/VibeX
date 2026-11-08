@@ -265,7 +265,7 @@ export const GitStagingArea = memo(function GitStagingArea({
             onToggle={() => setStagedCollapsed((prev) => !prev)}
             actions={
               <button
-                className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
+                className="p-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground"
                 onClick={onStageAll}
                 title={i18n.t('panels:ui.gitStaging.unstageAll')}
               >
@@ -323,14 +323,14 @@ export const GitStagingArea = memo(function GitStagingArea({
             actions={
               <>
                 <button
-                  className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
+                  className="p-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground"
                   onClick={onStageAll}
                   title={i18n.t('panels:ui.gitStaging.stageAll')}
                 >
                   <Plus className="h-3 w-3" />
                 </button>
                 <button
-                  className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-destructive"
+                  className="p-0.5 rounded bg-transparent text-muted-foreground hover:text-destructive"
                   onClick={handleRevertAll}
                   title={i18n.t('panels:ui.gitStaging.discardAll')}
                 >

@@ -126,9 +126,15 @@ describe('WorkspaceTabAddMenu', () => {
     expect(screen.getByText('Agent')).toBeVisible();
     expect(screen.getByText('其他')).toBeVisible();
 
-    expect(screen.getByRole('menuitem', { name: '文件树' })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: 'Git 面板' })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: '会话列表' })).toBeVisible();
+    expect(
+      screen.queryByRole('menuitem', { name: '文件树' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Git 面板' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: '会话列表' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: '笔记' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '执行进程' })).toBeVisible();
@@ -163,16 +169,13 @@ describe('WorkspaceTabAddMenu', () => {
       button: 0,
       ctrlKey: false,
     });
-    fireEvent.click(screen.getByRole('menuitem', { name: '文件树' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '笔记' }));
 
     expect(runInEditorGroup).toHaveBeenCalledWith(
       'group-editor-1',
       expect.any(Function)
     );
-    expect(openOrFocusPanel).toHaveBeenCalledWith(
-      PANEL_IDS.FILE_TREE,
-      '文件树'
-    );
+    expect(openNotes).toHaveBeenCalledOnce();
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '新建标签页' }), {
       button: 0,

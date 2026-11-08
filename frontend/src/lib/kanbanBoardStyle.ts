@@ -35,6 +35,15 @@ function read(): KanbanBoardStyle {
 
   if (raw === cachedRaw) return cached;
 
+  if (raw === 'fixed') {
+    try {
+      localStorage.setItem(KANBAN_BOARD_STYLE_KEY, DEFAULT_KANBAN_BOARD_STYLE);
+    } catch {
+      // Ignore storage write errors while normalizing legacy value.
+    }
+    raw = DEFAULT_KANBAN_BOARD_STYLE;
+  }
+
   cachedRaw = raw;
   cached = isKanbanBoardStyle(raw) ? raw : DEFAULT_KANBAN_BOARD_STYLE;
   return cached;

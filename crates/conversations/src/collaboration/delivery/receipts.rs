@@ -519,10 +519,24 @@ pub async fn list_space_messages(
             .await
             .unwrap_or(0),
         );
-        let raw_running_turns = sqlx::query_as::<_, (String, String, String, String, i64, String)>(
-            r#"SELECT t.id, t.conversation_id, t.space_message_id, m.space_id, m.seq, m.created_at
+        let raw_running_turns = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                i64,
+                String,
+                Option<String>,
+            ),
+        >(
+            r#"SELECT t.id, t.conversation_id, t.space_message_id, m.space_id, m.seq, m.created_at, d.receipt_state
                FROM collaboration_turns t
                JOIN collaboration_space_messages m ON m.id = t.space_message_id
+               LEFT JOIN collaboration_space_deliveries d
+                 ON d.space_message_id = t.space_message_id
+                AND d.conversation_id = t.conversation_id
                WHERE t.space_id = ? AND t.state = 'running'
                ORDER BY m.seq ASC, t.created_at ASC"#,
         )
@@ -532,8 +546,17 @@ pub async fn list_space_messages(
         .map_err(db)?;
         let mut running_turns: Vec<(String, String, Option<String>, i64)> =
             Vec::with_capacity(raw_running_turns.len());
-        for (turn_id, cid_str, trigger_msg_id, origin_space_id, origin_seq, origin_created_at) in
-            raw_running_turns
+        let mut running_idx_by_cid: std::collections::HashMap<String, (usize, bool)> =
+            std::collections::HashMap::new();
+        for (
+            turn_id,
+            cid_str,
+            trigger_msg_id,
+            origin_space_id,
+            origin_seq,
+            origin_created_at,
+            receipt_state,
+        ) in raw_running_turns
         {
             let trigger_seq = resolve_turn_trigger_seq_in_space(
                 pool,
@@ -544,12 +567,28 @@ pub async fn list_space_messages(
                 &origin_created_at,
             )
             .await?;
-            running_turns.push((turn_id, cid_str, Some(trigger_msg_id), trigger_seq));
+            let is_processing = receipt_state.as_deref() == Some("processing");
+            if let Some(&(idx, existing_processing)) = running_idx_by_cid.get(&cid_str) {
+                let earliest_seq = running_turns[idx].3.min(trigger_seq);
+                if is_processing || !existing_processing {
+                    running_turns[idx] = (
+                        turn_id,
+                        cid_str.clone(),
+                        Some(trigger_msg_id),
+                        earliest_seq,
+                    );
+                    running_idx_by_cid.insert(cid_str, (idx, existing_processing || is_processing));
+                } else {
+                    running_turns[idx].3 = earliest_seq;
+                }
+            } else {
+                let idx = running_turns.len();
+                running_turns.push((turn_id, cid_str.clone(), Some(trigger_msg_id), trigger_seq));
+                running_idx_by_cid.insert(cid_str, (idx, is_processing));
+            }
         }
-        let seen_cids: std::collections::HashSet<String> = running_turns
-            .iter()
-            .map(|(_, cid_str, _, _)| cid_str.clone())
-            .collect();
+        let seen_cids: std::collections::HashSet<String> =
+            running_idx_by_cid.keys().cloned().collect();
         let member_cids: Vec<String> = sqlx::query_scalar(
             r#"SELECT DISTINCT conversation_id FROM (
                  SELECT conversation_id FROM collaboration_space_members
@@ -597,16 +636,39 @@ pub async fn list_space_messages(
             if body.is_empty() || is_pass_token(&body) {
                 continue;
             }
-            let posted_rows: Vec<String> = sqlx::query_scalar(
-                r#"SELECT envelope_json FROM collaboration_space_messages
-                   WHERE space_id = ? AND seq > ? AND origin = 'agent'
-                   ORDER BY seq ASC"#,
-            )
-            .bind(space_id)
-            .bind(trigger_seq)
-            .fetch_all(pool)
-            .await
-            .map_err(db)?;
+            let already_in_loaded = messages.iter().rev().take(10).any(|msg| {
+                if msg.origin != "agent" {
+                    return false;
+                }
+                let parsed = parse_space_envelope(&msg.envelope);
+                envelope_sender_is_conversation(&parsed, cid, Some(&nickname))
+                    && strip_own_nickname_prefix(parsed.content.trim(), &nickname) == body
+            });
+            if already_in_loaded {
+                continue;
+            }
+            let posted_rows: Vec<String> = if trigger_msg_id.is_some() {
+                sqlx::query_scalar(
+                    r#"SELECT envelope_json FROM collaboration_space_messages
+                       WHERE space_id = ? AND seq > ? AND origin = 'agent'
+                       ORDER BY seq ASC"#,
+                )
+                .bind(space_id)
+                .bind(trigger_seq)
+                .fetch_all(pool)
+                .await
+                .map_err(db)?
+            } else {
+                sqlx::query_scalar(
+                    r#"SELECT envelope_json FROM collaboration_space_messages
+                       WHERE space_id = ? AND origin = 'agent'
+                       ORDER BY seq DESC LIMIT 10"#,
+                )
+                .bind(space_id)
+                .fetch_all(pool)
+                .await
+                .map_err(db)?
+            };
             let already_posted_same = posted_rows.iter().any(|raw| {
                 let parsed = parse_space_envelope_str(raw);
                 envelope_sender_is_conversation(&parsed, cid, Some(&nickname))

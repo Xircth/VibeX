@@ -13,6 +13,7 @@ import {
   Palette,
   Sun,
   Type,
+  Users,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
@@ -35,10 +36,8 @@ import { toPrettyCase } from '@/utils/string';
 
 import {
   setCollaborationArrangement,
-  setKanbanArrangement,
   setLayoutArrangement,
   useCollaborationArrangement,
-  useKanbanArrangement,
   useLayoutArrangement,
 } from '@/lib/layoutArrangement';
 import {
@@ -59,7 +58,6 @@ import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import {
   CollaborationLayoutSchematic,
-  KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
 } from './LayoutArrangementSchematic';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
@@ -199,11 +197,10 @@ export function AppearanceSettings() {
     getSettingsNavFloat()
   );
   const workspaceArrangement = useLayoutArrangement();
-  const kanbanArrangement = useKanbanArrangement();
   const collaborationArrangement = useCollaborationArrangement();
-  const [layoutPage, setLayoutPage] = useState<
-    'workspace' | 'kanban' | 'collaboration'
-  >('workspace');
+  const [layoutPage, setLayoutPage] = useState<'workspace' | 'collaboration'>(
+    'workspace'
+  );
   const previewFontSize = useEditorSettingsStore(
     (state) => state.previewFontSize
   );
@@ -388,26 +385,28 @@ export function AppearanceSettings() {
               <div>
                 <Label>{t('appearance.kanbanSessionList.label')}</Label>
               </div>
-              <SegmentedControl
-                className="shrink-0"
+              <Select
                 value={kanbanSessionListView}
-                onChange={(value) => {
+                onValueChange={(value) => {
                   const next = value as KanbanSessionListView;
                   setKanbanSessionListViewState(next);
                   setKanbanSessionListView(next);
                 }}
-                label={t('appearance.kanbanSessionList.label')}
-                size="sm"
-                layout="hug"
               >
-                {KANBAN_SESSION_LIST_VIEWS.map((view) => (
-                  <SegmentedControlItem
-                    key={view}
-                    value={view}
-                    label={t(`appearance.kanbanSessionList.${view}`)}
-                  />
-                ))}
-              </SegmentedControl>
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.kanbanSessionList.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {KANBAN_SESSION_LIST_VIEWS.map((view) => (
+                    <SelectItem key={view} value={view}>
+                      {t(`appearance.kanbanSessionList.${view}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </SettingsSection>
@@ -548,11 +547,7 @@ export function AppearanceSettings() {
               value={layoutPage}
               onChange={(value) =>
                 setLayoutPage(
-                  value === 'kanban'
-                    ? 'kanban'
-                    : value === 'collaboration'
-                      ? 'collaboration'
-                      : 'workspace'
+                  value === 'collaboration' ? 'collaboration' : 'workspace'
                 )
               }
               label={t('appearance.layout.title')}
@@ -562,14 +557,12 @@ export function AppearanceSettings() {
               <SegmentedControlItem
                 value="workspace"
                 label={t('appearance.layout.workspaceLabel')}
-              />
-              <SegmentedControlItem
-                value="kanban"
-                label={t('appearance.layout.kanbanLabel')}
+                icon={<Monitor className="h-3.5 w-3.5" aria-hidden="true" />}
               />
               <SegmentedControlItem
                 value="collaboration"
                 label={t('appearance.layout.collaborationLabel')}
+                icon={<Users className="h-3.5 w-3.5" aria-hidden="true" />}
               />
             </SegmentedControl>
           }
@@ -580,11 +573,6 @@ export function AppearanceSettings() {
                 value={workspaceArrangement}
                 onChange={setLayoutArrangement}
               />
-            ) : layoutPage === 'kanban' ? (
-              <KanbanLayoutSchematic
-                value={kanbanArrangement}
-                onChange={setKanbanArrangement}
-              />
             ) : (
               <CollaborationLayoutSchematic
                 value={collaborationArrangement}
@@ -594,9 +582,7 @@ export function AppearanceSettings() {
             <p className="settings-row__description">
               {layoutPage === 'workspace'
                 ? t('appearance.layout.dragHint')
-                : layoutPage === 'kanban'
-                  ? t('appearance.layout.kanbanHint')
-                  : t('appearance.layout.collaborationHint')}
+                : t('appearance.layout.collaborationHint')}
             </p>
             <p className="settings-row__description">
               {t('appearance.layout.hint')}

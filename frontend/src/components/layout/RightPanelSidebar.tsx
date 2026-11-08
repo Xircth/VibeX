@@ -204,7 +204,7 @@ export function RightPanelSidebar() {
                   <Icon className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left">{button.label}</TooltipContent>
+              <TooltipContent>{button.label}</TooltipContent>
             </Tooltip>
           );
         })}
@@ -226,7 +226,7 @@ export function RightPanelSidebar() {
                   <Icon className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left">{item.label}</TooltipContent>
+              <TooltipContent>{item.label}</TooltipContent>
             </Tooltip>
           );
         })}

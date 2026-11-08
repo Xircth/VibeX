@@ -263,7 +263,7 @@ export const GroupListPanel = memo(function GroupListPanel() {
                         variant="ghost"
                         className={cn(
                           SESSION_LIST_ACTION_BUTTON_CLASS,
-                          hasActiveFilter && 'bg-secondary text-foreground'
+                          hasActiveFilter && 'text-foreground'
                         )}
                         aria-label={COPY.filterLabel}
                       >

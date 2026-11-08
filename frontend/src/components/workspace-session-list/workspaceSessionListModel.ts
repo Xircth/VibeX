@@ -143,6 +143,37 @@ export function workspaceSessionStatusTone(session: {
   }
 }
 
+const WORKSPACE_GROUP_STATUS_PRIORITY: Record<
+  WorkspaceSessionStatusTone,
+  number
+> = {
+  inprogress: 4,
+  inreview: 3,
+  todo: 2,
+  done: 1,
+};
+
+export function workspaceGroupStatusTone(
+  sessions: ReadonlyArray<{ status: string; isRunning?: boolean }>
+): WorkspaceSessionStatusTone {
+  let highest: WorkspaceSessionStatusTone = 'done';
+  let highestRank = 0;
+
+  for (const session of sessions) {
+    const tone = workspaceSessionStatusTone(session);
+    const rank = WORKSPACE_GROUP_STATUS_PRIORITY[tone];
+    if (rank > highestRank) {
+      highest = tone;
+      highestRank = rank;
+      if (tone === 'inprogress') {
+        return 'inprogress';
+      }
+    }
+  }
+
+  return highestRank > 0 ? highest : 'todo';
+}
+
 function orderSessionPartition(
   sessions: KanbanProjectSessionRecord[],
   savedOrder: string[] | undefined,

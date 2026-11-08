@@ -11,7 +11,9 @@ type IdeIconProps = {
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   if (theme === ThemeMode.SYSTEM) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
+    return typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
       ? 'dark'
       : 'light';
   }

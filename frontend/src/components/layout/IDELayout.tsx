@@ -1028,10 +1028,7 @@ export function IDELayout({
         }
         lastDropTargetZoneRef.current = null;
 
-        if (
-          getEditorGroups(api).length === 0 &&
-          !useLayoutStore.getState().isWorkspaceEditorAreaCollapsed
-        ) {
+        if (getEditorGroups(api).length === 0 && !isCollapsedRef.current) {
           recreateWelcomeEditorGroup(api);
         }
 

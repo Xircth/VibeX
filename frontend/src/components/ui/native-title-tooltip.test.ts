@@ -56,7 +56,7 @@ describe('native title tooltip helpers', () => {
     owned.remove();
   });
 
-  it('keeps the capsule inside the viewport and flips above when needed', () => {
+  it('places the tooltip below by default and flips above when space below is insufficient', () => {
     const below = positionHoverTooltip(
       { top: 8, left: 40, width: 24, height: 24 },
       { width: 80, height: 24 },
@@ -64,6 +64,7 @@ describe('native title tooltip helpers', () => {
     );
     expect(below.top).toBe(38);
     expect(below.left).toBe(12);
+    expect(below.side).toBe('bottom');
 
     const above = positionHoverTooltip(
       { top: 280, left: 10, width: 20, height: 16 },
@@ -72,12 +73,14 @@ describe('native title tooltip helpers', () => {
     );
     expect(above.top).toBe(246);
     expect(above.left).toBe(8);
+    expect(above.side).toBe('top');
 
     const toolbar = positionHoverTooltip(
       { top: 120, left: 200, width: 28, height: 28 },
       { width: 80, height: 24 },
       { width: 800, height: 600 }
     );
-    expect(toolbar.top).toBe(90);
+    expect(toolbar.top).toBe(154);
+    expect(toolbar.side).toBe('bottom');
   });
 });

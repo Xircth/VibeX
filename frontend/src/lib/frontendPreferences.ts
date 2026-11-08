@@ -44,11 +44,26 @@ function encodeStoredValue(value: JsonValue): string {
   return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
+function normalizePreferenceValue(
+  preferenceKey: string,
+  value: JsonValue
+): JsonValue {
+  if (preferenceKey === 'kanban_board_style' && value === 'fixed') {
+    return 'canvas';
+  }
+  return value;
+}
+
 function collectLocalPreferences(): Record<string, JsonValue> {
   const preferences: Record<string, JsonValue> = {};
   for (const [storageKey, preferenceKey] of Object.entries(STORAGE_KEYS)) {
     const raw = localStorage.getItem(storageKey);
-    if (raw !== null) preferences[preferenceKey] = decodeStoredValue(raw);
+    if (raw !== null) {
+      preferences[preferenceKey] = normalizePreferenceValue(
+        preferenceKey,
+        decodeStoredValue(raw)
+      );
+    }
   }
   return preferences;
 }
@@ -56,7 +71,11 @@ function collectLocalPreferences(): Record<string, JsonValue> {
 function applyPreferences(preferences: Record<string, JsonValue>): void {
   for (const [storageKey, preferenceKey] of Object.entries(STORAGE_KEYS)) {
     if (!(preferenceKey in preferences)) continue;
-    const raw = encodeStoredValue(preferences[preferenceKey]);
+    const normalized = normalizePreferenceValue(
+      preferenceKey,
+      preferences[preferenceKey]
+    );
+    const raw = encodeStoredValue(normalized);
     if (localStorage.getItem(storageKey) === raw) continue;
     localStorage.setItem(storageKey, raw);
     window.dispatchEvent(
@@ -77,11 +96,14 @@ export async function syncFrontendPreferences(
   if (configuredBackendTransport.environment === 'web') return;
   const remote = await api.get();
   const local = collectLocalPreferences();
-  const missing = Object.fromEntries(
+  const updates: Record<string, JsonValue> = Object.fromEntries(
     Object.entries(local).filter(([key]) => !(key in remote))
   );
+  if (remote.kanban_board_style === 'fixed') {
+    updates.kanban_board_style = 'canvas';
+  }
   const effective =
-    Object.keys(missing).length > 0 ? await api.update(missing) : remote;
+    Object.keys(updates).length > 0 ? await api.update(updates) : remote;
   applyPreferences(effective);
 }
 

@@ -210,11 +210,12 @@ describe('AppearanceSettings', () => {
     expect(screen.queryByText('看板样式')).not.toBeInTheDocument();
   });
 
-  it('applies the Kanban session list grouping immediately via SegmentedControl', async () => {
+  it('applies the Kanban session list grouping immediately via Select', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole('radio', { name: '工作区分组' }));
+    await user.click(screen.getByRole('combobox', { name: '看板会话列表视图' }));
+    await user.click(await screen.findByRole('option', { name: '工作区分组' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
   });
@@ -305,7 +306,7 @@ describe('AppearanceSettings', () => {
     });
   });
 
-  it('switches the ABC layout preview between workspace, kanban, and collaboration', async () => {
+  it('switches the ABC layout preview between workspace and collaboration without a kanban tab', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
@@ -314,19 +315,23 @@ describe('AppearanceSettings', () => {
     expect(
       screen.queryByText('collaboration schematic')
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: '看板' })).not.toBeInTheDocument();
     expect(screen.queryByText('Workspace 页面')).not.toBeInTheDocument();
     expect(screen.queryByText('Kanban 页面')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '恢复默认' })
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('radio', { name: '看板' }));
-    expect(screen.getByText('kanban schematic')).toBeInTheDocument();
-    expect(screen.queryByText('workspace schematic')).not.toBeInTheDocument();
+    const workspaceRadio = screen.getByRole('radio', { name: '工作区' });
+    const collaborationRadio = screen.getByRole('radio', { name: '协作空间' });
+    expect(workspaceRadio.parentElement?.querySelector('svg')).not.toBeNull();
+    expect(
+      collaborationRadio.parentElement?.querySelector('svg')
+    ).not.toBeNull();
 
-    await user.click(screen.getByRole('radio', { name: '协作空间' }));
+    await user.click(collaborationRadio);
     expect(screen.getByText('collaboration schematic')).toBeInTheDocument();
-    expect(screen.queryByText('kanban schematic')).not.toBeInTheDocument();
+    expect(screen.queryByText('workspace schematic')).not.toBeInTheDocument();
     expect(
       screen.getByText('协作空间（A）、消息区（B）与预览区（C）的排列。')
     ).toBeInTheDocument();

@@ -44,4 +44,15 @@ describe('syncFrontendPreferences', () => {
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
   });
+
+  it('migrates legacy fixed kanban_board_style to canvas during preference sync', async () => {
+    localStorage.setItem('vibex:kanban-board-style', 'fixed');
+    api.get.mockResolvedValue({ kanban_board_style: 'fixed' });
+    api.update.mockResolvedValue({ kanban_board_style: 'canvas' });
+
+    await syncFrontendPreferences(api);
+
+    expect(api.update).toHaveBeenCalledWith({ kanban_board_style: 'canvas' });
+    expect(localStorage.getItem('vibex:kanban-board-style')).toBe('canvas');
+  });
 });

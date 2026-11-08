@@ -157,7 +157,7 @@ export function ImagePreviewToolbar({
                         </button>
                       </PopoverTrigger>
                     </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6}>
+                    <TooltipContent sideOffset={6}>
                       {t('imagePreview.toolMark')}
                     </TooltipContent>
                   </Tooltip>
@@ -205,7 +205,7 @@ export function ImagePreviewToolbar({
                         </button>
                       </PopoverTrigger>
                     </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6}>
+                    <TooltipContent sideOffset={6}>
                       {t('imagePreview.toolBrush')}
                     </TooltipContent>
                   </Tooltip>
@@ -253,7 +253,7 @@ export function ImagePreviewToolbar({
                         </button>
                       </PopoverTrigger>
                     </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6}>
+                    <TooltipContent sideOffset={6}>
                       {t('imagePreview.toolText')}
                     </TooltipContent>
                   </Tooltip>
@@ -556,19 +556,17 @@ function ToolbarIconButton({
           {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top" sideOffset={6}>
-        {label}
-      </TooltipContent>
+      <TooltipContent sideOffset={6}>{label}</TooltipContent>
     </Tooltip>
   );
 }
 
 function toolbarButtonClass(active: boolean) {
   return cn(
-    'image-preview-toolbar-btn inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition',
+    'image-preview-toolbar-btn inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-transparent transition',
     active
-      ? 'bg-primary text-primary-foreground'
-      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      ? 'text-foreground'
+      : 'text-muted-foreground hover:bg-transparent hover:text-foreground',
     'disabled:pointer-events-none disabled:opacity-40'
   );
 }

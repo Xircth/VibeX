@@ -139,6 +139,8 @@ export function SessionCardHoverInfo({
   );
 }
 
+export const SESSION_CARD_HOVER_DELAY_MS = 1000;
+
 export function SessionCardHoverCard({
   children,
   details,
@@ -153,8 +155,11 @@ export function SessionCardHoverCard({
   }
 
   return (
-    <TooltipProvider delayDuration={280}>
-      <Tooltip>
+    <TooltipProvider
+      delayDuration={SESSION_CARD_HOVER_DELAY_MS}
+      skipDelayDuration={0}
+    >
+      <Tooltip delayDuration={SESSION_CARD_HOVER_DELAY_MS}>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent
           side="right"

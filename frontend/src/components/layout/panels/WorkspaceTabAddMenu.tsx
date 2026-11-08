@@ -4,10 +4,7 @@ import {
   Activity,
   Bot,
   FileDiff,
-  FolderTree,
-  GitBranch,
   Info,
-  MessageSquare,
   Plus,
   Puzzle,
   SquareTerminal,
@@ -129,39 +126,6 @@ export function WorkspaceTabAddMenu({
         <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
           {t('tabCreation.sections.features')}
         </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={() =>
-            runInThisGroup(() =>
-              openOrFocusPanel(PANEL_IDS.FILE_TREE, t('tabCreation.fileTree'))
-            )
-          }
-        >
-          <FolderTree />
-          {t('tabCreation.fileTree')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() =>
-            runInThisGroup(() =>
-              openOrFocusPanel(PANEL_IDS.GIT, t('tabCreation.gitPanel'))
-            )
-          }
-        >
-          <GitBranch />
-          {t('tabCreation.gitPanel')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() =>
-            runInThisGroup(() =>
-              openOrFocusPanel(
-                PANEL_IDS.SESSION_LIST,
-                t('tabCreation.sessionList')
-              )
-            )
-          }
-        >
-          <MessageSquare />
-          {t('tabCreation.sessionList')}
-        </DropdownMenuItem>
         {canOpenNotes ? (
           <DropdownMenuItem onSelect={() => runInThisGroup(openNotes)}>
             <StickyNote />

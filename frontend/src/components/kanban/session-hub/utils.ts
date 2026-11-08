@@ -37,7 +37,7 @@ export const INFO_TEXT_CLASS = 'text-primary';
 export const UNASSIGNED_EXECUTOR = '__kanban_unassigned_executor__';
 export const SESSION_LIST_ACTION_BUTTON_CLASS =
   'session-hub-action-button h-7 w-7 p-0 shadow-none';
-export const SESSION_LIST_ACTION_ICON_CLASS = 'h-[11px] w-[11px]';
+export const SESSION_LIST_ACTION_ICON_CLASS = 'h-3.5 w-3.5';
 export const SESSION_LIST_WIDTH_STORAGE_KEY = 'vibex-kanban-session-list-width';
 export const DEFAULT_SESSION_LIST_WIDTH = 280;
 export const MIN_SESSION_LIST_WIDTH = 220;

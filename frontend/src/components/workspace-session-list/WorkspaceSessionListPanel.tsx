@@ -468,7 +468,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
           onClearSort={() => setSortSpecs([])}
         />
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-0.5"
+          className="min-h-0 flex-1 overflow-y-auto px-0 pb-2 pt-0.5"
           onContextMenu={handleBlankContextMenu}
         >
           {!isLoading && visibleSessions.length === 0 && emptyMessage ? (

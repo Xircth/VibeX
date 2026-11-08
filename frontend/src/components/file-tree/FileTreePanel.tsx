@@ -12,13 +12,22 @@ import { createPortal } from 'react-dom';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 import {
+  Copy,
+  ExternalLink,
+  FileCode,
   FilePlus,
+  FileSearch,
   FolderPlus,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
   SquareMinus,
 } from 'lucide-react';
+import { EditorType } from 'shared/types';
+import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
+import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
 import FileIcon from '../FileIcon';
 import { desktopApi, fileTreeApi } from '../../lib/api';
 import { useBinaryAssetPreview } from '@/hooks/useFileContent';
@@ -45,6 +54,7 @@ import {
   useWorkspaceTextSearch,
   WorkspaceFileSearchField,
   WorkspaceFileSearchResults,
+  type WorkspaceSearchMode,
 } from './WorkspaceFileSearch';
 import type { FileTreeNode, FileOpenLocation } from './file-tree-types';
 import { EMPTY_DIRECTORIES, EMPTY_SET } from './file-tree-constants';
@@ -123,6 +133,10 @@ export type FileTreePanelProps = {
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
   onRenamePath?: (oldPath: string, newPath: string) => void;
+  onOpenInExternalEditor?: (
+    relativePath: string,
+    editorType: EditorType
+  ) => void | Promise<void>;
   refreshToken?: number;
   lazyLoadAllDirectories?: boolean;
   revealTarget?: FileTreeRevealTarget | null;
@@ -141,65 +155,25 @@ export function FileTreePanel({
   gitignoredDirectories,
   onRefreshFiles,
   onRenamePath,
+  onOpenInExternalEditor,
   refreshToken = 0,
   lazyLoadAllDirectories = true,
   revealTarget = null,
 }: FileTreePanelProps) {
   const { t } = useTranslation(['panels', 'common']);
   const localDesktopHost = useLocalDesktopHost();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
-  const search = useWorkspaceTextSearch(workspacePath || null);
-  const setSearchQuery = search.setQuery;
-
-  const closeFileSearch = useCallback(() => {
-    setSearchOpen(false);
-    setSearchQuery('');
-  }, [setSearchQuery]);
-
-  useEffect(() => {
-    return subscribeFileTreeSearch(() => {
-      setSearchOpen(true);
-      setSearchFocusNonce((value) => value + 1);
-      acknowledgeFileTreeSearch();
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      const element =
-        target instanceof Element
-          ? target
-          : target instanceof Node
-            ? target.parentElement
-            : null;
-      if (!element) return;
-      if (element.closest('[data-file-tree-search-overlay]')) return;
-      if (element.closest('[data-file-tree-search-result]')) return;
-      if (element.closest('[data-file-tree-search-chrome]')) return;
-      if (element.closest('.product-context-menu')) return;
-      if (element.closest('.file-tree-row')) return;
-      if (element.closest('[popover]')) return;
-      if (element.closest('.astryx-typeahead-dropdown')) return;
-      closeFileSearch();
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeFileSearch();
-    };
-
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [closeFileSearch, searchOpen]);
+  const userSystem = useOptionalUserSystem();
+  const configuredEditorType =
+    userSystem?.config?.editor?.editor_type ?? EditorType.VS_CODE;
+  const externalEditorLabel = useMemo(() => {
+    const customOpener = getEditorOpenerService()
+      .listEditorOpeners()
+      .find((entry) => entry.id === String(configuredEditorType));
+    if (customOpener?.label) {
+      return customOpener.label;
+    }
+    return getIdeName(configuredEditorType);
+  }, [configuredEditorType]);
 
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
@@ -245,6 +219,10 @@ export function FileTreePanel({
     y: number;
     relativePath: string;
     isFolder: boolean;
+  } | null>(null);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState<{
+    x: number;
+    y: number;
   } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const dragCandidateRef = useRef<{
@@ -339,6 +317,69 @@ export function FileTreePanel({
       lazyLoadAllDirectories,
     ]
   );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
+  const search = useWorkspaceTextSearch(workspacePath || null, mergedFiles);
+  const setSearchQuery = search.setQuery;
+  const setSearchMode = search.setMode;
+
+  const closeFileSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, [setSearchQuery]);
+
+  const openFileSearch = useCallback(
+    (mode: WorkspaceSearchMode) => {
+      setSearchMode(mode);
+      setSearchOpen(true);
+      setSearchFocusNonce((value) => value + 1);
+    },
+    [setSearchMode]
+  );
+
+  useEffect(() => {
+    return subscribeFileTreeSearch(() => {
+      openFileSearch('content');
+      acknowledgeFileTreeSearch();
+    });
+  }, [openFileSearch]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const element =
+        target instanceof Element
+          ? target
+          : target instanceof Node
+            ? target.parentElement
+            : null;
+      if (!element) return;
+      if (element.closest('[data-file-tree-search-overlay]')) return;
+      if (element.closest('[data-file-tree-search-result]')) return;
+      if (element.closest('[data-file-tree-search-chrome]')) return;
+      if (element.closest('.product-context-menu')) return;
+      if (element.closest('.file-tree-row')) return;
+      if (element.closest('[popover]')) return;
+      if (element.closest('.astryx-typeahead-dropdown')) return;
+      closeFileSearch();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeFileSearch();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeFileSearch, searchOpen]);
+
   const showLoading =
     isLoading && mergedFiles.length === 0 && mergedDirectories.length === 0;
 
@@ -404,6 +445,7 @@ export function FileTreePanel({
     dragAnchorLineRef.current = null;
     dragMovedRef.current = false;
     setContextMenu(null);
+    setMoreMenuAnchor(null);
     setLoadingLazyDirectories(new Set());
     setLazyDirectoryLoadErrors(new Map());
     setNewFileParent(null);
@@ -938,6 +980,10 @@ export function FileTreePanel({
     setContextMenu(null);
   }, []);
 
+  const closeMoreMenu = useCallback(() => {
+    setMoreMenuAnchor(null);
+  }, []);
+
   const copyAbsolutePath = useCallback(
     async (relativePath: string) => {
       try {
@@ -977,6 +1023,24 @@ export function FileTreePanel({
       }
     },
     [resolvePath, workspacePath]
+  );
+
+  const openInConfiguredExternalViewer = useCallback(
+    async (relativePath: string) => {
+      try {
+        if (onOpenInExternalEditor) {
+          await onOpenInExternalEditor(relativePath, configuredEditorType);
+          return;
+        }
+        const absolutePath = relativePath
+          ? resolvePath(relativePath)
+          : workspacePath;
+        await desktopApi.revealInFileManager(absolutePath);
+      } catch (error) {
+        console.error('Failed to open path in external viewer:', error);
+      }
+    },
+    [configuredEditorType, onOpenInExternalEditor, resolvePath, workspacePath]
   );
 
   const trashItem = useCallback(
@@ -1528,6 +1592,7 @@ export function FileTreePanel({
     ) => {
       event.preventDefault();
       event.stopPropagation();
+      setMoreMenuAnchor(null);
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
@@ -1537,6 +1602,118 @@ export function FileTreePanel({
     },
     []
   );
+
+  const moreMenuTargetPath = selectedNodePath ?? '';
+
+  const moreMenuItems = useMemo<ProductContextMenuItem[]>(() => {
+    return [
+      {
+        id: 'more-new',
+        type: 'submenu',
+        label: t('fileTreeMenu.new'),
+        icon: Plus,
+        children: [
+          {
+            id: 'more-new-folder',
+            label: t('fileTreeMenu.newFolder'),
+            icon: FolderPlus,
+            onSelect: () => {
+              openNewFolderPrompt(selectedParentFolder);
+            },
+          },
+          {
+            id: 'more-new-file',
+            label: t('fileTreeMenu.newFile'),
+            icon: FilePlus,
+            onSelect: () => {
+              openNewFilePrompt(selectedParentFolder);
+            },
+          },
+        ],
+      },
+      {
+        id: 'more-search',
+        type: 'submenu',
+        label: t('fileTreeMenu.search'),
+        icon: Search,
+        children: [
+          {
+            id: 'more-search-file-name',
+            label: t('fileTreeMenu.searchFileName'),
+            icon: FileSearch,
+            onSelect: () => {
+              openFileSearch('filename');
+            },
+          },
+          {
+            id: 'more-search-file-content',
+            label: t('fileTreeMenu.searchFileContent'),
+            icon: FileCode,
+            onSelect: () => {
+              openFileSearch('content');
+            },
+          },
+        ],
+      },
+      {
+        id: 'more-copy',
+        type: 'submenu',
+        label: t('fileTreeMenu.copy'),
+        icon: Copy,
+        children: [
+          {
+            id: 'more-copy-relative-path',
+            label: t('fileTreeMenu.copyRelativePath'),
+            icon: Copy,
+            onSelect: () => {
+              void copyRelativePath(moreMenuTargetPath);
+            },
+          },
+          {
+            id: 'more-copy-absolute-path',
+            label: t('fileTreeMenu.copyAbsolutePath'),
+            icon: Copy,
+            onSelect: () => {
+              void copyAbsolutePath(moreMenuTargetPath);
+            },
+          },
+        ],
+      },
+      {
+        id: 'more-open-in',
+        type: 'submenu',
+        label: t('fileTreeMenu.openIn'),
+        icon: ExternalLink,
+        children: [
+          {
+            id: 'more-open-in-external-viewer',
+            label: externalEditorLabel,
+            iconNode: (
+              <IdeIcon
+                editorType={configuredEditorType}
+                className="h-3.5 w-3.5 shrink-0"
+              />
+            ),
+            onSelect: () => {
+              void openInConfiguredExternalViewer(moreMenuTargetPath);
+            },
+          },
+        ],
+      },
+    ];
+  }, [
+    configuredEditorType,
+    copyAbsolutePath,
+    copyRelativePath,
+    externalEditorLabel,
+    moreMenuTargetPath,
+    openFileSearch,
+    openInConfiguredExternalViewer,
+    openNewFilePrompt,
+    openNewFolderPrompt,
+    selectedParentFolder,
+    t,
+  ]);
 
   const fileTreeContextMenuItems = useMemo<ProductContextMenuItem[]>(() => {
     if (!contextMenu) return [];
@@ -1990,24 +2167,6 @@ export function FileTreePanel({
               <button
                 type="button"
                 className="ghost icon-button file-tree-root-action"
-                onClick={() => openNewFilePrompt(selectedParentFolder)}
-                aria-label={t('fileTreeMenu.newFile')}
-                title={t('fileTreeMenu.newFile')}
-              >
-                <FilePlus size={14} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="ghost icon-button file-tree-root-action"
-                onClick={() => openNewFolderPrompt(selectedParentFolder)}
-                aria-label={t('fileTreeMenu.newFolder')}
-                title={t('fileTreeMenu.newFolder')}
-              >
-                <FolderPlus size={14} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="ghost icon-button file-tree-root-action"
                 onClick={() => onRefreshFiles?.()}
                 disabled={!onRefreshFiles}
                 aria-label={t('fileTreeMenu.refreshFileTree')}
@@ -2040,11 +2199,28 @@ export function FileTreePanel({
               <button
                 type="button"
                 className="ghost icon-button file-tree-root-action"
-                onClick={() => setSearchOpen(true)}
-                aria-label={t('fileTreeMenu.search')}
-                title={t('fileTreeMenu.search')}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setContextMenu(null);
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setMoreMenuAnchor((prev) =>
+                    prev
+                      ? null
+                      : {
+                          x: rect.left,
+                          y: rect.bottom + 4,
+                        }
+                  );
+                }}
+                aria-label={t('fileTreeMenu.moreActions')}
+                title={t('fileTreeMenu.moreActions')}
+                aria-haspopup="menu"
+                aria-expanded={moreMenuAnchor !== null}
               >
-                <Search size={14} aria-hidden />
+                <MoreHorizontal size={14} aria-hidden />
               </button>
             </div>
           </div>
@@ -2089,6 +2265,15 @@ export function FileTreePanel({
           </>
         )}
       </div>
+      {moreMenuAnchor ? (
+        <ProductContextMenu
+          x={moreMenuAnchor.x}
+          y={moreMenuAnchor.y}
+          items={moreMenuItems}
+          itemRole="button"
+          onClose={closeMoreMenu}
+        />
+      ) : null}
       {contextMenu ? (
         <ProductContextMenu
           x={contextMenu.x}

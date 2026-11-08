@@ -22,11 +22,16 @@ import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
   fileTreeApi,
+  type FileTreeEntry,
   type TextSearchFileResult,
   type TextSearchResponse,
 } from '@/lib/api';
 
+export type WorkspaceSearchMode = 'content' | 'filename';
+
 export interface WorkspaceTextSearchController {
+  mode: WorkspaceSearchMode;
+  setMode: (mode: WorkspaceSearchMode) => void;
   query: string;
   setQuery: (value: string) => void;
   caseSensitive: boolean;
@@ -43,9 +48,80 @@ export interface WorkspaceTextSearchController {
   toggleExpanded: (path: string) => void;
 }
 
+function collectFilesFromTreeEntries(
+  entries: readonly FileTreeEntry[],
+  rootPath: string
+): string[] {
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const collected: string[] = [];
+  const visit = (nodes: readonly FileTreeEntry[]) => {
+    for (const node of nodes) {
+      if (node.is_dir) {
+        if (node.children && node.children.length > 0) {
+          visit(node.children);
+        }
+        continue;
+      }
+      const normalizedPath = node.path.replace(/\\/g, '/');
+      const relativePath =
+        normalizedRoot && normalizedPath.startsWith(`${normalizedRoot}/`)
+          ? normalizedPath.slice(normalizedRoot.length + 1)
+          : normalizedPath.replace(/^\/+/, '');
+      if (relativePath) {
+        collected.push(relativePath);
+      }
+    }
+  };
+  visit(entries);
+  return collected;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFileNameMatcher(
+  query: string,
+  options: {
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    isRegex: boolean;
+  }
+): { test: (filePath: string) => boolean } | { error: string } {
+  const { caseSensitive, wholeWord, isRegex } = options;
+  if (isRegex || wholeWord) {
+    try {
+      const pattern = isRegex ? query : `\\b${escapeRegExp(query)}\\b`;
+      const regex = new RegExp(pattern, caseSensitive ? '' : 'i');
+      return {
+        test: (filePath: string) => {
+          const baseName = filePath.split('/').pop() ?? filePath;
+          return regex.test(baseName) || regex.test(filePath);
+        },
+      };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  const needle = caseSensitive ? query : query.toLowerCase();
+  return {
+    test: (filePath: string) => {
+      const candidate = caseSensitive ? filePath : filePath.toLowerCase();
+      return candidate.includes(needle);
+    },
+  };
+}
+
+const MAX_FILENAME_SEARCH_RESULTS = 200;
+
 export function useWorkspaceTextSearch(
-  rootPath: string | null
+  rootPath: string | null,
+  fallbackFiles: readonly string[] = []
 ): WorkspaceTextSearchController {
+  const [mode, setMode] = useState<WorkspaceSearchMode>('content');
   const [query, setQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
@@ -56,6 +132,13 @@ export function useWorkspaceTextSearch(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const cachedTreeFilesRef = useRef<{
+    rootPath: string;
+    files: string[];
+  } | null>(null);
+  const fallbackFilesRef = useRef<readonly string[]>(fallbackFiles);
+  fallbackFilesRef.current = fallbackFiles;
+
   const liveQuery = query.trim();
   const deferredQuery = useDeferredValue(liveQuery);
   const isSearchMode = liveQuery.length > 0;
@@ -69,6 +152,7 @@ export function useWorkspaceTextSearch(
     setIsLoading(false);
     setError(null);
     setExpandedFiles((current) => (current.size === 0 ? current : new Set()));
+    cachedTreeFilesRef.current = null;
   }, [rootPath]);
 
   useEffect(() => {
@@ -82,6 +166,75 @@ export function useWorkspaceTextSearch(
     if (!deferredQuery) return;
 
     let cancelled = false;
+
+    if (mode === 'filename') {
+      const matcher = buildFileNameMatcher(deferredQuery, {
+        caseSensitive,
+        wholeWord,
+        isRegex,
+      });
+      if ('error' in matcher) {
+        setSearchResults(null);
+        setIsLoading(false);
+        setError(matcher.error);
+        return;
+      }
+
+      const applyFileFilter = (treeFiles: readonly string[]) => {
+        if (cancelled) return;
+        const allFiles = Array.from(
+          new Set([...fallbackFilesRef.current, ...treeFiles])
+        ).sort((a, b) => a.localeCompare(b));
+        const matched = allFiles.filter((filePath) => matcher.test(filePath));
+        const truncated = matched.length > MAX_FILENAME_SEARCH_RESULTS;
+        const visibleFiles = truncated
+          ? matched.slice(0, MAX_FILENAME_SEARCH_RESULTS)
+          : matched;
+        setSearchResults({
+          files: visibleFiles.map((path) => ({
+            path,
+            match_count: 1,
+            matches: [],
+          })),
+          file_count: matched.length,
+          total_matches: matched.length,
+          truncated,
+        });
+        setExpandedFiles(new Set());
+        setError(null);
+        setIsLoading(false);
+      };
+
+      if (cachedTreeFilesRef.current?.rootPath === rootPath) {
+        applyFileFilter(cachedTreeFilesRef.current.files);
+        return;
+      }
+
+      if (typeof fileTreeApi.getTree === 'function') {
+        setIsLoading(true);
+        setError(null);
+        Promise.resolve(fileTreeApi.getTree(rootPath))
+          .then((entries) => {
+            const treeFiles = Array.isArray(entries)
+              ? collectFilesFromTreeEntries(entries, rootPath)
+              : [];
+            cachedTreeFilesRef.current = { rootPath, files: treeFiles };
+            applyFileFilter(treeFiles);
+          })
+          .catch(() => {
+            cachedTreeFilesRef.current = { rootPath, files: [] };
+            applyFileFilter([]);
+          });
+      } else {
+        cachedTreeFilesRef.current = { rootPath, files: [] };
+        applyFileFilter([]);
+      }
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -114,6 +267,7 @@ export function useWorkspaceTextSearch(
     isRegex,
     deferredQuery,
     isSearchMode,
+    mode,
     rootPath,
     wholeWord,
   ]);
@@ -128,6 +282,8 @@ export function useWorkspaceTextSearch(
   }, []);
 
   return {
+    mode,
+    setMode,
     query,
     setQuery,
     caseSensitive,
@@ -172,6 +328,10 @@ export function WorkspaceFileSearchField({
   const { t } = useTranslation('panels');
   const { openSurfaceMenu } = useAppContextMenu();
   const inputRef = useRef<HTMLInputElement>(null);
+  const placeholder =
+    search.mode === 'filename'
+      ? t('searchPanel.searchFileNamePlaceholder')
+      : t('searchPanel.searchPlaceholder');
 
   useEffect(() => {
     if (focusNonce === 0) return;
@@ -213,10 +373,10 @@ export function WorkspaceFileSearchField({
       <TextInput
         ref={inputRef}
         className="file-tree-search-input"
-        label={t('searchPanel.searchPlaceholder')}
+        label={placeholder}
         isLabelHidden
         size="sm"
-        placeholder={t('searchPanel.searchPlaceholder')}
+        placeholder={placeholder}
         value={search.query}
         onChange={search.setQuery}
         hasAutoFocus={autoFocus}
@@ -294,15 +454,22 @@ export function WorkspaceFileSearchResults({
   if (!search.isSearchMode) return null;
 
   const renderFileResult = (result: TextSearchFileResult) => {
-    const isExpanded = search.expandedFiles.has(result.path);
+    const isFileNameMode = search.mode === 'filename';
+    const isExpanded = !isFileNameMode && search.expandedFiles.has(result.path);
     return (
       <div key={result.path} data-file-tree-search-result="">
         <button
           type="button"
           className="file-tree-search-file"
           data-file-tree-search-result=""
-          aria-expanded={isExpanded}
-          onClick={() => search.toggleExpanded(result.path)}
+          aria-expanded={isFileNameMode ? undefined : isExpanded}
+          onClick={() => {
+            if (isFileNameMode) {
+              onOpenFile(result.path);
+              return;
+            }
+            search.toggleExpanded(result.path);
+          }}
           onContextMenu={(event) => {
             event.stopPropagation();
             openSurfaceMenu(event, [
@@ -321,17 +488,21 @@ export function WorkspaceFileSearchResults({
             ]);
           }}
         >
-          <ChevronRight
-            className={`file-tree-search-chevron${
-              isExpanded ? ' is-expanded' : ''
-            }`}
-            size={14}
-            aria-hidden
-          />
+          {!isFileNameMode ? (
+            <ChevronRight
+              className={`file-tree-search-chevron${
+                isExpanded ? ' is-expanded' : ''
+              }`}
+              size={14}
+              aria-hidden
+            />
+          ) : null}
           <span className="file-tree-search-path">{result.path}</span>
-          <span className="file-tree-search-summary-count">
-            {result.match_count}
-          </span>
+          {!isFileNameMode ? (
+            <span className="file-tree-search-summary-count">
+              {result.match_count}
+            </span>
+          ) : null}
         </button>
         {isExpanded
           ? result.matches.map((match, index) => (

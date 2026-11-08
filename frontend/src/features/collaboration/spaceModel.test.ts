@@ -1178,4 +1178,95 @@ describe('DM streaming draft replacement and space event/round helpers', () => {
     expect(index.get('group-session-muse')).toBe('identity-muse');
     expect(index.get('group-session-builder')).toBe('identity-builder');
   });
+
+  it('deduplicates multiple streaming drafts for the same bot and suppresses drafts already persisted in mergeSpaceMessages', () => {
+    type TestSpaceMessage = {
+      id: string;
+      seq: number;
+      origin: string;
+      envelope: {
+        id?: string;
+        sender: string;
+        conversation_id?: string;
+        content: string;
+        turn_id?: string;
+        streaming?: boolean;
+      };
+    };
+    const duplicatedDrafts = mergeSpaceMessages<TestSpaceMessage>(
+      [
+        {
+          id: 'msg-1',
+          seq: 1,
+          origin: 'user',
+          envelope: { sender: 'Person', content: '@前端交互工程师 汇报进度' },
+        },
+      ],
+      [
+        {
+          id: 'draft:turn-1',
+          seq: 2,
+          origin: 'agent',
+          envelope: {
+            id: 'draft:turn-1',
+            sender: '前端交互工程师',
+            conversation_id: 'conv-fe',
+            content: '正在流式输出汇报内容...',
+            turn_id: 'turn-1',
+            streaming: true,
+          },
+        },
+        {
+          id: 'draft:turn-2',
+          seq: 3,
+          origin: 'agent',
+          envelope: {
+            id: 'draft:turn-2',
+            sender: '前端交互工程师',
+            conversation_id: 'conv-fe',
+            content: '正在流式输出汇报内容...',
+            turn_id: 'turn-2',
+            streaming: true,
+          },
+        },
+      ]
+    );
+    expect(duplicatedDrafts).toHaveLength(2);
+    expect(duplicatedDrafts.map((m) => m.id)).toEqual([
+      'msg-1',
+      'draft:turn-2',
+    ]);
+
+    const persistedAndStaleDraft = mergeSpaceMessages<TestSpaceMessage>(
+      duplicatedDrafts,
+      [
+        {
+          id: 'msg-2',
+          seq: 2,
+          origin: 'agent',
+          envelope: {
+            id: 'msg-2',
+            sender: '前端交互工程师',
+            conversation_id: 'conv-fe',
+            content: '正在流式输出汇报内容...',
+            turn_id: 'turn-1',
+          },
+        },
+        {
+          id: 'draft:turn-2',
+          seq: 3,
+          origin: 'agent',
+          envelope: {
+            id: 'draft:turn-2',
+            sender: '前端交互工程师',
+            conversation_id: 'conv-fe',
+            content: '正在流式输出汇报内容...',
+            turn_id: 'turn-2',
+            streaming: true,
+          },
+        },
+      ]
+    );
+    expect(persistedAndStaleDraft.map((m) => m.id)).toEqual(['msg-1', 'msg-2']);
+  });
 });

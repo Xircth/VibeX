@@ -15,6 +15,8 @@ type TooltipState = {
   text: string;
   top: number;
   left: number;
+  side: 'bottom' | 'top';
+  arrowLeft: number;
 };
 
 function isMousePointer(event: PointerEvent): boolean {
@@ -180,6 +182,7 @@ export function NativeTitleTooltipHost() {
     <div
       role="tooltip"
       data-native-title-tooltip="true"
+      data-side={tooltip.side}
       className={NATIVE_TITLE_TOOLTIP_CLASS}
       style={{
         position: 'fixed',
@@ -190,6 +193,12 @@ export function NativeTitleTooltipHost() {
       }}
     >
       {tooltip.text}
+      <span
+        aria-hidden="true"
+        className="app-hover-tooltip-native-arrow"
+        data-side={tooltip.side}
+        style={{ left: tooltip.arrowLeft }}
+      />
     </div>
   );
 

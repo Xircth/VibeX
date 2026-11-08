@@ -882,24 +882,29 @@ export function SessionHubSidebar({
 
                   {isWorkspaceListView ? null : (
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          hidden={isSearchExpanded}
-                          className={cn(
-                            SESSION_LIST_ACTION_BUTTON_CLASS,
-                            sortField && 'text-foreground',
-                            isSearchExpanded && 'hidden'
-                          )}
-                          aria-label={t('hubSidebar.sort')}
-                        >
-                          <ArrowUpDown
-                            className={SESSION_LIST_ACTION_ICON_CLASS}
-                          />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              hidden={isSearchExpanded}
+                              className={cn(
+                                SESSION_LIST_ACTION_BUTTON_CLASS,
+                                sortField && 'text-foreground',
+                                isSearchExpanded && 'hidden'
+                              )}
+                              aria-label={t('hubSidebar.sort')}
+                            >
+                              <ArrowUpDown
+                                className={SESSION_LIST_ACTION_ICON_CLASS}
+                              />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('hubSidebar.sort')}</TooltipContent>
+                      </Tooltip>
                       <DropdownMenuContent align="start">
                         <DropdownMenuRadioGroup
                           value={sortField ?? 'default'}
@@ -1183,7 +1188,7 @@ export function SessionHubSidebar({
             }}
           >
             {isWorkspaceListView ? (
-              <div className="session-hub-list-body">
+              <div className="session-hub-list-body session-hub-list-body--workspace">
                 {isLoading ? (
                   <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                     {t('hubSidebar.loadingSessions')}

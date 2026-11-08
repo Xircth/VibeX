@@ -3,7 +3,11 @@ import {
   DEFAULT_KANBAN_VIEW,
   type KanbanPanelView,
 } from '@/lib/kanbanPanelView';
-import { DEFAULT_KANBAN_VIEW_ID, migrateKanbanViewId } from '@/lib/kanbanViews';
+import {
+  DEFAULT_KANBAN_VIEW_ID,
+  migrateKanbanViewId,
+  viewIdForBoardStyleChange,
+} from '@/lib/kanbanViews';
 import { getKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
   createEmptyKanbanSessionLayoutState,
@@ -74,12 +78,13 @@ export const useProjectViewStateStore = create<ProjectViewStateStore>(
     getKanbanState: (projectKey) => {
       const stored = get().kanbanByProject[projectKey];
       if (!stored) return createDefaultKanbanState();
+      const style = getKanbanBoardStyle();
+      const rawViewId =
+        stored.activeViewId ?? migrateKanbanViewId(stored.panelView, style);
       return {
         ...createDefaultKanbanState(),
         ...stored,
-        activeViewId:
-          stored.activeViewId ??
-          migrateKanbanViewId(stored.panelView, getKanbanBoardStyle()),
+        activeViewId: viewIdForBoardStyleChange(style, rawViewId),
       };
     },
     setKanbanState: (projectKey, nextState) =>

@@ -342,7 +342,7 @@ export function GitPanel() {
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
+            className="p-1 rounded bg-transparent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
             onClick={onFetch}
             disabled={fetchLoading}
             title={i18n.t('panels:ui.git.fetchAllRemotes')}
@@ -355,10 +355,10 @@ export function GitPanel() {
           </button>
           <button
             type="button"
-            className={`p-1 rounded transition-colors relative disabled:opacity-40 ${
+            className={`p-1 rounded bg-transparent transition-colors relative disabled:opacity-40 ${
               gitLog.behind > 0
-                ? 'text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))]'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                ? 'text-[hsl(var(--warning))] hover:text-[hsl(var(--warning))]'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={onPull}
             disabled={pullLoading}
@@ -381,7 +381,7 @@ export function GitPanel() {
           </button>
           <button
             type="button"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+            className="p-1 rounded bg-transparent text-muted-foreground hover:text-foreground transition-colors"
             onClick={toggleDiffListView}
             title={
               diffListView === 'flat'

@@ -16,6 +16,8 @@ import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
 import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
+import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
+import type { EditorType } from 'shared/types';
 import { deriveWorkspaceRootPathCandidates } from './workspaceRootPath';
 import { replaceFilePathPrefix } from '@/utils/filePaths';
 
@@ -389,6 +391,38 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     }
   };
 
+  const handleOpenInExternalEditor = useCallback(
+    async (relativePath: string, editorType: EditorType) => {
+      const targetFilePath = relativePath.trim() ? relativePath.trim() : null;
+      if (activeWorktreeId && workspaceBelongsToCurrentProject) {
+        const response = await getEditorOpenerService().openAttemptInEditor(
+          activeWorktreeId,
+          {
+            editorType,
+            filePath: targetFilePath,
+          }
+        );
+        if (response.url) {
+          window.open(response.url, '_blank');
+        }
+        return;
+      }
+      if (projectId) {
+        const response = await getEditorOpenerService().openProjectInEditor(
+          projectId,
+          {
+            editorType,
+            filePath: targetFilePath,
+          }
+        );
+        if (response.url) {
+          window.open(response.url, '_blank');
+        }
+      }
+    },
+    [activeWorktreeId, projectId, workspaceBelongsToCurrentProject]
+  );
+
   const relativeRevealTarget = useMemo(() => {
     if (!rootPath || !revealTarget) {
       return null;
@@ -445,6 +479,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={refreshFileTree}
         onRenamePath={handleRenamePath}
+        onOpenInExternalEditor={handleOpenInExternalEditor}
         refreshToken={refreshToken}
         lazyLoadAllDirectories
         revealTarget={relativeRevealTarget}

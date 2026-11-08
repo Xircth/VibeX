@@ -43,6 +43,13 @@ describe('kanbanBoardStyle', () => {
     expect(getKanbanBoardStyle()).toBe('canvas');
   });
 
+  it('migrates legacy fixed persisted value in localStorage to canvas', () => {
+    localStorage.setItem(KANBAN_BOARD_STYLE_KEY, 'fixed');
+
+    expect(getKanbanBoardStyle()).toBe('canvas');
+    expect(localStorage.getItem(KANBAN_BOARD_STYLE_KEY)).toBe('canvas');
+  });
+
   it('notifies subscribers on change', () => {
     let notified = 0;
     const unsubscribe = subscribeKanbanBoardStyle(() => {

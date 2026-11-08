@@ -65,14 +65,13 @@ export function positionHoverTooltip(
   viewport: { width: number; height: number },
   gap = NATIVE_TITLE_GAP_PX,
   margin = NATIVE_TITLE_MARGIN_PX
-): { top: number; left: number } {
+): { top: number; left: number; side: 'bottom' | 'top'; arrowLeft: number } {
   const below = anchor.top + anchor.height + gap;
   const above = anchor.top - tooltip.height - gap;
   const belowFits = below + tooltip.height + margin <= viewport.height;
   const aboveFits = above >= margin;
-  // Prefer above when it fits so toolbar hovers stay in the chrome instead
-  // of dropping into the native browser page, which paints over HTML.
-  let top = aboveFits ? above : belowFits ? below : Math.max(margin, above);
+  const side: 'bottom' | 'top' = !belowFits && aboveFits ? 'top' : 'bottom';
+  let top = belowFits ? below : aboveFits ? above : Math.max(margin, below);
   let left = anchor.left + (anchor.width - tooltip.width) / 2;
 
   if (top < margin) {
@@ -81,5 +80,10 @@ export function positionHoverTooltip(
 
   const maxLeft = Math.max(margin, viewport.width - tooltip.width - margin);
   left = Math.min(Math.max(left, margin), maxLeft);
-  return { top, left };
+  const anchorCenterX = anchor.left + anchor.width / 2;
+  const arrowLeft = Math.min(
+    Math.max(anchorCenterX - left, 10),
+    Math.max(10, tooltip.width - 10)
+  );
+  return { top, left, side, arrowLeft };
 }

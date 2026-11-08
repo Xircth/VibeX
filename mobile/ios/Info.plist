@@ -2,18 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>扫描电脑上的配对二维码</string>
+	<string>扫描电脑上的配对二维码以连接 VibeX 桌面端</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>发现在局域网内运行的 VibeX 电脑并建立实时连接</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>从相册选择配对二维码图片或向对话附加图片</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>连接局域网内的 VibeX 电脑</string>
 </dict>
 </plist>

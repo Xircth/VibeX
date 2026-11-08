@@ -1,0 +1,3 @@
+[submodule "mobile/ios"]
+	path = mobile/ios
+	url = https://github.com/Xircth/vibex-remote-ios.git

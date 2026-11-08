@@ -1,1 +1,0 @@
-../../../../docs/protocol/v1/generated/swift/RemoteProtocolModels.swift

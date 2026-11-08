@@ -15,8 +15,9 @@ Android 交付门槛不变。
 
 ## Consequences
 
-- 工程位于 `mobile/ios`：`CompanionCore` Swift Package 承载配对与协议客户端，可用
-  `swift test` 验证；App 壳层使用 SwiftUI，依赖 `CompanionCore`。
+- 工程位于 git submodule `mobile/ios`（[Xircth/vibex-remote-ios](https://github.com/Xircth/vibex-remote-ios)）：
+  `CompanionCore` Swift Package 承载配对与协议客户端，可用 `swift test` 验证；App 壳层使用
+  SwiftUI，依赖 `CompanionCore`。
 - 协议模型唯一来源是 `docs/protocol/v1/generated/swift/RemoteProtocolModels.swift`，
   包内以符号链接引用，不得手写或复制第二份。
 - iOS 与 Android 一样只做观察、沟通和决策：不在手机上运行 Agent、Git 或插件，配对只接受

@@ -17,4 +17,21 @@ describe('getErrorMessage', () => {
       'An unknown error occurred'
     );
   });
+
+  it('returns the reason a Host command rejected with', () => {
+    expect(getErrorMessage('Conflict: Failed to bind 0.0.0.0:17891')).toBe(
+      'Conflict: Failed to bind 0.0.0.0:17891'
+    );
+  });
+
+  it('uses the caller fallback when no reason can be read', () => {
+    expect(getErrorMessage({ code: 'internal' }, '保存失败')).toBe('保存失败');
+    expect(getErrorMessage(undefined, '保存失败')).toBe('保存失败');
+  });
+
+  it('keeps a readable reason ahead of the caller fallback', () => {
+    expect(getErrorMessage(new Error('port in use'), '保存失败')).toBe(
+      'port in use'
+    );
+  });
 });

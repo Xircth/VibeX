@@ -81,3 +81,20 @@ test('会话消息导航与用户消息的间隔缩小 30%', () => {
     /\.conv-thread-content\s*\{[\s\S]*?padding-right: 25\.48px;/
   );
 });
+
+test('会话消息导航锚点在可视区域内保持垂直居中', () => {
+  const styles = readFile('src/styles/conversation/conv-tools.css');
+
+  assert.match(
+    styles,
+    /\.conv-message-nav-anchor\s*\{[\s\S]*?align-items: center;[\s\S]*?justify-content: flex-end;/
+  );
+  assert.match(
+    styles,
+    /@media \(min-width: 1120px\)[\s\S]*?\.conv-message-nav-anchor\s*\{[\s\S]*?display: flex;/
+  );
+  assert.match(
+    styles,
+    /\.conv-message-nav-rail\s*\{[\s\S]*?position: relative;[\s\S]*?max-height: 100%;/
+  );
+});

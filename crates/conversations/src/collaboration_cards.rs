@@ -357,7 +357,7 @@ pub async fn post_blocking_user_question(
 }
 
 /// Questions array for an IM Ask card, taken from an elicitation schema
-/// (`x-vibex-questions`) or synthesized from the prompt.
+/// (`x-vibex-questions` or JSON Schema `properties`) or synthesized from the prompt.
 pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -> Value {
     if let Some(questions) = schema
         .and_then(|schema| schema.get("x-vibex-questions"))
@@ -366,11 +366,209 @@ pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -
     {
         return Value::Array(questions.clone());
     }
+    if let Some(properties) = schema
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+        .filter(|props| !props.is_empty())
+    {
+        let required_names: std::collections::HashSet<&str> = schema
+            .and_then(|schema| schema.get("required"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let companions = custom_answer_companions_from_schema_properties(properties, &required_names);
+        let names: Vec<&String> = properties
+            .keys()
+            .filter(|name| !companions.contains_key(name.as_str()))
+            .collect();
+        let companion_by_question: std::collections::HashMap<&str, &str> = companions
+            .iter()
+            .map(|(&companion, &question)| (question, companion))
+            .collect();
+        let mut parsed = Vec::with_capacity(names.len());
+        for name in names.iter() {
+            let Some(property) = properties.get(*name).and_then(Value::as_object) else {
+                continue;
+            };
+            let raw_type = property.get("type").and_then(Value::as_str).unwrap_or("");
+            let is_array = raw_type == "array";
+            let title = property
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let description = property
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let fallback_prompt = prompt.trim();
+            let question_text = description
+                .or_else(|| {
+                    if names.len() == 1 {
+                        (!fallback_prompt.is_empty()).then_some(fallback_prompt).or(title)
+                    } else {
+                        title
+                    }
+                })
+                .or_else(|| (!fallback_prompt.is_empty()).then_some(fallback_prompt))
+                .unwrap_or(name.as_str());
+            let header_text = title.unwrap_or_else(|| {
+                if question_text.is_empty() {
+                    name.as_str()
+                } else {
+                    question_text
+                }
+            });
+            let options = schema_property_options(property, raw_type);
+            let mut item = json!({
+                "id": name,
+                "fieldName": name,
+                "header": header_text,
+                "question": question_text,
+                "multiSelect": is_array,
+                "options": options,
+            });
+            if let Some(&custom_field) = companion_by_question.get(name.as_str())
+                && let Some(obj) = item.as_object_mut()
+            {
+                obj.insert(
+                    "customFieldName".to_string(),
+                    Value::String(custom_field.to_string()),
+                );
+            }
+            parsed.push(item);
+        }
+        if !parsed.is_empty() {
+            return Value::Array(parsed);
+        }
+    }
     json!([{
         "question": prompt,
         "header": prompt,
         "options": [],
     }])
+}
+
+fn custom_answer_companions_from_schema_properties<'a>(
+    properties: &'a serde_json::Map<String, Value>,
+    required_names: &std::collections::HashSet<&str>,
+) -> std::collections::HashMap<&'a str, &'a str> {
+    const CUSTOM_FIELD_SUFFIX: &str = "_custom";
+    let mut companions = std::collections::HashMap::new();
+    for (name, raw_property) in properties {
+        let name_str = name.as_str();
+        if !name_str.ends_with(CUSTOM_FIELD_SUFFIX) || required_names.contains(name_str) {
+            continue;
+        }
+        let question_name = &name_str[..name_str.len() - CUSTOM_FIELD_SUFFIX.len()];
+        let Some((question_key, question_val)) = properties.get_key_value(question_name) else {
+            continue;
+        };
+        let (Some(question), Some(companion)) = (question_val.as_object(), raw_property.as_object()) else {
+            continue;
+        };
+        let question_type = question.get("type").and_then(Value::as_str).unwrap_or("");
+        if question_type != "string" && question_type != "array" {
+            continue;
+        }
+        if schema_property_options(question, question_type).is_empty() {
+            continue;
+        }
+        let companion_type = companion.get("type").and_then(Value::as_str).unwrap_or("");
+        if companion_type != "string" {
+            continue;
+        }
+        if !parse_schema_options(companion).is_empty() {
+            continue;
+        }
+        companions.insert(name_str, question_key.as_str());
+    }
+    companions
+}
+
+fn schema_property_options(
+    property: &serde_json::Map<String, Value>,
+    raw_type: &str,
+) -> Vec<Value> {
+    if raw_type == "array" {
+        return property
+            .get("items")
+            .and_then(Value::as_object)
+            .map(parse_schema_options)
+            .unwrap_or_default();
+    }
+    if raw_type == "boolean" {
+        return vec![
+            json!({ "value": true, "label": "Yes", "description": "" }),
+            json!({ "value": false, "label": "No", "description": "" }),
+        ];
+    }
+    parse_schema_options(property)
+}
+
+fn parse_schema_options(property: &serde_json::Map<String, Value>) -> Vec<Value> {
+    if let Some(items) = property.get("oneOf").and_then(Value::as_array) {
+        return parse_const_options(items);
+    }
+    if let Some(items) = property.get("anyOf").and_then(Value::as_array) {
+        return parse_const_options(items);
+    }
+    let Some(items) = property.get("enum").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|value| {
+            let label = primitive_option_string(value)?;
+            Some(json!({
+                "value": value,
+                "label": label,
+                "description": "",
+            }))
+        })
+        .collect()
+}
+
+fn parse_const_options(items: &[Value]) -> Vec<Value> {
+    items
+        .iter()
+        .filter_map(|raw_choice| {
+            let choice = raw_choice.as_object()?;
+            let const_val = choice.get("const")?;
+            let fallback_label = primitive_option_string(const_val)?;
+            let label = choice
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&fallback_label);
+            let description = choice
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            Some(json!({
+                "value": const_val,
+                "label": label,
+                "description": description,
+            }))
+        })
+        .collect()
+}
+
+fn primitive_option_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
 }
 
 /// Native Grok/Claude elicitation for a seated collab conversation: post the
@@ -965,6 +1163,73 @@ mod tests {
         assert_eq!(questions[0]["options"][0]["label"], json!("Patch"));
         let synthesized = questions_from_elicitation_schema(None, "Pick one");
         assert_eq!(synthesized[0]["question"], json!("Pick one"));
+    }
+
+    #[test]
+    fn elicitation_schema_extracts_claude_code_properties_and_custom_companions() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "type": "string",
+                    "title": "服务器登录",
+                    "description": "如何连接服务器？",
+                    "oneOf": [
+                        {
+                            "const": "ssh_key",
+                            "title": "我生成专用密钥，你贴一条命令装上（推荐）",
+                            "description": "全程免密自动化部署。"
+                        },
+                        {
+                            "const": "password",
+                            "title": "直接把 root 密码给我",
+                            "description": "密码会进入会话上下文。"
+                        }
+                    ]
+                },
+                "auth_custom": {
+                    "type": "string",
+                    "title": "Other"
+                },
+                "checks": {
+                    "type": "array",
+                    "title": "验证项",
+                    "items": {
+                        "anyOf": [
+                            { "const": "lint", "title": "Lint", "description": "" },
+                            { "const": "test", "title": "Tests", "description": "" }
+                        ]
+                    }
+                },
+                "checks_custom": {
+                    "type": "string",
+                    "title": "Other"
+                }
+            },
+            "required": ["auth", "checks"]
+        });
+        let questions = questions_from_elicitation_schema(Some(&schema), "需要你回答 2 个问题");
+        let items = questions.as_array().expect("questions array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["id"], json!("auth"));
+        assert_eq!(items[0]["fieldName"], json!("auth"));
+        assert_eq!(items[0]["customFieldName"], json!("auth_custom"));
+        assert_eq!(items[0]["header"], json!("服务器登录"));
+        assert_eq!(items[0]["question"], json!("如何连接服务器？"));
+        assert_eq!(items[0]["multiSelect"], json!(false));
+        assert_eq!(items[0]["options"].as_array().unwrap().len(), 2);
+        assert_eq!(items[0]["options"][0]["value"], json!("ssh_key"));
+        assert_eq!(
+            items[0]["options"][0]["label"],
+            json!("我生成专用密钥，你贴一条命令装上（推荐）")
+        );
+
+        assert_eq!(items[1]["id"], json!("checks"));
+        assert_eq!(items[1]["customFieldName"], json!("checks_custom"));
+        assert_eq!(items[1]["header"], json!("验证项"));
+        assert_eq!(items[1]["question"], json!("验证项"));
+        assert_eq!(items[1]["multiSelect"], json!(true));
+        assert_eq!(items[1]["options"].as_array().unwrap().len(), 2);
     }
 
     #[tokio::test]

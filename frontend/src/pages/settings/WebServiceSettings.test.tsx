@@ -342,6 +342,25 @@ describe('WebServiceSettings', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows why the service failed to start instead of a generic message', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    webServiceApiMock.start.mockRejectedValueOnce(
+      'Conflict: Failed to bind web service on 0.0.0.0:17891: (os error 10048)'
+    );
+
+    renderSettings();
+
+    await user.click(await screen.findByRole('switch', { name: '启动' }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Conflict: Failed to bind web service on 0.0.0.0:17891: (os error 10048)'
+      )
+    );
+    expect(toast.error).not.toHaveBeenCalledWith('远程连接启动失败');
+  });
+
   it('asks the user to start the service before generating a pairing code', async () => {
     const user = userEvent.setup();
     renderSettings();

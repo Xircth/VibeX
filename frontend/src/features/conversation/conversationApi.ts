@@ -156,6 +156,12 @@ const conversationDetailInflight = new Map<
   Promise<DbConversationDetail | null>
 >();
 
+const PREFETCH_DETAIL_TTL_MS = 4000;
+const conversationDetailPrefetchCache = new Map<
+  string,
+  { promise: Promise<DbConversationDetail | null>; expiresAt: number }
+>();
+
 export type ConversationDetailWindow = {
   tailTurns?: number;
   fromIndex?: number;
@@ -177,11 +183,27 @@ function detailInflightKey(
 function fetchConversationDetail(
   call: <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
   conversationId: string,
-  window?: ConversationDetailWindow
+  window?: ConversationDetailWindow,
+  isPrefetch = false
 ): Promise<DbConversationDetail | null> {
   const key = detailInflightKey(conversationId, window);
+  if (!isPrefetch) {
+    const prefetched = conversationDetailPrefetchCache.get(key);
+    if (prefetched) {
+      conversationDetailPrefetchCache.delete(key);
+      if (prefetched.expiresAt > Date.now()) {
+        return prefetched.promise;
+      }
+    }
+  }
   const existing = conversationDetailInflight.get(key);
   if (existing) {
+    if (isPrefetch) {
+      conversationDetailPrefetchCache.set(key, {
+        promise: existing,
+        expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
+      });
+    }
     return existing;
   }
   const args: Record<string, unknown> = { conversationId };
@@ -196,6 +218,17 @@ function fetchConversationDetail(
     }
   });
   conversationDetailInflight.set(key, pending);
+  if (isPrefetch) {
+    conversationDetailPrefetchCache.set(key, {
+      promise: pending,
+      expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
+    });
+    void pending.catch(() => {
+      if (conversationDetailPrefetchCache.get(key)?.promise === pending) {
+        conversationDetailPrefetchCache.delete(key);
+      }
+    });
+  }
   return pending;
 }
 
@@ -231,9 +264,11 @@ export function createConversationApi(transport: BackendTransport) {
       conversationId: string,
       window?: ConversationDetailWindow
     ): Promise<DbConversationDetail | null> =>
-      fetchConversationDetail(call, conversationId, window),
+      fetchConversationDetail(call, conversationId, window, false),
     prefetchDetail: (conversationId: string): void => {
-      void fetchConversationDetail(call, conversationId).catch(() => undefined);
+      void fetchConversationDetail(call, conversationId, undefined, true).catch(
+        () => undefined
+      );
     },
 
     // Materialize or reconnect an Agent session and return its authoritative ACP

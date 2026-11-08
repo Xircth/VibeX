@@ -1944,8 +1944,60 @@ fn elicitation_response_from_card_answer(
     if declined {
         return AgentElicitationResponse::Decline;
     }
-    let content = if companion_answer.is_array() {
-        json!({ "answers": companion_answer })
+    let content = if let Some(items) = companion_answer.as_array() {
+        let mut map = serde_json::Map::new();
+        map.insert("answers".to_string(), Value::Array(items.clone()));
+        for item in items {
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let Some(qid) = obj
+                .get("questionId")
+                .or_else(|| obj.get("question_id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            if let Some(custom_field) = obj
+                .get("customFieldName")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                && let Some(custom_text) = obj
+                    .get("customText")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            {
+                map.insert(custom_field.to_string(), Value::String(custom_text.to_string()));
+            }
+            if let Some(selected) = obj.get("selected").and_then(Value::as_array) {
+                let multi_select = obj
+                    .get("multiSelect")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if multi_select {
+                    map.insert(qid.to_string(), Value::Array(selected.clone()));
+                } else if let Some(first) = selected.first() {
+                    map.insert(qid.to_string(), first.clone());
+                }
+                continue;
+            }
+            if let Some(labels) = obj.get("labels").and_then(Value::as_array) {
+                let multi_select = obj
+                    .get("multiSelect")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if multi_select || labels.len() > 1 {
+                    map.insert(qid.to_string(), Value::Array(labels.clone()));
+                } else if let Some(first) = labels.first() {
+                    map.insert(qid.to_string(), first.clone());
+                }
+            }
+        }
+        Value::Object(map)
     } else {
         companion_answer.clone()
     };
@@ -3294,7 +3346,10 @@ mod tests {
         assert_eq!(
             elicitation_response_from_card_answer(false, &answers),
             AgentElicitationResponse::Accept {
-                content: json!({ "answers": answers }),
+                content: json!({
+                    "answers": answers,
+                    "q1": "A",
+                }),
             }
         );
         assert_eq!(

@@ -100,12 +100,7 @@ export function WebServiceSettings({
         setProbe(null);
         setStatus(await webServiceApi.getStatus());
       } catch (error) {
-        const raw = getErrorMessage(error);
-        toast.error(
-          raw && raw !== 'An unknown error occurred'
-            ? raw
-            : t('webService.configSaveFailed')
-        );
+        toast.error(getErrorMessage(error, t('webService.configSaveFailed')));
         try {
           const [actualConfig, actualStatus] = await Promise.all([
             webServiceApi.getConfig(),
@@ -157,11 +152,7 @@ export function WebServiceSettings({
           );
         setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
       } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t('webService.configLoadFailed')
-        );
+        toast.error(getErrorMessage(error, t('webService.configLoadFailed')));
       } finally {
         setLoading(false);
       }
@@ -198,11 +189,7 @@ export function WebServiceSettings({
         setTunnelEnabled(Boolean(tunnelStatus.enabled));
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('webService.statusLoadFailed')
-      );
+      toast.error(getErrorMessage(error, t('webService.statusLoadFailed')));
     } finally {
       setStatusBusy(false);
     }
@@ -247,9 +234,7 @@ export function WebServiceSettings({
       toast.success(t('webService.started'));
       return next;
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('webService.startFailed')
-      );
+      toast.error(getErrorMessage(error, t('webService.startFailed')));
       return null;
     } finally {
       setStatusBusy(false);
@@ -263,9 +248,7 @@ export function WebServiceSettings({
       toast.success(t('webService.stopped'));
       setProbe(await webServiceApi.probePort(draft.port));
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('webService.stopFailed')
-      );
+      toast.error(getErrorMessage(error, t('webService.stopFailed')));
     } finally {
       setStatusBusy(false);
     }
@@ -287,9 +270,7 @@ export function WebServiceSettings({
           : (result.message ?? t('webService.portUnavailable'))
       );
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('webService.probeFailed')
-      );
+      toast.error(getErrorMessage(error, t('webService.probeFailed')));
     } finally {
       setProbing(false);
     }

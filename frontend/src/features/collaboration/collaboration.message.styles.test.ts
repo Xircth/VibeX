@@ -384,9 +384,9 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(spaceList['overflow-y']?.value).toBe('auto');
   });
 
-  it('enables content-visibility virtualization on message items so offscreen bubbles skip layout and paint', () => {
+  it('keeps message items in normal layout flow so scrolling and back-to-bottom have stable scrollHeight', () => {
     const message = declarationsFor('.collaboration-message');
-    expect(message['content-visibility']?.value).toBe('auto');
-    expect(message['contain-intrinsic-size']?.value).toBe('auto 4.5rem');
+    expect(message['content-visibility']).toBeUndefined();
+    expect(message['contain-intrinsic-size']).toBeUndefined();
   });
 });

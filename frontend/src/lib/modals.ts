@@ -38,8 +38,12 @@ export type ConfirmResult = 'confirmed' | 'canceled';
 export type DeleteResult = 'deleted' | 'canceled';
 export type SaveResult = 'saved' | 'canceled';
 
-// Error handling utility for modal operations
-export function getErrorMessage(error: unknown): string {
+// Error handling utility for modal operations. `fallback` is the caller's own
+// wording for a failure that carries no readable reason.
+export function getErrorMessage(
+  error: unknown,
+  fallback = 'An unknown error occurred'
+): string {
   if (error instanceof Error) {
     return error.message;
   }
@@ -55,5 +59,5 @@ export function getErrorMessage(error: unknown): string {
     const message = (error as { message: string }).message.trim();
     if (message) return message;
   }
-  return 'An unknown error occurred';
+  return fallback;
 }

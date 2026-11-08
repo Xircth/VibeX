@@ -477,7 +477,61 @@ export function getConversationTimelineView(
   return view;
 }
 
+const MAX_INACTIVE_CACHED_CONVERSATIONS = 24;
+const inactiveConversationLru: string[] = [];
+
+function unmarkInactiveConversation(conversationId: string): void {
+  const index = inactiveConversationLru.indexOf(conversationId);
+  if (index >= 0) {
+    inactiveConversationLru.splice(index, 1);
+  }
+}
+
+function parkInactiveConversation(conversationId: string): void {
+  const entry = state.byConversationId[conversationId];
+  viewCache.delete(conversationId);
+  factsCache.delete(conversationId);
+  if (!entry?.detail) {
+    unmarkInactiveConversation(conversationId);
+    dispatch({ type: 'reset', conversationId });
+    return;
+  }
+  state = {
+    ...state,
+    byConversationId: {
+      ...state.byConversationId,
+      [conversationId]: {
+        ...entry,
+        rows: entry.windowRows,
+        liveRows: [],
+        liveText: {},
+        optimisticTurns: [],
+        lastSequence: 0n,
+        loading: false,
+        gap: { kind: 'none' },
+      },
+    },
+  };
+  unmarkInactiveConversation(conversationId);
+  inactiveConversationLru.push(conversationId);
+  while (inactiveConversationLru.length > MAX_INACTIVE_CACHED_CONVERSATIONS) {
+    const evictedId = inactiveConversationLru.shift();
+    if (!evictedId) break;
+    const evictedSlot = slots.get(evictedId);
+    if (
+      evictedSlot &&
+      (evictedSlot.refs > 0 || evictedSlot.surfaceRefs > 0)
+    ) {
+      continue;
+    }
+    viewCache.delete(evictedId);
+    factsCache.delete(evictedId);
+    dispatch({ type: 'reset', conversationId: evictedId });
+  }
+}
+
 export function retainConversationSurface(conversationId: string): () => void {
+  unmarkInactiveConversation(conversationId);
   let slot = slots.get(conversationId);
   if (!slot) {
     slot = { refs: 0, surfaceRefs: 0, bindReady: false, controller: null };
@@ -493,6 +547,7 @@ export function retainConversationSurface(conversationId: string): () => void {
 }
 
 export function retainConversationTimeline(conversationId: string): () => void {
+  unmarkInactiveConversation(conversationId);
   let slot = slots.get(conversationId);
   if (!slot) {
     slot = { refs: 0, surfaceRefs: 0, bindReady: false, controller: null };
@@ -518,6 +573,7 @@ export function resetConversationTimelineRegistryForTests(): void {
   for (const slot of slots.values()) stopController(slot);
   slots.clear();
   inflightBinds.clear();
+  inactiveConversationLru.length = 0;
   viewCache.clear();
   factsCache.clear();
   state = emptyConversationStoreState;
@@ -534,9 +590,7 @@ function releaseConversationTimeline(conversationId: string): void {
   notify(conversationId);
   if (slot.surfaceRefs > 0) return;
   slots.delete(conversationId);
-  viewCache.delete(conversationId);
-  factsCache.delete(conversationId);
-  dispatch({ type: 'reset', conversationId });
+  parkInactiveConversation(conversationId);
 }
 
 function releaseConversationSurface(conversationId: string): void {
@@ -546,9 +600,7 @@ function releaseConversationSurface(conversationId: string): void {
   if (slot.refs > 0 || slot.surfaceRefs > 0) return;
   stopController(slot);
   slots.delete(conversationId);
-  viewCache.delete(conversationId);
-  factsCache.delete(conversationId);
-  dispatch({ type: 'reset', conversationId });
+  parkInactiveConversation(conversationId);
 }
 
 function startController(conversationId: string, slot: Slot): void {
@@ -853,8 +905,17 @@ function scheduleBind(conversationId: string, controller: Controller): void {
     cancelIdleCallback?: (id: number) => void;
   };
   if (typeof idle.requestIdleCallback === 'function') {
-    const idleId = idle.requestIdleCallback(start, { timeout: 200 });
-    controller.cancelBindIdle = () => idle.cancelIdleCallback?.(idleId);
+    if (controller.bindTimer != null) {
+      window.clearTimeout(controller.bindTimer);
+    }
+    controller.cancelBindIdle?.();
+    controller.cancelBindIdle = null;
+    controller.bindTimer = window.setTimeout(() => {
+      controller.bindTimer = null;
+      if (controller.stopped) return;
+      const idleId = idle.requestIdleCallback!(start, { timeout: 300 });
+      controller.cancelBindIdle = () => idle.cancelIdleCallback?.(idleId);
+    }, 200);
     return;
   }
   controller.bindTimer = window.setTimeout(start, 0);

@@ -662,9 +662,23 @@ const AgentTimelineConversation = forwardRef<
   const expansionInViewRef = useRef(false);
 
   const sessionId = attempt.session?.id ?? null;
-  const sessionPinRef = useRef(sessionId);
+  const sessionPinRef = useRef<string | null>(null);
+  const pinnedSessionReadyRef = useRef<string | null>(null);
   const previousPrependEpochRef = useRef(0);
   const previousTotalSizeRef = useRef(0);
+  const pendingJumpTimelineIndexRef = useRef<{
+    index: number;
+    align: 'start' | 'center' | 'end' | 'auto';
+  } | null>(null);
+  const [visibleTailSession, setVisibleTailSession] = useState<{
+    sessionId: string | null;
+    count: number;
+    revealEpoch: number;
+  }>(() => ({
+    sessionId,
+    count: 24,
+    revealEpoch: 0,
+  }));
   // Absolute workspace root for resolving clickable file paths in messages.
   // Non-worktree workspaces leave container_ref null, so fall back to the repo
   // path — otherwise a relative "README.md" can't be opened in a preview tab.
@@ -746,6 +760,24 @@ const AgentTimelineConversation = forwardRef<
         return true;
       }),
     [conversation.items, hidePersonaHostNotes, timeline, usesComposerStatusDock]
+  );
+  const effectiveVisibleTailCount =
+    visibleTailSession.sessionId === sessionId ? visibleTailSession.count : 24;
+  const effectiveRevealEpoch =
+    visibleTailSession.sessionId === sessionId
+      ? visibleTailSession.revealEpoch
+      : 0;
+  const visibleTimelineStartIndex = Math.max(
+    0,
+    timelineItems.length - effectiveVisibleTailCount
+  );
+  const hasHiddenEarlierItems = visibleTimelineStartIndex > 0;
+  const visibleTimelineItems = useMemo(
+    () =>
+      visibleTimelineStartIndex > 0
+        ? timelineItems.slice(visibleTimelineStartIndex)
+        : timelineItems,
+    [timelineItems, visibleTimelineStartIndex]
   );
   useEffect(() => {
     if (conversationError) toast.error(conversationError);
@@ -1033,7 +1065,7 @@ const AgentTimelineConversation = forwardRef<
   const virtualEntries = useMemo(() => {
     void expandableRevision;
     return buildTimelineVirtualEntries({
-      items: timelineItems,
+      items: visibleTimelineItems,
       collapseProcess,
       hideThinking,
       processExpanded: (turnId, foldStartIndex) =>
@@ -1045,15 +1077,15 @@ const AgentTimelineConversation = forwardRef<
     contextCompactByRowKey,
     expandableRevision,
     hideThinking,
-    timelineItems,
+    visibleTimelineItems,
   ]);
   const userMessageIndexes = useMemo(
     () =>
       virtualEntries.flatMap((entry, index) => {
-        const item = timelineItems[entry.timelineIndex];
+        const item = visibleTimelineItems[entry.timelineIndex];
         return timelineItemAsMessage(item)?.turn.role === 'user' ? [index] : [];
       }),
-    [timelineItems, virtualEntries]
+    [visibleTimelineItems, virtualEntries]
   );
   const activeNavEntry = useMemo(
     () => findActiveConversationMessageNavEntry(navEntries, activeIndex),
@@ -1065,12 +1097,19 @@ const AgentTimelineConversation = forwardRef<
     try {
       action();
     } finally {
-      queueMicrotask(() => {
+      const release = () => {
         programmaticScrollDepthRef.current = Math.max(
           0,
           programmaticScrollDepthRef.current - 1
         );
-      });
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          queueMicrotask(release);
+        });
+      } else {
+        queueMicrotask(release);
+      }
     }
   }, []);
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -1117,6 +1156,37 @@ const AgentTimelineConversation = forwardRef<
 
   const conversationHasEarlier = conversation.hasEarlier;
   const conversationLoadOlder = conversation.loadOlder;
+  const hasEarlierTimeline = hasHiddenEarlierItems || conversationHasEarlier;
+  const loadEarlierTimeline = useCallback(() => {
+    if (hasHiddenEarlierItems) {
+      setVisibleTailSession((current) => {
+        const baseCount = current.sessionId === sessionId ? current.count : 24;
+        const baseEpoch =
+          current.sessionId === sessionId ? current.revealEpoch : 0;
+        return {
+          sessionId,
+          count: Math.min(timelineItems.length, baseCount + 24),
+          revealEpoch: baseEpoch + 1,
+        };
+      });
+      return;
+    }
+    setVisibleTailSession((current) => {
+      const baseEpoch =
+        current.sessionId === sessionId ? current.revealEpoch : 0;
+      return {
+        sessionId,
+        count: timelineItems.length + 24,
+        revealEpoch: baseEpoch,
+      };
+    });
+    void conversationLoadOlder();
+  }, [
+    conversationLoadOlder,
+    hasHiddenEarlierItems,
+    sessionId,
+    timelineItems.length,
+  ]);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -1128,20 +1198,78 @@ const AgentTimelineConversation = forwardRef<
   );
   const currentFindMatch = findMatches[findMatchIndex] ?? null;
 
+  const detachFromBottom = useCallback(() => {
+    cancelVirtualizerFollowScroll(rowVirtualizer);
+    const container = containerRef.current;
+    if (container && smoothFollowRef.current) {
+      smoothFollowRef.current = false;
+      runProgrammaticScroll(() => {
+        container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
+      });
+    }
+    followTailRef.current = false;
+    openSettlePassesRef.current = 0;
+    if (!isAtBottomRef.current) return;
+    isAtBottomRef.current = false;
+    onAtBottomChange?.(false);
+  }, [onAtBottomChange, rowVirtualizer, runProgrammaticScroll]);
+
+  const scrollToTimelineIndexWithAlign = useCallback(
+    (
+      index: number,
+      align: 'start' | 'center' | 'end' | 'auto' = 'start',
+      shouldDetach = true
+    ) => {
+      if (index < 0 || index >= timelineItems.length) return;
+      if (shouldDetach) {
+        detachFromBottom();
+      }
+      if (index < visibleTimelineStartIndex) {
+        pendingJumpTimelineIndexRef.current = { index, align };
+        setVisibleTailSession((current) => {
+          const baseEpoch =
+            current.sessionId === sessionId ? current.revealEpoch : 0;
+          return {
+            sessionId,
+            count: Math.min(
+              timelineItems.length,
+              timelineItems.length - index + 24
+            ),
+            revealEpoch: baseEpoch + 1,
+          };
+        });
+        return;
+      }
+      const localIndex = index - visibleTimelineStartIndex;
+      const virtualIndex = virtualEntries.findIndex(
+        (entry) => entry.timelineIndex === localIndex
+      );
+      if (virtualIndex < 0) return;
+      jumpToVirtualIndex(virtualIndex, align);
+    },
+    [
+      detachFromBottom,
+      jumpToVirtualIndex,
+      sessionId,
+      timelineItems.length,
+      virtualEntries,
+      visibleTimelineStartIndex,
+    ]
+  );
+
   const scrollToFindMatch = useCallback(
     (matchIndex: number) => {
       const match = findMatches[matchIndex];
       if (!match) return;
       const key = timeline[match.rowIndex]?.key;
       if (!key) return;
-      const virtualIndex = virtualEntries.findIndex((entry) => {
-        const item = timelineItems[entry.timelineIndex];
-        return item?.kind === 'message' && item.item.key === key;
-      });
-      if (virtualIndex < 0) return;
-      jumpToVirtualIndex(virtualIndex, 'center');
+      const targetTimelineIndex = timelineItems.findIndex(
+        (item) => item.kind === 'message' && item.item.key === key
+      );
+      if (targetTimelineIndex < 0) return;
+      scrollToTimelineIndexWithAlign(targetTimelineIndex, 'center', true);
     },
-    [findMatches, jumpToVirtualIndex, timeline, timelineItems, virtualEntries]
+    [findMatches, scrollToTimelineIndexWithAlign, timeline, timelineItems]
   );
 
   const goToFindMatch = useCallback(
@@ -1166,6 +1294,7 @@ const AgentTimelineConversation = forwardRef<
     setFindOpen(false);
     setFindQuery('');
     setFindMatchIndex(0);
+    pendingJumpTimelineIndexRef.current = null;
   }, [sessionId]);
 
   useEffect(() => {
@@ -1201,26 +1330,14 @@ const AgentTimelineConversation = forwardRef<
       container.scrollTop,
       container.clientHeight
     );
-    const next =
+    const localTimelineIndex =
       anchor == null ? null : (virtualEntries[anchor]?.timelineIndex ?? null);
+    const next =
+      localTimelineIndex == null
+        ? null
+        : localTimelineIndex + visibleTimelineStartIndex;
     setActiveIndex((current) => (current === next ? current : next));
-  }, [rowVirtualizer, virtualEntries]);
-
-  const detachFromBottom = useCallback(() => {
-    cancelVirtualizerFollowScroll(rowVirtualizer);
-    const container = containerRef.current;
-    if (container && smoothFollowRef.current) {
-      smoothFollowRef.current = false;
-      runProgrammaticScroll(() => {
-        container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
-      });
-    }
-    followTailRef.current = false;
-    openSettlePassesRef.current = 0;
-    if (!isAtBottomRef.current) return;
-    isAtBottomRef.current = false;
-    onAtBottomChange?.(false);
-  }, [onAtBottomChange, rowVirtualizer, runProgrammaticScroll]);
+  }, [rowVirtualizer, virtualEntries, visibleTimelineStartIndex]);
 
   const pinToBottom = useCallback(
     (behavior: ScrollBehavior) => {
@@ -1229,16 +1346,34 @@ const AgentTimelineConversation = forwardRef<
       smoothFollowRef.current = behavior === 'smooth';
       cancelVirtualizerFollowScroll(rowVirtualizer);
       runProgrammaticScroll(() => {
-        const top = container.scrollHeight;
         if (behavior === 'smooth') {
-          container.scrollTo({ top, behavior });
+          container.scrollTo({ top: container.scrollHeight, behavior });
         } else {
-          container.scrollTop = top;
+          if (virtualEntries.length > 0) {
+            rowVirtualizer.scrollToIndex(virtualEntries.length - 1, {
+              align: 'end',
+              behavior: 'auto',
+            });
+          }
+          container.scrollTop = container.scrollHeight;
         }
       });
       lastScrollTopRef.current = container.scrollTop;
+      if (
+        behavior !== 'smooth' &&
+        typeof requestAnimationFrame === 'function'
+      ) {
+        requestAnimationFrame(() => {
+          const currentContainer = containerRef.current;
+          if (!currentContainer || !followTailRef.current) return;
+          runProgrammaticScroll(() => {
+            currentContainer.scrollTop = currentContainer.scrollHeight;
+          });
+          lastScrollTopRef.current = currentContainer.scrollTop;
+        });
+      }
     },
-    [rowVirtualizer, runProgrammaticScroll]
+    [rowVirtualizer, runProgrammaticScroll, virtualEntries.length]
   );
 
   const scrollToBottom = useCallback(
@@ -1279,21 +1414,21 @@ const AgentTimelineConversation = forwardRef<
         event.nativeEvent.isTrusted &&
         programmaticScrollDepthRef.current === 0 &&
         shouldLoadOlderTimelinePage({
-          hasEarlier: conversationHasEarlier,
+          hasEarlier: hasEarlierTimeline,
           isAtBottom: isAtBottomRef.current,
           scrollTop,
           previousScrollTop: previous,
         })
       ) {
-        void conversationLoadOlder();
+        loadEarlierTimeline();
       }
       updateAtBottomState();
       updateActiveIndex();
     },
     [
-      conversationHasEarlier,
-      conversationLoadOlder,
       detachFromBottom,
+      hasEarlierTimeline,
+      loadEarlierTimeline,
       onAtBottomChange,
       updateActiveIndex,
       updateAtBottomState,
@@ -1302,15 +1437,10 @@ const AgentTimelineConversation = forwardRef<
 
   const scrollToIndex = useCallback(
     (index: number) => {
-      const virtualIndex = virtualEntries.findIndex(
-        (entry) => entry.timelineIndex === index
-      );
-      if (virtualIndex < 0) return;
-      detachFromBottom();
-      jumpToVirtualIndex(virtualIndex, 'start');
+      scrollToTimelineIndexWithAlign(index, 'start', true);
       setActiveIndex(index);
     },
-    [detachFromBottom, jumpToVirtualIndex, virtualEntries]
+    [scrollToTimelineIndexWithAlign]
   );
 
   useEffect(() => {
@@ -1388,12 +1518,34 @@ const AgentTimelineConversation = forwardRef<
     updateActiveIndex();
   }, [updateActiveIndex, virtualRows]);
 
+  useLayoutEffect(() => {
+    const pendingJump = pendingJumpTimelineIndexRef.current;
+    if (!pendingJump || pendingJump.index < visibleTimelineStartIndex) return;
+    const localIndex = pendingJump.index - visibleTimelineStartIndex;
+    const virtualIndex = virtualEntries.findIndex(
+      (entry) => entry.timelineIndex === localIndex
+    );
+    if (virtualIndex < 0) return;
+    pendingJumpTimelineIndexRef.current = null;
+    jumpToVirtualIndex(virtualIndex, pendingJump.align);
+  }, [jumpToVirtualIndex, virtualEntries, visibleTimelineStartIndex]);
+
   // Pin scrollTop while the tail is followed. scrollToIndex starts TanStack's
   // reconcile loop, which repeats the scroll for as long as the last row grows.
   useLayoutEffect(() => {
-    const sessionChanged = sessionPinRef.current !== sessionId;
-    const prepended =
-      conversation.olderTurnsPrependEpoch > previousPrependEpochRef.current;
+    const rawSessionChanged = sessionPinRef.current !== sessionId;
+    if (rawSessionChanged) {
+      pinnedSessionReadyRef.current = null;
+    }
+    const firstNonEmptyForSession =
+      virtualEntries.length > 0 && pinnedSessionReadyRef.current !== sessionId;
+    if (firstNonEmptyForSession) {
+      pinnedSessionReadyRef.current = sessionId;
+    }
+    const sessionChanged = rawSessionChanged || firstNonEmptyForSession;
+    const combinedPrependEpoch =
+      conversation.olderTurnsPrependEpoch + effectiveRevealEpoch;
+    const prepended = combinedPrependEpoch > previousPrependEpochRef.current;
     const container = containerRef.current;
     if (container) {
       const nextTop = scrollTopAfterPrepend({
@@ -1410,7 +1562,7 @@ const AgentTimelineConversation = forwardRef<
         });
       }
     }
-    previousPrependEpochRef.current = conversation.olderTurnsPrependEpoch;
+    previousPrependEpochRef.current = combinedPrependEpoch;
     previousTotalSizeRef.current = totalSize;
     sessionPinRef.current = sessionId;
     const expansionChanged =
@@ -1453,6 +1605,7 @@ const AgentTimelineConversation = forwardRef<
     pinToBottom('auto');
   }, [
     detachFromBottom,
+    effectiveRevealEpoch,
     expandableRevision,
     onAtBottomChange,
     pinToBottom,
@@ -1471,14 +1624,13 @@ const AgentTimelineConversation = forwardRef<
         scrollToBottom(scrollBehavior);
       },
       scrollToIndex(index, options) {
-        const virtualIndex = virtualEntries.findIndex(
-          (entry) => entry.timelineIndex === index
+        const shouldDetach =
+          (options?.behavior ?? scrollBehavior) === 'smooth';
+        scrollToTimelineIndexWithAlign(
+          index,
+          options?.align ?? 'center',
+          shouldDetach
         );
-        if (virtualIndex < 0) return;
-        if ((options?.behavior ?? scrollBehavior) === 'smooth') {
-          detachFromBottom();
-        }
-        jumpToVirtualIndex(virtualIndex, options?.align ?? 'center');
       },
       scrollToPreviousUserMessage() {
         const container = containerRef.current;
@@ -1503,8 +1655,8 @@ const AgentTimelineConversation = forwardRef<
       rowVirtualizer,
       scrollBehavior,
       scrollToBottom,
+      scrollToTimelineIndexWithAlign,
       userMessageIndexes,
-      virtualEntries,
     ]
   );
 
@@ -1998,311 +2150,333 @@ const AgentTimelineConversation = forwardRef<
         workingDir={workspaceRoot}
         turnInFlight={isTurnInFlight}
       />
-      <div
-        ref={containerRef}
-        className={cn(
-          'min-h-0 flex-1 overflow-y-auto px-2 py-3',
-          !usesComposerStatusDock && 'pb-14'
-        )}
-        data-panel="conversation-logs"
-        onScroll={handleScroll}
-        onClickCapture={(event) => {
-          if (isConversationExpansionToggle(event.target)) {
-            expansionInViewRef.current = true;
-          }
-        }}
-        onKeyDownCapture={(event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          if (isConversationExpansionToggle(event.target)) {
-            expansionInViewRef.current = true;
-          }
-        }}
-        onWheel={(event) => {
-          if (wheelDetachesConversationFollow(event.deltaY)) {
-            detachFromBottom();
-          }
-        }}
-        onContextMenu={(event) => {
-          const rowEl = (event.target as HTMLElement | null)?.closest(
-            '[data-index]'
-          );
-          const index = rowEl
-            ? Number(rowEl.getAttribute('data-index'))
-            : Number.NaN;
-          const virtualEntry = Number.isFinite(index)
-            ? virtualEntries[index]
-            : null;
-          const item = virtualEntry
-            ? timelineItems[virtualEntry.timelineIndex]
-            : null;
-          const row = item?.kind === 'message' ? item.item : null;
-          const items: ProductContextMenuItem[] = [];
-          if (row) {
-            const copyText = turnCopyText(row.turn);
-            if (copyText) {
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={containerRef}
+          className={cn(
+            'min-h-0 flex-1 overflow-y-auto px-2 py-3',
+            !usesComposerStatusDock && 'pb-14'
+          )}
+          data-panel="conversation-logs"
+          onScroll={handleScroll}
+          onClickCapture={(event) => {
+            if (isConversationExpansionToggle(event.target)) {
+              expansionInViewRef.current = true;
+            }
+          }}
+          onKeyDownCapture={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (isConversationExpansionToggle(event.target)) {
+              expansionInViewRef.current = true;
+            }
+          }}
+          onWheel={(event) => {
+            if (wheelDetachesConversationFollow(event.deltaY)) {
+              detachFromBottom();
+            }
+          }}
+          onContextMenu={(event) => {
+            const rowEl = (event.target as HTMLElement | null)?.closest(
+              '[data-index]'
+            );
+            const index = rowEl
+              ? Number(rowEl.getAttribute('data-index'))
+              : Number.NaN;
+            const virtualEntry = Number.isFinite(index)
+              ? virtualEntries[index]
+              : null;
+            const item = virtualEntry
+              ? visibleTimelineItems[virtualEntry.timelineIndex]
+              : null;
+            const row = item?.kind === 'message' ? item.item : null;
+            const items: ProductContextMenuItem[] = [];
+            if (row) {
+              const copyText = turnCopyText(row.turn);
+              if (copyText) {
+                items.push({
+                  id: 'copy-turn',
+                  label: t('common:contextMenu.copy'),
+                  onSelect: () => {
+                    void writeClipboardViaBridge(copyText);
+                  },
+                });
+              }
+              const turnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+              const forkPointStatus = row.forkPointStatus ?? null;
+              const canOfferFork =
+                forkSupported && forkPointStatus !== 'unsupported';
               items.push({
-                id: 'copy-turn',
-                label: t('common:contextMenu.copy'),
+                id: 'fork-from-here',
+                label: t('common:contextMenu.forkFromHere'),
+                disabled:
+                  !canOfferFork ||
+                  isTurnInFlight ||
+                  forkPointStatus === 'unnamed' ||
+                  row.phase === 'streaming' ||
+                  row.phase === 'optimistic',
                 onSelect: () => {
-                  void writeClipboardViaBridge(copyText);
+                  void handleForkFromTurn(turnId);
+                },
+              });
+              items.push({ type: 'separator', id: 'turn-sep' });
+            }
+            if (sessionId) {
+              const title =
+                attempt.session?.name ?? t('tasks:hubListItem.sessionFallback');
+              items.push({
+                type: 'submenu',
+                id: 'export-session',
+                label: t('common:contextMenu.exportSession'),
+                children: [
+                  {
+                    id: 'export-md',
+                    label: t('common:contextMenu.exportMarkdown'),
+                    onSelect: () => {
+                      void exportConversation(sessionId, 'markdown', title);
+                    },
+                  },
+                  {
+                    id: 'export-html',
+                    label: t('common:contextMenu.exportHtml'),
+                    onSelect: () => {
+                      void exportConversation(sessionId, 'html', title);
+                    },
+                  },
+                ],
+              });
+              items.push({
+                id: 'fork-session',
+                label: t('common:contextMenu.forkSession'),
+                disabled: !forkSupported,
+                onSelect: () => {
+                  void handleForkFromTurn();
+                },
+              });
+              items.push({
+                id: 'copy-markdown',
+                label: t('common:contextMenu.copyAsMarkdown'),
+                onSelect: () => {
+                  void copyConversationMarkdown(sessionId);
                 },
               });
             }
-            const turnId = vibexTurnIdFromTimelineRowId(row.turn.id);
-            const forkPointStatus = row.forkPointStatus ?? null;
-            const canOfferFork =
-              forkSupported && forkPointStatus !== 'unsupported';
             items.push({
-              id: 'fork-from-here',
-              label: t('common:contextMenu.forkFromHere'),
-              disabled:
-                !canOfferFork ||
-                isTurnInFlight ||
-                forkPointStatus === 'unnamed' ||
-                row.phase === 'streaming' ||
-                row.phase === 'optimistic',
+              id: 'create-session',
+              label: t('common:contextMenu.createSession'),
               onSelect: () => {
-                void handleForkFromTurn(turnId);
+                requestCreateSessionInExecutionArea(
+                  setSearchParams,
+                  searchParams
+                );
               },
             });
-            items.push({ type: 'separator', id: 'turn-sep' });
-          }
-          if (sessionId) {
-            const title =
-              attempt.session?.name ?? t('tasks:hubListItem.sessionFallback');
-            items.push({
-              type: 'submenu',
-              id: 'export-session',
-              label: t('common:contextMenu.exportSession'),
-              children: [
-                {
-                  id: 'export-md',
-                  label: t('common:contextMenu.exportMarkdown'),
-                  onSelect: () => {
-                    void exportConversation(sessionId, 'markdown', title);
-                  },
-                },
-                {
-                  id: 'export-html',
-                  label: t('common:contextMenu.exportHtml'),
-                  onSelect: () => {
-                    void exportConversation(sessionId, 'html', title);
-                  },
-                },
-              ],
-            });
-            items.push({
-              id: 'fork-session',
-              label: t('common:contextMenu.forkSession'),
-              disabled: !forkSupported,
-              onSelect: () => {
-                void handleForkFromTurn();
-              },
-            });
-            items.push({
-              id: 'copy-markdown',
-              label: t('common:contextMenu.copyAsMarkdown'),
-              onSelect: () => {
-                void copyConversationMarkdown(sessionId);
-              },
-            });
-          }
-          items.push({
-            id: 'create-session',
-            label: t('common:contextMenu.createSession'),
-            onSelect: () => {
-              requestCreateSessionInExecutionArea(
-                setSearchParams,
-                searchParams
-              );
-            },
-          });
-          openSurfaceMenu(event, items);
-        }}
-      >
-        <PluginTimelineCards />
-        <div
-          className={cn(
-            'conv-thread-shell relative mx-auto w-full',
-            conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
-          )}
+            openSurfaceMenu(event, items);
+          }}
         >
-          {detailLoading && timeline.length === 0 ? (
-            <ConversationTimelineSkeleton
-              label={t('tasks:sessionConversationView.loadingSession', {
-                defaultValue: 'Loading session...',
-              })}
-            />
-          ) : (
-            <>
-              <SubagentLifecycleProvider turns={timelineTurns}>
-                <div className="conv-thread-content min-w-0">
-                  {conversation.connecting ? (
-                    <div className="mb-2 flex justify-center text-muted-foreground">
-                      <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>
-                          {t('conversation:statusDock.connectingTitle')}
-                        </span>
+          <PluginTimelineCards />
+          <div
+            className={cn(
+              'conv-thread-shell relative mx-auto w-full',
+              conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
+            )}
+          >
+            {detailLoading && timeline.length === 0 ? (
+              <ConversationTimelineSkeleton
+                label={t('tasks:sessionConversationView.loadingSession', {
+                  defaultValue: 'Loading session...',
+                })}
+              />
+            ) : (
+              <>
+                <SubagentLifecycleProvider turns={timelineTurns}>
+                  <div className="conv-thread-content min-w-0">
+                    {conversation.connecting ? (
+                      <div className="mb-2 flex justify-center text-muted-foreground">
+                        <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>
+                            {t('conversation:statusDock.connectingTitle')}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  {attempt.session?.executor === 'workflow' && sessionId ? (
-                    <WorkflowRunCard runId={sessionId} />
-                  ) : null}
+                    ) : null}
+                    {attempt.session?.executor === 'workflow' && sessionId ? (
+                      <WorkflowRunCard runId={sessionId} />
+                    ) : null}
 
-                  {conversation.hasEarlier ? (
-                    <div className="mb-3 flex justify-center">
-                      <button
-                        type="button"
-                        className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
-                        onClick={() => {
-                          void conversation.loadOlder();
-                        }}
+                    {hasEarlierTimeline ? (
+                      <div className="mb-3 flex justify-center">
+                        <button
+                          type="button"
+                          className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
+                          onClick={() => {
+                            loadEarlierTimeline();
+                          }}
+                        >
+                          {t('conversation:timeline.loadEarlier', {
+                            defaultValue: '更早的消息',
+                          })}
+                        </button>
+                      </div>
+                    ) : null}
+                    <TimelineImagePanel>
+                      <div
+                        ref={virtualListRef}
+                        className="relative w-full"
+                        style={{ height: `${totalSize}px` }}
                       >
-                        {t('conversation:timeline.loadEarlier', {
-                          defaultValue: '更早的消息',
+                        {virtualRows.map((virtualRow) => {
+                          const entry = virtualEntries[virtualRow.index];
+                          if (!entry) return null;
+                          const item =
+                            visibleTimelineItems[entry.timelineIndex];
+                          if (!item) return null;
+                          const globalTimelineIndex =
+                            entry.timelineIndex + visibleTimelineStartIndex;
+                          const row =
+                            item.kind === 'message' ? item.item : null;
+                          const isCurrentFindMatch =
+                            row != null &&
+                            currentFindMatch != null &&
+                            timeline[currentFindMatch.rowIndex]?.key ===
+                              row.key;
+                          const foldEdge = virtualRowFoldEdge(
+                            virtualEntries,
+                            virtualRow.index
+                          );
+                          return (
+                            <div
+                              key={virtualRow.key}
+                              ref={rowVirtualizer.measureElement}
+                              data-index={virtualRow.index}
+                              className={cn(
+                                'conv-turn-row absolute left-0 top-0 w-full',
+                                foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
+                                foldEdge === 'after' && 'is-after-fold',
+                                activeNavEntry?.index === globalTimelineIndex &&
+                                  'conv-message-nav-target-active',
+                                isCurrentFindMatch && 'rounded-md bg-primary/10'
+                              )}
+                              style={{
+                                transform: getVirtualRowTranslateY(
+                                  virtualRow.start,
+                                  scrollMargin
+                                ),
+                              }}
+                            >
+                              {item.kind === 'side' ? (
+                                <InlineTimelineSideRow
+                                  entry={item.row}
+                                  onRespondQuestion={handleRespondQuestion}
+                                  respondingQuestionId={respondingQuestionId}
+                                />
+                              ) : null}
+                              {row ? (
+                                <MessageTurnView
+                                  turn={row.turn}
+                                  phase={row.phase}
+                                  attempt={attempt}
+                                  task={task}
+                                  workspacePath={workspaceRoot}
+                                  onRetry={
+                                    row.turn.role === 'user'
+                                      ? () =>
+                                          void handleRetry(
+                                            row.turn,
+                                            userOrdinalByKey.get(row.key) ?? 0
+                                          )
+                                      : undefined
+                                  }
+                                  onEditRetry={
+                                    isEditableUserTimelineRow(
+                                      row,
+                                      lastUserRowKey
+                                    )
+                                      ? (editedText) =>
+                                          handleRetry(
+                                            row.turn,
+                                            userOrdinalByKey.get(row.key) ?? 0,
+                                            editedText
+                                          )
+                                      : undefined
+                                  }
+                                  collapseProcess={collapseProcess}
+                                  delegations={delegations}
+                                  questions={timelineQuestions}
+                                  onOpenChild={handleOpenChild}
+                                  showInterruptedNotice={false}
+                                  contextCompact={
+                                    contextCompactByRowKey.get(row.key) ?? null
+                                  }
+                                  hasTurnError={
+                                    turnIdsWithErrors.has(
+                                      vibexTurnIdFromTimelineRowId(row.turn.id)
+                                    ) || hasReconnectNotice
+                                  }
+                                  slice={entry.slice}
+                                  isLastSlice={entry.isLast}
+                                />
+                              ) : null}
+                              {row?.turn.role === 'assistant' && entry.isLast
+                                ? (() => {
+                                    const turnId = vibexTurnIdFromTimelineRowId(
+                                      row.turn.id
+                                    );
+                                    const fileChanges =
+                                      fileChangesByTurnId.get(turnId);
+                                    if (!fileChanges) return null;
+                                    return (
+                                      <div className="min-w-0 px-4">
+                                        <TurnFileChangesCard
+                                          summary={fileChanges.summary}
+                                          expansionKey={`turn-files:${turnId}`}
+                                          defaultExpanded={expandFileChanges}
+                                          onUndo={() =>
+                                            void handleUndoTurnChanges(turnId)
+                                          }
+                                          undoDisabled={isTurnInFlight}
+                                        />
+                                      </div>
+                                    );
+                                  })()
+                                : null}
+                              {row && entry.isLast
+                                ? renderTurnStats(row, virtualRow.index)
+                                : null}
+                            </div>
+                          );
                         })}
-                      </button>
-                    </div>
-                  ) : null}
-                  <TimelineImagePanel>
-                    <div
-                      ref={virtualListRef}
-                      className="relative w-full"
-                      style={{ height: `${totalSize}px` }}
-                    >
-                      {virtualRows.map((virtualRow) => {
-                        const entry = virtualEntries[virtualRow.index];
-                        if (!entry) return null;
-                        const item = timelineItems[entry.timelineIndex];
-                        if (!item) return null;
-                        const row = item.kind === 'message' ? item.item : null;
-                        const isCurrentFindMatch =
-                          row != null &&
-                          currentFindMatch != null &&
-                          timeline[currentFindMatch.rowIndex]?.key === row.key;
-                        const foldEdge = virtualRowFoldEdge(
-                          virtualEntries,
-                          virtualRow.index
-                        );
-                        return (
-                          <div
-                            key={virtualRow.key}
-                            ref={rowVirtualizer.measureElement}
-                            data-index={virtualRow.index}
-                            className={cn(
-                              'conv-turn-row absolute left-0 top-0 w-full',
-                              foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
-                              foldEdge === 'after' && 'is-after-fold',
-                              activeNavEntry?.index === entry.timelineIndex &&
-                                'conv-message-nav-target-active',
-                              isCurrentFindMatch && 'rounded-md bg-primary/10'
-                            )}
-                            style={{
-                              transform: getVirtualRowTranslateY(
-                                virtualRow.start,
-                                scrollMargin
-                              ),
-                            }}
-                          >
-                            {item.kind === 'side' ? (
-                              <InlineTimelineSideRow
-                                entry={item.row}
-                                onRespondQuestion={handleRespondQuestion}
-                                respondingQuestionId={respondingQuestionId}
-                              />
-                            ) : null}
-                            {row ? (
-                              <MessageTurnView
-                                turn={row.turn}
-                                phase={row.phase}
-                                attempt={attempt}
-                                task={task}
-                                workspacePath={workspaceRoot}
-                                onRetry={
-                                  row.turn.role === 'user'
-                                    ? () =>
-                                        void handleRetry(
-                                          row.turn,
-                                          userOrdinalByKey.get(row.key) ?? 0
-                                        )
-                                    : undefined
-                                }
-                                onEditRetry={
-                                  isEditableUserTimelineRow(row, lastUserRowKey)
-                                    ? (editedText) =>
-                                        handleRetry(
-                                          row.turn,
-                                          userOrdinalByKey.get(row.key) ?? 0,
-                                          editedText
-                                        )
-                                    : undefined
-                                }
-                                collapseProcess={collapseProcess}
-                                delegations={delegations}
-                                questions={timelineQuestions}
-                                onOpenChild={handleOpenChild}
-                                showInterruptedNotice={false}
-                                contextCompact={
-                                  contextCompactByRowKey.get(row.key) ?? null
-                                }
-                                hasTurnError={
-                                  turnIdsWithErrors.has(
-                                    vibexTurnIdFromTimelineRowId(row.turn.id)
-                                  ) || hasReconnectNotice
-                                }
-                                slice={entry.slice}
-                                isLastSlice={entry.isLast}
-                              />
-                            ) : null}
-                            {row?.turn.role === 'assistant' && entry.isLast
-                              ? (() => {
-                                  const turnId = vibexTurnIdFromTimelineRowId(
-                                    row.turn.id
-                                  );
-                                  const fileChanges =
-                                    fileChangesByTurnId.get(turnId);
-                                  if (!fileChanges) return null;
-                                  return (
-                                    <div className="min-w-0 px-4">
-                                      <TurnFileChangesCard
-                                        summary={fileChanges.summary}
-                                        expansionKey={`turn-files:${turnId}`}
-                                        defaultExpanded={expandFileChanges}
-                                        onUndo={() =>
-                                          void handleUndoTurnChanges(turnId)
-                                        }
-                                        undoDisabled={isTurnInFlight}
-                                      />
-                                    </div>
-                                  );
-                                })()
-                              : null}
-                            {row && entry.isLast
-                              ? renderTurnStats(row, virtualRow.index)
-                              : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </TimelineImagePanel>
-                  {!usesComposerStatusDock && pendingPermissions.length > 0 ? (
-                    <div className="sticky bottom-0 z-10 space-y-2 pt-2">
-                      {pendingPermissions.map((request) => (
-                        <PermissionRequestCard
-                          key={`permission-${request.permission_id}`}
-                          request={request}
-                          onRespond={handleRespondPermission}
-                          responding={
-                            respondingPermissionId === request.permission_id
-                          }
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </SubagentLifecycleProvider>
+                      </div>
+                    </TimelineImagePanel>
+                    {!usesComposerStatusDock &&
+                    pendingPermissions.length > 0 ? (
+                      <div className="sticky bottom-0 z-10 space-y-2 pt-2">
+                        {pendingPermissions.map((request) => (
+                          <PermissionRequestCard
+                            key={`permission-${request.permission_id}`}
+                            request={request}
+                            onRespond={handleRespondPermission}
+                            responding={
+                              respondingPermissionId === request.permission_id
+                            }
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </SubagentLifecycleProvider>
+              </>
+            )}
+          </div>
+        </div>
+        {!(detailLoading && timeline.length === 0) && navEntries.length > 0 ? (
+          <div className="pointer-events-none absolute inset-x-0 inset-y-3 z-10 px-2">
+            <div
+              className={cn(
+                'relative mx-auto h-full w-full',
+                conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
+              )}
+            >
               <div className="conv-message-nav-anchor">
                 <ConversationMessageNav
                   entries={navEntries}
@@ -2310,9 +2484,9 @@ const AgentTimelineConversation = forwardRef<
                   onSelect={scrollToIndex}
                 />
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : null}
       </div>
       {!usesComposerStatusDock ? (
         <>

@@ -1341,30 +1341,32 @@ button.vibex-tool-call-target-label:hover {
  * Conversation Message Nav
  * ========================================= */
 
-/* The ruler floats over the right gutter. Its anchor spans the full thread
-   height while the ticks stay vertically centered in the visible viewport. */
+/* The ruler floats over the right gutter. Its anchor spans the full visible
+   viewport height while the ticks stay vertically centered. */
 .conv-message-nav-anchor {
   position: absolute;
   top: 0;
   right: 4px;
   bottom: 0;
   display: none;
+  align-items: center;
+  justify-content: flex-end;
   pointer-events: none;
 }
 
 .conv-message-nav-rail {
-  position: sticky;
-  top: 50%;
+  position: relative;
+  top: auto;
   width: 22.4px;
-  max-height: calc(100vh - 96px);
-  transform: translateY(-50%);
+  max-height: 100%;
+  transform: none;
   overflow: hidden;
   pointer-events: auto;
 }
 
 @media (min-width: 1120px) {
   .conv-message-nav-anchor {
-    display: block;
+    display: flex;
   }
 
   /* 19.6px Hover key + 5.88px gap (70% of the previous 8.4px). */

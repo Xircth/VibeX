@@ -4948,6 +4948,96 @@ describe('CollaborationSpacePage', () => {
     expect(screen.queryByText('请查看')).toBeNull();
   });
 
+  it('fills the Supervisor slot from the sidebar supervisor id when items omit the flag', async () => {
+    const baseImpl = collaborationCall.getMockImplementation()!;
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'thread.listSidebar') {
+          return {
+            supervisor_member_id: 'mem-boss',
+            items: [
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-boss',
+                space_id: 'unassigned:workspace-1',
+                name: 'BOSS',
+                member: {
+                  member_id: 'mem-boss',
+                  name: 'BOSS',
+                  conversation_id: 'conv-boss',
+                  agent: 'claude-code',
+                },
+              },
+              {
+                kind: 'dm',
+                thread_id: 'direct:mem-a',
+                space_id: 'unassigned:workspace-1',
+                name: '小A',
+                member: {
+                  member_id: 'mem-a',
+                  name: '小A',
+                  conversation_id: 'conv-1',
+                  agent: 'claude-code',
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'contactGroup.list') {
+          return { groups: [] };
+        }
+        return baseImpl(capability, method, input);
+      }
+    );
+
+    renderPage();
+
+    const supervisorSlot = await screen.findByTestId(
+      'collaboration-supervisor-slot'
+    );
+    await waitFor(() => {
+      expect(supervisorSlot).toHaveAttribute('data-supervisor-empty', 'false');
+    });
+    expect(
+      within(supervisorSlot).getByRole('button', { name: 'BOSS' })
+    ).toBeTruthy();
+  });
+
+  it('reports why creating a contact group failed instead of a generic message', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    const baseImpl = collaborationCall.getMockImplementation()!;
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'contactGroup.create') {
+          throw 'Bad request: contact group name already exists';
+        }
+        return baseImpl(capability, method, input);
+      }
+    );
+
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: '创建' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: '新建分组' })
+    );
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Bad request: contact group name already exists'
+      )
+    );
+  });
+
   it('renders Supervisor bot in top slot, hides it from lower list, protects it from delete, and supports stepping down and drag-to-replace', async () => {
     const user = userEvent.setup();
     const baseImpl = collaborationCall.getMockImplementation()!;

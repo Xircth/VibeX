@@ -744,7 +744,27 @@ function KanbanSessionConversationSurface({
       previousData?.id === sessionId ? previousData : undefined,
   });
 
-  const resolvedSession = session ?? listSession ?? undefined;
+  const optimisticSession = useMemo<SessionRecord | undefined>(() => {
+    if (!sessionId || isSessionError || !workspace) return undefined;
+    return {
+      id: sessionId,
+      workspace_id: workspace.id,
+      task_id: workspace.task_id ?? null,
+      name: null,
+      initial_prompt: null,
+      status: 'todo',
+      executor: null,
+      external_session_id: null,
+      agent_id: null,
+      parent_session_id: null,
+      parent_tool_use_id: null,
+      delegation_call_id: null,
+      created_at: workspace.created_at,
+      updated_at: workspace.updated_at,
+    };
+  }, [isSessionError, sessionId, workspace]);
+
+  const resolvedSession = session ?? listSession ?? optimisticSession;
   const isBootstrappingWorkspace = !workspace && isWorkspaceLoading;
 
   if (isBootstrappingWorkspace) {

@@ -119,6 +119,5 @@ export function useCollaborationThreadQuery(threadId: string) {
       scheduled: EMPTY_SCHEDULED,
     }),
     ...CACHE_ONLY_QUERY,
-    gcTime: 0,
   });
 }

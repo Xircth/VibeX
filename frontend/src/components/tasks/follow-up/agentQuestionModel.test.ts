@@ -342,4 +342,84 @@ describe('agentQuestionModel', () => {
     expect(emptyTabs).toEqual([]);
     expect(firstQuestionTitle(emptyTabs)).toBe('');
   });
+
+  it('preserves fieldName, customFieldName, and option values for collaboration ask cards converted from Claude Code schemas', () => {
+    const request: ConversationQuestionRequest = {
+      question_id: 'collab-claude-1',
+      prompt: '需要你回答 2 个问题',
+      options: [],
+      schema: {
+        type: 'object',
+        'x-vibex-questions': [
+          {
+            id: 'auth',
+            fieldName: 'auth',
+            customFieldName: 'auth_custom',
+            header: '服务器登录',
+            question: '如何连接服务器？',
+            multiSelect: false,
+            options: [
+              {
+                value: 'ssh_key',
+                label: '我生成专用密钥，你贴一条命令装上（推荐）',
+                description: '全程免密自动化部署。',
+              },
+              {
+                value: 'password',
+                label: '直接把 root 密码给我',
+                description: '密码会进入会话上下文。',
+              },
+            ],
+          },
+          {
+            id: 'checks',
+            fieldName: 'checks',
+            customFieldName: 'checks_custom',
+            header: '验证项',
+            question: '需要执行哪些验证？',
+            multiSelect: true,
+            options: [
+              { value: 'lint', label: 'Lint', description: '' },
+              { value: 'test', label: 'Tests', description: '' },
+            ],
+          },
+        ],
+      },
+    };
+
+    const tabs = questionTabsFromRequest(request);
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]?.choices).toHaveLength(2);
+    expect(tabs[0]?.choices[0]?.value).toBe('ssh_key');
+    expect(tabs[0]?.choices[0]?.recommended).toBe(true);
+    expect(tabs[0]?.customFieldName).toBe('auth_custom');
+
+    const content = responseContent(request, tabs, {
+      auth: { selected: ['ssh_key'], customActive: false, customText: '' },
+      checks: {
+        selected: ['lint'],
+        customActive: true,
+        customText: 'e2e',
+      },
+    });
+    expect(content).toEqual({
+      answers: [
+        {
+          questionId: 'auth',
+          labels: ['我生成专用密钥，你贴一条命令装上 (Recommended)'],
+          selected: ['ssh_key'],
+          multiSelect: false,
+          customFieldName: 'auth_custom',
+        },
+        {
+          questionId: 'checks',
+          labels: ['Lint', 'e2e'],
+          selected: ['lint'],
+          multiSelect: true,
+          customFieldName: 'checks_custom',
+          customText: 'e2e',
+        },
+      ],
+    });
+  });
 });

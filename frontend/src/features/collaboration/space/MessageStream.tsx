@@ -1,4 +1,13 @@
-import { memo, useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import { Button } from '@/components/ui/button';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
@@ -358,7 +367,11 @@ const SpaceMessageRow = memo(function SpaceMessageRow({
   );
 });
 
+const COLLAB_INITIAL_VISIBLE_MESSAGES = 36;
+const COLLAB_VISIBLE_MESSAGE_STEP = 36;
+
 const MESSAGE_STREAM_PICK_KEYS = [
+  'activeNavIndex',
   'filteredMessages',
   'followThreadBottomRef',
   'getMemberAvatar',
@@ -393,6 +406,7 @@ const MESSAGE_STREAM_PICK_KEYS = [
   't',
   'threadCards',
   'threadLogRef',
+  'threadQueryId',
   'visibleRoster',
   'workingConversationIds',
   'workingMembers',
@@ -402,6 +416,7 @@ const MESSAGE_STREAM_PICK_KEYS = [
 
 export const MessageStream = memo(function MessageStream() {
   const {
+    activeNavIndex,
     filteredMessages,
     followThreadBottomRef,
     getMemberAvatar,
@@ -431,6 +446,7 @@ export const MessageStream = memo(function MessageStream() {
     t,
     threadCards,
     threadLogRef,
+    threadQueryId,
     visibleRoster,
     workingConversationIds,
     workingMembers,
@@ -444,6 +460,128 @@ export const MessageStream = memo(function MessageStream() {
 
   const navScrollRafRef = useRef<number | null>(null);
   const fallbackAuthorMembersRef = useRef<Map<string, SpaceMember>>(new Map());
+  const activeThreadKey = threadQueryId || selected?.space_id || '';
+  const [visibleWindow, setVisibleWindow] = useState<{
+    threadKey: string;
+    count: number;
+  }>(() => ({
+    threadKey: activeThreadKey,
+    count: COLLAB_INITIAL_VISIBLE_MESSAGES,
+  }));
+  const prependScrollSnapshotRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+  const pendingNavTargetIndexRef = useRef<number | null>(null);
+  const lastThreadScrollTopRef = useRef(0);
+
+  const effectiveVisibleCount =
+    visibleWindow.threadKey === activeThreadKey
+      ? visibleWindow.count
+      : COLLAB_INITIAL_VISIBLE_MESSAGES;
+  const visibleStartIndex = Math.max(
+    0,
+    filteredMessages.length - effectiveVisibleCount
+  );
+  const hasHiddenEarlierMessages = visibleStartIndex > 0;
+  const visibleMessages = useMemo(
+    () =>
+      visibleStartIndex > 0
+        ? filteredMessages.slice(visibleStartIndex)
+        : filteredMessages,
+    [filteredMessages, visibleStartIndex]
+  );
+
+  const revealEarlierMessages = useCallback(
+    (step = COLLAB_VISIBLE_MESSAGE_STEP) => {
+      if (!hasHiddenEarlierMessages) return;
+      const el = threadLogRef.current;
+      if (el) {
+        prependScrollSnapshotRef.current = {
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+        };
+      }
+      setVisibleWindow((current) => {
+        const baseCount =
+          current.threadKey === activeThreadKey
+            ? current.count
+            : COLLAB_INITIAL_VISIBLE_MESSAGES;
+        return {
+          threadKey: activeThreadKey,
+          count: Math.min(filteredMessages.length, baseCount + step),
+        };
+      });
+    },
+    [
+      activeThreadKey,
+      filteredMessages.length,
+      hasHiddenEarlierMessages,
+      threadLogRef,
+    ]
+  );
+
+  useLayoutEffect(() => {
+    const snapshot = prependScrollSnapshotRef.current;
+    if (!snapshot) return;
+    prependScrollSnapshotRef.current = null;
+    const el = threadLogRef.current;
+    if (!el || followThreadBottomRef.current) return;
+    const delta = el.scrollHeight - snapshot.scrollHeight;
+    if (delta > 0) {
+      ignoreThreadScrollRef.current = true;
+      el.scrollTop = snapshot.scrollTop + delta;
+      lastThreadScrollTopRef.current = el.scrollTop;
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          ignoreThreadScrollRef.current = false;
+        });
+      } else {
+        ignoreThreadScrollRef.current = false;
+      }
+    }
+  }, [
+    followThreadBottomRef,
+    ignoreThreadScrollRef,
+    threadLogRef,
+    visibleStartIndex,
+  ]);
+
+  useLayoutEffect(() => {
+    if (activeNavIndex === null) {
+      pendingNavTargetIndexRef.current = null;
+      return;
+    }
+    if (activeNavIndex < visibleStartIndex) {
+      pendingNavTargetIndexRef.current = activeNavIndex;
+      setVisibleWindow({
+        threadKey: activeThreadKey,
+        count: Math.min(
+          filteredMessages.length,
+          filteredMessages.length -
+            activeNavIndex +
+            COLLAB_VISIBLE_MESSAGE_STEP
+        ),
+      });
+      return;
+    }
+    if (pendingNavTargetIndexRef.current !== activeNavIndex) return;
+    pendingNavTargetIndexRef.current = null;
+    const target = filteredMessages[activeNavIndex];
+    if (!target) return;
+    const el =
+      messageItemRefs.current.get(spaceMessageRefKey(target)) ??
+      messageItemRefs.current.get(String(target.seq));
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [
+    activeNavIndex,
+    activeThreadKey,
+    filteredMessages,
+    messageItemRefs,
+    visibleStartIndex,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -523,11 +661,13 @@ export const MessageStream = memo(function MessageStream() {
         ref={threadLogRef}
         className="collaboration-thread-log"
         onPointerDownCapture={() => {
+          ignoreThreadScrollRef.current = false;
           if (selected) {
             markSpaceInReviewMembersViewed(selected.space_id);
           }
         }}
         onWheelCapture={() => {
+          ignoreThreadScrollRef.current = false;
           if (selected) {
             markSpaceInReviewMembersViewed(selected.space_id);
           }
@@ -538,11 +678,21 @@ export const MessageStream = memo(function MessageStream() {
           }
           const el = threadLogRef.current;
           if (!el || ignoreThreadScrollRef.current) return;
+          const previousScrollTop = lastThreadScrollTopRef.current;
+          lastThreadScrollTopRef.current = el.scrollTop;
           const atBottom = isCollabThreadLogAtBottom(el);
           followThreadBottomRef.current = atBottom;
           setIsAtThreadBottom((current) =>
             current === atBottom ? current : atBottom
           );
+          if (
+            !atBottom &&
+            hasHiddenEarlierMessages &&
+            el.scrollTop < previousScrollTop &&
+            el.scrollTop <= 160
+          ) {
+            revealEarlierMessages();
+          }
           if (atBottom) {
             if (
               navScrollRafRef.current !== null &&
@@ -626,63 +776,87 @@ export const MessageStream = memo(function MessageStream() {
               </Button>
             </div>
           </div>
-        ) : selected && filteredMessages.length > 0 ? (
-          filteredMessages.map((message, index) => {
-            const messageKey = isCollaborationLimitNotice(message)
-              ? `space-notice-${message.seq}`
-              : spaceMessageRefKey(message);
-            const author = messageAuthor(message.envelope);
-            const fromYou = author === COPY.you;
-            const name = fromYou ? fromYouLabel : author || unknownMemberLabel;
-            const authorConversationId = resolveMessageConversationId(
-              message.envelope,
-              members
-            );
-            let authorMember =
-              memberLookup.rosterByName.get(name) ??
-              (authorConversationId
-                ? memberLookup.membersByConvId.get(authorConversationId)
-                : undefined) ??
-              memberLookup.membersByName.get(name);
-            if (!authorMember) {
-              const fallbackKey = `${authorConversationId}:${name}`;
-              authorMember = fallbackAuthorMembersRef.current.get(fallbackKey);
+        ) : selected && visibleMessages.length > 0 ? (
+          <>
+            {hasHiddenEarlierMessages ? (
+              <div className="mb-3 flex justify-center">
+                <button
+                  type="button"
+                  className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
+                  onClick={() => {
+                    revealEarlierMessages();
+                  }}
+                >
+                  {t('conversation:timeline.loadEarlier', {
+                    defaultValue: '更早的消息',
+                  })}
+                </button>
+              </div>
+            ) : null}
+            {visibleMessages.map((message, localIndex) => {
+              const index = visibleStartIndex + localIndex;
+              const messageKey = isCollaborationLimitNotice(message)
+                ? `space-notice-${message.seq}`
+                : spaceMessageRefKey(message);
+              const author = messageAuthor(message.envelope);
+              const fromYou = author === COPY.you;
+              const name = fromYou
+                ? fromYouLabel
+                : author || unknownMemberLabel;
+              const authorConversationId = resolveMessageConversationId(
+                message.envelope,
+                members
+              );
+              let authorMember =
+                memberLookup.rosterByName.get(name) ??
+                (authorConversationId
+                  ? memberLookup.membersByConvId.get(authorConversationId)
+                  : undefined) ??
+                memberLookup.membersByName.get(name);
               if (!authorMember) {
-                authorMember = {
-                  kind: 'agent' as const,
-                  nickname: name,
-                  conversation_id: authorConversationId,
-                };
-                fallbackAuthorMembersRef.current.set(fallbackKey, authorMember);
+                const fallbackKey = `${authorConversationId}:${name}`;
+                authorMember =
+                  fallbackAuthorMembersRef.current.get(fallbackKey);
+                if (!authorMember) {
+                  authorMember = {
+                    kind: 'agent' as const,
+                    nickname: name,
+                    conversation_id: authorConversationId,
+                  };
+                  fallbackAuthorMembersRef.current.set(
+                    fallbackKey,
+                    authorMember
+                  );
+                }
               }
-            }
-            return (
-              <SpaceMessageRow
-                key={messageKey}
-                message={message}
-                cluster={messageClusters[index] ?? null}
-                selectedSpaceId={selected.space_id}
-                isPrivateChatActive={isPrivateChatActive}
-                fromYouLabel={fromYouLabel}
-                unknownMemberLabel={unknownMemberLabel}
-                fallbackRosterColor={fallbackRosterColor}
-                externalReceipts={receiptsBySeq[message.seq]}
-                authorConversationId={authorConversationId}
-                authorMember={authorMember}
-                isAuthorLead={leadConversationIds.has(authorConversationId)}
-                getMemberAvatar={getMemberAvatar}
-                crossChatLookup={crossChatLookup}
-                receiptLabels={receiptLabels}
-                threadCards={threadCards}
-                workspacePath={workspacePath}
-                workspaceId={workspace || undefined}
-                messageItemRefs={messageItemRefs}
-                openMessageBubbleMenu={openMessageBubbleMenu}
-                openMemberAvatarMenu={openMemberAvatarMenu}
-                selectMemberForPreview={selectMemberForPreview}
-              />
-            );
-          })
+              return (
+                <SpaceMessageRow
+                  key={messageKey}
+                  message={message}
+                  cluster={messageClusters[index] ?? null}
+                  selectedSpaceId={selected.space_id}
+                  isPrivateChatActive={isPrivateChatActive}
+                  fromYouLabel={fromYouLabel}
+                  unknownMemberLabel={unknownMemberLabel}
+                  fallbackRosterColor={fallbackRosterColor}
+                  externalReceipts={receiptsBySeq[message.seq]}
+                  authorConversationId={authorConversationId}
+                  authorMember={authorMember}
+                  isAuthorLead={leadConversationIds.has(authorConversationId)}
+                  getMemberAvatar={getMemberAvatar}
+                  crossChatLookup={crossChatLookup}
+                  receiptLabels={receiptLabels}
+                  threadCards={threadCards}
+                  workspacePath={workspacePath}
+                  workspaceId={workspace || undefined}
+                  messageItemRefs={messageItemRefs}
+                  openMessageBubbleMenu={openMessageBubbleMenu}
+                  openMemberAvatarMenu={openMemberAvatarMenu}
+                  selectMemberForPreview={selectMemberForPreview}
+                />
+              );
+            })}
+          </>
         ) : null}
         <DirectMessages />
         {selected ? (

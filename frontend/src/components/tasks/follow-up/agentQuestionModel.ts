@@ -93,11 +93,17 @@ export function questionTabsFromRequest(
       if (!question) return [];
       const choices = parseObjectChoices(question.options);
       const prompt = readString(question.question) || `Question ${index + 1}`;
+      const id = readString(question.id) || `question-${index + 1}`;
+      const fieldName = readString(question.fieldName) || null;
+      const customFieldName =
+        readString(question.customFieldName) ||
+        readString(question.custom_field_name) ||
+        null;
       return [
         {
-          id: readString(question.id) || `question-${index + 1}`,
-          fieldName: null,
-          customFieldName: null,
+          id,
+          fieldName,
+          customFieldName,
           header: readString(question.header) || `Question ${index + 1}`,
           question: prompt,
           multiSelect:
@@ -330,11 +336,32 @@ export function responseContent(
 ) {
   const root = asObject(request.schema);
   if (Array.isArray(root?.['x-vibex-questions'])) {
-    return {
-      answers: questions.map((question) => ({
+    const answers = questions.map((question) => {
+      const answer = state[question.id];
+      const labels = answerLabels(question, answer);
+      if (!question.fieldName && !question.customFieldName) {
+        return {
+          questionId: question.id,
+          labels,
+        };
+      }
+      const customText =
+        answer?.customActive && answer.customText.trim()
+          ? answer.customText.trim()
+          : '';
+      return {
         questionId: question.id,
-        labels: answerLabels(question, state[question.id]),
-      })),
+        labels,
+        selected: answer?.selected ?? [],
+        multiSelect: question.multiSelect,
+        ...(question.customFieldName
+          ? { customFieldName: question.customFieldName }
+          : {}),
+        ...(customText ? { customText } : {}),
+      };
+    });
+    return {
+      answers,
     };
   }
 
@@ -475,7 +502,11 @@ function matchesChoice(choice: QuestionChoice, label: string): boolean {
     (`${choice.label} (Recommended)` === trimmed ||
       `(Recommended) ${choice.label}` === trimmed ||
       `${choice.label} (推荐)` === trimmed ||
-      `(推荐) ${choice.label}` === trimmed)
+      `(推荐) ${choice.label}` === trimmed ||
+      `${choice.label}（推荐）` === trimmed ||
+      `（推荐）${choice.label}` === trimmed ||
+      `${choice.label} （推荐）` === trimmed ||
+      `（推荐） ${choice.label}` === trimmed)
   ) {
     return true;
   }
@@ -553,10 +584,22 @@ function parseObjectChoices(rawChoices: unknown): QuestionChoice[] {
       return [choiceFromLabel(rawChoice.trim(), rawChoice.trim(), '')];
     }
     const choice = asObject(rawChoice);
-    const rawLabel = readString(choice?.label);
+    const rawValue = isPrimitive(choice?.value)
+      ? choice.value
+      : isPrimitive(choice?.const)
+        ? choice.const
+        : null;
+    const rawLabel =
+      readString(choice?.label) ||
+      readString(choice?.title) ||
+      (rawValue !== null ? String(rawValue) : '');
     if (!rawLabel) return [];
     return [
-      choiceFromLabel(rawLabel, rawLabel, readString(choice?.description)),
+      choiceFromLabel(
+        rawValue ?? rawLabel,
+        rawLabel,
+        readString(choice?.description)
+      ),
     ];
   });
 }
@@ -600,8 +643,12 @@ function choiceFromLabel(
   rawLabel: string,
   description: string
 ): QuestionChoice {
-  const suffixMatch = rawLabel.match(/^(.*?)\s*\((?:recommended|推荐)\)\s*$/i);
-  const prefixMatch = rawLabel.match(/^\s*\((?:recommended|推荐)\)\s*(.+)$/i);
+  const suffixMatch = rawLabel.match(
+    /^(.*?)\s*[(（](?:recommended|推荐)[)）]\s*$/i
+  );
+  const prefixMatch = rawLabel.match(
+    /^\s*[(（](?:recommended|推荐)[)）]\s*(.+)$/i
+  );
   const visibleLabel = (suffixMatch?.[1] ?? prefixMatch?.[1])?.trim();
   return {
     value,

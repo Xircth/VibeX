@@ -296,6 +296,48 @@ describe('useConversationTimeline', () => {
     expect(result.current.timeline).toHaveLength(0);
   });
 
+  it('keeps persisted turns visible immediately when switching back to a loaded conversation', async () => {
+    let resolveReload: ((value: DbConversationDetail) => void) | null = null;
+    detailMock.mockImplementation((id: string) => {
+      if (id === CONVERSATION_ID && resolveReload) {
+        return new Promise<DbConversationDetail>((resolve) => {
+          resolveReload = resolve;
+        });
+      }
+      return Promise.resolve({
+        ...detail(),
+        summary: { ...detail().summary, id },
+        timeline: {
+          ...detail().timeline,
+          conversation_id: id,
+          last_sequence: id === CONVERSATION_ID ? 2n : 0n,
+          rows:
+            id === CONVERSATION_ID
+              ? [userRow('t1', 'q', 1n), assistantRow('t1', 'hello', 2n)]
+              : [],
+        },
+      });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useConversationTimeline(id),
+      { initialProps: { id: CONVERSATION_ID } }
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline).toHaveLength(2);
+
+    rerender({ id: 'conversation-2' });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline).toHaveLength(0);
+
+    resolveReload = () => {};
+    rerender({ id: CONVERSATION_ID });
+
+    // Cached turns remain visible on the very first frame while background refresh is pending
+    expect(result.current.timeline).toHaveLength(2);
+  });
+
   it('shows the optimistic user turn and loading row in the same send frame', async () => {
     detailMock.mockResolvedValue(detail());
 

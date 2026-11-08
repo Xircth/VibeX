@@ -1979,8 +1979,19 @@ export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
  */
 export function isDirectEntrySupervisor(
   entry: Extract<ChatListEntry, { type: 'direct' }>,
-  allDirectEntries: readonly Extract<ChatListEntry, { type: 'direct' }>[]
+  allDirectEntries: readonly Extract<ChatListEntry, { type: 'direct' }>[],
+  supervisorMemberId?: string | null
 ): boolean {
+  const supervisorId = supervisorMemberId?.trim();
+  if (supervisorId) {
+    const member = entry.member;
+    return (
+      member.identity_member_id === supervisorId ||
+      member.member_id === supervisorId ||
+      member.conversation_id === supervisorId ||
+      member.private_conversation_id === supervisorId
+    );
+  }
   const hasExplicitSupervisorFlag = allDirectEntries.some(
     (item) => typeof item.member.is_supervisor === 'boolean'
   );

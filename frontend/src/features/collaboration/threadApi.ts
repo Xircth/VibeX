@@ -20,20 +20,40 @@ export type CollaborationCaller = <T>(
  * persistent cross-space bot identity IDs (`collaboration_members.id`), whereas
  * `space.listMembers` returns per-space seat row UUIDs in `member_id`.
  */
+export type SidebarPage = {
+  items: SidebarItem[] | null;
+  /** Authoritative workspace Supervisor (`collaboration_members.id`), null when unset. */
+  supervisorMemberId: string | null;
+};
+
+/**
+ * `thread.listSidebar` with its workspace-level Supervisor identity; the page
+ * carries `supervisor_member_id`, which stays correct even when an item payload
+ * omits per-member `is_supervisor`.
+ */
+export async function loadSidebarPage(
+  collab: CollaborationCaller,
+  workspaceId: string
+): Promise<SidebarPage> {
+  try {
+    const page = await collab<{
+      items?: SidebarItem[];
+      supervisor_member_id?: string | null;
+    }>('collaboration', 'thread.listSidebar', { workspaceId });
+    return {
+      items: Array.isArray(page?.items) ? page.items : null,
+      supervisorMemberId: page?.supervisor_member_id ?? null,
+    };
+  } catch {
+    return { items: null, supervisorMemberId: null };
+  }
+}
+
 export async function loadSidebarItems(
   collab: CollaborationCaller,
   workspaceId: string
 ): Promise<SidebarItem[] | null> {
-  try {
-    const page = await collab<{ items?: SidebarItem[] }>(
-      'collaboration',
-      'thread.listSidebar',
-      { workspaceId }
-    );
-    return Array.isArray(page?.items) ? page.items : null;
-  } catch {
-    return null;
-  }
+  return (await loadSidebarPage(collab, workspaceId)).items;
 }
 
 /**

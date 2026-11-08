@@ -7,25 +7,54 @@ struct RequiresServer<Content: View>: View {
     @Binding var selection: AppTab
     @ViewBuilder let content: (HostClient) -> Content
 
+    @State private var showingScannerPair = false
+    @State private var showingManualPair = false
+
     var body: some View {
-        if let profile = servers.activeProfile {
-            if let client = servers.client(for: profile) {
-                content(client)
+        Group {
+            if let profile = servers.activeProfile {
+                if let client = servers.client(for: profile) {
+                    content(client)
+                } else {
+                    ContentUnavailableView {
+                        Label("连接凭据已失效", systemImage: "key.slash")
+                    } actions: {
+                        HStack(spacing: 12) {
+                            Button("扫码重新配对", systemImage: "qrcode.viewfinder") {
+                                showingScannerPair = true
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("连接码配对") {
+                                showingManualPair = true
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
             } else {
                 ContentUnavailableView {
-                    Label("连接凭据已失效", systemImage: "key.slash")
+                    Label("尚未连接电脑", systemImage: "desktopcomputer")
                 } actions: {
-                    Button("重新配对") { selection = .settings }
+                    HStack(spacing: 12) {
+                        Button("扫码配对", systemImage: "qrcode.viewfinder") {
+                            showingScannerPair = true
+                        }
                         .buttonStyle(.borderedProminent)
+
+                        Button("连接码配对") {
+                            showingManualPair = true
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
-        } else {
-            ContentUnavailableView {
-                Label("尚未连接电脑", systemImage: "desktopcomputer")
-            } actions: {
-                Button("去配对") { selection = .settings }
-                    .buttonStyle(.borderedProminent)
-            }
+        }
+        .sheet(isPresented: $showingScannerPair) {
+            PairView(startWithScanner: true, initialOrigin: servers.activeProfile?.origin)
+        }
+        .sheet(isPresented: $showingManualPair) {
+            PairView(startWithScanner: false, initialOrigin: servers.activeProfile?.origin)
         }
     }
 }

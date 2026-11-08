@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ServerStore.self) private var servers
     @Environment(AppAppearanceStore.self) private var appearance
+    @State private var showingQuickScanner = false
+    @State private var showingManualPair = false
 
     var body: some View {
         NavigationStack {
@@ -16,34 +18,24 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             MemberBotAvatarView(
                                 config: appearance.avatarConfig,
-                                size: 42,
+                                size: 44,
                                 animated: true
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 6) {
-                                    Text(appearance.userName)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                    Text(appearance.userHandle)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(appearance.userRoleTitle)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(appearance.userName)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text("\(appearance.userHandle) · \(appearance.userRoleTitle)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                if !appearance.userBio.isEmpty {
-                                    Text(appearance.userBio)
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                }
+                                    .lineLimit(1)
                             }
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                 }
 
-                // 2. 已配对的电脑 & 3. 技能
+                // 2. 工作站与扩展
                 Section {
                     NavigationLink {
                         PairedComputersSettingsView()
@@ -53,32 +45,27 @@ struct SettingsView: View {
                                 systemImage: "desktopcomputer",
                                 tint: .blue
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("已配对的电脑")
-                                    .font(.subheadline.weight(.medium))
-                                Text(pairedComputerSubtitle)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
+                            Text("配对的电脑")
+                                .font(.subheadline.weight(.medium))
                             Spacer(minLength: 6)
-                            if servers.activeProfile != nil {
-                                HStack(spacing: 4) {
+                            if let active = servers.activeProfile {
+                                HStack(spacing: 5) {
                                     Circle()
                                         .fill(Color.green)
                                         .frame(width: 6.5, height: 6.5)
-                                    Text("已连接")
-                                        .font(.caption2.weight(.medium))
+                                    Text(active.displayHost)
+                                        .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
                             } else {
-                                Text("去配对")
-                                    .font(.caption2)
+                                Text("未连接")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
 
                     NavigationLink {
                         SkillsHubSettingsView()
@@ -88,20 +75,18 @@ struct SettingsView: View {
                                 systemImage: "sparkles.rectangle.stack.fill",
                                 tint: .purple
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("技能")
-                                    .font(.subheadline.weight(.medium))
-                                Text("技能 · MCP · 插件 · 子代理")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("技能与扩展")
+                                .font(.subheadline.weight(.medium))
                             Spacer()
+                            Text("技能 · MCP · 插件")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                 }
 
-                // 4. 主题 & 5. 字体 & 6. 通知
+                // 3. 外观与提醒
                 Section {
                     HStack(spacing: 10) {
                         settingsIconBadge(
@@ -133,20 +118,15 @@ struct SettingsView: View {
                                 systemImage: "textformat.size",
                                 tint: .orange
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("字体")
-                                    .font(.subheadline.weight(.medium))
-                                Text("字号大小与字体样式")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("字体")
+                                .font(.subheadline.weight(.medium))
                             Spacer()
                             Text("\(appearance.fontStylePreset.shortTitle) · \(appearance.fontSizePreset.title)")
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
 
                     NavigationLink {
                         NotificationSettingsDetailView()
@@ -156,23 +136,18 @@ struct SettingsView: View {
                                 systemImage: "bell.badge.fill",
                                 tint: .red
                             )
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("通知")
-                                    .font(.subheadline.weight(.medium))
-                                Text("任务完成、审批与协作消息提醒")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("通知")
+                                .font(.subheadline.weight(.medium))
                             Spacer()
                             Text(appearance.systemNotificationStatusText)
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                 }
 
-                // 7. 关于 VibeX & 当前版本
+                // 4. 关于 VibeX
                 Section {
                     NavigationLink {
                         AboutVibeXDetailView()
@@ -185,45 +160,46 @@ struct SettingsView: View {
                             Text("关于 VibeX")
                                 .font(.subheadline.weight(.medium))
                             Spacer()
-                            Text("本地优先 AI 研发平台")
-                                .font(.caption2)
+                            Text(currentVersionLabel)
+                                .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
-
-                    HStack(spacing: 10) {
-                        settingsIconBadge(
-                            systemImage: "checkmark.seal.fill",
-                            tint: .green
-                        )
-                        Text("当前版本")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Text(currentVersionLabel)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14))
                 }
             }
-            .listSectionSpacing(8)
-            .contentMargins(.top, 2, for: .scrollContent)
+            .listSectionSpacing(10)
+            .contentMargins(.top, 4, for: .scrollContent)
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("扫码配对电脑", systemImage: "qrcode.viewfinder") {
+                            showingQuickScanner = true
+                        }
+                        Button("输入连接码配对", systemImage: "keyboard") {
+                            showingManualPair = true
+                        }
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .accessibilityLabel("扫码配对")
+                }
+            }
+            .sheet(isPresented: $showingQuickScanner) {
+                PairView(startWithScanner: true, initialOrigin: servers.activeProfile?.origin)
+            }
+            .sheet(isPresented: $showingManualPair) {
+                PairView(startWithScanner: false, initialOrigin: servers.activeProfile?.origin)
+            }
         }
-    }
-
-    private var pairedComputerSubtitle: String {
-        if let active = servers.activeProfile {
-            return "\(active.serverName) · 共 \(servers.profiles.count) 台历史设备"
-        }
-        return "查看历史配对电脑或配对新的电脑"
     }
 
     private var currentVersionLabel: String {
         if let active = servers.activeProfile {
-            return "v\(active.serverVersion) (协议 v\(active.protocolVersion))"
+            return "v\(active.serverVersion)"
         }
         return "v0.4.2"
     }
@@ -325,56 +301,72 @@ struct ProfileSettingsDetailView: View {
     }
 }
 
-// MARK: - 2. 已配对的电脑（历史配对 + 配对新的电脑）
+// MARK: - 2. 配对的电脑（已保存电脑 + 1-Tap 扫码/连接码配对）
 
 struct PairedComputersSettingsView: View {
     @Environment(ServerStore.self) private var servers
-    @State private var showingPairSheet = false
+    @State private var showingScannerPair = false
+    @State private var showingManualPair = false
 
     var body: some View {
         List {
-            Section {
+            Section("新增连接") {
                 Button {
-                    showingPairSheet = true
+                    showingScannerPair = true
                 } label: {
                     HStack(spacing: 12) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
                                 .fill(Color.accentColor.opacity(0.14))
-                                .frame(width: 40, height: 40)
+                                .frame(width: 34, height: 34)
                             Image(systemName: "qrcode.viewfinder")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(Color.accentColor)
                         }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("配对新的电脑")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Text("扫描桌面端二维码、粘贴邀请码或手动输入地址")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("扫码配对电脑")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
                         Spacer()
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(Color.accentColor)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                 }
-            } header: {
-                Text("新增连接")
+
+                Button {
+                    showingManualPair = true
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.indigo.opacity(0.14))
+                                .frame(width: 34, height: 34)
+                            Image(systemName: "keyboard")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.indigo)
+                        }
+                        Text("使用连接码配对")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 2)
+                }
             }
 
-            Section {
+            Section("已保存的电脑 (\(servers.profiles.count))") {
                 if servers.profiles.isEmpty {
                     ContentUnavailableView(
-                        "暂无历史配对电脑",
-                        systemImage: "desktopcomputer.trianglebadge.exclamationmark",
-                        description: Text("点击上方「配对新的电脑」连接你的 VibeX 桌面端。")
+                        "尚未配对电脑",
+                        systemImage: "desktopcomputer"
                     )
                     .padding(.vertical, 16)
                 } else {
-                    ForEach(servers.profiles) { profile in
+                    ForEach(servers.profiles.reversed()) { profile in
                         let isActive = servers.activeProfile?.id == profile.id
                         NavigationLink {
                             ServerDetailView(profile: profile)
@@ -383,16 +375,16 @@ struct PairedComputersSettingsView: View {
                                 ZStack {
                                     Circle()
                                         .fill(isActive ? Color.green.opacity(0.15) : Color.secondary.opacity(0.12))
-                                        .frame(width: 38, height: 38)
+                                        .frame(width: 36, height: 36)
                                     Image(systemName: isActive ? "laptopcomputer.and.iphone" : "desktopcomputer")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(isActive ? Color.green : Color.secondary)
                                 }
 
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
                                         Text(profile.serverName)
-                                            .font(.body.weight(.semibold))
+                                            .font(.subheadline.weight(.semibold))
                                         if isActive {
                                             Text("当前连接")
                                                 .font(.caption2.weight(.semibold))
@@ -404,25 +396,23 @@ struct PairedComputersSettingsView: View {
                                                 .foregroundStyle(Color.green)
                                         }
                                     }
-                                    Text(profile.origin)
+                                    Text("\(profile.origin) · v\(profile.serverVersion)")
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
-                                    Text("设备：\(profile.deviceName) · VibeX v\(profile.serverVersion)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
                                 }
 
                                 Spacer()
 
                                 if !isActive {
-                                    Button("连接") {
+                                    Button("切换") {
                                         servers.setActive(profile.id)
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
                                 }
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 3)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
@@ -433,18 +423,15 @@ struct PairedComputersSettingsView: View {
                         }
                     }
                 }
-            } header: {
-                Text("历史配对的电脑 (\(servers.profiles.count))")
-            } footer: {
-                Text("点击任意电脑可查看连接诊断详情，左滑可移除历史配对记录。")
             }
         }
-        .navigationTitle("已配对的电脑")
+        .navigationTitle("配对的电脑")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingPairSheet) {
-            NavigationStack {
-                PairView()
-            }
+        .sheet(isPresented: $showingScannerPair) {
+            PairView(startWithScanner: true, initialOrigin: servers.activeProfile?.origin)
+        }
+        .sheet(isPresented: $showingManualPair) {
+            PairView(startWithScanner: false, initialOrigin: servers.activeProfile?.origin)
         }
     }
 }

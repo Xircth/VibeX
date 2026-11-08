@@ -21,6 +21,7 @@ struct ConversationsView: View {
     let client: HostClient
     var onChromeHiddenChange: ((Bool) -> Void)? = nil
     var onLaunchRevealedChange: ((Bool) -> Void)? = nil
+    var onSelectTab: ((AppTab) -> Void)? = nil
     @Environment(CompanionAttentionCenter.self) private var attentionCenter: CompanionAttentionCenter?
 
     @State private var list = RemoteList<ConversationListItem>()
@@ -212,18 +213,15 @@ struct ConversationsView: View {
         }
         .onAppear {
             consumePendingNavigationIfNeeded()
-            onChromeHiddenChange?(activeConversation != nil || isSidebarOpen)
+            onChromeHiddenChange?(isSidebarOpen)
             if !launchLogoEntered {
                 withAnimation(.easeOut(duration: 0.36)) {
                     launchLogoEntered = true
                 }
             }
         }
-        .onChange(of: activeConversation) { _, _ in
-            onChromeHiddenChange?(activeConversation != nil || isSidebarOpen)
-        }
         .onChange(of: isSidebarOpen) { _, _ in
-            onChromeHiddenChange?(activeConversation != nil || isSidebarOpen)
+            onChromeHiddenChange?(isSidebarOpen)
         }
         .onChange(of: attentionCenter?.pendingNavigationConversation) { _, _ in
             consumePendingNavigationIfNeeded()
@@ -557,6 +555,31 @@ struct ConversationsView: View {
             .refreshable {
                 await reload()
             }
+
+            Divider().opacity(0.45)
+
+            HStack(spacing: 4) {
+                sidebarQuickNavButton(title: "新工作台", icon: "sparkles") {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+                        activeConversation = nil
+                        isSidebarOpen = false
+                    }
+                }
+                sidebarQuickNavButton(title: "看板", icon: "square.grid.2x2") {
+                    isSidebarOpen = false
+                    onSelectTab?(.board)
+                }
+                sidebarQuickNavButton(title: "协作空间", icon: "person.2") {
+                    isSidebarOpen = false
+                    onSelectTab?(.space)
+                }
+                sidebarQuickNavButton(title: "设置", icon: "gearshape") {
+                    isSidebarOpen = false
+                    onSelectTab?(.settings)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
         .frame(width: 304)
         .frame(maxHeight: .infinity)
@@ -571,6 +594,32 @@ struct ConversationsView: View {
                 .ignoresSafeArea()
         }
         .shadow(color: .black.opacity(0.18), radius: 18, x: 5, y: 0)
+    }
+
+    private func sidebarQuickNavButton(
+        title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .frame(height: 18)
+                Text(title)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(.tertiarySystemFill).opacity(0.65))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Sidebar Tab 1: 最近对话

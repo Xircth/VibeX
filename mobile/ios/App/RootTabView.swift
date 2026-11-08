@@ -77,6 +77,11 @@ struct RootTabView: View {
                             withAnimation(.spring(response: 1.05, dampingFraction: 0.86, blendDuration: 0.2)) {
                                 isLaunchRevealed = revealed
                             }
+                        },
+                        onSelectTab: { targetTab in
+                            withAnimation(.smooth(duration: 0.16)) {
+                                selection = targetTab
+                            }
                         }
                     )
                 }

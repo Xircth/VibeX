@@ -340,45 +340,51 @@ struct ConversationDetailView: View {
             if model.items.isEmpty {
                 ContentUnavailableView("还没有消息", systemImage: "text.bubble")
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            ForEach(model.items) { item in
-                                MessageRow(
-                                    item: item,
-                                    agentID: model.conversation.agent_id,
-                                    modelName: model.currentModelLabel,
-                                    isLast: item.id == model.items.last?.id,
-                                    running: model.session.isTurnRunning,
-                                    openDiff: { diffChange = $0 }
-                                )
-                                .id(item.id)
+                GeometryReader { scrollGeo in
+                    let containerWidth = max(0, scrollGeo.size.width)
+                    let contentWidth = max(0, containerWidth - 28)
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: true) {
+                            LazyVStack(alignment: .leading, spacing: 16) {
+                                ForEach(model.items) { item in
+                                    MessageRow(
+                                        item: item,
+                                        agentID: model.conversation.agent_id,
+                                        modelName: model.currentModelLabel,
+                                        isLast: item.id == model.items.last?.id,
+                                        running: model.session.isTurnRunning,
+                                        openDiff: { diffChange = $0 }
+                                    )
+                                    .frame(width: contentWidth, alignment: .leading)
+                                    .id(item.id)
+                                }
+                                if model.session.isTurnRunning && model.items.last?.role != .assistant {
+                                    LoadingState(label: "正在思考").id("loading")
+                                }
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("conversation-bottom")
                             }
-                            if model.session.isTurnRunning && model.items.last?.role != .assistant {
-                                LoadingState(label: "正在思考").id("loading")
-                            }
-                            Color.clear
-                                .frame(height: 1)
-                                .id("conversation-bottom")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(width: containerWidth, alignment: .leading)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: model.items.count) { _, _ in
-                        withAnimation(.smooth(duration: 0.22)) {
-                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: model.items.last?.text.count) { _, _ in
-                        if model.isActivelyStreaming {
-                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: model.items.last?.segments.count) { _, _ in
-                        if model.isActivelyStreaming {
-                            withAnimation(.smooth(duration: 0.18)) {
+                        .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: model.items.count) { _, _ in
+                            withAnimation(.smooth(duration: 0.22)) {
                                 proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            }
+                        }
+                        .onChange(of: model.items.last?.text.count) { _, _ in
+                            if model.isActivelyStreaming {
+                                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            }
+                        }
+                        .onChange(of: model.items.last?.segments.count) { _, _ in
+                            if model.isActivelyStreaming {
+                                withAnimation(.smooth(duration: 0.18)) {
+                                    proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                }
                             }
                         }
                     }

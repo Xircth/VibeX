@@ -79,6 +79,7 @@ struct ToolChipsView: View {
                             .font(.system(size: 12.5, weight: .medium))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         if !runOpen, let summary = latestToolSummary {
                             Text("·")
@@ -88,6 +89,7 @@ struct ToolChipsView: View {
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                                .layoutPriority(-1)
                         }
 
                         Spacer(minLength: 4)
@@ -97,6 +99,7 @@ struct ToolChipsView: View {
                             .foregroundStyle(.tertiary)
                             .rotationEffect(.degrees(runOpen ? 90 : 0))
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(

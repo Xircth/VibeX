@@ -931,6 +931,7 @@ struct StreamingMessageText: View {
                 .padding(.top, 2)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
         .onChange(of: text) { _, newValue in
             targetText = newValue
@@ -1370,26 +1371,25 @@ private struct MarkdownBlockView: View {
     var body: some View {
         switch block {
         case .heading(let level, let text):
-            HStack(alignment: .lastTextBaseline, spacing: 4) {
-                Text(Self.inlineAttributed(text))
-                    .font(.system(size: headingSize(level), weight: .semibold))
-                    .tracking(0.1)
-                    .foregroundStyle(.primary)
-                if showCursor { StreamingCursorPill() }
-            }
-            .padding(.top, level <= 2 ? 3 : 1)
+            Text(Self.inlineAttributed(text, appendCursor: showCursor))
+                .font(.system(size: headingSize(level), weight: .semibold))
+                .tracking(0.1)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, level <= 2 ? 3 : 1)
 
         case .paragraph(let text):
-            HStack(alignment: .lastTextBaseline, spacing: 3) {
-                Text(Self.inlineAttributed(text))
-                    .font(.system(size: 14.5))
-                    .lineSpacing(4.5)
-                    .foregroundStyle(.primary)
-                if showCursor { StreamingCursorPill() }
-            }
+            Text(Self.inlineAttributed(text, appendCursor: showCursor))
+                .font(.system(size: 14.5))
+                .lineSpacing(4.5)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
         case .codeBlock(let language, let code):
             VibeXMarkdownCodeSwitch(language: language, code: code)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
         case .bulletList(let items):
             VStack(alignment: .leading, spacing: 5) {
@@ -1399,18 +1399,16 @@ private struct MarkdownBlockView: View {
                             .font(.system(size: 14.5, weight: .bold))
                             .foregroundStyle(.secondary)
                             .frame(width: 10, alignment: .center)
-                        HStack(alignment: .lastTextBaseline, spacing: 3) {
-                            Text(Self.inlineAttributed(item))
-                                .font(.system(size: 14.5))
-                                .lineSpacing(4)
-                                .foregroundStyle(.primary)
-                            if showCursor && idx == items.count - 1 {
-                                StreamingCursorPill()
-                            }
-                        }
+                        Text(Self.inlineAttributed(item, appendCursor: showCursor && idx == items.count - 1))
+                            .font(.system(size: 14.5))
+                            .lineSpacing(4)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2)
 
         case .numberedList(let items):
@@ -1420,18 +1418,16 @@ private struct MarkdownBlockView: View {
                         Text("\(entry.number).")
                             .font(.system(size: 13.5, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
-                        HStack(alignment: .lastTextBaseline, spacing: 3) {
-                            Text(Self.inlineAttributed(entry.text))
-                                .font(.system(size: 14.5))
-                                .lineSpacing(4)
-                                .foregroundStyle(.primary)
-                            if showCursor && idx == items.count - 1 {
-                                StreamingCursorPill()
-                            }
-                        }
+                        Text(Self.inlineAttributed(entry.text, appendCursor: showCursor && idx == items.count - 1))
+                            .font(.system(size: 14.5))
+                            .lineSpacing(4)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2)
 
         case .taskList(let items):
@@ -1441,19 +1437,17 @@ private struct MarkdownBlockView: View {
                         Image(systemName: item.checked ? "checkmark.square.fill" : "square")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(item.checked ? Color.accentColor : .secondary)
-                        HStack(alignment: .lastTextBaseline, spacing: 3) {
-                            Text(Self.inlineAttributed(item.text))
-                                .font(.system(size: 14.5))
-                                .lineSpacing(4)
-                                .strikethrough(item.checked, color: .secondary)
-                                .foregroundStyle(item.checked ? .secondary : .primary)
-                            if showCursor && idx == items.count - 1 {
-                                StreamingCursorPill()
-                            }
-                        }
+                        Text(Self.inlineAttributed(item.text, appendCursor: showCursor && idx == items.count - 1))
+                            .font(.system(size: 14.5))
+                            .lineSpacing(4)
+                            .strikethrough(item.checked, color: .secondary)
+                            .foregroundStyle(item.checked ? .secondary : .primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2)
 
         case .blockquote(let text):
@@ -1463,6 +1457,7 @@ private struct MarkdownBlockView: View {
                 .font(.system(size: 14))
                 .lineSpacing(4)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
@@ -1490,6 +1485,8 @@ private struct MarkdownBlockView: View {
                         .font(.system(size: 13.5))
                         .lineSpacing(3.5)
                         .foregroundStyle(.primary.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1546,14 +1543,12 @@ private struct MarkdownBlockView: View {
 
     /// Parses inline Markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`, `$math$`)
     /// and styles inline code & file references to match `AstryxMarkdown.tsx` + `conv-markdown.css`.
-    static func inlineAttributed(_ raw: String) -> AttributedString {
+    static func inlineAttributed(_ raw: String, appendCursor: Bool = false) -> AttributedString {
         let normalized = raw.replacingOccurrences(of: #"\$([^$\n]+)\$"#, with: "`$1`", options: .regularExpression)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        guard var attributed = try? AttributedString(markdown: normalized, options: options) else {
-            return AttributedString(raw)
-        }
+        var attributed = (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(raw)
         for run in attributed.runs {
             if run.inlinePresentationIntent?.contains(.code) == true {
                 let textSlice = String(attributed[run.range].characters)
@@ -1568,6 +1563,12 @@ private struct MarkdownBlockView: View {
                 attributed[run.range].foregroundColor = .accentColor
                 attributed[run.range].underlineStyle = .single
             }
+        }
+        if appendCursor {
+            var cursor = AttributedString(" ▍")
+            cursor.foregroundColor = .accentColor
+            cursor.font = .system(size: 13, weight: .bold)
+            attributed.append(cursor)
         }
         return attributed
     }

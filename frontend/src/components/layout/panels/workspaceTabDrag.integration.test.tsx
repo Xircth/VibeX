@@ -153,7 +153,9 @@ describe('workspace tab drag', () => {
       const sessionSurface = container.querySelector(
         '[data-session-tab="true"]'
       ) as HTMLElement | null;
-      const sessionTab = sessionSurface?.closest('.dv-tab') as HTMLElement | null;
+      const sessionTab = sessionSurface?.closest(
+        '.dv-tab'
+      ) as HTMLElement | null;
       expect(notesTab).toBeTruthy();
       expect(sessionTab).toBeTruthy();
       if (!notesTab || !sessionTab || !editorGroup || !sessionGroup) {
@@ -226,4 +228,3 @@ describe('workspace tab drag', () => {
     }
   });
 });
-

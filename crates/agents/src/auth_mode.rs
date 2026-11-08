@@ -843,9 +843,7 @@ fn sanitize_and_read_dsh_credentials(dsh_dir: &Path) -> Option<String> {
                         .map(str::to_string)
                 })
         });
-    if mutated
-        && let Ok(serialized) = serde_yaml::to_string(&doc)
-    {
+    if mutated && let Ok(serialized) = serde_yaml::to_string(&doc) {
         let _ = std::fs::write(&path, serialized);
     }
     api_key
@@ -858,9 +856,7 @@ fn apply_dsh_native_launch_env(env: &mut HashMap<String, String>) {
         .get("DEEPSEEK_API_KEY")
         .map(|value| value.trim())
         .is_some_and(|value| !value.is_empty());
-    if !has_env_key
-        && let Some(api_key) = credential_key
-    {
+    if !has_env_key && let Some(api_key) = credential_key {
         env.insert("DEEPSEEK_API_KEY".to_string(), api_key);
     }
     if let Some(base_url) = env.get("DEEPSEEK_BASE_URL").cloned() {
@@ -2187,4 +2183,3 @@ mod tests {
         );
     }
 }
-

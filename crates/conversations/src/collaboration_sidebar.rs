@@ -1263,7 +1263,7 @@ pub async fn list_dm_messages(
 
     let (mut pre, post) = match since_seq {
         Some(since) => {
-            let pre = list_pre_cutover_dm_messages(
+            let mut pre = list_pre_cutover_dm_messages(
                 pool,
                 conversation_id,
                 Some(since),
@@ -1272,6 +1272,10 @@ pub async fn list_dm_messages(
             )
             .await?;
             let post = dm_space_messages_since(pool, &thread_id, since).await?;
+            if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
+                pre = list_pre_cutover_dm_messages(pool, conversation_id, Some(since), limit, None)
+                    .await?;
+            }
             (pre, post)
         }
         None => {
@@ -1293,7 +1297,8 @@ pub async fn list_dm_messages(
                 .await?
             };
             if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
-                pre = list_pre_cutover_dm_messages(pool, conversation_id, None, limit, None).await?;
+                pre =
+                    list_pre_cutover_dm_messages(pool, conversation_id, None, limit, None).await?;
             }
             (pre, post)
         }
@@ -2143,7 +2148,10 @@ pub async fn identity_members_for_conversations_batch(
     let rows = query.fetch_all(pool).await.map_err(db_err)?;
     let mut out = HashMap::with_capacity(rows.len());
     for (conv_id, member_id, is_sup, avatar, color) in rows {
-        if let Some(cid) = conv_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        if let Some(cid) = conv_id
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
             out.entry(cid)
                 .or_insert((member_id, is_sup != 0, avatar, color));
         }
@@ -2154,7 +2162,10 @@ pub async fn identity_members_for_conversations_batch(
         if !out.contains_key(*cid)
             && let Ok(uuid) = Uuid::parse_str(cid)
         {
-            derived_to_conv.push((identity::member_id_for_conversation(uuid), (*cid).to_string()));
+            derived_to_conv.push((
+                identity::member_id_for_conversation(uuid),
+                (*cid).to_string(),
+            ));
         }
     }
     if !derived_to_conv.is_empty() {
@@ -2194,8 +2205,7 @@ pub async fn enrich_space_members_batch(
     if members.is_empty() {
         return Ok(Vec::new());
     }
-    let is_group_space =
-        !space_id.starts_with("unassigned:") && !space_id.starts_with("direct:");
+    let is_group_space = !space_id.starts_with("unassigned:") && !space_id.starts_with("direct:");
     let mut identity_by_conv: HashMap<String, (String, bool, Option<String>, Option<String>)> =
         HashMap::new();
 
@@ -2214,7 +2224,10 @@ pub async fn enrich_space_members_batch(
             .map_err(db_err)?;
 
         for (conv_id, identity_id, is_sup, avatar, color) in bound_rows {
-            if let Some(cid) = conv_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+            if let Some(cid) = conv_id
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+            {
                 identity_by_conv
                     .entry(cid)
                     .or_insert((identity_id, is_sup != 0, avatar, color));
@@ -3229,10 +3242,25 @@ mod tests {
             .iter()
             .find(|v| v.get("nickname").and_then(|s| s.as_str()) == Some("Beta"))
             .expect("Beta member");
-        assert!(alpha.get("identity_member_id").and_then(|v| v.as_str()).is_some());
-        assert_eq!(alpha.get("is_supervisor").and_then(|v| v.as_bool()), Some(true));
-        assert!(beta.get("identity_member_id").and_then(|v| v.as_str()).is_some());
-        assert_eq!(beta.get("is_supervisor").and_then(|v| v.as_bool()), Some(false));
+        assert!(
+            alpha
+                .get("identity_member_id")
+                .and_then(|v| v.as_str())
+                .is_some()
+        );
+        assert_eq!(
+            alpha.get("is_supervisor").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert!(
+            beta.get("identity_member_id")
+                .and_then(|v| v.as_str())
+                .is_some()
+        );
+        assert_eq!(
+            beta.get("is_supervisor").and_then(|v| v.as_bool()),
+            Some(false)
+        );
         assert_ne!(
             alpha.get("identity_member_id"),
             beta.get("identity_member_id")

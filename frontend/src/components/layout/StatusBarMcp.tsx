@@ -153,7 +153,10 @@ export function StatusBarMcp() {
     const handleLocalChanged = () => {
       void queryClient.invalidateQueries({ queryKey: localMcpServersQueryKey });
     };
-    window.addEventListener(LOCAL_MCP_SERVERS_CHANGED_EVENT, handleLocalChanged);
+    window.addEventListener(
+      LOCAL_MCP_SERVERS_CHANGED_EVENT,
+      handleLocalChanged
+    );
     return () => {
       window.removeEventListener(
         LOCAL_MCP_SERVERS_CHANGED_EVENT,
@@ -227,7 +230,9 @@ export function StatusBarMcp() {
     try {
       await mcpMarketApi.uninstall(server.id);
       notifyLocalMcpServersChanged();
-      await queryClient.invalidateQueries({ queryKey: localMcpServersQueryKey });
+      await queryClient.invalidateQueries({
+        queryKey: localMcpServersQueryKey,
+      });
     } catch (error) {
       setActionError(
         t('mcp.actionFailed', { message: getInvokeErrorMessage(error) })

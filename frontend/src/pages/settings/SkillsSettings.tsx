@@ -14,7 +14,14 @@
  *         limit + Show More/Less; Right: inline installation & target config)
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   type ManagedAgentOption,
   useManagedAgentOptions,
@@ -129,7 +136,9 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function formatInstallCount(installs: number | null | undefined): string {
+export function formatInstallCount(
+  installs: number | null | undefined
+): string {
   if (typeof installs !== 'number' || !Number.isFinite(installs)) {
     return '—';
   }
@@ -160,7 +169,9 @@ function resolveSparklinePoints(item: SkillMarketItem): number[] {
     const stepHash = Math.abs(Math.imul(hash ^ (i * 2654435761), 1597334677));
     const growth = 0.35 + (i / 7) * 0.65;
     const jitter = ((stepHash % 100) / 100) * 0.28 - 0.1;
-    points.push(Math.max(1, Math.round(base * Math.max(0.12, growth + jitter))));
+    points.push(
+      Math.max(1, Math.round(base * Math.max(0.12, growth + jitter)))
+    );
   }
   return points;
 }

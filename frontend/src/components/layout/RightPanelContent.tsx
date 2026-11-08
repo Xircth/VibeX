@@ -417,11 +417,8 @@ export function RightPanelContent() {
     ]
   );
 
-  const {
-    openSessionTab,
-    openOrFocusPanel,
-    runInEditorGroup,
-  } = usePanelActionsContext();
+  const { openSessionTab, openOrFocusPanel, runInEditorGroup } =
+    usePanelActionsContext();
   const pendingTargetGroupIdRef = useRef<string | null>(null);
 
   const handleCreatedSession = useCallback(
@@ -598,8 +595,7 @@ export function RightPanelContent() {
       handleCreatedSession({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
-        agentId:
-          newSession.executor ?? profileToPersist?.executor ?? null,
+        agentId: newSession.executor ?? profileToPersist?.executor ?? null,
       });
       setIsCreateOverlayOpen(false);
     },
@@ -663,10 +659,7 @@ export function RightPanelContent() {
     if (effectiveActiveTab === 'workspace') {
       const targetGroupId = pendingTargetGroupIdRef.current;
       const openPlaceholder = () =>
-        openOrFocusPanel(
-          PANEL_IDS.AI_CHAT,
-          t('rightPanelContent.newSession')
-        );
+        openOrFocusPanel(PANEL_IDS.AI_CHAT, t('rightPanelContent.newSession'));
       if (targetGroupId) {
         runInEditorGroup(targetGroupId, openPlaceholder);
       } else {

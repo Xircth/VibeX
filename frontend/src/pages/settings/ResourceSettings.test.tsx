@@ -311,9 +311,7 @@ describe('McpSettings', () => {
       'border',
       'bg-card'
     );
-    expect(
-      screen.getByRole('button', { name: 'MCP 服务器' })
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'MCP 服务器' })).toBeVisible();
     expect(screen.getByRole('button', { name: '开发者工具' })).toBeVisible();
     expect(screen.getByRole('button', { name: '分析' })).toBeVisible();
     expect(
@@ -326,9 +324,7 @@ describe('McpSettings', () => {
     expect(marketItem).toHaveClass('!my-0', '!h-auto', '!min-h-0');
 
     // Verify Composio and Aiwyn Tax MCP are not hardcoded as 'included' (show Connect button instead)
-    expect(
-      screen.getByRole('button', { name: '连接 Composio' })
-    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '连接 Composio' })).toBeVisible();
     expect(
       screen.getByRole('button', { name: '连接 Aiwyn Tax MCP' })
     ).toBeVisible();
@@ -639,7 +635,8 @@ describe('SkillsSettings', () => {
     ]);
     mocks.detailSkill.mockResolvedValue({
       description: 'Fallback description',
-      content: '---\nname: find-skills\n---\n# Find Skills Guide\n\nDiscover and install skills easily.',
+      content:
+        '---\nname: find-skills\n---\n# Find Skills Guide\n\nDiscover and install skills easily.',
     });
     mocks.installSkill.mockResolvedValue([
       {
@@ -660,9 +657,7 @@ describe('SkillsSettings', () => {
 
     renderSettings(<SkillsSettings />);
 
-    expect(
-      screen.getByRole('heading', { name: 'Skill' })
-    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Skill' })).toBeVisible();
     expect(screen.getByRole('radio', { name: 'Skill 市场' })).toBeChecked();
 
     expect(
@@ -694,7 +689,9 @@ describe('SkillsSettings', () => {
     expect(screen.getByRole('button', { name: '返回列表' })).toBeVisible();
     expect(screen.queryByText('SKILL.md')).not.toBeInTheDocument();
 
-    const sourceLink = screen.getByRole('link', { name: /vercel-labs\/skills/ });
+    const sourceLink = screen.getByRole('link', {
+      name: /vercel-labs\/skills/,
+    });
     const installsBadge = screen.getByText(/749\.5K INSTALLS/);
     expect(sourceLink.parentElement).toBe(installsBadge.parentElement);
     expect(
@@ -717,7 +714,10 @@ describe('SkillsSettings', () => {
       'name: find-skills',
       '---',
       '# Find Skills Guide',
-      ...Array.from({ length: 30 }, (_, idx) => `- Step ${idx + 1}: Detailed instruction line`),
+      ...Array.from(
+        { length: 30 },
+        (_, idx) => `- Step ${idx + 1}: Detailed instruction line`
+      ),
     ].join('\n');
     mocks.detailSkill.mockResolvedValueOnce({
       description: 'Fallback description',
@@ -727,7 +727,9 @@ describe('SkillsSettings', () => {
     await user.click(screen.getByRole('button', { name: '返回列表' }));
     await user.click(await screen.findByText('find-skills'));
 
-    const showMoreBtn = await screen.findByRole('button', { name: 'Show More' });
+    const showMoreBtn = await screen.findByRole('button', {
+      name: 'Show More',
+    });
     expect(showMoreBtn).toBeVisible();
     await user.click(showMoreBtn);
     expect(screen.getByRole('button', { name: 'Show Less' })).toBeVisible();
@@ -744,5 +746,3 @@ describe('SkillsSettings', () => {
     });
   });
 });
-
-

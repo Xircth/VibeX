@@ -149,7 +149,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'gitlab',
     name: 'GitLab',
-    description: 'Manage GitLab repositories, merge requests, pipelines, and issues.',
+    description:
+      'Manage GitLab repositories, merge requests, pipelines, and issues.',
     category: 'developer_tools',
     kind: 'mcp',
     verified: true,
@@ -172,7 +173,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'sentry',
     name: 'Sentry',
-    description: 'Inspect application errors, stack traces, and release health in Sentry.',
+    description:
+      'Inspect application errors, stack traces, and release health in Sentry.',
     category: 'developer_tools',
     kind: 'mcp',
     verified: true,
@@ -212,7 +214,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'vercel',
     name: 'Vercel',
-    description: 'Manage Vercel deployments, domains, projects, and serverless logs.',
+    description:
+      'Manage Vercel deployments, domains, projects, and serverless logs.',
     category: 'developer_tools',
     kind: 'mcp',
     verified: true,
@@ -324,7 +327,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'posthog',
     name: 'PostHog',
-    description: 'Query product analytics, feature flags, session replays, and insights.',
+    description:
+      'Query product analytics, feature flags, session replays, and insights.',
     category: 'analytics',
     kind: 'mcp',
     verified: true,
@@ -341,7 +345,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'tavily',
     name: 'Tavily Search',
-    description: 'Real-time web search and research extraction optimized for LLM agents.',
+    description:
+      'Real-time web search and research extraction optimized for LLM agents.',
     category: 'analytics',
     kind: 'mcp',
     verified: true,
@@ -441,7 +446,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'filesystem',
     name: 'Filesystem MCP',
-    description: 'Secure local file system read, write, and directory tree operations.',
+    description:
+      'Secure local file system read, write, and directory tree operations.',
     category: 'model_context_protocol',
     kind: 'mcp',
     verified: true,
@@ -458,7 +464,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'memory',
     name: 'Knowledge Graph Memory',
-    description: 'Persistent memory using a local knowledge graph of entities and relations.',
+    description:
+      'Persistent memory using a local knowledge graph of entities and relations.',
     category: 'model_context_protocol',
     kind: 'mcp',
     verified: true,
@@ -477,7 +484,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'hubspot',
     name: 'HubSpot',
-    description: 'Manage CRM contacts, deals, marketing campaigns, and sales pipelines.',
+    description:
+      'Manage CRM contacts, deals, marketing campaigns, and sales pipelines.',
     category: 'marketing_automation',
     kind: 'mcp',
     verified: true,
@@ -500,7 +508,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'mailchimp',
     name: 'Mailchimp',
-    description: 'Automate email audiences, newsletter campaigns, and marketing performance.',
+    description:
+      'Automate email audiences, newsletter campaigns, and marketing performance.',
     category: 'marketing_automation',
     kind: 'mcp',
     verified: true,
@@ -523,7 +532,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'klaviyo',
     name: 'Klaviyo',
-    description: 'Manage e-commerce customer segments, flows, templates, and campaign metrics.',
+    description:
+      'Manage e-commerce customer segments, flows, templates, and campaign metrics.',
     category: 'marketing_automation',
     kind: 'mcp',
     verified: true,
@@ -546,7 +556,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'stripe',
     name: 'Stripe',
-    description: 'Interact with Stripe payments, subscriptions, invoices, and customers.',
+    description:
+      'Interact with Stripe payments, subscriptions, invoices, and customers.',
     category: 'marketing_automation',
     kind: 'mcp',
     verified: true,
@@ -571,7 +582,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'x-twitter',
     name: 'X (Twitter)',
-    description: 'Post tweets, search timelines, and analyze social engagement on X.',
+    description:
+      'Post tweets, search timelines, and analyze social engagement on X.',
     category: 'social',
     kind: 'mcp',
     verified: true,
@@ -594,7 +606,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'reddit',
     name: 'Reddit',
-    description: 'Browse subreddits, threads, comments, and trending community discussions.',
+    description:
+      'Browse subreddits, threads, comments, and trending community discussions.',
     category: 'social',
     kind: 'mcp',
     verified: true,
@@ -611,7 +624,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'linkedin',
     name: 'LinkedIn',
-    description: 'Publish company updates, manage professional posts, and inspect profile insights.',
+    description:
+      'Publish company updates, manage professional posts, and inspect profile insights.',
     category: 'social',
     kind: 'mcp',
     verified: true,
@@ -628,7 +642,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'youtube',
     name: 'YouTube',
-    description: 'Fetch video transcripts, channel analytics, playlists, and comment threads.',
+    description:
+      'Fetch video transcripts, channel analytics, playlists, and comment threads.',
     category: 'social',
     kind: 'mcp',
     verified: true,
@@ -647,7 +662,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'notion',
     name: 'Notion',
-    description: 'Search, read, and update Notion pages, databases, and workspace docs.',
+    description:
+      'Search, read, and update Notion pages, databases, and workspace docs.',
     category: 'productivity',
     kind: 'mcp',
     verified: true,
@@ -670,7 +686,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'linear',
     name: 'Linear',
-    description: 'Create and triage issues, projects, cycles, and roadmaps in Linear.',
+    description:
+      'Create and triage issues, projects, cycles, and roadmaps in Linear.',
     category: 'productivity',
     kind: 'mcp',
     verified: true,
@@ -686,7 +703,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'google-drive',
     name: 'Google Drive',
-    description: 'Search and read Google Docs, Sheets, Slides, and Drive folders.',
+    description:
+      'Search and read Google Docs, Sheets, Slides, and Drive folders.',
     category: 'productivity',
     kind: 'mcp',
     verified: true,
@@ -703,7 +721,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'atlassian-jira',
     name: 'Jira & Confluence',
-    description: 'Manage Jira sprints, issues, and Confluence knowledge base pages.',
+    description:
+      'Manage Jira sprints, issues, and Confluence knowledge base pages.',
     category: 'productivity',
     kind: 'mcp',
     verified: true,
@@ -722,7 +741,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'slack',
     name: 'Slack',
-    description: 'Send messages, read channel history, and manage workspace threads in Slack.',
+    description:
+      'Send messages, read channel history, and manage workspace threads in Slack.',
     category: 'communication',
     kind: 'mcp',
     verified: true,
@@ -745,7 +765,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'discord',
     name: 'Discord',
-    description: 'Automate Discord server channels, messages, webhooks, and moderation.',
+    description:
+      'Automate Discord server channels, messages, webhooks, and moderation.',
     category: 'communication',
     kind: 'mcp',
     verified: true,
@@ -785,7 +806,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'telegram',
     name: 'Telegram',
-    description: 'Send notifications, manage bot chats, and read channel updates.',
+    description:
+      'Send notifications, manage bot chats, and read channel updates.',
     category: 'communication',
     kind: 'mcp',
     verified: true,
@@ -804,7 +826,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'figma',
     name: 'Figma',
-    description: 'Inspect Figma frames, design tokens, components, and auto-layout specs.',
+    description:
+      'Inspect Figma frames, design tokens, components, and auto-layout specs.',
     category: 'design',
     kind: 'mcp',
     verified: true,
@@ -827,7 +850,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'canva',
     name: 'Canva',
-    description: 'Generate social graphics, presentations, and brand templates with Canva.',
+    description:
+      'Generate social graphics, presentations, and brand templates with Canva.',
     category: 'design',
     kind: 'mcp',
     verified: true,
@@ -843,7 +867,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'excalidraw',
     name: 'Excalidraw',
-    description: 'Create and edit hand-drawn architecture diagrams and whiteboards.',
+    description:
+      'Create and edit hand-drawn architecture diagrams and whiteboards.',
     category: 'design',
     kind: 'mcp',
     verified: true,
@@ -860,7 +885,8 @@ export const BUILTIN_CONNECTOR_CATALOG: readonly ConnectorCatalogEntry[] = [
     providerId: 'official_registry',
     serverId: 'mermaid',
     name: 'Mermaid Diagrams',
-    description: 'Render sequence diagrams, flowcharts, and architecture visualizations.',
+    description:
+      'Render sequence diagrams, flowcharts, and architecture visualizations.',
     category: 'design',
     kind: 'mcp',
     verified: true,
@@ -917,10 +943,9 @@ export function normalizeConnectorCategory(
     return 'design';
   }
 
-  const text = `${item?.name ?? ''} ${item?.server_id ?? ''} ${item?.description ?? ''}`.toLowerCase();
-  if (
-    /\b(Figma|Canva|Excalidraw|Mermaid|design|ui|ux|svg)\b/i.test(text)
-  ) {
+  const text =
+    `${item?.name ?? ''} ${item?.server_id ?? ''} ${item?.description ?? ''}`.toLowerCase();
+  if (/\b(Figma|Canva|Excalidraw|Mermaid|design|ui|ux|svg)\b/i.test(text)) {
     return 'design';
   }
   if (
@@ -997,7 +1022,8 @@ export function marketplaceItemToConnectorEntry(
 
   return {
     id: existingBuiltin?.id ?? `${item.provider_id}:${normalizedServerId}`,
-    providerId: item.provider_id || existingBuiltin?.providerId || 'official_registry',
+    providerId:
+      item.provider_id || existingBuiltin?.providerId || 'official_registry',
     serverId: normalizedServerId,
     name: item.name || existingBuiltin?.name || normalizedServerId,
     description: item.description || existingBuiltin?.description || '',
@@ -1036,4 +1062,3 @@ export function mergeConnectorCatalog(
 
   return Array.from(merged.values());
 }
-

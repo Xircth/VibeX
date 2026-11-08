@@ -55,6 +55,7 @@ const view: DshProvidersView = {
       api: null,
       base_url: null,
       api_key_env: 'DEEPSEEK_API_KEY',
+      api_key: null,
       credential_present: true,
       models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' }],
     },

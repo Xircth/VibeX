@@ -1741,7 +1741,10 @@ mod tests {
         let home = Path::new("/tmp/vibex-home");
         let environment = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),
-            home.join(".pi").join("agent").to_string_lossy().into_owned(),
+            home.join(".pi")
+                .join("agent")
+                .to_string_lossy()
+                .into_owned(),
         )]);
         assert_eq!(
             omp_config_path(home, &environment),

@@ -622,11 +622,7 @@ async fn handle_recorded_conversation_batch(
 }
 
 fn is_local_user_turn_origin(origin: &str) -> bool {
-    matches!(
-        origin,
-        conversations::commit_reminder::LOCAL_USER_ORIGIN
-            | conversations::commit_reminder::USER_ORIGIN
-    )
+    origin == conversations::commit_reminder::LOCAL_USER_ORIGIN
 }
 
 fn attention_from_event(

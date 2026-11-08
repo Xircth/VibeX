@@ -335,7 +335,9 @@ export function AgentSessionConfigPicker({
         </div>
       ) : null}
 
-      {selectedAgentId && activeError && (!hasSessionControls || refreshError) ? (
+      {selectedAgentId &&
+      activeError &&
+      (!hasSessionControls || refreshError) ? (
         <AgentSessionControlsErrorCard
           agentId={selectedAgentId}
           error={activeError}

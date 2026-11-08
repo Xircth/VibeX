@@ -588,9 +588,8 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
-        let refreshed =
-            plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
-                .unwrap_or_else(|_| plugin.package.clone());
+        let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+            .unwrap_or_else(|_| plugin.package.clone());
         serialize(refreshed.product_detail().map_err(internal_error)?)
     }
 
@@ -1300,9 +1299,7 @@ impl ServerApplicationDomains {
                 }
             }
         }
-        if !tried_monorepo
-            && let Some(monorepo_root) = monorepo_root.as_deref()
-        {
+        if !tried_monorepo && let Some(monorepo_root) = monorepo_root.as_deref() {
             let git_ref =
                 monorepo_plugin_version(monorepo_root).unwrap_or_else(|| "2.0.0".to_owned());
             match self
@@ -1912,6 +1909,77 @@ impl ServerApplicationDomains {
         )
     }
 
+    pub(crate) async fn conversation_projects(&self) -> Result<Value, ApplicationError> {
+        #[derive(Debug, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ProjectSummary {
+            id: Uuid,
+            name: String,
+            root_path: String,
+            parent_project_id: Option<Uuid>,
+            is_git: bool,
+            is_home: bool,
+            workspace_ids: Vec<Uuid>,
+        }
+
+        let _ = self
+            .deployment
+            .project()
+            .migrate_multi_repo_projects(&self.pool, self.deployment.repo())
+            .await;
+        let _ = self
+            .deployment
+            .project()
+            .ensure_home_project(&self.pool, self.deployment.repo())
+            .await;
+        let projects = Project::find_all(&self.pool)
+            .await
+            .map_err(internal_error)?;
+        for project in &projects {
+            let _ = self.ensure_root_workspace(project.id, None).await;
+        }
+        let rows = sqlx::query_as::<_, (Uuid, Uuid)>(
+            r#"SELECT project_id, id
+               FROM workspaces
+               WHERE project_id IS NOT NULL
+               ORDER BY use_worktree ASC, created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(internal_error)?;
+        let mut by_project: std::collections::HashMap<Uuid, Vec<Uuid>> =
+            std::collections::HashMap::new();
+        for (project_id, workspace_id) in rows {
+            by_project.entry(project_id).or_default().push(workspace_id);
+        }
+        let summaries: Vec<ProjectSummary> = projects
+            .into_iter()
+            .map(|project| ProjectSummary {
+                workspace_ids: by_project.remove(&project.id).unwrap_or_default(),
+                id: project.id,
+                name: project.name,
+                root_path: project.root_path,
+                parent_project_id: project.parent_project_id,
+                is_git: project.is_git,
+                is_home: project.is_home,
+            })
+            .collect();
+        serialize(summaries)
+    }
+
+    pub(crate) async fn workspace_has_repositories(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<bool, ApplicationError> {
+        let repositories = db::models::workspace_repo::WorkspaceRepo::find_repos_for_workspace(
+            &self.pool,
+            workspace_id,
+        )
+        .await
+        .map_err(internal_error)?;
+        Ok(!repositories.is_empty())
+    }
+
     async fn project_repositories(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: IdArgs = parse(args)?;
         serialize(
@@ -2002,13 +2070,11 @@ impl ServerApplicationDomains {
 
     async fn user_system_info(&self) -> Result<Value, ApplicationError> {
         let mut value = crate::host::catalog::config::user_system_info(self).await?;
-        if let (Some(object), Ok(catalog)) = (
-            value.as_object_mut(),
-            self.plugin_control_catalog().await,
-        ) {
-            if let Some(plugins) = catalog.get("plugins").cloned() {
-                object.insert("plugins".to_string(), plugins);
-            }
+        if let (Some(object), Ok(catalog)) =
+            (value.as_object_mut(), self.plugin_control_catalog().await)
+            && let Some(plugins) = catalog.get("plugins").cloned()
+        {
+            object.insert("plugins".to_string(), plugins);
         }
         Ok(value)
     }
@@ -3271,21 +3337,39 @@ mod plugin_invoke_contribution_args {
         let temp = tempfile::tempdir().expect("tempdir");
         let manifest_dir = temp.path().join(".vibex-plugin");
         std::fs::create_dir_all(&manifest_dir).expect("create manifest dir");
-        std::fs::write(
-            manifest_dir.join("plugin.json"),
-            r#"{"version":"2.0.0"}"#,
-        )
-        .expect("write plugin.json");
+        std::fs::write(manifest_dir.join("plugin.json"), r#"{"version":"2.0.0"}"#)
+            .expect("write plugin.json");
 
         assert!(tag_matches_monorepo_official_plugin(None, temp.path()));
         assert!(tag_matches_monorepo_official_plugin(Some(""), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("main"), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("master"), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("latest"), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("2.0.0"), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("v2.0.0"), temp.path()));
-        assert!(tag_matches_monorepo_official_plugin(Some("1.0.0"), temp.path()));
-        assert!(!tag_matches_monorepo_official_plugin(Some("3.0.0"), temp.path()));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("main"),
+            temp.path()
+        ));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("master"),
+            temp.path()
+        ));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("latest"),
+            temp.path()
+        ));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("2.0.0"),
+            temp.path()
+        ));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("v2.0.0"),
+            temp.path()
+        ));
+        assert!(tag_matches_monorepo_official_plugin(
+            Some("1.0.0"),
+            temp.path()
+        ));
+        assert!(!tag_matches_monorepo_official_plugin(
+            Some("3.0.0"),
+            temp.path()
+        ));
     }
 
     #[tokio::test]

@@ -341,8 +341,7 @@ export function PluginSchemaSettingsForm({
                 setSavedNotice(false);
                 setValues((prev) => ({
                   ...prev,
-                  [key]:
-                    prop.type === 'array' ? deduped : deduped.join(', '),
+                  [key]: prop.type === 'array' ? deduped : deduped.join(', '),
                 }));
               };
 

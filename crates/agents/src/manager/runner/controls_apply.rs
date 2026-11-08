@@ -279,7 +279,8 @@ impl AgentConnectionRunner {
                 let (was_plan, mode_uses_set_mode) = {
                     let mut controls = self.session_controls.write().await;
                     let stored = controls.entry(session_id).or_default();
-                    let (_, current_mode) = session_modes_from_config_options(&stored.config_options);
+                    let (_, current_mode) =
+                        session_modes_from_config_options(&stored.config_options);
                     let was_plan = current_mode.as_deref() == Some("plan")
                         || stored
                             .modes

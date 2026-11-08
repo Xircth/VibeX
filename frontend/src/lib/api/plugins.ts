@@ -566,10 +566,7 @@ export function createPluginControlApi(transport: BackendTransport) {
       );
       return detail;
     },
-    discoverModels: (request: {
-      baseUrl: string;
-      apiKey?: string | null;
-    }) =>
+    discoverModels: (request: { baseUrl: string; apiKey?: string | null }) =>
       transport.call('dsh_provider_discover_models', {
         request: {
           base_url: request.baseUrl,

@@ -6702,13 +6702,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         // it also holds a seat in a group, so list the full direct roster.
         unassignedMembers: directFallbackMembers,
       }),
-    [
-      directFallbackMembers,
-      membersBySpace,
-      sidebarItems,
-      spaces,
-      unassignedId,
-    ]
+    [directFallbackMembers, membersBySpace, sidebarItems, spaces, unassignedId]
   );
   chatListRef.current = chatList;
   const createGroupBots = useMemo(
@@ -6798,9 +6792,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       ),
     [chatList]
   );
-  const supervisorEntry = useMemo<
-    Extract<ChatListEntry, { type: 'direct' }> | null
-  >(() => {
+  const supervisorEntry = useMemo<Extract<
+    ChatListEntry,
+    { type: 'direct' }
+  > | null>(() => {
     if (
       supervisorOverride.active &&
       supervisorOverride.workspace === workspace
@@ -6833,7 +6828,12 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   );
   const { visible: visibleChatList, hidden: hiddenChatList } = useMemo(
     () =>
-      applyContactListView(listChatEntries, contactChrome, listSort, typeFilter),
+      applyContactListView(
+        listChatEntries,
+        contactChrome,
+        listSort,
+        typeFilter
+      ),
     [contactChrome, listChatEntries, listSort, typeFilter]
   );
   const contactSections = useMemo(

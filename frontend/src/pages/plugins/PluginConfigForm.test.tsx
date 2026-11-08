@@ -239,7 +239,11 @@ describe('PluginConfigForm', () => {
           properties: {
             baseUrl: { type: 'string', title: 'Base URL' },
             apiKey: { type: 'string', title: 'API Key' },
-            model: { type: 'string', title: '补全模型', default: 'gpt-4o-mini' },
+            model: {
+              type: 'string',
+              title: '补全模型',
+              default: 'gpt-4o-mini',
+            },
           },
         },
       },
@@ -564,6 +568,3 @@ describe('PluginConfigForm', () => {
     });
   });
 });
-
-
-

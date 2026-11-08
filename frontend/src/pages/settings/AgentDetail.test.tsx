@@ -1069,9 +1069,7 @@ describe('AgentDetail', () => {
       );
 
       await userEvent.click(screen.getByRole('button', { name: '安装 ACP' }));
-      await userEvent.click(
-        screen.getByRole('button', { name: '安装最新版' })
-      );
+      await userEvent.click(screen.getByRole('button', { name: '安装最新版' }));
       expect(onInstall).toHaveBeenCalledOnce();
 
       await userEvent.click(

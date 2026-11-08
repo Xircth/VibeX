@@ -605,7 +605,9 @@ pub fn default_env_updates(
                     .as_deref()
                     .map(str::trim)
                     .map(|value| value.trim_end_matches('/'))
-                    .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case(OFFICIAL_BASE_URL))
+                    .filter(|value| {
+                        !value.is_empty() && !value.eq_ignore_ascii_case(OFFICIAL_BASE_URL)
+                    })
                     .map(str::to_string),
             );
         }
@@ -1164,7 +1166,10 @@ pub fn sanitize_credentials_mapping(credentials: &mut serde_yaml::Mapping) -> bo
     if !stray.is_empty() {
         let refs = mapping_entry(credentials, "refs");
         for (name, value) in stray {
-            if value.as_str().is_some_and(|secret| !secret.trim().is_empty()) {
+            if value
+                .as_str()
+                .is_some_and(|secret| !secret.trim().is_empty())
+            {
                 let key = Value::String(name);
                 if !refs.contains_key(&key) {
                     refs.insert(key, value);
@@ -1175,10 +1180,7 @@ pub fn sanitize_credentials_mapping(credentials: &mut serde_yaml::Mapping) -> bo
     mutated
 }
 
-pub fn read_credential_ref(
-    credentials: &serde_yaml::Mapping,
-    env_name: &str,
-) -> Option<String> {
+pub fn read_credential_ref(credentials: &serde_yaml::Mapping, env_name: &str) -> Option<String> {
     let key = Value::String(env_name.to_string());
     credentials
         .get(Value::String("refs".into()))
@@ -1198,11 +1200,7 @@ pub fn read_credential_ref(
         })
 }
 
-fn write_credential_ref(
-    credentials: &mut serde_yaml::Mapping,
-    env_name: &str,
-    value: &str,
-) {
+fn write_credential_ref(credentials: &mut serde_yaml::Mapping, env_name: &str, value: &str) {
     sanitize_credentials_mapping(credentials);
     let refs = mapping_entry(credentials, "refs");
     refs.insert(

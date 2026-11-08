@@ -1460,9 +1460,5 @@ fn omp_native_config_exposes_approval_mode_select_field() {
     assert_eq!(field.kind, NativeConfigFieldKind::Select);
     assert_eq!(field.surface, NativeConfigSurface::Configuration);
     let values: Vec<_> = field.options.iter().map(|(value, _)| *value).collect();
-    assert_eq!(
-        values,
-        ["always-ask", "always-ask-cached", "write", "yolo"]
-    );
+    assert_eq!(values, ["always-ask", "always-ask-cached", "write", "yolo"]);
 }
-

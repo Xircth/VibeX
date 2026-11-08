@@ -641,23 +641,45 @@ async fn dm_tail_window_start_seq(
     pool: &SqlitePool,
     conversation_id: Uuid,
     limit: usize,
+    cutover_seq: Option<i64>,
 ) -> Result<i64, CollaborationError> {
     let user_event_offset = (limit.saturating_mul(4).saturating_add(4)) as i64;
-    let boundary_sql = format!(
-        r#"SELECT sequence
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind IN ({DM_USER_EVENT_KINDS})
-           ORDER BY sequence DESC
-           LIMIT 1 OFFSET ?"#
-    );
-    let Some(boundary_seq) = sqlx::query_scalar::<_, i64>(&boundary_sql)
-        .bind(conversation_id)
-        .bind(user_event_offset)
-        .fetch_optional(pool)
-        .await
-        .map_err(db_err)?
-    else {
+    let boundary_seq = match cutover_seq {
+        Some(c_seq) => {
+            let boundary_sql = format!(
+                r#"SELECT sequence
+                   FROM conversation_events
+                   WHERE conversation_id = ? AND sequence <= ?
+                     AND event_kind IN ({DM_USER_EVENT_KINDS})
+                   ORDER BY sequence DESC
+                   LIMIT 1 OFFSET ?"#
+            );
+            sqlx::query_scalar::<_, i64>(&boundary_sql)
+                .bind(conversation_id)
+                .bind(c_seq)
+                .bind(user_event_offset)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?
+        }
+        None => {
+            let boundary_sql = format!(
+                r#"SELECT sequence
+                   FROM conversation_events
+                   WHERE conversation_id = ?
+                     AND event_kind IN ({DM_USER_EVENT_KINDS})
+                   ORDER BY sequence DESC
+                   LIMIT 1 OFFSET ?"#
+            );
+            sqlx::query_scalar::<_, i64>(&boundary_sql)
+                .bind(conversation_id)
+                .bind(user_event_offset)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?
+        }
+    };
+    let Some(boundary_seq) = boundary_seq else {
         return Ok(0);
     };
     let prev_delta_seq: Option<i64> = sqlx::query_scalar(
@@ -711,21 +733,82 @@ async fn dm_cutover_info(
     Ok(Some(inferred.unwrap_or(0)))
 }
 
+type SpaceDmRow = (
+    String,
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn parse_space_dm_row(
+    (id, seq, envelope_raw, origin, created_at, status, receipt_state, turn_id): SpaceDmRow,
+) -> Option<DmMessage> {
+    let envelope: Value = serde_json::from_str(&envelope_raw).unwrap_or(Value::Null);
+    let raw_content = envelope
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let cross_chat_sent_to = envelope.get("crossChatSentTo").cloned();
+    let cross_chat_received_from = envelope.get("crossChatReceivedFrom").cloned();
+    let text = if origin == "user" {
+        match visible_user_text(&raw_content) {
+            Some(t) => t,
+            None if cross_chat_field_present(&cross_chat_sent_to)
+                || cross_chat_field_present(&cross_chat_received_from) =>
+            {
+                String::new()
+            }
+            None => return None,
+        }
+    } else {
+        let stripped = crate::collaboration::strip_stray_pass_tokens(&raw_content);
+        if crate::collaboration::is_pass_token(stripped) {
+            String::new()
+        } else {
+            stripped.to_string()
+        }
+    };
+    let (operation_id, delivered) = if origin == "user" {
+        let deliv = if status.as_deref() == Some("failed") {
+            Some("failed".to_string())
+        } else {
+            receipt_state.or(status)
+        };
+        (Some(id.clone()), deliv)
+    } else {
+        (None, None)
+    };
+    // User space bubbles are independent of the member session turn.
+    // Attaching `collaboration_turns.id` here lets the IM merge collapse
+    // the user message into the streaming draft / agent reply.
+    let turn_id = if origin == "user" { None } else { turn_id };
+    let message = DmMessage {
+        id,
+        seq,
+        origin,
+        text,
+        created_at,
+        operation_id,
+        delivered,
+        cross_chat_sent_to,
+        cross_chat_received_from,
+        turn_id,
+        streaming: None,
+    };
+    dm_row_is_visible(&message).then_some(message)
+}
+
 async fn dm_space_messages_since(
     pool: &SqlitePool,
     thread_id: &str,
     after_seq: i64,
 ) -> Result<Vec<DmMessage>, CollaborationError> {
-    type SpaceDmRow = (
-        String,
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
     let rows = sqlx::query_as::<_, SpaceDmRow>(
         r#"SELECT m.id, m.seq, m.envelope_json, m.origin, m.created_at,
                   d.status, d.receipt_state,
@@ -755,66 +838,120 @@ async fn dm_space_messages_since(
     .map_err(db_err)?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, seq, envelope_raw, origin, created_at, status, receipt_state, turn_id) in rows {
-        let envelope: Value = serde_json::from_str(&envelope_raw).unwrap_or(Value::Null);
-        let raw_content = envelope
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let cross_chat_sent_to = envelope.get("crossChatSentTo").cloned();
-        let cross_chat_received_from = envelope.get("crossChatReceivedFrom").cloned();
-        let text = if origin == "user" {
-            match visible_user_text(&raw_content) {
-                Some(t) => t,
-                None if cross_chat_field_present(&cross_chat_sent_to)
-                    || cross_chat_field_present(&cross_chat_received_from) =>
-                {
-                    String::new()
-                }
-                None => continue,
-            }
-        } else {
-            let stripped = crate::collaboration::strip_stray_pass_tokens(&raw_content);
-            if crate::collaboration::is_pass_token(stripped) {
-                String::new()
-            } else {
-                stripped.to_string()
-            }
-        };
-        let (operation_id, delivered) = if origin == "user" {
-            let deliv = if status.as_deref() == Some("failed") {
-                Some("failed".to_string())
-            } else {
-                receipt_state.or(status)
-            };
-            (Some(id.clone()), deliv)
-        } else {
-            (None, None)
-        };
-        // User space bubbles are independent of the member session turn.
-        // Attaching `collaboration_turns.id` here lets the IM merge collapse
-        // the user message into the streaming draft / agent reply.
-        let turn_id = if origin == "user" { None } else { turn_id };
-        let message = DmMessage {
-            id,
-            seq,
-            origin,
-            text,
-            created_at,
-            operation_id,
-            delivered,
-            cross_chat_sent_to,
-            cross_chat_received_from,
-            turn_id,
-            streaming: None,
-        };
-        if dm_row_is_visible(&message) {
+    for row in rows {
+        if let Some(message) = parse_space_dm_row(row) {
             out.push(message);
         }
     }
     Ok(out)
+}
+
+/// Fetch at most `limit` latest visible post-cutover DM messages in ascending `seq` order
+/// using descending tail-window queries instead of scanning all post-cutover rows from `seq > 0`.
+async fn dm_space_messages_tail(
+    pool: &SqlitePool,
+    thread_id: &str,
+    limit: usize,
+) -> Result<Vec<DmMessage>, CollaborationError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let batch_size = (limit.saturating_mul(2).max(64)) as i64;
+    let mut before_seq: Option<i64> = None;
+    let mut collected_rev = Vec::with_capacity(limit);
+
+    loop {
+        let rows = match before_seq {
+            Some(upper) => {
+                sqlx::query_as::<_, SpaceDmRow>(
+                    r#"SELECT m.id, m.seq, m.envelope_json, m.origin, m.created_at,
+                              d.status, d.receipt_state,
+                              CASE
+                                WHEN m.origin = 'user' THEN NULL
+                                ELSE COALESCE(
+                                  d.turn_id,
+                                  (SELECT ct.id FROM collaboration_turns ct
+                                   WHERE ct.space_message_id = json_extract(m.envelope_json, '$.reply_to')
+                                     AND (
+                                       ct.space_id = m.space_id
+                                       OR ct.conversation_id = json_extract(m.envelope_json, '$.conversation_id')
+                                     )
+                                   ORDER BY ct.created_at DESC LIMIT 1)
+                                )
+                              END AS resolved_turn_id
+                       FROM collaboration_space_messages m
+                       LEFT JOIN collaboration_space_deliveries d
+                         ON d.space_message_id = m.id
+                       WHERE m.space_id = ? AND m.seq < ?
+                       ORDER BY m.seq DESC
+                       LIMIT ?"#,
+                )
+                .bind(thread_id)
+                .bind(upper)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+            }
+            None => {
+                sqlx::query_as::<_, SpaceDmRow>(
+                    r#"SELECT m.id, m.seq, m.envelope_json, m.origin, m.created_at,
+                              d.status, d.receipt_state,
+                              CASE
+                                WHEN m.origin = 'user' THEN NULL
+                                ELSE COALESCE(
+                                  d.turn_id,
+                                  (SELECT ct.id FROM collaboration_turns ct
+                                   WHERE ct.space_message_id = json_extract(m.envelope_json, '$.reply_to')
+                                     AND (
+                                       ct.space_id = m.space_id
+                                       OR ct.conversation_id = json_extract(m.envelope_json, '$.conversation_id')
+                                     )
+                                   ORDER BY ct.created_at DESC LIMIT 1)
+                                )
+                              END AS resolved_turn_id
+                       FROM collaboration_space_messages m
+                       LEFT JOIN collaboration_space_deliveries d
+                         ON d.space_message_id = m.id
+                       WHERE m.space_id = ?
+                       ORDER BY m.seq DESC
+                       LIMIT ?"#,
+                )
+                .bind(thread_id)
+                .bind(batch_size)
+                .fetch_all(pool)
+                .await
+                .map_err(db_err)?
+            }
+        };
+
+        let fetched_count = rows.len();
+        let oldest_seq = rows.last().map(|r| r.1);
+        for row in rows {
+            if let Some(message) = parse_space_dm_row(row) {
+                if collected_rev
+                    .last()
+                    .is_some_and(|prev: &DmMessage| prev.id == message.id)
+                {
+                    continue;
+                }
+                collected_rev.push(message);
+                if collected_rev.len() >= limit {
+                    break;
+                }
+            }
+        }
+        if collected_rev.len() >= limit || fetched_count < batch_size as usize {
+            break;
+        }
+        match oldest_seq {
+            Some(seq) if seq > 1 => before_seq = Some(seq),
+            _ => break,
+        }
+    }
+
+    collected_rev.reverse();
+    Ok(collected_rev)
 }
 
 async fn dm_streaming_draft(
@@ -1063,11 +1200,8 @@ async fn list_pre_cutover_dm_messages(
             Ok(messages)
         }
         None => {
-            let start_seq = if cutover_seq.is_some() {
-                0
-            } else {
-                dm_tail_window_start_seq(pool, conversation_id, limit).await?
-            };
+            let start_seq =
+                dm_tail_window_start_seq(pool, conversation_id, limit, cutover_seq).await?;
             let mut messages = grouped_dm_rows(
                 pool,
                 conversation_id,
@@ -1110,13 +1244,43 @@ pub async fn list_dm_messages(
         return list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, None).await;
     };
 
-    let mut pre =
-        list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, Some(cutover_seq))
+    let (mut pre, post) = match since_seq {
+        Some(since) => {
+            let pre = list_pre_cutover_dm_messages(
+                pool,
+                conversation_id,
+                Some(since),
+                limit,
+                Some(cutover_seq),
+            )
             .await?;
-    let post = dm_space_messages_since(pool, &thread_id, since_seq.unwrap_or(0)).await?;
-    if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
-        pre = list_pre_cutover_dm_messages(pool, conversation_id, since_seq, limit, None).await?;
-    }
+            let post = dm_space_messages_since(pool, &thread_id, since).await?;
+            (pre, post)
+        }
+        None => {
+            let post = dm_space_messages_tail(pool, &thread_id, limit).await?;
+            let mut pre = if post.len() >= limit {
+                Vec::new()
+            } else {
+                let pre_limit = limit
+                    .saturating_sub(post.len())
+                    .saturating_add(2)
+                    .min(limit);
+                list_pre_cutover_dm_messages(
+                    pool,
+                    conversation_id,
+                    None,
+                    pre_limit,
+                    Some(cutover_seq),
+                )
+                .await?
+            };
+            if pre.is_empty() && post.is_empty() && cutover_seq == 0 {
+                pre = list_pre_cutover_dm_messages(pool, conversation_id, None, limit, None).await?;
+            }
+            (pre, post)
+        }
+    };
     let post_keys: HashSet<(String, String)> = post
         .iter()
         .map(|message| (message.origin.clone(), normalize_dm_text(&message.text)))
@@ -1157,7 +1321,7 @@ async fn dm_last_message(
         .await?
         .is_some()
     {
-        let post = dm_space_messages_since(pool, &thread_id, 0).await?;
+        let post = dm_space_messages_tail(pool, &thread_id, 1).await?;
         if let Some(last) = last_previewable_dm(post) {
             return Ok(Some(sidebar_last_from_dm(last)));
         }
@@ -1927,6 +2091,178 @@ pub async fn identity_member_of_conversation(
     .fetch_optional(pool)
     .await
     .map_err(db_err)
+}
+
+/// Batch lookup `(identity_member_id, is_supervisor, avatar, color)` keyed by `conversation_id`.
+pub async fn identity_members_for_conversations_batch(
+    pool: &SqlitePool,
+    conversation_ids: &[String],
+) -> Result<HashMap<String, (String, bool, Option<String>, Option<String>)>, CollaborationError> {
+    let mut unique: Vec<&str> = Vec::new();
+    for cid in conversation_ids {
+        let trimmed = cid.trim();
+        if !trimmed.is_empty() && !unique.contains(&trimmed) {
+            unique.push(trimmed);
+        }
+    }
+    if unique.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let placeholders = std::iter::repeat_n("?", unique.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        r#"SELECT tm.conversation_id, tm.member_id, COALESCE(m.is_supervisor, 0), m.avatar, m.color
+           FROM collaboration_thread_members tm
+           LEFT JOIN collaboration_members m ON m.id = tm.member_id
+           WHERE tm.conversation_id IN ({placeholders})
+           ORDER BY CASE WHEN tm.status = 'active' THEN 0 ELSE 1 END"#
+    );
+    let mut query =
+        sqlx::query_as::<_, (Option<String>, String, i64, Option<String>, Option<String>)>(&sql);
+    for cid in &unique {
+        query = query.bind(*cid);
+    }
+    let rows = query.fetch_all(pool).await.map_err(db_err)?;
+    let mut out = HashMap::with_capacity(rows.len());
+    for (conv_id, member_id, is_sup, avatar, color) in rows {
+        if let Some(cid) = conv_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+            out.entry(cid)
+                .or_insert((member_id, is_sup != 0, avatar, color));
+        }
+    }
+
+    let mut derived_to_conv: Vec<(String, String)> = Vec::new();
+    for cid in &unique {
+        if !out.contains_key(*cid)
+            && let Ok(uuid) = Uuid::parse_str(cid)
+        {
+            derived_to_conv.push((identity::member_id_for_conversation(uuid), (*cid).to_string()));
+        }
+    }
+    if !derived_to_conv.is_empty() {
+        let derived_placeholders = std::iter::repeat_n("?", derived_to_conv.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let derived_sql = format!(
+            "SELECT id, is_supervisor, avatar, color FROM collaboration_members WHERE id IN ({derived_placeholders})"
+        );
+        let mut derived_query =
+            sqlx::query_as::<_, (String, i64, Option<String>, Option<String>)>(&derived_sql);
+        for (mid, _) in &derived_to_conv {
+            derived_query = derived_query.bind(mid);
+        }
+        let derived_rows = derived_query.fetch_all(pool).await.map_err(db_err)?;
+        let derived_map: HashMap<String, (bool, Option<String>, Option<String>)> = derived_rows
+            .into_iter()
+            .map(|(id, sup, avatar, color)| (id, (sup != 0, avatar, color)))
+            .collect();
+        for (mid, cid) in derived_to_conv {
+            if let Some((is_sup, avatar, color)) = derived_map.get(&mid) {
+                out.entry(cid)
+                    .or_insert((mid, *is_sup, avatar.clone(), color.clone()));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Enrich `MemberRecord` items in batch with resolved group `conversation_id`,
+/// `identity_member_id`, `is_supervisor`, `avatar`, and `color` in O(1) SQL queries for initialized group spaces.
+pub async fn enrich_space_members_batch(
+    pool: &SqlitePool,
+    space_id: &str,
+    mut members: Vec<crate::collaboration::MemberRecord>,
+) -> Result<Vec<serde_json::Value>, CollaborationError> {
+    if members.is_empty() {
+        return Ok(Vec::new());
+    }
+    let is_group_space =
+        !space_id.starts_with("unassigned:") && !space_id.starts_with("direct:");
+    let mut identity_by_conv: HashMap<String, (String, bool, Option<String>, Option<String>)> =
+        HashMap::new();
+
+    if is_group_space {
+        let bound_rows =
+            sqlx::query_as::<_, (Option<String>, String, i64, Option<String>, Option<String>)>(
+                r#"SELECT tm.conversation_id, tm.member_id, COALESCE(m.is_supervisor, 0), m.avatar, m.color
+                   FROM collaboration_thread_members tm
+                   JOIN collaboration_threads t ON t.id = tm.thread_id
+                   LEFT JOIN collaboration_members m ON m.id = tm.member_id
+                   WHERE tm.thread_id = ? AND tm.conversation_id IS NOT NULL"#,
+            )
+            .bind(space_id)
+            .fetch_all(pool)
+            .await
+            .map_err(db_err)?;
+
+        for (conv_id, identity_id, is_sup, avatar, color) in bound_rows {
+            if let Some(cid) = conv_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+                identity_by_conv
+                    .entry(cid)
+                    .or_insert((identity_id, is_sup != 0, avatar, color));
+            }
+        }
+
+        for member in &mut members {
+            if member.kind != "agent" {
+                continue;
+            }
+            let already_bound = member
+                .conversation_id
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|cid| identity_by_conv.contains_key(cid));
+            if !already_bound
+                && let Ok(resolved) =
+                    crate::collaboration::resolve_thread_session(pool, &member.member_id, space_id)
+                        .await
+            {
+                member.conversation_id = Some(resolved.to_string());
+            }
+        }
+    }
+
+    let unresolved_convs: Vec<String> = members
+        .iter()
+        .filter_map(|m| m.conversation_id.as_deref())
+        .map(str::trim)
+        .filter(|cid| !cid.is_empty() && !identity_by_conv.contains_key(*cid))
+        .map(str::to_string)
+        .collect();
+
+    if !unresolved_convs.is_empty() {
+        let extra = identity_members_for_conversations_batch(pool, &unresolved_convs).await?;
+        for (cid, info) in extra {
+            identity_by_conv.entry(cid).or_insert(info);
+        }
+    }
+
+    let mut listed = Vec::with_capacity(members.len());
+    for member in members {
+        let (identity_member_id, is_supervisor, avatar, color) = member
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .and_then(|cid| identity_by_conv.get(cid))
+            .map(|(mid, sup, av, col)| (Some(mid.clone()), *sup, av.clone(), col.clone()))
+            .unwrap_or((None, false, None, None));
+        let mut value = serde_json::to_value(&member).map_err(|error| {
+            CollaborationError::new("conversation_control_failed", error.to_string())
+        })?;
+        if let Some(object) = value.as_object_mut() {
+            object.insert("identity_member_id".into(), json!(identity_member_id));
+            object.insert("is_supervisor".into(), json!(is_supervisor));
+            if let Some(av) = avatar {
+                object.insert("avatar".into(), json!(av));
+            }
+            if let Some(col) = color {
+                object.insert("color".into(), json!(col));
+            }
+        }
+        listed.push(value);
+    }
+    Ok(listed)
 }
 
 /// Display name of the identity member behind a seat conversation.
@@ -2776,5 +3112,221 @@ mod tests {
         assert!(messages_step1[2].id.ends_with(":1"));
 
         crate::collaboration::reset_space_turn_streaming_step(conversation_id);
+    }
+
+    #[tokio::test]
+    async fn enrich_space_members_batch_resolves_group_seats_and_supervisor_in_batch() {
+        let pool = crate::collaboration::test_support::setup_pool().await;
+        let workspace = Uuid::new_v4();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let space = crate::collaboration::create_workspace_space(
+            &pool,
+            workspace,
+            "Perf Group",
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let bot_a = crate::collaboration::host_create_space_member(
+            &pool,
+            crate::collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: Some(space.space_id.clone()),
+                nickname: "Alpha".to_string(),
+                role_id: None,
+                agent_id: Some("codex".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let bot_b = crate::collaboration::host_create_space_member(
+            &pool,
+            crate::collaboration::HostCreateSpaceMember {
+                workspace_id: workspace,
+                space_id: Some(space.space_id.clone()),
+                nickname: "Beta".to_string(),
+                role_id: None,
+                agent_id: Some("claude_code".to_string()),
+                team_id: None,
+                persona_prompt: None,
+                mode_id: None,
+                config_values: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+
+        set_workspace_supervisor(&pool, workspace, bot_a.conversation_id.as_deref())
+            .await
+            .unwrap();
+
+        let raw_members = crate::collaboration::list_space_members(
+            &pool,
+            &space.space_id,
+            crate::collaboration::MessageAudience::User,
+        )
+        .await
+        .unwrap();
+        let enriched_first = enrich_space_members_batch(&pool, &space.space_id, raw_members)
+            .await
+            .unwrap();
+
+        let raw_members_again = crate::collaboration::list_space_members(
+            &pool,
+            &space.space_id,
+            crate::collaboration::MessageAudience::User,
+        )
+        .await
+        .unwrap();
+        let enriched_second = enrich_space_members_batch(&pool, &space.space_id, raw_members_again)
+            .await
+            .unwrap();
+        assert_eq!(enriched_first, enriched_second);
+
+        let alpha = enriched_second
+            .iter()
+            .find(|v| v.get("nickname").and_then(|s| s.as_str()) == Some("Alpha"))
+            .expect("Alpha member");
+        let beta = enriched_second
+            .iter()
+            .find(|v| v.get("nickname").and_then(|s| s.as_str()) == Some("Beta"))
+            .expect("Beta member");
+        assert!(alpha.get("identity_member_id").and_then(|v| v.as_str()).is_some());
+        assert_eq!(alpha.get("is_supervisor").and_then(|v| v.as_bool()), Some(true));
+        assert!(beta.get("identity_member_id").and_then(|v| v.as_str()).is_some());
+        assert_eq!(beta.get("is_supervisor").and_then(|v| v.as_bool()), Some(false));
+        assert_ne!(
+            alpha.get("identity_member_id"),
+            beta.get("identity_member_id")
+        );
+        let _ = bot_b;
+    }
+
+    #[tokio::test]
+    async fn dm_post_cutover_tail_window_truncates_and_merges_with_pre_cutover() {
+        let pool = setup_test_pool().await;
+        let workspace = Uuid::new_v4();
+        let conversation = Uuid::new_v4();
+        let thread_id = seed_dm_session(&pool, workspace, conversation, "Bot").await;
+
+        let mut seq = 0_i64;
+        for turn in 1..=3 {
+            seq += 1;
+            let user_json = serde_json::to_string(&ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: format!("pre user {turn}"),
+                }],
+                workflow_refs: Vec::new(),
+            })
+            .unwrap();
+            sqlx::query(
+                r#"INSERT INTO conversation_events
+                   (id, conversation_id, sequence, source, event_kind, normalized_json, created_at)
+                   VALUES (?, ?, ?, 'user', 'user_turn_created', ?, ?)"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(conversation)
+            .bind(seq)
+            .bind(user_json)
+            .bind(format!("2026-10-24T00:0{turn}:00.000Z"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            seq += 1;
+            let delta_json = serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                text: format!("pre reply {turn}"),
+                message_id: None,
+            })
+            .unwrap();
+            sqlx::query(
+                r#"INSERT INTO conversation_events
+                   (id, conversation_id, sequence, source, event_kind, normalized_json, created_at)
+                   VALUES (?, ?, ?, 'acp', 'assistant_text_delta', ?, ?)"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(conversation)
+            .bind(seq)
+            .bind(delta_json)
+            .bind(format!("2026-10-24T00:0{turn}:30.000Z"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Cutover at seq = 6, then insert 4 post-cutover space messages (seq 7..=10).
+        sqlx::query(
+            "UPDATE collaboration_threads SET space_cutover_seq = ?, space_cutover_at = '2026-10-24T00:04:00.000Z' WHERE id = ?",
+        )
+        .bind(seq)
+        .bind(&thread_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for idx in 1..=4 {
+            let post_seq = seq + idx;
+            let origin = if idx % 2 == 1 { "user" } else { "agent" };
+            let msg_id = Uuid::new_v4().to_string();
+            let envelope = json!({
+                "content": format!("post msg {idx}"),
+                "sender": if origin == "user" { "Person" } else { "Bot" },
+            });
+            sqlx::query(
+                r#"INSERT INTO collaboration_space_messages
+                   (id, space_id, seq, envelope_json, created_at, origin, root_id, hop)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0)"#,
+            )
+            .bind(&msg_id)
+            .bind(&thread_id)
+            .bind(post_seq)
+            .bind(envelope.to_string())
+            .bind(format!("2026-10-24T00:1{idx}:00.000Z"))
+            .bind(origin)
+            .bind(&msg_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Case 1: limit = 3 (smaller than post-cutover count 4) -> only tail 3 post-cutover messages returned.
+        let tail_three = list_dm_messages(&pool, conversation, None, Some(3))
+            .await
+            .unwrap();
+        assert_eq!(tail_three.len(), 3);
+        assert_eq!(tail_three[0].text, "post msg 2");
+        assert_eq!(tail_three[1].text, "post msg 3");
+        assert_eq!(tail_three[2].text, "post msg 4");
+
+        // Case 2: limit = 6 (spans 2 pre-cutover + 4 post-cutover messages).
+        let tail_six = list_dm_messages(&pool, conversation, None, Some(6))
+            .await
+            .unwrap();
+        assert_eq!(tail_six.len(), 6);
+        assert_eq!(tail_six[0].text, "pre user 3");
+        assert_eq!(tail_six[1].text, "pre reply 3");
+        assert_eq!(tail_six[2].text, "post msg 1");
+        assert_eq!(tail_six[5].text, "post msg 4");
     }
 }

@@ -933,56 +933,9 @@ impl HostCollaborationHost {
                 .map_err(host_error)?;
         // Seats are per-space projections; the bot identity is what owns the
         // name/avatar and is stable across DM and group seats.
-        let is_group_space =
-            !space_id.starts_with("unassigned:") && !space_id.starts_with("direct:");
-        let mut listed = Vec::with_capacity(members.len());
-        for mut member in members {
-            if is_group_space
-                && member.kind == "agent"
-                && let Ok(resolved) =
-                    collaboration::resolve_thread_session(&self.pool, &member.member_id, &space_id)
-                        .await
-            {
-                member.conversation_id = Some(resolved.to_string());
-            }
-            let identity_member_id = collaboration::identity_member_id_for_conversation(
-                &self.pool,
-                member.conversation_id.as_deref(),
-            )
+        let listed = sidebar::enrich_space_members_batch(&self.pool, &space_id, members)
             .await
             .map_err(host_error)?;
-            let (is_supervisor, avatar, color) = if let Some(ref mid) = identity_member_id {
-                let sup = collaboration::is_member_supervisor(&self.pool, mid)
-                    .await
-                    .unwrap_or(false);
-                let profile: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-                    "SELECT avatar, color FROM collaboration_members WHERE id = ?",
-                )
-                .bind(mid)
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
-                let (av, col) = profile.unwrap_or((None, None));
-                (sup, av, col)
-            } else {
-                (false, None, None)
-            };
-            let mut value = serde_json::to_value(&member).map_err(|error| {
-                CollaborationHostError::new("conversation_control_failed", error.to_string())
-            })?;
-            if let Some(object) = value.as_object_mut() {
-                object.insert("identity_member_id".into(), json!(identity_member_id));
-                object.insert("is_supervisor".into(), json!(is_supervisor));
-                if let Some(av) = avatar {
-                    object.insert("avatar".into(), json!(av));
-                }
-                if let Some(col) = color {
-                    object.insert("color".into(), json!(col));
-                }
-            }
-            listed.push(value);
-        }
         Ok(json!({ "members": listed }))
     }
 
@@ -1080,7 +1033,8 @@ impl HostCollaborationHost {
             .await
             .map_err(host_error)?
             .ok_or_else(|| CollaborationHostError::new("not_found", "direct thread not found"))?;
-        let since = if truthy(input, &["latest"]) {
+        let is_latest = truthy(input, &["latest"]);
+        let since = if is_latest {
             None
         } else {
             input
@@ -1088,7 +1042,12 @@ impl HostCollaborationHost {
                 .or_else(|| input.get("since_seq"))
                 .and_then(Value::as_i64)
         };
-        let messages = sidebar::list_dm_messages(&self.pool, conversation, since, limit)
+        let effective_limit = if is_latest {
+            Some(limit.unwrap_or(200))
+        } else {
+            limit
+        };
+        let messages = sidebar::list_dm_messages(&self.pool, conversation, since, effective_limit)
             .await
             .map_err(host_error)?;
         let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();

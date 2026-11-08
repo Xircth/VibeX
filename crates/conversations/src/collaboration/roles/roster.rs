@@ -561,10 +561,19 @@ pub(crate) async fn resolve_space_agent_seat(
     {
         return Ok(seat.clone());
     }
+    let conv_ids: Vec<String> = members
+        .iter()
+        .filter_map(|member| member.conversation_id.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    let identities_by_conv = identity_members_for_conversations_batch(pool, &conv_ids).await?;
     for seat in &members {
-        let identity =
-            identity_member_id_for_conversation(pool, seat.conversation_id.as_deref()).await?;
-        if identity.as_deref() == Some(wanted) {
+        if let Some(cid) = seat.conversation_id.as_deref().map(str::trim)
+            && let Some((identity, _)) = identities_by_conv.get(cid)
+            && identity == wanted
+        {
             return Ok(seat.clone());
         }
     }
@@ -695,12 +704,7 @@ pub(crate) async fn attach_member_session_configs_to_rows(
             identity_ids.push(id.to_string());
         }
     }
-    let mut configs = std::collections::HashMap::<String, MemberSessionConfig>::new();
-    for member_id in identity_ids {
-        if let Some(cfg) = load_member_session_config(pool, &member_id).await? {
-            configs.insert(member_id, cfg);
-        }
-    }
+    let configs = load_member_session_configs_batch(pool, &identity_ids).await?;
     for row in rows.iter_mut() {
         let Some(object) = row.as_object_mut() else {
             continue;

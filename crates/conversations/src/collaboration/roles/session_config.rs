@@ -231,6 +231,56 @@ pub async fn resolve_session(
     Ok(resolved.conversation_id)
 }
 
+pub async fn load_member_session_configs_batch(
+    pool: &SqlitePool,
+    member_ids: &[String],
+) -> Result<std::collections::HashMap<String, MemberSessionConfig>, CollaborationError> {
+    let mut out = std::collections::HashMap::new();
+    let unique_ids: Vec<&str> = member_ids
+        .iter()
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if unique_ids.is_empty() {
+        return Ok(out);
+    }
+    for chunk in unique_ids.chunks(500) {
+        let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT id, agent, mode_id, config_values, persona_prompt FROM collaboration_members WHERE id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for id in chunk {
+            separated.push_bind(*id);
+        }
+        separated.push_unseparated(")");
+        let rows = builder
+            .build_query_as::<(
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )>()
+            .fetch_all(pool)
+            .await
+            .map_err(db)?;
+        for (id, agent_id, mode_id, config_values, persona_prompt) in rows {
+            out.insert(
+                id,
+                MemberSessionConfigRow {
+                    agent_id,
+                    mode_id,
+                    config_values,
+                    persona_prompt,
+                }
+                .into_config(),
+            );
+        }
+    }
+    Ok(out)
+}
+
 /// Session tab behind a member avatar: always `(member, thread)`, never the
 /// member's most recent session. The undecided space id maps to the member's
 /// direct thread. Creates the conversation from the member config if missing.
@@ -241,6 +291,31 @@ pub async fn resolve_thread_session(
 ) -> Result<Uuid, CollaborationError> {
     let raw_member_ref = member_id.trim();
     let raw_thread_id = thread_id.trim();
+    if !raw_thread_id.starts_with(identity::DIRECT_PREFIX)
+        && parse_unassigned_space_id(raw_thread_id).is_none()
+    {
+        let already_bound: Option<String> = sqlx::query_scalar(
+            r#"SELECT sm.conversation_id
+               FROM collaboration_space_members sm
+               JOIN collaboration_thread_members tm
+                 ON tm.thread_id = sm.space_id
+                AND tm.conversation_id = sm.conversation_id
+               JOIN collaboration_threads t
+                 ON t.id = sm.space_id
+               WHERE sm.space_id = ?
+                 AND sm.member_id = ?
+                 AND sm.kind = 'agent'
+               LIMIT 1"#,
+        )
+        .bind(raw_thread_id)
+        .bind(raw_member_ref)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        if let Some(conv_id) = already_bound.and_then(|raw| Uuid::parse_str(&raw).ok()) {
+            return Ok(conv_id);
+        }
+    }
     let member_id = identity_id_for_member_ref(pool, raw_member_ref, raw_thread_id).await?;
     let mut thread_id = raw_thread_id.to_string();
     if parse_unassigned_space_id(&thread_id).is_some() {
@@ -257,15 +332,18 @@ pub async fn resolve_thread_session(
     }
     let resolved = resolve_session(pool, &member_id, &thread_id).await?;
     if !thread_id.starts_with(identity::DIRECT_PREFIX) {
+        let resolved_str = resolved.to_string();
         if raw_member_ref != member_id {
             sqlx::query(
                 r#"UPDATE collaboration_space_members
                    SET conversation_id = ?
-                   WHERE space_id = ? AND member_id = ? AND kind = 'agent'"#,
+                   WHERE space_id = ? AND member_id = ? AND kind = 'agent'
+                     AND COALESCE(conversation_id, '') != ?"#,
             )
-            .bind(resolved.to_string())
+            .bind(&resolved_str)
             .bind(&thread_id)
             .bind(raw_member_ref)
+            .bind(&resolved_str)
             .execute(pool)
             .await
             .map_err(db)?;
@@ -273,11 +351,13 @@ pub async fn resolve_thread_session(
             sqlx::query(
                 r#"UPDATE collaboration_space_members
                    SET conversation_id = ?
-                   WHERE space_id = ? AND nickname = ? AND kind = 'agent'"#,
+                   WHERE space_id = ? AND nickname = ? AND kind = 'agent'
+                     AND COALESCE(conversation_id, '') != ?"#,
             )
-            .bind(resolved.to_string())
+            .bind(&resolved_str)
             .bind(&thread_id)
             .bind(&member.name)
+            .bind(&resolved_str)
             .execute(pool)
             .await
             .map_err(db)?;
@@ -454,6 +534,22 @@ pub async fn identity_member_id_for_conversation(
         return Ok(Some(derived));
     }
     Ok(None)
+}
+
+/// Batch resolve `conversation_id -> (identity_member_id, is_supervisor)` in constant SQL roundtrips.
+pub async fn identity_members_for_conversations_batch(
+    pool: &SqlitePool,
+    conversation_ids: &[String],
+) -> Result<std::collections::HashMap<String, (String, bool)>, CollaborationError> {
+    let map = crate::collaboration_sidebar::identity_members_for_conversations_batch(
+        pool,
+        conversation_ids,
+    )
+    .await?;
+    Ok(map
+        .into_iter()
+        .map(|(cid, (mid, sup, _, _))| (cid, (mid, sup)))
+        .collect())
 }
 
 /// Agent-facing member payload: `member_id` is the space seat, `identity_member_id`

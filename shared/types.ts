@@ -2079,7 +2079,7 @@ export type DshProviderModelView = { id: string, name: string | null, };
 
 export type DshCatalogProviderView = { id: string, name: string, api_key_env: string, };
 
-export type DshProviderView = { id: string, display_name: string, kind: DshProviderKind, notes: string | null, api: string | null, base_url: string | null, api_key_env: string, api_key?: string | null, credential_present: boolean, models: Array<DshProviderModelView>, };
+export type DshProviderView = { id: string, display_name: string, kind: DshProviderKind, notes: string | null, api: string | null, base_url: string | null, api_key_env: string, api_key: string | null, credential_present: boolean, models: Array<DshProviderModelView>, };
 
 export type DshProvidersView = { settings_path: string, credentials_path: string, default_provider: string, default_model: string, providers: Array<DshProviderView>, catalog: Array<DshCatalogProviderView>, };
 

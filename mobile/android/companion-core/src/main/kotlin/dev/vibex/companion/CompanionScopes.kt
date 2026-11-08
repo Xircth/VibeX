@@ -13,6 +13,7 @@ object CompanionScopes {
         "conversation.question",
         "conversation.cancel",
         "conversation.steer",
+        "plugin.read",
         "artifact.read",
         "workflow.read",
         "automation.read",

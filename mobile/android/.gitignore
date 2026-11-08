@@ -1,8 +1,0 @@
-.gradle/
-build/
-local.properties
-**/.cxx/
-captures/
-*.apk
-*.ap_
-*.aab

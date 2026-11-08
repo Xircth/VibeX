@@ -633,10 +633,19 @@ function SessionCanvasFlow({
     setHistoryVersion((value) => value + 1);
   }, [writeDocument]);
 
+  const layoutNodes = useMemo(
+    () => previewCanvasDrop(nodes, draggedId, dropHint),
+    [draggedId, dropHint, nodes]
+  );
+
+  const liveNodes = useMemo(
+    () => applyDragOverlayToCanvasNodes(layoutNodes, dragOverlay),
+    [dragOverlay, layoutNodes]
+  );
+
   const rfNodes = useMemo(() => {
     const cache = flowNodeCacheRef.current;
     const nextCache = new Map<string, Node>();
-    const layoutNodes = previewCanvasDrop(nodes, draggedId, dropHint);
     const lookups = buildCanvasFlowLookups(layoutNodes, {
       draggedId,
       selectedIds,
@@ -664,7 +673,7 @@ function SessionCanvasFlow({
     dragOverlay,
     draggedId,
     dropHint,
-    nodes,
+    layoutNodes,
     reviewSessionIds,
     runningSessionIds,
     selectedIds,
@@ -673,8 +682,10 @@ function SessionCanvasFlow({
 
   const sessionLinks = useMemo(
     () =>
-      sameSessionLinks(nodes.filter((node) => !isOverflowHidden(nodes, node))),
-    [nodes]
+      sameSessionLinks(
+        layoutNodes.filter((node) => !isOverflowHidden(layoutNodes, node))
+      ),
+    [layoutNodes]
   );
 
   const presentSessionIds = useCallback(
@@ -1636,11 +1647,11 @@ function SessionCanvasFlow({
                   height={1}
                 >
                   {sessionLinks.map((link) => {
-                    const from = nodeById(nodes, link.sourceId);
-                    const to = nodeById(nodes, link.targetId);
+                    const from = nodeById(liveNodes, link.sourceId);
+                    const to = nodeById(liveNodes, link.targetId);
                     if (!from || !to) return null;
-                    const start = linkAnchor(nodes, from);
-                    const end = linkAnchor(nodes, to);
+                    const start = linkAnchor(liveNodes, from);
+                    const end = linkAnchor(liveNodes, to);
                     return (
                       <line
                         key={link.id}

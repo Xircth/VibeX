@@ -21,11 +21,20 @@ const setCenter = vi.fn();
 const getViewport = vi.fn(() => ({ x: 0, y: 0, zoom: 1 }));
 const screenToFlowPosition = vi.fn(() => ({ x: 40, y: 40 }));
 
+let latestOnNodesChange: ((changes: unknown[]) => void) | undefined;
+
 vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: ReactNode }) => children,
-  ReactFlow: ({ children }: { children: ReactNode }) => (
-    <div data-testid="react-flow">{children}</div>
-  ),
+  ReactFlow: ({
+    children,
+    onNodesChange,
+  }: {
+    children: ReactNode;
+    onNodesChange?: (changes: unknown[]) => void;
+  }) => {
+    latestOnNodesChange = onNodesChange;
+    return <div data-testid="react-flow">{children}</div>;
+  },
   Background: () => <div data-testid="canvas-background" />,
   BackgroundVariant: { Dots: 'dots' },
   MiniMap: () => <div data-testid="canvas-minimap" />,
@@ -449,5 +458,119 @@ describe('SessionCanvasView', () => {
     expect(
       screen.getByRole('menuitem', { name: '移除节点' })
     ).toBeInTheDocument();
+  });
+
+  it('updates dashed session connection lines in real time while dragging a session node or parent group', () => {
+    window.localStorage.setItem(
+      'vibex:kanban-canvas:p1',
+      JSON.stringify({
+        version: 4,
+        viewport: { x: 0, y: 0, zoom: 1 },
+        nodes: [
+          {
+            id: 'group-1',
+            kind: 'group',
+            sessionId: '',
+            parentId: null,
+            name: '分组',
+            createdAt: 1,
+            showAll: false,
+            x: 10,
+            y: 20,
+            width: 608,
+            height: 156,
+            expanded: false,
+          },
+          {
+            id: 'card-1',
+            kind: 'session',
+            sessionId: 'alpha',
+            parentId: 'group-1',
+            name: '',
+            createdAt: 2,
+            showAll: false,
+            x: 12,
+            y: 44,
+            width: 286,
+            height: 44,
+            expanded: false,
+          },
+          {
+            id: 'win-1',
+            kind: 'session',
+            sessionId: 'alpha',
+            parentId: null,
+            openedFromId: 'card-1',
+            name: '',
+            createdAt: 3,
+            showAll: false,
+            x: 700,
+            y: 100,
+            width: 760,
+            height: 620,
+            expanded: true,
+          },
+        ],
+      })
+    );
+
+    const { container } = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('alpha', new Date().toISOString())]}
+        listWidth={280}
+        list={<div>list</div>}
+      />
+    );
+
+    const getLineCoords = () => {
+      const line = container.querySelector('line.canvas-session-link');
+      expect(line).not.toBeNull();
+      return {
+        x1: Number(line?.getAttribute('x1')),
+        y1: Number(line?.getAttribute('y1')),
+        x2: Number(line?.getAttribute('x2')),
+        y2: Number(line?.getAttribute('y2')),
+      };
+    };
+
+    const initial = getLineCoords();
+    expect(initial.x2).toBe(700 + 760 / 2);
+
+    act(() => {
+      latestOnNodesChange?.([
+        {
+          id: 'session-win-1',
+          type: 'position',
+          dragging: true,
+          position: { x: 920, y: 260 },
+        },
+      ]);
+    });
+
+    expect(getLineCoords()).toEqual({
+      x1: initial.x1,
+      y1: initial.y1,
+      x2: initial.x2 + (920 - 700),
+      y2: initial.y2 + (260 - 100),
+    });
+
+    act(() => {
+      latestOnNodesChange?.([
+        {
+          id: 'session-group-1',
+          type: 'position',
+          dragging: true,
+          position: { x: 110, y: 140 },
+        },
+      ]);
+    });
+
+    expect(getLineCoords()).toEqual({
+      x1: initial.x1 + (110 - 10),
+      y1: initial.y1 + (140 - 20),
+      x2: initial.x2 + (920 - 700),
+      y2: initial.y2 + (260 - 100),
+    });
   });
 });

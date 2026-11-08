@@ -167,14 +167,74 @@ impl ServerApplicationDomains {
             return Ok(Value::Array(Vec::new()));
         }
         let root = self.primary_worktree(args.workspace_id, None).await?;
+        let root_for_untracked = root.clone();
         let mut diffs = self.git_read(root, git::GitService::get_file_diffs).await?;
         if let Some(entries) = diffs.as_array_mut() {
             for entry in entries {
+                populate_missing_diff(&root_for_untracked, entry);
                 bound_diff(entry);
             }
         }
         Ok(diffs)
     }
+}
+
+/// Populates a synthetic unified diff (`@@ -0,0 +1,N @@`) for untracked (`?`) or newly added (`A`)
+/// text files whose `diff` payload from `git diff HEAD` is empty, so Companion devices can always
+/// display their line-by-line additions.
+fn populate_missing_diff(root: &Path, entry: &mut Value) {
+    let Some(object) = entry.as_object_mut() else {
+        return;
+    };
+    let is_binary = object
+        .get("is_binary")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if is_binary {
+        return;
+    }
+    let diff_empty = object
+        .get("diff")
+        .and_then(Value::as_str)
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if !diff_empty {
+        return;
+    }
+    let status = object.get("status").and_then(Value::as_str).unwrap_or("");
+    if status == "D" {
+        return;
+    }
+    let Some(path) = object.get("path").and_then(Value::as_str) else {
+        return;
+    };
+    let Ok(file) = read_text_file(root, path) else {
+        return;
+    };
+    if file.binary {
+        object.insert("is_binary".to_string(), Value::Bool(true));
+        return;
+    }
+    let Some(content) = file.content else {
+        return;
+    };
+    let mut lines: Vec<&str> = content.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        return;
+    }
+    let mut synth = format!("@@ -0,0 +1,{} @@\n", lines.len());
+    for line in lines {
+        synth.push('+');
+        synth.push_str(line.trim_end_matches('\r'));
+        synth.push('\n');
+        if synth.len() > MAX_DIFF_BYTES {
+            break;
+        }
+    }
+    object.insert("diff".to_string(), Value::String(synth));
 }
 
 /// Keeps a phone-sized payload: an oversized diff is cut at a line boundary and flagged.
@@ -205,11 +265,19 @@ fn forbidden(reason: &str) -> ApplicationError {
 const VISIBLE_DOT_NAMES: &[&str] = &[
     ".github",
     ".vscode",
+    ".claude",
+    ".agents",
+    ".cursor",
+    ".codex",
+    ".vibex-plugin",
     ".gitignore",
     ".gitattributes",
     ".editorconfig",
     ".prettierrc",
     ".eslintrc",
+    ".babelrc",
+    ".npmrc",
+    ".yarnrc",
     ".nvmrc",
     ".node-version",
 ];

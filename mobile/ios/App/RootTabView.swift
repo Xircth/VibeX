@@ -77,6 +77,11 @@ struct RootTabView: View {
                             withAnimation(.spring(response: 1.05, dampingFraction: 0.86, blendDuration: 0.2)) {
                                 isLaunchRevealed = revealed
                             }
+                        },
+                        onSelectTab: { targetTab in
+                            withAnimation(.smooth(duration: 0.16)) {
+                                selection = targetTab
+                            }
                         }
                     )
                 }
@@ -141,8 +146,11 @@ struct RootTabView: View {
         .onAppear {
             appearance.applyInterfaceStyleToAllWindows(appearance.themeMode.uiInterfaceStyle)
         }
-        .onChange(of: selection) { _, _ in
+        .onChange(of: selection) { _, newTab in
             dismissKeyboard()
+            if newTab == .conversations {
+                NotificationCenter.default.post(name: Notification.Name("vibex.didReturnToConversationsTab"), object: nil)
+            }
         }
         .background(
             GlobalInteractionInstaller()

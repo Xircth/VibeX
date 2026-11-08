@@ -239,9 +239,11 @@ struct DiffListView: View {
                             Text((diff.path as NSString).lastPathComponent).lineLimit(1)
                             HStack(spacing: 8) {
                                 Text(label(for: diff.change)).foregroundStyle(.secondary)
-                                if !diff.isBinary && diff.change != .untracked {
+                                if !diff.isBinary && (diff.additions > 0 || diff.deletions > 0 || diff.change != .untracked) {
                                     Text("+\(diff.additions)").foregroundStyle(.green)
-                                    Text("−\(diff.deletions)").foregroundStyle(.red)
+                                    if diff.deletions > 0 || diff.change != .untracked {
+                                        Text("−\(diff.deletions)").foregroundStyle(.red)
+                                    }
                                 }
                                 Text(diff.path).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
                             }
@@ -280,20 +282,32 @@ struct DiffFileView: View {
     let diff: FileDiff
     @State private var hunks: [DiffHunk]
     @State private var loadingContent = false
+    @State private var isEmptyFile = false
+    @State private var detectedBinary = false
+    @State private var loadError: String?
 
     init(client: HostClient, workspaceID: String, diff: FileDiff) {
         self.client = client
         self.workspaceID = workspaceID
         self.diff = diff
         _hunks = State(initialValue: diff.hunks)
+        _loadingContent = State(initialValue: diff.needsContent && diff.hunks.isEmpty)
+        _detectedBinary = State(initialValue: diff.isBinary)
     }
 
     var body: some View {
         Group {
-            if diff.isBinary {
-                ContentUnavailableView("二进制文件没有文本差异", systemImage: "doc.zipper")
-            } else if hunks.isEmpty && !loadingContent {
-                ContentUnavailableView("没有可显示的文本差异", systemImage: "plus.forwardslash.minus")
+            if loadingContent {
+                ProgressView("正在读取文件变更…")
+            } else if detectedBinary {
+                ContentUnavailableView("二进制或图片资源文件，无文本行差异", systemImage: "doc.zipper")
+            } else if isEmptyFile {
+                ContentUnavailableView("这是一个空文件（0 行内容）", systemImage: "doc")
+            } else if hunks.isEmpty {
+                ContentUnavailableView(
+                    loadError ?? "没有可显示的文本差异",
+                    systemImage: "plus.forwardslash.minus"
+                )
             } else {
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -319,13 +333,28 @@ struct DiffFileView: View {
         .navigationTitle((diff.path as NSString).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            guard diff.needsContent, hunks.isEmpty else { return }
+            guard diff.needsContent, hunks.isEmpty else {
+                loadingContent = false
+                return
+            }
             loadingContent = true
             defer { loadingContent = false }
-            if let file = try? await client.workspaceFile(workspaceID: workspaceID, path: diff.path),
-               let content = file.content
-            {
-                hunks = FileDiff.additions(of: content)
+            do {
+                let file = try await client.workspaceFile(workspaceID: workspaceID, path: diff.path)
+                if file.binary {
+                    detectedBinary = true
+                } else if let content = file.content {
+                    let parsed = FileDiff.additions(of: content)
+                    if parsed.isEmpty {
+                        isEmptyFile = true
+                    } else {
+                        hunks = parsed
+                    }
+                } else {
+                    isEmptyFile = file.size == 0
+                }
+            } catch {
+                loadError = describeHostFailure(error)
             }
         }
     }

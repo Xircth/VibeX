@@ -9,6 +9,19 @@ struct ConversationDetailView: View {
     @State private var created: ConversationListItem?
     @State private var diffChange: FileChangeItem?
 
+    // Scroll safe-zone & floating bottom indicator state
+    @State private var distanceFromBottom: CGFloat = 0
+    @State private var userDetachedFromBottom = false
+    @State private var isUserDraggingScroll = false
+    @State private var unreadMessageUpdates = 0
+    @State private var hasPerformedInitialScroll = false
+
+    private let bottomSafeZoneThreshold: CGFloat = 56
+
+    private var isInBottomSafeZone: Bool {
+        !userDetachedFromBottom && !isUserDraggingScroll && distanceFromBottom <= bottomSafeZoneThreshold
+    }
+
     var onToggleSidebar: (() -> Void)?
     var onReturnToLanding: (() -> Void)?
 
@@ -255,6 +268,8 @@ struct ConversationDetailView: View {
             openFiles: { panel = .files },
             send: {
                 let text = draft
+                userDetachedFromBottom = false
+                unreadMessageUpdates = 0
                 Task { if await model.send(text) { draft = "" } }
             },
             stop: { Task { await model.cancelTurn() } },
@@ -340,47 +355,143 @@ struct ConversationDetailView: View {
             if model.items.isEmpty {
                 ContentUnavailableView("还没有消息", systemImage: "text.bubble")
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            ForEach(model.items) { item in
-                                MessageRow(
-                                    item: item,
-                                    agentID: model.conversation.agent_id,
-                                    modelName: model.currentModelLabel,
-                                    isLast: item.id == model.items.last?.id,
-                                    running: model.session.isTurnRunning,
-                                    openDiff: { diffChange = $0 }
+                GeometryReader { scrollGeo in
+                    let containerWidth = max(0, scrollGeo.size.width)
+                    let viewportHeight = max(0, scrollGeo.size.height)
+                    let contentWidth = max(0, containerWidth - 28)
+                    ScrollViewReader { proxy in
+                        ZStack(alignment: .bottom) {
+                            ScrollView(.vertical, showsIndicators: true) {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    ForEach(model.items) { item in
+                                        MessageRow(
+                                            item: item,
+                                            agentID: model.conversation.agent_id,
+                                            modelName: model.currentModelLabel,
+                                            isLast: item.id == model.items.last?.id,
+                                            running: model.session.isTurnRunning,
+                                            openDiff: { diffChange = $0 }
+                                        )
+                                        .frame(width: contentWidth, alignment: .leading)
+                                        .id(item.id)
+                                    }
+                                    if model.session.isTurnRunning && model.items.last?.role != .assistant {
+                                        LoadingState(label: "正在思考").id("loading")
+                                    }
+                                    Color.clear
+                                        .frame(height: 1)
+                                        .id("conversation-bottom")
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .frame(width: containerWidth, alignment: .leading)
+                                .background(
+                                    GeometryReader { contentGeo in
+                                        let frame = contentGeo.frame(in: .named("conversationScroll"))
+                                        let rawDist = max(0, frame.maxY - viewportHeight)
+                                        Color.clear
+                                            .onAppear {
+                                                handleScrollMetrics(
+                                                    distance: rawDist,
+                                                    contentHeight: frame.height,
+                                                    viewportHeight: viewportHeight
+                                                )
+                                            }
+                                            .onChange(of: Int(rawDist.rounded())) { _, _ in
+                                                handleScrollMetrics(
+                                                    distance: rawDist,
+                                                    contentHeight: frame.height,
+                                                    viewportHeight: viewportHeight
+                                                )
+                                            }
+                                    }
                                 )
-                                .id(item.id)
                             }
-                            if model.session.isTurnRunning && model.items.last?.role != .assistant {
-                                LoadingState(label: "正在思考").id("loading")
+                            .coordinateSpace(name: "conversationScroll")
+                            .scrollDismissesKeyboard(.interactively)
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 5)
+                                    .onChanged { value in
+                                        isUserDraggingScroll = true
+                                        // Finger pulling down (positive translation.height) = scrolling upward away from bottom
+                                        if value.translation.height > 10 {
+                                            if !userDetachedFromBottom {
+                                                userDetachedFromBottom = true
+                                            }
+                                        } else if value.translation.height < -18 && distanceFromBottom <= bottomSafeZoneThreshold {
+                                            userDetachedFromBottom = false
+                                            unreadMessageUpdates = 0
+                                        }
+                                    }
+                                    .onEnded { value in
+                                        isUserDraggingScroll = false
+                                        if value.translation.height > 14 {
+                                            userDetachedFromBottom = true
+                                        } else if value.translation.height < -24 && distanceFromBottom <= bottomSafeZoneThreshold {
+                                            userDetachedFromBottom = false
+                                            unreadMessageUpdates = 0
+                                        }
+                                    }
+                            )
+                            .onAppear {
+                                scrollToBottomImmediately(proxy: proxy)
                             }
-                            Color.clear
-                                .frame(height: 1)
-                                .id("conversation-bottom")
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: model.items.count) { _, _ in
-                        withAnimation(.smooth(duration: 0.22)) {
-                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: model.items.last?.text.count) { _, _ in
-                        if model.isActivelyStreaming {
-                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: model.items.last?.segments.count) { _, _ in
-                        if model.isActivelyStreaming {
-                            withAnimation(.smooth(duration: 0.18)) {
-                                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                                Task {
+                                    await model.reload()
+                                    if isInBottomSafeZone {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                }
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibex.didReturnToConversationsTab"))) { _ in
+                                Task {
+                                    await model.reload()
+                                    if isInBottomSafeZone {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                }
+                            }
+                            .onChange(of: model.items.count) { oldCount, newCount in
+                                guard newCount > oldCount else { return }
+                                if !hasPerformedInitialScroll {
+                                    scrollToBottomImmediately(proxy: proxy)
+                                } else if isInBottomSafeZone {
+                                    withAnimation(.smooth(duration: 0.2)) {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                } else {
+                                    unreadMessageUpdates += max(1, newCount - oldCount)
+                                }
+                            }
+                            .onChange(of: model.items.last?.text.count) { _, _ in
+                                guard model.isActivelyStreaming else { return }
+                                if isInBottomSafeZone {
+                                    proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                } else if unreadMessageUpdates == 0 {
+                                    unreadMessageUpdates = 1
+                                }
+                            }
+                            .onChange(of: model.items.last?.segments.count) { oldSegs, newSegs in
+                                guard model.isActivelyStreaming else { return }
+                                if isInBottomSafeZone {
+                                    withAnimation(.smooth(duration: 0.16)) {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                } else if (newSegs ?? 0) > (oldSegs ?? 0) {
+                                    unreadMessageUpdates += 1
+                                }
+                            }
+
+                            if shouldShowScrollToBottomButton {
+                                scrollToBottomButton(proxy: proxy)
+                                    .padding(.bottom, 12)
+                                    .transition(.scale(scale: 0.88, anchor: .bottom).combined(with: .opacity))
+                                    .zIndex(10)
                             }
                         }
+                        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: shouldShowScrollToBottomButton)
+                        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: unreadMessageUpdates)
                     }
                 }
             }
@@ -389,6 +500,109 @@ struct ConversationDetailView: View {
         } else {
             ProgressView().frame(maxHeight: .infinity)
         }
+    }
+
+    private func handleScrollMetrics(
+        distance: CGFloat,
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat
+    ) {
+        guard viewportHeight > 0 else { return }
+        distanceFromBottom = distance
+        if contentHeight <= viewportHeight + 20 {
+            if userDetachedFromBottom && !isUserDraggingScroll {
+                userDetachedFromBottom = false
+                unreadMessageUpdates = 0
+            }
+            return
+        }
+        if distance <= 36 && !isUserDraggingScroll {
+            if userDetachedFromBottom {
+                userDetachedFromBottom = false
+            }
+            if unreadMessageUpdates != 0 {
+                unreadMessageUpdates = 0
+            }
+        } else if distance > bottomSafeZoneThreshold {
+            if !userDetachedFromBottom {
+                userDetachedFromBottom = true
+            }
+        }
+    }
+
+    private var shouldShowScrollToBottomButton: Bool {
+        userDetachedFromBottom || distanceFromBottom > bottomSafeZoneThreshold || unreadMessageUpdates > 0
+    }
+
+    private func scrollToBottomImmediately(proxy: ScrollViewProxy) {
+        userDetachedFromBottom = false
+        unreadMessageUpdates = 0
+        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            if !userDetachedFromBottom {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            }
+            try? await Task.sleep(for: .milliseconds(120))
+            if !userDetachedFromBottom {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                hasPerformedInitialScroll = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func scrollToBottomButton(proxy: ScrollViewProxy) -> some View {
+        let showExtendedLabel = unreadMessageUpdates > 0 || model.session.isTurnRunning || distanceFromBottom > 180
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            userDetachedFromBottom = false
+            isUserDraggingScroll = false
+            distanceFromBottom = 0
+            unreadMessageUpdates = 0
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if model.session.isTurnRunning || unreadMessageUpdates > 0 {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 7, height: 7)
+                }
+
+                if showExtendedLabel {
+                    if unreadMessageUpdates > 0 {
+                        Text("\(unreadMessageUpdates) 条新动态")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .monospacedDigit()
+                    } else if model.session.isTurnRunning {
+                        Text("跟随最新回答")
+                            .font(.system(size: 12.5, weight: .semibold))
+                    } else {
+                        Text("回到底部")
+                            .font(.system(size: 12.5, weight: .medium))
+                    }
+                }
+
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, showExtendedLabel ? 14 : 11)
+            .frame(height: 36)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("滚动到最底部")
     }
 }
 

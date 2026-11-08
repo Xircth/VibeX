@@ -49,10 +49,12 @@ struct ThinkingView: View {
                     if working {
                         ShimmerText(text: workingLabel)
                             .font(.system(size: 12.5, weight: .medium))
+                            .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Text(doneLabel)
                             .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
 
                     if !expanded, let previewLine {
@@ -63,6 +65,7 @@ struct ThinkingView: View {
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .layoutPriority(-1)
                     }
 
                     Spacer(minLength: 4)
@@ -72,6 +75,7 @@ struct ThinkingView: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
@@ -95,6 +99,7 @@ struct ThinkingView: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                         .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

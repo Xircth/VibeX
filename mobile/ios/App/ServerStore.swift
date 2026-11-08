@@ -39,8 +39,9 @@ final class ServerStore {
             let invitation = try PairingInvitation.parse(input)
             session = try await client.redeem(invitation: invitation, deviceName: deviceName)
         } else {
+            let normalizedOrigin = Self.normalizeOrigin(manualOrigin)
             session = try await client.redeem(
-                origin: try HostOrigin.parse(manualOrigin),
+                origin: try HostOrigin.parse(normalizedOrigin),
                 pairingToken: input,
                 deviceName: deviceName
             )
@@ -58,6 +59,28 @@ final class ServerStore {
         profiles.removeAll { $0.origin == profile.origin }
         profiles.append(profile)
         persist()
+    }
+
+    static func normalizeOrigin(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix("/") { text.removeLast() }
+        guard !text.isEmpty else { return text }
+        if !text.lowercased().hasPrefix("http://"), !text.lowercased().hasPrefix("https://") {
+            text = "http://\(text)"
+        }
+        if let components = URLComponents(string: text),
+           components.scheme == "http",
+           components.port == nil,
+           let host = components.host,
+           !host.isEmpty
+        {
+            var updated = components
+            updated.port = 17891
+            if let built = updated.string {
+                return built
+            }
+        }
+        return text
     }
 
     /// The most recently paired computer is the one the tabs read from.

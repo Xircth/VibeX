@@ -419,6 +419,38 @@ public struct HostClient: Sendable {
         return try await collaborationCall("role.list", as: Page.self).roles ?? []
     }
 
+    public func collabSaveRole(
+        id: String? = nil,
+        name: String,
+        agentId: String,
+        modeId: String? = nil,
+        personaPrompt: String = "",
+        teamId: String = ""
+    ) async throws {
+        var payload: [String: Any] = [
+            "name": name,
+            "teamId": teamId,
+            "summary": personaPrompt,
+            "personaPrompt": personaPrompt,
+            "agentId": agentId,
+            "modeId": modeId ?? "",
+            "configValues": [String: String](),
+        ]
+        if let id, !id.isEmpty, !id.hasPrefix("default-agent:") {
+            payload["id"] = id
+            try await collaborationCommand("role.update", input: payload)
+        } else {
+            try await collaborationCommand("role.create", input: payload)
+        }
+    }
+
+    public func collabDeleteRole(roleID: String) async throws {
+        try await collaborationCommand("role.delete", input: [
+            "id": roleID,
+            "roleId": roleID,
+        ])
+    }
+
     public func collabTeams() async throws -> [CollabTeam] {
         struct Page: Decodable { let teams: [CollabTeam]? }
         return try await collaborationCall("team.list", as: Page.self).teams ?? []
@@ -601,6 +633,11 @@ public struct HostClient: Sendable {
 
     public func userSystemInfo() async throws -> HostUserSystemInfo {
         try await call("get_user_system_info", as: HostUserSystemInfo.self)
+    }
+
+    public func managedAgentBar() async throws -> [ManagedAgentBarItem] {
+        let items = try await call("agent_management_bar", as: [ManagedAgentBarItem].self)
+        return items.filter { $0.enabled && !$0.retired }
     }
 
     public func pluginCatalog() async throws -> [PluginCatalogItem] {

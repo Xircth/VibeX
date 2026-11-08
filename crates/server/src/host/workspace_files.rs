@@ -6,10 +6,12 @@
 //! credential files. A scratch workspace's root can be the user's home directory,
 //! so the policy cannot rely on the root being a clean project.
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use application::ApplicationError;
-use db::models::workspace_repo::WorkspaceRepo;
+use db::models::{project::Project, workspace_repo::WorkspaceRepo};
+use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -62,33 +64,59 @@ struct FileContent {
 struct ProjectSummary {
     id: Uuid,
     name: String,
+    root_path: String,
+    parent_project_id: Option<Uuid>,
+    is_git: bool,
+    is_home: bool,
     workspace_ids: Vec<Uuid>,
 }
 
 impl ServerApplicationDomains {
-    /// Projects with the workspaces they own, so a client can group conversations by project.
+    /// Imported projects (matching the desktop's "已导入项目" list) with their workspaces,
+    /// ensuring each project has a root workspace so Companion devices can start conversations in it.
     pub(crate) async fn conversation_projects(&self) -> Result<Value, ApplicationError> {
-        let rows = sqlx::query_as::<_, (Uuid, String, Uuid)>(
-            r#"SELECT p.id, p.name, w.id
-               FROM workspaces w
-               JOIN projects p ON p.id = w.project_id
-               ORDER BY p.name COLLATE NOCASE, w.created_at"#,
+        let _ = self
+            .deployment
+            .project()
+            .migrate_multi_repo_projects(&self.pool, self.deployment.repo())
+            .await;
+        let _ = self
+            .deployment
+            .project()
+            .ensure_home_project(&self.pool, self.deployment.repo())
+            .await;
+        let projects = Project::find_all(&self.pool)
+            .await
+            .map_err(internal_error)?;
+        for project in &projects {
+            let _ = self.ensure_root_workspace(project.id, None).await;
+        }
+        let rows = sqlx::query_as::<_, (Uuid, Uuid)>(
+            r#"SELECT project_id, id
+               FROM workspaces
+               WHERE project_id IS NOT NULL
+               ORDER BY use_worktree ASC, created_at DESC"#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(internal_error)?;
-        let mut projects: Vec<ProjectSummary> = Vec::new();
-        for (id, name, workspace_id) in rows {
-            match projects.iter_mut().find(|project| project.id == id) {
-                Some(project) => project.workspace_ids.push(workspace_id),
-                None => projects.push(ProjectSummary {
-                    id,
-                    name,
-                    workspace_ids: vec![workspace_id],
-                }),
-            }
+        let mut by_project: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+        for (project_id, workspace_id) in rows {
+            by_project.entry(project_id).or_default().push(workspace_id);
         }
-        serialize(projects)
+        let summaries: Vec<ProjectSummary> = projects
+            .into_iter()
+            .map(|project| ProjectSummary {
+                workspace_ids: by_project.remove(&project.id).unwrap_or_default(),
+                id: project.id,
+                name: project.name,
+                root_path: project.root_path,
+                parent_project_id: project.parent_project_id,
+                is_git: project.is_git,
+                is_home: project.is_home,
+            })
+            .collect();
+        serialize(summaries)
     }
 
     /// The directory the Agent works in; scratch workspaces have one even without a repository.

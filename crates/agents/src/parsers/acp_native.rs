@@ -338,6 +338,7 @@ struct PendingTurn {
     duration_ms: Option<u64>,
     model: Option<String>,
     agent_message_id: Option<String>,
+    last_text_message_id: Option<String>,
     has_content: bool,
 }
 
@@ -890,12 +891,20 @@ fn apply_update(
             }
             let p = open_turn!();
             p.last_at_ms = at_ms;
+            let chunk_message_id = chunk
+                .message_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .filter(|id| !id.trim().is_empty());
             if p.agent_message_id.is_none() {
-                p.agent_message_id = chunk
-                    .message_id
-                    .as_ref()
-                    .map(|id| id.to_string())
-                    .filter(|id| !id.trim().is_empty());
+                p.agent_message_id = chunk_message_id.clone();
+            }
+            let message_id_changed = matches!(
+                (&p.last_text_message_id, &chunk_message_id),
+                (Some(prev), Some(curr)) if prev != curr
+            );
+            if chunk_message_id.is_some() {
+                p.last_text_message_id = chunk_message_id;
             }
             match &chunk.content {
                 agent_client_protocol::schema::v1::ContentBlock::Image(image) => {
@@ -910,6 +919,14 @@ fn apply_update(
                 }
                 other => {
                     let text = content_block_text(other);
+                    if message_id_changed
+                        && !text.is_empty()
+                        && let Some(ContentBlock::Text { text: existing }) = p.blocks.last_mut()
+                        && !existing.is_empty()
+                        && !existing.ends_with('\n')
+                    {
+                        existing.push('\n');
+                    }
                     p.push_text(&text, false);
                 }
             }

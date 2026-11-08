@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - 浏览文件
 
-private enum BrowseTarget: Hashable {
+enum BrowseTarget: Hashable {
     case directory(String)
     case file(String)
 }
@@ -12,11 +12,17 @@ private enum BrowseTarget: Hashable {
 struct FileBrowserView: View {
     let client: HostClient
     let workspaceID: String
+    @Environment(\.dismiss) private var dismiss
     @State private var stack: [BrowseTarget] = []
 
     var body: some View {
         NavigationStack(path: $stack) {
             DirectoryView(client: client, workspaceID: workspaceID, path: "", navigate: { stack.append($0) })
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                }
                 .navigationDestination(for: BrowseTarget.self) { target in
                     switch target {
                     case .directory(let path):
@@ -29,10 +35,11 @@ struct FileBrowserView: View {
     }
 }
 
-private struct DirectoryView: View {
+struct DirectoryView: View {
     let client: HostClient
     let workspaceID: String
     let path: String
+    var rootTitle: String = "浏览文件"
     let navigate: (BrowseTarget) -> Void
     @State private var list = RemoteList<WorkspaceEntry>()
     @State private var truncated = false
@@ -40,7 +47,7 @@ private struct DirectoryView: View {
 
     var body: some View {
         content
-            .navigationTitle(path.isEmpty ? "浏览文件" : (path as NSString).lastPathComponent)
+            .navigationTitle(path.isEmpty ? rootTitle : (path as NSString).lastPathComponent)
             .navigationBarTitleDisplayMode(.inline)
             .task { await load() }
     }
@@ -81,7 +88,9 @@ private struct DirectoryView: View {
 
     private func sections(_ entries: [WorkspaceEntry]) -> [BranchedSection] {
         let dirs = entries.filter(\.directory).map { BranchedItem(id: "d:" + $0.path, label: $0.name, icon: "folder") }
-        let files = entries.filter { !$0.directory }.map { BranchedItem(id: "f:" + $0.path, label: $0.name, icon: "doc.text") }
+        let files = entries.filter { !$0.directory }.map {
+            BranchedItem(id: "f:" + $0.path, label: $0.name, icon: FileGlyph.symbol(for: $0.name))
+        }
         return [
             BranchedSection(id: "dirs", label: "目录 \(dirs.count)", children: dirs),
             BranchedSection(id: "files", label: "文件 \(files.count)", children: files),
@@ -98,21 +107,78 @@ private struct DirectoryView: View {
     }
 }
 
-private struct FileContentView: View {
+struct FileContentView: View {
     let client: HostClient
     let workspaceID: String
     let path: String
     @State private var file: WorkspaceFile?
     @State private var errorMessage: String?
+    @State private var showFullImage = false
+
+    private var isImageFile: Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "ico", "bmp"].contains(ext)
+    }
+
+    private var decodedImage: UIImage? {
+        if let content = file?.content, !content.isEmpty {
+            if let img = AttachmentImageStore.decodeImage(from: content) {
+                return img
+            }
+            if let data = Data(base64Encoded: content, options: .ignoreUnknownCharacters),
+               let img = UIImage(data: data)
+            {
+                return img
+            }
+        }
+        return AttachmentImageStore.decodeImage(from: path)
+    }
 
     var body: some View {
         Group {
             if let file {
-                if file.binary {
-                    ContentUnavailableView("二进制文件无法预览", systemImage: "doc.zipper")
+                if let uiImage = decodedImage {
+                    VStack(spacing: 16) {
+                        MarkdownImageFrameView(
+                            src: path,
+                            alt: (path as NSString).lastPathComponent,
+                            fixedImage: uiImage
+                        )
+                        Button {
+                            showFullImage = true
+                        } label: {
+                            Label("全屏查看与标注", systemImage: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(20)
+                    .fullScreenCover(isPresented: $showFullImage) {
+                        ZoomableImagePreviewSheet(
+                            item: PreviewableImageItem(
+                                id: path,
+                                image: uiImage,
+                                urlString: nil,
+                                title: (path as NSString).lastPathComponent
+                            )
+                        )
+                    }
+                } else if file.binary {
+                    ContentUnavailableView(
+                        isImageFile ? "暂无法在远端直接流式读取此二进制图片" : "二进制文件无法预览",
+                        systemImage: isImageFile ? "photo" : "doc.zipper"
+                    )
                 } else {
-                    CodeView(lines: (file.content ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init),
-                             note: file.truncated ? "只显示前 256 KB" : nil)
+                    CodeBlockView(
+                        code: file.content ?? "",
+                        title: path,
+                        language: CodeLanguage.detect(path: path),
+                        note: file.truncated ? "文件较大，只显示前 256 KB" : nil
+                    )
                 }
             } else if let errorMessage {
                 LoadFailureView(message: errorMessage) { Task { await load() } }
@@ -135,38 +201,13 @@ private struct FileContentView: View {
     }
 }
 
-private struct CodeView: View {
-    let lines: [String]
-    let note: String?
-
-    var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, text in
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("\(index + 1)")
-                            .foregroundStyle(.tertiary)
-                            .frame(minWidth: 36, alignment: .trailing)
-                        Text(text.isEmpty ? " " : text)
-                    }
-                    .font(.system(size: 12, design: .monospaced))
-                    .textSelection(.enabled)
-                }
-                if let note {
-                    Text(note).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)
-                }
-            }
-            .padding(12)
-        }
-    }
-}
-
 // MARK: - 代码差异
 
 /// "代码差异": working tree against HEAD, file by file, line by line.
 struct DiffListView: View {
     let client: HostClient
     let workspaceID: String
+    @Environment(\.dismiss) private var dismiss
     @State private var list = RemoteList<FileDiff>()
 
     var body: some View {
@@ -174,6 +215,11 @@ struct DiffListView: View {
             content
                 .navigationTitle("代码差异")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                    }
+                }
                 .navigationDestination(for: FileDiff.self) {
                     DiffFileView(client: client, workspaceID: workspaceID, diff: $0)
                 }
@@ -330,6 +376,7 @@ struct FileDiffSheet: View {
     let client: HostClient
     let workspaceID: String
     let path: String
+    @Environment(\.dismiss) private var dismiss
     @State private var diff: FileDiff?
     @State private var missing = false
     @State private var errorMessage: String?
@@ -347,6 +394,11 @@ struct FileDiffSheet: View {
                     LoadFailureView(message: errorMessage) { Task { await load() } }
                 } else {
                     ProgressView()
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
                 }
             }
         }

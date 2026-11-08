@@ -23,7 +23,12 @@ final class ConversationModel {
     private(set) var hasLoaded = false
     private(set) var loadError: String?
     private(set) var busy = false
+    private(set) var boostPollingUntil: Date = .distantPast
     var actionError: String?
+
+    var isActivelyStreaming: Bool {
+        session.isTurnRunning || Date() < boostPollingUntil
+    }
 
     init(client: HostClient, conversation: ConversationListItem) {
         self.client = client
@@ -32,21 +37,44 @@ final class ConversationModel {
     }
 
     func reload() async {
-        do {
-            var state = transcript
-            try await client.refresh(&state)
+        let initialTranscript = transcript
+        let currentClient = client
+        let convID = conversation.id
+        let seq = lastSequence
+
+        async let refreshedTranscriptResult: Result<TranscriptState, Error> = {
+            var state = initialTranscript
+            do {
+                try await currentClient.refresh(&state)
+                return .success(state)
+            } catch {
+                return .failure(error)
+            }
+        }()
+
+        async let offlineCacheResult: OfflineConversationCache? = try? currentClient.offlineConversation(
+            id: convID,
+            afterSequence: seq
+        )
+
+        let transcriptResult = await refreshedTranscriptResult
+        let cache = await offlineCacheResult
+
+        switch transcriptResult {
+        case .success(let state):
             transcript = state
             items = state.items
             hasLoaded = true
             loadError = nil
-        } catch is CancellationError {
+        case .failure(let error) where error is CancellationError:
             return
-        } catch {
+        case .failure(let error):
             loadError = describeHostFailure(error)
             return
         }
+
         // Mode, model, permission and question state come from the control-plane events; a failure keeps the last state.
-        if let cache = try? await client.offlineConversation(id: conversation.id, afterSequence: lastSequence) {
+        if let cache {
             let fresh = cache.events ?? []
             events += fresh
             lastSequence = max(lastSequence, cache.confirmed_through)
@@ -150,6 +178,8 @@ final class ConversationModel {
             actionError = "此对话没有绑定 Agent，无法发送"
             return false
         }
+        boostPollingUntil = Date().addingTimeInterval(25)
+        session.isTurnRunning = true
         return await perform {
             try await client.sendMessage(
                 conversationID: conversation.id,
@@ -186,18 +216,23 @@ final class ConversationModel {
         _ = await perform { try await client.cancelTurn(conversationID: conversation.id) }
     }
 
-    func respond(to prompt: PermissionPrompt, option: PermissionOption?) async {
+    func respond(to prompt: PermissionPrompt, option: PermissionOption?, persist: Bool = false) async {
+        boostPollingUntil = Date().addingTimeInterval(25)
+        session.isTurnRunning = true
         _ = await perform {
             try await client.respondPermission(
                 conversationID: conversation.id,
                 permissionID: prompt.id,
-                optionID: option?.id
+                optionID: option?.id,
+                persist: persist
             )
         }
     }
 
     /// `content` nil declines the question.
     func respond(to question: PendingQuestion, content: JSONValue?) async {
+        boostPollingUntil = Date().addingTimeInterval(25)
+        session.isTurnRunning = true
         _ = await perform {
             try await client.respondQuestion(
                 conversationID: conversation.id,

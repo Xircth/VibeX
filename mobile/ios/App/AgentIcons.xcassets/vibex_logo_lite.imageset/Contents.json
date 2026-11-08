@@ -1,0 +1,22 @@
+{
+  "images": [
+    {
+      "filename": "app-logo-light-lite.png",
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "app-logo-dark-lite.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

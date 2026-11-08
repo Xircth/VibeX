@@ -16,6 +16,26 @@ public struct ConversationListItem: Decodable, Identifiable, Equatable, Sendable
         case id, workspace_id, title, status, agent_id, model, message_count, updated_at
     }
 
+    public init(
+        id: String,
+        workspace_id: String,
+        title: String? = nil,
+        status: String? = nil,
+        agent_id: String? = nil,
+        model: String? = nil,
+        message_count: Int = 0,
+        updated_at: String = ""
+    ) {
+        self.id = id
+        self.workspace_id = workspace_id
+        self.title = title
+        self.status = status
+        self.agent_id = agent_id
+        self.model = model
+        self.message_count = message_count
+        self.updated_at = updated_at
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -90,10 +110,22 @@ public struct ToolStep: Identifiable, Equatable, Sendable {
     public let label: String
     /// The first lines of the tool input, for the expanded row.
     public let detail: [String]
+    /// Structured questions when this tool call is `ask_question` / `AskUserQuestion`.
+    public var questions: [FormQuestion] = []
 
     public var isFinished: Bool {
         guard let status else { return false }
         return ["completed", "complete", "success", "done", "failed", "error"].contains(status.lowercased())
+    }
+
+    public var isAskQuestion: Bool {
+        if !questions.isEmpty { return true }
+        let lowered = name.lowercased()
+        return lowered == "ask_question"
+            || lowered == "ask_user_question"
+            || lowered == "askuserquestion"
+            || lowered.hasSuffix("__ask_user_question")
+            || lowered.hasSuffix("_ask_question")
     }
 }
 
@@ -107,6 +139,19 @@ public struct PlanTask: Identifiable, Equatable, Sendable {
     public let priority: String?
 }
 
+public enum TimelineSegment: Identifiable, Equatable, Sendable {
+    case thinking(id: String, text: String)
+    case tools(id: String, steps: [ToolStep])
+    case text(id: String, text: String)
+
+    public var id: String {
+        switch self {
+        case .thinking(let id, _), .tools(let id, _), .text(let id, _):
+            return id
+        }
+    }
+}
+
 public struct TimelineItem: Identifiable, Equatable, Sendable {
     public enum Role: Sendable { case user, assistant }
 
@@ -118,6 +163,8 @@ public struct TimelineItem: Identifiable, Equatable, Sendable {
     public var tools: [ToolStep] = []
     public var plan: [PlanTask] = []
     public var changes: [FileChangeItem] = []
+    /// Chronological blocks within an assistant turn (thinking, tool call runs, and text segments).
+    public var segments: [TimelineSegment] = []
     public var durationMs: Int?
 
     public var hasTrace: Bool { !thinking.isEmpty || !tools.isEmpty || !changes.isEmpty }
@@ -163,21 +210,49 @@ public enum TimelineBuilder {
             for (index, block) in (turn["blocks"]?.arrayValue ?? []).enumerated() {
                 switch block["type"]?.stringValue {
                 case "text":
-                    if let text = block["text"]?.stringValue { texts.append(text) }
+                    if let text = block["text"]?.stringValue {
+                        texts.append(text)
+                        if role == .assistant, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if case .text(let segID, let prev)? = item.segments.last {
+                                let sep = prev.hasSuffix("\n") || text.hasPrefix("\n") ? "" : "\n\n"
+                                item.segments[item.segments.count - 1] = .text(id: segID, text: prev + sep + text)
+                            } else {
+                                item.segments.append(.text(id: "\(rowID)-seg-\(index)", text: text))
+                            }
+                        }
+                    }
                 case "thinking":
-                    if role == .assistant, let text = block["text"]?.stringValue { thoughts.append(text) }
+                    if role == .assistant, let text = block["text"]?.stringValue {
+                        thoughts.append(text)
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if case .thinking(let segID, let prev)? = item.segments.last {
+                                item.segments[item.segments.count - 1] = .thinking(id: segID, text: prev + "\n\n" + text)
+                            } else {
+                                item.segments.append(.thinking(id: "\(rowID)-seg-\(index)", text: text))
+                            }
+                        }
+                    }
                 case "tool_use":
                     guard role == .assistant, let name = block["tool_name"]?.stringValue else { continue }
                     let input = ToolInput(block["input_preview"]?.stringValue)
-                    item.tools.append(ToolStep(
-                        id: block["tool_use_id"]?.stringValue ?? "\(rowID)-\(index)",
+                    let stepID = block["tool_use_id"]?.stringValue ?? "\(rowID)-\(index)"
+                    let step = ToolStep(
+                        id: stepID,
                         name: name,
                         status: block["status"]?.stringValue,
                         preview: input.target,
                         edits: input.edits,
                         label: input.label(for: name),
-                        detail: input.detail
-                    ))
+                        detail: input.detail,
+                        questions: input.questions
+                    )
+                    item.tools.append(step)
+                    if case .tools(let segID, var existingSteps)? = item.segments.last {
+                        existingSteps.append(step)
+                        item.segments[item.segments.count - 1] = .tools(id: segID, steps: existingSteps)
+                    } else {
+                        item.segments.append(.tools(id: "\(rowID)-tools-\(stepID)", steps: [step]))
+                    }
                 case "plan":
                     guard role == .assistant else { continue }
                     item.plan = (block["entries"]?.arrayValue ?? []).enumerated().compactMap { offset, entry in
@@ -266,6 +341,7 @@ struct ToolInput {
     let target: String?
     let detail: [String]
     var edits: [ToolEdit] = []
+    var questions: [FormQuestion] = []
 
     private static let targetKeys = ["file_path", "path", "command", "cmd", "pattern", "query", "url", "description"]
 
@@ -281,6 +357,41 @@ struct ToolInput {
             target = Self.clip(raw.split(separator: "\n").first.map(String.init) ?? raw, 60)
             detail = Self.lines(raw)
             return
+        }
+        if let rawQuestions = object["questions"] as? [[String: Any]], !rawQuestions.isEmpty {
+            questions = rawQuestions.enumerated().compactMap { index, q in
+                let qText = (q["question"] as? String) ?? (q["header"] as? String) ?? ""
+                guard !qText.isEmpty else { return nil }
+                let header = (q["header"] as? String) ?? "问题 \(index + 1)"
+                let multi = (q["is_multi_select"] as? Bool) ?? (q["multiSelect"] as? Bool) ?? (q["multi_select"] as? Bool) ?? false
+                var parsedChoices: [QuestionChoice] = []
+                if let opts = q["options"] as? [Any] {
+                    parsedChoices = opts.compactMap { opt in
+                        if let str = opt as? String {
+                            return QuestionChoice(value: .string(str), label: str, description: nil)
+                        }
+                        if let dict = opt as? [String: Any],
+                           let label = (dict["label"] as? String) ?? (dict["value"] as? String)
+                        {
+                            let val = (dict["value"] as? String) ?? label
+                            let desc = dict["description"] as? String
+                            let rec = (dict["recommended"] as? Bool) ?? false
+                            return QuestionChoice(value: .string(val), label: label, description: desc, recommended: rec)
+                        }
+                        return nil
+                    }
+                }
+                return FormQuestion(
+                    id: (q["id"] as? String) ?? "question-\(index + 1)",
+                    fieldName: nil,
+                    customFieldName: nil,
+                    header: header,
+                    text: qText,
+                    multiSelect: multi,
+                    valueType: .string,
+                    choices: parsedChoices
+                )
+            }
         }
         if let path = (object["file_path"] ?? object["path"]) as? String {
             if let content = object["content"] as? String {
@@ -298,6 +409,8 @@ struct ToolInput {
         let value = key.flatMap { object[$0] as? String }
         if let key, let value {
             target = Self.clip(key.hasSuffix("path") ? (value as NSString).lastPathComponent : value, 60)
+        } else if let firstQuestion = questions.first {
+            target = Self.clip(firstQuestion.text, 60)
         } else {
             target = nil
         }
@@ -345,49 +458,137 @@ struct ToolInput {
 public struct ProjectSummary: Decodable, Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public let name: String
+    public let rootPath: String
+    public let parentProjectId: String?
+    public let isGit: Bool
+    public let isHome: Bool
     public let workspaceIds: [String]
 
-    public init(id: String, name: String, workspaceIds: [String]) {
+    public var displayName: String { isHome ? "全局" : name }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, rootPath, parentProjectId, isGit, isHome, workspaceIds
+    }
+
+    public init(
+        id: String,
+        name: String,
+        rootPath: String = "",
+        parentProjectId: String? = nil,
+        isGit: Bool = false,
+        isHome: Bool = false,
+        workspaceIds: [String]
+    ) {
         self.id = id
         self.name = name
+        self.rootPath = rootPath
+        self.parentProjectId = parentProjectId
+        self.isGit = isGit
+        self.isHome = isHome
         self.workspaceIds = workspaceIds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        rootPath = (try? c.decode(String.self, forKey: .rootPath)) ?? ""
+        parentProjectId = try? c.decodeIfPresent(String.self, forKey: .parentProjectId)
+        isGit = (try? c.decode(Bool.self, forKey: .isGit)) ?? false
+        isHome = (try? c.decode(Bool.self, forKey: .isHome)) ?? false
+        workspaceIds = (try? c.decode([String].self, forKey: .workspaceIds)) ?? []
     }
 }
 
-/// Conversations bucketed by project, newest activity first.
+/// Conversations bucketed by imported project, ordered as a tree (matching the desktop's "已导入项目").
 public struct ProjectGroup: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
+    public let rootPath: String
+    public let depth: Int
+    public let isGit: Bool
+    public let isHome: Bool
+    public let workspaceIds: [String]
     public let conversations: [ConversationListItem]
 
-    public init(id: String, name: String, conversations: [ConversationListItem]) {
+    public init(
+        id: String,
+        name: String,
+        rootPath: String = "",
+        depth: Int = 0,
+        isGit: Bool = false,
+        isHome: Bool = false,
+        workspaceIds: [String] = [],
+        conversations: [ConversationListItem]
+    ) {
         self.id = id
         self.name = name
+        self.rootPath = rootPath
+        self.depth = depth
+        self.isGit = isGit
+        self.isHome = isHome
+        self.workspaceIds = workspaceIds
         self.conversations = conversations
     }
 
     public var latest: Date? { conversations.compactMap(\.updatedAt).max() }
 
-    /// Projects that have conversations, most recently active first; conversations whose
-    /// workspace belongs to no known project fall into one trailing "其他" group.
+    /// Every imported project in tree order (home first, then roots and their children),
+    /// plus a trailing "其他" group when conversations belong to no known project.
     public static func make(conversations: [ConversationListItem], projects: [ProjectSummary]) -> [ProjectGroup] {
-        var owner: [String: ProjectSummary] = [:]
+        var owner: [String: String] = [:]
         for project in projects {
-            for workspace in project.workspaceIds { owner[workspace.lowercased()] = project }
+            for workspace in project.workspaceIds { owner[workspace.lowercased()] = project.id.lowercased() }
         }
         var buckets: [String: [ConversationListItem]] = [:]
-        var names: [String: String] = [:]
         for conversation in conversations {
-            let project = owner[conversation.workspace_id.lowercased()]
-            let key = project?.id ?? "other"
+            let key = owner[conversation.workspace_id.lowercased()] ?? "other"
             buckets[key, default: []].append(conversation)
-            names[key] = project?.name ?? "其他"
         }
-        let groups = buckets.map { ProjectGroup(id: $0.key, name: names[$0.key] ?? "其他", conversations: $0.value) }
-        return groups.sorted {
-            if $0.id == "other" { return false }
-            if $1.id == "other" { return true }
-            return ($0.latest ?? .distantPast) > ($1.latest ?? .distantPast)
+        let ordered = flattenTree(projects)
+        var groups = ordered.map { entry in
+            ProjectGroup(
+                id: entry.project.id,
+                name: entry.project.displayName,
+                rootPath: entry.project.rootPath,
+                depth: entry.depth,
+                isGit: entry.project.isGit,
+                isHome: entry.project.isHome,
+                workspaceIds: entry.project.workspaceIds,
+                conversations: buckets[entry.project.id.lowercased()] ?? []
+            )
         }
+        if let strays = buckets["other"], !strays.isEmpty {
+            groups.append(ProjectGroup(id: "other", name: "其他", conversations: strays))
+        }
+        return groups
+    }
+
+    private static func flattenTree(_ projects: [ProjectSummary]) -> [(project: ProjectSummary, depth: Int)] {
+        let home = projects.filter(\.isHome)
+        let rest = projects.filter { !$0.isHome }
+        let ordered = home + rest
+        let knownIds = Set(ordered.map { $0.id.lowercased() })
+        var byParent: [String?: [ProjectSummary]] = [:]
+        for project in ordered {
+            let parent = project.parentProjectId?.lowercased()
+            let key = (parent != nil && knownIds.contains(parent!)) ? parent : nil
+            byParent[key, default: []].append(project)
+        }
+        var result: [(project: ProjectSummary, depth: Int)] = []
+        var visited: Set<String> = []
+        func walk(_ parentId: String?, _ depth: Int) {
+            for project in byParent[parentId] ?? [] {
+                let key = project.id.lowercased()
+                guard visited.insert(key).inserted else { continue }
+                result.append((project, depth))
+                walk(key, depth + 1)
+            }
+        }
+        walk(nil, 0)
+        for project in ordered where !visited.contains(project.id.lowercased()) {
+            result.append((project, 0))
+        }
+        return result
     }
 }

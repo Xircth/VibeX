@@ -82,6 +82,7 @@ __pycache__/
 src-tauri/gen/
 src-tauri/tauri.dev.generated.conf.json
 src-tauri/binaries/
+plugins/computer-use/bin/
 **/.codeg-fs-*.tmp
 **/*.cstemp
 

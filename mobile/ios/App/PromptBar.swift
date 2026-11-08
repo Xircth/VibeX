@@ -1,7 +1,23 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 enum ComposerMenu: Equatable {
-    case access, model, effort
+    case access
+    case plusModel
+    case plusMode
+    case plusPerms
+    case model
+    case effort
+
+    var isBottomDrawer: Bool {
+        switch self {
+        case .access, .plusModel, .plusMode, .plusPerms:
+            return true
+        case .model, .effort:
+            return false
+        }
+    }
 }
 
 struct PromptChoice: Identifiable, Equatable {
@@ -10,6 +26,8 @@ struct PromptChoice: Identifiable, Equatable {
     var detail: String?
     var tag: String?
     var icon: String?
+    /// Agent whose brand mark leads the row (model choices).
+    var agentID: String?
     var selected = false
     var enabled = true
 }
@@ -17,6 +35,7 @@ struct PromptChoice: Identifiable, Equatable {
 struct PromptGroup: Identifiable, Equatable {
     var id: String { title }
     let title: String
+    var agentID: String?
     let choices: [PromptChoice]
 }
 
@@ -25,7 +44,19 @@ struct PromptEffort: Equatable {
     let index: Int
 }
 
-/// SwiftUI port of the web PromptBar: one rounded field, a tool row, and floating menus above it.
+struct AttachedImageItem: Identifiable, Equatable {
+    let id = UUID()
+    let token: String
+    var image: UIImage
+    let fileName: String
+
+    static func == (lhs: AttachedImageItem, rhs: AttachedImageItem) -> Bool {
+        lhs.id == rhs.id && lhs.token == rhs.token && lhs.fileName == rhs.fileName
+    }
+}
+
+/// SwiftUI port of the PromptBar: one rounded dock, a tool row, floating menus for inline pills,
+/// and an expandable bottom action drawer when tapping `+`.
 struct PromptBar: View {
     @Binding var draft: String
     @Binding var menu: ComposerMenu?
@@ -33,12 +64,14 @@ struct PromptBar: View {
     let busy: Bool
     let hasAlert: Bool
     let modelName: String?
+    var agentID: String?
     let modelChoices: [PromptChoice]
     let otherModelGroups: [PromptGroup]
     let otherAgentNote: String?
     let accessChoices: [PromptChoice]
     let extraChoices: [PromptChoice]
     let effort: PromptEffort?
+    var openFiles: (() -> Void)? = nil
     let send: () -> Void
     let stop: () -> Void
     let pickModel: (String) -> Void
@@ -47,88 +80,218 @@ struct PromptBar: View {
     let setEffort: (Int) -> Void
 
     @FocusState private var focused: Bool
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var attachedImages: [AttachedImageItem] = []
+    @State private var previewingAttached: AttachedImageItem?
+    @State private var showPhotoPicker = false
+    @State private var showCameraSheet = false
 
     private let spark = Color(red: 0.70, green: 0.62, blue: 1.0)
     private var armed: Bool {
-        isRunning || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isRunning || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty
     }
     private var effortAtMax: Bool {
         guard let effort else { return false }
         return effort.levels.count > 1 && effort.index == effort.levels.count - 1
     }
+    private var isPlusOpen: Bool {
+        menu?.isBottomDrawer == true
+    }
 
     var body: some View {
         VStack(spacing: 8) {
-            if let menu {
-                menuView(menu)
+            if let menu, !menu.isBottomDrawer {
+                floatingMenuView(menu)
                     .padding(.horizontal, 12)
                     .transition(.scale(scale: 0.98, anchor: .bottom).combined(with: .opacity))
             }
-            field
+            dockSurface
         }
-        .animation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.18), value: menu)
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: menu)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $selectedPhotoItems,
+            maxSelectionCount: 4,
+            matching: .images
+        )
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { @MainActor in
+                for (idx, item) in items.enumerated() {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let uiImage = UIImage(data: data)
+                    {
+                        let fileName = "image-\(idx + 1).jpg"
+                        let token = AttachmentImageStore.shared.register(image: uiImage, fileName: fileName)
+                        attachedImages.append(
+                            AttachedImageItem(token: token, image: uiImage, fileName: fileName)
+                        )
+                    }
+                }
+                selectedPhotoItems.removeAll()
+                menu = nil
+            }
+        }
+        .sheet(isPresented: $showCameraSheet) {
+            CameraCaptureSheet { captured in
+                if let captured {
+                    let fileName = "camera-photo.jpg"
+                    let token = AttachmentImageStore.shared.register(image: captured, fileName: fileName)
+                    attachedImages.append(
+                        AttachedImageItem(token: token, image: captured, fileName: fileName)
+                    )
+                }
+                menu = nil
+            }
+            .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $previewingAttached) { item in
+            ZoomableImagePreviewSheet(
+                item: PreviewableImageItem(
+                    id: item.token,
+                    image: item.image,
+                    urlString: nil,
+                    title: item.fileName
+                ),
+                onUpdateImage: { updated in
+                    AttachmentImageStore.shared.update(token: item.token, image: updated, fileName: item.fileName)
+                    if let idx = attachedImages.firstIndex(where: { $0.id == item.id }) {
+                        attachedImages[idx].image = updated
+                    }
+                }
+            )
+        }
     }
 
-    // MARK: Field
+    // MARK: Dock Surface (Input Field + Bottom `+` Drawer)
 
-    private var field: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("发消息", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .font(.system(size: 16))
-                .focused($focused)
-                .onChange(of: focused) { _, isFocused in if isFocused { menu = nil } }
-                .onChange(of: draft) { _, _ in menu = nil }
-            toolRow
+    private var dockSurface: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !attachedImages.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(attachedImages) { item in
+                                ZStack(alignment: .topTrailing) {
+                                    Button {
+                                        previewingAttached = item
+                                    } label: {
+                                        Image(uiImage: item.image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 56, height: 56)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.6)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button {
+                                        withAnimation {
+                                            attachedImages.removeAll { $0.id == item.id }
+                                        }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(.white, Color.black.opacity(0.65))
+                                    }
+                                    .offset(x: 4, y: -4)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+
+                TextField("发消息", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .font(.system(size: 15.5))
+                    .focused($focused)
+                    .onChange(of: focused) { _, isFocused in
+                        if isFocused { menu = nil }
+                    }
+                toolRow
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 11)
+            .padding(.bottom, 10)
+            .contentShape(Rectangle())
+            .onTapGesture { focused = true }
+
+            if let menu, menu.isBottomDrawer {
+                Divider().opacity(0.55)
+                bottomDrawerContent(menu)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
-        .background(alignment: .bottom) {
-            // The dock runs to the screen edge so its colour and the home-indicator area are one surface.
-            let dock = UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20)
+        .background {
+            let dock = RoundedRectangle(cornerRadius: 22, style: .continuous)
             ZStack {
                 dock.fill(Color(.secondarySystemGroupedBackground))
                 dock
                     .fill(RadialGradient(
-                        colors: [spark.opacity(0.26), .clear],
+                        colors: [spark.opacity(0.24), .clear],
                         center: .bottomLeading,
                         startRadius: 0,
                         endRadius: 220
                     ))
                     .opacity(effortAtMax ? 1 : 0)
                     .animation(.easeInOut(duration: 0.5), value: effortAtMax)
-                dock.stroke(Color.primary.opacity(0.06))
+                dock.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.7)
             }
-            .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
-            .ignoresSafeArea(edges: .bottom)
+            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 3)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { focused = true }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
     }
 
     private var toolRow: some View {
-        HStack(spacing: 4) {
-            ToolButton(icon: "plus", on: menu == .access, alert: hasAlert, label: "权限与模式") {
-                toggle(.access)
+        HStack(spacing: 6) {
+            ToolButton(icon: "plus", on: isPlusOpen, alert: hasAlert, label: "更多功能") {
+                focused = false
+                menu = isPlusOpen ? nil : .access
             }
             if let modelName {
-                PickPill(on: menu == .model, label: "选择模型") { toggle(.model) } content: {
+                PickPill(on: menu == .model || menu == .plusModel, label: "选择模型") {
+                    toggle(.model)
+                } content: {
+                    if agentID != nil { AgentIconView(agent: agentID, size: 13.5) }
                     Text(modelName).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 9.5, weight: .bold))
                 }
             }
             if let effort {
-                PickPill(on: menu == .effort, tint: effortAtMax ? spark : nil, label: "推理强度") {
+                PickPill(on: menu == .effort || menu == .plusMode, tint: effortAtMax ? spark : nil, label: "推理强度") {
                     toggle(.effort)
                 } content: {
-                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "sparkles").font(.system(size: 11.5, weight: .semibold))
                     Text(effort.levels[effort.index])
                 }
             }
             Spacer(minLength: 0)
-            SendButton(armed: armed, running: isRunning, busy: busy, send: send, stop: stop)
+            SendButton(
+                armed: armed,
+                running: isRunning,
+                busy: busy,
+                send: {
+                    if !attachedImages.isEmpty {
+                        let tokenTag = attachedImages.map { "#\($0.token)" }.joined(separator: " ")
+                        let marker = "[图片附件 ×\(attachedImages.count) \(tokenTag)]"
+                        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            draft = marker
+                        } else {
+                            draft += "\n\(marker)"
+                        }
+                    }
+                    attachedImages.removeAll()
+                    menu = nil
+                    send()
+                },
+                stop: stop
+            )
         }
     }
 
@@ -137,16 +300,152 @@ struct PromptBar: View {
         menu = menu == target ? nil : target
     }
 
-    // MARK: Menus
+    // MARK: Bottom Drawer (`+` Action Grid & Sub-panels)
 
     @ViewBuilder
-    private func menuView(_ kind: ComposerMenu) -> some View {
+    private func bottomDrawerContent(_ kind: ComposerMenu) -> some View {
+        switch kind {
+        case .access:
+            plusActionGrid
+        case .plusModel:
+            drawerSubpanel(title: "选择模型") {
+                DrawerChoiceList(
+                    rows: modelChoices,
+                    groups: otherModelGroups,
+                    footnote: otherAgentNote,
+                    empty: "电脑端没有配置可选模型",
+                    select: pickModel
+                )
+            }
+        case .plusMode:
+            drawerSubpanel(title: "模式与推理") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let effort {
+                        EffortMenu(effort: effort, atMax: effortAtMax, spark: spark, change: setEffort)
+                    }
+                    let modeRows = modeAndExtraChoices
+                    if !modeRows.isEmpty {
+                        DrawerChoiceList(
+                            rows: modeRows,
+                            empty: "当前 Agent 无额外模式设置"
+                        ) { id in
+                            if accessChoices.contains(where: { $0.id == id }) {
+                                pickAccess(id)
+                            } else {
+                                pickExtra(id)
+                            }
+                        }
+                    } else if effort == nil {
+                        Text("当前 Agent 没有提供模式设置")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 16)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        case .plusPerms:
+            drawerSubpanel(title: "权限设置", accent: .orange) {
+                DrawerChoiceList(
+                    rows: accessChoices,
+                    empty: "当前 Agent 没有提供权限设置",
+                    select: pickAccess
+                )
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var modeAndExtraChoices: [PromptChoice] {
+        let planModes = accessChoices.filter {
+            $0.id.localizedCaseInsensitiveContains("plan") || $0.title.localizedCaseInsensitiveContains("plan")
+        }
+        return planModes + extraChoices
+    }
+
+    private var plusActionGrid: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
+        return LazyVGrid(columns: columns, spacing: 18) {
+            PlusGridTile(title: "相册", systemImage: "photo") {
+                showPhotoPicker = true
+            }
+            PlusGridTile(title: "拍摄", systemImage: "camera") {
+                showCameraSheet = true
+            }
+            PlusGridTile(title: "文件", systemImage: "at") {
+                menu = nil
+                openFiles?()
+            }
+            PlusGridTile(title: "模型", systemImage: "cpu") {
+                menu = .plusModel
+            }
+            PlusGridTile(title: "模式", customIcon: .botMode) {
+                menu = .plusMode
+            }
+            PlusGridTile(
+                title: "权限",
+                systemImage: "exclamationmark.shield",
+                tint: .orange,
+                badge: hasAlert
+            ) {
+                menu = .plusPerms
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 18)
+        .padding(.bottom, 16)
+    }
+
+    private func drawerSubpanel<Content: View>(
+        title: String,
+        accent: Color = .primary,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    menu = .access
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("返回")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accent)
+
+                Spacer()
+
+                // Balance back button width
+                Color.clear.frame(width: 44, height: 1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
+            content()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: Floating Menus (for inline model / effort pills)
+
+    @ViewBuilder
+    private func floatingMenuView(_ kind: ComposerMenu) -> some View {
         Group {
             switch kind {
-            case .access:
-                MenuList(rows: accessChoices + extraChoices, empty: "Agent 没有提供权限设置") { id in
-                    if accessChoices.contains(where: { $0.id == id }) { pickAccess(id) } else { pickExtra(id) }
-                }
             case .model:
                 MenuList(
                     rows: modelChoices,
@@ -155,15 +454,145 @@ struct PromptBar: View {
                     empty: "电脑端没有配置可选模型",
                     select: pickModel
                 )
-                .frame(maxWidth: 240)
+                .frame(maxWidth: 250)
             case .effort:
                 if let effort {
                     EffortMenu(effort: effort, atMax: effortAtMax, spark: spark, change: setEffort)
                         .frame(maxWidth: 260)
                 }
+            default:
+                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Plus Action Grid Tile & Custom Bot Icon
+
+private enum CustomTileGlyph {
+    case botMode
+}
+
+private struct PlusGridTile: View {
+    let title: String
+    var systemImage: String? = nil
+    var customIcon: CustomTileGlyph? = nil
+    var tint: Color? = nil
+    var badge: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(width: 62, height: 62)
+
+                    if let customIcon {
+                        switch customIcon {
+                        case .botMode:
+                            BotModeGlyph()
+                                .stroke(
+                                    tint ?? Color.primary.opacity(0.82),
+                                    style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round)
+                                )
+                                .frame(width: 26, height: 26)
+                        }
+                    } else if let systemImage {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 23, weight: .regular))
+                            .foregroundStyle(tint ?? Color.primary.opacity(0.82))
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if badge {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 8, height: 8)
+                            .offset(x: -2, y: 2)
+                    }
+                }
+
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(tint ?? .secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle(scale: 0.94))
+    }
+}
+
+/// Cute rounded-square robot head with antenna, matching the "模式" icon in the mobile design.
+private struct BotModeGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        var p = Path()
+
+        // Antenna stem + crossbar
+        p.move(to: CGPoint(x: w * 0.50, y: h * 0.24))
+        p.addLine(to: CGPoint(x: w * 0.50, y: h * 0.08))
+        p.move(to: CGPoint(x: w * 0.36, y: h * 0.08))
+        p.addLine(to: CGPoint(x: w * 0.64, y: h * 0.08))
+
+        // Rounded head box
+        let headRect = CGRect(x: w * 0.12, y: h * 0.24, width: w * 0.76, height: h * 0.66)
+        p.addRoundedRect(in: headRect, cornerSize: CGSize(width: w * 0.20, height: h * 0.20))
+
+        // Eyes
+        p.move(to: CGPoint(x: w * 0.36, y: h * 0.48))
+        p.addLine(to: CGPoint(x: w * 0.36, y: h * 0.53))
+        p.move(to: CGPoint(x: w * 0.64, y: h * 0.48))
+        p.addLine(to: CGPoint(x: w * 0.64, y: h * 0.53))
+
+        // Smile arc
+        p.move(to: CGPoint(x: w * 0.36, y: h * 0.69))
+        p.addQuadCurve(
+            to: CGPoint(x: w * 0.64, y: h * 0.69),
+            control: CGPoint(x: w * 0.50, y: h * 0.77)
+        )
+        return p
+    }
+}
+
+// MARK: - Camera Capture Fallback Sheet
+
+private struct CameraCaptureSheet: UIViewControllerRepresentable {
+    let onFinish: (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFinish: onFinish)
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onFinish: (UIImage?) -> Void
+        init(onFinish: @escaping (UIImage?) -> Void) { self.onFinish = onFinish }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            let image = info[.originalImage] as? UIImage
+            onFinish(image)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            onFinish(nil)
+        }
     }
 }
 
@@ -179,11 +608,14 @@ private struct ToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14.5, weight: .semibold))
                 .rotationEffect(.degrees(on ? 45 : 0))
-                .frame(width: 28, height: 28)
-                .background(on ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(on ? Color.primary : Color.primary.opacity(0.6))
+                .frame(width: 30, height: 30)
+                .background(
+                    on ? Color.primary.opacity(0.14) : Color.primary.opacity(0.055),
+                    in: Circle()
+                )
+                .foregroundStyle(on ? Color.primary : Color.primary.opacity(0.75))
                 .overlay(alignment: .topTrailing) {
                     if alert { Circle().fill(.orange).frame(width: 8, height: 8).offset(x: 1, y: -1) }
                 }
@@ -203,12 +635,15 @@ private struct PickPill<Content: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4, content: content)
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(on ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(tint ?? (on ? Color.primary : Color.primary.opacity(0.7)))
+            HStack(spacing: 5, content: content)
+                .font(.system(size: 12.5, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(
+                    on ? Color.primary.opacity(0.12) : Color.primary.opacity(0.05),
+                    in: Capsule(style: .continuous)
+                )
+                .foregroundStyle(tint ?? (on ? Color.primary : Color.primary.opacity(0.8)))
         }
         .buttonStyle(PressStyle(scale: 0.96))
         .accessibilityLabel(label)
@@ -235,16 +670,16 @@ private struct SendButton: View {
     var body: some View {
         Button(action: running ? stop : send) {
             SendGlyph(morph: running ? 1 : 0)
-                .frame(width: 16, height: 16)
-                .frame(width: 28, height: 28)
-                .foregroundStyle(armed ? Color(.systemBackground) : Color.primary.opacity(0.35))
+                .frame(width: 15, height: 15)
+                .frame(width: 30, height: 30)
+                .foregroundStyle(armed ? Color(.systemBackground) : Color.primary.opacity(0.32))
                 .background(
-                    armed ? Color.primary : Color.primary.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 8)
+                    armed ? Color.primary : Color.primary.opacity(0.07),
+                    in: Circle()
                 )
                 .animation(.easeOut(duration: 0.2), value: armed)
         }
-        .buttonStyle(PressStyle(scale: armed ? 0.96 : 1))
+        .buttonStyle(PressStyle(scale: armed ? 0.95 : 1))
         .disabled(!armed || (busy && !running))
         .accessibilityLabel(running ? "停止" : "发送")
     }
@@ -314,7 +749,59 @@ private struct SendGlyph: View {
     }
 }
 
-// MARK: - Menus
+// MARK: - Menus & Lists
+
+private struct DrawerChoiceList: View {
+    let rows: [PromptChoice]
+    var groups: [PromptGroup] = []
+    var footnote: String?
+    let empty: String
+    let select: (String) -> Void
+
+    private var estimatedHeight: CGFloat {
+        CGFloat(rows.count) * 40
+            + groups.reduce(0) { $0 + 30 + CGFloat($1.choices.count) * 40 }
+            + (footnote == nil ? 0 : 40)
+    }
+
+    var body: some View {
+        if rows.isEmpty && groups.isEmpty {
+            Text(empty)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+        } else {
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(rows) { row in
+                        MenuRow(row: row) { select(row.id) }
+                    }
+                    ForEach(groups) { group in
+                        HStack(spacing: 5) {
+                            if group.agentID != nil { AgentIconView(agent: group.agentID, size: 12) }
+                            Text(group.title)
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        ForEach(group.choices) { row in MenuRow(row: row) {} }
+                    }
+                    if let footnote {
+                        Text(footnote)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                }
+            }
+            .frame(maxHeight: min(estimatedHeight, 240))
+        }
+    }
+}
 
 private struct MenuList: View {
     let rows: [PromptChoice]
@@ -342,12 +829,15 @@ private struct MenuList: View {
                     VStack(spacing: 0) {
                         ForEach(rows) { row in MenuRow(row: row) { select(row.id) } }
                         ForEach(groups) { group in
-                            Text(group.title)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .padding(.top, 8)
+                            HStack(spacing: 5) {
+                                if group.agentID != nil { AgentIconView(agent: group.agentID, size: 12) }
+                                Text(group.title)
+                            }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 8)
                             ForEach(group.choices) { row in MenuRow(row: row) {} }
                         }
                         if let footnote {
@@ -372,7 +862,11 @@ private struct MenuRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                if let icon = row.icon {
+                if row.agentID != nil {
+                    AgentIconView(agent: row.agentID, size: 16)
+                        .frame(width: 20)
+                        .opacity(row.enabled ? 1 : 0.5)
+                } else if let icon = row.icon {
                     Image(systemName: icon)
                         .font(.system(size: 14))
                         .frame(width: 20)
@@ -505,7 +999,7 @@ private struct EffortSlider: View {
 #Preview {
     struct Demo: View {
         @State private var draft = ""
-        @State private var menu: ComposerMenu?
+        @State private var menu: ComposerMenu? = .access
         @State private var effort = 4
 
         var body: some View {

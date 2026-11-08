@@ -4,7 +4,30 @@ public struct QuestionChoice: Equatable, Sendable, Identifiable {
     public let value: JSONValue
     public let label: String
     public let description: String?
-    public var id: String { label }
+    public let recommended: Bool
+    public var id: String { label + (value.displayText ?? "") }
+
+    public init(value: JSONValue, label: String, description: String?, recommended: Bool = false) {
+        let parsed = Self.extractRecommended(from: label, explicit: recommended)
+        self.value = value
+        self.label = parsed.label
+        self.description = description
+        self.recommended = parsed.recommended
+    }
+
+    private static func extractRecommended(from raw: String, explicit: Bool) -> (label: String, recommended: Bool) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = ["(Recommended)", "（推荐）", "[Recommended]"]
+        for prefix in prefixes where trimmed.localizedCaseInsensitiveContains(prefix) {
+            let cleaned = trimmed
+                .replacingOccurrences(of: prefix, with: "", options: .caseInsensitive)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                return (cleaned, true)
+            }
+        }
+        return (trimmed.isEmpty ? raw : trimmed, explicit)
+    }
 }
 
 /// One step of a question card.
@@ -24,15 +47,25 @@ public struct FormQuestion: Equatable, Sendable, Identifiable {
 
 public struct QuestionAnswer: Equatable, Sendable {
     public var selected: [JSONValue] = []
+    public var customActive = false
     public var customText = ""
 
-    public init(selected: [JSONValue] = [], customText: String = "") {
+    public init(selected: [JSONValue] = [], customActive: Bool = false, customText: String = "") {
         self.selected = selected
+        self.customActive = customActive || !customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         self.customText = customText
     }
 
-    public var trimmedCustom: String { customText.trimmingCharacters(in: .whitespacesAndNewlines) }
-    public var isEmpty: Bool { selected.isEmpty && trimmedCustom.isEmpty }
+    public var trimmedCustom: String {
+        guard customActive || !customText.isEmpty else { return "" }
+        return customText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    public var isEmpty: Bool {
+        if customActive {
+            return selected.isEmpty && trimmedCustom.isEmpty
+        }
+        return selected.isEmpty && trimmedCustom.isEmpty
+    }
 }
 
 /// Turns a question request into card steps and the answer back into the `content` the Agent expects.
@@ -162,7 +195,8 @@ public enum QuestionForm {
             return QuestionChoice(
                 value: item["value"] ?? .string(label),
                 label: label,
-                description: item["description"]?.stringValue
+                description: item["description"]?.stringValue,
+                recommended: flag(item["recommended"])
             )
         }
     }

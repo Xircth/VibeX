@@ -5,6 +5,8 @@ edition = "2021"
 description = "VibeX Computer Use Helper & Daemon"
 license = "MIT"
 
+[workspace]
+
 [[bin]]
 name = "vibex-computer-helper"
 path = "src/main.rs"
@@ -38,7 +40,11 @@ axum = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
+core-foundation-sys = "0.8"
 core-graphics = "0.24"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = [

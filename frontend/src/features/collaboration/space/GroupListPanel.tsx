@@ -39,9 +39,86 @@ import { COPY } from '../spaceModel';
 import { cycleTypeFilter } from '../contactChrome';
 import { ContactGroupSections } from '../ContactGroupSections';
 
-import { useCollaborationSpace } from './SpaceContext';
+import { memo } from 'react';
+import { useCollaborationSpacePick } from './SpaceContext';
 
-export function GroupListPanel() {
+const GROUP_LIST_PANEL_PICK_KEYS = [
+  'activeDirectThreadId',
+  'activePreviewTabId',
+  'collapsedSections',
+  'confirmBatchDelete',
+  'contactGroups',
+  'contactMenu',
+  'contactSections',
+  'conversationById',
+  'createGroup',
+  'draggingMember',
+  'dropTargetSpaceId',
+  'handleSpacesResizePointerDown',
+  'handleToggleDeleteMode',
+  'hasActiveFilter',
+  'hasActiveOverlay',
+  'hasThread',
+  'hiddenChatList',
+  'isDeleteMode',
+  'isDeletingBatch',
+  'isSupervisorDropTarget',
+  'leadConversationIds',
+  'listSort',
+  'memberAvatars',
+  'memberHoverCursorPos',
+  'membersBySpace',
+  'messageMenu',
+  'messagesBySpace',
+  'moveContactToSection',
+  'newGroupMenuItem',
+  'openContactMenu',
+  'openCreateMemberDialog',
+  'openCreateSpaceDialog',
+  'openSectionContactMenu',
+  'renameAvatar',
+  'renameConversationId',
+  'renameError',
+  'renameGroup',
+  'renameNickname',
+  'renameOpen',
+  'renameSpaceError',
+  'renameSpaceId',
+  'renameSpaceName',
+  'renameSpaceOpen',
+  'renameSpaceTargetId',
+  'renamingGroupId',
+  'renderSectionEntry',
+  'renderSupervisorSlot',
+  'selectedDeleteCount',
+  'selectedDeleteMemberKeys',
+  'selectedDeleteSpaceIds',
+  'selectedId',
+  'selectedMemberKey',
+  'selectedSpaceLastPreviewKey',
+  'setContactMenu',
+  'setListSort',
+  'setMessageMenu',
+  'setRenamingGroupId',
+  'setSearchOpen',
+  'setSearchQuery',
+  'setTypeFilter',
+  'showPreview',
+  'sidebarAvailable',
+  'sidebarDropTarget',
+  'spaceTags',
+  'spacesOrder',
+  'spacesPaneRef',
+  'spacesResizerSide',
+  'supervisorEntry',
+  't',
+  'toggleContactSection',
+  'typeFilter',
+  'unassignedMembers',
+  'visibleChatList',
+] as const;
+
+export const GroupListPanel = memo(function GroupListPanel() {
   const {
     collapsedSections,
     confirmBatchDelete,
@@ -86,7 +163,7 @@ export function GroupListPanel() {
     toggleContactSection,
     typeFilter,
     visibleChatList,
-  } = useCollaborationSpace();
+  } = useCollaborationSpacePick(GROUP_LIST_PANEL_PICK_KEYS);
 
   return (
     <>
@@ -388,4 +465,4 @@ export function GroupListPanel() {
       </aside>
     </>
   );
-}
+});

@@ -84,6 +84,38 @@ describe('collaboration top assistant list chrome', () => {
     expect(log['mask-image']?.value).toContain('linear-gradient');
     expect(log['padding']?.value).toBe('3.75rem 2.75rem 0.75rem 1rem');
   });
+
+  it('animates delayed-message member chips on the GPU compositor via ::after transform and opacity instead of background-position or box-shadow', () => {
+    const chip = declarationsFor(
+      '.collaboration-top-member-chip.has-delayed-messages'
+    );
+    expect(chip.animation).toBeUndefined();
+    expect(chip['background-size']).toBeUndefined();
+
+    const after = declarationsFor(
+      '.collaboration-top-member-chip.has-delayed-messages::after'
+    );
+    expect(after.animation?.value).toContain(
+      'collaboration-member-flowing-blue-glow'
+    );
+    expect(after['will-change']?.value).toBe('transform, opacity');
+
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/features/collaboration/collaboration.css'),
+      'utf8'
+    );
+    const frameProps = new Set<string>();
+    parse(css).walkAtRules('keyframes', (rule) => {
+      if (rule.params !== 'collaboration-member-flowing-blue-glow') return;
+      rule.walkDecls((decl) => {
+        frameProps.add(decl.prop);
+      });
+    });
+    expect(frameProps.has('transform')).toBe(true);
+    expect(frameProps.has('opacity')).toBe(true);
+    expect(frameProps.has('background-position')).toBe(false);
+    expect(frameProps.has('box-shadow')).toBe(false);
+  });
 });
 
 describe('collaboration group details chrome', () => {

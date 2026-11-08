@@ -7,9 +7,31 @@ import { MemberBotAvatar } from '../MemberBotAvatar';
 import { spaceCollectionPreviewPanelId } from '../CollaborationSpaceCollectionPanel';
 import { ScheduledMessages } from './ScheduledMessages';
 
-import { useCollaborationSpace } from './SpaceContext';
+import { memo } from 'react';
+import { useCollaborationSpacePick } from './SpaceContext';
 
-export function MemberPanel() {
+const MEMBER_PANEL_PICK_KEYS = [
+  'activeDirectThreadId',
+  'activePreviewTabId',
+  'conversationById',
+  'getMemberAvatar',
+  'hoveredDelayedMemberKey',
+  'listAvatarOutline',
+  'listAvatarStyle',
+  'memberAvatars',
+  'openAssistantDetailsTab',
+  'openDelayedMemberPopover',
+  'openSpaceCollectionTab',
+  'scheduleCloseDelayedMemberPopover',
+  'scheduledMessages',
+  'selectMemberForPreview',
+  'selected',
+  'setTopMemberBarExpanded',
+  'topMemberBarExpanded',
+  'visibleRoster',
+] as const;
+
+export const MemberPanel = memo(function MemberPanel() {
   const {
     activeDirectThreadId,
     activePreviewTabId,
@@ -28,7 +50,7 @@ export function MemberPanel() {
     setTopMemberBarExpanded,
     topMemberBarExpanded,
     visibleRoster,
-  } = useCollaborationSpace();
+  } = useCollaborationSpacePick(MEMBER_PANEL_PICK_KEYS);
 
   return (
     <>
@@ -276,4 +298,4 @@ export function MemberPanel() {
       ) : null}
     </>
   );
-}
+});

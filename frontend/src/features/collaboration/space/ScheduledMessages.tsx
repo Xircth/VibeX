@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Clock } from 'lucide-react';
 
 import { PopoverContent } from '@/components/ui/popover';
@@ -5,9 +6,14 @@ import i18n from '@/i18n';
 
 import { DelayedMessageCountdown } from './CollaborationSpaceChrome';
 import type { ScheduledSpaceMessage } from './types';
-import { useCollaborationSpace } from './SpaceContext';
+import { useCollaborationSpacePick } from './SpaceContext';
 
-export function ScheduledMessages({
+const SCHEDULED_MESSAGES_PICK_KEYS = [
+  'openDelayedMemberPopover',
+  'scheduleCloseDelayedMemberPopover',
+] as const;
+
+export const ScheduledMessages = memo(function ScheduledMessages({
   nick,
   memberHoverKey,
   items,
@@ -17,7 +23,7 @@ export function ScheduledMessages({
   items: ScheduledSpaceMessage[];
 }) {
   const { openDelayedMemberPopover, scheduleCloseDelayedMemberPopover } =
-    useCollaborationSpace();
+    useCollaborationSpacePick(SCHEDULED_MESSAGES_PICK_KEYS);
 
   return (
     <PopoverContent
@@ -66,4 +72,4 @@ export function ScheduledMessages({
       </div>
     </PopoverContent>
   );
-}
+});

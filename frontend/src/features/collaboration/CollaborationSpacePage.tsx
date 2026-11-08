@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import { DockviewReact } from 'dockview-react';
 import { ChevronDown } from 'lucide-react';
 
@@ -20,7 +20,7 @@ import { CollaborationMemberMentionContext } from './MemberMentionChip';
 import './collaboration.css';
 import {
   CollaborationSpaceProvider,
-  useCollaborationSpace,
+  useCollaborationSpacePick,
 } from './space/SpaceContext';
 import { GroupListPanel } from './space/GroupListPanel';
 import { MemberPanel } from './space/MemberPanel';
@@ -56,18 +56,277 @@ export function CollaborationSpacePage({
   );
 }
 
-function CollaborationSpaceLayout() {
+const BACK_TO_BOTTOM_PICK_KEYS = [
+  'isAtThreadBottom',
+  'pinThreadLogToBottom',
+  'selected',
+] as const;
+
+const CollaborationBackToBottomButton = memo(
+  function CollaborationBackToBottomButton() {
+    const { isAtThreadBottom, pinThreadLogToBottom, selected } =
+      useCollaborationSpacePick(BACK_TO_BOTTOM_PICK_KEYS);
+
+    if (!selected || isAtThreadBottom) return null;
+
+    return (
+      <div className="collaboration-back-to-bottom">
+        <button
+          type="button"
+          className="tahoe-popover collaboration-back-to-bottom-btn"
+          data-testid="collaboration-back-to-bottom"
+          aria-label={COPY.backToBottom}
+          title={COPY.backToBottom}
+          onClick={() => pinThreadLogToBottom('smooth')}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+);
+
+const MESSAGE_AREA_OVERLAY_PICK_KEYS = [
+  'agentSelectOptions',
+  'chooseConversationLabel',
+  'conversationById',
+  'conversationSelectOptions',
+  'createError',
+  'createGroupBots',
+  'createMemberError',
+  'createMemberOpen',
+  'createOpen',
+  'draftMemberMetaByConvId',
+  'hasActiveOverlay',
+  'memberAvatars',
+  'memberNicknameByConversationId',
+  'memberSourceOptions',
+  'newMemberAgentId',
+  'newMemberAvatar',
+  'newMemberConfigValues',
+  'newMemberModeId',
+  'newMemberName',
+  'newMemberPersonaPrompt',
+  'newMemberRoleId',
+  'newMemberSessionId',
+  'newMemberSource',
+  'renderMessageAreaOverlay',
+  'roleSelectOptions',
+  'roles',
+  'selectedSpaceMemberConvIds',
+  'spaceName',
+  'spaceTagColorId',
+  't',
+] as const;
+
+const CollaborationMessageAreaOverlay = memo(
+  function CollaborationMessageAreaOverlay() {
+    const { renderMessageAreaOverlay } = useCollaborationSpacePick(
+      MESSAGE_AREA_OVERLAY_PICK_KEYS
+    );
+    return <>{renderMessageAreaOverlay()}</>;
+  }
+);
+
+const DRAG_GHOST_PICK_KEYS = [
+  'draggingMember',
+  'draggingThreadName',
+  'getMemberAvatar',
+  'memberAvatars',
+  'pointerDragCursor',
+] as const;
+
+const CollaborationDragGhost = memo(function CollaborationDragGhost() {
   const {
     draggingMember,
     draggingThreadName,
-    error,
     getMemberAvatar,
-    globalSearchResults,
+    pointerDragCursor,
+  } = useCollaborationSpacePick(DRAG_GHOST_PICK_KEYS);
+
+  if (!pointerDragCursor) return null;
+
+  return (
+    <>
+      {draggingMember ? (
+        <div
+          className="collaboration-member-drag-ghost"
+          data-testid="collaboration-member-drag-ghost"
+          style={{
+            left: `${pointerDragCursor.x + 12}px`,
+            top: `${pointerDragCursor.y + 12}px`,
+          }}
+        >
+          <MemberBotAvatar
+            config={getMemberAvatar(
+              draggingMember.conversationId,
+              draggingMember.nickname
+            )}
+            className="h-3.5 w-3.5 shrink-0"
+          />
+          <span>{draggingMember.nickname}</span>
+        </div>
+      ) : null}
+      {draggingThreadName ? (
+        <div
+          className="collaboration-member-drag-ghost"
+          data-testid="collaboration-thread-drag-ghost"
+          style={{
+            left: `${pointerDragCursor.x + 12}px`,
+            top: `${pointerDragCursor.y + 12}px`,
+          }}
+        >
+          <span>{draggingThreadName}</span>
+        </div>
+      ) : null}
+    </>
+  );
+});
+
+const GLOBAL_SEARCH_PICK_KEYS = [
+  'getMemberAvatar',
+  'globalSearchResults',
+  'memberAvatars',
+  'openPrivateChat',
+  'searchOpen',
+  'searchQuery',
+  'selectSpace',
+  'setSearchOpen',
+  'setSearchQuery',
+] as const;
+
+const CollaborationGlobalSearchOverlay = memo(
+  function CollaborationGlobalSearchOverlay() {
+    const {
+      getMemberAvatar,
+      globalSearchResults,
+      openPrivateChat,
+      searchOpen,
+      searchQuery,
+      selectSpace,
+      setSearchOpen,
+      setSearchQuery,
+    } = useCollaborationSpacePick(GLOBAL_SEARCH_PICK_KEYS);
+
+    if (!searchOpen) return null;
+
+    return (
+      <CollaborationGlobalSearchModal
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        onClose={() => {
+          setSearchOpen(false);
+          setSearchQuery('');
+        }}
+        empty={globalSearchResults.length === 0}
+      >
+        {globalSearchResults.map((item) =>
+          item.kind === 'member' ? (
+            <button
+              key={item.key}
+              type="button"
+              data-testid={`collaboration-global-search-item-${item.name}`}
+              className="collaboration-global-search-item"
+              onClick={() => {
+                setSearchOpen(false);
+                setSearchQuery('');
+                openPrivateChat(item.spaceId, item.member, item.threadId);
+              }}
+            >
+              <span className="collaboration-global-search-avatar">
+                <MemberBotAvatar
+                  config={getMemberAvatar(
+                    item.member.conversation_id ?? undefined,
+                    item.name
+                  )}
+                  className="h-7 w-7"
+                />
+              </span>
+              <span className="collaboration-global-search-item-body">
+                <span className="collaboration-global-search-item-title">
+                  {item.name}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <button
+              key={item.key}
+              type="button"
+              data-testid={`collaboration-global-search-item-${item.name}`}
+              className="collaboration-global-search-item"
+              onClick={() => {
+                setSearchOpen(false);
+                setSearchQuery('');
+                selectSpace(item.spaceId, true);
+              }}
+            >
+              <span className="collaboration-global-search-avatar">
+                <GroupAvatar
+                  avatars={item.members.map((member) =>
+                    getMemberAvatar(
+                      member.conversation_id ?? undefined,
+                      displayName(member)
+                    )
+                  )}
+                  size={28}
+                />
+              </span>
+              <span className="collaboration-global-search-item-body">
+                <span className="collaboration-global-search-item-title">
+                  {item.name}
+                </span>
+                {item.memberNames ? (
+                  <span className="collaboration-global-search-item-subtitle">
+                    {item.memberNames}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          )
+        )}
+      </CollaborationGlobalSearchModal>
+    );
+  }
+);
+
+const LAYOUT_PICK_KEYS = [
+  'error',
+  'handlePreviewDockviewReady',
+  'handlePreviewResizePointerDown',
+  'hasMountedPreviewTabs',
+  'hasThread',
+  'isDefaultVirtualSpaceSelected',
+  'isResizingPane',
+  'listAvatarPx',
+  'markActivePreviewMemberViewed',
+  'markSpaceInReviewMembersViewed',
+  'memberMentionContextValue',
+  'openFilePreview',
+  'openWorkspacePanel',
+  'orderedZones',
+  'previewOrder',
+  'previewPaneRef',
+  'previewPaneWidth',
+  'previewResizerSide',
+  'runInCollaborationEditorGroup',
+  'selected',
+  'shellGridTemplateColumns',
+  'showPreview',
+  'showSpaces',
+  'spacesPaneWidth',
+  't',
+  'threadOrder',
+  'virtualDefaultSpaceName',
+  'workspace',
+] as const;
+
+function CollaborationSpaceLayout() {
+  const {
+    error,
     handlePreviewDockviewReady,
     handlePreviewResizePointerDown,
     hasMountedPreviewTabs,
     hasThread,
-    isAtThreadBottom,
     isDefaultVirtualSpaceSelected,
     isResizingPane,
     listAvatarPx,
@@ -75,23 +334,14 @@ function CollaborationSpaceLayout() {
     markSpaceInReviewMembersViewed,
     memberMentionContextValue,
     openFilePreview,
-    openPrivateChat,
     openWorkspacePanel,
     orderedZones,
-    pinThreadLogToBottom,
-    pointerDragCursor,
     previewOrder,
     previewPaneRef,
     previewPaneWidth,
     previewResizerSide,
-    renderMessageAreaOverlay,
     runInCollaborationEditorGroup,
-    searchOpen,
-    searchQuery,
-    selectSpace,
     selected,
-    setSearchOpen,
-    setSearchQuery,
     shellGridTemplateColumns,
     showPreview,
     showSpaces,
@@ -100,7 +350,7 @@ function CollaborationSpaceLayout() {
     threadOrder,
     virtualDefaultSpaceName,
     workspace,
-  } = useCollaborationSpace();
+  } = useCollaborationSpacePick(LAYOUT_PICK_KEYS);
 
   if (!workspace) {
     return (
@@ -197,24 +447,11 @@ function CollaborationSpaceLayout() {
                 <MessageStream />
               </div>
 
-              {selected && !isAtThreadBottom ? (
-                <div className="collaboration-back-to-bottom">
-                  <button
-                    type="button"
-                    className="tahoe-popover collaboration-back-to-bottom-btn"
-                    data-testid="collaboration-back-to-bottom"
-                    aria-label={COPY.backToBottom}
-                    title={COPY.backToBottom}
-                    onClick={() => pinThreadLogToBottom('smooth')}
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
+              <CollaborationBackToBottomButton />
 
               {error ? <p className="collaboration-error">{error}</p> : null}
               <ComposerDock />
-              {renderMessageAreaOverlay()}
+              <CollaborationMessageAreaOverlay />
             </section>
           ) : null}
 
@@ -258,113 +495,8 @@ function CollaborationSpaceLayout() {
               </div>
             </aside>
           ) : null}
-          {draggingMember && pointerDragCursor ? (
-            <div
-              className="collaboration-member-drag-ghost"
-              data-testid="collaboration-member-drag-ghost"
-              style={{
-                left: `${pointerDragCursor.x + 12}px`,
-                top: `${pointerDragCursor.y + 12}px`,
-              }}
-            >
-              <MemberBotAvatar
-                config={getMemberAvatar(
-                  draggingMember.conversationId,
-                  draggingMember.nickname
-                )}
-                className="h-3.5 w-3.5 shrink-0"
-              />
-              <span>{draggingMember.nickname}</span>
-            </div>
-          ) : null}
-          {draggingThreadName && pointerDragCursor ? (
-            <div
-              className="collaboration-member-drag-ghost"
-              data-testid="collaboration-thread-drag-ghost"
-              style={{
-                left: `${pointerDragCursor.x + 12}px`,
-                top: `${pointerDragCursor.y + 12}px`,
-              }}
-            >
-              <span>{draggingThreadName}</span>
-            </div>
-          ) : null}
-          {searchOpen ? (
-            <CollaborationGlobalSearchModal
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              onClose={() => {
-                setSearchOpen(false);
-                setSearchQuery('');
-              }}
-              empty={globalSearchResults.length === 0}
-            >
-              {globalSearchResults.map((item) =>
-                item.kind === 'member' ? (
-                  <button
-                    key={item.key}
-                    type="button"
-                    data-testid={`collaboration-global-search-item-${item.name}`}
-                    className="collaboration-global-search-item"
-                    onClick={() => {
-                      setSearchOpen(false);
-                      setSearchQuery('');
-                      openPrivateChat(item.spaceId, item.member, item.threadId);
-                    }}
-                  >
-                    <span className="collaboration-global-search-avatar">
-                      <MemberBotAvatar
-                        config={getMemberAvatar(
-                          item.member.conversation_id ?? undefined,
-                          item.name
-                        )}
-                        className="h-7 w-7"
-                      />
-                    </span>
-                    <span className="collaboration-global-search-item-body">
-                      <span className="collaboration-global-search-item-title">
-                        {item.name}
-                      </span>
-                    </span>
-                  </button>
-                ) : (
-                  <button
-                    key={item.key}
-                    type="button"
-                    data-testid={`collaboration-global-search-item-${item.name}`}
-                    className="collaboration-global-search-item"
-                    onClick={() => {
-                      setSearchOpen(false);
-                      setSearchQuery('');
-                      selectSpace(item.spaceId, true);
-                    }}
-                  >
-                    <span className="collaboration-global-search-avatar">
-                      <GroupAvatar
-                        avatars={item.members.map((member) =>
-                          getMemberAvatar(
-                            member.conversation_id ?? undefined,
-                            displayName(member)
-                          )
-                        )}
-                        size={28}
-                      />
-                    </span>
-                    <span className="collaboration-global-search-item-body">
-                      <span className="collaboration-global-search-item-title">
-                        {item.name}
-                      </span>
-                      {item.memberNames ? (
-                        <span className="collaboration-global-search-item-subtitle">
-                          {item.memberNames}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                )
-              )}
-            </CollaborationGlobalSearchModal>
-          ) : null}
+          <CollaborationDragGhost />
+          <CollaborationGlobalSearchOverlay />
         </div>
       </CollaborationPreviewScope>
     </CollaborationMemberMentionContext.Provider>

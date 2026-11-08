@@ -21,9 +21,55 @@ import { MemberBotAvatar, deriveMemberBotAvatar } from '../MemberBotAvatar';
 import { GroupAvatar } from '../GroupAvatar';
 import { CollaborationReplyCapsule } from '../CollaborationReplyCapsule';
 
-import { useCollaborationSpace } from './SpaceContext';
+import { memo } from 'react';
+import { useCollaborationSpacePick } from './SpaceContext';
 
-export function ComposerDock() {
+const COMPOSER_DOCK_PICK_KEYS = [
+  'activeDirectThreadId',
+  'attachedImages',
+  'composerContainerRef',
+  'composerFileInputRef',
+  'composerMembersMenuOpen',
+  'conversationById',
+  'draft',
+  'draftMemberMetaByConvId',
+  'getMemberAvatar',
+  'handleAttachFiles',
+  'handleComposerFileSelect',
+  'handleDelaySpaceQueuedMessage',
+  'handleDeleteSpaceQueuedMessage',
+  'handleEditSpaceQueuedMessage',
+  'handleEnhancePrompt',
+  'handleRemoveAttachedImage',
+  'handleTriggerAtMember',
+  'isBotSessionLoading',
+  'isEnhancingPrompt',
+  'isPrivateChatActive',
+  'memberAvatars',
+  'openComposerMembersMenu',
+  'promptEnhancementEnabled',
+  'replaceDraftRef',
+  'replyingTo',
+  'repoIds',
+  'scheduleCloseComposerMembersMenu',
+  'selectMemberForPreview',
+  'selected',
+  'selectedTagPreset',
+  'send',
+  'sending',
+  'setComposerMembersMenuOpen',
+  'setDraft',
+  'setReplyingTo',
+  'spaceMemberRefs',
+  'spaceQueuedMessages',
+  't',
+  'userDelayedSpaceMessages',
+  'visibleRoster',
+  'workspace',
+  'workspacePath',
+] as const;
+
+export const ComposerDock = memo(function ComposerDock() {
   const {
     activeDirectThreadId,
     attachedImages,
@@ -66,7 +112,7 @@ export function ComposerDock() {
     visibleRoster,
     workspace,
     workspacePath,
-  } = useCollaborationSpace();
+  } = useCollaborationSpacePick(COMPOSER_DOCK_PICK_KEYS);
 
   const showBotSessionLoadingNotice = Boolean(
     isPrivateChatActive && isBotSessionLoading
@@ -351,4 +397,4 @@ export function ComposerDock() {
       ) : null}
     </>
   );
-}
+});

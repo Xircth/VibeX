@@ -1,14 +1,23 @@
+import { memo } from 'react';
 import { SpaceMessageBody } from '../SpaceMessageBody';
-import { useCollaborationSpace } from './SpaceContext';
+import { useCollaborationSpacePick } from './SpaceContext';
 
-export function DirectMessages() {
+const DIRECT_MESSAGES_PICK_KEYS = [
+  'activeDirectThreadId',
+  'pendingDirectMessages',
+  'selected',
+  'workspace',
+  'workspacePath',
+] as const;
+
+export const DirectMessages = memo(function DirectMessages() {
   const {
     activeDirectThreadId,
     pendingDirectMessages,
     selected,
     workspace,
     workspacePath,
-  } = useCollaborationSpace();
+  } = useCollaborationSpacePick(DIRECT_MESSAGES_PICK_KEYS);
 
   if (!selected) return null;
 
@@ -38,4 +47,4 @@ export function DirectMessages() {
         ))}
     </>
   );
-}
+});

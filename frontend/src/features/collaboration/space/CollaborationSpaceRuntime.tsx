@@ -296,6 +296,33 @@ import {
   useQueryDataSetter,
 } from './queries';
 
+function useStableCallback<Args extends unknown[], R>(
+  fn: (...args: Args) => R
+): (...args: Args) => R {
+  const ref = useRef(fn);
+  ref.current = fn;
+  return useCallback((...args: Args) => ref.current(...args), []);
+}
+
+function isSameSidebarDropTarget(
+  left: SidebarDropTarget,
+  right: SidebarDropTarget
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind === 'supervisor') return true;
+  if (left.kind === 'section' && right.kind === 'section') {
+    return left.sectionId === right.sectionId;
+  }
+  if (
+    (left.kind === 'space' && right.kind === 'space') ||
+    (left.kind === 'blocked' && right.kind === 'blocked')
+  ) {
+    return left.spaceId === right.spaceId;
+  }
+  return false;
+}
+
 export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   const { t } = useTranslation('panels');
   const workspace = workspaceId ?? '';
@@ -5475,10 +5502,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     CONTACT_AVATAR_PX,
     Math.max(visibleRoster.length, 1)
   );
-  const listAvatarStyle = {
-    width: `${listAvatarPx}px`,
-    height: `${listAvatarPx}px`,
-  } as CSSProperties;
+  const listAvatarStyle = useMemo<CSSProperties>(
+    () => ({
+      width: `${listAvatarPx}px`,
+      height: `${listAvatarPx}px`,
+    }),
+    [listAvatarPx]
+  );
   const listAvatarOutline = botSilhouetteOutline(listAvatarPx);
 
   const messageClusters = useMemo(
@@ -6092,7 +6122,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         moveEvent.clientX,
         moveEvent.clientY
       );
-      setSidebarDropTarget(currentTarget);
+      setSidebarDropTarget((prev) =>
+        isSameSidebarDropTarget(prev, currentTarget) ? prev : currentTarget
+      );
       setIsSupervisorDropTarget(currentTarget?.kind === 'supervisor');
       setBodyBlocked(currentTarget?.kind === 'blocked');
     };
@@ -6399,18 +6431,24 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                       aria-label={name}
                       onMouseEnter={(event) => {
                         if (event.clientX > 0 || event.clientY > 0) {
-                          setMemberHoverCursorPos({
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
+                          const nextX = event.clientX;
+                          const nextY = event.clientY;
+                          setMemberHoverCursorPos((prev) =>
+                            prev && prev.x === nextX && prev.y === nextY
+                              ? prev
+                              : { x: nextX, y: nextY }
+                          );
                         }
                       }}
                       onMouseMove={(event) => {
                         if (event.clientX > 0 || event.clientY > 0) {
-                          setMemberHoverCursorPos({
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
+                          const nextX = event.clientX;
+                          const nextY = event.clientY;
+                          setMemberHoverCursorPos((prev) =>
+                            prev && prev.x === nextX && prev.y === nextY
+                              ? prev
+                              : { x: nextX, y: nextY }
+                          );
                         }
                       }}
                       onClick={() => {
@@ -6627,7 +6665,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     );
   };
 
-  const directFallbackMembers = (() => {
+  const directFallbackMembers = useMemo(() => {
     const base = unassignedId
       ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
       : EMPTY_MEMBERS;
@@ -6649,30 +6687,44 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       }
     }
     return merged;
-  })();
+  }, [activeDirect?.threadId, membersBySpace, sidebarItems, unassignedId]);
 
-  const chatList = buildChatList({
-    sidebarItems,
-    spaces,
-    membersBySpace,
-    unassignedSpaceId: unassignedId || undefined,
-    // Every agent's direct (1:1) chat lives in the unassigned space, even when
-    // it also holds a seat in a group, so list the full direct roster.
-    unassignedMembers: directFallbackMembers,
-  });
+  const chatList = useMemo(
+    () =>
+      buildChatList({
+        sidebarItems,
+        spaces,
+        membersBySpace,
+        unassignedSpaceId: unassignedId || undefined,
+        // Every agent's direct (1:1) chat lives in the unassigned space, even when
+        // it also holds a seat in a group, so list the full direct roster.
+        unassignedMembers: directFallbackMembers,
+      }),
+    [
+      directFallbackMembers,
+      membersBySpace,
+      sidebarItems,
+      spaces,
+      unassignedId,
+    ]
+  );
   chatListRef.current = chatList;
-  const createGroupBots = uniqueBotsForGroupMemberPicker({
-    directMembers: chatList.flatMap((entry) =>
-      entry.type === 'direct' ? [entry.member] : []
-    ),
-    unassignedMembers: unassignedId
-      ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
-      : EMPTY_MEMBERS,
-    membersBySpace,
-    excludeConversationIds: selectedSpaceMemberConvIds,
-  });
+  const createGroupBots = useMemo(
+    () =>
+      uniqueBotsForGroupMemberPicker({
+        directMembers: chatList.flatMap((entry) =>
+          entry.type === 'direct' ? [entry.member] : []
+        ),
+        unassignedMembers: unassignedId
+          ? (membersBySpace[unassignedId] ?? EMPTY_MEMBERS)
+          : EMPTY_MEMBERS,
+        membersBySpace,
+        excludeConversationIds: selectedSpaceMemberConvIds,
+      }),
+    [chatList, membersBySpace, selectedSpaceMemberConvIds, unassignedId]
+  );
   const queryLower = searchQuery.trim().toLowerCase();
-  const globalSearchResults = (() => {
+  const globalSearchResults = useMemo(() => {
     const memberResults: Array<{
       kind: 'member';
       key: string;
@@ -6735,59 +6787,78 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       });
     }
     return [...memberResults, ...groupResults];
-  })();
-  const directEntries = chatList.filter(
-    (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
-      entry.type === 'direct'
+  }, [chatList, doesMemberMatchQuery, queryLower]);
+  const directEntries = useMemo(
+    () =>
+      chatList.filter(
+        (entry): entry is Extract<ChatListEntry, { type: 'direct' }> =>
+          entry.type === 'direct'
+      ),
+    [chatList]
   );
-  const supervisorEntry: Extract<ChatListEntry, { type: 'direct' }> | null =
-    (() => {
-      if (
-        supervisorOverride.active &&
-        supervisorOverride.workspace === workspace
-      ) {
-        const ref = supervisorOverride.memberRef?.trim() || null;
-        if (!ref) return null;
-        return (
-          directEntries.find(
-            (entry) =>
-              entry.member.identity_member_id === ref ||
-              entry.member.member_id === ref ||
-              entry.member.conversation_id === ref ||
-              normalizeMemberNickname(entry.member.nickname || entry.name) ===
-                normalizeMemberNickname(ref)
-          ) ?? null
-        );
-      }
+  const supervisorEntry = useMemo<
+    Extract<ChatListEntry, { type: 'direct' }> | null
+  >(() => {
+    if (
+      supervisorOverride.active &&
+      supervisorOverride.workspace === workspace
+    ) {
+      const ref = supervisorOverride.memberRef?.trim() || null;
+      if (!ref) return null;
       return (
-        directEntries.find((entry) =>
-          isDirectEntrySupervisor(entry, directEntries)
+        directEntries.find(
+          (entry) =>
+            entry.member.identity_member_id === ref ||
+            entry.member.member_id === ref ||
+            entry.member.conversation_id === ref ||
+            normalizeMemberNickname(entry.member.nickname || entry.name) ===
+              normalizeMemberNickname(ref)
         ) ?? null
       );
-    })();
-  const listChatEntries = supervisorEntry
-    ? chatList.filter((entry) => entry.key !== supervisorEntry.key)
-    : chatList;
-  const { visible: visibleChatList, hidden: hiddenChatList } =
-    applyContactListView(listChatEntries, contactChrome, listSort, typeFilter);
-  const contactSections = sidebarAvailable
-    ? buildContactSections(
-        visibleChatList,
-        contactGroups,
-        t('collaborationSpace.contactGroupUngrouped', '未分组')
-      )
-    : null;
-  const newGroupMenuItem: ProductContextMenuItem = {
-    id: 'new-group',
-    label: t(
-      'collaborationSpace.contactGroupNew',
-      COPY.createContactGroupButton
-    ),
-    icon: FolderPlus,
-    onSelect: () => {
-      void createGroup();
-    },
-  };
+    }
+    return (
+      directEntries.find((entry) =>
+        isDirectEntrySupervisor(entry, directEntries)
+      ) ?? null
+    );
+  }, [directEntries, supervisorOverride, workspace]);
+  const listChatEntries = useMemo(
+    () =>
+      supervisorEntry
+        ? chatList.filter((entry) => entry.key !== supervisorEntry.key)
+        : chatList,
+    [chatList, supervisorEntry]
+  );
+  const { visible: visibleChatList, hidden: hiddenChatList } = useMemo(
+    () =>
+      applyContactListView(listChatEntries, contactChrome, listSort, typeFilter),
+    [contactChrome, listChatEntries, listSort, typeFilter]
+  );
+  const contactSections = useMemo(
+    () =>
+      sidebarAvailable
+        ? buildContactSections(
+            visibleChatList,
+            contactGroups,
+            t('collaborationSpace.contactGroupUngrouped', '未分组')
+          )
+        : null,
+    [contactGroups, sidebarAvailable, t, visibleChatList]
+  );
+  const newGroupMenuItem = useMemo<ProductContextMenuItem>(
+    () => ({
+      id: 'new-group',
+      label: t(
+        'collaborationSpace.contactGroupNew',
+        COPY.createContactGroupButton
+      ),
+      icon: FolderPlus,
+      onSelect: () => {
+        void createGroup();
+      },
+    }),
+    [createGroup, t]
+  );
   const openContactMenu = (
     event: React.MouseEvent,
     items: ProductContextMenuItem[]
@@ -8061,6 +8132,68 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     );
   };
 
+  const selectedSpaceLastPreviewKey = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const msg = messages[index];
+      const text = bubbleText(msg?.envelope ?? {});
+      if (text.trim() && !isCollabDmBootstrapPrompt(text)) {
+        return `${msg?.seq ?? index}:${messagePreviewText(text)}`;
+      }
+    }
+    return '';
+  }, [messages]);
+
+  const stableConfirmBatchDelete = useStableCallback(confirmBatchDelete);
+  const stableCreateGroup = useStableCallback(createGroup);
+  const stableHandleAddSelectionToCollection = useStableCallback(
+    handleAddSelectionToCollection
+  );
+  const stableHandleComposerFileSelect = useStableCallback(
+    handleComposerFileSelect
+  );
+  const stableHandleEnhancePrompt = useStableCallback(handleEnhancePrompt);
+  const stableHandlePreviewResizePointerDown = useStableCallback(
+    handlePreviewResizePointerDown
+  );
+  const stableHandleQuoteSelection = useStableCallback(handleQuoteSelection);
+  const stableHandleSpacesResizePointerDown = useStableCallback(
+    handleSpacesResizePointerDown
+  );
+  const stableHandleToggleDeleteMode = useStableCallback(
+    handleToggleDeleteMode
+  );
+  const stableHandleTriggerAtMember = useStableCallback(handleTriggerAtMember);
+  const stableMarkActivePreviewMemberViewed = useStableCallback(
+    markActivePreviewMemberViewed
+  );
+  const stableMarkSpaceInReviewMembersViewed = useStableCallback(
+    markSpaceInReviewMembersViewed
+  );
+  const stableMoveContactToSection = useStableCallback(moveContactToSection);
+  const stableOpenAssistantDetailsTab = useStableCallback(
+    openAssistantDetailsTab
+  );
+  const stableOpenContactMenu = useStableCallback(openContactMenu);
+  const stableOpenMemberAvatarMenu = useStableCallback(openMemberAvatarMenu);
+  const stableOpenMessageBubbleMenu = useStableCallback(openMessageBubbleMenu);
+  const stableOpenPrivateChat = useStableCallback(openPrivateChat);
+  const stableOpenSectionContactMenu = useStableCallback(
+    openSectionContactMenu
+  );
+  const stableRenameGroup = useStableCallback(renameGroup);
+  const stableRenderMessageAreaOverlay = useStableCallback(
+    renderMessageAreaOverlay
+  );
+  const stableRenderSectionEntry = useStableCallback(renderSectionEntry);
+  const stableRenderSupervisorSlot = useStableCallback(renderSupervisorSlot);
+  const stableScrollToMessage = useStableCallback(scrollToMessage);
+  const stableSelectMemberForPreview = useStableCallback(
+    selectMemberForPreview
+  );
+  const stableSelectSpace = useStableCallback(selectSpace);
+  const stableSend = useStableCallback(send);
+  const stableToggleContactSection = useStableCallback(toggleContactSection);
+
   return {
     activeChatRoster,
     activeDirect,
@@ -8096,7 +8229,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     composerFileInputRef,
     composerMembersCloseTimeoutRef,
     composerMembersMenuOpen,
-    confirmBatchDelete,
+    confirmBatchDelete: stableConfirmBatchDelete,
     consumeSessionFocus,
     contactChrome,
     contactGroupFailed,
@@ -8107,7 +8240,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     conversationSelectOptions,
     conversations,
     createError,
-    createGroup,
+    createGroup: stableCreateGroup,
     createGroupBots,
     createMemberError,
     createMemberOpen,
@@ -8140,22 +8273,22 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     getMemberAvatar,
     getMemberLastMessageInSpace,
     globalSearchResults,
-    handleAddSelectionToCollection,
+    handleAddSelectionToCollection: stableHandleAddSelectionToCollection,
     handleAttachFiles,
-    handleComposerFileSelect,
+    handleComposerFileSelect: stableHandleComposerFileSelect,
     handleDelaySpaceQueuedMessage,
     handleDeleteSpaceQueuedMessage,
     handleEditSpaceQueuedMessage,
-    handleEnhancePrompt,
+    handleEnhancePrompt: stableHandleEnhancePrompt,
     handlePreviewDockviewReady,
-    handlePreviewResizePointerDown,
-    handleQuoteSelection,
+    handlePreviewResizePointerDown: stableHandlePreviewResizePointerDown,
+    handleQuoteSelection: stableHandleQuoteSelection,
     handleRemoveAttachedImage,
-    handleSpacesResizePointerDown,
-    handleToggleDeleteMode,
+    handleSpacesResizePointerDown: stableHandleSpacesResizePointerDown,
+    handleToggleDeleteMode: stableHandleToggleDeleteMode,
     handleToggleMemberDelete,
     handleToggleSpaceDelete,
-    handleTriggerAtMember,
+    handleTriggerAtMember: stableHandleTriggerAtMember,
     hasActiveFilter,
     hasActiveOverlay,
     hasMountedPreviewTabs,
@@ -8180,6 +8313,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     isResizingPane,
     isSpaceMember,
     isSpacesVisible,
+    isSupervisorDropTarget,
     isThreadVisible,
     leadConversationIds,
     listAvatarOutline,
@@ -8190,9 +8324,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     loadConversations,
     loadRolesAndAgents,
     loadedMemberSpaceKeyRef,
-    markActivePreviewMemberViewed,
+    markActivePreviewMemberViewed: stableMarkActivePreviewMemberViewed,
     markMemberConversationViewed,
-    markSpaceInReviewMembersViewed,
+    markSpaceInReviewMembersViewed: stableMarkSpaceInReviewMembersViewed,
     memberAvatars,
     memberHoverCursorPos,
     memberMentionContextValue,
@@ -8209,7 +8343,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     messages,
     messagesBySpace,
     messagesRef,
-    moveContactToSection,
+    moveContactToSection: stableMoveContactToSection,
     navEntries,
     newGroupMenuItem,
     newMemberAgentId,
@@ -8221,21 +8355,21 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     newMemberRoleId,
     newMemberSessionId,
     newMemberSource,
-    openAssistantDetailsTab,
+    openAssistantDetailsTab: stableOpenAssistantDetailsTab,
     openComposerMembersMenu,
-    openContactMenu,
+    openContactMenu: stableOpenContactMenu,
     openCreateMemberDialog,
     openCreateMemberDialogRef,
     openCreateSpaceDialog,
     openDelayedMemberPopover,
     openFilePreview,
-    openMemberAvatarMenu,
+    openMemberAvatarMenu: stableOpenMemberAvatarMenu,
     openMemberPreview,
-    openMessageBubbleMenu,
+    openMessageBubbleMenu: stableOpenMessageBubbleMenu,
     openPreviewItem,
-    openPrivateChat,
+    openPrivateChat: stableOpenPrivateChat,
     openRowContactMenu,
-    openSectionContactMenu,
+    openSectionContactMenu: stableOpenSectionContactMenu,
     openSpaceCollectionTab,
     openSpaceKey,
     openWorkspacePanel,
@@ -8272,7 +8406,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     renameAvatar,
     renameConversationId,
     renameError,
-    renameGroup,
+    renameGroup: stableRenameGroup,
     renameMember,
     renameNickname,
     renameOpen,
@@ -8288,10 +8422,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     renderChatMeta,
     renderDirectChatRow,
     renderMemberRow,
-    renderMessageAreaOverlay,
-    renderSectionEntry,
+    renderMessageAreaOverlay: stableRenderMessageAreaOverlay,
+    renderSectionEntry: stableRenderSectionEntry,
     renderSpaceGroup,
-    renderSupervisorSlot,
+    renderSupervisorSlot: stableRenderSupervisorSlot,
     replaceDraftRef,
     replyingTo,
     repoIds,
@@ -8306,11 +8440,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     scheduleCloseComposerMembersMenu,
     scheduleCloseDelayedMemberPopover,
     scheduledMessages,
-    scrollToMessage,
+    scrollToMessage: stableScrollToMessage,
     searchOpen,
     searchQuery,
-    selectMemberForPreview,
-    selectSpace,
+    selectMemberForPreview: stableSelectMemberForPreview,
+    selectSpace: stableSelectSpace,
     selected,
     selectedDeleteCount,
     selectedDeleteMemberKeys,
@@ -8319,10 +8453,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     selectedIdRef,
     selectedLeadMemberId,
     selectedMemberKey,
+    selectedSpaceLastPreviewKey,
     selectedSpaceMemberConvIds,
     selectedTagConfig,
     selectedTagPreset,
-    send,
+    send: stableSend,
     sending,
     sentAttachmentsRef,
     sessionFocus,
@@ -8447,7 +8582,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     threadLogRef,
     threadOrder,
     threadQueryId,
-    toggleContactSection,
+    toggleContactSection: stableToggleContactSection,
     topMemberBarExpanded,
     typeFilter,
     unassignedId,

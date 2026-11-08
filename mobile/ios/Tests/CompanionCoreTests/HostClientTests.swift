@@ -577,5 +577,47 @@ private final class RecordingTransport: HttpTransport, @unchecked Sendable {
     #expect(catalog.plugins[0].mcpCount == 1)
 }
 
+@Test func permissionDetailsAndQuestionRecommendationsMatchDesktop() throws {
+    let eventJson = """
+    {"sequence":1,"kind":"permission_requested","payload":{"request":{
+      "permission_id":"perm-42",
+      "request":{
+        "title":"pnpm test",
+        "options":[
+          {"id":"opt-once","label":"Allow once","kind":"allow_once"},
+          {"id":"opt-always","label":"Always allow","kind":"allow_always"},
+          {"id":"opt-reject","label":"Reject","kind":"reject_once"}
+        ],
+        "details":{
+          "kind":"execute",
+          "_meta":{"claudeCode":{"title":"Run test suite"}},
+          "rawInput":{"command":"pnpm test","description":"Execute Vitest unit tests"},
+          "locations":[{"path":"frontend/src/App.tsx"}]
+        }
+      }
+    }}}
+    """
+    let event = try JSONDecoder().decode(RemoteEvent.self, from: Data(eventJson.utf8))
+    let state = SessionStateBuilder.build(from: [event])
+    let prompt = try #require(state.pendingPermissions.first)
+    #expect(prompt.id == "perm-42")
+    #expect(prompt.category == .terminal)
+    #expect(prompt.displayHeading == "Run test suite")
+    #expect(prompt.command == "pnpm test")
+    #expect(prompt.locations == ["frontend/src/App.tsx"])
+    #expect(prompt.resolveAllowOption(for: .once)?.id == "opt-once")
+    #expect(prompt.resolveAllowOption(for: .always)?.id == "opt-always")
+    #expect(prompt.rejectOption?.id == "opt-reject")
+
+    let recommendedChoice = QuestionChoice(
+        value: .string("vitest"),
+        label: "(Recommended) Use Vitest runner",
+        description: "Fast unit test execution"
+    )
+    #expect(recommendedChoice.recommended == true)
+    #expect(recommendedChoice.label == "Use Vitest runner")
+}
+
+
 
 

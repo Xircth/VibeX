@@ -4,12 +4,25 @@ import SwiftUI
 /// Expandable reasoning the Agent produced before answering.
 /// Collapsed by default; tap to inspect the full reasoning trace.
 struct ThinkingView: View {
-    let item: TimelineItem
+    let text: String
+    let durationMs: Int?
     let working: Bool
     @State private var expanded = false
 
+    init(text: String, durationMs: Int? = nil, working: Bool) {
+        self.text = text
+        self.durationMs = durationMs
+        self.working = working
+    }
+
+    init(item: TimelineItem, working: Bool) {
+        self.text = item.thinking
+        self.durationMs = item.durationMs
+        self.working = working
+    }
+
     private var previewLine: String? {
-        let lines = item.thinking
+        let lines = text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -73,12 +86,12 @@ struct ThinkingView: View {
             }
             .buttonStyle(.plain)
 
-            if expanded && !item.thinking.isEmpty {
+            if expanded && !text.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     Capsule()
                         .fill(Color.primary.opacity(0.16))
                         .frame(width: 2)
-                    Text(item.thinking)
+                    Text(text)
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                         .lineSpacing(3)
@@ -95,7 +108,7 @@ struct ThinkingView: View {
     private var workingLabel: String { "思考中" }
 
     private var doneLabel: String {
-        if let ms = item.durationMs, ms >= 1000 { return "已思考 \(ms / 1000) 秒" }
+        if let ms = durationMs, ms >= 1000 { return "已思考 \(ms / 1000) 秒" }
         return "已思考"
     }
 }

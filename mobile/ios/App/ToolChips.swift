@@ -3,20 +3,55 @@ import SwiftUI
 
 /// An agent run as compact rows: tool calls collapsed by default, then file-diff chips for the edits.
 struct ToolChipsView: View {
-    let item: TimelineItem
+    let tools: [ToolStep]
+    let changes: [FileChangeItem]
     let working: Bool
     let openDiff: (FileChangeItem) -> Void
 
     @State private var runOpen = false
     @State private var openRows: Set<String> = []
 
+    init(
+        tools: [ToolStep],
+        changes: [FileChangeItem] = [],
+        working: Bool,
+        openDiff: @escaping (FileChangeItem) -> Void
+    ) {
+        self.tools = tools
+        self.changes = changes
+        self.working = working
+        self.openDiff = openDiff
+    }
+
+    init(
+        item: TimelineItem,
+        working: Bool,
+        openDiff: @escaping (FileChangeItem) -> Void
+    ) {
+        self.tools = item.tools
+        self.changes = item.changes
+        self.working = working
+        self.openDiff = openDiff
+    }
+
+    private var regularTools: [ToolStep] {
+        tools.filter { !$0.isAskQuestion || $0.questions.isEmpty }
+    }
+
+    private var questionTools: [ToolStep] {
+        tools.filter { $0.isAskQuestion && !$0.questions.isEmpty }
+    }
+
     private var anyToolRunning: Bool {
-        working && item.tools.contains(where: { !$0.isFinished })
+        working && regularTools.contains(where: { !$0.isFinished })
     }
 
     private var latestToolSummary: String? {
-        guard let last = item.tools.last else { return nil }
+        guard let last = regularTools.last else { return nil }
         if let preview = last.preview, !preview.isEmpty {
+            if preview.lowercased().hasPrefix(last.label.lowercased()) {
+                return preview
+            }
             return "\(last.label) \(preview)"
         }
         return last.label
@@ -24,7 +59,7 @@ struct ToolChipsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !item.tools.isEmpty {
+            if !regularTools.isEmpty {
                 Button {
                     withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.28)) {
                         runOpen.toggle()
@@ -40,7 +75,7 @@ struct ToolChipsView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Text(anyToolRunning ? "正在执行工具 (\(item.tools.count))" : "\(item.tools.count) 次工具调用")
+                        Text(anyToolRunning ? "正在执行工具 (\(regularTools.count))" : "\(regularTools.count) 次工具调用")
                             .font(.system(size: 12.5, weight: .medium))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
@@ -78,7 +113,7 @@ struct ToolChipsView: View {
 
                 if runOpen {
                     VStack(alignment: .leading, spacing: 5) {
-                        ForEach(item.tools) { tool in toolRow(tool) }
+                        ForEach(regularTools) { tool in toolRow(tool) }
                     }
                     .padding(.leading, 4)
                     .padding(.top, 2)
@@ -86,9 +121,13 @@ struct ToolChipsView: View {
                 }
             }
 
-            if !item.changes.isEmpty {
+            ForEach(questionTools) { questionTool in
+                AskQuestionToolCardView(tool: questionTool)
+            }
+
+            if !changes.isEmpty {
                 FlowLayout(spacing: 6) {
-                    ForEach(item.changes.prefix(Self.visibleChanges)) { change in
+                    ForEach(changes.prefix(Self.visibleChanges)) { change in
                         Button { openDiff(change) } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: FileGlyph.symbol(for: change.path))
@@ -117,8 +156,8 @@ struct ToolChipsView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("查看 \(change.path) 的差异")
                     }
-                    if item.changes.count > Self.visibleChanges {
-                        Text("+\(item.changes.count - Self.visibleChanges)")
+                    if changes.count > Self.visibleChanges {
+                        Text("+\(changes.count - Self.visibleChanges)")
                             .font(.system(size: 11.5, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .frame(height: 28)
@@ -134,6 +173,9 @@ struct ToolChipsView: View {
 
     private func toolRow(_ tool: ToolStep) -> some View {
         let isOpen = openRows.contains(tool.id)
+        let isInlineCommand = (tool.preview?.lowercased().hasPrefix(tool.label.lowercased()) ?? false)
+            && tool.name == tool.preview
+        let rowLabel = isInlineCommand ? "终端" : tool.label
         return VStack(alignment: .leading, spacing: 3) {
             Button {
                 withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.25)) {
@@ -143,7 +185,7 @@ struct ToolChipsView: View {
                 HStack(spacing: 8) {
                     ZStack {
                         if tool.isFinished || !working {
-                            Image(systemName: icon(for: tool.name)).font(.system(size: 11.5))
+                            Image(systemName: isInlineCommand ? "terminal" : icon(for: tool.name)).font(.system(size: 11.5))
                         } else {
                             ProgressView().controlSize(.mini)
                         }
@@ -151,7 +193,7 @@ struct ToolChipsView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 
-                    Text(tool.label)
+                    Text(rowLabel)
                         .font(.system(size: 12.5, weight: .semibold))
                         .lineLimit(1)
                         .fixedSize()

@@ -185,10 +185,17 @@ public struct HostClient: Sendable {
     public func respondPermission(
         conversationID: String,
         permissionID: String,
-        optionID: String?
+        optionID: String?,
+        persist: Bool = false
     ) async throws {
-        let response: [String: Any] = optionID.map { ["kind": "selected", "option_id": $0] }
-            ?? ["kind": "cancelled"]
+        let response: [String: Any]
+        if let optionID {
+            var dict: [String: Any] = ["kind": "selected", "option_id": optionID]
+            if persist { dict["persist"] = true }
+            response = dict
+        } else {
+            response = ["kind": "cancelled"]
+        }
         try await command("conversation_respond_permission", [
             "request": [
                 "conversationId": conversationID,

@@ -9,12 +9,25 @@ struct ConversationDetailView: View {
     @State private var created: ConversationListItem?
     @State private var diffChange: FileChangeItem?
 
-    init(client: HostClient, conversation: ConversationListItem) {
+    var onToggleSidebar: (() -> Void)?
+    var onReturnToLanding: (() -> Void)?
+
+    init(
+        client: HostClient,
+        conversation: ConversationListItem,
+        onToggleSidebar: (() -> Void)? = nil,
+        onReturnToLanding: (() -> Void)? = nil
+    ) {
         _model = State(initialValue: ConversationModel(client: client, conversation: conversation))
+        self.onToggleSidebar = onToggleSidebar
+        self.onReturnToLanding = onReturnToLanding
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            if onToggleSidebar != nil {
+                embeddedHeaderBar
+            }
             messages
                 .overlay {
                     if menu != nil {
@@ -27,16 +40,16 @@ struct ConversationDetailView: View {
                     .padding(.bottom, 8)
             }
             if let question = model.session.pendingQuestions.first {
-                ApprovalCard(request: question) { content in
-                    await model.respond(to: question, content: content)
+                ApprovalCard(request: question, busy: model.busy) { content in
+                    Task { await model.respond(to: question, content: content) }
                 }
                 .id(question.id)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
             if let prompt = model.session.pendingPermissions.first {
-                PermissionBanner(prompt: prompt) { option in
-                    Task { await model.respond(to: prompt, option: option) }
+                PermissionBanner(prompt: prompt, busy: model.busy) { option, persist in
+                    Task { await model.respond(to: prompt, option: option, persist: persist) }
                 }
             }
             if let message = model.actionError {
@@ -51,7 +64,8 @@ struct ConversationDetailView: View {
         }
         .navigationTitle(model.conversation.title ?? "未命名对话")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .toolbar(onToggleSidebar != nil ? .hidden : .visible, for: .navigationBar)
+        .toolbar(onToggleSidebar != nil ? .visible : .hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -102,12 +116,111 @@ struct ConversationDetailView: View {
         .task {
             while !Task.isCancelled {
                 await model.reload()
-                try? await Task.sleep(for: .seconds(model.session.isTurnRunning ? 0.6 : 4))
+                if model.isActivelyStreaming {
+                    try? await Task.sleep(for: .milliseconds(140))
+                } else {
+                    for _ in 0..<6 {
+                        if Task.isCancelled || model.isActivelyStreaming { break }
+                        try? await Task.sleep(for: .milliseconds(200))
+                    }
+                }
             }
         }
         .onChange(of: menu) { _, kind in
             if kind == .model || kind == .plusModel { Task { await model.refreshCatalog() } }
         }
+    }
+
+    private var embeddedHeaderBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                dismissKeyboard()
+                onToggleSidebar?()
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 16.5, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("打开侧边栏")
+
+            VStack(spacing: 1.5) {
+                HStack(spacing: 5) {
+                    if model.session.isTurnRunning {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 6.5, height: 6.5)
+                    }
+                    Text(model.conversation.title ?? "未命名对话")
+                        .font(.system(size: 15.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 4) {
+                    AgentIconView(agent: model.conversation.agent_id, size: 11)
+                    Text(model.currentModelLabel ?? AgentBrand.displayName(model.conversation.agent_id))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            HStack(spacing: 6) {
+                if let onReturnToLanding {
+                    Button {
+                        dismissKeyboard()
+                        onReturnToLanding()
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 15.5, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle()
+                                    .fill(Color(.secondarySystemGroupedBackground))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("新建对话")
+                }
+
+                Menu {
+                    Button("浏览项目文件", systemImage: "folder") { panel = .files }
+                    Button("查看代码变更 (Diff)", systemImage: "plus.forwardslash.minus") { panel = .changes }
+                    if let onReturnToLanding {
+                        Divider()
+                        Button("回到新对话工作台", systemImage: "sparkles") {
+                            onReturnToLanding()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15.5, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle()
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                }
+                .accessibilityLabel("更多操作")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Color(.systemGroupedBackground)
+                .overlay(alignment: .bottom) {
+                    Divider().opacity(0.45)
+                }
+        )
     }
 
     // MARK: Prompt bar
@@ -244,13 +357,30 @@ struct ConversationDetailView: View {
                             if model.session.isTurnRunning && model.items.last?.role != .assistant {
                                 LoadingState(label: "正在思考").id("loading")
                             }
+                            Color.clear
+                                .frame(height: 1)
+                                .id("conversation-bottom")
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                     }
                     .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: model.items.last) { _, last in
-                        if let last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    .onChange(of: model.items.count) { _, _ in
+                        withAnimation(.smooth(duration: 0.22)) {
+                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: model.items.last?.text.count) { _, _ in
+                        if model.isActivelyStreaming {
+                            proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: model.items.last?.segments.count) { _, _ in
+                        if model.isActivelyStreaming {
+                            withAnimation(.smooth(duration: 0.18)) {
+                                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                            }
+                        }
                     }
                 }
             }
@@ -279,26 +409,49 @@ private struct MessageRow: View {
     let running: Bool
     let openDiff: (FileChangeItem) -> Void
 
+    private var lastTextSegmentID: String? {
+        item.segments.last { segment in
+            if case .text = segment { return true }
+            return false
+        }?.id
+    }
+
     var body: some View {
         switch item.role {
         case .user:
+            let extracted = AttachmentImageStore.shared.extractUserAttachments(from: item.text)
             HStack {
                 Spacer(minLength: 48)
-                Text(item.text)
-                    .font(.system(size: 15))
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 16,
-                            bottomLeadingRadius: 16,
-                            bottomTrailingRadius: 5,
-                            topTrailingRadius: 16
-                        )
-                        .fill(Color.accentColor.opacity(0.16))
-                    )
+                VStack(alignment: .trailing, spacing: 6) {
+                    if !extracted.items.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(extracted.items) { imgItem in
+                                MarkdownImageFrameView(
+                                    src: imgItem.urlString ?? imgItem.id,
+                                    alt: imgItem.title,
+                                    fixedImage: imgItem.image
+                                )
+                            }
+                        }
+                    }
+                    if !extracted.cleanText.isEmpty {
+                        Text(extracted.cleanText)
+                            .font(.system(size: 15))
+                            .lineSpacing(3)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                UnevenRoundedRectangle(
+                                    topLeadingRadius: 16,
+                                    bottomLeadingRadius: 16,
+                                    bottomTrailingRadius: 5,
+                                    topTrailingRadius: 16
+                                )
+                                .fill(Color.accentColor.opacity(0.16))
+                            )
+                    }
+                }
             }
         case .assistant:
             let streaming = running && isLast
@@ -327,51 +480,343 @@ private struct MessageRow: View {
                     Spacer()
                 }
 
-                if !item.thinking.isEmpty {
-                    ThinkingView(item: item, working: streaming && item.text.isEmpty)
-                }
-                if !item.tools.isEmpty || !item.changes.isEmpty {
-                    ToolChipsView(item: item, working: streaming, openDiff: openDiff)
-                }
-                if !item.text.isEmpty {
-                    StreamingMessageText(text: item.text, streaming: streaming)
-                        .padding(.top, 2)
+                if item.segments.isEmpty {
+                    if !item.thinking.isEmpty {
+                        ThinkingView(item: item, working: streaming && item.text.isEmpty)
+                    }
+                    if !item.tools.isEmpty || !item.changes.isEmpty {
+                        ToolChipsView(item: item, working: streaming, openDiff: openDiff)
+                    }
+                    if !item.text.isEmpty {
+                        StreamingMessageText(text: item.text, streaming: streaming)
+                            .padding(.top, 2)
+                    }
+                } else {
+                    ForEach(item.segments) { segment in
+                        segmentView(segment, streaming: streaming)
+                    }
+                    if !item.changes.isEmpty {
+                        ToolChipsView(
+                            tools: [],
+                            changes: item.changes,
+                            working: false,
+                            openDiff: openDiff
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    @ViewBuilder
+    private func segmentView(_ segment: TimelineSegment, streaming: Bool) -> some View {
+        let isLastSegment = segment.id == item.segments.last?.id
+        switch segment {
+        case let .thinking(_, text):
+            ThinkingView(
+                text: text,
+                durationMs: item.durationMs,
+                working: streaming && isLastSegment
+            )
+        case let .tools(_, tools):
+            ToolChipsView(
+                tools: tools,
+                changes: [],
+                working: streaming && isLastSegment,
+                openDiff: openDiff
+            )
+        case let .text(id, text):
+            let isLastText = id == lastTextSegmentID
+            StreamingMessageText(
+                text: text,
+                streaming: streaming && isLastSegment,
+                showCopyButton: isLastText,
+                copyPayload: item.text
+            )
+            .padding(.top, 2)
+        }
+    }
 }
 
+/// SwiftUI port of VibeX desktop's `PermissionRequestCard.tsx`:
+/// displays the permission category badge, resolved heading & subtitle, structured tool-call preview
+/// (expandable diffs, shell command, file paths), and progressive scope actions (`拒绝` + `[ 允许 | ▾ ]`).
 private struct PermissionBanner: View {
     let prompt: PermissionPrompt
-    let respond: (PermissionOption?) -> Void
+    let busy: Bool
+    let respond: (PermissionOption?, Bool) -> Void
+
+    @State private var expandedDiffIDs: Set<String> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(prompt.title, systemImage: "exclamationmark.shield")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.orange)
-            ForEach(prompt.options) { option in
-                let allow = option.kind.hasPrefix("allow")
-                Button { respond(option) } label: {
-                    Text(option.label)
-                        .font(.subheadline)
-                        .multilineTextAlignment(.leading)
+        let primaryAllow = prompt.resolveAllowOption(for: .once)
+        let rejectOption = prompt.rejectOption
+
+        VStack(alignment: .leading, spacing: 10) {
+            // 1. Category type row (`permissionTypeFor`)
+            HStack(spacing: 6) {
+                Image(systemName: prompt.category.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(prompt.category.label)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+
+            // 2. Heading (`detail.heading ?? t('permissionRequestCard.title')`)
+            Text(prompt.displayHeading)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            // 3. Preview block (`permission-request-preview`)
+            if prompt.displaySubtitle != nil
+                || !prompt.diffs.isEmpty
+                || !prompt.textBlocks.isEmpty
+                || prompt.command != nil
+                || !prompt.locations.isEmpty
+            {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let subtitle = prompt.displaySubtitle {
+                        Text(subtitle)
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    ForEach(prompt.diffs) { diff in
+                        diffPreviewRow(diff)
+                    }
+
+                    ForEach(Array(prompt.textBlocks.enumerated()), id: \.offset) { _, blockText in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(blockText)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
                         .background(
-                            (allow ? Color.accentColor : Color.secondary).opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color(.tertiarySystemGroupedBackground))
+                        )
+                    }
+
+                    if let command = prompt.command, !command.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(command)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color(.tertiarySystemGroupedBackground))
+                        )
+                    }
+
+                    if !prompt.locations.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(prompt.locations, id: \.self) { path in
+                                Text(path)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+            }
+
+            // 4. Progressive Action Footer (`拒绝` + split `[ 允许 | ▾ ]`)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    respond(rejectOption, false)
+                } label: {
+                    Text("拒绝")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 13)
+                        .frame(height: 30)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(.tertiarySystemGroupedBackground))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.7)
                         )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(allow ? Color.accentColor : Color.secondary)
+                .disabled(busy)
+
+                if let primaryAllow {
+                    HStack(spacing: 0) {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            respond(primaryAllow, false)
+                        } label: {
+                            HStack(spacing: 5) {
+                                if busy {
+                                    ProgressView().controlSize(.mini).tint(Color(.systemBackground))
+                                }
+                                Text("允许")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                            }
+                            .foregroundStyle(Color(.systemBackground))
+                            .padding(.leading, 13)
+                            .padding(.trailing, 10)
+                            .frame(height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+
+                        Rectangle()
+                            .fill(Color(.systemBackground).opacity(0.22))
+                            .frame(width: 0.8, height: 18)
+
+                        Menu {
+                            ForEach(PermissionAllowScope.allCases, id: \.rawValue) { scope in
+                                if let opt = prompt.resolveAllowOption(for: scope) {
+                                    Button {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        respond(opt, scope != .once)
+                                    } label: {
+                                        Text(scope.label)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10.5, weight: .bold))
+                                .foregroundStyle(Color(.systemBackground))
+                                .frame(width: 28, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .disabled(busy)
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary)
+                    )
+                } else {
+                    ForEach(prompt.options) { option in
+                        Button {
+                            respond(option, false)
+                        } label: {
+                            Text(option.label)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(Color(.systemBackground))
+                                .padding(.horizontal, 12)
+                                .frame(height: 30)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.primary)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func diffPreviewRow(_ diff: PermissionDiffPreview) -> some View {
+        let isOpen = expandedDiffIDs.contains(diff.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.86)) {
+                    if isOpen {
+                        expandedDiffIDs.remove(diff.id)
+                    } else {
+                        expandedDiffIDs.insert(diff.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    Text(diff.path)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 6)
+                    Text(diff.isNewFile ? "新文件" : "已修改")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !diff.isNewFile {
+                        diffPane(label: "修改前", text: diff.oldText, isAddition: false)
+                    }
+                    diffPane(label: diff.isNewFile ? "文件内容" : "修改后", text: diff.newText, isAddition: true)
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.1))
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color(.tertiarySystemGroupedBackground))
+        )
+    }
+
+    private func diffPane(label: String, text: String, isAddition: Bool) -> some View {
+        let tint: Color = isAddition ? .green : .red
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+            }
+            .frame(maxHeight: 140, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(tint.opacity(0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(tint.opacity(0.28), lineWidth: 0.6)
+            )
+        }
     }
 }

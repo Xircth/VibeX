@@ -46,8 +46,13 @@ struct PromptEffort: Equatable {
 
 struct AttachedImageItem: Identifiable, Equatable {
     let id = UUID()
-    let image: UIImage
+    let token: String
+    var image: UIImage
     let fileName: String
+
+    static func == (lhs: AttachedImageItem, rhs: AttachedImageItem) -> Bool {
+        lhs.id == rhs.id && lhs.token == rhs.token && lhs.fileName == rhs.fileName
+    }
 }
 
 /// SwiftUI port of the PromptBar: one rounded dock, a tool row, floating menus for inline pills,
@@ -77,6 +82,7 @@ struct PromptBar: View {
     @FocusState private var focused: Bool
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImageItem] = []
+    @State private var previewingAttached: AttachedImageItem?
     @State private var showPhotoPicker = false
     @State private var showCameraSheet = false
 
@@ -110,13 +116,15 @@ struct PromptBar: View {
         )
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
-            Task {
+            Task { @MainActor in
                 for (idx, item) in items.enumerated() {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let uiImage = UIImage(data: data)
                     {
+                        let fileName = "image-\(idx + 1).jpg"
+                        let token = AttachmentImageStore.shared.register(image: uiImage, fileName: fileName)
                         attachedImages.append(
-                            AttachedImageItem(image: uiImage, fileName: "image-\(idx + 1).jpg")
+                            AttachedImageItem(token: token, image: uiImage, fileName: fileName)
                         )
                     }
                 }
@@ -127,13 +135,31 @@ struct PromptBar: View {
         .sheet(isPresented: $showCameraSheet) {
             CameraCaptureSheet { captured in
                 if let captured {
+                    let fileName = "camera-photo.jpg"
+                    let token = AttachmentImageStore.shared.register(image: captured, fileName: fileName)
                     attachedImages.append(
-                        AttachedImageItem(image: captured, fileName: "camera-photo.jpg")
+                        AttachedImageItem(token: token, image: captured, fileName: fileName)
                     )
                 }
                 menu = nil
             }
             .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $previewingAttached) { item in
+            ZoomableImagePreviewSheet(
+                item: PreviewableImageItem(
+                    id: item.token,
+                    image: item.image,
+                    urlString: nil,
+                    title: item.fileName
+                ),
+                onUpdateImage: { updated in
+                    AttachmentImageStore.shared.update(token: item.token, image: updated, fileName: item.fileName)
+                    if let idx = attachedImages.firstIndex(where: { $0.id == item.id }) {
+                        attachedImages[idx].image = updated
+                    }
+                }
+            )
         }
     }
 
@@ -147,15 +173,21 @@ struct PromptBar: View {
                         HStack(spacing: 8) {
                             ForEach(attachedImages) { item in
                                 ZStack(alignment: .topTrailing) {
-                                    Image(uiImage: item.image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 54, height: 54)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
-                                        )
+                                    Button {
+                                        previewingAttached = item
+                                    } label: {
+                                        Image(uiImage: item.image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 56, height: 56)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.6)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+
                                     Button {
                                         withAnimation {
                                             attachedImages.removeAll { $0.id == item.id }
@@ -175,15 +207,15 @@ struct PromptBar: View {
 
                 TextField("发消息", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
-                    .font(.system(size: 16))
+                    .font(.system(size: 15.5))
                     .focused($focused)
                     .onChange(of: focused) { _, isFocused in
                         if isFocused { menu = nil }
                     }
                 toolRow
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.horizontal, 14)
+            .padding(.top, 11)
             .padding(.bottom, 10)
             .contentShape(Rectangle())
             .onTapGesture { focused = true }
@@ -195,28 +227,29 @@ struct PromptBar: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(alignment: .bottom) {
-            let dock = UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20)
+        .background {
+            let dock = RoundedRectangle(cornerRadius: 22, style: .continuous)
             ZStack {
                 dock.fill(Color(.secondarySystemGroupedBackground))
                 dock
                     .fill(RadialGradient(
-                        colors: [spark.opacity(0.26), .clear],
+                        colors: [spark.opacity(0.24), .clear],
                         center: .bottomLeading,
                         startRadius: 0,
                         endRadius: 220
                     ))
                     .opacity(effortAtMax ? 1 : 0)
                     .animation(.easeInOut(duration: 0.5), value: effortAtMax)
-                dock.stroke(Color.primary.opacity(0.06))
+                dock.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.7)
             }
-            .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
-            .ignoresSafeArea(edges: .bottom)
+            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 3)
         }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
     }
 
     private var toolRow: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ToolButton(icon: "plus", on: isPlusOpen, alert: hasAlert, label: "更多功能") {
                 focused = false
                 menu = isPlusOpen ? nil : .access
@@ -225,16 +258,16 @@ struct PromptBar: View {
                 PickPill(on: menu == .model || menu == .plusModel, label: "选择模型") {
                     toggle(.model)
                 } content: {
-                    if agentID != nil { AgentIconView(agent: agentID, size: 14) }
+                    if agentID != nil { AgentIconView(agent: agentID, size: 13.5) }
                     Text(modelName).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: 9.5, weight: .bold))
                 }
             }
             if let effort {
                 PickPill(on: menu == .effort || menu == .plusMode, tint: effortAtMax ? spark : nil, label: "推理强度") {
                     toggle(.effort)
                 } content: {
-                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "sparkles").font(.system(size: 11.5, weight: .semibold))
                     Text(effort.levels[effort.index])
                 }
             }
@@ -244,10 +277,14 @@ struct PromptBar: View {
                 running: isRunning,
                 busy: busy,
                 send: {
-                    if !attachedImages.isEmpty && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        draft = "[图片附件 ×\(attachedImages.count)]"
-                    } else if !attachedImages.isEmpty {
-                        draft += "\n[图片附件 ×\(attachedImages.count)]"
+                    if !attachedImages.isEmpty {
+                        let tokenTag = attachedImages.map { "#\($0.token)" }.joined(separator: " ")
+                        let marker = "[图片附件 ×\(attachedImages.count) \(tokenTag)]"
+                        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            draft = marker
+                        } else {
+                            draft += "\n\(marker)"
+                        }
                     }
                     attachedImages.removeAll()
                     menu = nil
@@ -571,11 +608,14 @@ private struct ToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14.5, weight: .semibold))
                 .rotationEffect(.degrees(on ? 45 : 0))
-                .frame(width: 28, height: 28)
-                .background(on ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(on ? Color.primary : Color.primary.opacity(0.6))
+                .frame(width: 30, height: 30)
+                .background(
+                    on ? Color.primary.opacity(0.14) : Color.primary.opacity(0.055),
+                    in: Circle()
+                )
+                .foregroundStyle(on ? Color.primary : Color.primary.opacity(0.75))
                 .overlay(alignment: .topTrailing) {
                     if alert { Circle().fill(.orange).frame(width: 8, height: 8).offset(x: 1, y: -1) }
                 }
@@ -595,12 +635,15 @@ private struct PickPill<Content: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4, content: content)
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(on ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(tint ?? (on ? Color.primary : Color.primary.opacity(0.7)))
+            HStack(spacing: 5, content: content)
+                .font(.system(size: 12.5, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(
+                    on ? Color.primary.opacity(0.12) : Color.primary.opacity(0.05),
+                    in: Capsule(style: .continuous)
+                )
+                .foregroundStyle(tint ?? (on ? Color.primary : Color.primary.opacity(0.8)))
         }
         .buttonStyle(PressStyle(scale: 0.96))
         .accessibilityLabel(label)
@@ -627,16 +670,16 @@ private struct SendButton: View {
     var body: some View {
         Button(action: running ? stop : send) {
             SendGlyph(morph: running ? 1 : 0)
-                .frame(width: 16, height: 16)
-                .frame(width: 28, height: 28)
-                .foregroundStyle(armed ? Color(.systemBackground) : Color.primary.opacity(0.35))
+                .frame(width: 15, height: 15)
+                .frame(width: 30, height: 30)
+                .foregroundStyle(armed ? Color(.systemBackground) : Color.primary.opacity(0.32))
                 .background(
-                    armed ? Color.primary : Color.primary.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 8)
+                    armed ? Color.primary : Color.primary.opacity(0.07),
+                    in: Circle()
                 )
                 .animation(.easeOut(duration: 0.2), value: armed)
         }
-        .buttonStyle(PressStyle(scale: armed ? 0.96 : 1))
+        .buttonStyle(PressStyle(scale: armed ? 0.95 : 1))
         .disabled(!armed || (busy && !running))
         .accessibilityLabel(running ? "停止" : "发送")
     }

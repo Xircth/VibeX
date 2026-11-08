@@ -56,7 +56,7 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     HostEventChannel {
         prefix: "workspace-sessions-changed",
         durability: EventDurability::Invalidation,
-        required_scope: "application.call",
+        required_scope: "conversation.read",
     },
     HostEventChannel {
         prefix: "workspace-focus-conversation",
@@ -86,7 +86,7 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     HostEventChannel {
         prefix: "desktop-session-attention",
         durability: EventDurability::BestEffort,
-        required_scope: "application.call",
+        required_scope: "conversation.read",
     },
     HostEventChannel {
         prefix: "file-tree-stream",

@@ -113,12 +113,65 @@ struct FileContentView: View {
     let path: String
     @State private var file: WorkspaceFile?
     @State private var errorMessage: String?
+    @State private var showFullImage = false
+
+    private var isImageFile: Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "ico", "bmp"].contains(ext)
+    }
+
+    private var decodedImage: UIImage? {
+        if let content = file?.content, !content.isEmpty {
+            if let img = AttachmentImageStore.decodeImage(from: content) {
+                return img
+            }
+            if let data = Data(base64Encoded: content, options: .ignoreUnknownCharacters),
+               let img = UIImage(data: data)
+            {
+                return img
+            }
+        }
+        return AttachmentImageStore.decodeImage(from: path)
+    }
 
     var body: some View {
         Group {
             if let file {
-                if file.binary {
-                    ContentUnavailableView("二进制文件无法预览", systemImage: "doc.zipper")
+                if let uiImage = decodedImage {
+                    VStack(spacing: 16) {
+                        MarkdownImageFrameView(
+                            src: path,
+                            alt: (path as NSString).lastPathComponent,
+                            fixedImage: uiImage
+                        )
+                        Button {
+                            showFullImage = true
+                        } label: {
+                            Label("全屏查看与标注", systemImage: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(20)
+                    .fullScreenCover(isPresented: $showFullImage) {
+                        ZoomableImagePreviewSheet(
+                            item: PreviewableImageItem(
+                                id: path,
+                                image: uiImage,
+                                urlString: nil,
+                                title: (path as NSString).lastPathComponent
+                            )
+                        )
+                    }
+                } else if file.binary {
+                    ContentUnavailableView(
+                        isImageFile ? "暂无法在远端直接流式读取此二进制图片" : "二进制文件无法预览",
+                        systemImage: isImageFile ? "photo" : "doc.zipper"
+                    )
                 } else {
                     CodeBlockView(
                         code: file.content ?? "",

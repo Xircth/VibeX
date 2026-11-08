@@ -452,9 +452,30 @@ public struct CollabRole: Decodable, Identifiable, Equatable, Sendable {
     public let personaPrompt: String
     public let agentId: String
     public let modeId: String?
+    public let configValues: [String: String]
+
+    public init(
+        id: String,
+        name: String,
+        teamId: String? = nil,
+        summary: String = "",
+        personaPrompt: String = "",
+        agentId: String,
+        modeId: String? = nil,
+        configValues: [String: String] = [:]
+    ) {
+        self.id = id
+        self.name = name
+        self.teamId = teamId
+        self.summary = summary
+        self.personaPrompt = personaPrompt
+        self.agentId = agentId
+        self.modeId = modeId
+        self.configValues = configValues
+    }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, team_id, summary, persona_prompt, agent_id, mode_id
+        case id, name, team_id, summary, persona_prompt, agent_id, mode_id, config_values
     }
 
     public init(from decoder: Decoder) throws {
@@ -466,6 +487,7 @@ public struct CollabRole: Decodable, Identifiable, Equatable, Sendable {
         personaPrompt = (try? c.decode(String.self, forKey: .persona_prompt)) ?? ""
         agentId = (try? c.decode(String.self, forKey: .agent_id)) ?? ""
         modeId = try? c.decodeIfPresent(String.self, forKey: .mode_id)
+        configValues = (try? c.decode([String: String].self, forKey: .config_values)) ?? [:]
     }
 }
 

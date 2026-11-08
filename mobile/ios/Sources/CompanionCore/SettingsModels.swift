@@ -235,6 +235,45 @@ public struct PluginControlCatalogResponse: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Managed Agent Bar Item (for Subagent Default Roles)
+
+public struct ManagedAgentBarItem: Codable, Equatable, Identifiable, Sendable {
+    public let agentId: String
+    public let displayName: String
+    public let description: String
+    public let enabled: Bool
+    public let retired: Bool
+    public let runtimeVersion: String?
+
+    public var id: String { agentId }
+
+    public init(
+        agentId: String,
+        displayName: String,
+        description: String = "",
+        enabled: Bool = true,
+        retired: Bool = false,
+        runtimeVersion: String? = nil
+    ) {
+        self.agentId = agentId
+        self.displayName = displayName
+        self.description = description
+        self.enabled = enabled
+        self.retired = retired
+        self.runtimeVersion = runtimeVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DynamicCodingKey.self)
+        self.agentId = c.decodeString(forKeys: ["agent_id", "agentId", "id"]) ?? ""
+        self.displayName = c.decodeString(forKeys: ["display_name", "displayName", "name"]) ?? self.agentId
+        self.description = c.decodeString(forKeys: ["description"]) ?? ""
+        self.enabled = c.decodeBool(forKeys: ["enabled"]) ?? true
+        self.retired = c.decodeBool(forKeys: ["retired"]) ?? false
+        self.runtimeVersion = c.decodeString(forKeys: ["runtime_version", "runtimeVersion"])
+    }
+}
+
 // MARK: - Host Environment & User System Info
 
 public struct HostSystemEnvironmentInfo: Codable, Equatable, Sendable {

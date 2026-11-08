@@ -436,7 +436,7 @@ struct PairedComputersSettingsView: View {
     }
 }
 
-// MARK: - 3. 技能中心（技能 / MCP / 插件 / 子代理）
+// MARK: - 3. 技能与扩展（技能 / MCP / 插件 / 子代理）
 
 enum SkillsHubSegment: String, CaseIterable, Identifiable {
     case skills = "技能"
@@ -456,6 +456,19 @@ enum SkillsHubSegment: String, CaseIterable, Identifiable {
     }
 }
 
+struct SubagentDisplayRole: Identifiable, Equatable {
+    let id: String
+    let backendRoleId: String?
+    let isDefaultAgentRole: Bool
+    let name: String
+    let agentId: String
+    let agentLabel: String
+    let modeId: String?
+    let configValues: [String: String]
+    let personaPrompt: String
+    let teamId: String?
+}
+
 struct SkillsHubSettingsView: View {
     @Environment(ServerStore.self) private var servers
     @State private var selectedSegment: SkillsHubSegment = .skills
@@ -467,17 +480,21 @@ struct SkillsHubSettingsView: View {
     @State private var mcpServers: [LocalMcpServerItem] = []
     @State private var plugins: [PluginCatalogItem] = []
     @State private var roles: [CollabRole] = []
-    @State private var agents: [CatalogAgent] = []
+    @State private var barAgents: [ManagedAgentBarItem] = []
 
     @State private var isLoading = false
+    @State private var authExpired = false
     @State private var errorMessage: String?
     @State private var selectedSkillForDetail: LocalSkillItem?
+    @State private var editingSubagentRole: SubagentDisplayRole?
+    @State private var showingNewSubagentRole = false
+    @State private var showingRepairSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top 4-tab segment bar: 技能 · MCP · 插件 · 子代理
+            // Top 4-tab segment bar: 技能 · MCP · 插件 · 子代理 (single-line, uniform height)
             VStack(spacing: 10) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(SkillsHubSegment.allCases) { segment in
                         let isSelected = selectedSegment == segment
                         Button {
@@ -485,14 +502,16 @@ struct SkillsHubSettingsView: View {
                                 selectedSegment = segment
                             }
                         } label: {
-                            HStack(spacing: 5) {
+                            HStack(spacing: 4) {
                                 Image(systemName: segment.icon)
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                                 Text(segment.rawValue)
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                                 Text("\(count(for: segment))")
-                                    .font(.caption2.monospacedDigit())
-                                    .padding(.horizontal, 5)
+                                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                    .padding(.horizontal, 4.5)
                                     .padding(.vertical, 1)
                                     .background(
                                         Capsule().fill(
@@ -502,8 +521,10 @@ struct SkillsHubSettingsView: View {
                                         )
                                     )
                             }
+                            .minimumScaleFactor(0.85)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .frame(height: 36)
+                            .padding(.horizontal, 4)
                             .background(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(isSelected ? Color.accentColor : Color(.secondarySystemGroupedBackground))
@@ -565,9 +586,33 @@ struct SkillsHubSettingsView: View {
             .padding(.vertical, 10)
             .background(Color(.systemGroupedBackground))
 
-            if isLoading && skills.isEmpty && mcpServers.isEmpty && plugins.isEmpty && roles.isEmpty {
+            if isLoading && skills.isEmpty && mcpServers.isEmpty && plugins.isEmpty && displaySubagentRoles.isEmpty {
                 Spacer()
-                ProgressView("正在同步\(selectedSegment.rawValue)目录...")
+                ProgressView("正在同步\(selectedSegment.rawValue)...")
+                Spacer()
+            } else if authExpired {
+                Spacer()
+                ContentUnavailableView {
+                    Label("连接凭据已失效", systemImage: "key.slash")
+                } description: {
+                    Text("桌面端配对已更新或过期，请重新扫码配对。")
+                } actions: {
+                    HStack(spacing: 12) {
+                        Button("重新配对", systemImage: "qrcode.viewfinder") {
+                            showingRepairSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("重试") {
+                            Task { await reloadAll() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                Spacer()
+            } else if isCurrentSegmentEmpty {
+                Spacer()
+                currentSegmentEmptyView
                 Spacer()
             } else {
                 List {
@@ -600,6 +645,22 @@ struct SkillsHubSettingsView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("技能与扩展")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if selectedSegment == .subagents && !authExpired {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingNewSubagentRole = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("新建角色")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    }
+                }
+            }
+        }
         .onDisappear {
             dismissKeyboard()
         }
@@ -616,13 +677,40 @@ struct SkillsHubSettingsView: View {
                 }
             }
         }
-        .task {
+        .task(id: servers.activeProfile?.id) {
             await reloadAll()
         }
         .sheet(item: $selectedSkillForDetail) { skill in
             if let client = servers.activeClient() {
                 LocalSkillDetailSheet(skill: skill, client: client)
             }
+        }
+        .sheet(item: $editingSubagentRole) { role in
+            if let client = servers.activeClient() {
+                SubagentRoleEditorSheet(
+                    existingRole: role,
+                    availableAgents: barAgents,
+                    client: client,
+                    onSaved: {
+                        Task { await reloadAll() }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingNewSubagentRole) {
+            if let client = servers.activeClient() {
+                SubagentRoleEditorSheet(
+                    existingRole: nil,
+                    availableAgents: barAgents,
+                    client: client,
+                    onSaved: {
+                        Task { await reloadAll() }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingRepairSheet) {
+            PairView(startWithScanner: true, initialOrigin: servers.activeProfile?.origin)
         }
     }
 
@@ -631,121 +719,154 @@ struct SkillsHubSettingsView: View {
         case .skills: return skills.count
         case .mcp: return mcpServers.count
         case .plugins: return plugins.count
-        case .subagents: return roles.count + agents.count
+        case .subagents: return displaySubagentRoles.count
+        }
+    }
+
+    private var isCurrentSegmentEmpty: Bool {
+        switch selectedSegment {
+        case .skills: return filteredSkills.isEmpty
+        case .mcp: return filteredMcpServers.isEmpty
+        case .plugins: return filteredPlugins.isEmpty
+        case .subagents: return filteredSubagentRoles.isEmpty
+        }
+    }
+
+    @ViewBuilder
+    private var currentSegmentEmptyView: some View {
+        switch selectedSegment {
+        case .skills:
+            ContentUnavailableView("暂无匹配的技能", systemImage: "sparkles")
+        case .mcp:
+            ContentUnavailableView("暂无 MCP 服务", systemImage: "server.rack")
+        case .plugins:
+            ContentUnavailableView("暂无已安装插件", systemImage: "puzzlepiece.extension")
+        case .subagents:
+            ContentUnavailableView {
+                Label("暂无子代理角色", systemImage: "person.2.badge.gearshape")
+            } actions: {
+                Button("新建子代理角色", systemImage: "plus") {
+                    showingNewSubagentRole = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    /// Synthesizes the exact same Subagent Role list as desktop `MultiAgentSettings.tsx`:
+    /// 1. Built-in `{Agent} · 默认配置` default subagent delegation roles for each enabled agent
+    /// 2. User-created custom subagent roles (`CollabRole`)
+    private var displaySubagentRoles: [SubagentDisplayRole] {
+        var matchedBackendIds = Set<String>()
+        var defaultRoles: [SubagentDisplayRole] = []
+
+        for agent in barAgents {
+            let normalizedKey = agent.agentId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let label = AgentBrand.displayName(agent.agentId, hostName: agent.displayName)
+            let defaultName = "\(label) · 默认配置"
+            let defaultId = "default-agent:\(agent.agentId)"
+
+            let matchedBackend = roles.first { role in
+                role.id == defaultId ||
+                    (role.agentId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedKey &&
+                        (role.name == defaultName || role.name == "\(agent.displayName) · 默认配置"))
+            }
+            if let matchedBackend {
+                matchedBackendIds.insert(matchedBackend.id)
+            }
+
+            let persona = matchedBackend.map {
+                $0.personaPrompt.isEmpty ? $0.summary : $0.personaPrompt
+            } ?? ""
+
+            defaultRoles.append(
+                SubagentDisplayRole(
+                    id: defaultId,
+                    backendRoleId: matchedBackend?.id,
+                    isDefaultAgentRole: true,
+                    name: defaultName,
+                    agentId: agent.agentId,
+                    agentLabel: label,
+                    modeId: matchedBackend?.modeId,
+                    configValues: matchedBackend?.configValues ?? [:],
+                    personaPrompt: persona,
+                    teamId: matchedBackend?.teamId
+                )
+            )
+        }
+
+        let customRoles: [SubagentDisplayRole] = roles
+            .filter { !matchedBackendIds.contains($0.id) }
+            .map { role in
+                let label = AgentBrand.displayName(role.agentId)
+                let persona = role.personaPrompt.isEmpty ? role.summary : role.personaPrompt
+                return SubagentDisplayRole(
+                    id: role.id,
+                    backendRoleId: role.id,
+                    isDefaultAgentRole: false,
+                    name: role.name,
+                    agentId: role.agentId,
+                    agentLabel: label,
+                    modeId: role.modeId,
+                    configValues: role.configValues,
+                    personaPrompt: persona,
+                    teamId: role.teamId
+                )
+            }
+
+        return customRoles + defaultRoles
+    }
+
+    private var filteredSubagentRoles: [SubagentDisplayRole] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return displaySubagentRoles }
+        return displaySubagentRoles.filter {
+            $0.name.lowercased().contains(q)
+                || $0.agentLabel.lowercased().contains(q)
+                || $0.agentId.lowercased().contains(q)
+                || $0.personaPrompt.lowercased().contains(q)
         }
     }
 
     @ViewBuilder
     private var skillsListContent: some View {
         let filtered = filteredSkills
-        if filtered.isEmpty {
-            ContentUnavailableView(
-                "暂无匹配的技能",
-                systemImage: "sparkles",
-                description: Text("桌面端安装的本地与全局 Agent 技能将在此显示。")
-            )
-        } else {
-            Section("已安装技能 (\(filtered.count))") {
-                ForEach(filtered) { skill in
-                    Button {
-                        selectedSkillForDetail = skill
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkles")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.purple)
-                                Text(skill.name)
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if skill.global {
-                                    Text("全局")
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.purple.opacity(0.14)))
-                                        .foregroundStyle(.purple)
-                                }
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            if let desc = skill.description, !desc.isEmpty {
-                                Text(desc)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            if !skill.apps.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 6) {
-                                        ForEach(skill.apps, id: \.self) { app in
-                                            Text(app)
-                                                .font(.caption2.monospaced())
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                                        .fill(Color.secondary.opacity(0.12))
-                                                )
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var mcpListContent: some View {
-        let filtered = filteredMcpServers
-        if filtered.isEmpty {
-            ContentUnavailableView(
-                "暂无 MCP 服务",
-                systemImage: "server.rack",
-                description: Text("在桌面端配置的本地或远程 MCP 服务器会同步显示在此处。")
-            )
-        } else {
-            Section("已配置 MCP 服务 (\(filtered.count))") {
-                ForEach(filtered) { server in
+        Section("已安装技能 (\(filtered.count))") {
+            ForEach(filtered) { skill in
+                Button {
+                    selectedSkillForDetail = skill
+                } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
-                            Image(systemName: "server.rack")
+                            Image(systemName: "sparkles")
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(.blue)
-                            Text(server.id)
-                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.purple)
+                            Text(skill.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                             Spacer()
-                            Text(server.transportLabel)
-                                .font(.caption2.monospaced().weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.blue.opacity(0.14)))
-                                .foregroundStyle(.blue)
-                            if server.global {
+                            if skill.global {
                                 Text("全局")
                                     .font(.caption2.weight(.semibold))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.green.opacity(0.14)))
-                                    .foregroundStyle(.green)
+                                    .background(Capsule().fill(Color.purple.opacity(0.14)))
+                                    .foregroundStyle(.purple)
                             }
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
-                        Text(server.commandSummary)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        if !server.apps.isEmpty {
+                        if let desc = skill.description, !desc.isEmpty {
+                            Text(desc)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        if !skill.apps.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 6) {
-                                    ForEach(server.apps, id: \.self) { app in
+                                    ForEach(skill.apps, id: \.self) { app in
                                         Text(app)
                                             .font(.caption2.monospaced())
                                             .padding(.horizontal, 6)
@@ -760,8 +881,64 @@ struct SkillsHubSettingsView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 3)
                 }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mcpListContent: some View {
+        let filtered = filteredMcpServers
+        Section("已配置 MCP 服务 (\(filtered.count))") {
+            ForEach(filtered) { server in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "server.rack")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.blue)
+                        Text(server.id)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(server.transportLabel)
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.blue.opacity(0.14)))
+                            .foregroundStyle(.blue)
+                        if server.global {
+                            Text("全局")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.green.opacity(0.14)))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    Text(server.commandSummary)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    if !server.apps.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(server.apps, id: \.self) { app in
+                                    Text(app)
+                                        .font(.caption2.monospaced())
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                .fill(Color.secondary.opacity(0.12))
+                                        )
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 3)
             }
         }
     }
@@ -769,151 +946,164 @@ struct SkillsHubSettingsView: View {
     @ViewBuilder
     private var pluginsListContent: some View {
         let filtered = filteredPlugins
-        if filtered.isEmpty {
-            ContentUnavailableView(
-                "暂无已安装插件",
-                systemImage: "puzzlepiece.extension",
-                description: Text("在 VibeX 桌面端插件中心安装的插件将显示在此处。")
-            )
-        } else {
-            Section("已安装插件 (\(filtered.count))") {
-                ForEach(filtered) { plugin in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "puzzlepiece.extension.fill")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(plugin.enabled ? .orange : .secondary)
-                            Text(plugin.name)
-                                .font(.body.weight(.semibold))
-                            Text("v\(plugin.version)")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(plugin.enabled ? "已启用" : "已停用")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule().fill(
-                                        plugin.enabled
-                                            ? Color.green.opacity(0.15)
-                                            : Color.secondary.opacity(0.14)
-                                    )
+        Section("已安装插件 (\(filtered.count))") {
+            ForEach(filtered) { plugin in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "puzzlepiece.extension.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(plugin.enabled ? .orange : .secondary)
+                        Text(plugin.name)
+                            .font(.subheadline.weight(.semibold))
+                        Text("v\(plugin.version)")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(plugin.enabled ? "已启用" : "已停用")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(
+                                    plugin.enabled
+                                        ? Color.green.opacity(0.15)
+                                        : Color.secondary.opacity(0.14)
                                 )
-                                .foregroundStyle(plugin.enabled ? .green : .secondary)
-                        }
-                        if let desc = plugin.description, !desc.isEmpty {
-                            Text(desc)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                        HStack(spacing: 10) {
-                            Label(plugin.builtin ? "内置插件" : plugin.sourceKind, systemImage: "shippingbox")
+                            )
+                            .foregroundStyle(plugin.enabled ? .green : .secondary)
+                    }
+                    if let desc = plugin.description, !desc.isEmpty {
+                        Text(desc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    HStack(spacing: 10) {
+                        Label(plugin.builtin ? "内置插件" : plugin.sourceKind, systemImage: "shippingbox")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        if !plugin.skills.isEmpty {
+                            Label("\(plugin.skills.count) 项技能", systemImage: "sparkles")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                            if !plugin.skills.isEmpty {
-                                Label("\(plugin.skills.count) 项技能", systemImage: "sparkles")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            if plugin.mcpCount > 0 {
-                                Label("\(plugin.mcpCount) 个 MCP", systemImage: "server.rack")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
+                        }
+                        if plugin.mcpCount > 0 {
+                            Label("\(plugin.mcpCount) 个 MCP", systemImage: "server.rack")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(.vertical, 3)
             }
         }
     }
 
     @ViewBuilder
     private var subagentsListContent: some View {
-        let matchedRoles = filteredRoles
-        let matchedAgents = filteredAgents
+        let customList = filteredSubagentRoles.filter { !$0.isDefaultAgentRole }
+        let defaultList = filteredSubagentRoles.filter(\.isDefaultAgentRole)
 
-        if matchedRoles.isEmpty && matchedAgents.isEmpty {
-            ContentUnavailableView(
-                "暂无子代理与角色",
-                systemImage: "person.2.badge.gearshape",
-                description: Text("协作空间角色与已启用的子代理执行器将在此展示。")
-            )
-        } else {
-            if !matchedRoles.isEmpty {
-                Section("子代理角色预设 (\(matchedRoles.count))") {
-                    ForEach(matchedRoles) { role in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle.badge.Checkmark")
-                                    .foregroundStyle(.indigo)
-                                Text(role.name)
-                                    .font(.body.weight(.semibold))
-                                if let team = role.teamId, !team.isEmpty {
-                                    Text(team)
-                                        .font(.caption2.weight(.medium))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.indigo.opacity(0.14)))
-                                        .foregroundStyle(.indigo)
-                                }
-                                Spacer()
-                                AgentModelLabel(agent: role.agentId, model: AgentBrand.displayName(role.agentId), iconSize: 12)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            let desc = role.summary.isEmpty ? role.personaPrompt : role.summary
-                            if !desc.isEmpty {
-                                Text(desc)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+        Section {
+            if customList.isEmpty {
+                Button {
+                    showingNewSubagentRole = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(Color.accentColor)
+                        Text("新建自定义子代理角色")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
+                }
+            } else {
+                ForEach(customList) { role in
+                    subagentRoleRow(role)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                deleteSubagentRole(role)
+                            } label: {
+                                Label("删除", systemImage: "trash")
                             }
                         }
-                        .padding(.vertical, 4)
-                    }
                 }
             }
+        } header: {
+            Text("自定义角色 (\(customList.count))")
+        }
 
-            if !matchedAgents.isEmpty {
-                Section("可用 Agent 执行引擎 (\(matchedAgents.count))") {
-                    ForEach(matchedAgents) { agent in
-                        HStack(spacing: 10) {
-                            AgentIconView(agent: agent.id, size: 22)
-                                .overlay(alignment: .bottomTrailing) {
-                                    Circle()
-                                        .fill(agent.usable ? Color.green : Color.orange)
-                                        .frame(width: 7, height: 7)
-                                        .overlay(Circle().stroke(Color(.secondarySystemGroupedBackground), lineWidth: 1.5))
-                                        .offset(x: 2, y: 2)
-                                }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(AgentBrand.displayName(agent.id, hostName: agent.displayName))
-                                    .font(.body.weight(.medium))
-                                Text(agent.id)
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(agent.usable ? "就绪" : "未就绪")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule().fill(
-                                        agent.usable
-                                            ? Color.green.opacity(0.15)
-                                            : Color.orange.opacity(0.15)
-                                    )
-                                )
-                                .foregroundStyle(agent.usable ? .green : .orange)
-                        }
+        if !defaultList.isEmpty {
+            Section("默认委派配置 (\(defaultList.count))") {
+                ForEach(defaultList) { role in
+                    subagentRoleRow(role)
+                }
+            }
+        }
+    }
+
+    private func subagentRoleRow(_ role: SubagentDisplayRole) -> some View {
+        Button {
+            editingSubagentRole = role
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    AgentIconView(agent: role.agentId, size: 18)
+                    Text(role.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    Text(role.agentLabel)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6)
                         .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                        .foregroundStyle(.secondary)
+
+                    if let mode = role.modeId, !mode.isEmpty {
+                        Text(mode)
+                            .font(.caption2.monospaced())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.12))
+                            )
+                            .foregroundStyle(Color.accentColor)
                     }
+
+                    Image(systemName: "pencil")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if !role.personaPrompt.isEmpty {
+                    Text(role.personaPrompt)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func deleteSubagentRole(_ role: SubagentDisplayRole) {
+        guard !role.isDefaultAgentRole, let client = servers.activeClient() else { return }
+        let targetId = role.backendRoleId ?? role.id
+        roles.removeAll { $0.id == targetId }
+        Task {
+            try? await client.collabDeleteRole(roleID: targetId)
+            await reloadAll()
         }
     }
 
@@ -946,45 +1136,154 @@ struct SkillsHubSettingsView: View {
         }
     }
 
-    private var filteredRoles: [CollabRole] {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return roles }
-        return roles.filter {
-            $0.name.lowercased().contains(q)
-                || $0.personaPrompt.lowercased().contains(q)
-                || $0.agentId.lowercased().contains(q)
-        }
-    }
-
-    private var filteredAgents: [CatalogAgent] {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return agents }
-        return agents.filter {
-            $0.displayName.lowercased().contains(q)
-                || $0.id.lowercased().contains(q)
-        }
-    }
-
     private func reloadAll() async {
         guard let client = servers.activeClient() else {
-            errorMessage = "当前未连接电脑，请先配对电脑后查看技能与扩展。"
+            authExpired = true
             return
         }
         isLoading = true
+        authExpired = false
         errorMessage = nil
         defer { isLoading = false }
 
-        async let fetchedSkills = try? client.localSkills()
-        async let fetchedMcp = try? client.localMcpServers()
-        async let fetchedPlugins = try? client.pluginCatalog()
-        async let fetchedRoles = try? client.collabRoles()
-        async let fetchedCatalog = try? client.agentCatalog()
+        do {
+            async let fetchedSkills = client.localSkills()
+            async let fetchedMcp = try? client.localMcpServers()
+            async let fetchedPlugins = try? client.pluginCatalog()
+            async let fetchedRoles = try? client.collabRoles()
+            async let fetchedBarAgents = try? client.managedAgentBar()
 
-        if let s = await fetchedSkills { skills = s }
-        if let m = await fetchedMcp { mcpServers = m }
-        if let p = await fetchedPlugins { plugins = p }
-        if let r = await fetchedRoles { roles = r }
-        if let c = await fetchedCatalog { agents = c }
+            skills = try await fetchedSkills
+            if let m = await fetchedMcp { mcpServers = m }
+            if let p = await fetchedPlugins { plugins = p }
+            if let r = await fetchedRoles { roles = r }
+            if let b = await fetchedBarAgents { barAgents = b }
+        } catch let HostError.server(status, _) where status == 401 || status == 403 {
+            authExpired = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+struct SubagentRoleEditorSheet: View {
+    let existingRole: SubagentDisplayRole?
+    let availableAgents: [ManagedAgentBarItem]
+    let client: HostClient
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var roleName = ""
+    @State private var selectedAgentId = ""
+    @State private var modeId = ""
+    @State private var personaPrompt = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private var isDefaultRole: Bool {
+        existingRole?.isDefaultAgentRole == true
+    }
+
+    private var canSave: Bool {
+        !isSaving
+            && !roleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !selectedAgentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("角色名称") {
+                    TextField("例如：前端工程师", text: $roleName)
+                        .disabled(isDefaultRole)
+                        .foregroundStyle(isDefaultRole ? .secondary : .primary)
+                }
+
+                Section("选择角色 Agent") {
+                    if availableAgents.isEmpty {
+                        TextField("Agent ID (例如 codex / claude_code)", text: $selectedAgentId)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .disabled(isDefaultRole)
+                    } else {
+                        Picker("Agent", selection: $selectedAgentId) {
+                            ForEach(availableAgents) { agent in
+                                Text(AgentBrand.displayName(agent.agentId, hostName: agent.displayName))
+                                    .tag(agent.agentId)
+                            }
+                        }
+                        .disabled(isDefaultRole)
+                    }
+
+                    TextField("默认模式 / 模型（可选）", text: $modeId)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.subheadline.monospaced())
+                }
+
+                Section("人设（可选）") {
+                    TextField("定义此子代理角色的职责边界与输出要求...", text: $personaPrompt, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle(existingRole == nil ? "新建角色" : "编辑角色")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("保存", action: save)
+                            .fontWeight(.semibold)
+                            .disabled(!canSave)
+                    }
+                }
+            }
+            .onAppear {
+                if let role = existingRole {
+                    roleName = role.name
+                    selectedAgentId = role.agentId
+                    modeId = role.modeId ?? ""
+                    personaPrompt = role.personaPrompt
+                } else {
+                    selectedAgentId = availableAgents.first?.agentId ?? "claude_code"
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            do {
+                try await client.collabSaveRole(
+                    id: existingRole?.backendRoleId,
+                    name: roleName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    agentId: selectedAgentId.trimmingCharacters(in: .whitespacesAndNewlines),
+                    modeId: modeId.trimmingCharacters(in: .whitespacesAndNewlines),
+                    personaPrompt: personaPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                    teamId: existingRole?.teamId ?? ""
+                )
+                onSaved()
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                isSaving = false
+            }
+        }
     }
 }
 

@@ -59,7 +59,7 @@ describe('vibex.voice-input plugin', () => {
     assert.match(enPrompt, /Technical glossary/);
   });
 
-  it('normalizes vocabulary terms and strips spoken filler words (Orca cleanup)', () => {
+  it('normalizes vocabulary terms and strips spoken filler words', () => {
     const raw =
       '嗯，那个就是说，我我想要在 vibe x 里面用 type script 修改一下 淘瑞 窗口的 monaco 编辑器';
     const cleaned = cleanTranscriptText(raw, {

@@ -6,7 +6,7 @@
   "name": "语音输入",
   "version": "2.0.0",
   "publisher": "vibex",
-  "description": "AI voice dictation and speech-to-text plugin modeled after Orca, with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
+  "description": "AI voice dictation and speech-to-text plugin with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
   "readme": "README.md",
   "interface": {
     "icon": "assets/icon.svg"

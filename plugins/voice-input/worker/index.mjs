@@ -118,7 +118,7 @@ export function normalizeVocabularyTerms(text, vocabulary) {
 }
 
 /**
- * Deterministic Orca-style post-transcription cleanup:
+ * Deterministic post-transcription cleanup:
  * - Removes spoken Chinese & English filler words ("嗯", "啊", "呃", "那个", "就是说", "um", "uh", "er")
  * - Collapses immediate stuttered word repetitions ("我我想要" -> "我想要", "the the" -> "the")
  * - Normalizes CJK / Latin spacing and punctuation

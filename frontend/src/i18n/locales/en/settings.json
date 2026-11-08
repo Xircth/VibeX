@@ -1001,8 +1001,8 @@
       },
       "voiceInput": {
         "name": "Voice Input",
-        "summary": "AI voice dictation and speech-to-text modeled after Orca, with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
-        "readme": "# Voice Input\n\nModeled after Orca's voice dictation architecture, providing low-latency AI speech-to-text and post-transcription cleanup for VibeX's session composer and Monaco editors.\n\n## Key Capabilities\n\n- **Multi-Engine Speech-to-Text**: Supports `hybrid` (Web Speech live captions + cloud Whisper post-processing), `openai-whisper` (`/v1/audio/transcriptions`), `groq-whisper` (`whisper-large-v3-turbo`), `openai-chat-audio`, and `browser-speech`.\n- **Custom Vocabulary Hotwords**: Automatically biases Whisper decoding prompts and normalizes technical terminology spelling (`VibeX`, `Tauri`, `Monaco`, `TypeScript`, `Worktree`).\n- **Post-Transcription Cleanup**: Strips spoken filler words and stutters while preserving raw transcripts for comparison.",
+        "summary": "AI voice dictation and speech-to-text with live streaming captions, Whisper/Groq/multimodal audio transcription, custom vocabulary hotwords, and intelligent post-transcription cleanup.",
+        "readme": "# Voice Input\n\nProvides low-latency AI speech-to-text and post-transcription cleanup for VibeX's session composer and Monaco editors.\n\n## Key Capabilities\n\n- **Multi-Engine Speech-to-Text**: Supports `hybrid` (Web Speech live captions + cloud Whisper post-processing), `openai-whisper` (`/v1/audio/transcriptions`), `groq-whisper` (`whisper-large-v3-turbo`), `openai-chat-audio`, and `browser-speech`.\n- **Custom Vocabulary Hotwords**: Automatically biases Whisper decoding prompts and normalizes technical terminology spelling (`VibeX`, `Tauri`, `Monaco`, `TypeScript`, `Worktree`).\n- **Post-Transcription Cleanup**: Strips spoken filler words and stutters while preserving raw transcripts for comparison.",
         "config": {
           "enabled": {
             "title": "Enable voice input",

@@ -1,11 +1,11 @@
 ---
 name: voice-input
-description: Configure and use Orca-inspired AI voice dictation, Whisper/Groq speech-to-text, custom vocabulary hotwords, and intelligent post-transcription cleanup in VibeX.
+description: Configure and use AI voice dictation, Whisper/Groq speech-to-text, custom vocabulary hotwords, and intelligent post-transcription cleanup in VibeX.
 ---
 
 # AI Voice Input (`vibex.voice-input`)
 
-This plugin adds Orca-style AI voice dictation to VibeX's session composer, Monaco code editors, and status bar.
+This plugin adds AI voice dictation to VibeX's session composer, Monaco code editors, and status bar.
 
 ## Key Capabilities
 
@@ -16,7 +16,7 @@ This plugin adds Orca-style AI voice dictation to VibeX's session composer, Mona
    - `openai-chat-audio`: OpenAI-compatible `/v1/chat/completions` multimodal `input_audio` single-pass transcription + cleanup.
    - `browser-speech`: Native zero-config Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`).
 
-2. **Orca Quality Controls**:
+2. **Quality Controls & Post-Processing**:
    - **Language Hint (`language`)**: `auto`, `zh`, `en`, `ja`, `ko`.
    - **Custom Vocabulary / Hotwords (`vocabulary`)**: Biases Whisper decoding via `prompt` and normalizes phonetic/casing variations of project terms (`VibeX`, `Tauri`, `Monaco`, `Worktree`, etc.).
    - **Post-Transcription Cleanup (`cleanupMode`)**:

@@ -1036,475 +1036,237 @@ export default {
         );
       }
 
-      // 2. Status Bar Studio Popover View (`voice-input-status` view in `status.after-mcp`)
+      // 2. Status Bar Compact Popover View (`voice-input-status` view in `status.after-mcp`)
       function VoiceStatusPopoverView() {
         const snap = useVoiceSnapshot();
         const [recordingShortcut, setRecordingShortcut] = useState(false);
-        const [devices, setDevices] = useState([]);
-        const [testDraft, setTestDraft] = useState('');
-        const [showRaw, setShowRaw] = useState(false);
-        const [hotwordDraft, setHotwordDraft] = useState('');
-
-        useEffect(() => {
-          if (snap.lastResult) {
-            setTestDraft(
-              showRaw
-                ? snap.lastResult.rawText || ''
-                : snap.lastResult.cleanedText || snap.lastResult.text || '',
-            );
-          }
-        }, [snap.lastResult, showRaw]);
-
-        useEffect(() => {
-          if (
-            typeof navigator !== 'undefined' &&
-            navigator.mediaDevices &&
-            typeof navigator.mediaDevices.enumerateDevices === 'function'
-          ) {
-            void navigator.mediaDevices
-              .enumerateDevices()
-              .then((list) => {
-                setDevices(
-                  list.filter((d) => d.kind === 'audioinput'),
-                );
-              })
-              .catch(() => {});
-          }
-        }, []);
 
         const cfg = snap.config;
+        const enabled = Boolean(cfg.enabled);
         const isRecording = snap.state === 'recording';
         const isTranscribing = snap.state === 'transcribing';
+
+        useEffect(() => {
+          if (!recordingShortcut || typeof window === 'undefined') return undefined;
+          const handleKeyDown = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+              setRecordingShortcut(false);
+              return;
+            }
+            const nextSc = formatKeyboardEventToShortcut(e);
+            if (nextSc) {
+              persistAndSyncConfig({ shortcut: nextSc });
+              setRecordingShortcut(false);
+            }
+          };
+          window.addEventListener('keydown', handleKeyDown, true);
+          return () => window.removeEventListener('keydown', handleKeyDown, true);
+        }, [recordingShortcut]);
+
+        const openPluginSettings = () => {
+          try {
+            if (
+              typeof window !== 'undefined' &&
+              window.__TAURI_INTERNALS__ &&
+              typeof window.__TAURI_INTERNALS__.invoke === 'function'
+            ) {
+              void window.__TAURI_INTERNALS__.invoke('open_settings_window', {
+                title: '设置',
+                path: `/plugins/${PLUGIN_ID}`,
+              });
+              return;
+            }
+          } catch {
+            // fallback
+          }
+          if (typeof window !== 'undefined') {
+            window.location.hash = `#/plugins/${PLUGIN_ID}`;
+          }
+        };
 
         return h(
           'div',
           {
             className:
-              'flex h-full w-full flex-col overflow-y-auto bg-background p-4 text-xs text-foreground gap-4',
+              'flex w-80 flex-col gap-3 bg-background p-3.5 text-xs text-foreground',
             'data-testid': 'voice-status-popover-studio',
           },
-          // Header
-          h(
-            'div',
-            { className: 'flex items-center justify-between border-b border-border pb-3' },
-            h(
-              'div',
-              { className: 'flex items-center gap-2' },
-              h('span', { className: 'text-sm font-semibold' }, 'AI 语音输入与智能听写'),
-              h(
-                'span',
-                {
-                  className:
-                    'rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary',
-                },
-                cfg.providerProtocol,
-              ),
-            ),
-            h(
-              'label',
-              { className: 'flex items-center gap-2 cursor-pointer' },
-              h('span', { className: 'text-muted-foreground' }, cfg.enabled ? '已启用' : '已禁用'),
-              h('input', {
-                type: 'checkbox',
-                checked: Boolean(cfg.enabled),
-                onChange: (e) => persistAndSyncConfig({ enabled: e.target.checked }),
-                className: 'h-4 w-4 accent-primary',
-              }),
-            ),
-          ),
-
-          // Live Dictation & Test Box
+          // Header with Switch
           h(
             'div',
             {
               className:
-                'flex flex-col gap-2.5 rounded-lg border border-border bg-muted/30 p-3',
+                'flex items-center justify-between gap-2 border-b border-border/60 pb-2.5',
             },
             h(
               'div',
-              { className: 'flex items-center justify-between' },
+              { className: 'flex items-center gap-2' },
               h(
-                'div',
-                { className: 'flex items-center gap-2' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => void controller.toggleRecording(),
-                    disabled: !cfg.enabled || isTranscribing,
-                    className: isRecording
-                      ? 'inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 font-medium text-destructive-foreground'
-                      : 'inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground',
-                  },
-                  isRecording
-                    ? `停止录音 (${snap.durationLabel})`
-                    : isTranscribing
-                      ? '正在识别与润色…'
-                      : `开始语音听写 (${cfg.shortcut})`,
-                ),
-                isRecording
-                  ? h(
-                      'span',
-                      { className: 'text-destructive font-medium animate-pulse' },
-                      snap.liveTranscript || '正在聆听麦克风输入…',
-                    )
-                  : null,
+                'svg',
+                {
+                  viewBox: '0 0 24 24',
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeWidth: '1.8',
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  className: 'h-4 w-4 text-primary',
+                },
+                h('rect', { x: '9', y: '2', width: '6', height: '11', rx: '3' }),
+                h('path', { d: 'M5 10a7 7 0 0 0 14 0' }),
+                h('line', { x1: '12', y1: '17', x2: '12', y2: '21' }),
+                h('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
               ),
-              snap.lastResult
-                ? h(
-                    'button',
-                    {
-                      type: 'button',
-                      onClick: () => setShowRaw((v) => !v),
-                      className:
-                        'rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent',
-                    },
-                    showRaw ? '查看润色结果' : '查看原始识别',
-                  )
-                : null,
+              h('span', { className: 'text-xs font-semibold text-foreground' }, '语音输入'),
             ),
-            h('textarea', {
-              rows: 3,
-              value: isRecording ? snap.liveTranscript : testDraft,
-              onChange: (e) => setTestDraft(e.target.value),
-              placeholder: '点击上方按钮或按快捷键说话，识别与智能去口水词结果将显示在此处…',
-              className:
-                'w-full rounded-md border border-border bg-background p-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary',
-            }),
             h(
-              'div',
-              { className: 'flex items-center justify-between' },
-              h(
-                'span',
-                { className: 'text-[11px] text-muted-foreground' },
-                snap.lastError
-                  ? `错误: ${snap.lastError}`
-                  : snap.lastResult
-                    ? `最近识别耗时 ${snap.lastResult.latencyMs || 1}ms · 引擎: ${snap.lastResult.provider}`
-                    : `支持会话输入框与代码编辑器光标处直接写入`,
-              ),
-              h(
-                'div',
-                { className: 'flex items-center gap-1.5' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    disabled: !testDraft.trim(),
-                    onClick: () => void controller.insertTranscriptIntoTarget(testDraft),
-                    className:
-                      'rounded-md bg-primary/15 px-2.5 py-1 font-medium text-primary hover:bg-primary/25 disabled:opacity-40',
-                  },
-                  '插入当前输入框',
-                ),
-              ),
+              'button',
+              {
+                type: 'button',
+                role: 'switch',
+                'aria-checked': enabled,
+                'aria-label': '启用语音输入',
+                'data-state': enabled ? 'checked' : 'unchecked',
+                'data-testid': 'voice-status-enable-switch',
+                onClick: () => persistAndSyncConfig({ enabled: !enabled }),
+                className:
+                  'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-border bg-[var(--surface-control)] transition-colors data-[state=checked]:border-[var(--switch-checked-border)] data-[state=checked]:bg-[var(--switch-checked-track)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
+              },
+              h('span', {
+                'data-state': enabled ? 'checked' : 'unchecked',
+                className:
+                  'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-[var(--shadow-switch-thumb)] ring-0 transition-transform data-[state=checked]:translate-x-[18px] data-[state=checked]:bg-[var(--switch-checked-thumb)] data-[state=unchecked]:translate-x-0.5',
+              }),
             ),
           ),
 
-          // Configuration Grid
+          // Quick Dictation Action Button
           h(
             'div',
-            { className: 'grid grid-cols-2 gap-3' },
-            // Protocol
+            { className: 'flex flex-col gap-1.5' },
             h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '识别引擎协议'),
-              h(
-                'select',
-                {
-                  value: cfg.providerProtocol,
-                  onChange: (e) =>
-                    persistAndSyncConfig({ providerProtocol: e.target.value }),
-                  className:
-                    'h-8 rounded-md border border-border bg-background px-2 text-xs',
-                },
-                h('option', { value: 'hybrid' }, '混合流式 + 云端 Whisper (推荐)'),
-                h('option', { value: 'openai-whisper' }, 'OpenAI Whisper (/v1/audio/transcriptions)'),
-                h('option', { value: 'groq-whisper' }, 'Groq 极速 Whisper (whisper-large-v3-turbo)'),
-                h('option', { value: 'openai-chat-audio' }, '多模态 Chat Audio (/v1/chat/completions)'),
-                h('option', { value: 'browser-speech' }, '浏览器/系统原生实时听写 (免 Key)'),
-              ),
+              'button',
+              {
+                type: 'button',
+                onClick: () => void controller.toggleRecording(),
+                disabled: !enabled || isTranscribing,
+                className: isRecording
+                  ? 'inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90'
+                  : 'inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50',
+              },
+              isRecording
+                ? `停止录音 (${snap.durationLabel})`
+                : isTranscribing
+                  ? '正在识别与润色…'
+                  : `开始语音听写 (${cfg.shortcut})`,
             ),
-            // Language
-            h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '识别语言提示'),
-              h(
-                'select',
-                {
-                  value: cfg.language,
-                  onChange: (e) => persistAndSyncConfig({ language: e.target.value }),
-                  className:
-                    'h-8 rounded-md border border-border bg-background px-2 text-xs',
-                },
-                h('option', { value: 'auto' }, '自动检测 (中英混合)'),
-                h('option', { value: 'zh' }, '中文 (zh-CN)'),
-                h('option', { value: 'en' }, 'English (en-US)'),
-                h('option', { value: 'ja' }, '日本語 (ja-JP)'),
-                h('option', { value: 'ko' }, '한국어 (ko-KR)'),
-              ),
-            ),
-            // Cleanup Mode
-            h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '听写后智能润色 (Orca Cleanup)'),
-              h(
-                'select',
-                {
-                  value: cfg.cleanupMode,
-                  onChange: (e) => persistAndSyncConfig({ cleanupMode: e.target.value }),
-                  className:
-                    'h-8 rounded-md border border-border bg-background px-2 text-xs',
-                },
-                h('option', { value: 'auto-clean' }, '自动去口水词与术语纠错后直接插入'),
-                h('option', { value: 'preview' }, '弹出润色 vs 原文对照预览确认后插入'),
-                h('option', { value: 'off' }, '关闭润色 (仅输出原始识别结果)'),
-              ),
-            ),
-            // Recording Mode & Shortcut
-            h(
-              'div',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '触发方式与快捷键'),
-              h(
-                'div',
-                { className: 'flex items-center gap-1.5' },
-                h(
-                  'select',
+            isRecording && snap.liveTranscript
+              ? h(
+                  'p',
                   {
-                    value: cfg.recordingMode,
-                    onChange: (e) =>
-                      persistAndSyncConfig({ recordingMode: e.target.value }),
                     className:
-                      'h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs',
+                      'truncate rounded bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground',
                   },
-                  h('option', { value: 'toggle' }, '单击切换开始/结束'),
-                  h('option', { value: 'push-to-talk' }, '按住说话松开转写'),
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    onClick: () => setRecordingShortcut((v) => !v),
-                    onKeyDown: (e) => {
-                      if (!recordingShortcut) return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (e.key === 'Escape') {
-                        setRecordingShortcut(false);
-                        return;
-                      }
-                      const nextSc = formatKeyboardEventToShortcut(e);
-                      if (nextSc) {
-                        persistAndSyncConfig({ shortcut: nextSc });
-                        setRecordingShortcut(false);
-                      }
-                    },
-                    className:
-                      'h-8 rounded-md border border-border bg-muted/50 px-2.5 font-mono text-xs hover:bg-accent',
-                  },
-                  recordingShortcut ? '请按键…' : cfg.shortcut,
-                ),
-              ),
-            ),
-            // Microphone Device
+                  snap.liveTranscript,
+                )
+              : null,
+            snap.lastError
+              ? h(
+                  'p',
+                  { className: 'text-[11px] text-destructive' },
+                  snap.lastError,
+                )
+              : null,
+          ),
+
+          // Recording Trigger Mode
+          h(
+            'div',
+            { className: 'flex flex-col gap-1.5' },
             h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '麦克风输入设备'),
-              h(
-                'select',
-                {
-                  value: cfg.audioDeviceId,
-                  onChange: (e) =>
-                    persistAndSyncConfig({ audioDeviceId: e.target.value }),
-                  className:
-                    'h-8 rounded-md border border-border bg-background px-2 text-xs',
-                },
-                h('option', { value: 'default' }, '系统默认麦克风'),
-                ...devices.map((d, i) =>
-                  h(
-                    'option',
-                    { key: d.deviceId || i, value: d.deviceId },
-                    d.label || `麦克风 ${i + 1}`,
-                  ),
-                ),
-              ),
+              'span',
+              { className: 'text-[11px] font-medium text-muted-foreground' },
+              '录音触发方式',
             ),
-            // Model
             h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, '语音识别模型'),
-              h('input', {
-                type: 'text',
-                value: cfg.model,
-                onChange: (e) => persistAndSyncConfig({ model: e.target.value }),
-                placeholder: 'gpt-4o-mini-transcribe / whisper-1 / whisper-large-v3-turbo',
+              'select',
+              {
+                'aria-label': '录音触发方式',
+                value: cfg.recordingMode,
+                disabled: !enabled,
+                onChange: (e) =>
+                  persistAndSyncConfig({ recordingMode: e.target.value }),
                 className:
-                  'h-8 rounded-md border border-border bg-background px-2 text-xs',
-              }),
-            ),
-            // Base URL
-            h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, 'API Base URL'),
-              h('input', {
-                type: 'text',
-                value: cfg.baseUrl,
-                onChange: (e) => persistAndSyncConfig({ baseUrl: e.target.value }),
-                placeholder: 'https://api.openai.com/v1',
-                className:
-                  'h-8 rounded-md border border-border bg-background px-2 text-xs',
-              }),
-            ),
-            // API Key
-            h(
-              'label',
-              { className: 'flex flex-col gap-1' },
-              h('span', { className: 'font-medium text-muted-foreground' }, 'API Key (可选，留空自动使用环境变量/流式听写)'),
-              h('input', {
-                type: 'password',
-                value: cfg.apiKey,
-                onChange: (e) => persistAndSyncConfig({ apiKey: e.target.value }),
-                placeholder: 'sk-...',
-                className:
-                  'h-8 rounded-md border border-border bg-background px-2 text-xs',
-              }),
+                  'h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50',
+              },
+              h('option', { value: 'toggle' }, '单击切换开始 / 结束'),
+              h('option', { value: 'push-to-talk' }, '按住说话，松开即转写'),
             ),
           ),
 
-          // Custom Vocabulary / Hotwords (Token Pill List)
-          (() => {
-            const vocabTokens = Array.from(
-              new Set(parseVocabularyList(cfg.vocabulary)),
-            );
-            const commitTokens = (nextTokens) => {
-              const deduped = Array.from(
-                new Set(parseVocabularyList(nextTokens)),
-              );
-              persistAndSyncConfig({ vocabulary: deduped.join(', ') });
-            };
-            const addFromDraft = (raw) => {
-              const added = parseVocabularyList(raw);
-              if (added.length > 0) {
-                commitTokens([...vocabTokens, ...added]);
-              }
-              setHotwordDraft('');
-            };
-            return h(
+          // Shortcut Recorder
+          h(
+            'div',
+            { className: 'flex flex-col gap-1.5' },
+            h(
+              'span',
+              { className: 'text-[11px] font-medium text-muted-foreground' },
+              '语音输入快捷键',
+            ),
+            h(
               'div',
-              { className: 'flex flex-col gap-1.5' },
-              h(
-                'span',
-                { className: 'font-medium text-muted-foreground' },
-                `自定义术语热词表 (${vocabTokens.length} 个 Token · 自动注入 Whisper 提示词与专名纠错)`,
-              ),
-              h(
-                'div',
-                {
-                  'data-testid': 'voice-vocabulary-token-list',
-                  className:
-                    'flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5',
+              { className: 'flex items-center gap-1.5' },
+              h('input', {
+                type: 'text',
+                'aria-label': '语音输入快捷键',
+                readOnly: recordingShortcut,
+                disabled: !enabled,
+                value: recordingShortcut
+                  ? '请按下快捷键组合 (Esc 取消)…'
+                  : cfg.shortcut,
+                onChange: (e) => {
+                  if (!recordingShortcut) {
+                    persistAndSyncConfig({ shortcut: e.target.value });
+                  }
                 },
-                ...vocabTokens.map((term, idx) =>
-                  h(
-                    'span',
-                    {
-                      key: `${term}-${idx}`,
-                      'data-testid': 'voice-vocabulary-token',
-                      className:
-                        'inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground',
-                    },
-                    h('span', null, term),
-                    h(
-                      'button',
-                      {
-                        type: 'button',
-                        'aria-label': `移除 ${term}`,
-                        onClick: () =>
-                          commitTokens(vocabTokens.filter((_, i) => i !== idx)),
-                        className:
-                          'inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/20 hover:text-foreground',
-                      },
-                      '×',
-                    ),
-                  ),
-                ),
-                h('input', {
-                  type: 'text',
-                  'aria-label': '添加自定义术语热词',
-                  value: hotwordDraft,
-                  onChange: (e) => setHotwordDraft(e.target.value),
-                  onKeyDown: (e) => {
-                    if (
-                      e.key === 'Enter' ||
-                      e.key === ',' ||
-                      e.key === '，' ||
-                      e.key === ';'
-                    ) {
-                      e.preventDefault();
-                      if (hotwordDraft.trim()) {
-                        addFromDraft(hotwordDraft);
-                      }
-                      return;
-                    }
-                    if (
-                      e.key === 'Backspace' &&
-                      hotwordDraft === '' &&
-                      vocabTokens.length > 0
-                    ) {
-                      e.preventDefault();
-                      commitTokens(vocabTokens.slice(0, -1));
-                    }
-                  },
-                  onBlur: () => {
-                    if (hotwordDraft.trim()) {
-                      addFromDraft(hotwordDraft);
-                    }
-                  },
-                  placeholder: '输入热词后按 Enter 添加…',
+                className:
+                  'h-8 flex-1 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground disabled:opacity-50',
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  disabled: !enabled,
+                  onMouseDown: (e) => e.preventDefault(),
+                  onClick: () => setRecordingShortcut((v) => !v),
                   className:
-                    'h-6 min-w-[120px] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground',
-                }),
+                    'inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50',
+                },
+                recordingShortcut ? '取消录制' : '录制快捷键',
               ),
-            );
-          })(),
+            ),
+          ),
 
-          // Recent History
-          snap.history.length > 0
-            ? h(
-                'div',
-                { className: 'flex flex-col gap-1.5 border-t border-border pt-3' },
-                h('span', { className: 'font-medium text-muted-foreground' }, '最近语音听写记录'),
-                ...snap.history.slice(0, 5).map((item) =>
-                  h(
-                    'div',
-                    {
-                      key: item.id,
-                      className:
-                        'flex items-center justify-between gap-2 rounded border border-border/60 bg-muted/20 px-2.5 py-1.5',
-                    },
-                    h('span', { className: 'truncate flex-1' }, item.text),
-                    h(
-                      'button',
-                      {
-                        type: 'button',
-                        onClick: () =>
-                          void controller.insertTranscriptIntoTarget(item.text),
-                        className:
-                          'shrink-0 rounded bg-accent px-2 py-0.5 text-[11px] hover:bg-accent/80',
-                      },
-                      '重插',
-                    ),
-                  ),
-                ),
-              )
-            : null,
+          // Footer link to full settings
+          h(
+            'div',
+            {
+              className:
+                'flex items-center justify-end border-t border-border/60 pt-2',
+            },
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: openPluginSettings,
+                className:
+                  'inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+              },
+              h('span', null, '前往设置修改'),
+            ),
+          ),
         );
       }
 

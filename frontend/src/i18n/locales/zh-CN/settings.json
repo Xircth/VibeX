@@ -1001,8 +1001,8 @@
       },
       "voiceInput": {
         "name": "语音输入",
-        "summary": "AI 语音输入与智能听写（参考 Orca）：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。",
-        "readme": "# 语音输入\n\n参考 Orca 的语音听写架构设计，为 VibeX 会话输入框与代码编辑器提供低延迟、高准确率的 AI 语音输入与听写后智能润色体验。\n\n## 核心特性\n\n- **多引擎混合识别**：支持 `hybrid`（Web Speech 实时流式字幕 + 云端 Whisper 后处理）、`openai-whisper`（`/v1/audio/transcriptions`）、`groq-whisper`（`whisper-large-v3-turbo` 亚秒级转写）、`openai-chat-audio` 与 `browser-speech`。\n- **自定义术语热词表**：自动注入 Whisper 提示词并在后处理阶段修正项目专有名词与技术术语大小写（如 `VibeX`、`Tauri`、`Monaco`、`TypeScript`、`Worktree`）。\n- **听写后智能润色**：自动剔除中英文口水词（“嗯”、“啊”、“那个就是说”、“um”、“uh”）与重复结巴词，规范化中英文间距与标点，同时保留原始识别结果随时可切换对比。",
+        "summary": "AI 语音输入与智能听写：支持实时流式字幕、Whisper/Groq/多模态音频识别、自定义术语热词与听写后智能去口水词润色。",
+        "readme": "# 语音输入\n\n为 VibeX 会话输入框与代码编辑器提供低延迟、高准确率的 AI 语音输入与听写后智能润色体验。\n\n## 核心特性\n\n- **多引擎混合识别**：支持 `hybrid`（Web Speech 实时流式字幕 + 云端 Whisper 后处理）、`openai-whisper`（`/v1/audio/transcriptions`）、`groq-whisper`（`whisper-large-v3-turbo` 亚秒级转写）、`openai-chat-audio` 与 `browser-speech`。\n- **自定义术语热词表**：自动注入 Whisper 提示词并在后处理阶段修正项目专有名词与技术术语大小写（如 `VibeX`、`Tauri`、`Monaco`、`TypeScript`、`Worktree`）。\n- **听写后智能润色**：自动剔除中英文口水词（“嗯”、“啊”、“那个就是说”、“um”、“uh”）与重复结巴词，规范化中英文间距与标点，同时保留原始识别结果随时可切换对比。",
         "config": {
           "enabled": {
             "title": "启用语音输入",

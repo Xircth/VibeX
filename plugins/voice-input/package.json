@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Orca-inspired AI voice dictation and speech-to-text plugin for VibeX.",
+  "description": "AI voice dictation and speech-to-text plugin for VibeX.",
   "scripts": {
     "build": "node ../../packages/plugin-cli/dist/cli.js build",
     "validate": "node ../../packages/plugin-cli/dist/cli.js validate",

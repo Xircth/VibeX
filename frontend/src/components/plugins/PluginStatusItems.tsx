@@ -376,7 +376,7 @@ function AfterMcpStatusButton({
         side="top"
         align="end"
         sideOffset={6}
-        className="flex h-[min(78vh,620px)] w-[min(720px,calc(100vw-2rem))] flex-col overflow-hidden border border-border bg-background p-0 shadow-md"
+        className="flex max-h-[min(78vh,620px)] w-auto max-w-[min(720px,calc(100vw-2rem))] flex-col overflow-hidden border border-border bg-background p-0 shadow-md"
       >
         <PluginRemoteView item={entry.item} slot="status.after-mcp" />
       </PopoverContent>

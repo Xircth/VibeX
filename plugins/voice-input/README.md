@@ -1,6 +1,6 @@
-# AI 语音输入 (`vibex.voice-input`)
+# 语音输入 (`vibex.voice-input`)
 
-参考 [Orca (`stablyai/orca`)](https://github.com/stablyai/orca) 的语音听写架构设计，为 VibeX 提供低延迟、高准确率的 AI 语音输入与听写后智能润色体验。
+为 VibeX 会话输入框与代码编辑器提供低延迟、高准确率的 AI 语音输入与听写后智能润色体验。
 
 ## 核心特性
 
@@ -10,7 +10,7 @@
   - **Groq 极速 Whisper（`groq-whisper`）**：支持 `whisper-large-v3-turbo` 与 `whisper-large-v3` 亚秒级语音转写。
   - **多模态 Chat Audio（`openai-chat-audio`）**：支持 `/v1/chat/completions` `input_audio` 单次完成语音识别与口水词清理。
   - **浏览器原生听写（`browser-speech`）**：纯本地/系统级实时语音识别，零 API 成本。
-- **Orca 质量控制与智能后处理**：
+- **质量控制与智能后处理**：
   - **自定义术语热词表（`vocabulary`）**：支持配置项目专有名词、技术栈术语与命令（如 `VibeX, Tauri, Monaco, TypeScript, Rust, MCP, Skill, Worktree`），自动注入 Whisper `prompt` 并在后处理阶段修正大小写与同音误写。
   - **听写后智能润色（`cleanupMode`）**：
     - `auto-clean`（默认）：自动剔除中英文口水词（“嗯”、“啊”、“那个”、“就是说”、“um”、“uh”）、重复结巴词，规范化中英文间距与标点，并在配置了 API Key 时使用轻量模型润色，同时保留原始识别文本随时可回退。

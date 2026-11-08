@@ -16,7 +16,7 @@ struct ConversationDetailView: View {
     @State private var unreadMessageUpdates = 0
     @State private var hasPerformedInitialScroll = false
 
-    private let bottomSafeZoneThreshold: CGFloat = 110
+    private let bottomSafeZoneThreshold: CGFloat = 56
 
     private var isInBottomSafeZone: Bool {
         !userDetachedFromBottom && !isUserDraggingScroll && distanceFromBottom <= bottomSafeZoneThreshold
@@ -362,7 +362,7 @@ struct ConversationDetailView: View {
                     ScrollViewReader { proxy in
                         ZStack(alignment: .bottom) {
                             ScrollView(.vertical, showsIndicators: true) {
-                                LazyVStack(alignment: .leading, spacing: 16) {
+                                VStack(alignment: .leading, spacing: 16) {
                                     ForEach(model.items) { item in
                                         MessageRow(
                                             item: item,
@@ -381,56 +381,76 @@ struct ConversationDetailView: View {
                                     Color.clear
                                         .frame(height: 1)
                                         .id("conversation-bottom")
-                                        .background(
-                                            GeometryReader { bottomGeo in
-                                                Color.clear.preference(
-                                                    key: ConversationBottomMaxYKey.self,
-                                                    value: bottomGeo.frame(in: .named("conversationScroll")).maxY
-                                                )
-                                            }
-                                        )
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 12)
                                 .frame(width: containerWidth, alignment: .leading)
+                                .background(
+                                    GeometryReader { contentGeo in
+                                        let frame = contentGeo.frame(in: .named("conversationScroll"))
+                                        let rawDist = max(0, frame.maxY - viewportHeight)
+                                        Color.clear
+                                            .onAppear {
+                                                handleScrollMetrics(
+                                                    distance: rawDist,
+                                                    contentHeight: frame.height,
+                                                    viewportHeight: viewportHeight
+                                                )
+                                            }
+                                            .onChange(of: Int(rawDist.rounded())) { _, _ in
+                                                handleScrollMetrics(
+                                                    distance: rawDist,
+                                                    contentHeight: frame.height,
+                                                    viewportHeight: viewportHeight
+                                                )
+                                            }
+                                    }
+                                )
                             }
                             .coordinateSpace(name: "conversationScroll")
-                            .defaultScrollAnchor(.bottom)
                             .scrollDismissesKeyboard(.interactively)
                             .simultaneousGesture(
-                                DragGesture(minimumDistance: 6)
+                                DragGesture(minimumDistance: 5)
                                     .onChanged { value in
                                         isUserDraggingScroll = true
                                         // Finger pulling down (positive translation.height) = scrolling upward away from bottom
                                         if value.translation.height > 10 {
-                                            userDetachedFromBottom = true
+                                            if !userDetachedFromBottom {
+                                                userDetachedFromBottom = true
+                                            }
+                                        } else if value.translation.height < -18 && distanceFromBottom <= bottomSafeZoneThreshold {
+                                            userDetachedFromBottom = false
+                                            unreadMessageUpdates = 0
                                         }
                                     }
                                     .onEnded { value in
                                         isUserDraggingScroll = false
-                                        if value.translation.height < -24 && distanceFromBottom <= bottomSafeZoneThreshold {
+                                        if value.translation.height > 14 {
+                                            userDetachedFromBottom = true
+                                        } else if value.translation.height < -24 && distanceFromBottom <= bottomSafeZoneThreshold {
                                             userDetachedFromBottom = false
                                             unreadMessageUpdates = 0
                                         }
                                     }
                             )
-                            .onPreferenceChange(ConversationBottomMaxYKey.self) { bottomMaxY in
-                                guard viewportHeight > 0, bottomMaxY > 0 else { return }
-                                let delta = max(0, bottomMaxY - viewportHeight)
-                                distanceFromBottom = delta
-                                if delta <= 72 && !isUserDraggingScroll {
-                                    if userDetachedFromBottom {
-                                        userDetachedFromBottom = false
-                                    }
-                                    if unreadMessageUpdates != 0 {
-                                        unreadMessageUpdates = 0
-                                    }
-                                } else if delta > bottomSafeZoneThreshold && isUserDraggingScroll {
-                                    userDetachedFromBottom = true
-                                }
-                            }
                             .onAppear {
                                 scrollToBottomImmediately(proxy: proxy)
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                                Task {
+                                    await model.reload()
+                                    if isInBottomSafeZone {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                }
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibex.didReturnToConversationsTab"))) { _ in
+                                Task {
+                                    await model.reload()
+                                    if isInBottomSafeZone {
+                                        proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                                    }
+                                }
                             }
                             .onChange(of: model.items.count) { oldCount, newCount in
                                 guard newCount > oldCount else { return }
@@ -465,12 +485,13 @@ struct ConversationDetailView: View {
 
                             if shouldShowScrollToBottomButton {
                                 scrollToBottomButton(proxy: proxy)
-                                    .padding(.bottom, 10)
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                                    .padding(.bottom, 12)
+                                    .transition(.scale(scale: 0.88, anchor: .bottom).combined(with: .opacity))
+                                    .zIndex(10)
                             }
                         }
-                        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: shouldShowScrollToBottomButton)
-                        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: unreadMessageUpdates)
+                        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: shouldShowScrollToBottomButton)
+                        .animation(.spring(response: 0.24, dampingFraction: 0.84), value: unreadMessageUpdates)
                     }
                 }
             }
@@ -481,8 +502,36 @@ struct ConversationDetailView: View {
         }
     }
 
+    private func handleScrollMetrics(
+        distance: CGFloat,
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat
+    ) {
+        guard viewportHeight > 0 else { return }
+        distanceFromBottom = distance
+        if contentHeight <= viewportHeight + 20 {
+            if userDetachedFromBottom && !isUserDraggingScroll {
+                userDetachedFromBottom = false
+                unreadMessageUpdates = 0
+            }
+            return
+        }
+        if distance <= 36 && !isUserDraggingScroll {
+            if userDetachedFromBottom {
+                userDetachedFromBottom = false
+            }
+            if unreadMessageUpdates != 0 {
+                unreadMessageUpdates = 0
+            }
+        } else if distance > bottomSafeZoneThreshold {
+            if !userDetachedFromBottom {
+                userDetachedFromBottom = true
+            }
+        }
+    }
+
     private var shouldShowScrollToBottomButton: Bool {
-        distanceFromBottom > bottomSafeZoneThreshold || (userDetachedFromBottom && unreadMessageUpdates > 0)
+        userDetachedFromBottom || distanceFromBottom > bottomSafeZoneThreshold || unreadMessageUpdates > 0
     }
 
     private func scrollToBottomImmediately(proxy: ScrollViewProxy) {
@@ -490,7 +539,11 @@ struct ConversationDetailView: View {
         unreadMessageUpdates = 0
         proxy.scrollTo("conversation-bottom", anchor: .bottom)
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(60))
+            try? await Task.sleep(for: .milliseconds(50))
+            if !userDetachedFromBottom {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            }
+            try? await Task.sleep(for: .milliseconds(120))
             if !userDetachedFromBottom {
                 proxy.scrollTo("conversation-bottom", anchor: .bottom)
                 hasPerformedInitialScroll = true
@@ -500,66 +553,56 @@ struct ConversationDetailView: View {
 
     @ViewBuilder
     private func scrollToBottomButton(proxy: ScrollViewProxy) -> some View {
-        let showExtendedLabel = unreadMessageUpdates > 0 || model.session.isTurnRunning || distanceFromBottom > 360
+        let showExtendedLabel = unreadMessageUpdates > 0 || model.session.isTurnRunning || distanceFromBottom > 180
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             userDetachedFromBottom = false
             isUserDraggingScroll = false
+            distanceFromBottom = 0
             unreadMessageUpdates = 0
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 proxy.scrollTo("conversation-bottom", anchor: .bottom)
             }
         } label: {
             HStack(spacing: 6) {
-                if model.session.isTurnRunning {
+                if model.session.isTurnRunning || unreadMessageUpdates > 0 {
                     Circle()
                         .fill(Color.orange)
-                        .frame(width: 6.5, height: 6.5)
+                        .frame(width: 7, height: 7)
                 }
 
                 if showExtendedLabel {
                     if unreadMessageUpdates > 0 {
                         Text("\(unreadMessageUpdates) 条新动态")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .semibold))
                             .monospacedDigit()
                     } else if model.session.isTurnRunning {
                         Text("跟随最新回答")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .semibold))
                     } else {
                         Text("回到底部")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 12.5, weight: .medium))
                     }
                 }
 
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
             }
             .foregroundStyle(.primary)
-            .padding(.horizontal, showExtendedLabel ? 13 : 10)
-            .frame(height: 34)
+            .padding(.horizontal, showExtendedLabel ? 14 : 11)
+            .frame(height: 36)
             .background(
                 Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color(.secondarySystemGroupedBackground).opacity(0.88))
-                    )
+                    .fill(Color(.secondarySystemGroupedBackground))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.75)
+                    .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 3)
+            .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("滚动到最底部")
-    }
-}
-
-private struct ConversationBottomMaxYKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 

@@ -10,7 +10,7 @@ final class ConversationModel {
 
     private(set) var items: [TimelineItem] = []
     private var transcript: TranscriptState
-    private let activity = TaskActivityController()
+    private let activity = TaskActivityController.shared
     private var events: [RemoteEvent] = []
     private var lastSequence: Int64 = 0
     private(set) var session = SessionState()
@@ -82,13 +82,38 @@ final class ConversationModel {
         }
         await applyLiveControls()
         if agents.isEmpty { await refreshCatalog() }
-        let step = items.last?.tools.last.map { tool in
-            tool.preview.map { "\(tool.name) \($0)" } ?? tool.name
+        let lastAssistant = items.last { $0.role == .assistant }
+        let latestToolName = lastAssistant?.tools.last?.name
+        let totalSteps = (lastAssistant?.tools.count ?? 0) + (lastAssistant?.thinking.isEmpty == false ? 1 : 0)
+        let hasPendingApproval = !session.pendingPermissions.isEmpty || !session.pendingQuestions.isEmpty
+        let approvalSummary: String? = if let perm = session.pendingPermissions.first {
+            perm.title
+        } else if let q = session.pendingQuestions.first {
+            q.prompt
+        } else {
+            nil
         }
-        activity.sync(title: conversation.title ?? "对话", tasks: items.currentPlan, step: step, running: session.isTurnRunning)
+        activity.sync(
+            conversationID: conversation.id,
+            projectName: "VibeX",
+            title: conversation.title ?? "未命名对话",
+            tasks: items.currentPlan,
+            latestToolName: latestToolName,
+            stepCount: totalSteps,
+            hasThinking: !(lastAssistant?.thinking.isEmpty ?? true),
+            hasTextOutput: !(lastAssistant?.text.isEmpty ?? true),
+            hasPendingApproval: hasPendingApproval,
+            approvalSummary: approvalSummary,
+            running: session.isTurnRunning
+        )
     }
 
-    func stopActivity() { activity.stop() }
+    func stopActivity() {
+        // Keep Live Activity alive in the Dynamic Island & Lock Screen if the turn is still running
+        if !session.isTurnRunning && session.pendingPermissions.isEmpty && session.pendingQuestions.isEmpty {
+            activity.stop()
+        }
+    }
 
     /// Brings the Agent session up (once per visit) so its modes and options exist even before the first message.
     private func applyLiveControls() async {

@@ -52,7 +52,7 @@ struct CompanionAttentionToast: Identifiable, Equatable {
 
 @MainActor
 @Observable
-final class CompanionAttentionCenter {
+final class CompanionAttentionCenter: NSObject, UNUserNotificationCenterDelegate {
     var activeToast: CompanionAttentionToast?
     var pendingNavigationConversation: ConversationListItem?
     var actionBusy = false
@@ -61,18 +61,133 @@ final class CompanionAttentionCenter {
     @ObservationIgnored private var eventsByConversation: [String: [RemoteEvent]] = [:]
     @ObservationIgnored private var lastSequenceByConversation: [String: Int64] = [:]
     @ObservationIgnored private var sessionsByConversation: [String: SessionState] = [:]
+    @ObservationIgnored private var conversationsByID: [String: ConversationListItem] = [:]
     @ObservationIgnored private var wasRunningByConversation: [String: Bool] = [:]
     @ObservationIgnored private var initializedConversations: Set<String> = []
     @ObservationIgnored private var handledEventIDs: Set<String> = []
     @ObservationIgnored private var didRequestNotificationPermission = false
+    @ObservationIgnored private var currentClient: HostClient?
+    @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
+
+    override init() {
+        super.init()
+        setupNotificationCategoriesAndDelegate()
+        setupBackgroundKeepAliveObservers()
+    }
+
+    private func setupNotificationCategoriesAndDelegate() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+
+        let allowOnce = UNNotificationAction(
+            identifier: "VIBEX_ALLOW_ONCE",
+            title: "允许本次",
+            options: [.authenticationRequired]
+        )
+        let allowSession = UNNotificationAction(
+            identifier: "VIBEX_ALLOW_SESSION",
+            title: "本会话允许",
+            options: [.authenticationRequired]
+        )
+        let rejectPerm = UNNotificationAction(
+            identifier: "VIBEX_REJECT_PERM",
+            title: "拒绝",
+            options: [.destructive]
+        )
+        let permCategory = UNNotificationCategory(
+            identifier: "VIBEX_PERMISSION_CATEGORY",
+            actions: [allowOnce, allowSession, rejectPerm],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        let confirmQuestion = UNNotificationAction(
+            identifier: "VIBEX_CONFIRM_QUESTION",
+            title: "批准执行",
+            options: [.authenticationRequired]
+        )
+        let replyQuestion = UNTextInputNotificationAction(
+            identifier: "VIBEX_REPLY_QUESTION",
+            title: "快捷回复…",
+            options: [.authenticationRequired],
+            textInputButtonTitle: "发送",
+            textInputPlaceholder: "输入给 Agent 的回复…"
+        )
+        let rejectQuestion = UNNotificationAction(
+            identifier: "VIBEX_REJECT_QUESTION",
+            title: "拒绝",
+            options: [.destructive]
+        )
+        let questionCategory = UNNotificationCategory(
+            identifier: "VIBEX_QUESTION_CATEGORY",
+            actions: [confirmQuestion, replyQuestion, rejectQuestion],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        let openSession = UNNotificationAction(
+            identifier: "VIBEX_OPEN_SESSION",
+            title: "打开对话",
+            options: [.foreground]
+        )
+        let completedCategory = UNNotificationCategory(
+            identifier: "VIBEX_COMPLETED_CATEGORY",
+            actions: [openSession],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([permCategory, questionCategory, completedCategory])
+    }
+
+    private func setupBackgroundKeepAliveObservers() {
+        let bgObs = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.beginBackgroundPollingGuard()
+            }
+        }
+        let fgObs = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.endBackgroundPollingGuard()
+            }
+        }
+        lifecycleObservers = [bgObs, fgObs]
+    }
+
+    private func beginBackgroundPollingGuard() {
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "VibeXBackgroundAttentionMonitor") { [weak self] in
+            Task { @MainActor in
+                self?.endBackgroundPollingGuard()
+            }
+        }
+    }
+
+    private func endBackgroundPollingGuard() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
 
     func requestNotificationPermissionIfNeeded() {
         guard !didRequestNotificationPermission else { return }
         didRequestNotificationPermission = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .sound, .badge]
+        ) { _, _ in }
     }
 
     func poll(client: HostClient) async {
+        currentClient = client
         requestNotificationPermissionIfNeeded()
 
         async let conversationsTask = try? client.call(
@@ -96,7 +211,10 @@ final class CompanionAttentionCenter {
         }
 
         let candidates = Array(conversations.prefix(6))
+        var syncedLiveActivityInThisPoll = false
+
         for conv in candidates {
+            conversationsByID[conv.id] = conv
             let isFirstSnapshot = !initializedConversations.contains(conv.id)
             let previouslyRunning = wasRunningByConversation[conv.id] ?? false
             let seq = lastSequenceByConversation[conv.id] ?? 0
@@ -123,6 +241,33 @@ final class CompanionAttentionCenter {
             let sessionTitle = (conv.title?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
                 $0.isEmpty ? nil : $0
             } ?? "未命名对话"
+
+            let hasPendingApproval = !state.pendingPermissions.isEmpty || !state.pendingQuestions.isEmpty
+            if !syncedLiveActivityInThisPoll && (state.isTurnRunning || hasPendingApproval) {
+                syncedLiveActivityInThisPoll = true
+                let approvalSummary: String? = if let perm = state.pendingPermissions.first {
+                    perm.title
+                } else if let q = state.pendingQuestions.first {
+                    Self.questionSummary(q, fallback: "等待确认执行方案")
+                } else {
+                    nil
+                }
+                let recentToolKind = Self.inferLatestToolKind(from: allEvents)
+                let stepCount = max(1, allEvents.count / 6)
+                TaskActivityController.shared.sync(
+                    conversationID: conv.id,
+                    projectName: project,
+                    title: sessionTitle,
+                    tasks: [],
+                    latestToolName: recentToolKind,
+                    stepCount: stepCount,
+                    hasThinking: true,
+                    hasTextOutput: false,
+                    hasPendingApproval: hasPendingApproval,
+                    approvalSummary: approvalSummary,
+                    running: state.isTurnRunning
+                )
+            }
 
             // Auto-clear active toast if its permission/question was resolved on desktop or detail view
             if let current = activeToast, current.conversation.id == conv.id {
@@ -194,6 +339,7 @@ final class CompanionAttentionCenter {
                         handledEventIDs.insert(eventKey)
                         if lastTerminal.kind == "turn_failed" {
                             let err = Self.extractFailureMessage(from: lastTerminal.payload)
+                            TaskActivityController.shared.finish(failedMessage: err)
                             presentToast(
                                 CompanionAttentionToast(
                                     id: eventKey,
@@ -206,6 +352,7 @@ final class CompanionAttentionCenter {
                                 )
                             )
                         } else {
+                            TaskActivityController.shared.finish()
                             presentToast(
                                 CompanionAttentionToast(
                                     id: eventKey,
@@ -223,6 +370,7 @@ final class CompanionAttentionCenter {
                     let eventKey = "done:\(conv.id):\(confirmedSeq)"
                     if !handledEventIDs.contains(eventKey) {
                         handledEventIDs.insert(eventKey)
+                        TaskActivityController.shared.finish()
                         presentToast(
                             CompanionAttentionToast(
                                 id: eventKey,
@@ -238,6 +386,22 @@ final class CompanionAttentionCenter {
                 }
             }
         }
+    }
+
+    private static func inferLatestToolKind(from events: [RemoteEvent]) -> String? {
+        for event in events.suffix(12).reversed() {
+            if case let .object(dict) = event.payload {
+                if case let .string(tool)? = dict["tool_name"] ?? dict["name"] ?? dict["title"] {
+                    return tool
+                }
+                if case let .object(data)? = dict["data"],
+                   case let .string(tool)? = data["tool_name"] ?? data["name"] ?? data["title"]
+                {
+                    return tool
+                }
+            }
+        }
+        return nil
     }
 
     private static func extractFailureMessage(from payload: JSONValue) -> String {
@@ -421,7 +585,33 @@ final class CompanionAttentionCenter {
         content.title = toast.title
         content.body = toast.subtitle
         content.sound = .default
-        content.userInfo = ["conversationId": toast.conversation.id]
+        content.interruptionLevel = .timeSensitive
+        content.relevanceScore = 1.0
+
+        var info: [String: String] = [
+            "conversationId": toast.conversation.id,
+            "projectName": toast.projectName,
+        ]
+        switch toast.kind {
+        case let .permission(prompt):
+            content.categoryIdentifier = "VIBEX_PERMISSION_CATEGORY"
+            info["permissionId"] = prompt.id
+            if let allowOnce = prompt.resolveAllowOption(for: .once)?.id {
+                info["allowOnceOptionId"] = allowOnce
+            }
+            if let allowSession = prompt.resolveAllowOption(for: .session)?.id {
+                info["allowSessionOptionId"] = allowSession
+            }
+            if let reject = prompt.rejectOption?.id {
+                info["rejectOptionId"] = reject
+            }
+        case let .question(question):
+            content.categoryIdentifier = "VIBEX_QUESTION_CATEGORY"
+            info["questionId"] = question.id
+        case .completed, .failed:
+            content.categoryIdentifier = "VIBEX_COMPLETED_CATEGORY"
+        }
+        content.userInfo = info
 
         let request = UNNotificationRequest(
             identifier: "vibex.attention.\(toast.id)",
@@ -429,6 +619,113 @@ final class CompanionAttentionCenter {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // When app is in foreground we already show CompanionToastOverlay; only play sound/list
+        completionHandler([.list])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        let convID = userInfo["conversationId"] as? String
+        let permID = userInfo["permissionId"] as? String
+        let allowOnceID = userInfo["allowOnceOptionId"] as? String
+        let allowSessionID = userInfo["allowSessionOptionId"] as? String
+        let rejectID = userInfo["rejectOptionId"] as? String
+        let questionID = userInfo["questionId"] as? String
+        let actionID = response.actionIdentifier
+        let textReply = (response as? UNTextInputNotificationResponse)?.userText
+
+        Task { @MainActor in
+            guard let convID else {
+                completionHandler()
+                return
+            }
+            if let client = self.currentClient {
+                switch actionID {
+                case "VIBEX_ALLOW_ONCE":
+                    if let permID {
+                        try? await client.respondPermission(
+                            conversationID: convID,
+                            permissionID: permID,
+                            optionID: allowOnceID
+                        )
+                        self.dismiss()
+                    }
+                case "VIBEX_ALLOW_SESSION":
+                    if let permID {
+                        try? await client.respondPermission(
+                            conversationID: convID,
+                            permissionID: permID,
+                            optionID: allowSessionID ?? allowOnceID
+                        )
+                        self.dismiss()
+                    }
+                case "VIBEX_REJECT_PERM":
+                    if let permID {
+                        try? await client.respondPermission(
+                            conversationID: convID,
+                            permissionID: permID,
+                            optionID: rejectID
+                        )
+                        self.dismiss()
+                    }
+                case "VIBEX_CONFIRM_QUESTION":
+                    if let questionID,
+                       let state = self.sessionsByConversation[convID],
+                       let q = state.pendingQuestions.first(where: { $0.id == questionID })
+                    {
+                        let forms = QuestionForm.questions(for: q)
+                        let firstChoice = forms.first?.choices.first
+                        await self.respondQuestion(
+                            client: client,
+                            conversationID: convID,
+                            question: q,
+                            choice: firstChoice,
+                            fallbackText: firstChoice == nil ? "Yes" : nil
+                        )
+                    }
+                case "VIBEX_REPLY_QUESTION":
+                    if let questionID,
+                       let textReply,
+                       !textReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       let state = self.sessionsByConversation[convID],
+                       let q = state.pendingQuestions.first(where: { $0.id == questionID })
+                    {
+                        await self.respondQuestion(
+                            client: client,
+                            conversationID: convID,
+                            question: q,
+                            choice: nil,
+                            fallbackText: textReply
+                        )
+                    }
+                case "VIBEX_REJECT_QUESTION":
+                    if let questionID {
+                        try? await client.respondQuestion(
+                            conversationID: convID,
+                            questionID: questionID,
+                            content: nil
+                        )
+                        self.dismiss()
+                    }
+                default:
+                    if let conv = self.conversationsByID[convID] {
+                        self.openConversation(conv)
+                    }
+                }
+            }
+            completionHandler()
+        }
     }
 }
 

@@ -4801,18 +4801,28 @@ async fn multiple_running_turns_for_same_bot_emit_single_streaming_draft() {
     create_session(&pool, bot, workspace, Some("前端交互工程师")).await;
     let space = space_of(&pool, bot).await;
 
-    let msg1 = post_as(&pool, None, &space, "@前端交互工程师 第一个任务", &["前端交互工程师"]).await;
+    let msg1 = post_as(
+        &pool,
+        None,
+        &space,
+        "@前端交互工程师 第一个任务",
+        &["前端交互工程师"],
+    )
+    .await;
     mark_processing(&pool, &msg1.message_id, bot).await;
 
-    let msg2 = post_as(&pool, None, &space, "@前端交互工程师 补充说明", &["前端交互工程师"]).await;
+    let msg2 = post_as(
+        &pool,
+        None,
+        &space,
+        "@前端交互工程师 补充说明",
+        &["前端交互工程师"],
+    )
+    .await;
     assert_ne!(msg1.message_id, msg2.message_id);
 
     reset_space_turn_streaming_step(bot);
-    append_space_turn_streaming_text(
-        bot,
-        "@首席架构师 协作空间前端侧性能优化已完成实现",
-        false,
-    );
+    append_space_turn_streaming_text(bot, "@首席架构师 协作空间前端侧性能优化已完成实现", false);
 
     let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
         .await

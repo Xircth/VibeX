@@ -214,7 +214,9 @@ describe('AppearanceSettings', () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole('combobox', { name: '看板会话列表视图' }));
+    await user.click(
+      screen.getByRole('combobox', { name: '看板会话列表视图' })
+    );
     await user.click(await screen.findByRole('option', { name: '工作区分组' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
@@ -315,7 +317,9 @@ describe('AppearanceSettings', () => {
     expect(
       screen.queryByText('collaboration schematic')
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: '看板' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('radio', { name: '看板' })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Workspace 页面')).not.toBeInTheDocument();
     expect(screen.queryByText('Kanban 页面')).not.toBeInTheDocument();
     expect(

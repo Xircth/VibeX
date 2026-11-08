@@ -571,12 +571,8 @@ pub async fn list_space_messages(
             if let Some(&(idx, existing_processing)) = running_idx_by_cid.get(&cid_str) {
                 let earliest_seq = running_turns[idx].3.min(trigger_seq);
                 if is_processing || !existing_processing {
-                    running_turns[idx] = (
-                        turn_id,
-                        cid_str.clone(),
-                        Some(trigger_msg_id),
-                        earliest_seq,
-                    );
+                    running_turns[idx] =
+                        (turn_id, cid_str.clone(), Some(trigger_msg_id), earliest_seq);
                     running_idx_by_cid.insert(cid_str, (idx, existing_processing || is_processing));
                 } else {
                     running_turns[idx].3 = earliest_seq;

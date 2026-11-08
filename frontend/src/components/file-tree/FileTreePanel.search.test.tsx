@@ -186,7 +186,9 @@ describe('FileTreePanel workspace search', () => {
     expect(
       screen.queryByRole('textbox', { name: '搜索文件内容...' })
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '更多操作' })
+    ).toBeInTheDocument();
   });
 
   it('supports searching file names from the 3-dot menu and opens the clicked file', async () => {

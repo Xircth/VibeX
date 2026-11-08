@@ -1040,11 +1040,46 @@ export default {
       function VoiceStatusPopoverView() {
         const snap = useVoiceSnapshot();
         const [recordingShortcut, setRecordingShortcut] = useState(false);
+        const [triggerMenuOpen, setTriggerMenuOpen] = useState(false);
 
         const cfg = snap.config;
         const enabled = Boolean(cfg.enabled);
         const isRecording = snap.state === 'recording';
         const isTranscribing = snap.state === 'transcribing';
+        const recordingModeOptions = [
+          { value: 'toggle', label: '单击切换开始 / 结束' },
+          { value: 'push-to-talk', label: '按住说话，松开即转写' },
+        ];
+        const currentRecordingModeLabel =
+          (
+            recordingModeOptions.find((opt) => opt.value === cfg.recordingMode) ||
+            recordingModeOptions[0]
+          ).label;
+
+        useEffect(() => {
+          if (!triggerMenuOpen || typeof window === 'undefined') return undefined;
+          const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setTriggerMenuOpen(false);
+            }
+          };
+          const handlePointerDown = (e) => {
+            if (
+              e.target &&
+              typeof e.target.closest === 'function' &&
+              !e.target.closest('[data-voice-trigger-select="true"]')
+            ) {
+              setTriggerMenuOpen(false);
+            }
+          };
+          window.addEventListener('keydown', handleKeyDown, true);
+          window.addEventListener('pointerdown', handlePointerDown, true);
+          return () => {
+            window.removeEventListener('keydown', handleKeyDown, true);
+            window.removeEventListener('pointerdown', handlePointerDown, true);
+          };
+        }, [triggerMenuOpen]);
 
         useEffect(() => {
           if (!recordingShortcut || typeof window === 'undefined') return undefined;
@@ -1181,29 +1216,92 @@ export default {
               : null,
           ),
 
-          // Recording Trigger Mode
+          // Recording Trigger Mode (Custom Select matching VibeX Select UI)
           h(
             'div',
-            { className: 'flex flex-col gap-1.5' },
+            {
+              className: 'relative flex flex-col gap-1.5',
+              'data-voice-trigger-select': 'true',
+            },
             h(
               'span',
               { className: 'text-[11px] font-medium text-muted-foreground' },
               '录音触发方式',
             ),
             h(
-              'select',
+              'button',
               {
+                type: 'button',
+                role: 'combobox',
                 'aria-label': '录音触发方式',
-                value: cfg.recordingMode,
+                'aria-expanded': triggerMenuOpen,
                 disabled: !enabled,
-                onChange: (e) =>
-                  persistAndSyncConfig({ recordingMode: e.target.value }),
+                onClick: () => setTriggerMenuOpen((open) => !open),
                 className:
-                  'h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50',
+                  'raised-control flex h-8 w-full items-center justify-between rounded-[var(--_field-radius,var(--radius-element,var(--radius)))] border border-[var(--color-border-emphasized,var(--border-content))] bg-[var(--color-background-surface,var(--surface-control))] px-2.5 py-1 text-xs text-foreground transition-[border-color,background-color,box-shadow] focus:outline-none focus-visible:border-[var(--color-accent,hsl(var(--primary)))] disabled:cursor-not-allowed disabled:opacity-50',
               },
-              h('option', { value: 'toggle' }, '单击切换开始 / 结束'),
-              h('option', { value: 'push-to-talk' }, '按住说话，松开即转写'),
+              h('span', { className: 'truncate' }, currentRecordingModeLabel),
+              h(
+                'svg',
+                {
+                  viewBox: '0 0 24 24',
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeWidth: '2',
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  className: 'h-3.5 w-3.5 shrink-0 opacity-50',
+                },
+                h('path', { d: 'm6 9 6 6 6-6' }),
+              ),
             ),
+            triggerMenuOpen
+              ? h(
+                  'div',
+                  {
+                    role: 'listbox',
+                    'aria-label': '录音触发方式选项',
+                    className:
+                      'product-context-menu absolute left-0 right-0 top-[calc(100%+4px)] z-50 flex flex-col rounded-md border border-border bg-white p-1.5 font-sans text-xs leading-5 text-popover-foreground shadow-md dark:bg-popover',
+                  },
+                  ...recordingModeOptions.map((opt) => {
+                    const selected = cfg.recordingMode === opt.value;
+                    return h(
+                      'button',
+                      {
+                        key: opt.value,
+                        type: 'button',
+                        role: 'option',
+                        'aria-selected': selected,
+                        'data-state': selected ? 'checked' : 'unchecked',
+                        onClick: () => {
+                          persistAndSyncConfig({ recordingMode: opt.value });
+                          setTriggerMenuOpen(false);
+                        },
+                        className:
+                          'astryx-select-option relative flex w-full cursor-pointer select-none items-center justify-between gap-2 rounded-sm px-2.5 py-1.5 text-left text-xs leading-5 text-popover-foreground outline-none transition-colors hover:bg-accent focus:bg-accent data-[state=checked]:font-medium',
+                      },
+                      h('span', { className: 'truncate' }, opt.label),
+                      selected
+                        ? h(
+                            'svg',
+                            {
+                              viewBox: '0 0 24 24',
+                              fill: 'none',
+                              stroke: 'currentColor',
+                              strokeWidth: '2',
+                              strokeLinecap: 'round',
+                              strokeLinejoin: 'round',
+                              'aria-hidden': 'true',
+                              className: 'astryx-select-option-check h-3.5 w-3.5 shrink-0',
+                            },
+                            h('path', { d: 'M20 6 9 17l-5-5' }),
+                          )
+                        : null,
+                    );
+                  }),
+                )
+              : null,
           ),
 
           // Shortcut Recorder

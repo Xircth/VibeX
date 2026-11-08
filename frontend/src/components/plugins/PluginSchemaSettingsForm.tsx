@@ -6,6 +6,13 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 
@@ -254,24 +261,35 @@ export function PluginSchemaSettingsForm({
                       {prop.description}
                     </p>
                   )}
-                  <select
-                    id={fieldId}
+                  <Select
                     value={String(currentValue)}
-                    onChange={(e) => {
+                    onValueChange={(nextValue) => {
                       setSavedNotice(false);
                       setValues((prev) => ({
                         ...prev,
-                        [key]: e.target.value,
+                        [key]: nextValue,
                       }));
                     }}
-                    className="raised-control h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
                   >
-                    {prop.enum.map((option) => (
-                      <option key={String(option)} value={String(option)}>
-                        {String(option)}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      id={fieldId}
+                      aria-label={label}
+                      className="h-8 w-full text-xs"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {prop.enum.map((option) => (
+                        <SelectItem
+                          key={String(option)}
+                          value={String(option)}
+                          className="text-xs"
+                        >
+                          {String(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               );
             }

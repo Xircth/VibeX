@@ -52,10 +52,12 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@/contexts/WorktreeContext', () => ({
   useWorktree: () => ({ activeWorktreeId: 'workspace-1' }),
+  useOptionalWorktree: () => ({ activeWorktreeId: 'workspace-1' }),
 }));
 
 vi.mock('@/contexts/KanbanSessionContext', () => ({
   useKanbanSessionContext: () => ({ visibleRightSession: null }),
+  useOptionalKanbanSessionContext: () => ({ visibleRightSession: null }),
 }));
 
 vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({

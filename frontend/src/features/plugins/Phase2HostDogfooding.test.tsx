@@ -76,6 +76,7 @@ vi.mock('@/components/context-menu', () => ({
 
 vi.mock('@/contexts/WorkspaceOverlayContext', () => ({
   NativeSurfaceOcclusionHold: () => null,
+  useRevealAfterOverlayReady: () => true,
   useWorkspaceOverlay: () => ({
     setChromeOccluded: vi.fn(),
     waitForOverlayReady: vi.fn().mockResolvedValue(undefined),

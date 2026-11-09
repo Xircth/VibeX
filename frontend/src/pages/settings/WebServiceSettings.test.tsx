@@ -384,7 +384,7 @@ describe('WebServiceSettings', () => {
       within(externalAccess!).getByText('http://192.168.1.20:17891')
     ).toBeVisible();
     expect(
-      within(externalAccess!).getByRole('switch', { name: '远程穿透' })
+      within(externalAccess!).getByRole('switch', { name: '云服务' })
     ).toBeVisible();
   });
 
@@ -510,11 +510,11 @@ describe('WebServiceSettings', () => {
     webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
     renderSettings();
 
-    const tunnel = await screen.findByRole('switch', { name: '远程穿透' });
+    const tunnel = await screen.findByRole('switch', { name: '云服务' });
     expect(tunnel).toBeVisible();
     webServiceApiMock.getConfig.mockClear();
     window.dispatchEvent(new Event('vibex://settings-file-changed'));
     await waitFor(() => expect(webServiceApiMock.getConfig).toHaveBeenCalled());
-    expect(screen.getByRole('switch', { name: '远程穿透' })).toBe(tunnel);
+    expect(screen.getByRole('switch', { name: '云服务' })).toBe(tunnel);
   });
 });

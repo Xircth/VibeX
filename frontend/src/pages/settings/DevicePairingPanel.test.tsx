@@ -197,10 +197,10 @@ describe('DevicePairingPanel', () => {
 
     expect(screen.getByText('loopback')).toHaveClass('rounded-full');
     expect(screen.getByText('en0')).toHaveClass('rounded-full');
-    expect(screen.getByText('tunnel')).toHaveClass('rounded-full');
+    expect(screen.getByText('cloud')).toHaveClass('rounded-full');
     expect(screen.getByText('本地')).toHaveClass('font-semibold');
     expect(screen.getByText('局域网')).toHaveClass('font-semibold');
-    expect(screen.getByText('穿透')).toHaveClass('font-semibold');
+    expect(screen.getByText('云服务')).toHaveClass('font-semibold');
     expect(screen.getByText('http://192.168.1.20:17891')).toBeVisible();
     expect(screen.getByText('https://host.example.ts.net')).toBeVisible();
     expect(screen.getByText('http://127.0.0.1:17891')).toBeVisible();

@@ -168,6 +168,12 @@ pub struct PairingChallenge {
 pub struct RedeemPairingRequest {
     pub pairing_token: String,
     pub device_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key_ed25519: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_kind: Option<String>,
+    #[serde(default)]
+    pub replace_existing_mobile: bool,
 }
 
 #[derive(Clone, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
@@ -181,4 +187,51 @@ pub struct DeviceCredential {
 pub struct RevokeDeviceResponse {
     pub device_id: DeviceId,
     pub revoked: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+pub struct CreateDeviceConnectRequest {
+    pub device_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key_ed25519: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_nonce: Option<String>,
+    #[serde(default)]
+    pub replace_existing_mobile: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceConnectRequestStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Expired,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+pub struct PendingDeviceConnectRequest {
+    pub request_id: PairingId,
+    pub device_name: String,
+    pub client_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
+    pub sas_code: String,
+    pub created_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+pub struct PollDeviceConnectResponse {
+    pub request_id: PairingId,
+    pub host_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_name: Option<String>,
+    pub sas_code: String,
+    pub status: DeviceConnectRequestStatus,
+    pub expires_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<DeviceCredential>,
 }

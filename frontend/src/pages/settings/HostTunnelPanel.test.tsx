@@ -87,25 +87,25 @@ describe('HostTunnelPanel', () => {
       </div>
     );
 
-    await user.click(await screen.findByRole('switch', { name: '远程穿透' }));
+    await user.click(await screen.findByRole('switch', { name: '云服务' }));
     await waitFor(() =>
       expect(hostTunnelApi.setEnabled).toHaveBeenCalledWith(true)
     );
 
     const toggle = await screen.findByRole('button', {
-      name: /已保存穿透列表/,
+      name: /云服务节点/,
     });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('还没有已保存穿透')).toBeVisible();
+    expect(screen.getByText('暂无云服务节点')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: '新建穿透' }));
+    await user.click(screen.getByRole('button', { name: '新建云节点' }));
     expect(screen.getByTestId('host-tunnel-modal-overlay')).toBeInTheDocument();
     expect(document.querySelector('.settings-page')).toHaveClass(
       'collaboration-settings-window-blurred'
     );
     expect(
       screen.getByText(
-        '请输入穿透地址IP/域名，点击‘生成命令’后，在对应云服务器上运行命令即可，若已运行命令或自建穿透，则点击“测试连通”进行检查'
+        '请输入自建节点 IP/域名，点击“生成命令”并在云服务器执行；若已部署则点击“测试连通”验证。'
       )
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
@@ -129,8 +129,8 @@ describe('HostTunnelPanel', () => {
       />
     );
 
-    await user.click(await screen.findByRole('switch', { name: '远程穿透' }));
-    await user.click(await screen.findByRole('button', { name: '新建穿透' }));
+    await user.click(await screen.findByRole('switch', { name: '云服务' }));
+    await user.click(await screen.findByRole('button', { name: '新建云节点' }));
 
     const saveButton = screen.getByRole('button', { name: '保存' });
     expect(saveButton).toBeDisabled();
@@ -160,7 +160,7 @@ describe('HostTunnelPanel', () => {
     expect(onReachabilityChange).toHaveBeenCalled();
 
     const { toast } = await import('@/components/ui/toast');
-    expect(toast.success).toHaveBeenCalledWith('已保存远程穿透地址');
+    expect(toast.success).toHaveBeenCalledWith('已保存云服务节点');
   });
 
   it('generates a short install command in the modal and keeps save disabled when connectivity fails', async () => {
@@ -180,8 +180,8 @@ describe('HostTunnelPanel', () => {
       <HostTunnelPanel serviceRunning onReachabilityChange={() => undefined} />
     );
 
-    await user.click(await screen.findByRole('switch', { name: '远程穿透' }));
-    await user.click(await screen.findByRole('button', { name: '新建穿透' }));
+    await user.click(await screen.findByRole('switch', { name: '云服务' }));
+    await user.click(await screen.findByRole('button', { name: '新建云节点' }));
     await user.type(
       screen.getByPlaceholderText('203.0.113.10'),
       '203.0.113.10'
@@ -256,7 +256,7 @@ describe('HostTunnelPanel', () => {
     );
 
     const toggle = await screen.findByRole('button', {
-      name: /已保存穿透列表/,
+      name: /云服务节点/,
     });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const listContainer = screen.getByTestId('saved-tunnels-list-container');

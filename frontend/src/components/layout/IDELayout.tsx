@@ -38,6 +38,7 @@ import {
   parsePluginSurfaceId,
 } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
+import { MobileDeviceConnectBanner } from '@/components/layout/MobileDeviceConnectBanner';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
 import {
@@ -1381,6 +1382,7 @@ export function IDELayout({
 
           <RightPanelSlotContext.Provider value={sessionPlacement}>
             <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
+              <MobileDeviceConnectBanner />
               {isDockviewMounted ? (
                 <div
                   className="h-full"

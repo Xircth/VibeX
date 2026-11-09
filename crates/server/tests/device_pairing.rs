@@ -116,6 +116,9 @@ async fn expired_pairing_returns_a_stable_reason() {
                     serde_json::to_vec(&RedeemPairingRequest {
                         pairing_token: challenge.pairing_token,
                         device_name: "expired-device".to_owned(),
+                        public_key_ed25519: None,
+                        client_kind: None,
+                        replace_existing_mobile: false,
                     })
                     .expect("redeem request"),
                 ))
@@ -171,6 +174,9 @@ async fn revoking_a_device_invalidates_http_and_an_existing_websocket() {
                     serde_json::to_vec(&RedeemPairingRequest {
                         pairing_token: challenge.pairing_token,
                         device_name: "revoked-device".to_owned(),
+                        public_key_ed25519: None,
+                        client_kind: None,
+                        replace_existing_mobile: false,
                     })
                     .expect("redeem request"),
                 ))
@@ -317,6 +323,9 @@ async fn pairing_token_can_be_redeemed_exactly_once() {
     let redeem_request = RedeemPairingRequest {
         pairing_token: challenge.pairing_token,
         device_name: "release-smoke-device".to_owned(),
+        public_key_ed25519: None,
+        client_kind: None,
+        replace_existing_mobile: false,
     };
     let redeemed = app
         .clone()
@@ -402,6 +411,9 @@ async fn concurrent_pairing_redemption_has_one_winner() {
     let redeem = RedeemPairingRequest {
         pairing_token: challenge.pairing_token,
         device_name: "concurrent-device".to_owned(),
+        public_key_ed25519: None,
+        client_kind: None,
+        replace_existing_mobile: false,
     };
     let request = || {
         Request::post("/api/v1/auth/pairings/redeem")

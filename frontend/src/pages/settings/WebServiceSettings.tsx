@@ -10,8 +10,14 @@ import {
   Laptop,
   Loader2,
   Server,
+  Wifi,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  getRemoteAutoConnect,
+  setRemoteAutoConnect,
+} from '@/components/layout/MobileDeviceConnectBanner';
+import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { isTauriClient } from '@/lib/desktopShell';
@@ -22,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
+  hostTunnelApi,
   type PortProbeResult,
   type WebServerStatus,
   type WebServiceConfig,
@@ -41,8 +48,8 @@ type RemoteRoleTab = 'server' | 'client';
 const DEFAULT_CONFIG: WebServiceConfig = {
   port: 17891,
   token: null,
-  auto_start: false,
-  allow_lan: false,
+  auto_start: true,
+  allow_lan: true,
 };
 
 function sameConfig(a: WebServiceConfig, b: WebServiceConfig): boolean {
@@ -69,6 +76,11 @@ export function WebServiceSettings({
   const [loading, setLoading] = useState(true);
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
+  const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [showModePrompt, setShowModePrompt] = useState(false);
+  const [autoConnect, setAutoConnectState] = useState<boolean>(() =>
+    getRemoteAutoConnect()
+  );
   const hostConsole = isTauriClient(transport.environment);
   const boundToRemote = transport.environment === 'remote-desktop';
   const [role, setRole] = useState<RemoteRoleTab>(() =>
@@ -124,10 +136,14 @@ export function WebServiceSettings({
       }
       if (showSpinner) setLoading(true);
       try {
-        const [savedConfig, currentStatus] = await Promise.all([
+        const [savedConfig, currentStatus, tunnelStatus] = await Promise.all([
           webServiceApi.getConfig(),
           webServiceApi.getStatus(),
+          Promise.resolve(hostTunnelApi.get?.()).catch(() => null),
         ]);
+        if (tunnelStatus) {
+          setTunnelEnabled(Boolean(tunnelStatus.enabled));
+        }
         if (!holdingRef.current) {
           draftRef.current = savedConfig;
           setDraft(savedConfig);
@@ -173,7 +189,14 @@ export function WebServiceSettings({
   const refreshStatus = useCallback(async () => {
     setStatusBusy(true);
     try {
-      setStatus(await webServiceApi.getStatus());
+      const [nextStatus, tunnelStatus] = await Promise.all([
+        webServiceApi.getStatus(),
+        hostTunnelApi.get().catch(() => null),
+      ]);
+      setStatus(nextStatus);
+      if (tunnelStatus) {
+        setTunnelEnabled(Boolean(tunnelStatus.enabled));
+      }
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -184,6 +207,29 @@ export function WebServiceSettings({
       setStatusBusy(false);
     }
   }, [t]);
+
+  const selectConnectionMode = useCallback(
+    async (useCloud: boolean) => {
+      setShowModePrompt(false);
+      setStatusBusy(true);
+      try {
+        const updatedTunnel = await hostTunnelApi.setEnabled(useCloud);
+        setTunnelEnabled(Boolean(updatedTunnel.enabled));
+        window.dispatchEvent(new CustomEvent('vibex:host-tunnel-updated'));
+        if (!useCloud && !draftRef.current.allow_lan) {
+          commitDraft({ ...draftRef.current, allow_lan: true });
+        }
+        setStatus(await webServiceApi.getStatus());
+      } catch {
+        setTunnelEnabled(useCloud);
+        window.dispatchEvent(new CustomEvent('vibex:host-tunnel-updated'));
+      } finally {
+        setStatusBusy(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const startServer = useCallback(async () => {
     await flush();
@@ -264,6 +310,12 @@ export function WebServiceSettings({
           <h2>
             <Globe aria-hidden="true" />
             <span>{t('webService.title')}</span>
+            <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-primary">
+              Beta
+            </span>
+            <span className="inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium leading-none text-emerald-600 dark:text-emerald-400">
+              端到端加密
+            </span>
           </h2>
         </div>
         {hostConsole && !boundToRemote ? (
@@ -363,8 +415,23 @@ export function WebServiceSettings({
                     checked={serviceRunning}
                     onCheckedChange={(checked: boolean) => {
                       if (checked) {
+                        setShowModePrompt(true);
+                        void Promise.resolve(hostTunnelApi.setEnabled?.(false))
+                          .then((next) => {
+                            setTunnelEnabled(Boolean(next?.enabled));
+                            window.dispatchEvent(
+                              new CustomEvent('vibex:host-tunnel-updated')
+                            );
+                          })
+                          .catch(() => {
+                            setTunnelEnabled(false);
+                            window.dispatchEvent(
+                              new CustomEvent('vibex:host-tunnel-updated')
+                            );
+                          });
                         void startServer();
                       } else {
+                        setShowModePrompt(false);
                         void stopServer();
                       }
                     }}
@@ -378,8 +445,81 @@ export function WebServiceSettings({
                 </div>
               </div>
 
+              {serviceRunning && showModePrompt ? (
+                <div
+                  data-testid="remote-connection-mode-prompt"
+                  className="mx-4 my-2 flex flex-col gap-2.5 rounded-lg border border-primary/30 bg-primary/5 p-3.5 text-xs"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="font-semibold text-foreground">
+                      是否使用「云服务 Beta」进行远程连接？
+                    </span>
+                    <span className="text-muted-foreground">
+                      开启云服务可跨网络连接；若不使用云服务则采用局域网直连，请确保手机和电脑处于同一个局域网下。
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-3 text-xs"
+                      disabled={statusBusy}
+                      onClick={() => void selectConnectionMode(true)}
+                    >
+                      使用云服务 Beta
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-3 text-xs"
+                      disabled={statusBusy}
+                      onClick={() => void selectConnectionMode(false)}
+                    >
+                      使用局域网直连
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {serviceRunning && !tunnelEnabled ? (
+                <div
+                  data-testid="lan-same-network-reminder"
+                  className="mx-4 my-2 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                >
+                  <Wifi
+                    className="h-3.5 w-3.5 shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    当前为局域网直连模式：请确保手机和电脑处于同一个局域网（同一
+                    Wi-Fi）下。
+                  </span>
+                </div>
+              ) : null}
+
               {serviceRunning ? (
                 <>
+                  <div className="settings-row">
+                    <div>
+                      <Label htmlFor="web-service-auto-connect">
+                        自动连接已配对设备
+                      </Label>
+                      <p className="settings-row__description">
+                        首次连接成功后，已配对的手机再次发起连接时自动允许接入
+                      </p>
+                    </div>
+                    <Switch
+                      id="web-service-auto-connect"
+                      className="settings-switch"
+                      checked={autoConnect}
+                      onCheckedChange={(checked: boolean) => {
+                        setAutoConnectState(checked);
+                        setRemoteAutoConnect(checked);
+                      }}
+                    />
+                  </div>
+
                   <div className="settings-row">
                     <div>
                       <Label htmlFor="web-service-autostart">

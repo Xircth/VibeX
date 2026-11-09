@@ -3137,7 +3137,7 @@
     "jsonTitle": "JSON source",
     "jsonDescription": "VibeX settings are stored in this file. After direct edits, the app reloads it automatically so users and agents share one settings source.",
     "dataDirTitle": "Data storage location",
-    "dataDirDescription": "VibeX local database, collaboration spaces, and attachments are stored in this root directory. Changing it automatically migrates existing data.",
+    "dataDirDescription": "VibeX local database, collaboration spaces, and attachments are stored in this root directory. Changing it migrates existing data; a folder that already holds VibeX data is opened as-is and never overwritten.",
     "changeDataDir": "Change folder…",
     "openInFolder": "Open in folder",
     "applyDataDir": "Migrate & apply",

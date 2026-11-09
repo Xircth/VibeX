@@ -3137,7 +3137,7 @@
     "jsonTitle": "JSON 设置源",
     "jsonDescription": "VibeX 设置统一保存在此文件；直接编辑后，应用会自动重新读取，用户与 Agent 可共享同一设置源。",
     "dataDirTitle": "数据存储位置",
-    "dataDirDescription": "VibeX 本地数据库、协作空间与附件统一保存在此目录。更改后将自动迁移现有数据。",
+    "dataDirDescription": "VibeX 本地数据库、协作空间与附件统一保存在此目录。更改后将迁移现有数据；目标目录已有 VibeX 数据时直接使用，不会覆盖。",
     "changeDataDir": "更改目录…",
     "openInFolder": "在文件夹中打开",
     "applyDataDir": "迁移并应用",

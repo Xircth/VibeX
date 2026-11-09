@@ -836,6 +836,10 @@ pub(super) async fn update_data_dir_settings(
         });
     }
 
+    if let Some(response) = open_existing_data_dir(&target_dir)? {
+        return serialize(response);
+    }
+
     let old_data_dir = current.current_data_dir.clone();
 
     // 1. Remap active pool paths and checkpoint WAL before copying db.sqlite
@@ -873,6 +877,24 @@ pub(super) async fn update_data_dir_settings(
         migrated: true,
         requires_reload: true,
     })
+}
+
+/// A target that already holds a VibeX database is opened as-is: copying the
+/// current directory over it would destroy that user data.
+fn open_existing_data_dir(
+    target_dir: &Path,
+) -> Result<Option<SystemDataDirUpdateResponse>, ApplicationError> {
+    if !target_dir.join("db.sqlite").is_file() {
+        return Ok(None);
+    }
+    let updated = utils::assets::set_custom_data_dir(Some(target_dir)).map_err(internal_error)?;
+    Ok(Some(SystemDataDirUpdateResponse {
+        current_data_dir: updated.current_data_dir.to_string_lossy().into_owned(),
+        default_data_dir: updated.default_data_dir.to_string_lossy().into_owned(),
+        is_custom: updated.is_custom,
+        migrated: false,
+        requires_reload: true,
+    }))
 }
 
 fn normalize_dir_for_comparison(path: &Path) -> std::path::PathBuf {
@@ -1110,5 +1132,38 @@ mod tests {
         // Subdirectory of current_data_dir must be rejected
         let nested = old_dir.join("nested_target");
         assert!(validate_target_data_dir(&nested.to_string_lossy(), &old_dir).is_err());
+    }
+
+    #[test]
+    fn switching_to_a_folder_with_an_existing_database_opens_it_without_copying() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bootstrap = temp.path().join("config").join("bootstrap.json");
+        let empty_target = temp.path().join("empty");
+        let target = temp.path().join("target");
+        std::fs::create_dir_all(&empty_target).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("db.sqlite"), b"existing").unwrap();
+
+        // SAFETY: no other test in this crate reads the bootstrap override.
+        unsafe { std::env::set_var("VIBEX_BOOTSTRAP_CONFIG_PATH", &bootstrap) };
+        let skipped = open_existing_data_dir(&empty_target).expect("empty target");
+        let opened = open_existing_data_dir(&target).expect("existing target");
+        unsafe { std::env::remove_var("VIBEX_BOOTSTRAP_CONFIG_PATH") };
+
+        assert!(
+            skipped.is_none(),
+            "empty targets still go through migration"
+        );
+        let opened = opened.expect("existing database is opened");
+        assert!(!opened.migrated);
+        assert!(opened.requires_reload);
+        assert_eq!(
+            std::fs::read(target.join("db.sqlite")).unwrap(),
+            b"existing"
+        );
+        assert_eq!(
+            utils::assets::read_custom_data_dir_from(&bootstrap),
+            Some(target)
+        );
     }
 }

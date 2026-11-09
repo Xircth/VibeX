@@ -70,8 +70,11 @@ pub fn read_custom_data_dir() -> Option<PathBuf> {
     read_custom_data_dir_from(&bootstrap_config_path())
 }
 
-/// Legacy Roaming data directory (`%APPDATA%\vibex\vibex\data` on Windows).
-pub fn legacy_roaming_data_dir() -> PathBuf {
+/// Release Host data directory (`%APPDATA%\vibex\vibex\data` on Windows).
+///
+/// User data stays outside the install directory so reinstalling, upgrading,
+/// or moving the install location never changes which database is opened.
+pub fn release_default_data_dir() -> PathBuf {
     ProjectDirs::from("app", "vibex", "vibex")
         .map(|dirs| dirs.data_dir().to_path_buf())
         .or_else(|| dirs::data_dir().map(|path| path.join("vibex")))
@@ -108,48 +111,66 @@ pub fn probe_writable_dir(dir: &Path) -> bool {
     }
 }
 
-pub fn install_default_data_dir_for_exe_dir(install_dir: &Path) -> Option<PathBuf> {
-    if !install_dir.exists() || is_cargo_build_or_test_dir(install_dir) {
+/// `<install_dir>/data` used by 0.4.2–0.4.3 release builds as their default
+/// data directory. Only inspected (never created) so its databases can be
+/// adopted; `None` when running from a Cargo build tree.
+fn install_dir_data_dir_for_exe_dir(install_dir: &Path) -> Option<PathBuf> {
+    if is_cargo_build_or_test_dir(install_dir) {
         return None;
     }
-    let candidate = install_dir.join("data");
-    if probe_writable_dir(&candidate) {
-        Some(crate::path::normalize_windows_extended_path_prefix(
-            candidate,
-        ))
-    } else {
-        None
-    }
+    Some(crate::path::normalize_windows_extended_path_prefix(
+        install_dir.join("data"),
+    ))
 }
 
-/// Default packaged data directory under `<install_dir>/data` when writable,
-/// falling back to [`legacy_roaming_data_dir`] when the install directory is
-/// read-only (e.g. `C:\Program Files`) or running from a Cargo build tree.
-pub fn install_default_data_dir() -> PathBuf {
+fn install_dir_data_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .and_then(|install_dir| install_default_data_dir_for_exe_dir(&install_dir))
-        .unwrap_or_else(legacy_roaming_data_dir)
+        .and_then(|install_dir| install_dir_data_dir_for_exe_dir(&install_dir))
 }
 
+fn has_database(dir: &Path) -> bool {
+    dir.join("db.sqlite").is_file()
+}
+
+/// Picks the release data directory. The release default always wins once it
+/// holds a database, so a stray database elsewhere can never hide user data.
+/// A database that exists only under the install directory (written by
+/// 0.4.2–0.4.3) is adopted by pinning it in `bootstrap.json`, making the
+/// choice explicit and stable across reinstalls.
 pub fn resolve_release_data_dir(
     custom_data_dir: Option<PathBuf>,
-    install_default: PathBuf,
-    legacy_roaming: PathBuf,
+    default_dir: PathBuf,
+    install_data_dir: Option<PathBuf>,
+    bootstrap_path: &Path,
 ) -> PathBuf {
     if let Some(custom) = custom_data_dir
         && std::fs::create_dir_all(&custom).is_ok()
     {
         return custom;
     }
-    if legacy_roaming != install_default
-        && legacy_roaming.join("db.sqlite").is_file()
-        && !install_default.join("db.sqlite").is_file()
-    {
-        return legacy_roaming;
+    let install_data_dir = install_data_dir
+        .filter(|dir| *dir != default_dir)
+        .filter(|dir| has_database(dir));
+    let Some(install_data_dir) = install_data_dir else {
+        return default_dir;
+    };
+    if has_database(&default_dir) {
+        tracing::warn!(
+            data_dir = %default_dir.display(),
+            ignored_data_dir = %install_data_dir.display(),
+            "found a second VibeX database under the install directory; it is not opened"
+        );
+        return default_dir;
     }
-    install_default
+    let pin = BootstrapConfig {
+        custom_data_dir: Some(install_data_dir.to_string_lossy().into_owned()),
+    };
+    if let Err(error) = save_bootstrap_config_to(bootstrap_path, &pin) {
+        tracing::warn!(%error, "could not pin the adopted install-directory data directory");
+    }
+    install_data_dir
 }
 
 fn debug_dev_assets_dir() -> PathBuf {
@@ -164,7 +185,7 @@ pub fn default_data_dir_without_custom() -> PathBuf {
     if cfg!(debug_assertions) {
         debug_dev_assets_dir()
     } else {
-        resolve_release_data_dir(None, install_default_data_dir(), legacy_roaming_data_dir())
+        release_default_data_dir()
     }
 }
 
@@ -173,10 +194,12 @@ pub fn default_data_dir_without_custom() -> PathBuf {
 /// Desktop debug builds still use the repo `dev_assets/` tree via [`asset_dir`] unless
 /// overridden by `bootstrap.json`.
 pub fn default_host_data_dir() -> PathBuf {
+    let bootstrap_path = bootstrap_config_path();
     resolve_release_data_dir(
-        read_custom_data_dir(),
-        install_default_data_dir(),
-        legacy_roaming_data_dir(),
+        read_custom_data_dir_from(&bootstrap_path),
+        release_default_data_dir(),
+        install_dir_data_dir(),
+        &bootstrap_path,
     )
 }
 
@@ -204,8 +227,8 @@ pub fn asset_dir() -> PathBuf {
 /// Canonical Host data directory for Desktop and `vibex-server`.
 ///
 /// `VIBEX_DATA_DIR` wins. Otherwise this is [`asset_dir`] so debug Desktop
-/// keeps using `dev_assets/` (unless customized) and release builds use `<install_dir>/data`
-/// (with legacy Roaming compatibility) or the user's custom data directory.
+/// keeps using `dev_assets/` (unless customized) and release builds use
+/// [`release_default_data_dir`] or the user's custom data directory.
 pub fn host_data_dir() -> PathBuf {
     if let Some(explicit) = std::env::var_os("VIBEX_DATA_DIR").filter(|value| !value.is_empty()) {
         let path = PathBuf::from(explicit);
@@ -597,69 +620,97 @@ mod tests {
     }
 
     #[test]
-    fn install_default_data_dir_uses_install_dir_data_and_skips_cargo_target_dirs() {
+    fn install_dir_data_dir_is_only_inspected_and_skips_cargo_target_dirs() {
         let root = tempfile::tempdir().unwrap();
         let install_dir = root.path().join("VibeX");
         std::fs::create_dir_all(&install_dir).unwrap();
 
-        let resolved = super::install_default_data_dir_for_exe_dir(&install_dir)
-            .expect("install_dir/data should be writable");
+        let resolved = super::install_dir_data_dir_for_exe_dir(&install_dir).unwrap();
         assert_eq!(resolved, install_dir.join("data"));
-        assert!(resolved.is_dir());
+        assert!(
+            !resolved.exists(),
+            "resolution must not create the directory"
+        );
 
         let debug_dir = root.path().join("target").join("debug");
-        std::fs::create_dir_all(&debug_dir).unwrap();
-        assert!(super::install_default_data_dir_for_exe_dir(&debug_dir).is_none());
+        assert!(super::install_dir_data_dir_for_exe_dir(&debug_dir).is_none());
+        assert!(super::install_dir_data_dir_for_exe_dir(&debug_dir.join("deps")).is_none());
+    }
 
-        let deps_dir = debug_dir.join("deps");
-        std::fs::create_dir_all(&deps_dir).unwrap();
-        assert!(super::install_default_data_dir_for_exe_dir(&deps_dir).is_none());
+    struct ReleaseDirs {
+        _root: tempfile::TempDir,
+        default_dir: std::path::PathBuf,
+        install_data: std::path::PathBuf,
+        custom_dir: std::path::PathBuf,
+        bootstrap: std::path::PathBuf,
+    }
+
+    impl ReleaseDirs {
+        fn new() -> Self {
+            let root = tempfile::tempdir().unwrap();
+            let base = root.path().to_path_buf();
+            Self {
+                default_dir: base.join("roaming").join("data"),
+                install_data: base.join("install").join("data"),
+                custom_dir: base.join("custom-vibex-data"),
+                bootstrap: base.join("config").join("bootstrap.json"),
+                _root: root,
+            }
+        }
+
+        fn write_db(dir: &std::path::Path) {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("db.sqlite"), b"sqlite").unwrap();
+        }
+
+        fn resolve(&self, custom: Option<std::path::PathBuf>) -> std::path::PathBuf {
+            super::resolve_release_data_dir(
+                custom,
+                self.default_dir.clone(),
+                Some(self.install_data.clone()),
+                &self.bootstrap,
+            )
+        }
     }
 
     #[test]
-    fn resolve_release_data_dir_honors_custom_then_legacy_roaming_then_install_default() {
-        let root = tempfile::tempdir().unwrap();
-        let install_default = root.path().join("install").join("data");
-        let legacy_roaming = root.path().join("roaming").join("data");
-        let custom_dir = root.path().join("custom-vibex-data");
-        std::fs::create_dir_all(&install_default).unwrap();
-        std::fs::create_dir_all(&legacy_roaming).unwrap();
+    fn fresh_install_uses_the_release_default_without_touching_the_install_dir() {
+        let dirs = ReleaseDirs::new();
+        assert_eq!(dirs.resolve(None), dirs.default_dir);
+        assert!(!dirs.install_data.exists());
+        assert!(!dirs.bootstrap.exists());
+    }
 
-        // 1. Fresh install: no legacy db.sqlite -> uses install_default
-        assert_eq!(
-            super::resolve_release_data_dir(None, install_default.clone(), legacy_roaming.clone()),
-            install_default
-        );
+    #[test]
+    fn release_default_database_wins_over_a_stray_install_dir_database() {
+        let dirs = ReleaseDirs::new();
+        ReleaseDirs::write_db(&dirs.default_dir);
+        ReleaseDirs::write_db(&dirs.install_data);
+        assert_eq!(dirs.resolve(None), dirs.default_dir);
+        assert!(!dirs.bootstrap.exists());
+    }
 
-        // 2. Existing user: legacy db.sqlite exists, install_default db.sqlite does not -> uses legacy_roaming
-        std::fs::write(legacy_roaming.join("db.sqlite"), b"sqlite").unwrap();
+    #[test]
+    fn install_dir_only_database_is_adopted_and_pinned() {
+        let dirs = ReleaseDirs::new();
+        ReleaseDirs::write_db(&dirs.install_data);
+        assert_eq!(dirs.resolve(None), dirs.install_data);
         assert_eq!(
-            super::resolve_release_data_dir(None, install_default.clone(), legacy_roaming.clone()),
-            legacy_roaming
+            super::read_custom_data_dir_from(&dirs.bootstrap),
+            Some(dirs.install_data.clone())
         );
+    }
 
-        // 3. Explicit custom_data_dir wins over both
-        assert_eq!(
-            super::resolve_release_data_dir(
-                Some(custom_dir.clone()),
-                install_default.clone(),
-                legacy_roaming.clone()
-            ),
-            custom_dir
-        );
+    #[test]
+    fn custom_data_dir_wins_and_empty_custom_value_is_ignored() {
+        let dirs = ReleaseDirs::new();
+        ReleaseDirs::write_db(&dirs.default_dir);
+        ReleaseDirs::write_db(&dirs.install_data);
+        assert_eq!(dirs.resolve(Some(dirs.custom_dir.clone())), dirs.custom_dir);
 
-        // 4. Bootstrap config round-trip
-        let bootstrap_path = root.path().join("config").join("bootstrap.json");
-        super::save_bootstrap_config_to(
-            &bootstrap_path,
-            &super::BootstrapConfig {
-                custom_data_dir: Some(custom_dir.to_string_lossy().into_owned()),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            super::read_custom_data_dir_from(&bootstrap_path),
-            Some(custom_dir)
-        );
+        std::fs::create_dir_all(dirs.bootstrap.parent().unwrap()).unwrap();
+        std::fs::write(&dirs.bootstrap, br#"{"custom_data_dir": ""}"#).unwrap();
+        assert_eq!(super::read_custom_data_dir_from(&dirs.bootstrap), None);
+        assert_eq!(dirs.resolve(None), dirs.default_dir);
     }
 }

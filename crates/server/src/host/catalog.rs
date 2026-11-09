@@ -11,7 +11,7 @@ mod mcp;
 mod ops;
 mod release_download;
 pub(crate) mod skills;
-mod system;
+pub(crate) mod system;
 mod version_control;
 
 use application::{ApplicationError, DomainCommand};

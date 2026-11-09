@@ -65,6 +65,8 @@ pub async fn remap_sqlite_data_dir_paths(
         ("repos", "path"),
         ("projects", "root_path"),
         ("collaboration_space_collection_items", "file_path"),
+        ("conversation_agent_bindings", "working_dir"),
+        ("agent_connections", "working_dir"),
     ];
 
     let mut pairs = vec![(old_slash.clone(), new_slash.clone())];

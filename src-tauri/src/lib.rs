@@ -381,11 +381,17 @@ pub fn run() {
         std::mem::forget(runtime);
         tauri::async_runtime::set(handle);
     }
+    // Before anything resolves the data directory (logging, WebView2 profiles,
+    // the database): existing data must be moved in, never shadowed.
+    let data_dir_adoption = tauri::async_runtime::block_on(server::adopt_legacy_data_dir());
     windows_webview2::install_process_arguments();
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
     let mut log_guard = Some(logging::init_logging());
+    if let Some(outcome) = data_dir_adoption {
+        server::log_data_dir_adoption(&outcome);
+    }
     // Persist panics as local crash reports (opt-in surfacing happens in the UI).
     crash_reports::install_panic_hook();
     install_rustls_crypto_provider();

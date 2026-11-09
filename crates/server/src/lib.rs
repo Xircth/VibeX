@@ -10,6 +10,7 @@ mod cli;
 mod companion_session;
 mod composition;
 mod config;
+mod data_dir_adoption;
 mod delegation_runtime;
 mod domains;
 pub mod e2ee;
@@ -53,6 +54,7 @@ pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetResolver};
 pub use conversations as vibex_conversations;
+pub use data_dir_adoption::{DataDirAdoptionOutcome, adopt_legacy_data_dir, log_data_dir_adoption};
 pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::ServerApplicationDomains;
 pub use host::{

@@ -5027,9 +5027,7 @@ describe('CollaborationSpacePage', () => {
     renderPage();
 
     await user.click(await screen.findByRole('button', { name: '创建' }));
-    await user.click(
-      await screen.findByRole('menuitem', { name: '新建分组' })
-    );
+    await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(

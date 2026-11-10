@@ -242,7 +242,8 @@ describe('assistant turn vertical rhythm', () => {
     const h2 = container.querySelector('h2') as Element;
     const [q1, q2] = container.querySelectorAll('h3');
     const blockquote = container.querySelector('blockquote') as Element;
-    const [quoteP1, quoteP2] = blockquote.querySelectorAll('[role="paragraph"]');
+    const [quoteP1, quoteP2] =
+      blockquote.querySelectorAll('[role="paragraph"]');
 
     expect(getComputedStyle(h2).marginTop).toBe('0px');
     expect(getComputedStyle(h2).marginBottom).toBe('0px');

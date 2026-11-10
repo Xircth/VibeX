@@ -5660,8 +5660,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   const activeThreadPinKey = activeDirectThreadId || selectedId || '';
 
   useLayoutEffect(() => {
-    const threadChanged =
-      lastPinnedThreadKeyRef.current !== activeThreadPinKey;
+    const threadChanged = lastPinnedThreadKeyRef.current !== activeThreadPinKey;
     if (threadChanged) {
       lastPinnedThreadKeyRef.current = activeThreadPinKey;
       hasPinnedNonEmptyThreadRef.current = '';

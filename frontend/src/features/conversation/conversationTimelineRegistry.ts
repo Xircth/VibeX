@@ -518,10 +518,7 @@ function parkInactiveConversation(conversationId: string): void {
     const evictedId = inactiveConversationLru.shift();
     if (!evictedId) break;
     const evictedSlot = slots.get(evictedId);
-    if (
-      evictedSlot &&
-      (evictedSlot.refs > 0 || evictedSlot.surfaceRefs > 0)
-    ) {
+    if (evictedSlot && (evictedSlot.refs > 0 || evictedSlot.surfaceRefs > 0)) {
       continue;
     }
     viewCache.delete(evictedId);

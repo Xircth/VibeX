@@ -558,9 +558,7 @@ export const MessageStream = memo(function MessageStream() {
         threadKey: activeThreadKey,
         count: Math.min(
           filteredMessages.length,
-          filteredMessages.length -
-            activeNavIndex +
-            COLLAB_VISIBLE_MESSAGE_STEP
+          filteredMessages.length - activeNavIndex + COLLAB_VISIBLE_MESSAGE_STEP
         ),
       });
       return;

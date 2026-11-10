@@ -337,7 +337,8 @@ export function getDraftScratchHydrationDecision({
   return {
     hydratedScratchId: scratchId,
     shouldHydrate: true,
-    message: typeof scratchData?.message === 'string' ? scratchData.message : '',
+    message:
+      typeof scratchData?.message === 'string' ? scratchData.message : '',
     imagePaths: [...(scratchData?.images ?? [])],
     // Create-form session-control presets ride the draft into the composer's
     // pending state and go out as the first turn's overrides.

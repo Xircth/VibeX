@@ -455,14 +455,18 @@ export function SpaceCardActions({
     );
   const resolvedQuestions =
     hasQuestionOptions(card.questions) || !payloadQuestions
-      ? card.questions ?? payloadQuestions
+      ? (card.questions ?? payloadQuestions)
       : payloadQuestions;
   const payloadOptions = Array.isArray(payloadObj?.options)
     ? payloadObj.options.filter((opt): opt is string => typeof opt === 'string')
     : [];
   const resolvedOptions =
     card.options.length > 0 ? card.options : payloadOptions;
-  if (card.kind === 'ask' && resolvedQuestions && resolvedQuestions.length > 0) {
+  if (
+    card.kind === 'ask' &&
+    resolvedQuestions &&
+    resolvedQuestions.length > 0
+  ) {
     const request = {
       question_id: card.id,
       prompt: card.body,

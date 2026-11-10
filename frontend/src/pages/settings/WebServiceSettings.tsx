@@ -115,13 +115,16 @@ export function WebServiceSettings({
       }
     }
   );
-  const commitDraft = (next: WebServiceConfig, settle = false) => {
-    draftRef.current = next;
-    setDraft(next);
-    if (!validPort(next.port)) return;
-    if (settle) writeSettled(next);
-    else writeNow(next);
-  };
+  const commitDraft = useCallback(
+    (next: WebServiceConfig, settle = false) => {
+      draftRef.current = next;
+      setDraft(next);
+      if (!validPort(next.port)) return;
+      if (settle) writeSettled(next);
+      else writeNow(next);
+    },
+    [writeNow, writeSettled]
+  );
 
   const load = useCallback(
     async (showSpinner = true) => {
@@ -214,8 +217,7 @@ export function WebServiceSettings({
         setStatusBusy(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [commitDraft]
   );
 
   const startServer = useCallback(async () => {

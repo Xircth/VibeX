@@ -1971,7 +1971,10 @@ fn elicitation_response_from_card_answer(
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
             {
-                map.insert(custom_field.to_string(), Value::String(custom_text.to_string()));
+                map.insert(
+                    custom_field.to_string(),
+                    Value::String(custom_text.to_string()),
+                );
             }
             if let Some(selected) = obj.get("selected").and_then(Value::as_array) {
                 let multi_select = obj

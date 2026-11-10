@@ -4962,5 +4962,3 @@ async fn consecutive_post_to_space_reusing_operation_id_succeeds_and_projects_cr
         "lead reply must be in group: {contents:?}"
     );
 }
-
-

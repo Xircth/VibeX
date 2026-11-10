@@ -256,189 +256,208 @@ export function PluginSchemaSettingsForm({
               isPropertyVisible(key, prop, values, properties)
             )
             .map(([key, prop]) => {
-            const fieldId = `plugin-setting-${pluginId}-${key}`;
-            const label = prop.title ?? key;
-            const currentValue = values[key] ?? prop.default ?? '';
+              const fieldId = `plugin-setting-${pluginId}-${key}`;
+              const label = prop.title ?? key;
+              const currentValue = values[key] ?? prop.default ?? '';
 
-            if (prop.type === 'boolean') {
-              return (
-                <label
-                  key={key}
-                  htmlFor={fieldId}
-                  className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2"
-                >
-                  <div className="space-y-0.5">
-                    <span className="block text-xs font-medium text-foreground">
-                      {label}
-                    </span>
-                    {prop.description && (
-                      <span className="block text-[11px] text-muted-foreground">
-                        {prop.description}
+              if (prop.type === 'boolean') {
+                return (
+                  <label
+                    key={key}
+                    htmlFor={fieldId}
+                    className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2"
+                  >
+                    <div className="space-y-0.5">
+                      <span className="block text-xs font-medium text-foreground">
+                        {label}
                       </span>
-                    )}
-                  </div>
-                  <input
-                    id={fieldId}
-                    type="checkbox"
-                    checked={Boolean(currentValue)}
-                    onChange={(e) => {
-                      setSavedNotice(false);
-                      setValues((prev) => ({
-                        ...prev,
-                        [key]: e.target.checked,
-                      }));
-                    }}
-                    className="mt-0.5 h-4 w-4 rounded border-border"
-                  />
-                </label>
-              );
-            }
-
-            if (prop.enum && prop.enum.length > 0) {
-              return (
-                <div key={key} className="space-y-1">
-                  <label
-                    htmlFor={fieldId}
-                    className="block text-xs font-medium text-foreground"
-                  >
-                    {label}
-                  </label>
-                  {prop.description && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {prop.description}
-                    </p>
-                  )}
-                  <Select
-                    value={String(currentValue)}
-                    onValueChange={(nextValue) => {
-                      setSavedNotice(false);
-                      setValues((prev) => ({
-                        ...prev,
-                        [key]: nextValue,
-                      }));
-                    }}
-                  >
-                    <SelectTrigger
-                      id={fieldId}
-                      aria-label={label}
-                      className="h-8 w-full text-xs"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {prop.enum.map((option) => (
-                        <SelectItem
-                          key={String(option)}
-                          value={String(option)}
-                          className="text-xs"
-                        >
-                          {String(option)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              );
-            }
-
-            if (prop.multiline || prop.format === 'textarea') {
-              return (
-                <div key={key} className="space-y-1">
-                  <label
-                    htmlFor={fieldId}
-                    className="block text-xs font-medium text-foreground"
-                  >
-                    {label}
-                  </label>
-                  {prop.description && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {prop.description}
-                    </p>
-                  )}
-                  <textarea
-                    id={fieldId}
-                    rows={3}
-                    placeholder={prop.placeholder}
-                    value={String(currentValue ?? '')}
-                    onChange={(e) => {
-                      setSavedNotice(false);
-                      setValues((prev) => ({
-                        ...prev,
-                        [key]: e.target.value,
-                      }));
-                    }}
-                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
-                  />
-                </div>
-              );
-            }
-
-            if (prop.format === 'token-list' || key === 'vocabulary') {
-              const tokens = (
-                Array.isArray(currentValue)
-                  ? currentValue.map((item) => String(item ?? '').trim())
-                  : String(currentValue ?? '')
-                      .split(/[,，;\n\r]+/)
-                      .map((item) => item.trim())
-              ).filter(Boolean);
-              const updateTokens = (nextTokens: string[]) => {
-                const deduped = Array.from(
-                  new Set(nextTokens.map((t) => t.trim()).filter(Boolean))
-                );
-                setSavedNotice(false);
-                setValues((prev) => ({
-                  ...prev,
-                  [key]: prop.type === 'array' ? deduped : deduped.join(', '),
-                }));
-              };
-
-              return (
-                <div key={key} className="space-y-1.5">
-                  <label
-                    htmlFor={fieldId}
-                    className="block text-xs font-medium text-foreground"
-                  >
-                    {label}
-                  </label>
-                  {prop.description && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {prop.description}
-                    </p>
-                  )}
-                  <div className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
-                    {tokens.map((token, idx) => (
-                      <span
-                        key={`${token}-${idx}`}
-                        className="inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
-                      >
-                        <span>{token}</span>
-                        <button
-                          type="button"
-                          aria-label={`移除 ${token}`}
-                          onClick={() =>
-                            updateTokens(tokens.filter((_, i) => i !== idx))
-                          }
-                          className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/20 hover:text-foreground"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
+                      {prop.description && (
+                        <span className="block text-[11px] text-muted-foreground">
+                          {prop.description}
+                        </span>
+                      )}
+                    </div>
                     <input
                       id={fieldId}
-                      type="text"
-                      placeholder={
-                        prop.placeholder ?? '输入热词后按 Enter 添加…'
-                      }
-                      onKeyDown={(e) => {
-                        const draft = e.currentTarget.value.trim();
-                        if (
-                          e.key === 'Enter' ||
-                          e.key === ',' ||
-                          e.key === '，' ||
-                          e.key === ';'
-                        ) {
-                          e.preventDefault();
+                      type="checkbox"
+                      checked={Boolean(currentValue)}
+                      onChange={(e) => {
+                        setSavedNotice(false);
+                        setValues((prev) => ({
+                          ...prev,
+                          [key]: e.target.checked,
+                        }));
+                      }}
+                      className="mt-0.5 h-4 w-4 rounded border-border"
+                    />
+                  </label>
+                );
+              }
+
+              if (prop.enum && prop.enum.length > 0) {
+                return (
+                  <div key={key} className="space-y-1">
+                    <label
+                      htmlFor={fieldId}
+                      className="block text-xs font-medium text-foreground"
+                    >
+                      {label}
+                    </label>
+                    {prop.description && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {prop.description}
+                      </p>
+                    )}
+                    <Select
+                      value={String(currentValue)}
+                      onValueChange={(nextValue) => {
+                        setSavedNotice(false);
+                        setValues((prev) => ({
+                          ...prev,
+                          [key]: nextValue,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger
+                        id={fieldId}
+                        aria-label={label}
+                        className="h-8 w-full text-xs"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {prop.enum.map((option) => (
+                          <SelectItem
+                            key={String(option)}
+                            value={String(option)}
+                            className="text-xs"
+                          >
+                            {String(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              }
+
+              if (prop.multiline || prop.format === 'textarea') {
+                return (
+                  <div key={key} className="space-y-1">
+                    <label
+                      htmlFor={fieldId}
+                      className="block text-xs font-medium text-foreground"
+                    >
+                      {label}
+                    </label>
+                    {prop.description && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {prop.description}
+                      </p>
+                    )}
+                    <textarea
+                      id={fieldId}
+                      rows={3}
+                      placeholder={prop.placeholder}
+                      value={String(currentValue ?? '')}
+                      onChange={(e) => {
+                        setSavedNotice(false);
+                        setValues((prev) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }));
+                      }}
+                      className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
+                    />
+                  </div>
+                );
+              }
+
+              if (prop.format === 'token-list' || key === 'vocabulary') {
+                const tokens = (
+                  Array.isArray(currentValue)
+                    ? currentValue.map((item) => String(item ?? '').trim())
+                    : String(currentValue ?? '')
+                        .split(/[,，;\n\r]+/)
+                        .map((item) => item.trim())
+                ).filter(Boolean);
+                const updateTokens = (nextTokens: string[]) => {
+                  const deduped = Array.from(
+                    new Set(nextTokens.map((t) => t.trim()).filter(Boolean))
+                  );
+                  setSavedNotice(false);
+                  setValues((prev) => ({
+                    ...prev,
+                    [key]: prop.type === 'array' ? deduped : deduped.join(', '),
+                  }));
+                };
+
+                return (
+                  <div key={key} className="space-y-1.5">
+                    <label
+                      htmlFor={fieldId}
+                      className="block text-xs font-medium text-foreground"
+                    >
+                      {label}
+                    </label>
+                    {prop.description && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {prop.description}
+                      </p>
+                    )}
+                    <div className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+                      {tokens.map((token, idx) => (
+                        <span
+                          key={`${token}-${idx}`}
+                          className="inline-flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
+                        >
+                          <span>{token}</span>
+                          <button
+                            type="button"
+                            aria-label={`移除 ${token}`}
+                            onClick={() =>
+                              updateTokens(tokens.filter((_, i) => i !== idx))
+                            }
+                            className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/20 hover:text-foreground"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        id={fieldId}
+                        type="text"
+                        placeholder={
+                          prop.placeholder ?? '输入热词后按 Enter 添加…'
+                        }
+                        onKeyDown={(e) => {
+                          const draft = e.currentTarget.value.trim();
+                          if (
+                            e.key === 'Enter' ||
+                            e.key === ',' ||
+                            e.key === '，' ||
+                            e.key === ';'
+                          ) {
+                            e.preventDefault();
+                            if (draft) {
+                              const added = draft
+                                .split(/[,，;\n\r]+/)
+                                .map((s) => s.trim())
+                                .filter(Boolean);
+                              updateTokens([...tokens, ...added]);
+                              e.currentTarget.value = '';
+                            }
+                          } else if (
+                            e.key === 'Backspace' &&
+                            e.currentTarget.value === '' &&
+                            tokens.length > 0
+                          ) {
+                            e.preventDefault();
+                            updateTokens(tokens.slice(0, -1));
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const draft = e.currentTarget.value.trim();
                           if (draft) {
                             const added = draft
                               .split(/[,，;\n\r]+/)
@@ -447,85 +466,69 @@ export function PluginSchemaSettingsForm({
                             updateTokens([...tokens, ...added]);
                             e.currentTarget.value = '';
                           }
-                        } else if (
-                          e.key === 'Backspace' &&
-                          e.currentTarget.value === '' &&
-                          tokens.length > 0
-                        ) {
-                          e.preventDefault();
-                          updateTokens(tokens.slice(0, -1));
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const draft = e.currentTarget.value.trim();
-                        if (draft) {
-                          const added = draft
-                            .split(/[,，;\n\r]+/)
-                            .map((s) => s.trim())
-                            .filter(Boolean);
-                          updateTokens([...tokens, ...added]);
-                          e.currentTarget.value = '';
-                        }
-                      }}
-                      className="h-6 min-w-[120px] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-                    />
+                        }}
+                        className="h-6 min-w-[120px] flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                      />
+                    </div>
                   </div>
+                );
+              }
+
+              const isNumeric =
+                prop.type === 'number' || prop.type === 'integer';
+              const isPassword =
+                prop.secret === true || prop.format === 'password';
+
+              return (
+                <div key={key} className="space-y-1">
+                  <label
+                    htmlFor={fieldId}
+                    className="block text-xs font-medium text-foreground"
+                  >
+                    {label}
+                  </label>
+                  {prop.description && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {prop.description}
+                    </p>
+                  )}
+                  <input
+                    id={fieldId}
+                    type={
+                      isPassword ? 'password' : isNumeric ? 'number' : 'text'
+                    }
+                    min={prop.minimum}
+                    max={prop.maximum}
+                    placeholder={prop.placeholder}
+                    value={
+                      Array.isArray(currentValue)
+                        ? currentValue.join(', ')
+                        : String(currentValue ?? '')
+                    }
+                    onChange={(e) => {
+                      setSavedNotice(false);
+                      const raw = e.target.value;
+                      const parsed =
+                        prop.type === 'array'
+                          ? raw
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean)
+                          : isNumeric
+                            ? raw === ''
+                              ? 0
+                              : Number(raw)
+                            : raw;
+                      setValues((prev) => ({
+                        ...prev,
+                        [key]: parsed,
+                      }));
+                    }}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
+                  />
                 </div>
               );
-            }
-
-            const isNumeric = prop.type === 'number' || prop.type === 'integer';
-            const isPassword =
-              prop.secret === true || prop.format === 'password';
-
-            return (
-              <div key={key} className="space-y-1">
-                <label
-                  htmlFor={fieldId}
-                  className="block text-xs font-medium text-foreground"
-                >
-                  {label}
-                </label>
-                {prop.description && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {prop.description}
-                  </p>
-                )}
-                <input
-                  id={fieldId}
-                  type={isPassword ? 'password' : isNumeric ? 'number' : 'text'}
-                  min={prop.minimum}
-                  max={prop.maximum}
-                  placeholder={prop.placeholder}
-                  value={
-                    Array.isArray(currentValue)
-                      ? currentValue.join(', ')
-                      : String(currentValue ?? '')
-                  }
-                  onChange={(e) => {
-                    setSavedNotice(false);
-                    const raw = e.target.value;
-                    const parsed =
-                      prop.type === 'array'
-                        ? raw
-                            .split(',')
-                            .map((s) => s.trim())
-                            .filter(Boolean)
-                        : isNumeric
-                          ? raw === ''
-                            ? 0
-                            : Number(raw)
-                          : raw;
-                    setValues((prev) => ({
-                      ...prev,
-                      [key]: parsed,
-                    }));
-                  }}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
-                />
-              </div>
-            );
-          })}
+            })}
         </div>
       )}
 

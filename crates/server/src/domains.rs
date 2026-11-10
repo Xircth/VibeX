@@ -1590,12 +1590,9 @@ impl ServerApplicationDomains {
             ));
         }
         let plane = self.plugin_control_plane().await?;
-        let lease = plane
-            .activation_lease(plugin_id)
-            .await
-            .ok_or_else(|| {
-                ApplicationError::not_found(format!("plugin `{plugin_id}` is not active"))
-            })?;
+        let lease = plane.activation_lease(plugin_id).await.ok_or_else(|| {
+            ApplicationError::not_found(format!("plugin `{plugin_id}` is not active"))
+        })?;
         let timeout = args
             .timeout_seconds
             .filter(|value| (5..=600).contains(value))

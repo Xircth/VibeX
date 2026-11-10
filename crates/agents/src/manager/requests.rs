@@ -348,7 +348,8 @@ pub(in crate::manager) fn enrich_elicitation_schema(
     requested_schema: &mut serde_json::Value,
     tool_input: Option<&serde_json::Value>,
 ) {
-    let tool_questions = tool_input.and_then(session_update::extract_question_items_from_tool_input);
+    let tool_questions =
+        tool_input.and_then(session_update::extract_question_items_from_tool_input);
     let Some(schema_obj) = requested_schema.as_object_mut() else {
         return;
     };
@@ -363,9 +364,7 @@ pub(in crate::manager) fn enrich_elicitation_schema(
             .get("x-vibex-questions")
             .and_then(serde_json::Value::as_array)
             .is_some_and(|items| !items.is_empty());
-        if !has_explicit
-            && let Some(questions) = tool_questions
-        {
+        if !has_explicit && let Some(questions) = tool_questions {
             schema_obj.insert(
                 "x-vibex-questions".to_string(),
                 serde_json::Value::Array(questions.clone()),
@@ -439,7 +438,10 @@ pub(in crate::manager) fn enrich_elicitation_schema(
     let fallback_message = message.trim();
 
     for (idx, key) in ordered_keys.iter().enumerate() {
-        let Some(prop_obj) = props.get_mut(key).and_then(serde_json::Value::as_object_mut) else {
+        let Some(prop_obj) = props
+            .get_mut(key)
+            .and_then(serde_json::Value::as_object_mut)
+        else {
             continue;
         };
         let prop_title = prop_obj
@@ -563,16 +565,11 @@ pub(in crate::manager) fn enrich_elicitation_schema(
                         .entry("items".to_string())
                         .or_insert_with(|| serde_json::json!({ "type": "string" }));
                     if let Some(items_obj) = items.as_object_mut() {
-                        items_obj.insert(
-                            "anyOf".to_string(),
-                            serde_json::Value::Array(const_options),
-                        );
+                        items_obj
+                            .insert("anyOf".to_string(), serde_json::Value::Array(const_options));
                     }
                 } else {
-                    prop_obj.insert(
-                        "oneOf".to_string(),
-                        serde_json::Value::Array(const_options),
-                    );
+                    prop_obj.insert("oneOf".to_string(), serde_json::Value::Array(const_options));
                 }
             }
         }

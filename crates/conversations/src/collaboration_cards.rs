@@ -432,7 +432,9 @@ pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -
             let question_text = description
                 .or_else(|| {
                     if names.len() == 1 {
-                        (!fallback_prompt.is_empty()).then_some(fallback_prompt).or(title)
+                        (!fallback_prompt.is_empty())
+                            .then_some(fallback_prompt)
+                            .or(title)
                     } else {
                         title
                     }
@@ -491,7 +493,9 @@ fn custom_answer_companions_from_schema_properties<'a>(
         let Some((question_key, question_val)) = properties.get_key_value(question_name) else {
             continue;
         };
-        let (Some(question), Some(companion)) = (question_val.as_object(), raw_property.as_object()) else {
+        let (Some(question), Some(companion)) =
+            (question_val.as_object(), raw_property.as_object())
+        else {
             continue;
         };
         let question_type = question.get("type").and_then(Value::as_str).unwrap_or("");

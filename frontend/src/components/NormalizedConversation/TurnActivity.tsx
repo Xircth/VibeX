@@ -63,6 +63,7 @@ import {
 import {
   firstQuestionTitle,
   isAskQuestionTool,
+  isQuestionToolName,
   questionRequestFromToolUse,
   questionTabsFromRequest,
 } from '@/components/tasks/follow-up/agentQuestionModel';

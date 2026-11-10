@@ -163,4 +163,3 @@ describe('useCollaborationSpacePick render isolation', () => {
     expect(seenOverlayRenderFns[0]).not.toBe(seenOverlayRenderFns[1]);
   });
 });
-

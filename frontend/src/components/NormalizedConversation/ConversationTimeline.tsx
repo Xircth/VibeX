@@ -1636,8 +1636,7 @@ const AgentTimelineConversation = forwardRef<
         scrollToBottom(scrollBehavior);
       },
       scrollToIndex(index, options) {
-        const shouldDetach =
-          (options?.behavior ?? scrollBehavior) === 'smooth';
+        const shouldDetach = (options?.behavior ?? scrollBehavior) === 'smooth';
         scrollToTimelineIndexWithAlign(
           index,
           options?.align ?? 'center',

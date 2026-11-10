@@ -451,10 +451,7 @@ pub(in crate::manager) fn elicitation_response_action(
                         .collect::<std::collections::BTreeMap<_, _>>()
                 })
                 .unwrap_or_default();
-            if let Some(items) = content
-                .get("answers")
-                .and_then(serde_json::Value::as_array)
-            {
+            if let Some(items) = content.get("answers").and_then(serde_json::Value::as_array) {
                 for item in items {
                     let Some(obj) = item.as_object() else {
                         continue;

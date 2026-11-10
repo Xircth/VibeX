@@ -434,12 +434,9 @@ fn acp_launch_args_have_one_answer_per_profile() {
                 if pinned_args.is_empty() {
                     continue;
                 }
-                let matching_candidate = profile
-                    .external_candidates
-                    .iter()
-                    .find(|candidate| {
-                        candidate.component == component && !candidate.acp_args.is_empty()
-                    });
+                let matching_candidate = profile.external_candidates.iter().find(|candidate| {
+                    candidate.component == component && !candidate.acp_args.is_empty()
+                });
                 assert!(
                     matching_candidate.is_some_and(|candidate| candidate.acp_args == pinned_args),
                     "{}: NativeAcp install source for {:?} pins non-empty args {:?}, so external_candidates must also declare matching acp_args",
@@ -674,9 +671,7 @@ fn native_acp_cli_agents_launch_with_the_documented_server_args() {
         ("grok", "grok", &["agent", "stdio"][..]),
         ("cursor", "cursor-agent", &["acp"][..]),
     ] {
-        let profile = catalog
-            .profile(&AgentId::parse(agent_id).unwrap())
-            .unwrap();
+        let profile = catalog.profile(&AgentId::parse(agent_id).unwrap()).unwrap();
         assert_eq!(
             profile
                 .external_candidates

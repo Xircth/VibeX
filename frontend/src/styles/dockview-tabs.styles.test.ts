@@ -72,7 +72,12 @@ describe('workspace tab strip chrome', () => {
     );
 
     expect(strip['border-bottom']?.value).toBe('0');
-    expect(tabs.padding?.value).toBe('4px 4px 0 2px');
+    expect(tabs['--dv-tab-scroll-slack']?.value).toBe(
+      'calc(var(--dv-tab-curve) - var(--dv-tab-gap) + 1px)'
+    );
+    expect(tabs.padding?.value).toBe(
+      '4px var(--dv-tab-scroll-slack) 0 var(--dv-tab-scroll-slack)'
+    );
     expect(active['border-radius']?.value).toBe(
       'var(--radius) var(--radius) 0 0'
     );

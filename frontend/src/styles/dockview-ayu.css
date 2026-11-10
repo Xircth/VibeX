@@ -324,14 +324,19 @@
   padding-inline: 4px;
 }
 
-/* Dockview 5.1 omits .dv-horizontal for the default horizontal direction. */
+/* Dockview 5.1 omits .dv-horizontal for the default horizontal direction.
+   Corner ears extend --dv-tab-curve past the tab face; only --dv-tab-gap
+   of that sits in the tab padding. The leftover must fit in this padding,
+   plus 1px, or Dockview's scrollWidth > clientWidth check treats those
+   pixels as overflow and paints a scrollbar when the strip is hovered. */
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   align-items: stretch;
   gap: 0;
-  padding: 4px 4px 0 2px;
+  --dv-tab-scroll-slack: calc(var(--dv-tab-curve) - var(--dv-tab-gap) + 1px);
+  padding: 4px var(--dv-tab-scroll-slack) 0 var(--dv-tab-scroll-slack);
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab {

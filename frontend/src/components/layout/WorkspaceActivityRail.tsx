@@ -107,6 +107,7 @@ export function WorkspaceActivityRail({
     toggleBotsPanel,
     isPanelOpen,
     placeLeftDockPanel,
+    resolveShellNavDropTarget,
     measureLeftDock,
     isLeftDockSplit,
     unsplitLeftDock,
@@ -124,6 +125,8 @@ export function WorkspaceActivityRail({
   const railRef = useRef<HTMLElement | null>(null);
   const dropZoneRef = useRef<LeftPanelDropZone | null>(null);
   const dockBoxRef = useRef<Box | null>(null);
+  const dropSideRef = useRef<'left' | 'right'>('left');
+  const dropTargetPanelRef = useRef<ActivityRailItemId | undefined>(undefined);
   orderRef.current = order;
   dropZoneRef.current = dropZone;
   dockBoxRef.current = dockBox;
@@ -178,6 +181,8 @@ export function WorkspaceActivityRail({
       dockBoxRef.current = box;
       setDockBox(box);
       dropZoneRef.current = null;
+      dropSideRef.current = 'left';
+      dropTargetPanelRef.current = undefined;
       setDropZone(null);
     },
     [measureLeftDock]
@@ -188,6 +193,8 @@ export function WorkspaceActivityRail({
     originRef.current = null;
     setActiveId(null);
     dropZoneRef.current = null;
+    dropSideRef.current = 'left';
+    dropTargetPanelRef.current = undefined;
     setDropZone(null);
     dockBoxRef.current = null;
     setDockBox(null);
@@ -204,34 +211,74 @@ export function WorkspaceActivityRail({
   const collisionDetection = useCallback<CollisionDetection>((args) => {
     const pointer = args.pointerCoordinates;
     const box = dockBoxRef.current;
-    if (pointer && box && boxContains(box, pointer)) {
+    if (pointer && (dropZoneRef.current || (box && boxContains(box, pointer)))) {
       return [];
     }
     return closestCenter(args);
   }, []);
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const pointer = pointerFromDrag(event);
-    const box = dockBoxRef.current;
-    const railBox = boxFromElement(railRef.current);
-    let next: LeftPanelDropZone | null = null;
-    if (pointer && box && !(railBox && boxContains(railBox, pointer))) {
-      next = resolveLeftPanelDropZone(pointer, box);
-    }
-    if (next !== dropZoneRef.current) {
-      dropZoneRef.current = next;
-      setDropZone(next);
-    }
-  }, []);
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const pointer = pointerFromDrag(event);
+      const railBox = boxFromElement(railRef.current);
+      if (!pointer || (railBox && boxContains(railBox, pointer))) {
+        if (dropZoneRef.current !== null) {
+          dropZoneRef.current = null;
+          dropSideRef.current = 'left';
+          dropTargetPanelRef.current = undefined;
+          setDropZone(null);
+        }
+        return;
+      }
+
+      const target = resolveShellNavDropTarget(
+        pointer,
+        String(event.active.id) as ActivityRailItemId
+      );
+      if (target) {
+        dockBoxRef.current = target.containerBox;
+        setDockBox(target.containerBox);
+        dropSideRef.current = target.side;
+        dropTargetPanelRef.current = target.targetPanelId;
+        if (target.zone !== dropZoneRef.current) {
+          dropZoneRef.current = target.zone;
+          setDropZone(target.zone);
+        }
+        return;
+      }
+
+      const fallbackBox = measureLeftDock() ?? dockBoxRef.current;
+      const next = fallbackBox
+        ? resolveLeftPanelDropZone(pointer, fallbackBox)
+        : null;
+      if (next && fallbackBox) {
+        dockBoxRef.current = fallbackBox;
+        setDockBox(fallbackBox);
+      }
+      dropSideRef.current = 'left';
+      dropTargetPanelRef.current = undefined;
+      if (next !== dropZoneRef.current) {
+        dropZoneRef.current = next;
+        setDropZone(next);
+      }
+    },
+    [measureLeftDock, resolveShellNavDropTarget]
+  );
 
   const handleDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
       const origin = originRef.current ?? orderRef.current;
       const zone = dropZoneRef.current;
+      const side = dropSideRef.current;
+      const targetPanelId = dropTargetPanelRef.current;
       const panelId = String(active.id) as ActivityRailItemId;
       if (zone) {
         finishDrag(origin);
-        placeLeftDockPanel(panelId, zone);
+        if (side === 'right' || targetPanelId) {
+          placeLeftDockPanel(panelId, zone, { side, targetPanelId });
+        } else {
+          placeLeftDockPanel(panelId, zone);
+        }
         return;
       }
       if (!over) {

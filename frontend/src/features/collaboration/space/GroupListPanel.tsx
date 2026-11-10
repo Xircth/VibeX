@@ -33,7 +33,9 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
 import { cn } from '@/lib/utils';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import i18n from '@/i18n';
 import { COPY } from '../spaceModel';
 import { cycleTypeFilter } from '../contactChrome';
@@ -363,6 +365,7 @@ export const GroupListPanel = memo(function GroupListPanel() {
                   >
                     <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
                   </Button>
+                  <ShellNavPanelDragHandle panelId={PANEL_IDS.BOTS} />
                 </div>
               </>
             )}

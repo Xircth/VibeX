@@ -99,16 +99,29 @@ describe('ProjectWindowStatusSummary', () => {
     });
   });
 
-  it('places a project-count capsule first so the rail can be toggled from the status area', () => {
+  it('renders a unified bottom-left project selector with integrated status indicator and project count', () => {
     render(<ProjectWindowStatusSummary />);
 
     const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
     expect(buttons[0]).toHaveAttribute('data-project-rail-toggle', 'true');
+    expect(buttons[0]).toHaveAttribute(
+      'data-testid',
+      'bottom-left-project-selector'
+    );
+    expect(buttons[0]).toHaveTextContent('Alpha');
     expect(buttons[0]).toHaveTextContent('2');
-    expect(buttons[0]).toHaveClass('rounded-full');
+    expect(buttons[0]).toHaveClass(
+      'workspace-toolbar-button',
+      'h-7',
+      'rounded-md'
+    );
+    expect(
+      screen.getByTestId('project-selector-status-dot')
+    ).toBeInTheDocument();
   });
 
-  it('keeps the rail toggle visible while the project rail is open', () => {
+  it('keeps the selector toggle visible while the project selector menu is open', () => {
     useWindowProjectsStore.setState({ railVisible: true });
     render(<ProjectWindowStatusSummary />);
 
@@ -117,20 +130,16 @@ describe('ProjectWindowStatusSummary', () => {
       'true'
     );
     expect(screen.getByText('Alpha')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'openProject:Beta' })
-    ).not.toBeInTheDocument();
   });
 
-  it('opens a hovered project session status popover', () => {
+  it('opens the active project session status popover on hover when the selector menu is closed', () => {
     render(<ProjectWindowStatusSummary />);
 
-    fireEvent.mouseEnter(
-      screen.getByRole('button', { name: 'openProject:Beta' })
-    );
+    const selectorBtn = screen.getByTestId('bottom-left-project-selector');
+    fireEvent.mouseEnter(selectorBtn);
 
-    expect(screen.getByText('Review diffs')).toBeInTheDocument();
-    expect(screen.getByText('Running')).toBeInTheDocument();
+    expect(screen.getByText('Fix navigation')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
   });
 
   it('truncates long recent session titles to 20 characters and constrains popover width', () => {
@@ -139,7 +148,7 @@ describe('ProjectWindowStatusSummary', () => {
       openProjectIds: ['project-alpha', 'project-beta'],
       projectSnapshots: {
         ...useWindowProjectsStore.getState().projectSnapshots,
-        'project-beta': snapshot({
+        'project-alpha': snapshot({
           recentSessions: [
             {
               sessionId: 'session-long',
@@ -159,9 +168,8 @@ describe('ProjectWindowStatusSummary', () => {
 
     render(<ProjectWindowStatusSummary />);
 
-    fireEvent.mouseEnter(
-      screen.getByRole('button', { name: 'openProject:Beta' })
-    );
+    const selectorBtn = screen.getByTestId('bottom-left-project-selector');
+    fireEvent.mouseEnter(selectorBtn);
 
     const truncatedTitle = screen.getByText(
       '一二三四五六七八九十一二三四五六七八九十...'
@@ -177,37 +185,11 @@ describe('ProjectWindowStatusSummary', () => {
     expect(popoverContainer).toHaveClass('max-w-[calc(100vw-1rem)]');
   });
 
-  it('switches to the clicked project without opening the project rail', () => {
+  it('toggles the project selector menu when clicked', () => {
     render(<ProjectWindowStatusSummary />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'openProject:Beta' }));
+    fireEvent.click(screen.getByTestId('bottom-left-project-selector'));
 
-    expect(mocks.switchProject).toHaveBeenCalledWith('project-beta');
-    expect(useWindowProjectsStore.getState().railVisible).toBe(false);
-  });
-
-  it('keeps open projects visible before their activity snapshot arrives', () => {
-    useWindowProjectsStore.setState({
-      railVisible: false,
-      openProjectIds: ['project-alpha', 'project-beta'],
-      projectSnapshots: {},
-    });
-
-    render(<ProjectWindowStatusSummary />);
-
-    expect(
-      screen.getByRole('button', { name: 'openProject:Alpha' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'openProject:Beta' })
-    ).toBeInTheDocument();
-  });
-
-  it('does not switch when the clicked project is already current', () => {
-    render(<ProjectWindowStatusSummary />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'openProject:Alpha' }));
-
-    expect(mocks.switchProject).not.toHaveBeenCalled();
+    expect(useWindowProjectsStore.getState().railVisible).toBe(true);
   });
 });

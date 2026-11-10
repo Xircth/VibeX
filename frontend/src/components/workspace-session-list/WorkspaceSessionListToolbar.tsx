@@ -17,7 +17,9 @@ import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
 } from '@/components/kanban/session-hub/utils';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
 import { cn } from '@/lib/utils';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { SessionListDeleteControl } from './SessionListDeleteControl';
 import { SessionListSearchControl } from './SessionListSearchControl';
 import type {
@@ -229,6 +231,7 @@ export function WorkspaceSessionListToolbar({
             </Tooltip>
           </div>
         )}
+        <ShellNavPanelDragHandle panelId={PANEL_IDS.SESSION_LIST} />
       </div>
     </div>
   );

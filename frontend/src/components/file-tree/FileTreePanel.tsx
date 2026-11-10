@@ -27,7 +27,9 @@ import {
 import { EditorType } from 'shared/types';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
 import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import FileIcon from '../FileIcon';
 import { desktopApi, fileTreeApi } from '../../lib/api';
 import { useBinaryAssetPreview } from '@/hooks/useFileContent';
@@ -2222,6 +2224,10 @@ export function FileTreePanel({
               >
                 <MoreHorizontal size={14} aria-hidden />
               </button>
+              <ShellNavPanelDragHandle
+                panelId={PANEL_IDS.FILE_TREE}
+                className="ghost icon-button file-tree-root-action"
+              />
             </div>
           </div>
         )}

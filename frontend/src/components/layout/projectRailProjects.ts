@@ -3,7 +3,7 @@ export const MAX_PROJECT_RAIL_VISIBLE_PROJECTS = 10;
 export const BOTTOM_STATUS_PROJECT_LIMIT = 6;
 const PROJECT_RAIL_ITEM_SIZE = 31;
 const PROJECT_RAIL_ITEM_GAP = 6;
-const PROJECT_RAIL_CHROME_HEIGHT = 51;
+const PROJECT_RAIL_CHROME_HEIGHT = 122;
 
 export function selectBottomStatusProjectIds(input: {
   openProjectIds: string[];

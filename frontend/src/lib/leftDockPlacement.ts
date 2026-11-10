@@ -1,11 +1,20 @@
 import type { DockviewApi } from 'dockview-react';
 import {
+  ACTIVITY_RAIL_ITEMS,
+  type ActivityRailItemId,
+} from '@/lib/activityRailOrder';
+import {
+  boxContains,
   classifyLeftDockSplit,
+  ghostBoxForZone,
   innerSizeAfterOuterResize,
   ratioFromSizes,
+  resolveLeftPanelDropZone,
   sizesFromRatio,
   unionBoxes,
   type Box,
+  type LeftPanelDropZone,
+  type Point,
 } from '@/lib/leftPanelSplit';
 import {
   readLeftPanelSplitMemory,
@@ -14,6 +23,16 @@ import {
 import { listLeftDockGroups } from '@/utils/dockviewGroupPolicy';
 
 const MIN_PANE = 80;
+const RIGHT_EDGE_DROP_WIDTH = 180;
+const LEFT_EDGE_DROP_WIDTH = 180;
+
+export interface ShellNavDropTarget {
+  side: 'left' | 'right';
+  zone: LeftPanelDropZone;
+  targetPanelId?: ActivityRailItemId;
+  containerBox: Box;
+  ghostBox: Box;
+}
 
 function boxFromElement(element: HTMLElement | undefined | null): Box | null {
   if (!element) return null;
@@ -27,12 +46,111 @@ function boxFromElement(element: HTMLElement | undefined | null): Box | null {
   };
 }
 
+function isRightSideShellNavGroup(group: { element?: HTMLElement }): boolean {
+  return group.element?.getAttribute('data-shell-nav-side') === 'right';
+}
+
 export function measureLeftDockBox(api: DockviewApi): Box | null {
   const boxes = listLeftDockGroups(api.groups)
-    .filter((group) => group.api.isVisible)
+    .filter((group) => group.api.isVisible && !isRightSideShellNavGroup(group))
     .map((group) => boxFromElement(group.element))
     .filter((box): box is Box => box !== null);
   return unionBoxes(boxes);
+}
+
+export function resolveShellNavDropTarget(
+  api: DockviewApi,
+  point: Point,
+  sourcePanelId?: ActivityRailItemId
+): ShellNavDropTarget | null {
+  const shellGroups = listLeftDockGroups(api.groups).filter(
+    (group) => group.api.isVisible
+  );
+
+  for (const group of shellGroups) {
+    const box = boxFromElement(group.element);
+    if (!box || !boxContains(box, point)) continue;
+    const zone = resolveLeftPanelDropZone(point, box);
+    if (!zone) continue;
+
+    const side: 'left' | 'right' = isRightSideShellNavGroup(group)
+      ? 'right'
+      : 'left';
+    const rawPanelId = group.activePanel?.id ?? group.panels[0]?.id;
+    const targetPanelId = ACTIVITY_RAIL_ITEMS.includes(
+      rawPanelId as ActivityRailItemId
+    )
+      ? (rawPanelId as ActivityRailItemId)
+      : undefined;
+
+    if (
+      sourcePanelId &&
+      targetPanelId === sourcePanelId &&
+      shellGroups.length === 1
+    ) {
+      return null;
+    }
+
+    return {
+      side,
+      zone,
+      targetPanelId,
+      containerBox: box,
+      ghostBox: ghostBoxForZone(box, zone),
+    };
+  }
+
+  const stageEl =
+    typeof document !== 'undefined'
+      ? document.querySelector<HTMLElement>('.workspace-stage-host')
+      : null;
+  const stageBox = boxFromElement(stageEl);
+  if (stageBox && boxContains(stageBox, point)) {
+    const hasVisibleRightGroup = shellGroups.some((group) =>
+      isRightSideShellNavGroup(group)
+    );
+    const rightStripWidth = Math.min(RIGHT_EDGE_DROP_WIDTH, stageBox.width / 3);
+    if (
+      !hasVisibleRightGroup &&
+      point.x >= stageBox.x + stageBox.width - rightStripWidth
+    ) {
+      const ghostWidth = Math.min(240, Math.round(stageBox.width * 0.25));
+      const ghostBox: Box = {
+        x: stageBox.x + stageBox.width - ghostWidth,
+        y: stageBox.y,
+        width: ghostWidth,
+        height: stageBox.height,
+      };
+      return {
+        side: 'right',
+        zone: 'right',
+        containerBox: ghostBox,
+        ghostBox,
+      };
+    }
+
+    const hasVisibleLeftGroup = shellGroups.some(
+      (group) => !isRightSideShellNavGroup(group)
+    );
+    const leftStripWidth = Math.min(LEFT_EDGE_DROP_WIDTH, stageBox.width / 3);
+    if (!hasVisibleLeftGroup && point.x <= stageBox.x + leftStripWidth) {
+      const ghostWidth = Math.min(240, Math.round(stageBox.width * 0.25));
+      const ghostBox: Box = {
+        x: stageBox.x,
+        y: stageBox.y,
+        width: ghostWidth,
+        height: stageBox.height,
+      };
+      return {
+        side: 'left',
+        zone: 'left',
+        containerBox: ghostBox,
+        ghostBox,
+      };
+    }
+  }
+
+  return null;
 }
 
 export function applyLeftDockSplitSizes(
@@ -40,7 +158,7 @@ export function applyLeftDockSplitSizes(
   kind?: 'stack' | 'row'
 ): void {
   const groups = listLeftDockGroups(api.groups).filter(
-    (group) => group.api.isVisible
+    (group) => group.api.isVisible && !isRightSideShellNavGroup(group)
   );
   if (groups.length !== 2) return;
 

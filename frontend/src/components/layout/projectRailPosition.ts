@@ -3,9 +3,10 @@ export type ProjectRailPosition = {
   y: number;
 };
 
-export const PROJECT_RAIL_WIDTH = 220;
+export const PROJECT_RAIL_WIDTH = 248;
 export const PROJECT_RAIL_EDGE_MARGIN = 8;
-export const PROJECT_RAIL_DEFAULT_LEFT = 12;
+export const PROJECT_RAIL_DEFAULT_LEFT = 8;
+export const PROJECT_RAIL_BOTTOM_OFFSET = 40;
 
 export function clampProjectRailPosition(
   x: number,
@@ -46,7 +47,7 @@ export function defaultProjectRailPosition(
 
   return clampProjectRailPosition(
     PROJECT_RAIL_DEFAULT_LEFT,
-    (safeHeight - height) / 2,
+    safeHeight - height - PROJECT_RAIL_BOTTOM_OFFSET,
     width,
     height,
     safeWidth,

@@ -56,6 +56,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import i18n from '@/i18n';
 
 const GIT_PANEL_MODE_OPTIONS: SelectorOptionData[] = [
@@ -88,7 +90,10 @@ const GIT_PANEL_MODE_OPTIONS: SelectorOptionData[] = [
 
 function EmptyState() {
   return (
-    <div className="h-full w-full flex items-center justify-center text-muted-foreground text-sm">
+    <div className="relative h-full w-full flex items-center justify-center text-muted-foreground text-sm">
+      <div className="absolute right-2 top-1.5">
+        <ShellNavPanelDragHandle panelId={PANEL_IDS.GIT} />
+      </div>
       <div className="text-center space-y-2">
         <GitBranch className="h-8 w-8 opacity-40 mx-auto" />
         <p className="font-medium">Git</p>
@@ -395,6 +400,7 @@ export function GitPanel() {
               <LayoutList className="h-3 w-3" />
             )}
           </button>
+          <ShellNavPanelDragHandle panelId={PANEL_IDS.GIT} />
         </div>
       </div>
 

@@ -123,6 +123,7 @@ import {
   compareEditorGroups,
   getGroupElement,
   getNextEditorGroupId,
+  getNextLeftGroupId,
   getNextRightGroupId,
   isBottomGroup,
   isEditorGroup,
@@ -130,7 +131,9 @@ import {
   isSessionGroup,
   isSessionPanelId,
   isPlaceholderPanelId,
+  LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
+  listLeftDockGroups,
   listSessionGroups,
   RIGHT_GROUP_PREFIX,
 } from '@/utils/dockviewGroupPolicy';
@@ -191,6 +194,11 @@ const LazyWorkspaceCanvasStage = lazy(() =>
 function getLeftGroup(api: DockviewApi): DockviewGroup | undefined {
   return (
     api.getGroup(GROUP_IDS.LEFT) ??
+    api.groups.find(
+      (group) =>
+        isLeftGroup(group) &&
+        group.element?.getAttribute('data-shell-nav-side') !== 'right'
+    ) ??
     api.groups.find((group) => isLeftGroup(group))
   );
 }
@@ -235,9 +243,19 @@ function zoneOrderMatchesArrangement(
   api: DockviewApi,
   arrangement: LayoutArrangement
 ): boolean {
+  const leftGroups = listLeftDockGroups(api.groups);
+  const skipDockCheck =
+    leftGroups.length > 1 ||
+    leftGroups.some(
+      (group) => group.element?.getAttribute('data-shell-nav-side') === 'right'
+    );
+
   let previousLeft = Number.NEGATIVE_INFINITY;
   for (const slot of ['left', 'center', 'right'] as const) {
-    const group = zoneGroup(api, arrangement[slot]);
+    const zone = arrangement[slot];
+    if (zone === 'dock' && skipDockCheck) continue;
+
+    const group = zoneGroup(api, zone);
     if (!group?.api.isVisible) continue;
 
     const rect = getGroupElement(group)?.getBoundingClientRect();
@@ -259,9 +277,36 @@ function normalizeGroupIds(api: DockviewApi) {
   releaseLegacyTerminalZones(api);
   rememberTerminalShelfFromApi(api);
 
-  const leftGroup = getLeftGroup(api);
-  if (leftGroup) {
-    (leftGroup as { id: string }).id = GROUP_IDS.LEFT;
+  const leftGroups = listLeftDockGroups(api.groups);
+  if (leftGroups.length > 0) {
+    const primary =
+      leftGroups.find(
+        (group) =>
+          group.id === GROUP_IDS.LEFT &&
+          group.element?.getAttribute('data-shell-nav-side') !== 'right'
+      ) ??
+      leftGroups.find(
+        (group) =>
+          group.element?.getAttribute('data-shell-nav-side') !== 'right'
+      ) ??
+      leftGroups[0];
+    if (
+      primary &&
+      primary.element?.getAttribute('data-shell-nav-side') !== 'right'
+    ) {
+      (primary as { id: string }).id = GROUP_IDS.LEFT;
+    }
+    for (const group of leftGroups) {
+      if (
+        group === primary &&
+        group.element?.getAttribute('data-shell-nav-side') !== 'right'
+      ) {
+        continue;
+      }
+      if (!group.id.startsWith(LEFT_GROUP_PREFIX)) {
+        (group as { id: string }).id = getNextLeftGroupId(api);
+      }
+    }
   }
 
   const sessionGroups = listSessionGroups(api.groups);
@@ -279,7 +324,11 @@ function normalizeGroupIds(api: DockviewApi) {
   }
 
   for (const group of api.groups) {
-    if (isEditorGroup(group) && !group.id.startsWith(EDITOR_GROUP_PREFIX)) {
+    if (
+      isEditorGroup(group) &&
+      group.panels.length > 0 &&
+      !group.id.startsWith(EDITOR_GROUP_PREFIX)
+    ) {
       (group as { id: string }).id = getNextEditorGroupId(api);
     }
   }

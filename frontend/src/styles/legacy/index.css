@@ -5212,8 +5212,8 @@ html.dark {
 
   .project-rail-inline-stage {
     position: relative;
-    width: 220px;
-    max-height: calc(100vh - 32px);
+    width: 248px;
+    max-height: calc(100vh - 56px);
     min-height: 0;
     color: var(--project-rail-ink);
     pointer-events: auto;
@@ -5277,7 +5277,7 @@ html.dark {
     --project-rail-divider-margin: 8px auto 10px;
     box-sizing: border-box;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -5313,14 +5313,9 @@ html.dark {
     border-radius: var(--radius);
     background: transparent;
     box-shadow: none;
-    cursor: grab;
+    cursor: default;
     user-select: none;
     touch-action: none;
-  }
-
-  .project-rail-shell--inline.is-moving,
-  .project-rail-header.is-moving {
-    cursor: grabbing;
   }
 
   .project-rail-header {
@@ -5330,11 +5325,58 @@ html.dark {
     justify-content: space-between;
     gap: 8px;
     padding: 0 2px 6px;
-    cursor: grab;
+    cursor: default;
   }
 
   .project-rail-shell--inline .project-rail-header {
     padding-right: 6px;
+  }
+
+  .project-rail-quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    padding: 0 8px 8px 0;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--project-rail-divider);
+  }
+
+  .project-rail-quick-action-btn {
+    display: flex;
+    min-width: 0;
+    height: 28px;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    border: 1px solid var(--project-rail-control-border);
+    border-radius: var(--radius);
+    background: var(--project-rail-control);
+    color: var(--project-rail-ink);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    transition:
+      background 140ms ease-out,
+      border-color 140ms ease-out;
+  }
+
+  .project-rail-quick-action-btn:hover {
+    background: var(--project-rail-control-hover);
+  }
+
+  .project-rail-quick-action-btn span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-rail-quick-action-icon {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 auto;
+    color: var(--project-rail-muted);
   }
 
   .project-rail-header .project-rail-action-button,
@@ -5361,7 +5403,7 @@ html.dark {
     flex-direction: column;
     align-items: center;
     gap: var(--project-rail-project-gap);
-    padding: 2px 0 5px;
+    padding: 4px 0 5px;
     overflow-x: hidden;
     overflow-y: auto;
   }

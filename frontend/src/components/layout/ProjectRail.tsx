@@ -7,8 +7,16 @@ import {
   type RefObject,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, GitBranch, Plus, Trash2, X } from 'lucide-react';
+import {
+  AppWindow,
+  FolderOpen,
+  GitBranch,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { HostGlass } from '@/components/ui/host-glass';
+import { CloneRepoDialog } from '@/components/dialogs/projects/CloneRepoDialog';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { useProjects } from '@/hooks/useProjects';
@@ -16,6 +24,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { projectsApi } from '@/lib/api';
+import { openLocalAppWindow } from '@/lib/api/appWindow';
 import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
@@ -32,13 +41,10 @@ import {
   projectRailPanelHeight,
 } from '@/components/layout/projectRailProjects';
 import {
-  clampProjectRailPosition,
   defaultProjectRailPosition,
-  PROJECT_RAIL_EDGE_MARGIN,
   PROJECT_RAIL_WIDTH,
   projectRailHoverPopoverPosition,
   readViewportSize,
-  type ProjectRailPosition,
 } from '@/components/layout/projectRailPosition';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
@@ -70,12 +76,6 @@ export function ProjectRail({
   const setRailVisible = useWindowProjectsStore(
     (state) => state.setRailVisible
   );
-  const storedRailPosition = useWindowProjectsStore(
-    (state) => state.railPosition
-  );
-  const setRailPosition = useWindowProjectsStore(
-    (state) => state.setRailPosition
-  );
   const [hoveredProjectState, setHoveredProjectState] = useState<{
     projectId: string;
     top: number;
@@ -87,43 +87,19 @@ export function ProjectRail({
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
   );
-  const [isMovingRail, setIsMovingRail] = useState(false);
   const [viewport, setViewport] = useState(readViewportSize);
-  const [dragPosition, setDragPosition] = useState<ProjectRailPosition | null>(
-    null
-  );
-  const moveStateRef = useRef<{
-    pointerId: number;
-    originX: number;
-    originY: number;
-    startClientX: number;
-    startClientY: number;
-  } | null>(null);
   const projectRailItemCount = capProjectRailVisibleCount(projects.length);
   const projectRailHeight = projectRailPanelHeight(projectRailItemCount);
-  const railPosition = useMemo(() => {
-    const fallback = defaultProjectRailPosition(
-      PROJECT_RAIL_WIDTH,
-      projectRailHeight,
-      viewport.width,
-      viewport.height
-    );
-    const base = dragPosition ?? storedRailPosition ?? fallback;
-    return clampProjectRailPosition(
-      base.x,
-      base.y,
-      PROJECT_RAIL_WIDTH,
-      projectRailHeight,
-      viewport.width,
-      viewport.height
-    );
-  }, [
-    dragPosition,
-    projectRailHeight,
-    storedRailPosition,
-    viewport.height,
-    viewport.width,
-  ]);
+  const railPosition = useMemo(
+    () =>
+      defaultProjectRailPosition(
+        PROJECT_RAIL_WIDTH,
+        projectRailHeight,
+        viewport.width,
+        viewport.height
+      ),
+    [projectRailHeight, viewport.height, viewport.width]
+  );
 
   const visibleProjects = useMemo(
     () => buildProjectRailTree(projects),
@@ -175,100 +151,8 @@ export function ProjectRail({
     return () => window.removeEventListener('resize', syncViewport);
   }, [railVisible]);
 
-  useEffect(() => {
-    if (!isMovingRail) {
-      return;
-    }
-
-    const onPointerMove = (event: PointerEvent) => {
-      const move = moveStateRef.current;
-      if (!move || move.pointerId !== event.pointerId) {
-        return;
-      }
-
-      setDragPosition(
-        clampProjectRailPosition(
-          move.originX + event.clientX - move.startClientX,
-          move.originY + event.clientY - move.startClientY,
-          PROJECT_RAIL_WIDTH,
-          projectRailHeight,
-          window.innerWidth,
-          window.innerHeight
-        )
-      );
-    };
-
-    const onPointerUp = (event: PointerEvent) => {
-      const move = moveStateRef.current;
-      if (!move || move.pointerId !== event.pointerId) {
-        return;
-      }
-
-      const next = clampProjectRailPosition(
-        move.originX + event.clientX - move.startClientX,
-        move.originY + event.clientY - move.startClientY,
-        PROJECT_RAIL_WIDTH,
-        projectRailHeight,
-        window.innerWidth,
-        window.innerHeight
-      );
-      setRailPosition(next);
-      setDragPosition(null);
-      moveStateRef.current = null;
-      setIsMovingRail(false);
-    };
-
-    const onPointerCancel = (event: PointerEvent) => {
-      const move = moveStateRef.current;
-      if (!move || move.pointerId !== event.pointerId) {
-        return;
-      }
-
-      setDragPosition(null);
-      moveStateRef.current = null;
-      setIsMovingRail(false);
-    };
-
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerCancel);
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerCancel);
-    };
-  }, [isMovingRail, projectRailHeight, setRailPosition]);
-
-  useEffect(() => {
-    if (!storedRailPosition) {
-      return;
-    }
-    if (
-      viewport.width < PROJECT_RAIL_WIDTH + PROJECT_RAIL_EDGE_MARGIN * 2 ||
-      viewport.height < projectRailHeight + PROJECT_RAIL_EDGE_MARGIN * 2
-    ) {
-      return;
-    }
-    const next = clampProjectRailPosition(
-      storedRailPosition.x,
-      storedRailPosition.y,
-      PROJECT_RAIL_WIDTH,
-      projectRailHeight,
-      viewport.width,
-      viewport.height
-    );
-    if (next.x !== storedRailPosition.x || next.y !== storedRailPosition.y) {
-      setRailPosition(next);
-    }
-  }, [
-    projectRailHeight,
-    setRailPosition,
-    storedRailPosition,
-    viewport.height,
-    viewport.width,
-  ]);
-
   const handleCreateProject = async () => {
+    setRailVisible(false);
     const result = await ProjectFormDialog.show({});
     if (result?.status === 'saved' && result.project) {
       ensureProjectOpen(result.project.id);
@@ -280,6 +164,7 @@ export function ProjectRail({
   };
 
   const handleOpenProject = async () => {
+    setRailVisible(false);
     const result = await ProjectFormDialog.show({ autoOpenFolderPicker: true });
     if (result?.status === 'saved' && result.project) {
       ensureProjectOpen(result.project.id);
@@ -290,35 +175,39 @@ export function ProjectRail({
     }
   };
 
+  const handleNewWindow = () => {
+    setRailVisible(false);
+    openLocalAppWindow();
+  };
+
+  const handleCloneRepo = async () => {
+    setRailVisible(false);
+    const result = await CloneRepoDialog.show();
+    if (result.status !== 'cloned') {
+      return;
+    }
+    const name = result.repo.display_name || result.repo.name;
+    try {
+      const project = await projectsApi.create({
+        name,
+        repositories: [{ display_name: name, git_repo_path: result.repo.path }],
+      });
+      ensureProjectOpen(project.id);
+      switchProject(project.id, paths.projectSessions(project.id));
+    } catch (error) {
+      toast.error(
+        t('app:welcomePage.createProjectFailed', { error: String(error) })
+      );
+    }
+  };
+
   const handleCloseRail = () => {
     setRailVisible(false);
   };
 
-  const handleMovePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('button, .project-rail-projects, [draggable="true"]')) {
-      return;
-    }
-
-    moveStateRef.current = {
-      pointerId: event.pointerId,
-      originX: railPosition.x,
-      originY: railPosition.y,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-    };
-    setIsMovingRail(true);
-  };
-
   const handleProjectClick = (nextProjectId: string) => {
-    if (isMovingRail) {
-      return;
-    }
-
     switchProject(nextProjectId);
+    setRailVisible(false);
   };
 
   const handleProjectMouseEnter = (
@@ -406,35 +295,11 @@ export function ProjectRail({
   const shell = (
     <div
       ref={railRef}
-      className={cn(
-        'project-rail-shell project-rail-shell--inline',
-        isMovingRail && 'is-moving'
-      )}
-      onPointerDown={handleMovePointerDown}
+      className="project-rail-shell project-rail-shell--inline"
     >
       <div className="project-rail-header">
         <span className="project-rail-title">{t('projectRail.title')}</span>
         <div className="project-rail-actions">
-          <button
-            type="button"
-            className="project-rail-action-button"
-            onClick={handleCreateProject}
-            aria-label={t('projectRail.createProjectAria')}
-            title={t('projectRail.createProjectAria')}
-          >
-            <Plus aria-hidden="true" />
-          </button>
-
-          <button
-            type="button"
-            className="project-rail-action-button"
-            onClick={handleOpenProject}
-            aria-label={t('projectRail.openProjectAria')}
-            title={t('projectRail.openProjectAria')}
-          >
-            <FolderOpen aria-hidden="true" />
-          </button>
-
           <button
             type="button"
             className="project-rail-action-button"
@@ -445,6 +310,60 @@ export function ProjectRail({
             <X aria-hidden="true" />
           </button>
         </div>
+      </div>
+
+      <div
+        className="project-rail-quick-actions"
+        data-testid="project-rail-quick-actions"
+      >
+        <button
+          type="button"
+          className="project-rail-quick-action-btn"
+          onClick={() => void handleCreateProject()}
+          aria-label={t('projectRail.createProjectAria')}
+        >
+          <Plus className="project-rail-quick-action-icon" aria-hidden="true" />
+          <span>{t('app:welcomePage.createNewProject', '新建项目')}</span>
+        </button>
+
+        <button
+          type="button"
+          className="project-rail-quick-action-btn"
+          onClick={() => void handleOpenProject()}
+          aria-label={t('projectRail.openProjectAria')}
+        >
+          <FolderOpen
+            className="project-rail-quick-action-icon"
+            aria-hidden="true"
+          />
+          <span>{t('app:welcomePage.selectFolder', '打开文件夹')}</span>
+        </button>
+
+        <button
+          type="button"
+          className="project-rail-quick-action-btn"
+          onClick={handleNewWindow}
+          aria-label={t('app:welcomePage.newWindow', '新建窗口')}
+        >
+          <AppWindow
+            className="project-rail-quick-action-icon"
+            aria-hidden="true"
+          />
+          <span>{t('app:welcomePage.newWindow', '新建窗口')}</span>
+        </button>
+
+        <button
+          type="button"
+          className="project-rail-quick-action-btn"
+          onClick={() => void handleCloneRepo()}
+          aria-label={t('app:welcomePage.cloneRepo', '克隆仓库')}
+        >
+          <GitBranch
+            className="project-rail-quick-action-icon"
+            aria-hidden="true"
+          />
+          <span>{t('app:welcomePage.cloneRepo', '克隆仓库')}</span>
+        </button>
       </div>
 
       <div
@@ -463,6 +382,13 @@ export function ProjectRail({
               label: t('common:contextMenu.newProject'),
               onSelect: () => {
                 void handleCreateProject();
+              },
+            },
+            {
+              id: 'clone-repo',
+              label: t('app:welcomePage.cloneRepo', '克隆仓库'),
+              onSelect: () => {
+                void handleCloneRepo();
               },
             },
           ]);

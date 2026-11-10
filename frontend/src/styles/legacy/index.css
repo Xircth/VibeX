@@ -4846,7 +4846,7 @@ html.dark {
 
   .left-panel-split-overlay {
     position: fixed;
-    z-index: 40;
+    z-index: 9998;
     pointer-events: none;
     box-sizing: border-box;
   }
@@ -4854,8 +4854,14 @@ html.dark {
   .left-panel-split-ghost {
     position: absolute;
     box-sizing: border-box;
+    border: 1.5px dashed hsl(var(--primary) / 0.7);
     border-radius: var(--radius);
-    background: hsl(var(--primary) / 0.28);
+    background: hsl(var(--primary) / 0.24);
+    transition:
+      top 80ms ease-out,
+      left 80ms ease-out,
+      width 80ms ease-out,
+      height 80ms ease-out;
   }
 
   .workspace-activity-rail .workspace-side-rail-button {

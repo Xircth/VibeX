@@ -283,13 +283,109 @@
   box-shadow: none !important;
 }
 
+/* Zone A internal split dividers: clearly distinguish multiple panels placed in Zone A
+   (horizontal columns and vertical stacks) while keeping the outer boundary against Zone B clean. */
+[class*='dockview-theme-ayu'] {
+  --zone-a-split-divider: color-mix(
+    in srgb,
+    var(--text-strong, #171717) 16%,
+    var(--border-strong, #c8c8c8)
+  );
+}
+
+.dark [class*='dockview-theme-ayu'] {
+  --zone-a-split-divider: color-mix(
+    in srgb,
+    var(--text-strong, #fafafa) 16%,
+    var(--border-strong, #404040)
+  );
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  )[data-left-dock-split-left='true'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  )[data-left-dock-split-left='true'],
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-view-container
+  > .dv-view:has(
+    .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  )
+  + .dv-view
+  > .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-']),
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-view-container
+  > .dv-view:has(
+    .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  )
+  + .dv-view
+  > .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  ) {
+  border-left: 1px solid var(--zone-a-split-divider) !important;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  )[data-left-dock-split-top='true'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  )[data-left-dock-split-top='true'],
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-view-container
+  > .dv-view:has(
+    .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  )
+  + .dv-view
+  > .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-']),
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-view-container
+  > .dv-view:has(
+    .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  )
+  + .dv-view
+  > .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  ) {
+  border-top: 1px solid var(--zone-a-split-divider) !important;
+}
+
 .collaboration-bots-dock .collaboration-pane-resizer {
   display: none !important;
 }
 
 /* Reserve bottom slot inside Left Dock (Zone A) for the elevated Project Selector */
 [class*='dockview-theme-ayu']
-  .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    #group-left,
+    [id^='group-left-']
+  ):not([data-left-dock-split-bottom='true'])
   > .dv-content-container {
   padding-bottom: 44px !important;
   box-sizing: border-box !important;

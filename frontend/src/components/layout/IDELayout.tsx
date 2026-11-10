@@ -1005,16 +1005,23 @@ export function IDELayout({
           if (apiRef.current !== api) return;
 
           const arrangement = getLayoutArrangement();
-          const sideGroups = [
+          const dockGroups =
             slotOfZone(arrangement, 'dock') !== 'center' &&
             slotOfZone(arrangement, 'dock') !== 'bottom'
-              ? getLeftGroup(api)
-              : null,
+              ? listLeftDockGroups(api.groups)
+              : [];
+          const sideGroups = [
+            ...(dockGroups.length > 0
+              ? dockGroups
+              : slotOfZone(arrangement, 'dock') !== 'center' &&
+                  slotOfZone(arrangement, 'dock') !== 'bottom'
+                ? [getLeftGroup(api)]
+                : []),
             slotOfZone(arrangement, 'session') !== 'center' &&
             slotOfZone(arrangement, 'session') !== 'bottom'
               ? getRightGroup(api)
               : null,
-          ].filter((group): group is DockviewGroup => group !== null);
+          ].filter((group): group is DockviewGroup => Boolean(group));
 
           layoutDockviewPreservingGroupWidths(api, sideGroups, width, height);
         });

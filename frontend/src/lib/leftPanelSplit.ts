@@ -1,7 +1,7 @@
 export type LeftPanelDropZone = 'top' | 'bottom' | 'left' | 'right';
 export type LeftSplitDirection = 'above' | 'below' | 'left' | 'right';
 
-export const DEFAULT_STACK_RATIO = 0.62;
+export const DEFAULT_STACK_RATIO = 0.5;
 export const DEFAULT_ROW_RATIO = 0.5;
 
 export interface Point {
@@ -42,6 +42,39 @@ export function boxContains(box: Box, point: Point): boolean {
     point.y >= box.y &&
     point.y <= box.y + box.height
   );
+}
+
+export function boxAxisOverlapRatios(
+  a: Box,
+  b: Box
+): { widthRatio: number; heightRatio: number; area: number } {
+  const minW = Math.min(a.width, b.width);
+  const minH = Math.min(a.height, b.height);
+  if (minW < 1 || minH < 1) {
+    return { widthRatio: 0, heightRatio: 0, area: 0 };
+  }
+  const overlapX = Math.max(
+    0,
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+  );
+  const overlapY = Math.max(
+    0,
+    Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  );
+  return {
+    widthRatio: overlapX / minW,
+    heightRatio: overlapY / minH,
+    area: overlapX * overlapY,
+  };
+}
+
+export function hasHalfBoxOverlap(
+  a: Box,
+  b: Box,
+  threshold = 0.5
+): boolean {
+  const { widthRatio, heightRatio } = boxAxisOverlapRatios(a, b);
+  return widthRatio > threshold && heightRatio > threshold;
 }
 
 export function resolveLeftPanelDropZone(

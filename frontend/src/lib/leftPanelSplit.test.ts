@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boxAxisOverlapRatios,
   boxContains,
   classifyLeftDockSplit,
   dropZoneToDirection,
   ghostBoxForZone,
+  hasHalfBoxOverlap,
   innerSizeAfterOuterResize,
   ratioFromSizes,
   resolveLeftPanelDropZone,
@@ -89,4 +91,24 @@ describe('left panel split geometry', () => {
     expect(boxContains(panel, { x: 40, y: 80 })).toBe(true);
     expect(boxContains(panel, { x: 39, y: 80 })).toBe(false);
   });
+
+  it('detects >50% width and height overlap for automatic panel swap', () => {
+    const fileTree = { x: 40, y: 80, width: 200, height: 600 };
+    const sessionList = { x: 240, y: 80, width: 280, height: 600 };
+
+    // Dragging 90px right: overlap width is 90 / 200 = 0.45 (< 0.5)
+    const dragged90 = { ...fileTree, x: 130 };
+    expect(boxAxisOverlapRatios(dragged90, sessionList).widthRatio).toBeCloseTo(
+      0.45
+    );
+    expect(hasHalfBoxOverlap(dragged90, sessionList, 0.5)).toBe(false);
+
+    // Dragging 110px right: overlap width is 110 / 200 = 0.55 (> 0.5)
+    const dragged110 = { ...fileTree, x: 150 };
+    expect(
+      boxAxisOverlapRatios(dragged110, sessionList).widthRatio
+    ).toBeCloseTo(0.55);
+    expect(hasHalfBoxOverlap(dragged110, sessionList, 0.5)).toBe(true);
+  });
 });
+

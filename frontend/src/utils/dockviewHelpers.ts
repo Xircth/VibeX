@@ -84,6 +84,57 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
   for (const group of api.groups) {
     group.element?.removeAttribute('data-stage-leftmost');
     group.element?.removeAttribute('data-stage-rightmost');
+    group.element?.removeAttribute('data-left-dock-split-left');
+    group.element?.removeAttribute('data-left-dock-split-top');
+    group.element?.removeAttribute('data-left-dock-split-bottom');
+  }
+
+  for (const side of ['left', 'right'] as const) {
+    const visibleDockGroups = [...leftGroups].filter((group) => {
+      if (!group.api.isVisible || !group.element) return false;
+      const groupSide =
+        group.element.getAttribute('data-shell-nav-side') === 'right'
+          ? 'right'
+          : 'left';
+      return groupSide === side;
+    });
+    if (visibleDockGroups.length > 1) {
+      const dockRects = visibleDockGroups.flatMap((group) => {
+        const rect = group.element?.getBoundingClientRect();
+        return rect && rect.width > 0 && rect.height > 0
+          ? [{ group, rect }]
+          : [];
+      });
+      if (dockRects.length > 1) {
+        const minLeft = Math.min(...dockRects.map((item) => item.rect.left));
+        const minTop = Math.min(...dockRects.map((item) => item.rect.top));
+        const maxBottom = Math.max(
+          ...dockRects.map((item) => item.rect.bottom)
+        );
+        for (const { group, rect } of dockRects) {
+          if (rect.left > minLeft + 4) {
+            group.element?.setAttribute('data-left-dock-split-left', 'true');
+          }
+          if (rect.top > minTop + 4) {
+            group.element?.setAttribute('data-left-dock-split-top', 'true');
+          }
+          if (rect.bottom < maxBottom - 4) {
+            group.element?.setAttribute('data-left-dock-split-bottom', 'true');
+          }
+        }
+      } else {
+        for (const group of visibleDockGroups.slice(1)) {
+          const parentSplit = group.element?.closest(
+            '.dv-split-view-container'
+          );
+          if (parentSplit?.classList.contains('dv-vertical')) {
+            group.element?.setAttribute('data-left-dock-split-top', 'true');
+          } else {
+            group.element?.setAttribute('data-left-dock-split-left', 'true');
+          }
+        }
+      }
+    }
   }
 
   if (stageGroups.length === 1) {

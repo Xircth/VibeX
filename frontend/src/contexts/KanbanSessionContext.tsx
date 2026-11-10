@@ -223,7 +223,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const isLayoutHydrated = hydratedProjectKey === projectKey;
 
   const goToBoard = useCallback(() => {
-    setActiveViewId('builtin:columns');
+    setActiveViewId(DEFAULT_KANBAN_VIEW_ID);
   }, [setActiveViewId]);
 
   const goToSessionHub = useCallback(() => {
@@ -237,7 +237,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const toggleSessionHub = useCallback(() => {
     setActiveViewIdState((current) => {
       const next =
-        current === 'builtin:canvas' ? 'builtin:columns' : 'builtin:canvas';
+        current === 'builtin:canvas'
+          ? DEFAULT_KANBAN_VIEW_ID
+          : 'builtin:canvas';
       setPanelViewState(legacyKanbanPanelView(next));
       return next;
     });
@@ -245,7 +247,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
   const setSessionHubVisible = useCallback(
     (visible: boolean) => {
-      setActiveViewId(visible ? 'builtin:canvas' : 'builtin:columns');
+      setActiveViewId(visible ? 'builtin:canvas' : DEFAULT_KANBAN_VIEW_ID);
     },
     [setActiveViewId]
   );

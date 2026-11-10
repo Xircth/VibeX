@@ -1,10 +1,4 @@
-export const BUILTIN_KANBAN_VIEW_IDS = [
-  'builtin:columns',
-  'builtin:repos',
-  'builtin:sessions',
-  'builtin:canvas',
-  'builtin:usage',
-] as const;
+export const BUILTIN_KANBAN_VIEW_IDS = ['builtin:usage'] as const;
 
 export type BuiltinKanbanViewId = (typeof BUILTIN_KANBAN_VIEW_IDS)[number];
 
@@ -21,30 +15,6 @@ export type KanbanViewDescriptor = {
 
 export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
   {
-    id: 'builtin:columns',
-    titleKey: 'kanbanViews.columns',
-    hidesBottomDock: true,
-    builtin: true,
-  },
-  {
-    id: 'builtin:repos',
-    titleKey: 'kanbanViews.repos',
-    hidesBottomDock: true,
-    builtin: true,
-  },
-  {
-    id: 'builtin:sessions',
-    titleKey: 'kanbanViews.sessions',
-    hidesBottomDock: true,
-    builtin: true,
-  },
-  {
-    id: 'builtin:canvas',
-    titleKey: 'kanbanViews.canvas',
-    hidesBottomDock: true,
-    builtin: true,
-  },
-  {
     id: 'builtin:usage',
     titleKey: 'kanbanViews.usage',
     hidesBottomDock: true,
@@ -52,35 +22,16 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
   },
 ];
 
-export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:columns';
+export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:usage';
 
 export function migrateKanbanViewId(
   panelView?: LegacyKanbanPanelView | string | null,
-  boardStyle?: string | null
+  _boardStyle?: string | null
 ): string {
-  if (typeof panelView === 'string' && panelView.startsWith('builtin:')) {
-    return panelView;
-  }
   if (typeof panelView === 'string' && panelView.startsWith('plugin:')) {
     return panelView;
   }
-  if (
-    boardStyle === 'fixed' &&
-    panelView !== 'board' &&
-    panelView !== 'usageDashboard'
-  ) {
-    return 'builtin:sessions';
-  }
-  switch (panelView) {
-    case 'board':
-      return 'builtin:columns';
-    case 'usageDashboard':
-      return 'builtin:usage';
-    case 'sessionHub':
-      return 'builtin:canvas';
-    default:
-      return DEFAULT_KANBAN_VIEW_ID;
-  }
+  return DEFAULT_KANBAN_VIEW_ID;
 }
 
 export function kanbanViewHidesSessionSlot(viewId: string): boolean {

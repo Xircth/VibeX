@@ -25,8 +25,6 @@ import {
   Code2,
   FolderOpen,
   GitBranch,
-  GitFork,
-  KanbanSquare,
   MessagesSquare,
   Search,
   Combine,
@@ -61,23 +59,11 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
 };
 
 const KANBAN_RAIL_VIEWS: Array<{
-  id: 'builtin:columns' | 'builtin:repos' | 'builtin:usage';
+  id: 'builtin:usage';
   titleKey: string;
   fallback: string;
   Icon: LucideIcon;
 }> = [
-  {
-    id: 'builtin:columns',
-    titleKey: 'kanbanViews.columns',
-    fallback: '任务面板',
-    Icon: KanbanSquare,
-  },
-  {
-    id: 'builtin:repos',
-    titleKey: 'kanbanViews.repos',
-    fallback: '仓库面板',
-    Icon: GitFork,
-  },
   {
     id: 'builtin:usage',
     titleKey: 'kanbanViews.usage',
@@ -97,7 +83,7 @@ export function WorkspaceActivityRail({
 }) {
   const { t } = useTranslation('panels');
   const kanbanContext = useOptionalKanbanSessionContext();
-  const activeViewId = kanbanContext?.activeViewId ?? 'builtin:columns';
+  const activeViewId = kanbanContext?.activeViewId ?? 'builtin:usage';
   const setActiveViewId = kanbanContext?.setActiveViewId;
   const {
     toggleFileTree,

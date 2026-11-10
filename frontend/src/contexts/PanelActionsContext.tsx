@@ -108,11 +108,15 @@ import {
   applyLeftDockSplitSizes,
   isLeftDockSplit as readLeftDockSplit,
   measureLeftDockBox,
+  measureShellNavPanels as readShellNavPanels,
   resolveShellNavDropTarget as readShellNavDropTarget,
+  swapLeftDockPanels as performSwapLeftDockPanels,
   syncLeftDockSplitFromLayout,
   unsplitLeftDockKeepLeading,
   type ShellNavDropTarget,
+  type ShellNavPanelMeasurement,
 } from '@/lib/leftDockPlacement';
+import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
 import {
   dropZoneToDirection,
   isRowSplit,
@@ -281,10 +285,15 @@ export interface PanelActions {
       targetPanelId?: ActivityRailItemId;
     }
   ) => void;
+  swapLeftDockPanels: (
+    panelA: ActivityRailItemId,
+    panelB: ActivityRailItemId
+  ) => boolean;
   resolveShellNavDropTarget: (
     point: Point,
     sourcePanelId?: ActivityRailItemId
   ) => ShellNavDropTarget | null;
+  measureShellNavPanels: () => ShellNavPanelMeasurement[];
   measureLeftDock: () => {
     x: number;
     y: number;
@@ -365,7 +374,9 @@ export const NOOP_PANEL_ACTIONS: PanelActions = {
   isRightSidebarVisible: noopFalsePanelAction,
   hasRightSidebarPanels: noopFalsePanelAction,
   placeLeftDockPanel: noopPanelAction,
+  swapLeftDockPanels: noopFalsePanelAction,
   resolveShellNavDropTarget: () => null,
+  measureShellNavPanels: () => [],
   measureLeftDock: () => null,
   isLeftDockSplit: noopFalsePanelAction,
   unsplitLeftDock: noopPanelAction,
@@ -469,6 +480,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     };
     const layoutDisposable = api.onDidLayoutChange(() => {
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      applyLeftGroupHeaderHiding(api);
       setShellNavRevision((rev) => rev + 1);
       if (applyingLeftSplitRef.current) return;
       if (frame) return;
@@ -1592,6 +1604,41 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      const measureGroupWidth = (group: {
+        api: { width: number };
+        element?: HTMLElement;
+      }) => {
+        const raw =
+          group.api.width ||
+          group.element?.getBoundingClientRect().width ||
+          0;
+        return raw > 0
+          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(raw))
+          : 0;
+      };
+      const measureGroupHeight = (group: {
+        api: { height: number };
+        element?: HTMLElement;
+      }) => {
+        const raw =
+          group.api.height ||
+          group.element?.getBoundingClientRect().height ||
+          0;
+        return raw > 0 ? Math.round(raw) : 0;
+      };
+
+      const existingGroupWidthsOnSide = othersOnSide
+        .map((panel) => measureGroupWidth(panel.group))
+        .filter((w) => w > 0);
+      if (existingGroupWidthsOnSide.length === 0 && existing) {
+        const w = measureGroupWidth(existing.group);
+        if (w > 0) existingGroupWidthsOnSide.push(w);
+      }
+      const minExistingWidth =
+        existingGroupWidthsOnSide.length > 0
+          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(...existingGroupWidthsOnSide))
+          : MIN_LEFT_PANEL_WIDTH;
+
       const previousGroup = existing?.group;
       if (existing) {
         dockviewApi.removePanel(existing);
@@ -1656,6 +1703,28 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const survivingGroups = Array.from(
+        new Set(
+          othersOnSide
+            .map((panel) => dockviewApi.getPanel(panel.id)?.group)
+            .filter(
+              (group): group is NonNullable<typeof group> =>
+                Boolean(group && dockviewApi.groups.includes(group))
+            )
+        )
+      );
+      const survivingSnapshots = survivingGroups.map((group) => ({
+        group,
+        width: measureGroupWidth(group) || minExistingWidth,
+        height: measureGroupHeight(group),
+      }));
+
+      const referenceGroup = reference.group;
+      const refWidth = measureGroupWidth(referenceGroup) || minExistingWidth;
+      const refHeight = measureGroupHeight(referenceGroup);
+      const horizontalPlacement = isRowSplit(zone);
+      const targetNewWidth = horizontalPlacement ? minExistingWidth : refWidth;
+
       if (side === 'left') {
         const leftGroup = ensureLeftDockGroup();
         if (leftGroup) {
@@ -1672,6 +1741,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         id: panelId,
         component: panelId,
         title,
+        initialWidth: targetNewWidth,
+        ...(!horizontalPlacement && refHeight > 0
+          ? { initialHeight: Math.round(refHeight / 2) }
+          : {}),
         position: {
           referencePanel: reference,
           direction: dropZoneToDirection(zone),
@@ -1686,9 +1759,72 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         (created.group as { id: string }).id = getNextLeftGroupId(dockviewApi);
       }
 
-      finishLeftDockChange(side === 'left' ? zone : undefined);
+      finishLeftDockChange();
+
+      applyingLeftSplitRef.current = true;
+      const applyPlacementSizes = () => {
+        if (horizontalPlacement) {
+          settleDockviewGroupWidths([
+            ...survivingSnapshots.map((snapshot) => ({
+              group: snapshot.group,
+              width: snapshot.width,
+            })),
+            { group: created.group, width: minExistingWidth },
+          ]);
+        } else {
+          settleDockviewGroupWidths([
+            ...survivingSnapshots.map((snapshot) => ({
+              group: snapshot.group,
+              width:
+                snapshot.group === referenceGroup ? refWidth : snapshot.width,
+            })),
+            { group: created.group, width: refWidth },
+          ]);
+          const totalHeight =
+            refHeight ||
+            measureGroupHeight(referenceGroup) +
+              measureGroupHeight(created.group);
+          if (totalHeight > 0) {
+            const halfHeight = Math.max(80, Math.round(totalHeight / 2));
+            try {
+              referenceGroup.api.setSize({ height: halfHeight });
+              created.group.api.setSize({
+                height: Math.max(80, totalHeight - halfHeight),
+              });
+            } catch {
+              // Ignore height sizing errors in test doubles.
+            }
+          } else if (side === 'left') {
+            applyLeftDockSplitSizes(dockviewApi, 'stack');
+          }
+        }
+        applyLeftGroupHeaderHiding(dockviewApi);
+      };
+
+      applyPlacementSizes();
+      requestAnimationFrame(() => {
+        applyPlacementSizes();
+        applyingLeftSplitRef.current = false;
+      });
     },
     [ensureLeftDockGroup, ensureRightShellNavGroup, finishLeftDockChange]
+  );
+
+  const swapLeftDockPanels = useCallback(
+    (panelA: ActivityRailItemId, panelB: ActivityRailItemId) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return false;
+      applyingLeftSplitRef.current = true;
+      const swapped = performSwapLeftDockPanels(dockviewApi, panelA, panelB);
+      if (swapped) {
+        finishLeftDockChange();
+      }
+      requestAnimationFrame(() => {
+        applyingLeftSplitRef.current = false;
+      });
+      return swapped;
+    },
+    [finishLeftDockChange]
   );
 
   const resolveShellNavDropTarget = useCallback(
@@ -1699,6 +1835,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     },
     []
   );
+
+  const measureShellNavPanels = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return [];
+    return readShellNavPanels(dockviewApi);
+  }, []);
 
   const measureLeftDock = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -2675,7 +2817,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       isRightSidebarVisible,
       hasRightSidebarPanels,
       placeLeftDockPanel,
+      swapLeftDockPanels,
       resolveShellNavDropTarget,
+      measureShellNavPanels,
       measureLeftDock,
       isLeftDockSplit,
       unsplitLeftDock,
@@ -2730,7 +2874,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     isRightSidebarVisible,
     hasRightSidebarPanels,
     placeLeftDockPanel,
+    swapLeftDockPanels,
     resolveShellNavDropTarget,
+    measureShellNavPanels,
     measureLeftDock,
     isLeftDockSplit,
     unsplitLeftDock,

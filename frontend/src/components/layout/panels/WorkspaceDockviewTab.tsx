@@ -90,7 +90,7 @@ const PANEL_TAB_ICONS: Partial<Record<string, [LucideIcon, string]>> = {
   'member-session': [Bot, 'member-session'],
 };
 
-function WorkspaceTabIcon({
+export function WorkspaceTabIcon({
   component,
   params,
   isBoundSessionTab,

@@ -136,6 +136,8 @@ import {
   LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
   listLeftDockGroups,
+  listLeftShellNavGroups,
+  listRightShellNavGroups,
   listSessionGroups,
   RIGHT_GROUP_PREFIX,
 } from '@/utils/dockviewGroupPolicy';
@@ -1470,6 +1472,82 @@ export function IDELayout({
   const isWorkspaceCanvasMode =
     effectiveActiveTab === 'workspace' && workspaceStageStyle === 'canvas';
 
+  const [canvasStageInsets, setCanvasStageInsets] = useState<{
+    left: number;
+    right: number;
+  }>({ left: 0, right: 0 });
+
+  useLayoutEffect(() => {
+    if (!isWorkspaceCanvasMode) return;
+    const measureInsets = () => {
+      const api = apiRef.current;
+      const host = dockviewRootRef.current;
+      if (!api || !host) {
+        setCanvasStageInsets((prev) =>
+          prev.left === 0 && prev.right === 0 ? prev : { left: 0, right: 0 }
+        );
+        return;
+      }
+      const hostRect = host.getBoundingClientRect();
+      let left = 0;
+      let right = 0;
+      for (const group of listLeftShellNavGroups(api.groups)) {
+        if (!group.api.isVisible || group.panels.length === 0) continue;
+        const el = getGroupElement(group);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            left = Math.max(left, Math.round(rect.right - hostRect.left));
+          } else if (typeof group.width === 'number' && group.width > 0) {
+            left += Math.round(group.width);
+          }
+        } else if (typeof group.width === 'number' && group.width > 0) {
+          left += Math.round(group.width);
+        }
+      }
+      for (const group of listRightShellNavGroups(api.groups)) {
+        if (!group.api.isVisible || group.panels.length === 0) continue;
+        const el = getGroupElement(group);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0) {
+            right = Math.max(right, Math.round(hostRect.right - rect.left));
+          } else if (typeof group.width === 'number' && group.width > 0) {
+            right += Math.round(group.width);
+          }
+        } else if (typeof group.width === 'number' && group.width > 0) {
+          right += Math.round(group.width);
+        }
+      }
+      setCanvasStageInsets((prev) =>
+        prev.left === left && prev.right === right ? prev : { left, right }
+      );
+    };
+
+    measureInsets();
+    const api = apiRef.current;
+    const layoutDisp = api?.onDidLayoutChange(() => {
+      measureInsets();
+    });
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => measureInsets())
+        : null;
+    if (resizeObserver && dockviewRootRef.current) {
+      resizeObserver.observe(dockviewRootRef.current);
+      if (api) {
+        for (const group of listLeftDockGroups(api.groups)) {
+          const el = getGroupElement(group);
+          if (el) resizeObserver.observe(el);
+        }
+      }
+    }
+    return () => {
+      layoutDisp?.dispose();
+      resizeObserver?.disconnect();
+    };
+  }, [isDockviewMounted, isWorkspaceCanvasMode]);
+
   const layoutBody = (
     <div className="flex min-h-0 flex-1">
       {effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban' ? (
@@ -1490,13 +1568,11 @@ export function IDELayout({
             <div
               className="h-full"
               style={
-                effectiveActiveTab === 'workspace' && !isWorkspaceCanvasMode
+                effectiveActiveTab === 'workspace'
                   ? undefined
                   : { display: 'none' }
               }
-              aria-hidden={
-                effectiveActiveTab !== 'workspace' || isWorkspaceCanvasMode
-              }
+              aria-hidden={effectiveActiveTab !== 'workspace'}
             >
               <DockviewReact
                 components={panelComponents}
@@ -1513,12 +1589,17 @@ export function IDELayout({
 
           {isWorkspaceCanvasMode ? (
             <div
-              className="kanban-overlay absolute inset-0 z-10"
+              className="kanban-overlay absolute top-0 bottom-0 z-10"
+              style={{
+                left: canvasStageInsets.left,
+                right: canvasStageInsets.right,
+              }}
               data-testid="workspace-canvas-stage"
             >
               <Suspense fallback={null}>
                 <LazyWorkspaceCanvasStage
                   presentation="canvas"
+                  workspaceStage
                   zoneOrder={['list', 'monitor', 'session']}
                 />
               </Suspense>

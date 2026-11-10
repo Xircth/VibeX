@@ -573,4 +573,147 @@ describe('SessionCanvasView', () => {
       y2: initial.y2 + (260 - 100),
     });
   });
+
+  it('creates panel nodes from the dock + menu, links child nodes to parent nodes, and disconnects links via the centered X button', async () => {
+    const user = userEvent.setup();
+    let api: SessionCanvasApi | undefined;
+    const { container } = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('alpha', new Date().toISOString())]}
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(ready) => {
+          api = ready;
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    await user.click(await screen.findByRole('menuitem', { name: '笔记' }));
+
+    const storedAfterNote = JSON.parse(
+      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+    );
+    expect(storedAfterNote.nodes).toHaveLength(1);
+    expect(storedAfterNote.nodes[0]).toMatchObject({
+      panelId: 'notes',
+      panelComponent: 'notes',
+      panelTitle: '笔记',
+      expanded: true,
+    });
+
+    const parentId = storedAfterNote.nodes[0].id as string;
+    let childId = '';
+    act(() => {
+      childId =
+        api?.openOrFocusPanel({
+          id: 'diffs',
+          component: 'diffs',
+          title: '审阅',
+          expanded: true,
+          parentNodeId: parentId,
+        }) ?? '';
+    });
+
+    expect(childId).toBeTruthy();
+    const lines = container.querySelectorAll('line.canvas-session-link');
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+
+    const disconnectBtn = screen.getAllByRole('button', {
+      name: '断开连接',
+    })[0];
+    expect(disconnectBtn).toBeInTheDocument();
+
+    fireEvent.click(disconnectBtn);
+
+    await waitFor(() => {
+      const afterDisconnect = JSON.parse(
+        window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      );
+      expect(afterDisconnect.links ?? []).toHaveLength(0);
+    });
+  });
+
+  it('opens a detached full panel node linked to a grouped minimized panel node when expanded', () => {
+    window.localStorage.setItem(
+      'vibex:kanban-canvas:p1',
+      JSON.stringify({
+        version: 4,
+        viewport: { x: 0, y: 0, zoom: 1 },
+        nodes: [
+          {
+            id: 'group-1',
+            kind: 'group',
+            sessionId: '',
+            parentId: null,
+            name: '分组',
+            createdAt: 1,
+            showAll: false,
+            x: 10,
+            y: 20,
+            width: 440,
+            height: 140,
+            expanded: false,
+          },
+          {
+            id: 'term-card-1',
+            kind: 'session',
+            sessionId: '',
+            parentId: 'group-1',
+            name: 'Terminal',
+            panelId: 'terminal-1',
+            panelComponent: 'terminal',
+            panelTitle: 'pwsh',
+            createdAt: 2,
+            showAll: false,
+            x: 12,
+            y: 44,
+            width: 196,
+            height: 72,
+            expanded: false,
+          },
+        ],
+      })
+    );
+
+    const { container } = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[]}
+        listWidth={280}
+        list={<div>list</div>}
+      />
+    );
+
+    act(() => {
+      latestOnNodesChange?.([
+        {
+          id: 'session-term-card-1',
+          type: 'select',
+          selected: true,
+        },
+      ]);
+    });
+
+    const expandButton = screen.getByRole('button', { name: '展开会话' });
+    fireEvent.click(expandButton);
+
+    const stored = JSON.parse(
+      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+    );
+    const detached = stored.nodes.find(
+      (node: { id: string; openedFromId?: string }) =>
+        node.openedFromId === 'term-card-1'
+    );
+    expect(detached).toBeDefined();
+    expect(detached).toMatchObject({
+      panelComponent: 'terminal',
+      panelTitle: 'pwsh',
+      expanded: true,
+      parentId: null,
+    });
+    expect(container.querySelector('line.canvas-session-link')).not.toBeNull();
+  });
 });
+

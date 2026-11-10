@@ -144,6 +144,7 @@ import {
   rememberTerminalShelfFromApi,
 } from '@/utils/terminalZoneRelease';
 import { syncWorkspaceOpenSessionIdsFromDockview } from '@/lib/workspaceSessionTabSlots';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -731,8 +732,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       options?: OpenFilePreviewOptions
     ): OpenFilePreviewResult => {
       void preloadMonacoEditor();
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return 'unavailable';
+      if (!dockviewApi && !canvasController) return 'unavailable';
 
       // Absent an explicit choice, opening a file is the user asking for it.
       const activate = options?.activate ?? true;
@@ -754,6 +756,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
       const title = options?.title ?? options?.displayPath ?? fileName;
       const params = buildPreviewPanelParams(filePath, options);
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: basePanelId,
+          component: PANEL_IDS.PREVIEW,
+          title,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return 'opened';
+      }
+      if (!dockviewApi) return 'unavailable';
 
       const existingPanel = dockviewApi.panels.find(
         (panel) =>
@@ -795,8 +808,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openDirectoryExplorer = useCallback(
     (dirPath: string, options?: OpenDirectoryExplorerOptions) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       const normalizedRoot = dirPath.replace(/[\\/]+$/, '') || dirPath;
       const activate = options?.activate ?? true;
@@ -806,6 +820,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         normalizedRoot.split(/[/\\]/).filter(Boolean).pop() || normalizedRoot;
       const title = options?.title?.trim() || folderName;
       const params = buildExternalDirectoryPanelParams(normalizedRoot, options);
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: basePanelId,
+          component: PANEL_IDS.EXTERNAL_DIRECTORY,
+          title,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
 
       const existingPanel = dockviewApi.panels.find(
         (panel) =>
@@ -897,8 +922,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openImagePreview = useCallback(
     (imageUrl: string, options?: { title?: string | null }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       const panelId = buildImagePreviewPanelId(imageUrl);
       const title = options?.title?.trim() || 'Image';
@@ -913,6 +939,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         location: null,
         imagePreviewId: panelId,
       };
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.PREVIEW,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
 
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
@@ -1043,6 +1080,20 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const setTerminalVisibility = useCallback(
     (toggleExisting: boolean) => {
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        const tabId = generateTerminalTabId();
+        canvasController.openOrFocusPanel({
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: 'Terminal',
+          params: {
+            surface: 'editor',
+            tabId,
+          },
+        });
+        return;
+      }
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -1159,6 +1210,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     (shell?: string, options?: { cwd?: string | null }) => {
       const tabId = generateTerminalTabId();
       const cwd = options?.cwd?.trim() || undefined;
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: shell || 'Terminal',
+          params: {
+            surface: 'editor',
+            tabId,
+            ...(shell ? { shell } : {}),
+            ...(cwd ? { cwd } : {}),
+          },
+        });
+        return;
+      }
       const panel = addPanelToActiveEditorGroup(
         {
           id: editorTerminalPanelId(tabId),
@@ -1944,8 +2010,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openOrFocusPanel = useCallback(
     (panelId: string, title: string, params?: Record<string, unknown>) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       if (panelId === PANEL_IDS.TERMINAL) {
         openNewTerminal();
@@ -1979,6 +2046,23 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      const component =
+        typeof params?.__component === 'string' &&
+        params.__component.trim().length > 0
+          ? params.__component.trim()
+          : panelId;
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
+
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
         if (params) {
@@ -2007,12 +2091,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const component =
-        typeof params?.__component === 'string' &&
-        params.__component.trim().length > 0
-          ? params.__component.trim()
-          : panelId;
-
       const panel = addPanelToActiveEditorGroup({
         id: panelId,
         component,
@@ -2035,8 +2113,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openSessionTab = useCallback(
     (options: OpenSessionTabOptions) => {
+      if (!options.sessionId || !options.workspaceId) return;
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        canvasController.openOrFocusSession({
+          sessionId: options.sessionId,
+          expanded: true,
+        });
+        return;
+      }
       const dockviewApi = apiRef.current;
-      if (!dockviewApi || !options.sessionId || !options.workspaceId) return;
+      if (!dockviewApi) return;
 
       const activate = options.activate ?? true;
       const panelId = sessionPanelId(options.sessionId);
@@ -2171,10 +2258,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openMergePanel = useCallback(
     (params: { workspaceId: string; repoId: string; filePath: string }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
       const panelId = `merge:${params.filePath}`;
       const title = params.filePath.split(/[/\\]/).pop() || params.filePath;
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.MERGE,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
         existingPanel.api.updateParameters(params);
@@ -2201,8 +2299,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openDiffPreviewAtPath = useCallback(
     (path: string, options?: OpenFilePreviewOptions & { title?: string }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       clearCommitDiff();
       clearGitDiffTargetPath();
@@ -2215,6 +2314,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         modifiedContent: options?.modifiedContent,
         originalContent: options?.originalContent,
       });
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.PREVIEW,
+          title: fileName,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existingPanel = dockviewApi.getPanel(panelId);
 
       if (existingPanel) {
@@ -2305,8 +2415,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       requestedUrl?: string | null;
       nativeTabId?: string | null;
     }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
       const activate = options.activate !== false;
       const prefix = pluginSurfaceId(options.pluginId, options.contributionId);
       const mode =
@@ -2315,12 +2426,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (!panelId) {
         if (options.multiInstance && mode === 'new') {
           let next = 1;
-          while (dockviewApi.getPanel(`${prefix}:${next}`)) next += 1;
-          panelId = `${prefix}:${next}`;
+          while (dockviewApi?.getPanel(`${prefix}:${next}`)) next += 1;
+          panelId = canvasController
+            ? `${prefix}:${Date.now().toString(36)}`
+            : `${prefix}:${next}`;
         } else if (options.multiInstance && mode === 'focus') {
-          const matches = dockviewApi.panels.filter(
-            (panel) => panel.id === prefix || panel.id.startsWith(`${prefix}:`)
-          );
+          const matches =
+            dockviewApi?.panels.filter(
+              (panel) =>
+                panel.id === prefix || panel.id.startsWith(`${prefix}:`)
+            ) ?? [];
           panelId = matches[matches.length - 1]?.id ?? `${prefix}:1`;
         } else {
           panelId = prefix;
@@ -2333,6 +2448,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         requestedUrl: options.requestedUrl ?? null,
         nativeTabId: options.nativeTabId ?? null,
       };
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: 'plugin-panel',
+          title: options.title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existing = dockviewApi.getPanel(panelId);
       if (existing) {
         existing.api.setTitle(options.title);
@@ -2389,7 +2514,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const dockviewApi = apiRef.current;
-    if (!dockviewApi) return;
+    if (!dockviewApi || getCanvasWorkspaceController()) return;
     const liveIds = new Set(
       pluginPanels.map((item) => pluginSurfaceId(item.pluginId, item.id))
     );

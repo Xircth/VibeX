@@ -4,16 +4,40 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { WorkspaceActivityPanel } from '@/features/workspace-activity/WorkspaceActivityPanel';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 
-export default function DockviewProcessesPanel(_props: IDockviewPanelProps) {
+interface DockviewProcessesPanelParams {
+  sessionId?: string;
+  workspaceId?: string;
+}
+
+export default function DockviewProcessesPanel(
+  props: IDockviewPanelProps<DockviewProcessesPanelParams>
+) {
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
+  const paramWorkspaceId =
+    typeof props.params?.workspaceId === 'string' &&
+    props.params.workspaceId.trim().length > 0
+      ? props.params.workspaceId
+      : undefined;
+  const paramSessionId =
+    typeof props.params?.sessionId === 'string' &&
+    props.params.sessionId.trim().length > 0
+      ? props.params.sessionId
+      : undefined;
   const workspaceId =
-    visibleRightSession?.workspaceId ?? activeWorktreeId ?? undefined;
+    paramWorkspaceId ??
+    visibleRightSession?.workspaceId ??
+    activeWorktreeId ??
+    undefined;
   const { data: attempt } = useTaskAttemptWithSession(workspaceId);
   const sessionId =
-    visibleRightSession?.sessionId ?? attempt?.session?.id ?? undefined;
+    paramSessionId ??
+    visibleRightSession?.sessionId ??
+    attempt?.session?.id ??
+    undefined;
 
   return (
     <WorkspaceActivityPanel workspaceId={workspaceId} sessionId={sessionId} />
   );
 }
+

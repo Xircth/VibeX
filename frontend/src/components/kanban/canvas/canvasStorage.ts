@@ -7,6 +7,8 @@ import {
   CARD_WIDTH,
   DETAIL_MIN_HEIGHT,
   DETAIL_MIN_WIDTH,
+  isCanvasHandleSide,
+  type SessionCanvasLink,
   type SessionCanvasNode,
 } from './canvasModel';
 import { toRelativeChildCoords } from './canvasGrouping';
@@ -23,6 +25,8 @@ export interface SessionCanvasDocument {
   listCollapsed: boolean;
   minimapVisible: boolean;
   relativeChildren?: boolean;
+  links?: SessionCanvasLink[];
+  dismissedAutoLinks?: string[];
 }
 
 export const DEFAULT_CANVAS_DOCUMENT: SessionCanvasDocument = {
@@ -31,6 +35,8 @@ export const DEFAULT_CANVAS_DOCUMENT: SessionCanvasDocument = {
   listCollapsed: false,
   minimapVisible: true,
   relativeChildren: true,
+  links: [],
+  dismissedAutoLinks: [],
 };
 
 const DOCUMENT_KEY_PREFIX = 'vibex:kanban-canvas:';
@@ -70,7 +76,12 @@ function parseNode(value: unknown): SessionCanvasNode | null {
   const kind = record.kind === 'group' ? 'group' : 'session';
   const sessionId =
     typeof record.sessionId === 'string' ? record.sessionId : '';
-  if (kind === 'session' && sessionId.length === 0) {
+  const panelComponent =
+    typeof record.panelComponent === 'string' &&
+    record.panelComponent.length > 0
+      ? record.panelComponent
+      : undefined;
+  if (kind === 'session' && sessionId.length === 0 && !panelComponent) {
     return null;
   }
   if (!isFiniteNumber(record.x) || !isFiniteNumber(record.y)) return null;
@@ -85,10 +96,22 @@ function parseNode(value: unknown): SessionCanvasNode | null {
     : expanded
       ? DETAIL_MIN_HEIGHT
       : CARD_HEIGHT;
+  const panelId =
+    typeof record.panelId === 'string' && record.panelId.length > 0
+      ? record.panelId
+      : undefined;
+  const panelTitle =
+    typeof record.panelTitle === 'string' ? record.panelTitle : undefined;
+  const panelParams =
+    record.panelParams &&
+    typeof record.panelParams === 'object' &&
+    !Array.isArray(record.panelParams)
+      ? { ...(record.panelParams as Record<string, unknown>) }
+      : undefined;
   const id =
     typeof record.id === 'string' && record.id.length > 0
       ? record.id
-      : sessionId || `group-${record.x}-${record.y}`;
+      : sessionId || panelId || `group-${record.x}-${record.y}`;
   return {
     id,
     kind,
@@ -116,6 +139,41 @@ function parseNode(value: unknown): SessionCanvasNode | null {
       typeof record.openedFromId === 'string' && record.openedFromId.length > 0
         ? record.openedFromId
         : null,
+    ...(panelId ? { panelId } : {}),
+    ...(panelComponent ? { panelComponent } : {}),
+    ...(panelTitle !== undefined ? { panelTitle } : {}),
+    ...(panelParams ? { panelParams } : {}),
+  };
+}
+
+function parseLink(value: unknown): SessionCanvasLink | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const sourceId =
+    typeof record.sourceId === 'string' && record.sourceId.length > 0
+      ? record.sourceId
+      : '';
+  const targetId =
+    typeof record.targetId === 'string' && record.targetId.length > 0
+      ? record.targetId
+      : '';
+  if (!sourceId || !targetId || sourceId === targetId) return null;
+  const sourceHandle = isCanvasHandleSide(record.sourceHandle)
+    ? record.sourceHandle
+    : undefined;
+  const targetHandle = isCanvasHandleSide(record.targetHandle)
+    ? record.targetHandle
+    : undefined;
+  const id =
+    typeof record.id === 'string' && record.id.length > 0
+      ? record.id
+      : `link-${sourceId}-${sourceHandle ?? 'auto'}-${targetId}-${targetHandle ?? 'auto'}`;
+  return {
+    id,
+    sourceId,
+    targetId,
+    ...(sourceHandle ? { sourceHandle } : {}),
+    ...(targetHandle ? { targetHandle } : {}),
   };
 }
 
@@ -182,6 +240,16 @@ function parseDocument(value: unknown): SessionCanvasDocument {
         .map(parseNode)
         .filter((node): node is SessionCanvasNode => node !== null)
     : [];
+  const parsedLinks = Array.isArray(record.links)
+    ? record.links
+        .map(parseLink)
+        .filter((link): link is SessionCanvasLink => link !== null)
+    : [];
+  const dismissedAutoLinks = Array.isArray(record.dismissedAutoLinks)
+    ? record.dismissedAutoLinks.filter(
+        (item): item is string => typeof item === 'string' && item.length > 0
+      )
+    : [];
   const relativeChildren = record.relativeChildren === true;
   return {
     nodes: relativeChildren ? parsedNodes : toRelativeChildCoords(parsedNodes),
@@ -189,6 +257,8 @@ function parseDocument(value: unknown): SessionCanvasDocument {
     listCollapsed: record.listCollapsed === true,
     minimapVisible: loadMinimapVisible(),
     relativeChildren: true,
+    links: parsedLinks,
+    dismissedAutoLinks,
   };
 }
 

@@ -1273,7 +1273,9 @@ export function buildCanvasFlowLookups(
       const kids = index.children.get(node.id) ?? EMPTY_CHILDREN;
       if (kids.some(isGroupNode)) containers.add(node.id);
     }
-    if (!isSessionNode(node) || !node.sessionId) continue;
+    if (!isSessionNode(node) || (!node.sessionId && !node.panelComponent)) {
+      continue;
+    }
     let current = node.parentId ? index.byId.get(node.parentId) : undefined;
     const seen = new Set<string>();
     while (current && isGroupNode(current)) {
@@ -1282,8 +1284,12 @@ export function buildCanvasFlowLookups(
       if (!node.expanded) {
         sessionCount.set(current.id, (sessionCount.get(current.id) ?? 0) + 1);
       }
-      if (running.has(node.sessionId)) runningGroups.add(current.id);
-      if (review.has(node.sessionId)) reviewGroups.add(current.id);
+      if (node.sessionId && running.has(node.sessionId)) {
+        runningGroups.add(current.id);
+      }
+      if (node.sessionId && review.has(node.sessionId)) {
+        reviewGroups.add(current.id);
+      }
       current = current.parentId ? index.byId.get(current.parentId) : undefined;
     }
   }
@@ -1393,7 +1399,12 @@ export function computeDropHint(
       if (node.id === draggedId || !isSessionNode(node) || node.expanded) {
         continue;
       }
-      if (node.parentId || node.sessionId === dragged.sessionId) continue;
+      if (
+        node.parentId ||
+        (Boolean(node.sessionId) && node.sessionId === dragged.sessionId)
+      ) {
+        continue;
+      }
       const rect = worldRect(nodes, node);
       if (!contains(rect)) continue;
       pin = node;
@@ -1852,7 +1863,13 @@ export function placeDetachedWindow(
   sourceId: string
 ): SessionCanvasNode[] {
   const source = nodeById(nodes, sourceId);
-  if (!source || !isSessionNode(source) || !source.sessionId) return [...nodes];
+  if (
+    !source ||
+    !isSessionNode(source) ||
+    (!source.sessionId && !source.panelComponent)
+  ) {
+    return [...nodes];
+  }
   const parent = source.parentId ? nodeById(nodes, source.parentId) : undefined;
   const parentWorld = parent ? worldPosition(nodes, parent) : null;
   const originX =
@@ -1865,6 +1882,13 @@ export function placeDetachedWindow(
       x: originX,
       y: originY,
     }),
+    name: source.name,
+    ...(source.panelId ? { panelId: source.panelId } : {}),
+    ...(source.panelComponent ? { panelComponent: source.panelComponent } : {}),
+    ...(source.panelTitle !== undefined
+      ? { panelTitle: source.panelTitle }
+      : {}),
+    ...(source.panelParams ? { panelParams: { ...source.panelParams } } : {}),
     expanded: true,
     openedFromId: source.id,
     width: DETAIL_CARD_WIDTH,
@@ -1878,6 +1902,7 @@ function withoutSessionWindows(
   sessionId: string,
   keepId?: string
 ): SessionCanvasNode[] {
+  if (!sessionId) return [...nodes];
   return nodes
     .filter((node) => {
       if (node.id === keepId) return true;
@@ -1905,25 +1930,36 @@ export function openSessionWindow(
   cardId: string
 ): SessionCanvasNode[] {
   const card = nodeById(nodes, cardId);
-  if (!card || !isSessionNode(card) || !card.sessionId) return [...nodes];
+  if (
+    !card ||
+    !isSessionNode(card) ||
+    (!card.sessionId && !card.panelComponent)
+  ) {
+    return [...nodes];
+  }
   if (card.expanded) return [...nodes];
 
   const existingDetached = nodes.find(
     (node) =>
       isSessionNode(node) &&
       node.expanded &&
-      node.sessionId === card.sessionId &&
-      Boolean(node.openedFromId)
+      Boolean(node.openedFromId) &&
+      (card.sessionId
+        ? node.sessionId === card.sessionId
+        : node.openedFromId === card.id)
   );
   if (card.parentId) {
     if (existingDetached) return [...nodes];
     return placeDetachedWindow(
-      withoutSessionWindows(nodes, card.sessionId),
+      card.sessionId ? withoutSessionWindows(nodes, card.sessionId) : nodes,
       cardId
     );
   }
 
-  return withoutSessionWindows(nodes, card.sessionId, cardId).map((node) =>
+  const baseNodes = card.sessionId
+    ? withoutSessionWindows(nodes, card.sessionId, cardId)
+    : [...nodes];
+  return baseNodes.map((node) =>
     node.id === cardId ? expandNode(node) : node
   );
 }

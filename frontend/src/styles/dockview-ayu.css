@@ -52,6 +52,11 @@
   --dv-connected-chrome: var(--surface-dialog);
   --dv-tab-gap: calc(var(--radius) * 0.5);
   --dv-tab-curve: var(--radius);
+  /* Active tabs size to their title. A short Conversation title then
+     collapses the label and leaves the close control as the whole hit
+     target. Floor = tab padding + surface padding (12px) + icon (16px)
+     + gaps (12px) + 6ch of title + close (18px). */
+  --dv-tab-min-width: calc(2 * var(--dv-tab-gap) + 64px + 6ch);
   --dv-activegroup-visiblepanel-tab-background-color: var(
     --dv-connected-chrome
   );
@@ -158,6 +163,11 @@
   --dv-connected-chrome: var(--surface-dialog);
   --dv-tab-gap: calc(var(--radius) * 0.5);
   --dv-tab-curve: var(--radius);
+  /* Active tabs size to their title. A short Conversation title then
+     collapses the label and leaves the close control as the whole hit
+     target. Floor = tab padding + surface padding (12px) + icon (16px)
+     + gaps (12px) + 6ch of title + close (18px). */
+  --dv-tab-min-width: calc(2 * var(--dv-tab-gap) + 64px + 6ch);
   --dv-activegroup-visiblepanel-tab-background-color: var(
     --dv-connected-chrome
   );
@@ -467,6 +477,7 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-active-tab {
   flex: 0 0 auto;
+  min-width: var(--dv-tab-min-width);
   max-width: 200px;
 }
 
@@ -584,6 +595,7 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-active-tab
   .dv-default-tab-content {
+  min-width: 6ch;
   max-width: 15ch;
   overflow: hidden;
   text-overflow: ellipsis;

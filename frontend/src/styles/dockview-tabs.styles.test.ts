@@ -81,10 +81,26 @@ describe('workspace tab strip chrome', () => {
     );
     expect(theme['--dv-tab-curve']?.value).toBe('var(--radius)');
     expect(theme['--dv-tab-gap']?.value).toBe('calc(var(--radius) * 0.5)');
+    expect(theme['--dv-tab-min-width']?.value).toBe(
+      'calc(2 * var(--dv-tab-gap) + 64px + 6ch)'
+    );
     expect(ears.width?.value).toBe('var(--dv-tab-curve)');
     expect(leftEar.background?.value).toContain('radial-gradient');
     expect(leftEar.background?.value).toContain('circle at 0 0');
     expect(rightEar.background?.value).toContain('circle at 100% 0');
+  });
+
+  it('keeps a short active tab wide enough to show its title beside the close control', () => {
+    const activeTab = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab"
+    );
+    const activeTitle = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .dv-default-tab-content"
+    );
+
+    expect(activeTab['min-width']?.value).toBe('var(--dv-tab-min-width)');
+    expect(activeTab['flex']?.value).toBe('0 0 auto');
+    expect(activeTitle['min-width']?.value).toBe('6ch');
   });
 
   it('keeps inactive hover pills white and clear of the panel seam', () => {

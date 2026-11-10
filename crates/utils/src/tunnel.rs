@@ -3,6 +3,41 @@
 use std::net::IpAddr;
 
 pub const DEFAULT_TUNNEL_PORT: u16 = 17891;
+pub const DEFAULT_OFFICIAL_RELAY_HOST: &str = "";
+pub const DEFAULT_OFFICIAL_RELAY_PORT: u16 = 443;
+pub const RELAY_HEARTBEAT_INTERVAL_MS: u64 = 15_000;
+pub const RELAY_CONTROL_TIMEOUT_MS: u64 = 45_000;
+pub const HAPPY_EYEBALLS_LAN_WINDOW_MS: u64 = 250;
+
+/// Returns the configured official multi-tenant domestic relay endpoint.
+/// Precedence: `VIBEX_RELAY_URL` / `VIBEX_RELAY_HOST` env var -> `fallback_host` -> `DEFAULT_OFFICIAL_RELAY_HOST`.
+pub fn official_relay_endpoint(fallback_host: Option<&str>) -> Option<TunnelEndpoint> {
+    if let Ok(raw) = std::env::var("VIBEX_RELAY_URL").or_else(|_| std::env::var("VIBEX_RELAY_HOST"))
+        && let Ok(ep) = parse_tunnel_endpoint(&raw, DEFAULT_OFFICIAL_RELAY_PORT)
+    {
+        return Some(ep);
+    }
+    if let Some(host) = fallback_host
+        && let Ok(ep) = parse_tunnel_endpoint(host, DEFAULT_OFFICIAL_RELAY_PORT)
+    {
+        return Some(ep);
+    }
+    parse_tunnel_endpoint(DEFAULT_OFFICIAL_RELAY_HOST, DEFAULT_OFFICIAL_RELAY_PORT).ok()
+}
+
+pub fn format_tenant_origin(scheme: &str, endpoint: &TunnelEndpoint, host_id: &str) -> String {
+    let is_domain = endpoint.host.parse::<IpAddr>().is_err()
+        && !endpoint.host.eq_ignore_ascii_case("localhost");
+    if is_domain && (endpoint.port == 80 || endpoint.port == 443) {
+        return format!(
+            "https://{}/t/{}",
+            endpoint.host.trim_end_matches('/'),
+            host_id.trim()
+        );
+    }
+    let base = format_origin(scheme, endpoint);
+    format!("{}/t/{}", base.trim_end_matches('/'), host_id.trim())
+}
 
 pub fn tunnel_install_url() -> String {
     format!("{}/tunnel.sh", crate::site_origin())
@@ -240,12 +275,12 @@ mod tests {
     fn extract_relay_token_from_install_command() {
         assert_eq!(
             extract_relay_token(
-                "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t vbx_tun_e22cd3763db1436f847e709d79b3f9f9 -p 17891 -h 103.236.98.173"
+                "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t vbx_tun_e22cd3763db1436f847e709d79b3f9f9 -p 17891 -h 203.0.113.10"
             )
             .as_deref(),
             Some("vbx_tun_e22cd3763db1436f847e709d79b3f9f9")
         );
-        assert_eq!(extract_relay_token("47.109.140.92:13630"), None);
+        assert_eq!(extract_relay_token("203.0.113.10:13630"), None);
     }
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -254,11 +289,15 @@ mod tests {
     fn install_command_includes_the_public_host() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
+            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com");
+        }
+        let cmd = install_command("tok_abc", 17891, "203.0.113.10");
+        unsafe {
             std::env::remove_var("VIBEX_SITE_URL");
         }
         assert_eq!(
-            install_command("tok_abc", 17891, "103.236.98.173"),
-            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h 103.236.98.173"
+            cmd,
+            "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h 203.0.113.10"
         );
     }
 
@@ -266,15 +305,20 @@ mod tests {
     fn install_command_uses_sudo_for_privileged_ports() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
+            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com");
+        }
+        let cmd_443 = install_command("tok_abc", 443, "203.0.113.10");
+        let cmd_8443 = install_command("tok_abc", 8443, "203.0.113.10");
+        unsafe {
             std::env::remove_var("VIBEX_SITE_URL");
         }
         assert_eq!(
-            install_command("tok_abc", 443, "203.0.113.10"),
-            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sudo sh -s -- -t tok_abc -p 443 -h 203.0.113.10"
+            cmd_443,
+            "curl -fsSL https://site.example.com/tunnel.sh | sudo sh -s -- -t tok_abc -p 443 -h 203.0.113.10"
         );
         assert_eq!(
-            install_command("tok_abc", 8443, "203.0.113.10"),
-            "curl -fsSL https://vibex.xforever.xin/tunnel.sh | sh -s -- -t tok_abc -p 8443 -h 203.0.113.10"
+            cmd_8443,
+            "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t tok_abc -p 8443 -h 203.0.113.10"
         );
     }
 
@@ -284,13 +328,13 @@ mod tests {
         unsafe {
             std::env::set_var("VIBEX_SITE_URL", "https://site.example.com/");
         }
-        let cmd = install_command("tok_abc", 17891, "103.236.98.173");
+        let cmd = install_command("tok_abc", 17891, "relay.example.com");
         unsafe {
             std::env::remove_var("VIBEX_SITE_URL");
         }
         assert_eq!(
             cmd,
-            "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h 103.236.98.173"
+            "curl -fsSL https://site.example.com/tunnel.sh | sh -s -- -t tok_abc -p 17891 -h relay.example.com"
         );
     }
 }

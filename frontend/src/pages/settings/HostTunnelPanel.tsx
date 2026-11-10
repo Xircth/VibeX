@@ -200,6 +200,12 @@ export function HostTunnelPanel({
 
   useEffect(() => {
     void refresh().catch(() => undefined);
+    const handleSync = () => {
+      void refresh().catch(() => undefined);
+    };
+    window.addEventListener('vibex:host-tunnel-updated', handleSync);
+    return () =>
+      window.removeEventListener('vibex:host-tunnel-updated', handleSync);
   }, [refresh]);
 
   useEffect(() => {
@@ -449,9 +455,14 @@ export function HostTunnelPanel({
     <>
       <div className="settings-row">
         <div>
-          <Label htmlFor="host-tunnel-enabled">
-            {t('webService.tunnelLabel')}
-          </Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="host-tunnel-enabled">
+              {t('webService.tunnelLabel')}
+            </Label>
+            <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none tracking-wide text-primary">
+              Beta
+            </span>
+          </div>
           <p className="settings-row__description">
             {t('webService.tunnelDescription')}
           </p>
@@ -465,108 +476,134 @@ export function HostTunnelPanel({
         />
       </div>
 
-      {status.enabled ? (
-        <div className="settings-pairing-block flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="settings-pairing-devices__toggle flex-1"
-              aria-expanded={listExpanded}
-              aria-controls={savedListId}
-              onClick={() => setListExpanded((current) => !current)}
-            >
-              <span>{t('webService.tunnelSavedList')}</span>
-              <span className="settings-pairing-devices__count">
-                {status.saved.length}
-              </span>
-              <ChevronDown
-                className={cn(
-                  'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
-                  listExpanded && 'rotate-180'
-                )}
-                aria-hidden="true"
-              />
-            </button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={busy}
-              onClick={openCreateModal}
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-              {t('webService.tunnelModeCreate')}
-            </Button>
-          </div>
+      <div className="settings-pairing-block flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="settings-pairing-devices__toggle flex-1"
+            aria-expanded={listExpanded}
+            aria-controls={savedListId}
+            onClick={() => setListExpanded((current) => !current)}
+          >
+            <span>{t('webService.tunnelSavedList')}</span>
+            <span className="settings-pairing-devices__count">
+              {status.saved.length}
+            </span>
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out',
+                listExpanded && 'rotate-180'
+              )}
+              aria-hidden="true"
+            />
+          </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={busy}
+            onClick={openCreateModal}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+            {t('webService.tunnelModeCreate')}
+          </Button>
+        </div>
 
-          {listExpanded ? (
+        {listExpanded ? (
+          <div
+            className="settings-pairing-devices settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
+            data-testid="saved-tunnels-list-container"
+          >
             <div
-              className="settings-pairing-devices settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50"
-              data-testid="saved-tunnels-list-container"
+              id={savedListId}
+              className="settings-pairing-devices__list settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
+              data-testid="saved-tunnels-scroll-box"
             >
-              <div
-                id={savedListId}
-                className="settings-pairing-devices__list settings-bounded-list max-h-56 divide-y divide-border/60 overflow-y-auto"
-                data-testid="saved-tunnels-scroll-box"
-              >
-                {status.saved.length === 0 ? (
-                  <p className="settings-pairing-devices__empty">
-                    {t('webService.tunnelSavedEmpty')}
-                  </p>
-                ) : (
-                  status.saved.map((item) => {
-                    const active = item.id === status.active_id;
-                    const isRelayPolling =
-                      active &&
-                      item.kind === 'relay' &&
-                      status.relay_state !== 'connected';
-                    return (
-                      <div
-                        className="settings-pairing-devices__row flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
-                        key={item.id}
-                      >
-                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_8.5rem] items-center gap-3">
-                          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                            <span
-                              className="truncate text-xs font-medium text-foreground"
-                              title={item.origin}
-                            >
-                              {item.origin}
+              {status.saved.length === 0 ? (
+                <p className="settings-pairing-devices__empty">
+                  {t('webService.tunnelSavedEmpty')}
+                </p>
+              ) : (
+                status.saved.map((item) => {
+                  const active = status.enabled && item.id === status.active_id;
+                  const isOfficialCloud =
+                    item.id === 'auto-quick-tunnel' ||
+                    item.origin.includes('/t/');
+                  const isRelayPolling =
+                    active &&
+                    item.kind === 'relay' &&
+                    status.relay_state !== 'connected';
+                  return (
+                    <div
+                      className="settings-pairing-devices__row flex min-h-10 min-w-0 items-center justify-between gap-3 px-3 py-2"
+                      key={item.id}
+                    >
+                      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_8.5rem] items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                          <span
+                            className={cn(
+                              'truncate text-xs font-medium text-foreground',
+                              !isOfficialCloud && 'font-mono'
+                            )}
+                            title={
+                              isOfficialCloud
+                                ? t('webService.tunnelOfficialNode', {
+                                    defaultValue: '官方云服务',
+                                  })
+                                : item.origin
+                            }
+                          >
+                            {isOfficialCloud
+                              ? `VibeX ${t('webService.tunnelOfficialNode', {
+                                  defaultValue: '官方云服务',
+                                })}`
+                              : item.origin}
+                          </span>
+                          <TunnelUsageBadge
+                            active={active}
+                            polling={isRelayPolling}
+                            t={t}
+                          />
+                        </div>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          {isOfficialCloud ? (
+                            <span className="inline-flex shrink-0 items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                              {t('webService.tunnelOfficialNode', {
+                                defaultValue: '官方云服务',
+                              })}
                             </span>
-                            <TunnelUsageBadge
-                              active={active}
-                              polling={isRelayPolling}
-                              t={t}
-                            />
-                          </div>
-                          <div className="flex min-w-0 items-center">
+                          ) : (
                             <span
                               className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
                               title={`${item.host}:${item.port}`}
                             >
                               {item.host}:{item.port}
                             </span>
-                          </div>
-                          <span className="truncate text-xs tabular-nums text-muted-foreground">
-                            {formatTunnelCreatedAt(item.created_at)}
-                          </span>
+                          )}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 shrink-0 px-2.5 text-xs"
-                            disabled={busy || togglingId === item.id}
-                            onClick={() => void toggleSavedTunnel(item, active)}
-                          >
-                            {togglingId === item.id ? (
-                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                            ) : null}
-                            {active
-                              ? t('webService.tunnelDisable')
-                              : t('webService.tunnelEnable')}
-                          </Button>
+                        <span className="truncate text-xs tabular-nums text-muted-foreground">
+                          {isOfficialCloud
+                            ? 'Beta'
+                            : formatTunnelCreatedAt(item.created_at)}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 shrink-0 px-2.5 text-xs"
+                          disabled={busy || togglingId === item.id}
+                          onClick={() => void toggleSavedTunnel(item, active)}
+                        >
+                          {togglingId === item.id ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {active
+                            ? t('webService.tunnelDisable')
+                            : t('webService.tunnelEnable')}
+                        </Button>
+                        {!isOfficialCloud ? (
                           <Button
                             type="button"
                             variant="destructive"
@@ -580,20 +617,20 @@ export function HostTunnelPanel({
                             ) : null}
                             {t('webService.tunnelRemove')}
                           </Button>
-                        </div>
+                        ) : null}
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
-          ) : null}
+          </div>
+        ) : null}
 
-          {polling && status.last_error ? (
-            <p className="settings-row__description">{status.last_error}</p>
-          ) : null}
-        </div>
-      ) : null}
+        {polling && status.last_error ? (
+          <p className="settings-row__description">{status.last_error}</p>
+        ) : null}
+      </div>
 
       {modalOpen
         ? createPortal(

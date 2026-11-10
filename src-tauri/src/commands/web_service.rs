@@ -46,8 +46,8 @@ impl Default for WebServiceConfig {
         Self {
             port: DEFAULT_PORT,
             token: None,
-            auto_start: false,
-            allow_lan: false,
+            auto_start: true,
+            allow_lan: true,
         }
     }
 }
@@ -476,6 +476,9 @@ async fn start_web_server_with_router(
     for listener in listeners {
         let router = service_router.clone();
         handles.push(tokio::spawn(async move {
+            let listener = axum::serve::ListenerExt::tap_io(listener, |tcp_stream| {
+                let _ = tcp_stream.set_nodelay(true);
+            });
             if let Err(error) = axum::serve(listener, router).await {
                 tracing::warn!("VibeX web service stopped with error: {}", error);
             }
@@ -516,6 +519,7 @@ async fn stop_web_server_with_config(config: WebServiceConfig) -> WebServerStatu
             let _ = handle.await;
         }
     }
+    crate::commands::host_tunnel::stop_quick_tunnel().await;
     status_from_runtime(config).await
 }
 
@@ -630,6 +634,43 @@ pub async fn list_host_devices(
     auth.list_devices(&server::AuthenticatedCredential::host_console_owner())
         .await
         .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn list_host_connect_requests(
+    app: tauri::AppHandle,
+) -> Result<Vec<remote_protocol::PendingDeviceConnectRequest>, AppError> {
+    use server::ServerAuth;
+    let auth = server::SqliteServerAuth::new(app.state::<AppState>().deployment.db().pool.clone());
+    auth.list_connect_requests(&server::AuthenticatedCredential::host_console_owner())
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RespondHostConnectRequest {
+    pub request_id: String,
+    pub approve: bool,
+}
+
+#[tauri::command]
+pub async fn respond_host_connect_request(
+    app: tauri::AppHandle,
+    request: RespondHostConnectRequest,
+) -> Result<(), AppError> {
+    let request_id = request
+        .request_id
+        .parse::<remote_protocol::PairingId>()
+        .map_err(|error| AppError::BadRequest(format!("invalid connect request id: {error}")))?;
+    use server::ServerAuth;
+    let auth = server::SqliteServerAuth::new(app.state::<AppState>().deployment.db().pool.clone());
+    auth.respond_connect_request(
+        &server::AuthenticatedCredential::host_console_owner(),
+        request_id,
+        request.approve,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 #[derive(Debug, Clone, Deserialize)]

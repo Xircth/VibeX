@@ -1223,6 +1223,9 @@ async fn redeem(
         .json(&RedeemPairingRequest {
             pairing_token: pairing_token.to_string(),
             device_name: device_name.to_string(),
+            public_key_ed25519: None,
+            client_kind: Some("desktop".to_string()),
+            replace_existing_mobile: false,
         })
         .send()
         .await

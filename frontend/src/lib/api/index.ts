@@ -86,6 +86,7 @@ export type {
   TunnelCheckResult,
   HostPairingChallenge,
   HostPairedDevice,
+  PendingDeviceConnectRequest,
   HostClientProfile,
   LocalSshTarget,
   DiscoveredHost,

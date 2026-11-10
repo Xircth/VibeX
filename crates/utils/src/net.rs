@@ -23,7 +23,14 @@ pub struct AdvertisedListenAddress {
 }
 
 pub fn is_advertisable_ipv4(ip: Ipv4Addr) -> bool {
-    !ip.is_loopback() && !ip.is_unspecified() && !ip.is_link_local() && !ip.is_multicast()
+    let [a, b, _, _] = ip.octets();
+    let is_benchmarking = a == 198 && (b == 18 || b == 19);
+    !ip.is_loopback()
+        && !ip.is_unspecified()
+        && !ip.is_link_local()
+        && !ip.is_multicast()
+        && !ip.is_broadcast()
+        && !is_benchmarking
 }
 
 pub fn is_advertisable_ip(ip: IpAddr) -> bool {
@@ -37,6 +44,430 @@ pub fn is_advertisable_ip(ip: IpAddr) -> bool {
                 && ip.to_ipv4_mapped().is_none()
         }
     }
+}
+
+/// Returns true when `ip` belongs to Tailscale's CGNAT range (`100.64.0.0/10`)
+/// or Tailscale's ULA prefix (`fd7a:115c:a1e0::/48`).
+pub fn is_tailscale_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, _, _] = ip.octets();
+            a == 100 && (64..=127).contains(&b)
+        }
+        IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            segments[0] == 0xfd7a && segments[1] == 0x115c && segments[2] == 0xa1e0
+        }
+    }
+}
+
+fn is_virtual_tunnel_interface_name(interface_name: &str) -> bool {
+    let lower = interface_name.trim().to_ascii_lowercase();
+    const BLACKLIST_PREFIXES: &[&str] = &[
+        "utun", "tun", "tap", "veth", "docker", "br-", "vmnet", "vboxnet", "virbr", "wg", "mihomo",
+        "clash", "surge", "singbox",
+    ];
+    BLACKLIST_PREFIXES
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+}
+
+/// Checks whether a local `(interface_name, ip)` pair is eligible as a WebRTC
+/// Host Candidate or physical LAN reachability address (filtering proxy TUN
+/// adapters and Fake-IP ranges while preserving Tailscale).
+pub fn is_webrtc_host_candidate_eligible(interface_name: &str, ip: IpAddr) -> bool {
+    if !is_advertisable_ip(ip) {
+        return false;
+    }
+    if is_tailscale_ip(ip) {
+        return true;
+    }
+    !is_virtual_tunnel_interface_name(interface_name)
+}
+
+/// Bind a UDP socket (used for STUN / TURN / WebRTC transport) directly to a
+/// named physical network interface (`IP_BOUND_IF` on macOS, `SO_BINDTODEVICE`
+/// on Linux) so proxy TUN default routes cannot hijack the socket.
+pub fn bind_udp_socket_to_interface(
+    socket: &UdpSocket,
+    interface_name: &str,
+) -> std::io::Result<()> {
+    let trimmed = interface_name.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "interface name must be non-empty and not contain NUL",
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::{ffi::CString, os::fd::AsRawFd};
+
+        let c_name = CString::new(trimmed).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid interface name")
+        })?;
+        let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+        if index == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("network interface '{trimmed}' not found"),
+            ));
+        }
+        let raw_fd = socket.as_raw_fd();
+        let rc = unsafe {
+            libc::setsockopt(
+                raw_fd,
+                libc::IPPROTO_IP,
+                libc::IP_BOUND_IF,
+                (&raw const index).cast::<libc::c_void>(),
+                std::mem::size_of::<libc::c_uint>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::{ffi::CString, os::fd::AsRawFd};
+
+        let c_name = CString::new(trimmed).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid interface name")
+        })?;
+        let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+        if index == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("network interface '{trimmed}' not found"),
+            ));
+        }
+        let bytes = c_name.as_bytes_with_nul();
+        let rc = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                bytes.as_ptr().cast::<libc::c_void>(),
+                bytes.len() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let exists = host_interface_addresses()
+            .iter()
+            .any(|addr| addr.name.eq_ignore_ascii_case(trimmed));
+        let _ = socket;
+        if !exists {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("network interface '{trimmed}' not found"),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Returns the OS name of the primary active physical IPv4 network interface
+/// (e.g. `"en0"` on macOS or `"eth0"` / `"wlan0"` on Linux), excluding loopback,
+/// proxy TUN adapters (`utun*`, `tun*`), and Tailscale interfaces.
+pub fn primary_physical_interface_name() -> Option<String> {
+    host_interface_addresses()
+        .into_iter()
+        .find(|addr| {
+            addr.family == "ipv4"
+                && !addr.name.trim().is_empty()
+                && !is_virtual_tunnel_interface_name(&addr.name)
+                && addr
+                    .ip
+                    .parse::<IpAddr>()
+                    .is_ok_and(|ip| is_advertisable_ip(ip) && !is_tailscale_ip(ip))
+        })
+        .map(|addr| addr.name)
+}
+
+/// Bind a `tokio::net::TcpSocket` directly to a named physical network interface
+/// (`IP_BOUND_IF` on macOS, `SO_BINDTODEVICE` on Linux) so proxy TUN routes
+/// cannot hijack domestic relay connections.
+pub fn bind_tcp_socket_to_interface(
+    socket: &tokio::net::TcpSocket,
+    interface_name: &str,
+) -> std::io::Result<()> {
+    let trimmed = interface_name.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "interface name must be non-empty and not contain NUL",
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::{ffi::CString, os::fd::AsRawFd};
+
+        let c_name = CString::new(trimmed).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid interface name")
+        })?;
+        let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+        if index == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("network interface '{trimmed}' not found"),
+            ));
+        }
+        let rc = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::IPPROTO_IP,
+                libc::IP_BOUND_IF,
+                (&raw const index).cast::<libc::c_void>(),
+                std::mem::size_of::<libc::c_uint>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::{ffi::CString, os::fd::AsRawFd};
+
+        let c_name = CString::new(trimmed).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid interface name")
+        })?;
+        let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+        if index == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("network interface '{trimmed}' not found"),
+            ));
+        }
+        let bytes = c_name.as_bytes_with_nul();
+        let rc = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                bytes.as_ptr().cast::<libc::c_void>(),
+                bytes.len() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = socket;
+        let _ = trimmed;
+        Ok(())
+    }
+}
+
+/// Connect a TCP stream to `addr` with `TCP_NODELAY = true`, preferring the
+/// primary physical network interface (`IP_BOUND_IF` / `SO_BINDTODEVICE`) for
+/// non-loopback IPv4 targets so Clash/Mihomo TUN routes are bypassed.
+pub async fn connect_tcp_bypassing_tun(addr: SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
+    if let SocketAddr::V4(v4_addr) = addr
+        && !v4_addr.ip().is_loopback()
+        && let Some(iface) = primary_physical_interface_name()
+        && let Ok(socket) = tokio::net::TcpSocket::new_v4()
+    {
+        let _ = socket.set_nodelay(true);
+        if bind_tcp_socket_to_interface(&socket, &iface).is_ok()
+            && let Ok(Ok(stream)) =
+                tokio::time::timeout(std::time::Duration::from_secs(4), socket.connect(addr)).await
+        {
+            let _ = stream.set_nodelay(true);
+            return Ok(stream);
+        }
+    }
+
+    let stream = tokio::net::TcpStream::connect(addr).await?;
+    let _ = stream.set_nodelay(true);
+    Ok(stream)
+}
+
+static DIRECT_DNS_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (Ipv4Addr, std::time::Instant)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Resolve `host:port` to a real IPv4 `SocketAddr`, bypassing Clash Fake-IP DNS
+/// (`198.18.0.0/15`) by querying `223.5.5.5:53` / `119.29.29.29:53` over the
+/// physical interface when `host` is a domain name, with a 5-minute TTL cache.
+pub fn resolve_host_ipv4_direct(host: &str, port: u16) -> Option<SocketAddr> {
+    let trimmed = host.trim().trim_matches(|ch| ch == '[' || ch == ']');
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.eq_ignore_ascii_case("localhost") {
+        return Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port));
+    }
+    if let Ok(ip) = trimmed.parse::<IpAddr>() {
+        return Some(SocketAddr::new(ip, port));
+    }
+
+    let cache_key = trimmed.to_ascii_lowercase();
+    if let Ok(guard) = DIRECT_DNS_CACHE.lock()
+        && let Some((cached_ip, ts)) = guard.get(&cache_key)
+        && ts.elapsed() < std::time::Duration::from_secs(300)
+    {
+        return Some(SocketAddr::new(IpAddr::V4(*cached_ip), port));
+    }
+
+    // 1. Try direct UDP or TCP DNS A-record query to 223.5.5.5:53 / 119.29.29.29:53 bound to physical interface
+    if let Some(ip) = query_dns_a_record_direct(trimmed, Ipv4Addr::new(223, 5, 5, 5))
+        .or_else(|| query_dns_a_record_direct(trimmed, Ipv4Addr::new(119, 29, 29, 29)))
+        .or_else(|| query_dns_a_record_tcp_direct(trimmed, Ipv4Addr::new(223, 5, 5, 5)))
+        .or_else(|| query_dns_a_record_tcp_direct(trimmed, Ipv4Addr::new(119, 29, 29, 29)))
+    {
+        if let Ok(mut guard) = DIRECT_DNS_CACHE.lock() {
+            guard.insert(cache_key, (ip, std::time::Instant::now()));
+        }
+        return Some(SocketAddr::new(IpAddr::V4(ip), port));
+    }
+
+    // 2. Fallback to system resolver, rejecting Fake-IP (198.18.0.0/15)
+    let resolved = (trimmed, port)
+        .to_socket_addrs()
+        .ok()?
+        .find(|addr| match addr.ip() {
+            IpAddr::V4(v4) => {
+                let [a, b, _, _] = v4.octets();
+                !(a == 198 && (b == 18 || b == 19))
+            }
+            IpAddr::V6(_) => true,
+        })?;
+    if let IpAddr::V4(v4) = resolved.ip()
+        && let Ok(mut guard) = DIRECT_DNS_CACHE.lock()
+    {
+        guard.insert(cache_key, (v4, std::time::Instant::now()));
+    }
+    Some(resolved)
+}
+
+fn build_dns_a_query_packet(domain: &str) -> Option<Vec<u8>> {
+    let mut packet = Vec::with_capacity(64);
+    packet.extend_from_slice(&[
+        0x56, 0x58, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    for label in domain.split('.') {
+        let bytes = label.as_bytes();
+        if bytes.is_empty() || bytes.len() > 63 {
+            return None;
+        }
+        packet.push(bytes.len() as u8);
+        packet.extend_from_slice(bytes);
+    }
+    packet.push(0x00);
+    packet.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+    Some(packet)
+}
+
+fn parse_dns_a_response_packet(buf: &[u8]) -> Option<Ipv4Addr> {
+    let n = buf.len();
+    if n < 12 || buf[0] != 0x56 || buf[1] != 0x58 {
+        return None;
+    }
+    let ancount = u16::from_be_bytes([buf[6], buf[7]]) as usize;
+    if ancount == 0 {
+        return None;
+    }
+
+    let mut idx = 12;
+    while idx < n && buf[idx] != 0 {
+        let len = buf[idx] as usize;
+        idx += 1 + len;
+    }
+    idx += 5;
+
+    for _ in 0..ancount {
+        if idx + 10 > n {
+            break;
+        }
+        if buf[idx] & 0xC0 == 0xC0 {
+            idx += 2;
+        } else {
+            while idx < n && buf[idx] != 0 {
+                idx += 1 + (buf[idx] as usize);
+            }
+            idx += 1;
+        }
+        if idx + 10 > n {
+            break;
+        }
+        let rtype = u16::from_be_bytes([buf[idx], buf[idx + 1]]);
+        let rdlen = u16::from_be_bytes([buf[idx + 8], buf[idx + 9]]) as usize;
+        idx += 10;
+        if idx + rdlen > n {
+            break;
+        }
+        if rtype == 1 && rdlen == 4 {
+            let ip = Ipv4Addr::new(buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]);
+            let [a, b, _, _] = ip.octets();
+            if !(a == 198 && (b == 18 || b == 19)) && !ip.is_unspecified() {
+                return Some(ip);
+            }
+        }
+        idx += rdlen;
+    }
+    None
+}
+
+fn query_dns_a_record_direct(domain: &str, dns_server: Ipv4Addr) -> Option<Ipv4Addr> {
+    use std::time::Duration;
+
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    if let Some(iface) = primary_physical_interface_name() {
+        let _ = bind_udp_socket_to_interface(&socket, &iface);
+    }
+    let _ = socket.set_read_timeout(Some(Duration::from_millis(1200)));
+    let _ = socket.set_write_timeout(Some(Duration::from_millis(1200)));
+
+    let packet = build_dns_a_query_packet(domain)?;
+    socket
+        .send_to(&packet, SocketAddr::new(IpAddr::V4(dns_server), 53))
+        .ok()?;
+    let mut buf = [0u8; 512];
+    let (n, _) = socket.recv_from(&mut buf).ok()?;
+    parse_dns_a_response_packet(&buf[..n])
+}
+
+fn query_dns_a_record_tcp_direct(domain: &str, dns_server: Ipv4Addr) -> Option<Ipv4Addr> {
+    use std::{
+        io::{Read, Write},
+        time::Duration,
+    };
+
+    let packet = build_dns_a_query_packet(domain)?;
+    let target = SocketAddr::new(IpAddr::V4(dns_server), 53);
+    let mut stream = TcpStream::connect_timeout(&target, Duration::from_millis(1500)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(1500)));
+    let len_prefix = (packet.len() as u16).to_be_bytes();
+    stream.write_all(&len_prefix).ok()?;
+    stream.write_all(&packet).ok()?;
+    let mut resp_len_bytes = [0u8; 2];
+    stream.read_exact(&mut resp_len_bytes).ok()?;
+    let resp_len = u16::from_be_bytes(resp_len_bytes) as usize;
+    if resp_len < 12 || resp_len > 2048 {
+        return None;
+    }
+    let mut buf = vec![0u8; resp_len];
+    stream.read_exact(&mut buf).ok()?;
+    parse_dns_a_response_packet(&buf)
 }
 
 pub fn http_origin(ip: IpAddr, port: u16) -> String {
@@ -76,8 +507,10 @@ pub fn host_interface_addresses() -> Vec<HostInterfaceAddress> {
             .iter()
             .find(|address| address.ip == ip.to_string())
         {
-            push(address.clone());
-        } else {
+            if is_webrtc_host_candidate_eligible(&address.name, IpAddr::V4(ip)) {
+                push(address.clone());
+            }
+        } else if is_webrtc_host_candidate_eligible("", IpAddr::V4(ip)) {
             push(HostInterfaceAddress {
                 name: String::new(),
                 ip: ip.to_string(),
@@ -88,7 +521,7 @@ pub fn host_interface_addresses() -> Vec<HostInterfaceAddress> {
 
     for address in enumerated {
         if let Ok(ip) = address.ip.parse::<IpAddr>()
-            && is_advertisable_ip(ip)
+            && is_webrtc_host_candidate_eligible(&address.name, ip)
         {
             push(address);
         }
@@ -490,5 +923,76 @@ mod tests {
                 address.family
             );
         }
+    }
+
+    #[test]
+    fn webrtc_candidate_filter_rejects_proxy_tun_and_fake_ip_but_keeps_tailscale_and_physical_lan()
+    {
+        use std::net::Ipv4Addr;
+
+        use super::{is_tailscale_ip, is_webrtc_host_candidate_eligible};
+
+        // Physical Wi-Fi / Ethernet LAN
+        assert!(is_webrtc_host_candidate_eligible(
+            "en0",
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25))
+        ));
+        assert!(is_webrtc_host_candidate_eligible(
+            "eth0",
+            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 15))
+        ));
+
+        // Clash / Surge / Mihomo Fake-IP benchmark range 198.18.0.0/15 on any interface
+        assert!(!is_webrtc_host_candidate_eligible(
+            "en0",
+            IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1))
+        ));
+        assert!(!is_webrtc_host_candidate_eligible(
+            "utun3",
+            IpAddr::V4(Ipv4Addr::new(198, 19, 255, 254))
+        ));
+
+        // Non-Tailscale proxy TUN / container / virtual interfaces using private subnets
+        assert!(!is_webrtc_host_candidate_eligible(
+            "utun4",
+            IpAddr::V4(Ipv4Addr::new(172, 19, 0, 1))
+        ));
+        assert!(!is_webrtc_host_candidate_eligible(
+            "tun0",
+            IpAddr::V4(Ipv4Addr::new(10, 8, 0, 2))
+        ));
+        assert!(!is_webrtc_host_candidate_eligible(
+            "tap0",
+            IpAddr::V4(Ipv4Addr::new(10, 9, 0, 2))
+        ));
+        assert!(!is_webrtc_host_candidate_eligible(
+            "docker0",
+            IpAddr::V4(Ipv4Addr::new(172, 17, 0, 1))
+        ));
+        assert!(!is_webrtc_host_candidate_eligible(
+            "veth1a2b3c",
+            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 2))
+        ));
+
+        // Tailscale CGNAT (100.64.0.0/10) and Tailscale ULA (fd7a:115c:a1e0::/48) on utun / tailscale0 are allowed
+        let ts_v4 = IpAddr::V4(Ipv4Addr::new(100, 101, 102, 103));
+        let ts_v6 = IpAddr::V6(Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 1));
+        assert!(is_tailscale_ip(ts_v4));
+        assert!(is_tailscale_ip(ts_v6));
+        assert!(is_webrtc_host_candidate_eligible("utun2", ts_v4));
+        assert!(is_webrtc_host_candidate_eligible("tailscale0", ts_v4));
+        assert!(is_webrtc_host_candidate_eligible("utun2", ts_v6));
+    }
+
+    #[test]
+    fn bind_udp_socket_to_interface_rejects_nonexistent_interface() {
+        use std::net::{Ipv4Addr, UdpSocket};
+
+        use super::bind_udp_socket_to_interface;
+
+        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("bind udp");
+        let err = bind_udp_socket_to_interface(&socket, "vibex_nonexistent_if99")
+            .expect_err("nonexistent interface must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 }

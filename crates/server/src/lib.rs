@@ -12,6 +12,7 @@ mod composition;
 mod config;
 mod delegation_runtime;
 mod domains;
+pub mod e2ee;
 mod host;
 mod host_core;
 mod host_ops;
@@ -23,6 +24,7 @@ mod preview_proxy;
 mod product_mcp;
 mod runtime;
 mod token_store;
+mod transport_session;
 mod update;
 mod weixin_ilink;
 mod ws;
@@ -35,7 +37,7 @@ pub use artifact_sink::ServerArtifactEventSink;
 pub use auth::{
     AuthClock, AuthStoreError, AuthenticatedCredential, CredentialKind, PairedDeviceRecord,
     ServerAuth, ServerCredentials, ServerToken, ServerTokenError, SqliteServerAuth,
-    SystemAuthClock,
+    SystemAuthClock, TrustWebRtcDeviceRequest, compute_sas_code, verify_peer_dtls_fingerprint,
 };
 pub use automation_runtime::HeadlessAutomationRuntime;
 pub use chat_inbound::{
@@ -114,6 +116,10 @@ pub fn apply_host_multi_agent_setting(
 }
 pub use runtime::{ServerRuntime, set_extra_browser_origins, set_published_reachability};
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};
+pub use transport_session::{
+    IDEMPOTENCY_TTL_SECONDS, RtcPeerEngine, SqliteIdempotencyLedger, TransportSession,
+    TransportSessionTelemetry,
+};
 pub use update::{HostUpgradeError, HostUpgradePlan, apply_host_upgrade, plan_host_upgrade};
 pub use weixin_ilink::{
     WeixinQrcodeInfo, WeixinQrcodeStatus, weixin_check_qrcode, weixin_get_qrcode,

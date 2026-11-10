@@ -9,12 +9,14 @@ mod notification;
 mod pairing_invitation;
 mod schema;
 mod subscription;
+mod webrtc;
 
 pub use capabilities::{CapabilityId, ServerCapabilities};
 pub use command::{CommandRequest, CommandResponse};
 pub use device_auth::{
-    CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset, PairingChallenge,
-    PairingId, RedeemPairingRequest, RevokeDeviceResponse,
+    CreateDeviceConnectRequest, CreatePairingRequest, DeviceConnectRequestStatus, DeviceCredential,
+    DeviceId, DevicePermissionPreset, PairingChallenge, PairingId, PendingDeviceConnectRequest,
+    PollDeviceConnectResponse, RedeemPairingRequest, RevokeDeviceResponse,
 };
 pub use error::{ErrorCode, ErrorEnvelope};
 pub use ids::{ConversationId, OperationId, SubscriptionId};
@@ -31,6 +33,13 @@ pub use subscription::{
     EventCursor, EventDurability, OfflineConversationCache, RemoteEvent, SubscriptionBootstrap,
     SubscriptionClientMessage, SubscriptionRequest, SubscriptionResource,
     SubscriptionServerMessage, SubscriptionSnapshot,
+};
+pub use webrtc::{
+    BULK_BUFFERED_HIGH_WATER_BYTES, BULK_BUFFERED_LOW_THRESHOLD_BYTES, BULK_CHANNEL_LABEL,
+    BULK_CHUNK_MAX_BYTES, BULK_CHUNK_MIN_BYTES, BulkChannelFrame, CHANNEL_BINDING_MAX_SKEW_SECONDS,
+    CHANNEL_BINDING_PREFIX, CONTROL_CHANNEL_LABEL, CONTROL_MAX_FRAME_BYTES, ChannelBindingClaims,
+    ControlChannelFrame, SIGNALING_PIGGYBACK_MAX_BYTES, SignalingPiggybackEvents,
+    SignalingResumeCursor, extract_sdp_sha256_fingerprint,
 };
 
 /// Remote protocol major/minor version implemented by this crate.

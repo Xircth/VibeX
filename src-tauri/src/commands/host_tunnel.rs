@@ -10,7 +10,7 @@ use tokio::{
     task::JoinHandle,
 };
 use utils::tunnel::{
-    DEFAULT_TUNNEL_PORT, TunnelEndpoint, extract_relay_token, format_origin, install_command,
+    DEFAULT_TUNNEL_PORT, TunnelEndpoint, extract_relay_token, install_command,
     parse_tunnel_endpoint, probe_origins, scheme_hint_from_input,
 };
 use uuid::Uuid;
@@ -127,6 +127,30 @@ impl Default for RelayState {
 static RELAY: std::sync::LazyLock<Mutex<Option<RelayRuntime>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
 
+struct QuickTunnelRuntime {
+    local_port: u16,
+    handle: JoinHandle<()>,
+}
+
+static QUICK_TUNNEL: std::sync::LazyLock<Mutex<Option<QuickTunnelRuntime>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+
+static QUICK_TUNNEL_ORIGIN: std::sync::LazyLock<std::sync::RwLock<Option<String>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+
+fn quick_tunnel_origin() -> Option<String> {
+    QUICK_TUNNEL_ORIGIN
+        .read()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+fn set_quick_tunnel_origin(origin: Option<String>) {
+    if let Ok(mut guard) = QUICK_TUNNEL_ORIGIN.write() {
+        *guard = origin;
+    }
+}
+
 async fn load_store() -> Result<HostTunnelStore, AppError> {
     services::services::settings_store::read_section(
         &utils::assets::settings_path(),
@@ -160,11 +184,38 @@ fn active_published_origin(store: &HostTunnelStore) -> Option<String> {
         .map(|item| item.origin.clone())
 }
 
+fn default_official_quick_origin() -> Option<String> {
+    if let Some(origin) = quick_tunnel_origin() {
+        return Some(origin);
+    }
+    let endpoint = utils::tunnel::official_relay_endpoint(None)?;
+    let host_id = load_or_create_host_id_sync().unwrap_or_else(|| "default".to_string());
+    Some(utils::tunnel::format_tenant_origin(
+        "https", &endpoint, &host_id,
+    ))
+}
+
+fn all_published_origin_strings(store: &HostTunnelStore) -> Vec<String> {
+    if !store.enabled {
+        return Vec::new();
+    }
+    let mut origins = Vec::new();
+    if let Some(custom) = active_published_origin(store) {
+        origins.push(custom);
+    }
+    if let Some(quick) = default_official_quick_origin()
+        && !origins.contains(&quick)
+    {
+        origins.push(quick);
+    }
+    origins
+}
+
 fn publish_browser_origins(store: &HostTunnelStore) {
-    let origin = active_published_origin(store);
-    server::set_extra_browser_origins(origin.clone());
+    let origins = all_published_origin_strings(store);
+    server::set_extra_browser_origins(origins.clone());
     server::set_published_reachability(
-        origin
+        origins
             .into_iter()
             .map(remote_protocol::ReachabilityOrigin::published),
     );
@@ -182,16 +233,57 @@ fn view_saved(item: &SavedTunnel) -> SavedTunnelView {
 }
 
 fn status_from(store: &HostTunnelStore, relay: &RelayState) -> HostTunnelStatus {
+    let mut saved: Vec<SavedTunnelView> = store.saved.iter().map(view_saved).collect();
+    let enabled = store.enabled;
+    let mut active_id = if enabled {
+        store.active_id.clone()
+    } else {
+        None
+    };
+    let mut relay_state = relay.status.clone();
+
+    if let Some(quick_origin) = default_official_quick_origin() {
+        let host = quick_origin
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or(&quick_origin)
+            .to_string();
+        if !saved
+            .iter()
+            .any(|item| item.id == "auto-quick-tunnel" || item.origin == quick_origin)
+        {
+            saved.insert(
+                0,
+                SavedTunnelView {
+                    id: "auto-quick-tunnel".to_string(),
+                    origin: quick_origin,
+                    host,
+                    port: 443,
+                    kind: "quick".to_string(),
+                    created_at: None,
+                },
+            );
+        }
+        if enabled && active_id.is_none() {
+            active_id = Some("auto-quick-tunnel".to_string());
+        }
+        if enabled && relay_state == "idle" {
+            relay_state = "connected".to_string();
+        }
+    }
+
     HostTunnelStatus {
-        enabled: store.enabled,
-        saved: store.saved.iter().map(view_saved).collect(),
-        active_id: store.active_id.clone(),
+        enabled,
+        saved,
+        active_id,
         pending: store.pending.as_ref().map(|pending| PendingTunnelView {
             host: pending.host.clone(),
             port: pending.port,
             command: pending.command.clone(),
         }),
-        relay_state: relay.status.clone(),
+        relay_state,
         last_error: relay.error.clone(),
     }
 }
@@ -227,13 +319,8 @@ async fn host_listen_port() -> u16 {
 }
 
 pub async fn published_origins() -> Vec<ReachabilityOrigin> {
-    let Ok(store) = load_store().await else {
-        return Vec::new();
-    };
-    if !store.enabled {
-        return Vec::new();
-    }
-    active_published_origin(&store)
+    let store = load_store().await.unwrap_or_default();
+    all_published_origin_strings(&store)
         .into_iter()
         .map(ReachabilityOrigin::published)
         .collect()
@@ -269,11 +356,15 @@ pub fn merge_host_reachability(
 }
 
 pub async fn sync_relay() {
-    let Ok(store) = load_store().await else {
-        return;
-    };
+    let store = load_store().await.unwrap_or_default();
     publish_browser_origins(&store);
-    let local_port = host_listen_port().await;
+    let listening_port = crate::commands::web_service::listening_port().await;
+    let local_port = listening_port.unwrap_or_else(|| 17891);
+    if listening_port.is_some() {
+        ensure_quick_tunnel(local_port).await;
+    } else {
+        stop_quick_tunnel().await;
+    }
     if let Some(pending) = store.pending.as_ref() {
         start_relay(
             pending.host.clone(),
@@ -296,6 +387,251 @@ pub async fn sync_relay() {
         return;
     }
     stop_relay().await;
+}
+
+async fn ensure_quick_tunnel(local_port: u16) {
+    if cfg!(test) {
+        return;
+    }
+    {
+        let guard = QUICK_TUNNEL.lock().await;
+        if let Some(runtime) = guard.as_ref()
+            && runtime.local_port == local_port
+            && !runtime.handle.is_finished()
+        {
+            return;
+        }
+    }
+    stop_quick_tunnel().await;
+    let handle = tokio::spawn(run_quick_tunnel_supervisor(local_port));
+    *QUICK_TUNNEL.lock().await = Some(QuickTunnelRuntime { local_port, handle });
+}
+
+pub async fn stop_quick_tunnel() {
+    if let Some(runtime) = QUICK_TUNNEL.lock().await.take() {
+        runtime.handle.abort();
+    }
+    set_quick_tunnel_origin(None);
+    if let Ok(store) = load_store().await {
+        publish_browser_origins(&store);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum RelayControlServerFrame {
+    Ping {
+        ts: i64,
+    },
+    ReplenishPool {
+        count: usize,
+    },
+    OpenData {
+        host_id: String,
+        conn_id: String,
+    },
+    HttpReq {
+        host_id: String,
+        id: String,
+        method: String,
+        path: String,
+        headers: Vec<(String, String)>,
+        body_b64: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum RelayControlClientFrame {
+    Pong {
+        ts: i64,
+    },
+    UpdateMeta {
+        name: String,
+        lan_origins: Vec<String>,
+    },
+    HttpRes {
+        host_id: String,
+        id: String,
+        status: u16,
+        headers: Vec<(String, String)>,
+        body_b64: String,
+    },
+}
+
+fn load_or_create_host_id_sync() -> Option<String> {
+    utils::assets::load_or_create_host_id(&utils::assets::asset_dir()).ok()
+}
+
+fn load_or_create_host_relay_token() -> String {
+    let path = utils::assets::asset_dir().join("host-relay-token");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if trimmed.len() >= 24 {
+            return trimmed.to_string();
+        }
+    }
+    let token = format!(
+        "vbx_tun_{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    );
+    let _ = std::fs::write(&path, &token);
+    token
+}
+
+async fn connect_to_relay_host(host: &str, port: u16) -> Result<TcpStream, String> {
+    use tokio::io::AsyncReadExt;
+
+    let is_nginx_upgrade = (port == 80 || port == 443)
+        && host.parse::<std::net::IpAddr>().is_err()
+        && !host.eq_ignore_ascii_case("localhost");
+    let tcp_port = if is_nginx_upgrade { 80 } else { port };
+
+    let host_owned = host.to_string();
+    let resolved = tokio::task::spawn_blocking(move || {
+        utils::net::resolve_host_ipv4_direct(&host_owned, tcp_port)
+    })
+    .await
+    .ok()
+    .flatten();
+
+    let mut stream = if let Some(addr) = resolved {
+        utils::net::connect_tcp_bypassing_tun(addr)
+            .await
+            .map_err(|err| err.to_string())?
+    } else {
+        let s = TcpStream::connect((host, tcp_port))
+            .await
+            .map_err(|err| err.to_string())?;
+        let _ = s.set_nodelay(true);
+        s
+    };
+
+    if is_nginx_upgrade {
+        let req = format!(
+            "GET /v1/tunnel HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+        );
+        stream
+            .write_all(req.as_bytes())
+            .await
+            .map_err(|err| err.to_string())?;
+
+        let mut peek_buf = [0u8; 2048];
+        let mut header_end = None;
+        for _ in 0..20 {
+            let n = tokio::time::timeout(Duration::from_secs(4), stream.peek(&mut peek_buf))
+                .await
+                .map_err(|_| "relay tunnel upgrade timed out".to_string())?
+                .map_err(|err| err.to_string())?;
+            if n == 0 {
+                return Err("relay closed connection during upgrade".to_string());
+            }
+            if let Some(pos) = peek_buf[..n].windows(4).position(|w| w == b"\r\n\r\n") {
+                header_end = Some(pos + 4);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+        let end_len = header_end.ok_or_else(|| "incomplete relay upgrade response".to_string())?;
+        let mut header_bytes = vec![0u8; end_len];
+        stream
+            .read_exact(&mut header_bytes)
+            .await
+            .map_err(|err| err.to_string())?;
+        let status_line = String::from_utf8_lossy(&header_bytes);
+        if !status_line.starts_with("HTTP/1.1 101") && !status_line.starts_with("HTTP/1.0 101") {
+            let first = status_line.lines().next().unwrap_or("unknown status");
+            return Err(format!("relay upgrade rejected: {first}"));
+        }
+    }
+
+    Ok(stream)
+}
+
+async fn run_quick_tunnel_supervisor(local_port: u16) {
+    loop {
+        if let Some(endpoint) = utils::tunnel::official_relay_endpoint(None) {
+            let token = load_or_create_host_relay_token();
+            let state = Arc::new(Mutex::new(RelayState::default()));
+            let key = format!("{}:{}:official", endpoint.host, endpoint.port);
+            let _ = maintain_control(
+                &endpoint.host,
+                endpoint.port,
+                &token,
+                local_port,
+                &key,
+                &state,
+            )
+            .await;
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
+}
+
+const SHARED_CLOUD_DISCOVERY_TOPIC: &str = "vbx-cloud-hosts-v1";
+
+async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &str, origin: &str) {
+    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
+    let payload = serde_json::json!({
+        "v": 2,
+        "host_id": host_id,
+        "name": host_name,
+        "origin": origin,
+        "ts": Utc::now().timestamp(),
+    });
+    let host_hash = &sha256_hex(&format!("vibex-host-v1:{host_id}"))[..32];
+    let topic = format!("vbx-h-{host_hash}");
+    let is_domain = relay_host.parse::<std::net::IpAddr>().is_err()
+        && !relay_host.eq_ignore_ascii_case("localhost");
+    let (base_url, target_port) = if is_domain && (relay_port == 80 || relay_port == 443) {
+        (format!("https://{relay_host}/v1/beacon"), 443u16)
+    } else {
+        (
+            format!("http://{relay_host}:{relay_port}/v1/beacon"),
+            relay_port,
+        )
+    };
+
+    let host_owned = relay_host.to_string();
+    let resolved = tokio::task::spawn_blocking(move || {
+        utils::net::resolve_host_ipv4_direct(&host_owned, target_port)
+    })
+    .await
+    .ok()
+    .flatten();
+
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .no_proxy();
+    if let Some(addr) = resolved {
+        builder = builder.resolve(relay_host, addr);
+    }
+    if let Ok(client) = builder.build() {
+        let _ = client
+            .post(format!("{base_url}/{topic}"))
+            .json(&payload)
+            .send()
+            .await;
+        let _ = client
+            .post(format!("{base_url}/{SHARED_CLOUD_DISCOVERY_TOPIC}"))
+            .json(&payload)
+            .send()
+            .await;
+    }
 }
 
 async fn start_relay(host: String, port: u16, token: String, local_port: u16) {
@@ -359,37 +695,199 @@ async fn maintain_control(
     key: &str,
     state: &Arc<Mutex<RelayState>>,
 ) -> Result<(), String> {
-    let stream = TcpStream::connect((host, port))
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    let host_id = tokio::task::spawn_blocking(load_or_create_host_id_sync)
         .await
-        .map_err(|error| error.to_string())?;
-    let _ = stream.set_nodelay(true);
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "default".to_string());
+    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
+    let lan_origins: Vec<String> = utils::net::advertised_http_origins(local_port, true)
+        .into_iter()
+        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
+        .collect();
+
+    let stream = connect_to_relay_host(host, port).await?;
     let (reader, mut writer) = stream.into_split();
+
+    let name_b64 = BASE64.encode(host_name.as_bytes());
+    let lan_b64 = BASE64.encode(serde_json::to_vec(&lan_origins).unwrap_or_default());
     writer
-        .write_all(format!("VIBEX-CTRL {token}\n").as_bytes())
+        .write_all(format!("VIBEX-CTRL v2 {host_id} {token} {name_b64} {lan_b64}\n").as_bytes())
         .await
         .map_err(|error| error.to_string())?;
+
     {
         let mut snapshot = state.lock().await;
         snapshot.status = "connected".to_string();
         snapshot.error = None;
         snapshot.connected_key = Some(key.to_string());
     }
-    promote_pending_if_connected(host, port, token).await;
+
+    let endpoint = TunnelEndpoint {
+        host: host.to_string(),
+        port,
+    };
+    let tenant_origin = utils::tunnel::format_tenant_origin("http", &endpoint, &host_id);
+    set_quick_tunnel_origin(Some(tenant_origin.clone()));
+    if let Ok(store) = load_store().await {
+        publish_browser_origins(&store);
+    }
+    promote_pending_if_connected(host, port, token, &host_id).await;
+    publish_domestic_beacon(host, port, &host_id, &tenant_origin).await;
+
+    let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let writer_task = tokio::spawn(async move {
+        while let Some(msg) = ctrl_rx.recv().await {
+            if writer.write_all(msg.as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let local_http_client = reqwest::Client::builder()
+        .no_proxy()
+        .pool_max_idle_per_host(16)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let mut last_beacon_refresh = tokio::time::Instant::now();
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
-        if let Some(id) = line.trim().strip_prefix("OPEN ") {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("OK ") {
+            continue;
+        }
+        if let Some(err_reason) = trimmed.strip_prefix("ERR ") {
+            writer_task.abort();
+            return Err(format!("relay rejected control session: {err_reason}"));
+        }
+        // Backwards compatibility with v1 single-host relay script
+        if let Some(id) = trimmed.strip_prefix("OPEN ") {
             let host = host.to_string();
             let token = token.to_string();
             let id = id.to_string();
             tokio::spawn(async move {
                 let _ = open_data_path(host, port, token, id, local_port).await;
             });
+            continue;
+        }
+
+        let Ok(frame) = serde_json::from_str::<RelayControlServerFrame>(trimmed) else {
+            continue;
+        };
+        match frame {
+            RelayControlServerFrame::Ping { ts } => {
+                if let Ok(pong) = serde_json::to_string(&RelayControlClientFrame::Pong { ts }) {
+                    let _ = ctrl_tx.send(format!("{pong}\n"));
+                }
+                if last_beacon_refresh.elapsed() >= Duration::from_secs(45) {
+                    last_beacon_refresh = tokio::time::Instant::now();
+                    let host_owned = host.to_string();
+                    let host_id_owned = host_id.clone();
+                    let tenant_origin_owned = tenant_origin.clone();
+                    tokio::spawn(async move {
+                        publish_domestic_beacon(
+                            &host_owned,
+                            port,
+                            &host_id_owned,
+                            &tenant_origin_owned,
+                        )
+                        .await;
+                    });
+                }
+            }
+            RelayControlServerFrame::ReplenishPool { count } => {
+                let count = count.min(4);
+                for _ in 0..count {
+                    let host = host.to_string();
+                    let host_id = host_id.clone();
+                    let token = token.to_string();
+                    tokio::spawn(async move {
+                        let _ = open_prewarmed_pool_stream(host, port, host_id, token, local_port)
+                            .await;
+                    });
+                }
+            }
+            RelayControlServerFrame::OpenData {
+                host_id: target_host_id,
+                conn_id,
+            } => {
+                if target_host_id != host_id {
+                    continue;
+                }
+                let host = host.to_string();
+                let host_id = host_id.clone();
+                let token = token.to_string();
+                tokio::spawn(async move {
+                    let _ =
+                        open_v2_data_path(host, port, host_id, token, conn_id, local_port).await;
+                });
+            }
+            RelayControlServerFrame::HttpReq {
+                host_id: req_host_id,
+                id,
+                method,
+                path,
+                headers,
+                body_b64,
+            } => {
+                // Strict multi-tenant check: never process a request addressed to another host_id
+                if req_host_id != host_id {
+                    continue;
+                }
+                let client = local_http_client.clone();
+                let ctrl_tx = ctrl_tx.clone();
+                let host_id = host_id.clone();
+                tokio::spawn(async move {
+                    let url = format!("http://127.0.0.1:{local_port}{path}");
+                    let m = reqwest::Method::from_bytes(method.as_bytes())
+                        .unwrap_or(reqwest::Method::GET);
+                    let mut req = client.request(m, &url);
+                    for (k, v) in headers {
+                        req = req.header(&k, &v);
+                    }
+                    let body = BASE64.decode(body_b64).unwrap_or_default();
+                    if !body.is_empty() {
+                        req = req.body(body);
+                    }
+                    let (status, out_headers, resp_bytes) = match req.send().await {
+                        Ok(resp) => {
+                            let status = resp.status().as_u16();
+                            let mut hdrs = Vec::new();
+                            for (k, v) in resp.headers() {
+                                if let Ok(s) = v.to_str() {
+                                    hdrs.push((k.as_str().to_string(), s.to_string()));
+                                }
+                            }
+                            let bytes = resp.bytes().await.unwrap_or_default().to_vec();
+                            (status, hdrs, bytes)
+                        }
+                        Err(_) => (502, Vec::new(), Vec::new()),
+                    };
+                    if let Ok(res_frame) =
+                        serde_json::to_string(&RelayControlClientFrame::HttpRes {
+                            host_id,
+                            id,
+                            status,
+                            headers: out_headers,
+                            body_b64: BASE64.encode(&resp_bytes),
+                        })
+                    {
+                        let _ = ctrl_tx.send(format!("{res_frame}\n"));
+                    }
+                });
+            }
         }
     }
+
+    writer_task.abort();
     Err("tunnel control closed".to_string())
 }
 
-async fn promote_pending_if_connected(host: &str, port: u16, token: &str) {
+async fn promote_pending_if_connected(host: &str, port: u16, token: &str, host_id: &str) {
     let Ok(mut store) = load_store().await else {
         return;
     };
@@ -400,12 +898,13 @@ async fn promote_pending_if_connected(host: &str, port: u16, token: &str) {
         return;
     }
     let created_at = pending.created_at.clone();
-    let origin = format_origin(
+    let origin = utils::tunnel::format_tenant_origin(
         "http",
         &TunnelEndpoint {
             host: host.to_string(),
             port,
         },
+        host_id,
     );
     let id = Uuid::new_v4().to_string();
     store.saved.retain(|item| item.origin != origin);
@@ -425,6 +924,81 @@ async fn promote_pending_if_connected(host: &str, port: u16, token: &str) {
     let _ = save_store(&store).await;
 }
 
+async fn open_prewarmed_pool_stream(
+    host: String,
+    port: u16,
+    host_id: String,
+    token: String,
+    local_port: u16,
+) -> Result<(), String> {
+    let remote = connect_to_relay_host(&host, port).await?;
+    let mut buf_remote = BufReader::new(remote);
+    buf_remote
+        .get_mut()
+        .write_all(format!("VIBEX-DATA v2 {host_id} {token} POOL\n").as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let n = buf_remote
+            .read_line(&mut line)
+            .await
+            .map_err(|error| error.to_string())?;
+        if n == 0 {
+            return Ok(());
+        }
+        let cmd = line.trim();
+        if cmd == "NOOP" {
+            continue;
+        }
+        if let Some(target_host_id) = cmd.strip_prefix("USE ") {
+            // Strict tenant check before bridging to local host service
+            if target_host_id.trim() != host_id {
+                return Err("tenant mismatch on prewarmed data stream".to_string());
+            }
+            break;
+        }
+    }
+
+    let mut local = TcpStream::connect(("127.0.0.1", local_port))
+        .await
+        .map_err(|error| error.to_string())?;
+    let _ = local.set_nodelay(true);
+    let buffered = buf_remote.buffer().to_vec();
+    let mut remote = buf_remote.into_inner();
+    if !buffered.is_empty() {
+        local
+            .write_all(&buffered)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    let _ = tokio::io::copy_bidirectional(&mut remote, &mut local).await;
+    Ok(())
+}
+
+async fn open_v2_data_path(
+    host: String,
+    port: u16,
+    host_id: String,
+    token: String,
+    id: String,
+    local_port: u16,
+) -> Result<(), String> {
+    let mut local = TcpStream::connect(("127.0.0.1", local_port))
+        .await
+        .map_err(|error| error.to_string())?;
+    let _ = local.set_nodelay(true);
+    let mut remote = connect_to_relay_host(&host, port).await?;
+    remote
+        .write_all(format!("VIBEX-DATA v2 {host_id} {token} {id}\n").as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+    let _ = tokio::io::copy_bidirectional(&mut remote, &mut local).await;
+    Ok(())
+}
+
 async fn open_data_path(
     host: String,
     port: u16,
@@ -436,10 +1010,7 @@ async fn open_data_path(
         .await
         .map_err(|error| error.to_string())?;
     let _ = local.set_nodelay(true);
-    let mut remote = TcpStream::connect((host.as_str(), port))
-        .await
-        .map_err(|error| error.to_string())?;
-    let _ = remote.set_nodelay(true);
+    let mut remote = connect_to_relay_host(&host, port).await?;
     remote
         .write_all(format!("VIBEX-DATA {token} {id}\n").as_bytes())
         .await
@@ -486,9 +1057,19 @@ async fn probe_endpoint_until(
     attempts: u32,
     delay: Duration,
 ) -> Result<Option<String>, AppError> {
+    let host_id = tokio::task::spawn_blocking(load_or_create_host_id_sync)
+        .await
+        .ok()
+        .flatten();
     let attempts = attempts.max(1);
     for attempt in 0..attempts {
         for origin in probe_origins(endpoint, scheme_hint) {
+            if let Some(ref hid) = host_id {
+                let tenant_origin = format!("{}/t/{}", origin.trim_end_matches('/'), hid);
+                if probe_health(&tenant_origin).await? {
+                    return Ok(Some(tenant_origin));
+                }
+            }
             if probe_health(&origin).await? {
                 return Ok(Some(origin));
             }
@@ -635,7 +1216,12 @@ async fn promote_if_relay_already_up() -> Result<(), AppError> {
     };
     let relay = relay_snapshot().await;
     if relay.status == "connected" {
-        promote_pending_if_connected(&pending.host, pending.port, &pending.token).await;
+        let host_id = tokio::task::spawn_blocking(load_or_create_host_id_sync)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "default".to_string());
+        promote_pending_if_connected(&pending.host, pending.port, &pending.token, &host_id).await;
     }
     Ok(())
 }
@@ -710,13 +1296,14 @@ pub async fn select_saved_host_tunnel(id: Option<String>) -> Result<HostTunnelSt
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(ref target) = target_id {
-        if !store.saved.iter().any(|item| &item.id == target) {
+        if target != "auto-quick-tunnel" && !store.saved.iter().any(|item| &item.id == target) {
             return Err(AppError::BadRequest("Unknown tunnel".to_string()));
         }
         store.active_id = Some(target.clone());
         store.enabled = true;
     } else {
         store.active_id = None;
+        store.enabled = false;
     }
     store.pending = None;
     save_store(&store).await?;

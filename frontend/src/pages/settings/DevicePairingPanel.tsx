@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import {
+  Check,
   ChevronDown,
   Copy,
   ExternalLink,
   Loader2,
   QrCode,
   ShieldCheck,
+  Smartphone,
+  X,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import {
+  CONNECT_REQUESTS_CHANGED_EVENT,
+  notifyConnectRequestsChanged,
+} from '@/components/layout/MobileDeviceConnectBanner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -22,7 +29,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { openInSystemBrowser } from '@/hooks/useOpenLink';
-import { webServiceApi, type HostPairedDevice } from '@/lib/api';
+import {
+  webServiceApi,
+  type HostPairedDevice,
+  type PendingDeviceConnectRequest,
+} from '@/lib/api';
 import { getErrorMessage } from '@/lib/modals';
 import type {
   BackendTransport,
@@ -109,7 +120,7 @@ export function DevicePairingPanel({
   onEnsureListening?: () => Promise<string[]>;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const [preset, setPreset] = useState<PairingPreset>('workstation');
+  const preset: PairingPreset = 'workstation';
   const [challenge, setChallenge] = useState<DevicePairingChallenge | null>(
     null
   );
@@ -118,6 +129,12 @@ export function DevicePairingPanel({
   const [autoIssued, setAutoIssued] = useState(false);
   const [startedUrls, setStartedUrls] = useState<string[] | null>(null);
   const [devices, setDevices] = useState<HostPairedDevice[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<
+    PendingDeviceConnectRequest[]
+  >([]);
+  const [respondingRequestId, setRespondingRequestId] = useState<string | null>(
+    null
+  );
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [ttlSeconds, setTtlSeconds] = useState<PairingTtlSeconds>(
     DEFAULT_PAIRING_TTL_SECONDS
@@ -157,15 +174,55 @@ export function DevicePairingPanel({
     } catch {
       setDevices([]);
     }
+    try {
+      const requests = await webServiceApi.listConnectRequests();
+      setPendingRequests(Array.isArray(requests) ? requests : []);
+    } catch {
+      setPendingRequests([]);
+    }
   }, []);
 
   useEffect(() => {
     void loadDevices();
     const timer = window.setInterval(() => {
       void loadDevices();
-    }, 5000);
-    return () => window.clearInterval(timer);
+    }, 3000);
+    const handleChanged = () => {
+      void loadDevices();
+    };
+    window.addEventListener(CONNECT_REQUESTS_CHANGED_EVENT, handleChanged);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(CONNECT_REQUESTS_CHANGED_EVENT, handleChanged);
+    };
   }, [loadDevices]);
+
+  const respondConnectRequest = useCallback(
+    async (request: PendingDeviceConnectRequest, approve: boolean) => {
+      setRespondingRequestId(request.request_id);
+      try {
+        await webServiceApi.respondConnectRequest(request.request_id, approve);
+        setPendingRequests((current) =>
+          current.filter((item) => item.request_id !== request.request_id)
+        );
+        notifyConnectRequestsChanged();
+        void loadDevices();
+        if (approve) {
+          toast.success(`已允许移动设备「${request.device_name}」连接`);
+        }
+      } catch (error) {
+        const message = getErrorMessage(error);
+        toast.error(
+          message && message !== 'An unknown error occurred'
+            ? message
+            : t('webService.pairingFailed')
+        );
+      } finally {
+        setRespondingRequestId(null);
+      }
+    },
+    [loadDevices, t]
+  );
 
   useEffect(() => {
     if (!challenge) return;
@@ -352,12 +409,15 @@ export function DevicePairingPanel({
             data-testid="pairing-addresses-scroll-box"
           >
             {visibleOrigins.map((item) => {
+              const isCloudServiceUrl = item.origin.includes('/t/');
               const ifaceLabel =
                 item.interface ??
                 (item.kind === 'loopback'
                   ? 'loopback'
                   : item.kind === 'published'
-                    ? 'tunnel'
+                    ? isCloudServiceUrl
+                      ? 'Beta'
+                      : 'cloud'
                     : null);
               return (
                 <div
@@ -365,36 +425,53 @@ export function DevicePairingPanel({
                   key={item.origin}
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                    <span className="w-12 shrink-0 text-xs font-semibold text-foreground">
+                    <span className="w-14 shrink-0 text-xs font-semibold text-foreground">
                       {addressKindLabel(item.kind)}
                     </span>
                     <span className="flex w-20 shrink-0 items-center">
                       {ifaceLabel ? (
-                        <span className="settings-pairing-addresses__iface inline-flex max-w-full items-center truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        <span
+                          className={cn(
+                            'settings-pairing-addresses__iface inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-xs font-medium',
+                            item.kind === 'published'
+                              ? 'border border-primary/25 bg-primary/10 text-primary'
+                              : 'bg-muted text-muted-foreground'
+                          )}
+                        >
                           {ifaceLabel}
                         </span>
                       ) : null}
                     </span>
-                    <button
-                      type="button"
-                      className="settings-pairing-addresses__origin min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                      title={item.origin}
-                      onClick={() => void copyOrigin(item.origin)}
-                      aria-label={`${t('webService.copyAddress')} ${item.origin}`}
-                    >
-                      {item.origin}
-                    </button>
+                    {isCloudServiceUrl ? (
+                      <span className="min-w-0 flex-1 truncate text-left text-xs font-medium text-muted-foreground">
+                        {t('webService.tunnelOfficialNode', {
+                          defaultValue: '官方云服务',
+                        })}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="settings-pairing-addresses__origin min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+                        title={item.origin}
+                        onClick={() => void copyOrigin(item.origin)}
+                        aria-label={`${t('webService.copyAddress')} ${item.origin}`}
+                      >
+                        {item.origin}
+                      </button>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="settings-pairing-addresses__open !h-7 !min-h-0 !w-7 shrink-0 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-                      onClick={() => void openInSystemBrowser(item.origin)}
-                      aria-label={`${t('webService.openOrigin')} ${item.origin}`}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Button>
+                    {!isCloudServiceUrl ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="settings-pairing-addresses__open !h-7 !min-h-0 !w-7 shrink-0 border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                        onClick={() => void openInSystemBrowser(item.origin)}
+                        aria-label={`${t('webService.openOrigin')} ${item.origin}`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -425,6 +502,68 @@ export function DevicePairingPanel({
         <p className="px-4 pb-4 text-sm text-muted-foreground">
           {t('webService.pairingNeedsReachability')}
         </p>
+      ) : null}
+
+      {pendingRequests.length > 0 ? (
+        <div
+          className="settings-pairing-block flex flex-col gap-1.5"
+          data-testid="pending-connect-requests-block"
+        >
+          <div className="settings-pairing-addresses__header">
+            <span className="settings-pairing-addresses__label">
+              待确认连接请求
+            </span>
+            <span className="settings-pairing-devices__count">
+              {pendingRequests.length}
+            </span>
+          </div>
+          <div className="settings-bounded-list-container min-w-0 overflow-hidden rounded-lg border border-border bg-background/50">
+            <div className="settings-bounded-list divide-y divide-border/60">
+              {pendingRequests.map((req) => (
+                <div
+                  key={req.request_id}
+                  className="flex min-h-11 items-center justify-between gap-3 px-3 py-2"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                    <Smartphone className="h-4 w-4 shrink-0 text-foreground" />
+                    <span className="truncate text-xs font-medium text-foreground">
+                      {req.device_name}
+                    </span>
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-medium tabular-nums text-foreground">
+                      核对码 {req.sas_code}
+                    </span>
+                    {req.ip_address ? (
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                        {req.ip_address}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      disabled={respondingRequestId === req.request_id}
+                      onClick={() => void respondConnectRequest(req, true)}
+                    >
+                      <Check className="mr-1 h-3.5 w-3.5" />
+                      连接
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={respondingRequestId === req.request_id}
+                      onClick={() => void respondConnectRequest(req, false)}
+                    >
+                      <X className="mr-1 h-3.5 w-3.5" />
+                      忽略
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {challenge ? (
@@ -482,38 +621,6 @@ export function DevicePairingPanel({
                       </div>
                     </div>
                     <div className="settings-pairing-meta">
-                      <div className="settings-pairing-field">
-                        <Label
-                          htmlFor="pairing-preset"
-                          className="text-sm font-medium"
-                        >
-                          {t('webService.pairingPresetLabel')}
-                        </Label>
-                        <Select
-                          value={preset}
-                          onValueChange={(value) => {
-                            const next = value as PairingPreset;
-                            setPreset(next);
-                            void createPairing(ttlSeconds, next);
-                          }}
-                        >
-                          <SelectTrigger
-                            id="pairing-preset"
-                            className="h-8 w-40 text-sm"
-                            aria-label={t('webService.pairingPresetLabel')}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent align="end">
-                            <SelectItem value="companion">
-                              {t('webService.pairingPresetCompanion')}
-                            </SelectItem>
-                            <SelectItem value="workstation">
-                              {t('webService.pairingPresetWorkstation')}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
                       <div className="settings-pairing-field">
                         <Label
                           htmlFor="pairing-ttl"
@@ -676,9 +783,19 @@ export function DevicePairingPanel({
                         <span className="settings-pairing-devices__preset shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           {kindLabel}
                         </span>
+                        {device.public_key_ed25519 ? (
+                          <span
+                            className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                            title="已绑定 Ed25519 设备硬件公钥"
+                          >
+                            Ed25519
+                          </span>
+                        ) : null}
                         {device.ip_address ? (
                           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                            {device.ip_address}
+                            {device.ip_address === 'webrtc'
+                              ? 'WebRTC P2P'
+                              : device.ip_address}
                           </span>
                         ) : null}
                         {connectedTime ? (

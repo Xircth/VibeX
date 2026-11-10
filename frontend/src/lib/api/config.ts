@@ -455,6 +455,17 @@ export interface HostPairedDevice {
   client_kind?: 'mobile' | 'desktop' | 'web' | string | null;
   ip_address?: string | null;
   last_connected_at?: string | null;
+  public_key_ed25519?: string | null;
+}
+
+export interface PendingDeviceConnectRequest {
+  request_id: string;
+  device_name: string;
+  client_kind: 'mobile' | 'desktop' | 'web' | string;
+  ip_address?: string | null;
+  sas_code: string;
+  created_at: string;
+  expires_at: string;
 }
 
 export interface PortProbeResult {
@@ -650,6 +661,19 @@ export const webServiceApi = {
   },
   listDevices: async (): Promise<HostPairedDevice[]> => {
     return desktopShellCall<HostPairedDevice[]>('list_host_devices');
+  },
+  listConnectRequests: async (): Promise<PendingDeviceConnectRequest[]> => {
+    return desktopShellCall<PendingDeviceConnectRequest[]>(
+      'list_host_connect_requests'
+    );
+  },
+  respondConnectRequest: async (
+    requestId: string,
+    approve: boolean
+  ): Promise<void> => {
+    await desktopShellCall('respond_host_connect_request', {
+      request: { request_id: requestId, approve },
+    });
   },
   revokeDevice: async (deviceId: string): Promise<void> => {
     await desktopShellCall('revoke_host_device', {

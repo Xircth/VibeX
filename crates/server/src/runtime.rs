@@ -17,9 +17,10 @@ use axum::{
 };
 use local_deployment::pty::PtyService;
 use remote_protocol::{
-    CapabilityId, CommandRequest, ConversationId, CreatePairingRequest, DeviceId,
-    DevicePermissionPreset, ErrorCode, ErrorEnvelope, IssuedPairingInvitation, OperationId,
-    PairingInvitationPayload, ReachabilityOrigin, RedeemPairingRequest, ServerCapabilities,
+    CapabilityId, CommandRequest, ConversationId, CreateDeviceConnectRequest, CreatePairingRequest,
+    DeviceId, DevicePermissionPreset, ErrorCode, ErrorEnvelope, IssuedPairingInvitation,
+    OperationId, PairingId, PairingInvitationPayload, ReachabilityOrigin, RedeemPairingRequest,
+    ServerCapabilities,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -40,6 +41,7 @@ pub(crate) struct ServerState<R> {
     pub(crate) pty: PtyService,
     pub(crate) events: Arc<crate::HostEventBus>,
     pub(crate) plugin_control_plane: Option<Arc<plugins::PluginControlPlane>>,
+    pub(crate) idempotency_ledger: Option<crate::SqliteIdempotencyLedger>,
 }
 
 pub struct ServerRuntime<R> {
@@ -90,11 +92,12 @@ where
     ) -> Self {
         Self::from_auth_with_preview_proxy_inner(
             config,
-            Arc::new(SqliteServerAuth::new(pool)),
+            Arc::new(SqliteServerAuth::new(pool.clone())),
             core,
             crate::PreviewProxyRegistry::default(),
             PtyService::new(),
         )
+        .with_idempotency_ledger(crate::SqliteIdempotencyLedger::new(pool))
     }
 
     pub fn from_sqlite_auth_with_preview_proxy_and_pty(
@@ -106,11 +109,19 @@ where
     ) -> Self {
         Self::from_auth_with_preview_proxy_inner(
             config,
-            Arc::new(SqliteServerAuth::new(pool)),
+            Arc::new(SqliteServerAuth::new(pool.clone())),
             core,
             preview_proxy,
             pty,
         )
+        .with_idempotency_ledger(crate::SqliteIdempotencyLedger::new(pool))
+    }
+
+    pub fn with_idempotency_ledger(mut self, ledger: crate::SqliteIdempotencyLedger) -> Self {
+        if let Some(state) = Arc::get_mut(&mut self.state) {
+            state.idempotency_ledger = Some(ledger);
+        }
+        self
     }
 
     pub fn from_auth_with_preview_proxy(
@@ -182,6 +193,7 @@ where
                 pty,
                 events,
                 plugin_control_plane: None,
+                idempotency_ledger: None,
             }),
         }
     }
@@ -221,6 +233,7 @@ impl ServerRuntime<application::SqliteConversationRepository> {
                 pty,
                 events: host.events.clone(),
                 plugin_control_plane: Some(host.plugin_control_plane.clone()),
+                idempotency_ledger: None,
             }),
         }
     }
@@ -240,6 +253,18 @@ where
             .route("/ws", get(crate::ws::ws_handler::<R>))
             .route("/call/{command}", post(application_call::<R>))
             .route("/auth/pairings", post(create_pairing::<R>))
+            .route(
+                "/auth/connect-requests/pending",
+                get(list_connect_requests::<R>),
+            )
+            .route(
+                "/auth/connect-requests/{request_id}/approve",
+                post(approve_connect_request::<R>),
+            )
+            .route(
+                "/auth/connect-requests/{request_id}/reject",
+                post(reject_connect_request::<R>),
+            )
             .route("/auth/devices/{device_id}", delete(revoke_device::<R>))
             .route(
                 "/conversations/{conversation_id}/offline",
@@ -256,7 +281,16 @@ where
             ));
         Router::new()
             .route("/health", get(health::<R>))
+            .route("/api/v1/e2ee/handshake", get(health::<R>))
             .route("/api/v1/auth/pairings/redeem", post(redeem_pairing::<R>))
+            .route(
+                "/api/v1/auth/connect-requests",
+                post(create_connect_request::<R>),
+            )
+            .route(
+                "/api/v1/auth/connect-requests/{request_id}",
+                get(poll_connect_request::<R>),
+            )
             .route(
                 "/api/v1/plugin-artifacts/{plugin_id}/{*path}",
                 get(crate::plugin_artifact::serve_runtime_plugin_artifact::<R>),
@@ -272,6 +306,7 @@ where
             .nest("/api/v1", protected)
             .fallback(get(static_asset::<R>))
             .with_state(Arc::clone(&self.state))
+            .layer(middleware::from_fn(crate::e2ee::e2ee_middleware))
             .layer(middleware::from_fn_with_state(
                 Arc::clone(&self.state),
                 enforce_origin::<R>,
@@ -598,7 +633,13 @@ fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
     );
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("authorization, content-type, x-vibex-protocol-version"),
+        HeaderValue::from_static(
+            "authorization, content-type, x-vibex-protocol-version, x-vibex-e2ee, x-vibex-e2ee-client-pub, x-vibex-e2ee-server-pub, x-vibex-e2ee-session, x-vibex-e2ee-auth",
+        ),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("x-vibex-e2ee, x-vibex-e2ee-server-pub, x-vibex-e2ee-session"),
     );
     headers.insert(header::VARY, HeaderValue::from_static("Origin"));
 }
@@ -612,13 +653,36 @@ async fn application_call<R>(
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
+    if crate::SqliteIdempotencyLedger::is_write_command(&command)
+        && let Some(ledger) = state.idempotency_ledger.as_ref()
+        && let Ok(Some(cached)) = ledger
+            .lookup(&credential.credential_id, request.operation_id, &command)
+            .await
+    {
+        return Json(cached).into_response();
+    }
+
     let principal = credential.principal();
     match state
         .commands
         .execute_name(&principal, &command, request.operation_id, request.args)
         .await
     {
-        Ok(response) => Json(response).into_response(),
+        Ok(response) => {
+            if crate::SqliteIdempotencyLedger::is_write_command(&command)
+                && let Some(ledger) = state.idempotency_ledger.as_ref()
+            {
+                let _ = ledger
+                    .record(
+                        &credential.credential_id,
+                        request.operation_id,
+                        &command,
+                        &response,
+                    )
+                    .await;
+            }
+            Json(response).into_response()
+        }
         Err(error) => application_error_response(error),
     }
 }
@@ -631,6 +695,7 @@ where
         "status": "ok",
         "version": state.config.server_version,
         "release": !cfg!(debug_assertions),
+        "e2ee": true,
     });
     if !state.config.host_id.is_empty() {
         body["host_id"] = json!(state.config.host_id);
@@ -718,6 +783,27 @@ fn extract_client_ip(headers: &HeaderMap, listen_addr: std::net::SocketAddr) -> 
     None
 }
 
+static RECENT_DEVICE_CONN_RECORD: OnceLock<
+    RwLock<std::collections::HashMap<(DeviceId, Option<String>), std::time::Instant>>,
+> = OnceLock::new();
+
+fn should_record_device_connection(device_id: DeviceId, ip: Option<&str>) -> bool {
+    let map_lock =
+        RECENT_DEVICE_CONN_RECORD.get_or_init(|| RwLock::new(std::collections::HashMap::new()));
+    let key = (device_id, ip.map(ToOwned::to_owned));
+    let now = std::time::Instant::now();
+    if let Ok(guard) = map_lock.read()
+        && let Some(last) = guard.get(&key)
+        && now.duration_since(*last) < std::time::Duration::from_secs(60)
+    {
+        return false;
+    }
+    if let Ok(mut guard) = map_lock.write() {
+        guard.insert(key, now);
+    }
+    true
+}
+
 async fn require_token<R>(
     State(state): State<Arc<ServerState<R>>>,
     mut request: Request,
@@ -740,10 +826,12 @@ async fn require_token<R>(
             Ok(Some(credential)) => {
                 if let Some(device_id) = credential.device_id {
                     let ip_address = extract_client_ip(request.headers(), state.config.listen_addr);
-                    let _ = state
-                        .auth
-                        .record_device_connection(device_id, None, ip_address.as_deref())
-                        .await;
+                    if should_record_device_connection(device_id, ip_address.as_deref()) {
+                        let _ = state
+                            .auth
+                            .record_device_connection(device_id, None, ip_address.as_deref())
+                            .await;
+                    }
                 }
                 request.extensions_mut().insert(credential);
                 return next.run(request).await;
@@ -843,6 +931,88 @@ async fn revoke_device<R>(
     };
     match state.auth.revoke_device(&credential, device_id).await {
         Ok(response) => Json(response).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn create_connect_request<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    headers: HeaderMap,
+    Json(request): Json<CreateDeviceConnectRequest>,
+) -> Response {
+    let ip_address = extract_client_ip(&headers, state.config.listen_addr);
+    match state
+        .auth
+        .create_connect_request(&state.config.host_id, request, ip_address.as_deref())
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn poll_connect_request<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Path(request_id): Path<String>,
+) -> Response {
+    let Ok(request_id) = request_id.parse::<PairingId>() else {
+        return bad_request("connect request id is invalid");
+    };
+    match state
+        .auth
+        .poll_connect_request(&state.config.host_id, request_id)
+        .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn list_connect_requests<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+) -> Response {
+    match state.auth.list_connect_requests(&credential).await {
+        Ok(items) => Json(items).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn approve_connect_request<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(request_id): Path<String>,
+) -> Response {
+    respond_connect_request_inner(&state, &credential, &request_id, true).await
+}
+
+async fn reject_connect_request<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(request_id): Path<String>,
+) -> Response {
+    respond_connect_request_inner(&state, &credential, &request_id, false).await
+}
+
+async fn respond_connect_request_inner<R>(
+    state: &ServerState<R>,
+    credential: &AuthenticatedCredential,
+    raw_request_id: &str,
+    approve: bool,
+) -> Response {
+    let Ok(request_id) = raw_request_id.parse::<PairingId>() else {
+        return bad_request("connect request id is invalid");
+    };
+    match state
+        .auth
+        .respond_connect_request(credential, request_id, approve)
+        .await
+    {
+        Ok(()) => Json(json!({
+            "request_id": request_id,
+            "approved": approve,
+        }))
+        .into_response(),
         Err(error) => auth_error_response(error),
     }
 }
@@ -988,29 +1158,53 @@ fn status_for_error_code(code: ErrorCode) -> StatusCode {
 }
 
 fn auth_error_response(error: AuthStoreError) -> Response {
+    let mut existing_mobile_device: Option<(String, String)> = None;
     let reason = match &error {
         AuthStoreError::InvalidScope => Some("invalid_device_scope"),
         AuthStoreError::InvalidPairing => Some("invalid_pairing"),
         AuthStoreError::PairingExpired => Some("pairing_expired"),
         AuthStoreError::PairingRedeemed => Some("pairing_redeemed"),
         AuthStoreError::InvalidDeviceName => Some("invalid_device_name"),
+        AuthStoreError::InvalidPublicKey => Some("invalid_public_key"),
+        AuthStoreError::InvalidChannelBindingSignature => Some("invalid_channel_binding_signature"),
+        AuthStoreError::ChannelBindingRecipientMismatch => {
+            Some("channel_binding_recipient_mismatch")
+        }
+        AuthStoreError::ChannelBindingTimestampSkew => Some("channel_binding_timestamp_skew"),
+        AuthStoreError::ChannelBindingReplay => Some("channel_binding_replay"),
         AuthStoreError::DeviceNotFound => Some("device_not_found"),
         AuthStoreError::Forbidden => Some("credential_scope_forbidden"),
         AuthStoreError::PairingUnavailable => Some("pairing_unavailable"),
+        AuthStoreError::MobileDeviceConflict {
+            existing_device_id,
+            existing_device_name,
+        } => {
+            existing_mobile_device =
+                Some((existing_device_id.to_string(), existing_device_name.clone()));
+            Some("mobile_device_conflict")
+        }
         AuthStoreError::Database(_) => None,
     };
     let (status, code, message) = match error {
-        AuthStoreError::InvalidScope | AuthStoreError::InvalidDeviceName => (
+        AuthStoreError::InvalidScope
+        | AuthStoreError::InvalidDeviceName
+        | AuthStoreError::InvalidPublicKey => (
             StatusCode::BAD_REQUEST,
             ErrorCode::BadRequest,
             error.to_string(),
         ),
-        AuthStoreError::InvalidPairing => (
+        AuthStoreError::InvalidPairing
+        | AuthStoreError::InvalidChannelBindingSignature
+        | AuthStoreError::ChannelBindingRecipientMismatch
+        | AuthStoreError::ChannelBindingTimestampSkew => (
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthorized,
             error.to_string(),
         ),
-        AuthStoreError::PairingExpired | AuthStoreError::PairingRedeemed => {
+        AuthStoreError::PairingExpired
+        | AuthStoreError::PairingRedeemed
+        | AuthStoreError::ChannelBindingReplay
+        | AuthStoreError::MobileDeviceConflict { .. } => {
             (StatusCode::CONFLICT, ErrorCode::Conflict, error.to_string())
         }
         AuthStoreError::DeviceNotFound => (
@@ -1035,7 +1229,13 @@ fn auth_error_response(error: AuthStoreError) -> Response {
         ),
     };
     let mut envelope = ErrorEnvelope::new(code, message, false, OperationId::new());
-    if let Some(reason) = reason {
+    if let Some((existing_id, existing_name)) = existing_mobile_device {
+        envelope = envelope.with_details(json!({
+            "reason": "mobile_device_conflict",
+            "existing_device_id": existing_id,
+            "existing_device_name": existing_name,
+        }));
+    } else if let Some(reason) = reason {
         envelope = envelope.with_details(json!({ "reason": reason }));
     }
     (status, Json(envelope)).into_response()

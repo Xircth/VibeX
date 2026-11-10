@@ -19,8 +19,8 @@ use remote_protocol::{
 
 use crate::{AuthenticatedCredential, runtime::ServerState};
 
-const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const REVOCATION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(12);
+const REVOCATION_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_CLIENT_FRAME_BYTES: usize = 1024 * 1024;
 
@@ -74,26 +74,33 @@ impl ActiveSubscription {
 pub(crate) async fn ws_handler<R>(
     State(state): State<Arc<ServerState<R>>>,
     Extension(credential): Extension<AuthenticatedCredential>,
+    e2ee_session: Option<Extension<crate::e2ee::E2eeSession>>,
     upgrade: WebSocketUpgrade,
 ) -> Response
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
+    let e2ee = e2ee_session.map(|ext| ext.0);
     upgrade
         .max_frame_size(MAX_CLIENT_FRAME_BYTES)
         .max_message_size(MAX_CLIENT_FRAME_BYTES)
         .protocols(["vibex.v1"])
-        .on_upgrade(move |socket| handle_socket(socket, state, credential))
+        .on_upgrade(move |socket| handle_socket(socket, state, credential, e2ee))
 }
 
 async fn handle_socket<R>(
     socket: WebSocket,
     state: Arc<ServerState<R>>,
     credential: AuthenticatedCredential,
+    e2ee_session: Option<crate::e2ee::E2eeSession>,
 ) where
     R: ConversationRepository + Send + Sync + 'static,
 {
     let (mut sender, mut receiver) = socket.split();
+    let mut ws_e2ee_key: Option<[u8; 32]> = e2ee_session
+        .as_ref()
+        .filter(|s| s.active_e2ee)
+        .map(|s| s.key);
     let mut subscriptions = HashMap::<SubscriptionId, ActiveSubscription>::new();
     let mut live_ticker = tokio::time::interval(LIVE_POLL_INTERVAL);
     live_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -125,7 +132,29 @@ async fn handle_socket<R>(
                     Message::Text(text) => text,
                     Message::Binary(_) => continue,
                 };
-                let message = match serde_json::from_str::<SubscriptionClientMessage>(&text) {
+                let decoded_text: String = if let Some(ref session) = e2ee_session
+                    && let Ok(wrapper) = serde_json::from_str::<serde_json::Value>(&text)
+                    && wrapper.get("type").and_then(|v| v.as_str()) == Some("e2ee")
+                {
+                    let Some(cipher_b64) = wrapper.get("d").and_then(|v| v.as_str()) else {
+                        break;
+                    };
+                    let Ok(plain_bytes) = crate::e2ee::decrypt_payload(
+                        &session.key,
+                        crate::e2ee::AAD_WS,
+                        cipher_b64,
+                    ) else {
+                        break;
+                    };
+                    let Ok(plain_str) = String::from_utf8(plain_bytes) else {
+                        break;
+                    };
+                    ws_e2ee_key = Some(session.key);
+                    plain_str
+                } else {
+                    text.to_string()
+                };
+                let message = match serde_json::from_str::<SubscriptionClientMessage>(&decoded_text) {
                     Ok(message) => message,
                     Err(error) => {
                         if send_message(
@@ -139,6 +168,7 @@ async fn handle_socket<R>(
                                 ),
                                 subscription_id: None,
                             },
+                            ws_e2ee_key.as_ref(),
                         )
                         .await
                         .is_err()
@@ -154,6 +184,7 @@ async fn handle_socket<R>(
                     message,
                     &mut subscriptions,
                     &mut sender,
+                    ws_e2ee_key.as_ref(),
                 )
                 .await
                 .is_err()
@@ -176,6 +207,7 @@ async fn handle_socket<R>(
                                 ),
                                 subscription_id: None,
                             },
+                            ws_e2ee_key.as_ref(),
                         )
                         .await;
                         break;
@@ -214,6 +246,7 @@ async fn handle_socket<R>(
                                 payload: event.payload.clone(),
                             },
                         },
+                        ws_e2ee_key.as_ref(),
                     )
                     .await
                     .is_err()
@@ -274,6 +307,7 @@ async fn handle_socket<R>(
                                 subscription_id,
                                 event,
                             },
+                            ws_e2ee_key.as_ref(),
                         )
                         .await
                         .is_err()
@@ -296,6 +330,7 @@ async fn handle_client_message<R, S>(
     message: SubscriptionClientMessage,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
     sender: &mut S,
+    e2ee_key: Option<&[u8; 32]>,
 ) -> Result<(), ()>
 where
     R: ConversationRepository + Send + Sync + 'static,
@@ -314,12 +349,18 @@ where
                             error,
                             subscription_id: Some(subscription_id),
                         },
+                        e2ee_key,
                     )
                     .await?;
                     return Ok(());
                 }
             };
-            send_message(sender, SubscriptionServerMessage::Ready { subscription_id }).await?;
+            send_message(
+                sender,
+                SubscriptionServerMessage::Ready { subscription_id },
+                e2ee_key,
+            )
+            .await?;
             let mut cursor = active.after_sequence();
             if let Some(snapshot) = bootstrap.snapshot {
                 cursor = cursor.max(snapshot.through_sequence);
@@ -329,6 +370,7 @@ where
                         subscription_id,
                         snapshot,
                     },
+                    e2ee_key,
                 )
                 .await?;
             }
@@ -340,6 +382,7 @@ where
                         subscription_id,
                         event,
                     },
+                    e2ee_key,
                 )
                 .await?;
             }
@@ -349,6 +392,7 @@ where
                     subscription_id,
                     high_water_mark: bootstrap.high_water_mark,
                 },
+                e2ee_key,
             )
             .await?;
             subscriptions.insert(subscription_id, {
@@ -361,7 +405,7 @@ where
             subscriptions.remove(&subscription_id);
         }
         SubscriptionClientMessage::Ping => {
-            send_message(sender, SubscriptionServerMessage::Pong).await?;
+            send_message(sender, SubscriptionServerMessage::Pong, e2ee_key).await?;
         }
     }
     Ok(())
@@ -503,13 +547,29 @@ fn authorize_host_channel(principal: &Principal, channel: &str) -> Result<(), Er
     Ok(())
 }
 
-async fn send_message<S>(sender: &mut S, message: SubscriptionServerMessage) -> Result<(), ()>
+async fn send_message<S>(
+    sender: &mut S,
+    message: SubscriptionServerMessage,
+    e2ee_key: Option<&[u8; 32]>,
+) -> Result<(), ()>
 where
     S: futures::Sink<Message> + Unpin,
 {
     let text = serde_json::to_string(&message).map_err(|_| ())?;
+    let wire_text = if let Some(key) = e2ee_key
+        && let Ok(encrypted) =
+            crate::e2ee::encrypt_payload(key, crate::e2ee::AAD_WS, text.as_bytes())
+    {
+        serde_json::json!({
+            "type": "e2ee",
+            "d": encrypted,
+        })
+        .to_string()
+    } else {
+        text
+    };
     sender
-        .send(Message::Text(text.into()))
+        .send(Message::Text(wire_text.into()))
         .await
         .map_err(|_| ())
 }

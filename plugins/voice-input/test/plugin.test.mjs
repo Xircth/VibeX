@@ -442,4 +442,174 @@ describe('vibex.voice-input plugin', () => {
     assert.equal(controller.state, 'idle');
     assert.equal(inserted, false);
   });
+
+  it('keeps HUD cancel/confirm buttons stable across rapid waveform notifications, uses contrast-safe on-accent color, and persists dragged position', async () => {
+    const prevDocument = globalThis.document;
+    const prevWindow = globalThis.window;
+    const prevLocalStorage = globalThis.localStorage;
+
+    const storageMap = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => storageMap.set(k, String(v)),
+      removeItem: (k) => storageMap.delete(k),
+    };
+
+    const windowListeners = new Map();
+    globalThis.window = {
+      innerWidth: 1280,
+      innerHeight: 800,
+      addEventListener: (type, fn) => {
+        if (!windowListeners.has(type)) windowListeners.set(type, new Set());
+        windowListeners.get(type).add(fn);
+      },
+      removeEventListener: (type, fn) => {
+        windowListeners.get(type)?.delete(fn);
+      },
+      dispatchEvent: () => {},
+    };
+
+    const makeMockElement = (tag) => {
+      const attrs = new Map();
+      const el = {
+        tagName: tag.toUpperCase(),
+        type: '',
+        disabled: false,
+        innerHTML: '',
+        style: { cssText: '', left: '', top: '', bottom: '', transform: '', cursor: '', height: '', opacity: '' },
+        children: [],
+        parentNode: null,
+        onpointerdown: null,
+        onclick: null,
+        setAttribute: (k, v) => attrs.set(k, String(v)),
+        getAttribute: (k) => attrs.get(k) ?? null,
+        appendChild: (child) => {
+          child.parentNode = el;
+          el.children.push(child);
+          return child;
+        },
+        append: (...nodes) => {
+          for (const n of nodes) el.appendChild(n);
+        },
+        remove: () => {
+          if (el.parentNode) {
+            el.parentNode.children = el.parentNode.children.filter((c) => c !== el);
+            el.parentNode = null;
+          }
+        },
+        closest: (selector) => {
+          if (selector === 'button' && el.tagName === 'BUTTON') return el;
+          return null;
+        },
+        getBoundingClientRect: () => ({
+          left: el.style.left.endsWith('px') ? parseFloat(el.style.left) : 560,
+          top: el.style.top.endsWith('px') ? parseFloat(el.style.top) : 690,
+          width: 148,
+          height: 34,
+        }),
+      };
+      return el;
+    };
+
+    const body = makeMockElement('body');
+    globalThis.document = {
+      body,
+      createElement: (tag) => makeMockElement(tag),
+      querySelectorAll: () => [],
+    };
+
+    let activated = null;
+    try {
+      activated = appModule.activate({
+        config: { enabled: true, showFloatingHud: true, providerProtocol: 'browser-speech' },
+        conversation: {
+          call: async () => ({ inserted: true }),
+        },
+        worker: {
+          invoke: async (handler) => {
+            if (handler === 'voice.transcribe') {
+              return { text: '测试语音确认按钮', rawText: '测试语音确认按钮', cleanedText: '测试语音确认按钮' };
+            }
+            return null;
+          },
+        },
+      });
+
+      const { controller } = activated;
+      controller.speechRecognitionFactory = () => {
+        const rec = {
+          continuous: false,
+          interimResults: false,
+          lang: '',
+          onend: null,
+          start() {},
+          stop() {
+            if (typeof rec.onend === 'function') rec.onend();
+          },
+        };
+        return rec;
+      };
+      controller.getUserMedia = async () => null;
+
+      await controller.startRecording();
+      assert.equal(body.children.length, 1);
+      const hudRoot = body.children[0];
+      const [cancelBtn, waveContainer, confirmBtn] = hudRoot.children;
+
+      // 1. Contrast-safe on-accent color on confirm button
+      assert.match(
+        confirmBtn.style.cssText,
+        /color:var\(--color-on-accent,\s*hsl\(var\(--primary-foreground,\s*0 0% 100%\)\)\)/,
+      );
+
+      // 2. Rapid audio level notifications must NOT replace button DOM nodes
+      controller.audioLevels = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.5, 0.9];
+      controller.notify();
+      controller.notify();
+      assert.strictEqual(hudRoot.children[0], cancelBtn);
+      assert.strictEqual(hudRoot.children[1], waveContainer);
+      assert.strictEqual(hudRoot.children[2], confirmBtn);
+
+      // 3. Dragging the HUD updates position and saves to localStorage
+      hudRoot.onpointerdown({
+        button: 0,
+        clientX: 560,
+        clientY: 690,
+        target: waveContainer,
+        preventDefault() {},
+      });
+      for (const fn of windowListeners.get('pointermove') || []) {
+        fn({ clientX: 320, clientY: 240 });
+      }
+      for (const fn of windowListeners.get('pointerup') || []) {
+        fn({});
+      }
+      assert.equal(hudRoot.style.left, '320px');
+      assert.equal(hudRoot.style.top, '240px');
+      const savedPos = JSON.parse(storageMap.get('vibex.voice-input.hud-position'));
+      assert.deepEqual(savedPos, { left: 320, top: 240 });
+
+      // 4. Clicking cancelBtn stops recording immediately
+      cancelBtn.onclick({ preventDefault() {}, stopPropagation() {} });
+      assert.equal(controller.state, 'idle');
+      assert.equal(body.children.length, 0);
+
+      // 5. Re-opening HUD restores persisted position and confirmBtn completes recording
+      await controller.startRecording();
+      const reopenedHud = body.children[0];
+      assert.equal(reopenedHud.style.left, '320px');
+      assert.equal(reopenedHud.style.top, '240px');
+      const reopenedConfirmBtn = reopenedHud.children[2];
+      reopenedConfirmBtn.onclick({ preventDefault() {}, stopPropagation() {} });
+      await new Promise((r) => setTimeout(r, 30));
+      assert.equal(controller.state, 'idle');
+      assert.equal(body.children.length, 0);
+    } finally {
+      activated?.dispose();
+      globalThis.document = prevDocument;
+      globalThis.window = prevWindow;
+      globalThis.localStorage = prevLocalStorage;
+    }
+  });
 });
+

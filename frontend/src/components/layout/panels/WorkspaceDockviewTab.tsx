@@ -293,7 +293,11 @@ export function WorkspaceDockviewTab({
     },
     [closeTab]
   );
-  const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab, refreshTab);
+  const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab, refreshTab, {
+    sessionId,
+    workspaceId: tabParams.workspaceId ?? null,
+    isSessionTab,
+  });
 
   return (
     <div

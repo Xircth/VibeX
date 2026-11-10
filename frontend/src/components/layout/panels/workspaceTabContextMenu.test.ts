@@ -87,4 +87,58 @@ describe('buildWorkspaceTabContextMenu', () => {
     }
     expect(created.children.map((item) => item.id)).toContain('new-browser');
   });
+
+  it('surfaces Session Details at top level for session tabs and under New for all tabs', () => {
+    const openSessionDetails = vi.fn();
+    const openProcesses = vi.fn();
+    const items = buildWorkspaceTabContextMenu(
+      {
+        ...labels,
+        sessionDetails: '会话详情',
+        processes: '进程',
+      },
+      {
+        refresh: vi.fn(),
+        isSessionTab: true,
+        openSessionDetails,
+        openProcesses,
+        closeCurrent: vi.fn(),
+        closeOthers: vi.fn(),
+        canSplit: true,
+        splitDown: vi.fn(),
+        splitLeft: vi.fn(),
+        splitRight: vi.fn(),
+        openNote: vi.fn(),
+        openReview: vi.fn(),
+        openTerminal: vi.fn(),
+        shells: [{ value: 'powershell.exe', label: 'PowerShell' }],
+        sortByName: vi.fn(),
+      }
+    );
+
+    expect(items.map((item) => item.id)).toEqual([
+      'refresh',
+      'session-details',
+      'close',
+      'split',
+      'new',
+      'sort',
+    ]);
+    const topSessionDetails = items.find(
+      (item) => item.id === 'session-details'
+    );
+    if (topSessionDetails && 'onSelect' in topSessionDetails) {
+      topSessionDetails.onSelect?.();
+    }
+    expect(openSessionDetails).toHaveBeenCalledTimes(1);
+
+    const created = items.find((item) => item.id === 'new');
+    if (created?.type !== 'submenu') {
+      throw new Error('expected new submenu');
+    }
+    expect(created.children.map((item) => item.id)).toContain(
+      'new-session-details'
+    );
+    expect(created.children.map((item) => item.id)).toContain('new-processes');
+  });
 });

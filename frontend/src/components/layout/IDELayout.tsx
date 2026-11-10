@@ -37,7 +37,6 @@ import {
   effectiveWorkspaceTab,
   parsePluginSurfaceId,
 } from '@/lib/hostSurfaceIds';
-import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { MobileDeviceConnectBanner } from '@/components/layout/MobileDeviceConnectBanner';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
@@ -1464,12 +1463,6 @@ export function IDELayout({
           ) : null}
         </div>
       </RightPanelSlotContext.Provider>
-
-      {effectiveActiveTab === 'workspace' &&
-      !isWorkspaceCanvasMode &&
-      rightPanelContent ? (
-        <RightPanelSidebar />
-      ) : null}
     </div>
   );
 

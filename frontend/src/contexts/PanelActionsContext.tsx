@@ -201,7 +201,11 @@ export interface OpenSessionTabOptions {
 }
 
 export interface PanelActions {
-  openOrFocusPanel: (panelId: string, title: string) => void;
+  openOrFocusPanel: (
+    panelId: string,
+    title: string,
+    params?: Record<string, unknown>
+  ) => void;
   openSessionTab: (options: OpenSessionTabOptions) => void;
   openFilePreview: (
     filePath: string,
@@ -1554,7 +1558,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openOrFocusPanel = useCallback(
-    (panelId: string, title: string) => {
+    (panelId: string, title: string, params?: Record<string, unknown>) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -1592,6 +1596,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
+        if (params) {
+          existingPanel.api.updateParameters({
+            ...(existingPanel.params as Record<string, unknown> | undefined),
+            ...params,
+          });
+        }
         if (existingPanel.title !== title) {
           existingPanel.api.setTitle(title);
         }
@@ -1616,6 +1626,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         id: panelId,
         component: panelId,
         title,
+        ...(params ? { params } : {}),
       });
 
       panel?.api.setActive();

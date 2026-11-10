@@ -30,6 +30,8 @@ import { openWorkspaceTerminal } from './openWorkspaceTerminal';
 
 export interface WorkspaceTabMenuLabels {
   refresh?: string;
+  sessionDetails?: string;
+  processes?: string;
   close: string;
   closeCurrent: string;
   closeOthers: string;
@@ -48,6 +50,9 @@ export interface WorkspaceTabMenuLabels {
 
 export interface WorkspaceTabMenuActions {
   refresh?: () => void;
+  isSessionTab?: boolean;
+  openSessionDetails?: () => void;
+  openProcesses?: () => void;
   closeCurrent: () => void;
   closeOthers: () => void;
   canSplit: boolean;
@@ -59,6 +64,11 @@ export interface WorkspaceTabMenuActions {
   openTerminal: (shell?: string) => void;
   shells: ReadonlyArray<{ value: string; label: string }>;
   openBrowser?: () => void;
+  pluginItems?: ReadonlyArray<{
+    id: string;
+    label: string;
+    onSelect: () => void;
+  }>;
   sortByName: () => void;
 }
 
@@ -77,18 +87,35 @@ export function buildWorkspaceTabContextMenu(
       label: labels.review,
       onSelect: actions.openReview,
     },
-    {
-      type: 'submenu',
-      id: 'new-terminal',
-      label: labels.terminal,
-      onSelect: () => actions.openTerminal(),
-      children: actions.shells.map((shell) => ({
-        id: `shell-${shell.value}`,
-        label: shell.label,
-        onSelect: () => actions.openTerminal(shell.value),
-      })),
-    },
   ];
+
+  if (actions.openSessionDetails) {
+    newItems.push({
+      id: 'new-session-details',
+      label: labels.sessionDetails ?? '会话详情',
+      onSelect: actions.openSessionDetails,
+    });
+  }
+
+  if (actions.openProcesses) {
+    newItems.push({
+      id: 'new-processes',
+      label: labels.processes ?? '进程',
+      onSelect: actions.openProcesses,
+    });
+  }
+
+  newItems.push({
+    type: 'submenu',
+    id: 'new-terminal',
+    label: labels.terminal,
+    onSelect: () => actions.openTerminal(),
+    children: actions.shells.map((shell) => ({
+      id: `shell-${shell.value}`,
+      label: shell.label,
+      onSelect: () => actions.openTerminal(shell.value),
+    })),
+  });
 
   if (actions.openBrowser) {
     newItems.push({
@@ -98,12 +125,33 @@ export function buildWorkspaceTabContextMenu(
     });
   }
 
-  return [
+  if (actions.pluginItems?.length) {
+    for (const item of actions.pluginItems) {
+      newItems.push({
+        id: item.id,
+        label: item.label,
+        onSelect: item.onSelect,
+      });
+    }
+  }
+
+  const topLevelItems: ProductContextMenuItem[] = [
     {
       id: 'refresh',
       label: labels.refresh ?? '刷新',
       onSelect: () => actions.refresh?.(),
     },
+  ];
+
+  if (actions.isSessionTab && actions.openSessionDetails) {
+    topLevelItems.push({
+      id: 'session-details',
+      label: labels.sessionDetails ?? '会话详情',
+      onSelect: actions.openSessionDetails,
+    });
+  }
+
+  topLevelItems.push(
     {
       type: 'submenu',
       id: 'close',
@@ -164,8 +212,10 @@ export function buildWorkspaceTabContextMenu(
           onSelect: actions.sortByName,
         },
       ],
-    },
-  ];
+    }
+  );
+
+  return topLevelItems;
 }
 
 interface EditorTabApi {
@@ -179,10 +229,17 @@ interface EditorTabApi {
   };
 }
 
+export interface WorkspaceTabSessionContext {
+  sessionId?: string | null;
+  workspaceId?: string | null;
+  isSessionTab?: boolean;
+}
+
 export function useWorkspaceEditorTabMenu(
   api: EditorTabApi,
   closeCurrent: () => void,
-  refreshCurrent?: () => void
+  refreshCurrent?: () => void,
+  sessionContext?: WorkspaceTabSessionContext
 ): { open: (event: MouseEvent) => void } | null {
   const { t } = useTranslation('panels');
   const { openSurfaceMenu } = useAppContextMenu();
@@ -193,6 +250,7 @@ export function useWorkspaceEditorTabMenu(
     canOpenPanelInNewEditorGroup,
     openNotes,
     openDiffPreview,
+    openOrFocusPanel,
     openTerminalEditorTab,
     openPluginPanel,
     sortEditorGroupByName,
@@ -218,6 +276,8 @@ export function useWorkspaceEditorTabMenu(
 
   const labels: WorkspaceTabMenuLabels = {
     refresh: t('tabCreation.refresh', '刷新'),
+    sessionDetails: t('tabCreation.sessionDetails', '会话详情'),
+    processes: t('tabCreation.processes', '进程'),
     close: t('tabCreation.close'),
     closeCurrent: t('tabCreation.closeCurrent'),
     closeOthers: t('tabCreation.closeOthers'),
@@ -274,6 +334,13 @@ export function useWorkspaceEditorTabMenu(
         });
       };
 
+      const nonBrowserPlugins = pluginPanels.filter(
+        (item) =>
+          !browser ||
+          item.pluginId !== browser.pluginId ||
+          item.id !== browser.id
+      );
+
       openSurfaceMenu(
         event,
         buildWorkspaceTabContextMenu(labels, {
@@ -284,6 +351,26 @@ export function useWorkspaceEditorTabMenu(
                 panelId: api.id,
                 queryClient,
               })),
+          isSessionTab: Boolean(sessionContext?.isSessionTab),
+          openSessionDetails: () =>
+            runInEditorGroup(current.id, () =>
+              openOrFocusPanel(
+                PANEL_IDS.SESSION_DETAILS,
+                t('tabCreation.sessionDetails', '会话详情'),
+                {
+                  sessionId: sessionContext?.sessionId ?? null,
+                  workspaceId:
+                    sessionContext?.workspaceId ?? activeWorktreeId ?? null,
+                }
+              )
+            ),
+          openProcesses: () =>
+            runInEditorGroup(current.id, () =>
+              openOrFocusPanel(
+                PANEL_IDS.PROCESSES,
+                t('tabCreation.processes', '进程')
+              )
+            ),
           closeCurrent,
           closeOthers: () => {
             panels.filter((panel) => panel.id !== api.id).forEach(closePanel);
@@ -314,6 +401,26 @@ export function useWorkspaceEditorTabMenu(
                 );
               }
             : undefined,
+          pluginItems: nonBrowserPlugins.map((item) => {
+            const metadata = contributionMetadata(item);
+            const icon =
+              typeof metadata.icon === 'string' ? metadata.icon : null;
+            return {
+              id: `plugin-${item.pluginId}:${item.id}`,
+              label: item.label,
+              onSelect: () =>
+                runInEditorGroup(current.id, () =>
+                  openPluginPanel({
+                    title: item.label,
+                    pluginId: item.pluginId,
+                    contributionId: item.id,
+                    icon,
+                    multiInstance: metadata.multiInstance === true,
+                    instance: metadata.multiInstance === true ? 'new' : 'focus',
+                  })
+                ),
+            };
+          }),
           sortByName: () => sortEditorGroupByName(current.id),
         })
       );

@@ -80,15 +80,19 @@ import {
   isEditorGroup,
   isLeftGroup,
   isPlaceholderPanelId,
+  isRightShellNavGroup,
   isSessionGroup,
   isSplittableEditorPanel,
   LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
   listLeftDockGroups,
+  listLeftShellNavGroups,
+  listRightShellNavGroups,
   listSessionGroups,
   RIGHT_GROUP_PREFIX,
   sessionPanelId,
 } from '@/utils/dockviewGroupPolicy';
+import { builtinPanelTitle } from '@/lib/builtinPanelTitles';
 import { getLayoutArrangement } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import {
@@ -122,6 +126,7 @@ import {
   revealEditorColumnForTerminal,
   setColumnVisible,
   setLeftDockVisible,
+  setRightShellNavVisible,
 } from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
@@ -258,6 +263,12 @@ export interface PanelActions {
   toggleSearchPanel: () => void;
   toggleSessionList: () => void;
   toggleBotsPanel: () => void;
+  openWelcomeTab: () => void;
+  toggleLeftSidebar: () => void;
+  isLeftSidebarVisible: () => boolean;
+  toggleRightSidebar: () => void;
+  isRightSidebarVisible: () => boolean;
+  hasRightSidebarPanels: () => boolean;
   placeLeftDockPanel: (
     panelId: ActivityRailItemId,
     zone: LeftPanelDropZone,
@@ -343,13 +354,19 @@ export const NOOP_PANEL_ACTIONS: PanelActions = {
   toggleSearchPanel: noopPanelAction,
   toggleSessionList: noopPanelAction,
   toggleBotsPanel: noopPanelAction,
+  openWelcomeTab: noopPanelAction,
+  toggleLeftSidebar: noopPanelAction,
+  isLeftSidebarVisible: noopFalsePanelAction,
+  toggleRightSidebar: noopPanelAction,
+  isRightSidebarVisible: noopFalsePanelAction,
+  hasRightSidebarPanels: noopFalsePanelAction,
   placeLeftDockPanel: noopPanelAction,
   resolveShellNavDropTarget: () => null,
   measureLeftDock: () => null,
   isLeftDockSplit: noopFalsePanelAction,
   unsplitLeftDock: noopPanelAction,
   isPanelOpen: noopFalsePanelAction,
-  focusKanban: noopPanelAction,
+  focusKanban: () => {},
   openLogs: noopPanelAction,
   openNotes: noopPanelAction,
   openPluginPanel: noopPanelAction,
@@ -360,6 +377,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
+  const [shellNavRevision, setShellNavRevision] = useState(0);
   const offeredPluginPanelsRef = useRef(new Set<string>());
   const pendingBrowserOpensRef = useRef<
     Array<{ url?: string | null; nativeTabId?: string | null }>
@@ -425,10 +443,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       releaseImagePreviewSource(panel.id);
       closeRemovedEditorTerminal(panel.id);
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      setShellNavRevision((rev) => rev + 1);
     });
     const removeGroupDisposable = api.onDidRemoveGroup((group) => {
       clearTerminalShelf(group.id);
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      setShellNavRevision((rev) => rev + 1);
     });
 
     let frame = 0;
@@ -445,6 +465,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     };
     const layoutDisposable = api.onDidLayoutChange(() => {
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      setShellNavRevision((rev) => rev + 1);
       if (applyingLeftSplitRef.current) return;
       if (frame) return;
       frame = requestAnimationFrame(syncSplit);
@@ -1396,6 +1417,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         });
       }
       normalizeEditorGroupIds(dockviewApi);
+      setShellNavRevision((rev) => rev + 1);
     },
     [normalizeEditorGroupIds]
   );
@@ -1636,6 +1658,23 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const leftGroup = ensureLeftDockGroup();
       if (!leftGroup) return;
 
+      if (existing && isRightShellNavGroup(existing.group)) {
+        const rightGroup = existing.group;
+        dockviewApi.removePanel(existing);
+        if (
+          rightGroup.panels.length === 0 &&
+          dockviewApi.groups.includes(rightGroup) &&
+          rightGroup.id !== GROUP_IDS.LEFT
+        ) {
+          try {
+            dockviewApi.removeGroup(rightGroup);
+          } catch {
+            // Ignore cleanup failure.
+          }
+        }
+        existing = undefined;
+      }
+
       if (!existing) {
         dockviewApi.addPanel({
           id: panelId,
@@ -1649,7 +1688,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       for (const otherId of ACTIVITY_RAIL_ITEMS) {
         if (otherId === panelId) continue;
         const other = dockviewApi.getPanel(otherId);
-        if (other) dockviewApi.removePanel(other);
+        if (other && !isRightShellNavGroup(other.group)) {
+          dockviewApi.removePanel(other);
+        }
       }
 
       const panel = dockviewApi.getPanel(panelId);
@@ -1673,10 +1714,25 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (!dockviewApi) return;
 
       const existing = dockviewApi.getPanel(panelId);
+      if (existing && isRightShellNavGroup(existing.group)) {
+        const nextVisible = !existing.group.api.isVisible;
+        setRightShellNavVisible(
+          dockviewApi,
+          getLayoutArrangement(),
+          nextVisible
+        );
+        finishLeftDockChange();
+        return;
+      }
+
       const othersVisible = ACTIVITY_RAIL_ITEMS.some((id) => {
         if (id === panelId) return false;
         const panel = dockviewApi.getPanel(id);
-        return Boolean(panel?.group.api.isVisible);
+        return Boolean(
+          panel &&
+            !isRightShellNavGroup(panel.group) &&
+            panel.group.api.isVisible
+        );
       });
 
       if (existing?.group.api.isVisible && !othersVisible) {
@@ -1689,6 +1745,141 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     },
     [finishLeftDockChange, showOnlyLeftDockPanel]
   );
+
+  const isLeftSidebarVisible = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    const leftGroups = listLeftShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    return leftGroups.some((group) => group.api.isVisible);
+  }, [shellNavRevision]);
+
+  const toggleLeftSidebar = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    const leftGroups = listLeftShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    if (leftGroups.length === 0) {
+      showOnlyLeftDockPanel(PANEL_IDS.FILE_TREE);
+      return;
+    }
+    const currentlyVisible = leftGroups.some((group) => group.api.isVisible);
+    setLeftDockVisible(
+      dockviewApi,
+      getLayoutArrangement(),
+      !currentlyVisible
+    );
+    setFileTreeVisible(!currentlyVisible);
+    finishLeftDockChange();
+  }, [finishLeftDockChange, setFileTreeVisible, showOnlyLeftDockPanel]);
+
+  const hasRightSidebarPanels = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    return listRightShellNavGroups(dockviewApi.groups).some(
+      (group) => group.panels.length > 0
+    );
+  }, [shellNavRevision]);
+
+  const isRightSidebarVisible = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    const rightGroups = listRightShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    return rightGroups.some((group) => group.api.isVisible);
+  }, [shellNavRevision]);
+
+  const toggleRightSidebar = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    const rightGroups = listRightShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    if (rightGroups.length === 0) return;
+    const currentlyVisible = rightGroups.some((group) => group.api.isVisible);
+    setRightShellNavVisible(
+      dockviewApi,
+      getLayoutArrangement(),
+      !currentlyVisible
+    );
+    finishLeftDockChange();
+  }, [finishLeftDockChange]);
+
+  const openWelcomeTab = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+
+    const existingWelcome = dockviewApi.getPanel(PANEL_IDS.WELCOME);
+    if (existingWelcome) {
+      setColumnVisible(
+        dockviewApi,
+        getLayoutArrangement(),
+        existingWelcome.group,
+        true
+      );
+      if (isEditorColumnCrushed(dockviewApi)) {
+        restoreFlexibleEditorColumn(
+          dockviewApi,
+          getLayoutArrangement(),
+          useLayoutStore.getState().rightPanelWidth
+        );
+      }
+      existingWelcome.api.setActive();
+      return;
+    }
+
+    const activeEditorGroup =
+      (dockviewApi.activeGroup && isEditorGroup(dockviewApi.activeGroup)
+        ? dockviewApi.activeGroup
+        : undefined) ??
+      getEditorGroups(dockviewApi).find((group) => group.api.isVisible) ??
+      getEditorGroups(dockviewApi)[0];
+
+    if (activeEditorGroup) {
+      setColumnVisible(
+        dockviewApi,
+        getLayoutArrangement(),
+        activeEditorGroup,
+        true
+      );
+      if (isEditorColumnCrushed(dockviewApi)) {
+        restoreFlexibleEditorColumn(
+          dockviewApi,
+          getLayoutArrangement(),
+          useLayoutStore.getState().rightPanelWidth
+        );
+      }
+      const panel = dockviewApi.addPanel({
+        id: PANEL_IDS.WELCOME,
+        component: PANEL_IDS.WELCOME,
+        title: builtinPanelTitle(PANEL_IDS.WELCOME),
+        position: {
+          referenceGroup: activeEditorGroup.id,
+          direction: 'within',
+        },
+      });
+      panel.api.setActive();
+      normalizeEditorGroupIds(dockviewApi);
+      return;
+    }
+
+    const group = recreateWelcomeEditorGroup();
+    if (group) {
+      setColumnVisible(dockviewApi, getLayoutArrangement(), group, true);
+      restoreFlexibleEditorColumn(
+        dockviewApi,
+        getLayoutArrangement(),
+        useLayoutStore.getState().rightPanelWidth
+      );
+    }
+    dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+  }, [getEditorGroups, normalizeEditorGroupIds, recreateWelcomeEditorGroup]);
 
   const toggleFileTree = useCallback(() => {
     toggleLeftDockPanel(PANEL_IDS.FILE_TREE);
@@ -2341,6 +2532,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleSearchPanel,
       toggleSessionList,
       toggleBotsPanel,
+      openWelcomeTab,
+      toggleLeftSidebar,
+      isLeftSidebarVisible,
+      toggleRightSidebar,
+      isRightSidebarVisible,
+      hasRightSidebarPanels,
       placeLeftDockPanel,
       resolveShellNavDropTarget,
       measureLeftDock,
@@ -2390,6 +2587,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     toggleSearchPanel,
     toggleSessionList,
     toggleBotsPanel,
+    openWelcomeTab,
+    toggleLeftSidebar,
+    isLeftSidebarVisible,
+    toggleRightSidebar,
+    isRightSidebarVisible,
+    hasRightSidebarPanels,
     placeLeftDockPanel,
     resolveShellNavDropTarget,
     measureLeftDock,

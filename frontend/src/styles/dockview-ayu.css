@@ -119,56 +119,163 @@
 
 /* Zone A: Left Dock and all its inner panels (FileTree, Git, Search, Sessions, Bots)
    use the shell gray background (--surface-topbar) and blend seamlessly into Zone A */
-[class*='dockview-theme-ayu'] .dv-groupview[data-left-dock='true'],
+.workspace-activity-rail {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  ),
+[class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .dv-content-container,
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .file-tree-panel,
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='file-tree'],
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='git'],
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='search'],
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .collaboration-bots-dock,
 [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
+  .collaboration-bots-dock
+  .collaboration-pane,
+[class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .bg-background,
-.dark [class*='dockview-theme-ayu'] .dv-groupview[data-left-dock='true'],
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  ),
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .dv-content-container,
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .file-tree-panel,
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='file-tree'],
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='git'],
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   [data-panel='search'],
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .collaboration-bots-dock,
 .dark
   [class*='dockview-theme-ayu']
-  .dv-groupview[data-left-dock='true']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
+  .collaboration-bots-dock
+  .collaboration-pane,
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview:is(
+    [data-left-dock='true'],
+    .dv-header-hidden,
+    #group-left,
+    [id^='group-left-']
+  )
   .bg-background {
   background: var(--surface-topbar) !important;
   border: 0 !important;
@@ -176,11 +283,23 @@
   box-shadow: none !important;
 }
 
+.collaboration-bots-dock .collaboration-pane-resizer {
+  display: none !important;
+}
+
 /* Zone B: Editor / Stage groups form a unified rounded inset stage against Zone A.
    When a single Zone B group is visible (or on outer left/right edges of split groups),
    the top-left and bottom-left corners where Zone A meets Zone B are rounded (14px),
    while inner split boundaries stay square and flush with zero gap. */
-[class*='dockview-theme-ayu'] .dv-groupview:not([data-left-dock='true']) {
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  ) {
   box-sizing: border-box;
   border-radius: 0;
   border-top: 1px solid var(--border-subtle);
@@ -192,14 +311,28 @@
 }
 
 [class*='dockview-theme-ayu']
-  .dv-groupview:not([data-left-dock='true'])[data-stage-leftmost='true'] {
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-leftmost='true'] {
   border-top-left-radius: 14px;
   border-bottom-left-radius: 14px;
   border-left: 1px solid var(--border-subtle);
 }
 
 [class*='dockview-theme-ayu']
-  .dv-groupview:not([data-left-dock='true'])[data-stage-rightmost='true'] {
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-rightmost='true'] {
   border-top-right-radius: 14px;
   border-bottom-right-radius: 14px;
   border-right: 1px solid var(--border-subtle);
@@ -208,9 +341,14 @@
 /* Fallback before JS layout measurement runs: if neither attribute is present,
    round all 4 corners of the Zone B group so it never flashes square corners. */
 [class*='dockview-theme-ayu']
-  .dv-groupview:not([data-left-dock='true']):not([data-stage-leftmost]):not(
-    [data-stage-rightmost]
-  ) {
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  ):not([data-stage-leftmost]):not([data-stage-rightmost]) {
   border-radius: 14px;
   border-left: 1px solid var(--border-subtle);
 }
@@ -921,7 +1059,7 @@
   width: 1px;
   margin-left: 0;
   border: 0;
-  background-color: var(--workspace-divider-color, var(--dv-sash-color));
+  background-color: transparent;
   transition:
     background-color 0.15s ease,
     opacity 0.15s ease;
@@ -956,12 +1094,11 @@
   transform: translate(-50%, -50%);
   border: 0;
   border-radius: 999px;
-  background-color: var(
-    --workspace-divider-subtle,
-    var(--workspace-divider-color, var(--dv-sash-color))
-  );
-  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  opacity: 0;
+  background-color: transparent;
+  box-shadow: none;
   transition:
+    opacity 0.15s ease,
     background-color 0.15s ease,
     transform 0.15s ease;
 }
@@ -985,8 +1122,10 @@
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
   > .dv-sash:active::after {
+  opacity: 1;
   transform: translate(-50%, -50%) scaleX(1.35);
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
 }
 
 [class*='dockview-theme-ayu']
@@ -997,7 +1136,7 @@
   height: 1px;
   margin-top: 0;
   border: 0;
-  background-color: var(--workspace-divider-color, var(--dv-sash-color));
+  background-color: transparent;
   transition:
     background-color 0.15s ease,
     opacity 0.15s ease;
@@ -1030,12 +1169,11 @@
   transform: translate(-50%, -50%);
   border: 0;
   border-radius: 999px;
-  background-color: var(
-    --workspace-divider-subtle,
-    var(--workspace-divider-color, var(--dv-sash-color))
-  );
-  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  opacity: 0;
+  background-color: transparent;
+  box-shadow: none;
   transition:
+    opacity 0.15s ease,
     background-color 0.15s ease,
     transform 0.15s ease;
 }
@@ -1059,8 +1197,10 @@
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
   > .dv-sash:active::after {
+  opacity: 1;
   transform: translate(-50%, -50%) scaleY(1.35);
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
 }
 
 [data-panel='terminal'] .terminal-list-resizer {

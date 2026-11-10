@@ -18,7 +18,8 @@ import {
   isLeftGroup,
   isSessionGroup,
   isSessionPanelId,
-  listLeftDockGroups,
+  listLeftShellNavGroups,
+  listRightShellNavGroups,
   listSessionGroups,
 } from '@/utils/dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
@@ -345,13 +346,41 @@ export function setLeftDockVisible(
   arrangement: LayoutArrangement,
   visible: boolean
 ): void {
-  const groups = listLeftDockGroups(api.groups);
+  const groups = listLeftShellNavGroups(api.groups);
   if (groups.length === 0) return;
   setColumnsVisible(
     api,
     arrangement,
     groups.map((group) => ({ group, visible }))
   );
+}
+
+export function setRightShellNavVisible(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  visible: boolean
+): void {
+  const groups = listRightShellNavGroups(api.groups);
+  if (groups.length === 0) return;
+  setColumnsVisible(
+    api,
+    arrangement,
+    groups.map((group) => ({ group, visible }))
+  );
+  if (visible) {
+    const targets: Array<{ group: DockviewGroup; width: number }> = [];
+    for (const group of groups) {
+      if (group.api.width < MIN_LEFT_PANEL_WIDTH) {
+        targets.push({
+          group,
+          width: intendedDockColumnWidth(api.width, group.api.width),
+        });
+      }
+    }
+    if (targets.length > 0) {
+      settleDockviewGroupWidths(targets);
+    }
+  }
 }
 
 export function setSessionDockVisible(
@@ -446,22 +475,32 @@ export function restoreFlexibleEditorColumn(
     (group) => group.api.isVisible
   );
   const editorGroup = editorGroups[0];
-  if (
-    editorGroups.length !== 1 ||
-    !editorGroup ||
-    !rightGroup?.api.isVisible ||
-    !isSideColumn(slotOfZone(arrangement, 'session'))
-  ) {
+  if (editorGroups.length !== 1 || !editorGroup) {
     return;
   }
 
   const leftIsSide =
     !!leftGroup?.api.isVisible && isSideColumn(slotOfZone(arrangement, 'dock'));
+  const rightSessionIsSide =
+    !!rightGroup?.api.isVisible &&
+    isSideColumn(slotOfZone(arrangement, 'session'));
+  const rightNavGroups = listRightShellNavGroups(api.groups).filter(
+    (group) => group.api.isVisible
+  );
+
+  if (!leftIsSide && !rightSessionIsSide && rightNavGroups.length === 0) {
+    return;
+  }
+
   const gridWidth = api.width;
   const nextDockWidth =
     leftIsSide && leftGroup
       ? intendedDockColumnWidth(gridWidth, leftGroup.api.width, dockWidth)
       : 0;
+  const rightNavWidth = rightNavGroups.reduce(
+    (sum, group) => sum + intendedDockColumnWidth(gridWidth, group.api.width),
+    0
+  );
   const intendedSession = Math.max(
     MIN_RIGHT_PANEL_WIDTH,
     sessionWidth && sessionWidth > 0
@@ -470,20 +509,30 @@ export function restoreFlexibleEditorColumn(
   );
   const maxSession = Math.max(
     MIN_RIGHT_PANEL_WIDTH,
-    gridWidth - nextDockWidth - MIN_EDITOR_COLUMN_WIDTH
+    gridWidth - nextDockWidth - rightNavWidth - MIN_EDITOR_COLUMN_WIDTH
   );
-  const nextSessionWidth = Math.min(intendedSession, maxSession);
+  const nextSessionWidth = rightSessionIsSide
+    ? Math.min(intendedSession, maxSession)
+    : 0;
   const nextEditorWidth = Math.max(
     MIN_EDITOR_COLUMN_WIDTH,
-    gridWidth - nextDockWidth - nextSessionWidth
+    gridWidth - nextDockWidth - rightNavWidth - nextSessionWidth
   );
 
   const targets: Array<{ group: DockviewGroup; width: number }> = [
     { group: editorGroup, width: nextEditorWidth },
-    { group: rightGroup, width: nextSessionWidth },
   ];
+  if (rightSessionIsSide && rightGroup) {
+    targets.push({ group: rightGroup, width: nextSessionWidth });
+  }
   if (leftIsSide && leftGroup) {
     targets.push({ group: leftGroup, width: nextDockWidth });
+  }
+  for (const rightNavGroup of rightNavGroups) {
+    targets.push({
+      group: rightNavGroup,
+      width: intendedDockColumnWidth(gridWidth, rightNavGroup.api.width),
+    });
   }
 
   settleDockviewGroupWidths(targets);
@@ -587,16 +636,22 @@ export function ensureWelcomeEditorGroup(
   const leftWidth =
     leftGroup?.api.isVisible &&
     isSideColumn(slotOfZone(options.arrangement, 'dock'))
-      ? leftGroup.api.width
+      ? intendedDockColumnWidth(
+          api.width,
+          leftGroup.api.width,
+          options.dockWidth
+        )
       : 0;
-  const intendedSession = Math.max(
-    MIN_RIGHT_PANEL_WIDTH,
-    options.sessionWidth && options.sessionWidth > 0
-      ? options.sessionWidth
-      : rightGroup?.api.isVisible
-        ? DEFAULT_SESSION_PANEL_WIDTH
-        : 0
-  );
+  const intendedSession =
+    rightGroup?.api.isVisible &&
+    isSideColumn(slotOfZone(options.arrangement, 'session'))
+      ? Math.max(
+          MIN_RIGHT_PANEL_WIDTH,
+          options.sessionWidth && options.sessionWidth > 0
+            ? options.sessionWidth
+            : DEFAULT_SESSION_PANEL_WIDTH
+        )
+      : 0;
   const initialWidth = Math.max(
     MIN_EDITOR_COLUMN_WIDTH,
     api.width - leftWidth - intendedSession

@@ -75,6 +75,8 @@ import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   installEditorColumnWidthRebalance,
+  restoreFlexibleEditorColumn,
+  setColumnVisible,
   setLeftDockVisible,
   setSessionDockVisible,
   setColumnsVisible,
@@ -785,6 +787,24 @@ export function IDELayout({
 
       setLeftDockVisible(api, getLayoutArrangement(), true);
 
+      const hasVisibleEditorPanels = getEditorGroups(api).some(
+        (group) => group.api.isVisible && group.panels.length > 0
+      );
+      const hasVisibleSessionPanels = listSessionGroups(api.groups).some(
+        (group) => group.api.isVisible && group.panels.length > 0
+      );
+      if (!hasVisibleEditorPanels && !hasVisibleSessionPanels) {
+        const welcomeGroup = recreateWelcomeEditorGroup(api);
+        if (welcomeGroup) {
+          setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
+          restoreFlexibleEditorColumn(
+            api,
+            getLayoutArrangement(),
+            useLayoutStore.getState().rightPanelWidth
+          );
+        }
+      }
+
       const restoredFromKanban = terminalVisibleBeforeKanbanRef.current;
       terminalVisibleBeforeKanbanRef.current = null;
       const shelfId = terminalShelfGroupId();
@@ -1016,26 +1036,60 @@ export function IDELayout({
             (group) => group.panels.length > 0
           );
           if (!remainingSessionPanels && !sessionGroupsHavePanels) {
-            const rightGroup = ensureSessionPanel(api);
-            if (rightGroup) {
-              setSessionDockVisible(
-                api,
-                getLayoutArrangement(),
-                useLayoutStore.getState().isRightPanelVisible
-              );
+            useLayoutStore.getState().setRightPanelVisible(false);
+            setSessionDockVisible(api, getLayoutArrangement(), false);
+            const hasVisibleEditorPanels = getEditorGroups(api).some(
+              (group) => group.api.isVisible && group.panels.length > 0
+            );
+            if (!hasVisibleEditorPanels) {
+              const welcomeGroup = recreateWelcomeEditorGroup(api);
+              if (welcomeGroup) {
+                setColumnVisible(
+                  api,
+                  getLayoutArrangement(),
+                  welcomeGroup,
+                  true
+                );
+                restoreFlexibleEditorColumn(
+                  api,
+                  getLayoutArrangement(),
+                  useLayoutStore.getState().rightPanelWidth
+                );
+                api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+              }
             }
+            normalizeGroupIds(api);
             return;
           }
         }
 
         normalizeGroupIds(api);
+        const editorGroups = getEditorGroups(api);
+        const hasEditorPanels = editorGroups.some(
+          (group) => group.panels.length > 0
+        );
+        const hasVisibleSessionPanels = listSessionGroups(api.groups).some(
+          (group) => group.api.isVisible && group.panels.length > 0
+        );
+
         if (
-          shouldDismissEditorColumnAfterPanelRemoval(
-            panel,
-            getEditorGroups(api)
-          )
+          shouldDismissEditorColumnAfterPanelRemoval(panel, editorGroups) ||
+          (!hasEditorPanels && !LEFT_PANEL_IDS.has(panel.id))
         ) {
-          dismissEditorColumnAfterLastTab(api);
+          if (hasVisibleSessionPanels) {
+            dismissEditorColumnAfterLastTab(api);
+          } else {
+            const welcomeGroup = recreateWelcomeEditorGroup(api);
+            if (welcomeGroup) {
+              setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
+              restoreFlexibleEditorColumn(
+                api,
+                getLayoutArrangement(),
+                useLayoutStore.getState().rightPanelWidth
+              );
+              api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+            }
+          }
         }
       });
 

@@ -257,7 +257,9 @@
     "backToHome": "回到首页",
     "newAppWindow": "新建应用窗口",
     "recentProjects": "已导入项目",
-    "noRecentProjects": "暂无已导入项目"
+    "noRecentProjects": "暂无已导入项目",
+    "toggleLeftSidebar": "切换侧边栏",
+    "toggleRightSidebar": "切换侧边栏"
   },
   "branchInfo": {
     "notInWorktree": "当前未处于 Worktree 中，请手动切换目标分支。",

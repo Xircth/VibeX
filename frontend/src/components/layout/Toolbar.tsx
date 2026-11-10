@@ -21,10 +21,7 @@ import {
   Plus,
   PanelLeft,
   PanelRight,
-  Terminal,
   RotateCcw,
-  FolderTree,
-  Code2,
   GitBranch,
   ArrowDown,
   ArrowUp,
@@ -58,7 +55,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { useShallow } from 'zustand/react/shallow';
-import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import {
@@ -367,105 +364,55 @@ export function CollaborationLayoutToggles() {
 
 export function WorkspaceLayoutToggles() {
   const { t } = useTranslation('panels');
+  const resetLayout = useLayoutStore((state) => state.resetLayout);
   const {
-    toggleRightPanel,
-    isRightPanelVisible,
-    resetLayout,
-    isEditorAreaVisible,
-    toggleEditorArea,
-  } = useLayoutStore(
-    useShallow((state) => ({
-      toggleRightPanel: state.toggleRightPanel,
-      isRightPanelVisible: state.isRightPanelVisible,
-      resetLayout: state.resetLayout,
-      isEditorAreaVisible: state.isEditorAreaVisible,
-      toggleEditorArea: state.toggleEditorArea,
-    }))
-  );
-  const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
-  const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
+    openWelcomeTab,
+    hasRightSidebarPanels,
+    isRightSidebarVisible,
+    toggleRightSidebar,
+  } = usePanelActions();
+  const showRightSidebarToggle = hasRightSidebarPanels();
+  const rightSidebarVisible = isRightSidebarVisible();
+  const toggleRightSidebarLabel = t('toolbar.toggleRightSidebar', '切换侧边栏');
+  const newTabLabel = t('tabCreation.newTab', '新建标签页');
 
   return (
     <div className="flex items-center gap-0.5">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={toggleFileTree}
-            aria-label={t('toolbar.toggleFileTree')}
-          >
-            <FolderTree className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleFileTree')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={toggleEditorArea}
-            aria-label={
-              isEditorAreaVisible
-                ? t('toolbar.hideEditorAndTerminal')
-                : t('toolbar.showEditorAndTerminal')
-            }
-            aria-pressed={isEditorAreaVisible}
-          >
-            <Code2 className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {isEditorAreaVisible
-            ? t('toolbar.hideEditorAndTerminal')
-            : t('toolbar.showEditorAndTerminal')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={openNewTerminal}
-            aria-label={t('toolbar.toggleTerminal')}
-            aria-pressed={isTerminalOpen}
-          >
-            <Terminal className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleTerminal')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            aria-pressed={isRightPanelVisible}
-            onClick={toggleRightPanel}
-            aria-label={t('toolbar.toggleAiPanel')}
-          >
-            {isRightPanelVisible ? (
+      {showRightSidebarToggle ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="toolbar-toggle-right-sidebar"
+              className="workspace-toolbar-button h-7 w-7"
+              aria-pressed={rightSidebarVisible}
+              onClick={toggleRightSidebar}
+              aria-label={toggleRightSidebarLabel}
+            >
               <PanelRight className="h-3.5 w-3.5" />
-            ) : (
-              <PanelLeft className="h-3.5 w-3.5" />
-            )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {toggleRightSidebarLabel}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            data-testid="toolbar-new-tab-button"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={openWelcomeTab}
+            aria-label={newTabLabel}
+          >
+            <Plus className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleAiPanel')}
-        </TooltipContent>
+        <TooltipContent side="bottom">{newTabLabel}</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -559,6 +506,32 @@ export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+function LeftSidebarToggleButton() {
+  const { t } = useTranslation('panels');
+  const { toggleLeftSidebar, isLeftSidebarVisible } = usePanelActions();
+  const visible = isLeftSidebarVisible();
+  const label = t('toolbar.toggleLeftSidebar', '切换侧边栏');
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          data-testid="toolbar-toggle-left-sidebar"
+          className="workspace-toolbar-button h-7 w-7"
+          aria-label={label}
+          aria-pressed={visible}
+          onClick={toggleLeftSidebar}
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function WorkspaceBranchControls({
   isWorkspaceTab,
 }: {
@@ -577,6 +550,7 @@ export function WorkspaceBranchControls({
       })}
     >
       <HostSelector />
+      {isWorkspaceTab ? <LeftSidebarToggleButton /> : null}
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
     </div>
   );
@@ -1103,31 +1077,36 @@ export function Toolbar() {
 
             {projectId && (
               <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={handleCreateSession}
-                      aria-label={t(
-                        'workspaceSessionList.newSession',
-                        'New session'
-                      )}
-                      data-basic-guide="toolbar-new-session"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">New Session</TooltipContent>
-                </Tooltip>
+                {!isWorkspaceTab ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="workspace-toolbar-button h-7 w-7"
+                        onClick={handleCreateSession}
+                        aria-label={t(
+                          'workspaceSessionList.newSession',
+                          'New session'
+                        )}
+                        data-basic-guide="toolbar-new-session"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">New Session</TooltipContent>
+                  </Tooltip>
+                ) : null}
                 {isSingleRepoProject && localDesktopHost ? (
                   <OpenInIdeButton
                     onClick={handleOpenInIDE}
                     className="workspace-toolbar-button h-7 w-7"
                   />
                 ) : null}
-                <ToolbarDivider />
+                {(!isWorkspaceTab ||
+                  (isSingleRepoProject && localDesktopHost)) && (
+                  <ToolbarDivider />
+                )}
               </>
             )}
 

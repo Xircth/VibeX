@@ -257,7 +257,9 @@
     "backToHome": "Back to home",
     "newAppWindow": "New app window",
     "recentProjects": "Imported projects",
-    "noRecentProjects": "No imported projects"
+    "noRecentProjects": "No imported projects",
+    "toggleLeftSidebar": "Toggle sidebar",
+    "toggleRightSidebar": "Toggle right sidebar"
   },
   "branchInfo": {
     "notInWorktree": "Not currently in a Worktree. Please switch the target branch manually.",

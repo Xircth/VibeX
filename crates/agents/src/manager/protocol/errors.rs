@@ -364,17 +364,17 @@ pub(in crate::manager) fn turn_failure_error_event(
     stderr_tail: &StderrTail,
     stderr_mark: u64,
 ) -> Option<AgentErrorEvent> {
-    if let Some(adapter_error) = probe.adapter_turn_error() {
-        if !(is_graceful_adapter_turn_close(&adapter_error) && probe.has_output()) {
-            return Some(AgentErrorEvent {
-                message: format_adapter_turn_error(&adapter_error),
-                code: Some(classify_adapter_turn_error_code(&adapter_error).to_string()),
-                raw: Some(serde_json::json!({
-                    "cause": "adapter_turn_error",
-                    "adapterError": adapter_error,
-                })),
-            });
-        }
+    if let Some(adapter_error) = probe.adapter_turn_error()
+        && !(is_graceful_adapter_turn_close(&adapter_error) && probe.has_output())
+    {
+        return Some(AgentErrorEvent {
+            message: format_adapter_turn_error(&adapter_error),
+            code: Some(classify_adapter_turn_error_code(&adapter_error).to_string()),
+            raw: Some(serde_json::json!({
+                "cause": "adapter_turn_error",
+                "adapterError": adapter_error,
+            })),
+        });
     }
     let meta = response.meta.as_ref();
     let finish_reason = finish_turn_reason(&response.stop_reason, probe.has_output(), false);

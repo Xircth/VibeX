@@ -36,11 +36,11 @@ export function useDecodedTimelineImage(input: {
   uri: string | null;
 }): string | null {
   const panelId = useTimelineImagePanelId();
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const { imageKey, enabled, data, mimeType, uri } = input;
 
   useEffect(
-    () => subscribeTimelineImages(() => setTick((tick) => tick + 1)),
+    () => subscribeTimelineImages(() => setTick((prev) => prev + 1)),
     []
   );
 
@@ -77,7 +77,7 @@ export function useDecodedTimelineImage(input: {
   }, [data, enabled, imageKey, mimeType, panelId, uri]);
 
   if (!enabled) return null;
-  return timelineImageSrc(panelId, imageKey);
+  return tick >= 0 ? timelineImageSrc(panelId, imageKey) : null;
 }
 
 export function CollapsibleTimelineImage({

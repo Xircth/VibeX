@@ -722,20 +722,20 @@ impl ServerAuth for SqliteServerAuth {
                 None => None,
             };
 
-            if client_kind == "mobile" && !request.replace_existing_mobile {
-                if let Some((existing_device_id, existing_device_name)) =
+            if client_kind == "mobile"
+                && !request.replace_existing_mobile
+                && let Some((existing_device_id, existing_device_name)) =
                     find_conflicting_mobile_device(
-                        &mut *connection,
+                        &mut connection,
                         device_name,
                         canonical_pubkey.as_deref(),
                     )
                     .await?
-                {
-                    return Err(AuthStoreError::MobileDeviceConflict {
-                        existing_device_id,
-                        existing_device_name,
-                    });
-                }
+            {
+                return Err(AuthStoreError::MobileDeviceConflict {
+                    existing_device_id,
+                    existing_device_name,
+                });
             }
 
             let claimed = sqlx::query(
@@ -760,7 +760,7 @@ impl ServerAuth for SqliteServerAuth {
             );
             let device_digest = TokenDigest::from_secret(&access_token);
             if client_kind == "mobile" {
-                revoke_all_active_mobile_devices(&mut *connection, now).await?;
+                revoke_all_active_mobile_devices(&mut connection, now).await?;
             } else if let Some(ref pubkey) = canonical_pubkey {
                 sqlx::query(
                     "UPDATE server_device_credentials
@@ -986,9 +986,9 @@ impl ServerAuth for SqliteServerAuth {
         if client_kind == "mobile" {
             let mut conn = self.pool.acquire().await?;
             if request.replace_existing_mobile {
-                revoke_all_active_mobile_devices(&mut *conn, now).await?;
+                revoke_all_active_mobile_devices(&mut conn, now).await?;
             } else if let Some((existing_device_id, existing_device_name)) =
-                find_conflicting_mobile_device(&mut *conn, device_name, incoming_pk).await?
+                find_conflicting_mobile_device(&mut conn, device_name, incoming_pk).await?
             {
                 return Err(AuthStoreError::MobileDeviceConflict {
                     existing_device_id,
@@ -1283,7 +1283,7 @@ impl ServerAuth for SqliteServerAuth {
             let device_digest = TokenDigest::from_secret(&access_token);
 
             if client_kind == "mobile" {
-                revoke_all_active_mobile_devices(&mut *connection, now).await?;
+                revoke_all_active_mobile_devices(&mut connection, now).await?;
             } else if let Some(ref pubkey) = public_key_ed25519 {
                 sqlx::query(
                     "UPDATE server_device_credentials

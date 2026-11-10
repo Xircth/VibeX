@@ -3551,14 +3551,13 @@ mod tests {
     }
 
     async fn lock_pool(agent_id: &str, components: &[(&str, &Path)]) -> sqlx::SqlitePool {
-        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
-        sqlx::query(
-            "CREATE TABLE agent_installation (agent_id TEXT PRIMARY KEY, current_lock_id TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
+        use sqlx::{SqlitePool, query};
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        query("CREATE TABLE agent_installation (agent_id TEXT PRIMARY KEY, current_lock_id TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        query(
             "CREATE TABLE agent_install_component (
                  lock_id TEXT NOT NULL,
                  component_kind TEXT NOT NULL,
@@ -3568,13 +3567,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO agent_installation VALUES (?, 'lock-1')")
+        query("INSERT INTO agent_installation VALUES (?, 'lock-1')")
             .bind(agent_id)
             .execute(&pool)
             .await
             .unwrap();
         for (kind, path) in components {
-            sqlx::query("INSERT INTO agent_install_component VALUES ('lock-1', ?, ?)")
+            query("INSERT INTO agent_install_component VALUES ('lock-1', ?, ?)")
                 .bind(*kind)
                 .bind(path.display().to_string())
                 .execute(&pool)

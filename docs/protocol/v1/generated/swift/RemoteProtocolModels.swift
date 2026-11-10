@@ -115,6 +115,9 @@ public struct PairingChallenge: Codable {
 public struct RedeemPairingRequest: Codable {
     public let pairing_token: String
     public let device_name: String
+    public let public_key_ed25519: String?
+    public let client_kind: String?
+    public let replace_existing_mobile: Bool?
 }
 
 public struct DeviceCredential: Codable {

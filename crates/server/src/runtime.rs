@@ -783,9 +783,10 @@ fn extract_client_ip(headers: &HeaderMap, listen_addr: std::net::SocketAddr) -> 
     None
 }
 
-static RECENT_DEVICE_CONN_RECORD: OnceLock<
-    RwLock<std::collections::HashMap<(DeviceId, Option<String>), std::time::Instant>>,
-> = OnceLock::new();
+type DeviceConnRecordMap =
+    std::collections::HashMap<(DeviceId, Option<String>), std::time::Instant>;
+
+static RECENT_DEVICE_CONN_RECORD: OnceLock<RwLock<DeviceConnRecordMap>> = OnceLock::new();
 
 fn should_record_device_connection(device_id: DeviceId, ip: Option<&str>) -> bool {
     let map_lock =

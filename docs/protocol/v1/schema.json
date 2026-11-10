@@ -581,6 +581,22 @@
         },
         "device_name": {
           "type": "string"
+        },
+        "public_key_ed25519": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replace_existing_mobile": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [

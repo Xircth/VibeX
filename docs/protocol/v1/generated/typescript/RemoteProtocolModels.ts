@@ -79,6 +79,9 @@ export interface PairingChallenge {
 export interface RedeemPairingRequest {
   pairing_token: string;
   device_name: string;
+  public_key_ed25519?: string | null;
+  client_kind?: string | null;
+  replace_existing_mobile?: boolean;
 }
 
 export interface DeviceCredential {

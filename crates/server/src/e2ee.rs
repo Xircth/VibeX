@@ -421,7 +421,7 @@ mod tests {
         let client_key = agree_ephemeral(
             client_priv,
             &UnparsedPublicKey::new(&ECDH_P256, &server_pub_bytes),
-            |shared_secret| derive_aes256_key(shared_secret),
+            derive_aes256_key,
         )
         .expect("client agree");
 
@@ -507,7 +507,7 @@ mod tests {
         let client_key = agree_ephemeral(
             client_priv,
             &UnparsedPublicKey::new(&ECDH_P256, &server_pub_bytes),
-            |shared_secret| derive_aes256_key(shared_secret),
+            derive_aes256_key,
         )
         .expect("derive client key");
 

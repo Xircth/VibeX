@@ -47,6 +47,9 @@ describe('session status colors', () => {
     expect(
       declarationsFor(legacyCss, '.workspace-session-status--inprogress')
         .background
+    ).toBe('transparent');
+    expect(
+      declarationsFor(legacyCss, '.workspace-session-status--inprogress').color
     ).toBe('var(--session-status-inprogress)');
     expect(
       declarationsFor(legacyCss, '.workspace-session-status--inreview')

@@ -640,13 +640,13 @@ const ANTIGRAVITY_CANDIDATES: &[ProfileExternalCandidate] = &[
         component: ProfileComponent::CombinedRuntime,
         executable: "agy_acp_server.par",
         version_args: &[],
-        acp_args: &[],
+        acp_args: ANTIGRAVITY_LAUNCH_ARGS,
     },
     ProfileExternalCandidate {
         component: ProfileComponent::CombinedRuntime,
         executable: "agy_acp_server",
         version_args: &[],
-        acp_args: &[],
+        acp_args: ANTIGRAVITY_LAUNCH_ARGS,
     },
 ];
 const ANTIGRAVITY_PLATFORMS: &[&str] = &[

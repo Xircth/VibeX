@@ -43,7 +43,7 @@ describe('file tree chrome', () => {
     expect(reduced.background).toBeUndefined();
     expect(root.padding?.value).toBe('0 8px 0 12px');
     expect(root['min-height']?.value).toBe('24px');
-    expect(root['line-height']?.value).toBe('24px');
+    expect(root['line-height']?.value).toBe('1');
   });
 
   it('moves the expand glyph toward the folder icon without shifting the icon column', () => {
@@ -84,7 +84,7 @@ describe('file tree chrome', () => {
     const options = declarationsFor(BASE, '.file-tree-search-options');
 
     expect(overlay.background?.value).toBe('var(--surface-card-strong)');
-    expect(overlay.height).toBeUndefined();
+    expect(overlay.height?.value).toBe('100%');
     expect(overlay['max-height']).toBeUndefined();
     expect(field.flex?.value).toBe('1 1 auto');
     expect(field['min-width']?.value).toBe('0');

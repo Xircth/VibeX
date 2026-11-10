@@ -359,7 +359,7 @@ pub async fn sync_relay() {
     let store = load_store().await.unwrap_or_default();
     publish_browser_origins(&store);
     let listening_port = crate::commands::web_service::listening_port().await;
-    let local_port = listening_port.unwrap_or_else(|| 17891);
+    let local_port = listening_port.unwrap_or(17891);
     if listening_port.is_some() {
         ensure_quick_tunnel(local_port).await;
     } else {

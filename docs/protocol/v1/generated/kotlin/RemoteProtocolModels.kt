@@ -237,6 +237,9 @@ data class PairingChallenge(
 data class RedeemPairingRequest(
     val pairing_token: String,
     val device_name: String,
+    val public_key_ed25519: String? = null,
+    val client_kind: String? = null,
+    val replace_existing_mobile: Boolean? = null,
 )
 
 data class DeviceCredential(

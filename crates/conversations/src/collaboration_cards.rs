@@ -441,12 +441,10 @@ pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -
                 })
                 .or_else(|| (!fallback_prompt.is_empty()).then_some(fallback_prompt))
                 .unwrap_or(name.as_str());
-            let header_text = title.unwrap_or_else(|| {
-                if question_text.is_empty() {
-                    name.as_str()
-                } else {
-                    question_text
-                }
+            let header_text = title.unwrap_or(if question_text.is_empty() {
+                name.as_str()
+            } else {
+                question_text
             });
             let options = schema_property_options(property, raw_type);
             let mut item = json!({

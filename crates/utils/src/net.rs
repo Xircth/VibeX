@@ -462,7 +462,7 @@ fn query_dns_a_record_tcp_direct(domain: &str, dns_server: Ipv4Addr) -> Option<I
     let mut resp_len_bytes = [0u8; 2];
     stream.read_exact(&mut resp_len_bytes).ok()?;
     let resp_len = u16::from_be_bytes(resp_len_bytes) as usize;
-    if resp_len < 12 || resp_len > 2048 {
+    if !(12..=2048).contains(&resp_len) {
         return None;
     }
     let mut buf = vec![0u8; resp_len];

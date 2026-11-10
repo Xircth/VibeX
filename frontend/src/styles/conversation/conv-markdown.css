@@ -479,7 +479,8 @@
 
 .conv-markdown :where(h1, h2, h3, h4, h5, h6) {
   font-size: 1em;
-  font-weight: 650;
+  /* Size is flat, so weight carries the role: one full step above <strong>. */
+  font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--conv-text-primary);
 }

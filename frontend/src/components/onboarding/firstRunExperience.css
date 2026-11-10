@@ -503,7 +503,7 @@
   color: hsl(var(--foreground));
   font-family: inherit;
   font-size: 12px;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .onboarding-agent-list {
@@ -641,8 +641,8 @@
   border-radius: var(--radius);
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted));
-  font-size: 9px;
-  font-weight: 650;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .onboarding-status-badge svg {
@@ -809,7 +809,7 @@
   gap: 8px;
   color: hsl(var(--foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -967,7 +967,7 @@
   color: hsl(var(--foreground));
   font-family: inherit;
   font-size: 12px;
-  font-weight: 680;
+  font-weight: 600;
   line-height: normal;
 }
 
@@ -1090,7 +1090,7 @@
   margin: 0;
   color: var(--onboarding-ink);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.4;
 }
 

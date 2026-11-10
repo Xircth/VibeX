@@ -916,7 +916,7 @@
 
 .vu-desktop-toast .vu-toast-summary {
   margin-top: 1px;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 18px;
 }
 
@@ -1005,7 +1005,7 @@
   background: transparent;
   border: 0;
   border-radius: 0;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input,
@@ -1049,7 +1049,7 @@
 .vu-desktop-toast .vu-desktop-toast-sent {
   min-height: 36px;
   padding: 8px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
   background: color-mix(in srgb, hsl(var(--success)) 12%, transparent);
   border-radius: 999px;
 }

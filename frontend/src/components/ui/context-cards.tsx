@@ -226,7 +226,7 @@ export function ContextCards({
           </div>
 
           <div className="collaboration-collection-card-content">
-            <p className="text-[12.5px] leading-relaxed">{chunk.text}</p>
+            <p className="text-[13px] leading-relaxed">{chunk.text}</p>
           </div>
 
           <div className="collaboration-collection-card-footer">

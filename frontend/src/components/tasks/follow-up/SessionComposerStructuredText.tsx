@@ -187,7 +187,7 @@ export function toSessionComposerChatToken(
       };
     }
     const avatar = token.memberAvatar ?? deriveMemberBotAvatar(token.value);
-    const color = avatar.color || '#2563eb';
+    const color = avatar.color || 'currentColor';
     return {
       value: token.raw,
       render: () => (

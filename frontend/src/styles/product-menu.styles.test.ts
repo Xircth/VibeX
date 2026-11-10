@@ -43,10 +43,10 @@ describe('product option menus', () => {
       ".astryx-select-option[aria-selected='true']"
     );
 
-    expect(context.background?.value).toBe('#ffffff');
+    expect(context.background?.value).toBe('var(--surface-popover)');
     expect(context['box-shadow']?.value).toBe('none');
     expect(context['backdrop-filter']?.value).toBe('none');
-    expect(selector.background?.value).toBe('#ffffff');
+    expect(selector.background?.value).toBe('var(--surface-popover)');
     expect(selector['box-shadow']?.value).toBe('none');
     expect(selector['backdrop-filter']?.value).toBe('none');
     expect(hovered.background?.value).toBe('hsl(var(--accent))');

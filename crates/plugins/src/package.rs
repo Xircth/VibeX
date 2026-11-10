@@ -1288,6 +1288,14 @@ impl PluginPackage {
         let id = required_string(object, "id")?;
         let name = required_string(object, "name")?;
         let version = required_string(object, "version")?;
+        if let Some(themes) = object.get("themes") {
+            let issues = crate::theme::validate_theme_contributions(themes);
+            if !issues.is_empty() {
+                return Err(PluginError::invalid_manifest(
+                    crate::theme::theme_issues_message(&issues),
+                ));
+            }
+        }
         let api_version = object
             .get("apiVersion")
             .and_then(Value::as_str)

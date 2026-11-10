@@ -87,6 +87,14 @@ export function formatByteMetric(bytes?: number | null): string {
   return `${formatted}MB`;
 }
 
+const SOURCE_BADGE_TONE = {
+  text: 'bg-success/15 text-success',
+  image: 'bg-warning/15 text-warning',
+  pdf: 'bg-destructive/15 text-destructive',
+  document: 'bg-info/15 text-info',
+  file: 'bg-muted-foreground/15 text-muted-foreground',
+} as const;
+
 function estimateTextBytes(text?: string): number {
   if (!text) return 0;
   try {
@@ -108,32 +116,32 @@ export function resolveContextCardSourceMeta(options: {
   const ext = extMatch ? extMatch[1].toUpperCase() : '';
 
   let badge = 'TXT';
-  let tone = 'bg-emerald-500';
+  let tone: string = SOURCE_BADGE_TONE.text;
 
   if (options.itemKind === 'image') {
     badge = ext && ext.length <= 4 ? ext.slice(0, 3) : 'IMG';
-    tone = 'bg-amber-500';
+    tone = SOURCE_BADGE_TONE.image;
   } else if (options.itemKind === 'file') {
     if (ext === 'PDF') {
       badge = 'PDF';
-      tone = 'bg-rose-500';
+      tone = SOURCE_BADGE_TONE.pdf;
     } else if (ext) {
       badge = ext.slice(0, 3);
-      tone = 'bg-indigo-500';
+      tone = SOURCE_BADGE_TONE.document;
     } else {
       badge = 'FILE';
-      tone = 'bg-slate-500';
+      tone = SOURCE_BADGE_TONE.file;
     }
   } else {
     if (ext === 'MD' || ext === 'MDX') {
       badge = 'MD';
-      tone = 'bg-blue-500';
+      tone = SOURCE_BADGE_TONE.document;
     } else if (ext === 'JSON' || ext === 'YAML' || ext === 'YML') {
       badge = ext.slice(0, 3);
-      tone = 'bg-violet-500';
+      tone = SOURCE_BADGE_TONE.document;
     } else {
       badge = 'TXT';
-      tone = 'bg-emerald-500';
+      tone = SOURCE_BADGE_TONE.text;
     }
   }
 
@@ -180,7 +188,7 @@ export const ContextCardSourcePill = React.forwardRef<
     >
       <span
         className={cn(
-          'collaboration-collection-source-badge flex size-3.5 shrink-0 items-center justify-center rounded-[4px] text-[7px] font-bold text-white',
+          'collaboration-collection-source-badge flex size-3.5 shrink-0 items-center justify-center rounded-none text-[7px] font-bold',
           tone
         )}
       >

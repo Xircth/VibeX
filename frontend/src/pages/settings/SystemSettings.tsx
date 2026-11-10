@@ -916,7 +916,7 @@ export function SystemSettings() {
                           <span className="min-w-0 truncate">{entry.path}</span>
                           <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                             {previewIsRestore && entry.already_exists ? (
-                              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-xs text-amber-600 dark:text-amber-300">
+                              <span className="rounded bg-warning/15 px-1 py-0.5 text-xs text-warning">
                                 {t('system.willOverwrite')}
                               </span>
                             ) : null}

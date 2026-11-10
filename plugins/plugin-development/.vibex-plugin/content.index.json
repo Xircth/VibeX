@@ -33,15 +33,15 @@
       "path": "contents/skills/vibex-plugin-development/references/link.md",
       "kind": "reference",
       "title": "链接运行中的 Host",
-      "size": 2991,
-      "sha256": "ead00528af3632b2f7241494d88189e2800a35ca44f14b8a9fce2d4cca873c31"
+      "size": 2927,
+      "sha256": "afcd5442a5e62bf27867f75a1e7866cd0019a3b16e01c501d867d79de117fbbc"
     },
     {
       "path": "contents/skills/vibex-plugin-creator/SKILL.md",
       "kind": "skill",
       "title": "VibeX 插件创建器 (v2.0)",
-      "size": 13494,
-      "sha256": "b878acecebd064e7e5c3ae0ed676c108f2658ffc4a1ac42e26ba5549fe1926e9"
+      "size": 14629,
+      "sha256": "a4b0cf08753e4d1e40d19cb1eeef136c643fff6d861c8f3e3d2c4378d35d4c11"
     }
   ]
 }

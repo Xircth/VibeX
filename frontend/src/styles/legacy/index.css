@@ -78,8 +78,6 @@
     --_accent-foreground: 0 0% 98%;
     --_destructive: 0 80% 55%;
     --_destructive-foreground: 0 0% 100%;
-    --color-error: #ff6467;
-    --color-error-muted: #460809;
     --_border: 0 0% 32.2%;
     --_input: 0 0% 14.9%;
     --_ring: var(--_primary);
@@ -164,8 +162,25 @@
     --_button-radius: var(--radius-element);
     --_field-radius: var(--radius-element);
 
-    --color-error: #e7000b;
-    --color-error-muted: #ffe2e2;
+    --color-error: var(--status-danger-text);
+    --color-error-muted: color-mix(
+      in srgb,
+      hsl(var(--destructive)) 14%,
+      var(--surface-content)
+    );
+    --color-background-body: var(--surface-shell);
+    --color-background-card: var(--surface-content);
+    --color-background-muted: var(--surface-topbar);
+    --color-background-surface: var(--surface-content);
+    --color-background-popover: var(--surface-popover);
+    --color-accent: hsl(var(--primary));
+    --color-accent-muted: hsl(var(--primary) / 0.12);
+    --color-on-accent: hsl(var(--primary-foreground));
+    --color-text-primary: var(--text-strong);
+    --color-text-secondary: var(--text-muted);
+    --color-text-accent: hsl(var(--primary));
+    --color-icon-primary: var(--text-strong);
+    --color-icon-accent: hsl(var(--primary));
 
     /* Status */
     --success: var(--vscode-testing-iconPassed, var(--_success));
@@ -201,6 +216,30 @@
     );
     --console-error: var(--vscode-terminal-ansiRed, var(--_console-error));
 
+    /* Status colors as readable text and glyphs on ordinary surfaces. The
+       status fills above are tuned as indicators and fall below 4.5:1 as
+       text, so text mixes the fill toward the strongest ink of the scheme. */
+    --status-success-text: color-mix(
+      in srgb,
+      hsl(var(--success)) 55%,
+      var(--text-strong)
+    );
+    --status-warning-text: color-mix(
+      in srgb,
+      hsl(var(--warning)) 55%,
+      var(--text-strong)
+    );
+    --status-danger-text: color-mix(
+      in srgb,
+      hsl(var(--destructive)) 80%,
+      var(--text-strong)
+    );
+    --status-info-text: color-mix(
+      in srgb,
+      hsl(var(--info)) 55%,
+      var(--text-strong)
+    );
+
     /* Syntax highlighting */
     --syntax-keyword: var(--_syntax-keyword);
     --syntax-function: var(--_syntax-function);
@@ -225,9 +264,12 @@
     --diff-highlight-bg: hsl(var(--primary) / 0.16);
 
     /* Astryx neutral surfaces. Opaque on purpose: macOS and Windows share
-       these fills, so translucency cannot composite into a different color. */
+       these fills, so translucency cannot composite into a different color.
+       Base roles hold literal colors and are what a color theme overrides
+       (frontend/src/lib/theme/themeRoles.ts); every other token derives from
+       them on this same element, so a theme reaches the derived ones too. */
     --text-strong: #171717;
-    --text-primary: #171717;
+    --text-primary: var(--text-strong);
     --text-default: var(--text-primary);
     --text-muted: #525252;
     --text-secondary: var(--text-muted);
@@ -235,38 +277,48 @@
     --text-tertiary: var(--text-subtle);
     --text-faint: #a3a3a3;
     --primary-control-foreground: hsl(var(--_primary-foreground));
-    --switch-checked-track: hsl(213 25% 15%);
+    --switch-checked-track: var(--text-strong);
     --switch-checked-border: var(--switch-checked-track);
-    --switch-checked-thumb: hsl(0 0% 100%);
+    --switch-checked-thumb: var(--surface-raised-control);
     --surface-shell: #ffffff;
     --surface-topbar: #f1f1f1;
     --surface-sidebar: var(--surface-topbar);
     --surface-right-panel: var(--surface-shell);
-    --surface-composer: #ffffff;
+    --surface-composer: var(--surface-content);
     --surface-glass: var(--surface-shell);
     --surface-glass-solid: var(--surface-shell);
     --surface-popover: #ffffff;
-    --surface-dialog: #ffffff;
-    --surface-subtle: #f1f1f1;
+    --surface-dialog: var(--surface-popover);
+    --surface-subtle: var(--surface-topbar);
     --welcome-page: var(--surface-shell);
     --welcome-canvas: var(--surface-shell);
     --surface-content: #ffffff;
-    --surface-card: #ffffff;
-    --surface-card-strong: #ffffff;
+    --surface-card: var(--surface-content);
+    --surface-card-strong: var(--surface-content);
     --surface-control: #0000000d;
     --surface-control-hover: #0000001a;
-    --surface-control-solid: #ffffff;
-    --surface-control-solid-hover: #f5f5f5;
+    --surface-control-solid: var(--surface-raised-control);
+    --surface-control-solid-hover: var(--surface-raised-control-hover);
     --surface-raised: var(--surface-raised-control);
     --surface-raised-control: #ffffff;
     --surface-raised-control-hover: #f5f5f5;
-    --surface-hover: #0000000d;
+    --surface-hover: var(--surface-control);
     --surface-active: hsl(var(--primary) / 0.16);
     --surface-page-solid: var(--surface-shell);
-    --kanban-column-background: #ffffff;
-    --composer-token-usage-ring: hsl(222 47% 11%);
+    /* Segmented-control track and its selected thumb; also the quiet fill of
+       secondary buttons on gray settings items. */
+    --surface-track: #e5e5e5;
+    --surface-track-hover: color-mix(
+      in srgb,
+      var(--surface-track) 92%,
+      var(--text-strong)
+    );
+    --surface-thumb: var(--surface-raised-control);
+    --surface-settings-item: var(--surface-topbar);
+    --kanban-column-background: var(--surface-content);
+    --composer-token-usage-ring: var(--text-strong);
     --composer-token-usage-track: hsl(var(--muted));
-    --composer-token-usage-core: hsl(0 0% 100%);
+    --composer-token-usage-core: var(--surface-content);
     --border-subtle: #00000014;
     --border-strong: #d4d4d4;
     --workspace-divider-color: hsl(var(--border) / 0.88);
@@ -278,12 +330,35 @@
     --highlight-edge: hsl(0 0% 100% / 0.36);
     --surface-wash: linear-gradient(
       180deg,
-      #e6e6e6 0%,
-      #f3f3f3 24%,
-      #ffffff 50%,
-      #f3f3f3 76%,
-      #e6e6e6 100%
+      color-mix(in srgb, var(--surface-topbar) 95%, var(--text-strong)) 0%,
+      var(--surface-topbar) 24%,
+      var(--surface-shell) 50%,
+      var(--surface-topbar) 76%,
+      color-mix(in srgb, var(--surface-topbar) 95%, var(--text-strong)) 100%
     );
+    /* Shadow pigment for component-local shadows: hsl(var(--shadow-ink) / a). */
+    --shadow-ink: 220 36% 8%;
+    /* Fixed blue glow of full-bleed scenes such as the web connect page. */
+    --scene-glow: 220 52% 51%;
+    /* QR modules must sit on white in every scheme and theme so phones scan. */
+    --qr-paper: #ffffff;
+    /* The effort slider's track is a dark instrument well in every scheme. */
+    --effort-well: linear-gradient(135deg, #111113, #0a0a0b);
+    --effort-well-edge: #1a1a1e;
+    --effort-well-dot: #494950;
+    /* Rendered user HTML assumes a white page, and video letterboxes are black,
+       whatever the app's theme. */
+    --document-paper: #ffffff;
+    --media-letterbox: #000000;
+    /* Live-state spectrum: a deliberate exception to the single-accent rule,
+       reserved for animated live labels (selected composer option, Fast mode,
+       browser share grants). Independent of --primary and of color themes. */
+    --live-blue-deep: 220 60% 42%;
+    --live-blue: 220 56% 56%;
+    --live-blue-soft: 220 50% 70%;
+    --live-indigo: 252 91% 66%;
+    --live-violet: 280 82% 66%;
+    --live-read: 217 91% 53%;
     --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
     --shadow-popover: 0 18px 42px hsl(220 36% 8% / 0.2);
     --shadow-glass:
@@ -368,7 +443,7 @@
     --card: 0 0% 14.9%;
     --popover: 0 0% 14.9%;
     --text-strong: #fafafa;
-    --text-primary: #fafafa;
+    --text-primary: var(--text-strong);
     --text-default: var(--text-primary);
     --text-muted: #a3a3a3;
     --text-secondary: var(--text-muted);
@@ -379,28 +454,36 @@
     --surface-topbar: var(--surface-shell);
     --surface-sidebar: var(--surface-topbar);
     --surface-right-panel: var(--surface-topbar);
-    --surface-composer: #262626;
+    --surface-composer: var(--surface-content);
     --surface-glass: var(--surface-shell);
     --surface-glass-solid: var(--surface-shell);
     --surface-popover: #262626;
-    --surface-dialog: #262626;
-    --surface-subtle: var(--surface-shell);
+    --surface-dialog: var(--surface-popover);
+    --surface-subtle: var(--surface-topbar);
     --welcome-page: var(--surface-shell);
     --welcome-canvas: var(--surface-shell);
     --surface-content: #262626;
-    --surface-card: #262626;
-    --surface-card-strong: #262626;
+    --surface-card: var(--surface-content);
+    --surface-card-strong: var(--surface-content);
     --surface-control: #ffffff0d;
     --surface-control-hover: #ffffff1a;
-    --surface-control-solid: #262626;
-    --surface-control-solid-hover: #404040;
+    --surface-control-solid: var(--surface-raised-control);
+    --surface-control-solid-hover: var(--surface-raised-control-hover);
     --surface-raised: var(--surface-raised-control);
     --surface-raised-control: #262626;
     --surface-raised-control-hover: #404040;
-    --surface-hover: #ffffff0d;
+    --surface-hover: var(--surface-control);
     --surface-active: hsl(var(--primary) / 0.18);
     --surface-page-solid: var(--surface-shell);
-    --kanban-column-background: #262626;
+    --surface-track: #262626;
+    --surface-track-hover: color-mix(
+      in srgb,
+      var(--surface-track) 88%,
+      var(--text-strong)
+    );
+    --surface-thumb: var(--surface-raised-control-hover);
+    --surface-settings-item: var(--surface-content);
+    --kanban-column-background: var(--surface-content);
     --border-subtle: #ffffff1a;
     --border-strong: #525252;
     --workspace-divider-color: hsl(var(--border) / 0.9);
@@ -412,11 +495,13 @@
     --highlight-edge: hsl(210 30% 80% / 0.12);
     --surface-wash: linear-gradient(
       180deg,
-      #262626 0%,
-      #1b1b1b 28%,
-      #1b1b1b 72%,
-      #262626 100%
+      var(--surface-content) 0%,
+      var(--surface-shell) 28%,
+      var(--surface-shell) 72%,
+      var(--surface-content) 100%
     );
+    --shadow-ink: 210 40% 2%;
+    --live-read: 213 94% 72%;
     --shadow-shell: 0 18px 42px hsl(210 40% 2% / 0.55);
     --shadow-popover: 0 18px 42px hsl(210 40% 2% / 0.62);
     --shadow-glass:
@@ -439,19 +524,6 @@
     --composer-token-usage-ring: hsl(var(--primary));
     --composer-token-usage-track: hsl(210 30% 80% / 0.2);
     --composer-token-usage-core: var(--surface-content);
-    --color-background-body: #1b1b1b;
-    --color-background-card: #262626;
-    --color-background-muted: #1b1b1b;
-    --color-background-surface: #262626;
-    --color-background-popover: #262626;
-    --color-accent: hsl(var(--primary));
-    --color-accent-muted: hsl(var(--primary) / 0.12);
-    --color-on-accent: hsl(var(--primary-foreground));
-    --color-text-primary: #fafafa;
-    --color-text-secondary: #a3a3a3;
-    --color-text-accent: hsl(var(--primary));
-    --color-icon-primary: #fafafa;
-    --color-icon-accent: hsl(var(--primary));
     --switch-checked-track: hsl(var(--primary));
     --switch-checked-thumb: hsl(var(--primary-foreground));
     --switch-checked-border: hsl(var(--primary) / 0.85);
@@ -560,10 +632,6 @@
 
   /* Desktop notifications are content surfaces: fully opaque, not glass. The
      window shell stays transparent; only the cards paint solid. */
-  html.desktop-toast-shell .legacy-design {
-    --surface-popover: var(--surface-dialog);
-  }
-
   html.desktop-toast-shell .legacy-design .vu-toast-surface {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -610,36 +678,29 @@
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
-    --color-error: #e7000b;
-    --color-error-muted: #ffe2e2;
-    --color-neutral: #0000000f;
+    --color-error: var(--status-danger-text);
+    --color-error-muted: color-mix(
+      in srgb,
+      hsl(var(--destructive)) 14%,
+      var(--surface-content)
+    );
+    --color-neutral: var(--surface-control);
     --color-overlay-hover: var(--surface-control);
     --color-overlay-pressed: var(--surface-control-hover);
-    --color-border-emphasized: #d4d4d4;
-    --color-background-body: #ffffff;
-    --color-background-card: #ffffff;
-    --color-background-muted: #f1f1f1;
-    --color-background-surface: #ffffff;
-    --color-background-popover: #ffffff;
-    --color-text-primary: #171717;
-    --color-text-secondary: #525252;
-    --color-icon-primary: #171717;
+    --color-border-emphasized: var(--border-strong);
+    --color-background-body: var(--surface-shell);
+    --color-background-card: var(--surface-content);
+    --color-background-muted: var(--surface-topbar);
+    --color-background-surface: var(--surface-content);
+    --color-background-popover: var(--surface-popover);
+    --color-text-primary: var(--text-strong);
+    --color-text-secondary: var(--text-muted);
+    --color-icon-primary: var(--text-strong);
   }
 
   .legacy-design.dark [data-astryx-theme],
   .dark .legacy-design [data-astryx-theme] {
-    --color-error: #ff6467;
-    --color-error-muted: #460809;
-    --color-border-emphasized: #525252;
-    --color-neutral: #ffffff1a;
-    --color-background-body: #1b1b1b;
-    --color-background-card: #262626;
-    --color-background-muted: #1b1b1b;
-    --color-background-surface: #262626;
-    --color-background-popover: #262626;
-    --color-text-primary: #fafafa;
-    --color-text-secondary: #a3a3a3;
-    --color-icon-primary: #fafafa;
+    --color-neutral: var(--surface-control-hover);
   }
 
   .legacy-design .session-composer-attachment-drawer {
@@ -1221,34 +1282,20 @@ html.dark {
   ) {
   border-width: 1px !important;
   border-style: solid !important;
-  border-color: var(--color-border-emphasized, #d4d4d4) !important;
+  border-color: var(--color-border-emphasized, var(--border-strong)) !important;
   border-radius: var(
     --_field-radius,
     var(--radius-element, var(--radius))
   ) !important;
-  background-color: var(--color-background-surface, #ffffff) !important;
+  background-color: var(
+    --color-background-surface,
+    var(--surface-content)
+  ) !important;
   box-sizing: border-box !important;
   transition:
     border-color 125ms ease,
     box-shadow 125ms ease !important;
   outline: none !important;
-}
-
-.legacy-design.dark
-  :is(
-    .astryx-text-input,
-    .astryx-textarea,
-    .astryx-selector[data-variant='input']
-  ),
-.dark
-  .legacy-design
-  :is(
-    .astryx-text-input,
-    .astryx-textarea,
-    .astryx-selector[data-variant='input']
-  ) {
-  border-color: var(--color-border-emphasized, #525252) !important;
-  background-color: var(--color-background-surface, #262626) !important;
 }
 
 .legacy-design
@@ -1258,7 +1305,11 @@ html.dark {
     .astryx-selector[data-variant='input']
   ):hover:not(:focus-within):not([aria-disabled='true']):not(:has(:disabled)) {
   box-shadow: inset 0 0 0 2px
-    color-mix(in srgb, var(--color-border-emphasized, #d4d4d4) 30%, transparent) !important;
+    color-mix(
+      in srgb,
+      var(--color-border-emphasized, var(--border-strong)) 30%,
+      transparent
+    ) !important;
 }
 
 .legacy-design
@@ -1267,12 +1318,9 @@ html.dark {
     .astryx-textarea,
     .astryx-selector[data-variant='input']
   ):focus-within {
-  border-color: var(
-    --color-accent,
-    hsl(var(--primary, 0 0% 10.59%))
-  ) !important;
+  border-color: var(--color-accent, hsl(var(--primary))) !important;
   box-shadow: inset 0 0 0 2px
-    var(--color-accent-muted, hsl(var(--primary, 0 0% 10.59%) / 0.12)) !important;
+    var(--color-accent-muted, hsl(var(--primary) / 0.12)) !important;
 }
 
 .legacy-design
@@ -1288,7 +1336,7 @@ html.dark {
     .astryx-selector[data-variant='input']
   ):has(:disabled) {
   opacity: 0.5 !important;
-  border-color: var(--color-border-emphasized, #d4d4d4) !important;
+  border-color: var(--color-border-emphasized, var(--border-strong)) !important;
   box-shadow: none !important;
   cursor: not-allowed !important;
 }
@@ -1328,10 +1376,10 @@ html.dark {
 }
 
 .legacy-design .astryx-segmented-control {
-  --color-neutral: light-dark(#e5e5e5, #262626);
+  --color-neutral: var(--surface-track);
   --radius-element: 999px;
   --_segmented-control-radius: 999px;
-  background-color: light-dark(#e5e5e5, #262626) !important;
+  background-color: var(--surface-track) !important;
   border-radius: 999px;
 }
 
@@ -1350,7 +1398,7 @@ html.dark {
 }
 
 .legacy-design .astryx-segmented-control-item[aria-checked='true'] {
-  background-color: light-dark(#ffffff, #404040) !important;
+  background-color: var(--surface-thumb) !important;
   box-shadow: var(--shadow-low);
 }
 
@@ -1360,7 +1408,7 @@ html.dark {
     [aria-pressed='true'],
     .is-active
   ) {
-  background-color: light-dark(#ffffff, #404040) !important;
+  background-color: var(--surface-thumb) !important;
   color: var(--text-strong);
   box-shadow: var(--shadow-low);
 }
@@ -1444,7 +1492,7 @@ html.dark {
   max-height: calc(100dvh - 16px);
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface-popover);
   color: hsl(var(--popover-foreground));
   box-shadow: none;
   backdrop-filter: none;
@@ -1452,13 +1500,6 @@ html.dark {
   font-family: var(--font-ui);
   font-size: 0.8125rem;
   line-height: 1.25rem;
-}
-
-.legacy-design.dark [popover]:has([role='listbox']) > div,
-.dark .legacy-design [popover]:has([role='listbox']) > div,
-.dark [popover]:has([role='listbox']) > div {
-  background: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
 }
 
 .legacy-design [popover]:has([role='listbox']) [role='listbox'],
@@ -1543,10 +1584,7 @@ html.dark {
   :is(.astryx-button, .astryx-icon-button)[data-variant='secondary']:not(
     .raised-control
   ) {
-  background-color: var(
-    --surface-control-solid,
-    var(--color-neutral, #e5e5e5)
-  ) !important;
+  background-color: var(--surface-control-solid) !important;
   color: var(--text-strong, var(--color-text-primary)) !important;
   border-radius: var(
     --_button-radius,
@@ -1791,7 +1829,7 @@ html.dark {
 
 @layer components {
   .legacy-design.web-connect {
-    --web-connect-void: #f4f5f7;
+    --web-connect-void: var(--surface-topbar);
     position: relative;
     min-height: 100vh;
     overflow: hidden;
@@ -1802,7 +1840,11 @@ html.dark {
 
   .dark .legacy-design.web-connect,
   .legacy-design.dark.web-connect {
-    --web-connect-void: #0e1319;
+    --web-connect-void: color-mix(
+      in srgb,
+      var(--surface-shell) 60%,
+      hsl(var(--shadow-ink))
+    );
   }
 
   .legacy-design.web-connect::before {
@@ -1815,8 +1857,8 @@ html.dark {
     transform: translateX(-50%);
     background: radial-gradient(
       ellipse 70% 58% at 50% 52%,
-      rgb(63 108 196 / 0.58) 0%,
-      rgb(63 108 196 / 0.22) 38%,
+      hsl(var(--scene-glow) / 0.58) 0%,
+      hsl(var(--scene-glow) / 0.22) 38%,
       transparent 70%
     );
   }
@@ -1825,8 +1867,8 @@ html.dark {
   .legacy-design.dark.web-connect::before {
     background: radial-gradient(
       ellipse 70% 58% at 50% 52%,
-      rgb(63 108 196 / 0.78) 0%,
-      rgb(63 108 196 / 0.32) 38%,
+      hsl(var(--scene-glow) / 0.78) 0%,
+      hsl(var(--scene-glow) / 0.32) 38%,
       transparent 70%
     );
   }
@@ -1939,30 +1981,17 @@ html.dark {
 /* Settings window: white page, gray items. The nav wash lives on --surface-wash. */
 @layer base {
   .settings-page {
-    --surface-content: #f1f1f1;
-    --surface-card: #f1f1f1;
-    --surface-card-strong: #f1f1f1;
-    --settings-button-primary-bg: #1b1b1b;
-    --settings-button-primary-hover-bg: #262626;
-    --settings-button-primary-fg: #ffffff;
-    --settings-button-secondary-bg: #e5e5e5;
-    --settings-button-secondary-hover-bg: #d4d4d4;
-    --settings-button-secondary-fg: #171717;
-    background-color: var(--surface-shell);
-    font-family: var(--font-sans);
-  }
-
-  .dark .settings-page {
-    --surface-content: #262626;
-    --surface-card: #262626;
-    --surface-card-strong: #262626;
+    --surface-content: var(--surface-settings-item);
+    --surface-card: var(--surface-settings-item);
+    --surface-card-strong: var(--surface-settings-item);
     --settings-button-primary-bg: hsl(var(--primary));
     --settings-button-primary-hover-bg: hsl(var(--primary) / 0.9);
     --settings-button-primary-fg: hsl(var(--primary-foreground));
-    --settings-button-secondary-bg: #262626;
-    --settings-button-secondary-hover-bg: #404040;
-    --settings-button-secondary-fg: #fafafa;
+    --settings-button-secondary-bg: var(--surface-track);
+    --settings-button-secondary-hover-bg: var(--surface-track-hover);
+    --settings-button-secondary-fg: var(--text-strong);
     background-color: var(--surface-shell);
+    font-family: var(--font-sans);
   }
 
   .settings-page .settings-card {
@@ -2326,24 +2355,15 @@ html.dark {
     height: 100%;
   }
 
+  /* Painted from the mode's active color theme via inline custom properties
+     (ThemePreviewCanvas), so each card shows the palette it will apply. */
   .settings-page .settings-theme-preview__canvas {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
     height: 100%;
     padding: 0.5rem;
-  }
-
-  .settings-page .settings-theme-preview__canvas[data-mode='light'] {
-    background: #ffffff;
-    --theme-preview-surface: #ffffff;
-    --theme-preview-bar: rgba(0, 0, 0, 0.18);
-  }
-
-  .settings-page .settings-theme-preview__canvas[data-mode='dark'] {
-    background: #1b1b1b;
-    --theme-preview-surface: #262626;
-    --theme-preview-bar: rgba(255, 255, 255, 0.26);
+    background: var(--theme-preview-paper);
   }
 
   .settings-page .settings-theme-preview__header {
@@ -2368,11 +2388,32 @@ html.dark {
     width: 50%;
     height: 4px;
     border-radius: 999px;
-    background: var(--theme-preview-bar);
+    background: color-mix(in srgb, var(--theme-preview-ink) 22%, transparent);
   }
 
   .settings-page .settings-theme-preview__bar.is-wide {
     width: 66%;
+  }
+
+  .settings-page .color-theme-swatch {
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: none;
+    cursor: pointer;
+  }
+
+  .settings-page .color-theme-swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  .settings-page .color-theme-swatch::-webkit-color-swatch {
+    border: none;
+    border-radius: 0;
   }
 
   .settings-page .settings-theme-card__caption {
@@ -2612,8 +2653,7 @@ html.dark {
     flex: none;
     padding: 0.5rem;
     border-radius: var(--radius);
-    /* QR modules must stay on white so phones can scan in dark mode. */
-    background: #fff;
+    background: var(--qr-paper);
   }
 
   .settings-page .settings-pairing-qr__placeholder {
@@ -3503,7 +3543,7 @@ html.dark {
   }
 
   .settings-page
-    input:not([type='checkbox']):not([type='radio']):not(
+    input:not([type='checkbox']):not([type='radio']):not([type='color']):not(
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
@@ -3524,7 +3564,7 @@ html.dark {
   }
 
   .settings-page
-    input:not([type='checkbox']):not([type='radio']):not(
+    input:not([type='checkbox']):not([type='radio']):not([type='color']):not(
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
@@ -3580,7 +3620,7 @@ html.dark {
   }
 
   .settings-page
-    input:not([type='checkbox']):not([type='radio']):not(
+    input:not([type='checkbox']):not([type='radio']):not([type='color']):not(
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
@@ -3840,16 +3880,14 @@ html.dark {
     box-shadow: none;
   }
 
-  /* Flowing blue gradient for the selected option's name. Explicit blues are
-     a documented exception to the token-only rule: the selection accent is
-     specified as blue in both themes, independent of --primary. */
+  /* Flowing blue gradient for the selected option's name. */
   .composer-option-flow {
     background-image: linear-gradient(
       90deg,
-      hsl(220 60% 42%),
-      hsl(220 55% 58%),
-      hsl(220 50% 70%),
-      hsl(220 60% 42%)
+      hsl(var(--live-blue-deep)),
+      hsl(var(--live-blue)),
+      hsl(var(--live-blue-soft)),
+      hsl(var(--live-blue-deep))
     );
     background-size: 250% 100%;
     -webkit-background-clip: text;
@@ -3868,16 +3906,14 @@ html.dark {
   }
 
   /* Fast mode is carried by the model label instead of a trailing icon, so
-     the compact session summary never grows when the mode changes. The
-     blue-violet spectrum is a deliberate live-state exception to the normal
-     single-accent rule. */
+     the compact session summary never grows when the mode changes. */
   .composer-fast-model-flow {
     background-image: linear-gradient(
       90deg,
-      hsl(220 58% 55%),
-      hsl(252 91% 68%),
-      hsl(280 82% 66%),
-      hsl(220 58% 55%)
+      hsl(var(--live-blue)),
+      hsl(var(--live-indigo)),
+      hsl(var(--live-violet)),
+      hsl(var(--live-blue))
     );
     background-size: 240% 100%;
     -webkit-background-clip: text;
@@ -3905,31 +3941,28 @@ html.dark {
   /* Browser share chip: read is solid blue; control reuses Fast's
      blue-violet flow on the label, with a matching hue on the glyph. */
   .browser-share-grant-read {
-    color: hsl(217 91% 53%);
-  }
-  .dark .browser-share-grant-read {
-    color: hsl(213 94% 72%);
+    color: hsl(var(--live-read));
   }
   .browser-share-grant-control-icon {
-    color: hsl(252 91% 62%);
+    color: hsl(var(--live-indigo));
     animation: browser-share-grant-control-icon 2.4s linear infinite;
   }
   @keyframes browser-share-grant-control-icon {
     0%,
     100% {
-      color: hsl(220 58% 55%);
+      color: hsl(var(--live-blue));
     }
     45% {
-      color: hsl(252 91% 68%);
+      color: hsl(var(--live-indigo));
     }
     70% {
-      color: hsl(280 82% 66%);
+      color: hsl(var(--live-violet));
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .browser-share-grant-control-icon {
       animation: none;
-      color: hsl(252 91% 62%);
+      color: hsl(var(--live-indigo));
     }
   }
 
@@ -4135,7 +4168,7 @@ html.dark {
   }
 
   .product-context-menu {
-    background: #ffffff;
+    background: var(--surface-popover);
     border: 1px solid hsl(var(--border));
     box-shadow: none;
     backdrop-filter: none;
@@ -4146,16 +4179,9 @@ html.dark {
     line-height: 1.25rem;
   }
 
-  .legacy-design.dark .product-context-menu,
-  .dark .legacy-design .product-context-menu,
-  .dark .product-context-menu {
-    background: hsl(var(--popover));
-    border-color: hsl(var(--border));
-  }
-
   .product-context-menu
     :is([role='menuitem'], [role='option']).text-destructive {
-    color: hsl(var(--destructive));
+    color: var(--status-danger-text);
   }
 
   .product-context-menu
@@ -4165,7 +4191,7 @@ html.dark {
   .product-context-menu
     :is([role='menuitem'], [role='option']).text-destructive[data-highlighted] {
     background: hsl(var(--destructive) / 0.1);
-    color: hsl(var(--destructive));
+    color: var(--status-danger-text);
   }
 
   .product-context-menu
@@ -5180,30 +5206,21 @@ html.dark {
 
   .project-rail-inline-stage {
     --project-rail-glass: var(--surface-shell);
-    --project-rail-glass-edge: #00000014;
-    --project-rail-glass-shadow: #00000033;
-    --project-rail-control: #ffffff;
-    --project-rail-control-hover: #f5f5f5;
-    --project-rail-control-border: #00000014;
-    --project-rail-control-shadow: #00000024;
-    --project-rail-ink: #171717;
-    --project-rail-muted: #525252;
-    --project-rail-divider: #00000014;
+    --project-rail-glass-edge: var(--border-subtle);
+    --project-rail-glass-shadow: hsl(var(--shadow-ink) / 0.2);
+    --project-rail-control: var(--surface-raised-control);
+    --project-rail-control-hover: var(--surface-raised-control-hover);
+    --project-rail-control-border: var(--border-subtle);
+    --project-rail-control-shadow: hsl(var(--shadow-ink) / 0.14);
+    --project-rail-ink: var(--text-strong);
+    --project-rail-muted: var(--text-muted);
+    --project-rail-divider: var(--border-subtle);
     --project-rail-accent: hsl(var(--primary));
   }
 
   .dark .project-rail-inline-stage {
-    --project-rail-glass: #1b1b1b;
-    --project-rail-glass-edge: #ffffff1a;
-    --project-rail-glass-shadow: #00000080;
-    --project-rail-control: #262626;
-    --project-rail-control-hover: #404040;
-    --project-rail-control-border: #ffffff1a;
-    --project-rail-control-shadow: #00000066;
-    --project-rail-ink: #fafafa;
-    --project-rail-muted: #a3a3a3;
-    --project-rail-divider: #ffffff1a;
-    --project-rail-accent: hsl(var(--primary));
+    --project-rail-glass-shadow: hsl(var(--shadow-ink) / 0.5);
+    --project-rail-control-shadow: hsl(var(--shadow-ink) / 0.4);
   }
 
   .project-rail-inline-host {
@@ -5231,7 +5248,7 @@ html.dark {
     border-radius: var(--radius);
     background: var(--project-rail-glass);
     box-shadow:
-      inset 0 1px 0 hsl(0 0% 100% / 0.45),
+      inset 0 1px 0 var(--highlight-edge),
       0 12px 30px var(--project-rail-glass-shadow);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
@@ -6995,7 +7012,7 @@ html.dark {
   .agent-question-submit {
     border-color: hsl(var(--primary));
     background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground, 0 0% 100%));
+    color: hsl(var(--primary-foreground));
   }
 
   .agent-question-submit:hover:not(:disabled) {
@@ -7690,7 +7707,7 @@ html.dark {
   @keyframes settings-search-flash {
     0%,
     18% {
-      background-color: #ffe566;
+      background-color: hsl(var(--warning) / 0.35);
     }
     100% {
       background-color: transparent;
@@ -7704,7 +7721,7 @@ html.dark {
 
   @media (prefers-reduced-motion: reduce) {
     .settings-search-flash {
-      background-color: #ffe566;
+      background-color: hsl(var(--warning) / 0.35);
       animation: none;
     }
   }
@@ -9275,28 +9292,29 @@ html.dark {
 }
 
 @media (prefers-contrast: more) {
-  .legacy-design {
+  .legacy-design,
+  .legacy-design.dark,
+  .dark .legacy-design {
     --text-muted: var(--text-primary);
     --text-subtle: var(--text-primary);
-    --border-subtle: hsl(220 16% 28% / 0.28);
-    --border-strong: hsl(220 16% 28% / 0.44);
+    --border-subtle: color-mix(in srgb, var(--text-strong) 28%, transparent);
+    --border-strong: color-mix(in srgb, var(--text-strong) 44%, transparent);
     --border-glass: var(--border-strong);
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-dialog);
     --focus-ring: hsl(var(--primary) / 0.52);
   }
 
-  .legacy-design.dark,
-  .dark .legacy-design {
-    --border-subtle: hsl(210 30% 80% / 0.28);
-    --border-strong: hsl(210 30% 80% / 0.44);
-    --surface-popover: var(--surface-dialog);
-  }
-
   .project-rail-inline-stage {
-    --project-rail-glass: var(--surface-shell);
-    --project-rail-glass-edge: hsl(220 18% 28% / 0.7);
-    --project-rail-control-border: hsl(220 18% 28% / 0.82);
+    --project-rail-glass-edge: color-mix(
+      in srgb,
+      var(--text-strong) 70%,
+      transparent
+    );
+    --project-rail-control-border: color-mix(
+      in srgb,
+      var(--text-strong) 82%,
+      transparent
+    );
   }
 }
 
@@ -10622,7 +10640,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 3px;
   margin: 0 16px 10px;
   border-radius: 999px;
-  background-color: light-dark(#e5e5e5, #262626);
+  background-color: var(--surface-track);
 }
 
 .settings-page .agent-account-session-actions .agent-auth-mode-submodes {
@@ -10657,7 +10675,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-submode.is-active {
-  background-color: light-dark(#ffffff, #404040);
+  background-color: var(--surface-thumb);
   color: var(--text-strong);
   box-shadow: var(--shadow-low);
 }
@@ -10671,7 +10689,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 3px;
   padding: 3px;
   border-radius: 999px;
-  background-color: light-dark(#e5e5e5, #262626);
+  background-color: var(--surface-track);
 }
 
 .settings-page .agent-auth-mode-tabs > button {
@@ -10708,7 +10726,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-tabs > button.is-active {
-  background-color: light-dark(#ffffff, #404040);
+  background-color: var(--surface-thumb);
   color: var(--text-strong);
   box-shadow: var(--shadow-low);
 }
@@ -16588,9 +16606,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .canvas-surface .canvas-group-slot {
   box-sizing: border-box;
   border: 1.5px dashed
-    color-mix(in oklab, var(--primary) 55%, var(--border-strong));
+    color-mix(in oklab, hsl(var(--primary)) 55%, var(--border-strong));
   border-radius: var(--radius);
-  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  background: color-mix(in oklab, hsl(var(--primary)) 8%, transparent);
 }
 
 .canvas-surface .canvas-session-group {
@@ -16618,8 +16636,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   .session-hub-card,
 .canvas-surface .react-flow__node.canvas-drop-target .canvas-session-group {
   border-width: 2px;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 22%, transparent);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 4px
+    color-mix(in oklab, hsl(var(--primary)) 22%, transparent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -16634,7 +16653,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 @keyframes canvas-drop-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 28%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in oklab, hsl(var(--primary)) 28%, transparent);
   }
   100% {
     box-shadow: 0 0 0 8px transparent;
@@ -17036,17 +17056,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 48px;
   flex-shrink: 0;
   border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
-}
-
-.dark .settings-page .dsh-card-icon.product-plugin-icon,
-.dark .settings-page .dsh-plugins-page .product-plugin-icon,
-.dark .settings-page .dsh-detail-page .product-plugin-icon,
-.dark .settings-page .dsh-plugins-page .product-plugin-card-logo {
+  border: 1px solid var(--border-subtle);
   background: var(--surface-raised);
-  border-color: var(--border-subtle);
+  box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.03);
 }
 
 .settings-page .product-plugin-icon > svg.product-plugin-artwork-svg,
@@ -17070,10 +17082,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   background: linear-gradient(
     135deg,
-    #ffffff 0%,
-    color-mix(in srgb, hsl(var(--primary)) 5%, #ffffff) 100%
+    var(--surface-shell) 0%,
+    color-mix(in srgb, hsl(var(--primary)) 5%, var(--surface-shell)) 100%
   );
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px hsl(var(--shadow-ink) / 0.04);
 }
 
 .dark .settings-page .dsh-market-carousel {
@@ -17113,15 +17125,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 20px;
   padding: 0 8px;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
+  background: hsl(var(--info) / 0.14);
+  color: var(--status-info-text);
   font-size: 0.6875rem;
   font-weight: 600;
-}
-
-.dark .settings-page .dsh-carousel-kicker {
-  background: rgba(96, 165, 250, 0.16);
-  color: #60a5fa;
 }
 
 .settings-page .dsh-carousel-kicker > svg {
@@ -17436,8 +17443,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .dsh-state-dot[data-state='done'] {
-  background: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+  background: hsl(var(--success));
+  box-shadow: 0 0 0 2px hsl(var(--success) / 0.18);
 }
 
 .settings-page .dsh-card-facts,
@@ -17833,7 +17840,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
-  color: #10b981;
+  color: var(--status-success-text);
 }
 
 .settings-page .dsh-telemetry-hero-value {
@@ -17849,11 +17856,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   width: 100%;
   height: 54px;
   margin-top: 2px;
-  color: #2563eb;
-}
-
-.dark .settings-page .dsh-telemetry-sparkline {
-  color: #60a5fa;
+  color: var(--status-info-text);
 }
 
 .settings-page .dsh-telemetry-sparkline-svg {
@@ -17905,8 +17908,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .dsh-telemetry-star-icon {
   width: 14px;
   height: 14px;
-  color: #f59e0b;
-  fill: #f59e0b;
+  color: hsl(var(--warning));
+  fill: hsl(var(--warning));
 }
 
 .settings-page .dsh-telemetry-dot {
@@ -17970,18 +17973,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 20px;
   padding: 0 8px;
   border-radius: var(--radius);
-  border: 1px solid rgba(16, 185, 129, 0.28);
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
+  border: 1px solid hsl(var(--success) / 0.28);
+  background: hsl(var(--success) / 0.14);
+  color: var(--status-success-text);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-.dark .settings-page .dsh-telemetry-audit-badge {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
 }
 
 @media (max-width: 860px) {

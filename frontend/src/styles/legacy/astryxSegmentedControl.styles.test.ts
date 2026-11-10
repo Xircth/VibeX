@@ -43,9 +43,7 @@ describe('Astryx SegmentedControl chrome', () => {
       });
     });
 
-    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
-    );
+    expect(decls['background-color']).toBe('var(--surface-track)');
     expect(decls['border-radius']).toBe('999px');
     expect(decls['--_segmented-control-radius']).toBe('999px');
     expect(decls['--color-neutral']).not.toContain('surface-raised-control');
@@ -71,7 +69,7 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(decls['padding-inline']).toBe('12px');
   });
 
-  it('paints the selected segment white', () => {
+  it('paints the selected segment with the thumb surface', () => {
     const decls: Record<string, string> = {};
     parse(stylesheet).walkRules((rule) => {
       if (
@@ -85,9 +83,7 @@ describe('Astryx SegmentedControl chrome', () => {
       });
     });
 
-    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#ffffff,#404040)'
-    );
+    expect(decls['background-color']).toBe('var(--surface-thumb)');
   });
 
   it('styles Agent auth mode tabs and submodes as capsule segmented controls', () => {
@@ -124,9 +120,7 @@ describe('Astryx SegmentedControl chrome', () => {
 
     expect(tabTrack['border-radius']).toBe('999px');
     expect(tabTrack.padding).toBe('3px');
-    expect(tabTrack['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
-    );
+    expect(tabTrack['background-color']).toBe('var(--surface-track)');
     expect(tabButton['border-radius']).toBe('999px');
     expect(tabButton.height).toBe('26px');
     expect(tabButton.padding).toBe('0 14px');
@@ -135,9 +129,7 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(tabIcon.height).toBe('13px');
     expect(submodeTrack['border-radius']).toBe('999px');
     expect(submodeTrack.padding).toBe('3px');
-    expect(submodeTrack['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
-    );
+    expect(submodeTrack['background-color']).toBe('var(--surface-track)');
     expect(submodeButton['border-radius']).toBe('999px');
     expect(submodeButton.height).toBe('26px');
     expect(submodeButton.padding).toBe('0 14px');

@@ -110,8 +110,8 @@ export function UserAgentDefinitionPanel({
       </div>
 
       {definition.reinstall_required ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/25 bg-amber-500/8 px-4 py-3 text-xs">
-          <div className="flex min-w-0 items-start gap-2 text-amber-700 dark:text-amber-300">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/25 bg-warning/[0.08] px-4 py-3 text-xs">
+          <div className="flex min-w-0 items-start gap-2 text-warning">
             <AlertTriangle
               aria-hidden="true"
               className="mt-0.5 h-3.5 w-3.5 shrink-0"

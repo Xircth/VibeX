@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { attachTerminalInput } from '@/utils/terminalInputAdapter';
 import { getTerminalTheme } from '@/utils/terminalTheme';
+import { COLOR_THEME_CHANGED_EVENT } from '@/lib/theme/colorThemeStore';
 import type { TerminalBusyEvent } from '@/lib/workspaceTerminalTabs';
 import { createWriteQueue, type WriteQueue } from '@/lib/terminal/writeQueue';
 import { parseTerminalOutputPayload } from '@/lib/terminal/outputPayload';
@@ -273,7 +274,7 @@ export function useTauriTerminal({
   const sessionIdRef = useRef<string | null>(sessionId ?? null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const themeUnlistenRef = useRef<UnlistenFn | null>(null);
-  const themeObserverRef = useRef<MutationObserver | null>(null);
+  const themeObserverRef = useRef<{ disconnect: () => void } | null>(null);
   const containerElRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const onSessionIdRef = useRef(onSessionId);
@@ -518,7 +519,16 @@ export function useTauriTerminal({
           attributeFilter: ['class', 'style'],
         });
       }
-      themeObserverRef.current = themeObserver;
+      window.addEventListener(COLOR_THEME_CHANGED_EVENT, applyCurrentTheme);
+      themeObserverRef.current = {
+        disconnect: () => {
+          themeObserver.disconnect();
+          window.removeEventListener(
+            COLOR_THEME_CHANGED_EVENT,
+            applyCurrentTheme
+          );
+        },
+      };
 
       terminal.attachCustomKeyEventHandler((event) => {
         if (!shouldCopyTerminalSelection(event, terminal.hasSelection())) {

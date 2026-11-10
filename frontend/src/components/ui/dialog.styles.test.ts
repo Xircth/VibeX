@@ -30,7 +30,8 @@ describe('global modal surfaces', () => {
       ".legacy-design dialog[aria-modal='true']"
     );
 
-    expect(lightTheme.get('--surface-dialog')).toBe('#ffffff');
+    expect(lightTheme.get('--surface-dialog')).toBe('var(--surface-popover)');
+    expect(lightTheme.get('--surface-popover')).toBe('#ffffff');
     expect(sharedDialog.get('background')).toBe('var(--surface-dialog)');
     expect(sharedDialog.get('backdrop-filter')).toBe('none');
     expect(customDialog.get('background')).toBe('var(--surface-dialog)');

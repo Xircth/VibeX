@@ -8,6 +8,9 @@ export const SETTINGS_CHANGED_EVENT = 'vibex://settings-file-changed';
 const STORAGE_KEYS = {
   'vibex:ui-zoom': 'ui_zoom',
   'vibex:accent-color': 'accent_color',
+  'vibex:color-theme-light': 'color_theme_light',
+  'vibex:color-theme-dark': 'color_theme_dark',
+  'vibex:user-color-themes': 'user_color_themes',
   'vibex:mono-font': 'mono_font',
   'vibex:ui-language': 'language',
   'vibex:app-icon-style': 'app_icon_style',
@@ -154,4 +157,3 @@ export function persistFrontendPreference(
       lastLocalPreferenceWriteAt = Date.now();
     });
 }
-

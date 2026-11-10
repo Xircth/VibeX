@@ -72,7 +72,7 @@ export function HostHtmlPreview({
       src={source}
       title={displayPath}
       sandbox={PREVIEW_SANDBOX}
-      className="h-full w-full border-0 bg-white"
+      className="h-full w-full border-0 bg-[var(--document-paper)]"
     />
   );
 }

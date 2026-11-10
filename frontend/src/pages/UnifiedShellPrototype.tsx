@@ -350,7 +350,7 @@ export function UnifiedShellPrototype() {
               <img
                 src={logoRecreated}
                 alt="VibeX"
-                className="h-5 w-5 shrink-0 rounded-[4px]"
+                className="h-5 w-5 shrink-0 rounded-none"
               />
               <span className="hidden sm:inline-flex items-center gap-1 text-[11px] opacity-75 group-hover:opacity-100">
                 <ArrowLeft className="h-3 w-3" />
@@ -482,7 +482,7 @@ export function UnifiedShellPrototype() {
               data-testid="top-tab-workspace"
               onClick={() => setTopMode('workspace')}
               className={cn(
-                'flex h-7 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-medium transition-all',
+                'flex h-7 items-center gap-1.5 rounded px-3.5 text-xs font-medium transition-all',
                 topMode === 'workspace'
                   ? darkShell
                     ? 'bg-zinc-800 text-white shadow-sm'
@@ -502,7 +502,7 @@ export function UnifiedShellPrototype() {
               data-testid="top-tab-dashboard"
               onClick={() => setTopMode('dashboard')}
               className={cn(
-                'flex h-7 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-medium transition-all',
+                'flex h-7 items-center gap-1.5 rounded px-3.5 text-xs font-medium transition-all',
                 topMode === 'dashboard'
                   ? darkShell
                     ? 'bg-zinc-800 text-white shadow-sm'
@@ -592,8 +592,7 @@ export function UnifiedShellPrototype() {
                     ] as const
                   ).map((item) => {
                     const Icon = item.icon;
-                    const isSelected =
-                      leftDrawerOpen && leftPanel === item.id;
+                    const isSelected = leftDrawerOpen && leftPanel === item.id;
                     return (
                       <button
                         key={item.id}
@@ -971,7 +970,9 @@ export function UnifiedShellPrototype() {
               {leftPanel === 'bots' && (
                 <div className="flex flex-1 flex-col overflow-hidden">
                   <div className="mb-2 flex items-center justify-between px-2">
-                    <span className="text-xs font-semibold">Bot 与协作空间</span>
+                    <span className="text-xs font-semibold">
+                      Bot 与协作空间
+                    </span>
                     <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                       跨项目常驻
                     </span>
@@ -1516,7 +1517,8 @@ export function UnifiedShellPrototype() {
                               tag: 'UI重构',
                             },
                             {
-                              title: '移除页面级 Worktree 切换，改为会话内置属性',
+                              title:
+                                '移除页面级 Worktree 切换，改为会话内置属性',
                               bot: '@系统架构师',
                               wt: 'wt/session-worktree (会话内置)',
                               tag: '核心模型',
@@ -1528,7 +1530,8 @@ export function UnifiedShellPrototype() {
                           count: 1,
                           items: [
                             {
-                              title: '归并独立协作空间 Tab 至工作区左侧 Bot 面板',
+                              title:
+                                '归并独立协作空间 Tab 至工作区左侧 Bot 面板',
                               bot: '#Shell重构攻坚群',
                               wt: 'wt/merge-collab-tab (会话内置)',
                               tag: '导航收敛',
@@ -1547,7 +1550,8 @@ export function UnifiedShellPrototype() {
                               tag: '桌面端',
                             },
                             {
-                              title: 'VibeX 彩色全息光感全套图标 SVG/PNG 规范化',
+                              title:
+                                'VibeX 彩色全息光感全套图标 SVG/PNG 规范化',
                               bot: '@UI设计师',
                               wt: '已合并回 main',
                               tag: '品牌视觉',
@@ -1629,7 +1633,8 @@ export function UnifiedShellPrototype() {
                             {currentProject.rootPath}
                           </div>
                           <div className="mt-1 text-xs opacity-65">
-                            基准分支：{currentProject.defaultBranch} · 页面环境永不偏离主目录
+                            基准分支：{currentProject.defaultBranch} ·
+                            页面环境永不偏离主目录
                           </div>
                         </div>
 
@@ -1651,7 +1656,8 @@ export function UnifiedShellPrototype() {
                             3 个挂载中
                           </div>
                           <div className="mt-1 text-xs opacity-65">
-                            每个并发会话自动维护独立 Worktree，结束后自动归并回收
+                            每个并发会话自动维护独立
+                            Worktree，结束后自动归并回收
                           </div>
                         </div>
 
@@ -1693,7 +1699,8 @@ export function UnifiedShellPrototype() {
                           )}
                         >
                           <span>
-                            会话内置 Worktree 托管列表（与具体 Conversation 强绑定）
+                            会话内置 Worktree 托管列表（与具体 Conversation
+                            强绑定）
                           </span>
                           <span className="text-[11px] font-normal opacity-65">
                             不再支持将整个页面切换到某个 Worktree
@@ -2099,9 +2106,7 @@ export function UnifiedShellPrototype() {
 
                 {/* 1. 工作区 B 区表现形式：自由标签 vs 无限画布 */}
                 <div className="mt-4">
-                  <div className="font-semibold">
-                    工作区 B 区主舞台表现形式
-                  </div>
+                  <div className="font-semibold">工作区 B 区主舞台表现形式</div>
                   <div className="mt-0.5 text-[11px] opacity-65">
                     控制 BotSpace、GroupSpace、会话、终端、文件在 B 区的组织方式
                   </div>
@@ -2125,7 +2130,8 @@ export function UnifiedShellPrototype() {
                         <span>自由标签 (Free Tabs)</span>
                       </div>
                       <p className="mt-1 text-[11px] leading-relaxed opacity-70">
-                        顶部圆润胶囊标签栏 + 左右并排分屏，适合专注编码与对照对话。
+                        顶部圆润胶囊标签栏 +
+                        左右并排分屏，适合专注编码与对照对话。
                       </p>
                     </button>
 
@@ -2283,9 +2289,10 @@ function StageSurfaceView({
               </div>
               <p className="mt-1 leading-relaxed">
                 已同步更新！现在切换到顶部「看板」时，左侧窄边栏会自动切换为{' '}
-                <strong>计量统计、仓库面板、任务面板</strong> 三个入口；工作区 B 区的{' '}
-                <strong>自由标签 / 无限画布</strong> 则收进了左下角（及顶栏右侧）的{' '}
-                <strong>设置 → 外观</strong> 面板中。
+                <strong>计量统计、仓库面板、任务面板</strong> 三个入口；工作区 B
+                区的 <strong>自由标签 / 无限画布</strong>{' '}
+                则收进了左下角（及顶栏右侧）的 <strong>设置 → 外观</strong>{' '}
+                面板中。
               </p>
             </div>
 
@@ -2305,7 +2312,8 @@ function StageSurfaceView({
                   <span className="opacity-60">刚刚</span>
                 </div>
                 <p className="mt-1 leading-relaxed">
-                  这样顶栏彻底干净了！用户的布局习惯（偏好自由标签还是无限画布）属于低频外观偏好，放在「设置 → 外观」里非常合理。
+                  这样顶栏彻底干净了！用户的布局习惯（偏好自由标签还是无限画布）属于低频外观偏好，放在「设置
+                  → 外观」里非常合理。
                 </p>
               </div>
             )}
@@ -2361,7 +2369,8 @@ function StageSurfaceView({
                   </span>
                 </div>
                 <div className="text-[11px] opacity-75">
-                  挂载路径：<code>{item.worktreePath}</code> · 不影响项目全局主目录 ({project.rootPath})
+                  挂载路径：<code>{item.worktreePath}</code> ·
+                  不影响项目全局主目录 ({project.rootPath})
                 </div>
               </div>
             </div>
@@ -2377,10 +2386,13 @@ function StageSurfaceView({
                 darkShell ? 'bg-white/[0.03]' : 'bg-zinc-50'
               )}
             >
-              <div className="font-semibold text-blue-500">执行轨迹 · Step 1</div>
+              <div className="font-semibold text-blue-500">
+                执行轨迹 · Step 1
+              </div>
               <div className="mt-1 opacity-80">
                 已在当前会话专属 Worktree 中更新 <code>AppShell.tsx</code> 与{' '}
-                <code>HostProjectSelector.tsx</code>，主窗口环境保持在项目根目录不变。
+                <code>HostProjectSelector.tsx</code>
+                ，主窗口环境保持在项目根目录不变。
               </div>
             </div>
             <div
@@ -2429,7 +2441,8 @@ function StageSurfaceView({
             () {'{'}
           </div>
           <div className="pl-4 text-emerald-600 dark:text-emerald-400">
-            + // 左上角：Host 选择器 + Project 选择器（移除页面级 Worktree 切换）
+            + // 左上角：Host 选择器 + Project 选择器（移除页面级 Worktree
+            切换）
           </div>
           <div className="pl-4">return (</div>
           <div className="pl-8">
@@ -2437,9 +2450,9 @@ function StageSurfaceView({
             background="unified-gray" border="none"&gt;
           </div>
           <div className="pl-12">
-            &lt;<span className="text-amber-600">TopBar</span>{' '}
-            left={'{<HostAndProjectPicker />}'}{' '}
-            center={'{<WorkspaceOrDashboardTabs />}'} /&gt;
+            &lt;<span className="text-amber-600">TopBar</span> left=
+            {'{<HostAndProjectPicker />}'} center=
+            {'{<WorkspaceOrDashboardTabs />}'} /&gt;
           </div>
           <div className="pl-12">
             &lt;<span className="text-amber-600">LeftRail</span>{' '}
@@ -2448,7 +2461,8 @@ function StageSurfaceView({
           </div>
           <div className="pl-12">
             &lt;<span className="text-amber-600">InsetStageZoneB</span>{' '}
-            appearanceMode={'{settings.appearance.stageMode}'} rounded="2xl" /&gt;
+            appearanceMode={'{settings.appearance.stageMode}'} rounded="2xl"
+            /&gt;
           </div>
           <div className="pl-8">
             &lt;/<span className="text-amber-600">ShellZoneA</span>&gt;

@@ -20,6 +20,7 @@ import { initUiZoom } from '@/lib/uiZoom';
 import { initAccentColor } from '@/lib/uiAccent';
 import { initMonoFont } from '@/lib/uiFont';
 import { initResolvedTheme } from '@/lib/resolvedTheme';
+import { initColorThemes } from '@/lib/theme/colorThemeStore';
 import { warmDefaultSettingsSurface } from '@/lib/settingsPreload';
 // Initialize the i18n runtime (module side-effect) before first render.
 import '@/i18n';
@@ -76,6 +77,7 @@ export const queryClient = new QueryClient({
 applyHostPlatformToDocument();
 initUiZoom();
 initMonoFont();
+initColorThemes();
 initResolvedTheme();
 initAccentColor();
 warmDefaultSettingsSurface();

@@ -1574,8 +1574,7 @@ export function HostBrowserPanel({
               type="button"
               className={cn(
                 FIELD_BTN,
-                picking &&
-                  'text-[hsl(217,91%,60%)] hover:text-[hsl(217,91%,55%)]'
+                picking && 'text-primary hover:text-primary/80'
               )}
               title={t('browserPanel.pick')}
               aria-label={t('browserPanel.pick')}

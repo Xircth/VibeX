@@ -1,3 +1,6 @@
+const statusText = (status) =>
+  `color-mix(in srgb, var(--status-${status}-text) calc(<alpha-value> * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ['class'],
@@ -121,6 +124,15 @@ module.exports = {
           success: 'hsl(var(--console-success))',
           error: 'hsl(var(--console-error))',
         },
+        scrim: 'var(--surface-scrim)',
+      },
+      // Status fills are indicator-strength; as text they resolve to the
+      // contrast-safe --status-*-text mixes so `text-success` stays readable.
+      textColor: {
+        success: { DEFAULT: statusText('success') },
+        warning: { DEFAULT: statusText('warning') },
+        destructive: { DEFAULT: statusText('danger') },
+        info: { DEFAULT: statusText('info') },
       },
       borderRadius: {
         none: 'var(--radius-none, 0.25rem)',

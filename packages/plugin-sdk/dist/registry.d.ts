@@ -1,3 +1,4 @@
+import type { ThemeDefinition } from './theme.js';
 export type Disposer = () => void;
 export type UIContributionSlot = 'rail.section' | 'panel.left' | 'panel.right' | 'panel.bottom' | 'tab.main' | 'toolbar.left' | 'toolbar.right' | 'status.left' | 'status.main' | 'status.after-mcp' | 'status.right' | 'composer.toolbar' | 'composer.slash' | 'composer.overlay' | 'timeline.card' | 'message.footer' | 'kanban.view' | 'settings.section' | 'settings.page' | 'artifact.editor' | 'artifact.preview' | 'empty-state' | 'floating' | 'toolbar.actions' | 'statusbar.items' | 'rail.sections' | 'composer.actions' | 'composer.mode' | 'markdown.codeblock' | 'global.overlay' | 'message.context-menu' | 'file-tree.context-menu';
 export type SlotName = UIContributionSlot | (string & {});
@@ -115,10 +116,7 @@ export interface ProviderContribution extends RegistryEntry {
     readonly listTemplates?: (agentId: string) => Promise<readonly unknown[]> | readonly unknown[];
     readonly metadata?: Record<string, unknown>;
 }
-export interface ThemeContribution extends RegistryEntry {
-    readonly label: string;
-    readonly scheme: 'light' | 'dark';
-    readonly cssVariables: Readonly<Record<string, string>>;
+export interface ThemeContribution extends RegistryEntry, ThemeDefinition {
 }
 export interface CapturedInternalMessage {
     readonly pluginId?: string;

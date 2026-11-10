@@ -1,7 +1,10 @@
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
-import { CONTRIBUTION_ICONS as ICON_NAMES } from "@vibex/plugin-sdk";
+import {
+  CONTRIBUTION_ICONS as ICON_NAMES,
+  validateThemeContributions,
+} from "@vibex/plugin-sdk";
 import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
 
 const CONTRIBUTION_ICONS = new Set<string>(ICON_NAMES);
@@ -114,6 +117,7 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
   await validateDependencies(pluginRoot, manifest.dependencies, manifest.apiVersion, diagnostics);
   await validateEntrypoints(pluginRoot, manifest.entrypoints, diagnostics);
   validatePermissions(manifest.permissions, diagnostics);
+  validateThemes(manifest.themes, diagnostics);
   await validateIntegrations(pluginRoot, manifest, diagnostics);
 
   if (!isObject(manifest.engines)) {
@@ -478,6 +482,15 @@ function validatePermissions(value: unknown, diagnostics: Diagnostic[]) {
         error("permission_unknown", "Permission capability is unknown"),
       );
     }
+  }
+}
+
+function validateThemes(value: unknown, diagnostics: Diagnostic[]) {
+  if (value === undefined) return;
+  for (const issue of validateThemeContributions(value)) {
+    diagnostics.push(
+      error("theme_invalid", `${issue.path} ${issue.message}`, issue.path),
+    );
   }
 }
 

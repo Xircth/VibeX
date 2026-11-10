@@ -73,15 +73,24 @@ describe('desktop toast window surface', () => {
   });
 
   it('paints notification cards on an opaque surface instead of translucent glass', () => {
-    const tokenRule = toastShellRulesFor(
-      'html.desktop-toast-shell .legacy-design'
-    ).find((rule) => rule.decls.has('--surface-popover'));
-
-    expect(tokenRule).toBeDefined();
-    expect(tokenRule!.decls.get('--surface-popover')?.value).toBe(
-      'var(--surface-dialog)'
-    );
-    expect(tokenRule!.decls.get('--surface-popover')?.important).toBeFalsy();
+    for (const scheme of ['.legacy-design', '.legacy-design.dark']) {
+      const tokens = collectRules().find(
+        (rule) =>
+          rule.selector.split(',')[0].trim() === scheme &&
+          rule.decls.has('--surface-dialog')
+      );
+      expect(tokens?.decls.get('--surface-dialog')?.value).toBe(
+        'var(--surface-popover)'
+      );
+      expect(tokens?.decls.get('--surface-popover')?.value).toMatch(
+        /^#[\da-f]{6}$/i
+      );
+    }
+    expect(
+      toastShellRulesFor('html.desktop-toast-shell .legacy-design').some(
+        (rule) => rule.decls.has('--surface-popover')
+      )
+    ).toBe(false);
 
     const surfaceRule = toastShellRulesFor(
       'html.desktop-toast-shell .legacy-design .vu-toast-surface'

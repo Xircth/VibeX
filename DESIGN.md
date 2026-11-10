@@ -8,8 +8,8 @@ colors:
   primary: "#1B1B1B"
   primary-foreground: "#ffffff"
   primary-control-foreground: "#ffffff"
-  switch-checked-track: "#1d2530"
-  switch-checked-thumb: "#ffffff"
+  switch-checked-track: "var(--text-strong)"
+  switch-checked-thumb: "var(--surface-raised-control)"
   dark-switch-checked-track: "hsl(var(--primary))"
   dark-switch-checked-thumb: "hsl(var(--primary-foreground))"
   # Astryx neutral surfaces. Opaque, and the same hex on macOS and Windows.
@@ -267,7 +267,19 @@ Page surfaces use the Astryx neutral ramp. The same hex is used on macOS and Win
 
 The user accent stays separate from this ramp. Light default remains Ink `#1B1B1B`; dark default remains Pearl Ink `#E7EBEF`.
 
-## 6. Radius, Elevation, And Motion
+### Color themes
+
+The neutrals above are the built-in **VibeX** theme. Settings → Appearance picks one color theme for light and one for dark. Built-in, user, and plugin themes are equal choices.
+
+- **Role contract.** A theme is `{ id, label, scheme, colors }`. `colors` is keyed by the 31 roles in `THEME_COLOR_ROLES` (`packages/plugin-sdk/src/theme.ts`). Only `background` and `foreground` are required; every other role is derived from them (`frontend/src/lib/theme/compileTheme.ts`). The Host, the plugin CLI, and the editor validate the same contract.
+- **Roles, not tokens.** A theme sets roles; the compiler writes the public tokens (`--surface-*`, `--text-*`, `--border-*`, `--_*` triplets, `--_syntax-*`, terminal colors). Components keep reading tokens and never branch on the active theme.
+- **One stylesheet.** The active non-built-in themes compile into a single `<style data-vibex-color-theme>` scoped to `.legacy-design`, split by scheme, with a `prefers-contrast: more` block. Built-in themes emit nothing, so the token blocks in `index.css` stay the source of the defaults.
+- **Accent is an override.** A theme carries its own accent. The Appearance accent, when set, overrides it in both schemes; "Follow theme" clears the override.
+- **Contrast gate.** Body and secondary text below 4.5:1 on any page surface, or terminal text below 4.5:1, blocks saving. Faint text, the accent, and status text below their targets show as warnings.
+- **Theme-invariant colors.** Some colors are deliberately the same in every theme: `--qr-paper`, `--document-paper` (white page under rendered user HTML), `--media-letterbox`, and the effort well (`--effort-well*`). They live in the token blocks next to the themeable tokens, not in components.
+- **Export = plugin entry.** An exported theme file is exactly one plugin `themes[]` entry, so a user theme becomes a plugin theme by pasting it into `plugin.json`.
+
+**The Tokens-Only Rule.** Literal colors live only in the token blocks of `src/styles/legacy/index.css`. Brand marks, avatar art, annotation pens, and the terminal ANSI palette are the named exceptions, listed in `src/styles/colorLiterals.test.ts`.
 
 **The State-Only Accent Rule.** The accent means selected, focused, primary, or live. It is never a decorative fill.
 

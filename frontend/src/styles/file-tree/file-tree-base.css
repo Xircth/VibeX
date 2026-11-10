@@ -608,22 +608,12 @@
   border-radius: 999px;
   background: linear-gradient(
     110deg,
-    rgba(0, 0, 0, 0.04) 8%,
-    rgba(0, 0, 0, 0.1) 18%,
-    rgba(0, 0, 0, 0.04) 33%
+    var(--surface-control) 8%,
+    var(--surface-control-hover) 18%,
+    var(--surface-control) 33%
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
-}
-
-.dark .file-tree-skeleton-row {
-  background: linear-gradient(
-    110deg,
-    hsl(210 30% 80% / 0.04) 8%,
-    hsl(210 30% 80% / 0.14) 18%,
-    hsl(210 30% 80% / 0.04) 33%
-  );
-  background-size: 200% 100%;
 }
 
 .file-tree-row {
@@ -829,7 +819,7 @@
     var(--surface-popover) 94%,
     var(--border-subtle) 6%
   );
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 2px 4px hsl(var(--shadow-ink) / 0.25));
   transform: translateY(-50%) rotate(45deg);
 }
 
@@ -903,7 +893,7 @@
   max-height: 58vh;
   object-fit: contain;
   border-radius: var(--radius);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 30px hsl(var(--shadow-ink) / 0.25);
 }
 
 .file-preview-toolbar {
@@ -954,12 +944,12 @@
   background: var(--surface-active);
   color: var(--text-strong);
   border: 1px solid var(--border-accent);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 8px 18px hsl(var(--shadow-ink) / 0.25);
 }
 
 .file-preview-action--add:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 20px hsl(var(--shadow-ink) / 0.3);
 }
 
 .file-preview-lines {

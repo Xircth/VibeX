@@ -42,9 +42,9 @@ import {
   resolveFilePathFromRoot,
 } from '@/utils/filePaths';
 import {
-  defineAyuMonacoThemes,
-  MONACO_THEME_AYU_DARK,
-  MONACO_THEME_AYU_LIGHT,
+  defineColorThemeMonacoThemes,
+  MONACO_THEME_DARK,
+  MONACO_THEME_LIGHT,
 } from '@/utils/monacoThemes';
 import {
   defaultRenderedPreview,
@@ -801,7 +801,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [disposeEditorModel]);
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
-    defineAyuMonacoThemes(monaco);
+    defineColorThemeMonacoThemes(monaco);
     getCodeEditorService().setMonacoInstance(monaco);
   }, []);
 
@@ -1235,7 +1235,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                 preload="metadata"
                 src={fileAssetSrc}
                 data-testid="workspace-video-preview"
-                className="h-auto max-h-full w-full rounded-lg border border-border bg-black shadow-sm"
+                className="h-auto max-h-full w-full rounded-lg border border-border bg-[var(--media-letterbox)] shadow-sm"
               />
             </div>
           ) : (
@@ -1375,9 +1375,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             }
             language={language}
             theme={
-              resolvedTheme === 'dark'
-                ? MONACO_THEME_AYU_DARK
-                : MONACO_THEME_AYU_LIGHT
+              resolvedTheme === 'dark' ? MONACO_THEME_DARK : MONACO_THEME_LIGHT
             }
             beforeMount={handleEditorBeforeMount}
             onMount={handleEditorMount}

@@ -86,9 +86,10 @@
     },
     {
       "id": "host.service",
-      "status": "ready",
+      "status": "preview",
       "handler": true,
-      "consumer": "crates/plugins/src/package.rs"
+      "consumer": "crates/plugins/src/package.rs",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "provider.model.importSource",
@@ -111,9 +112,10 @@
     },
     {
       "id": "app.tab",
-      "status": "ready",
+      "status": "preview",
       "handler": true,
-      "consumer": "frontend/src/components/layout/Toolbar.tsx"
+      "consumer": "frontend/src/components/layout/Toolbar.tsx",
+      "notes": "Host consumer exists, but no official plugin ships this kind yet (ADR-0069 principle 3)."
     },
     {
       "id": "app.kanban.view",

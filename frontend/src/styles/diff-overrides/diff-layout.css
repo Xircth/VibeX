@@ -356,7 +356,7 @@
 }
 
 .diff-tailwindcss-wrapper .diff-style-root {
-  --diff-border--: var(--border);
+  --diff-border--: hsl(var(--border));
   --diff-add-content--: var(--diff-added-bg);
   --diff-del-content--: var(--diff-removed-bg);
   --diff-add-lineNumber--: var(--diff-added-line-bg);

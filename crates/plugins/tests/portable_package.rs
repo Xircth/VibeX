@@ -1366,8 +1366,8 @@ async fn tier0_declarative_root_plugin_json_inspects_and_emits_declarative_runti
             {
               "id": "catppuccin-mocha",
               "label": "Catppuccin Mocha",
-              "appearance": "dark",
-              "variables": { "--bg-primary": "#1e1e2e" }
+              "scheme": "dark",
+              "colors": { "background": "#1e1e2e", "foreground": "#cdd6f4" }
             }
           ],
           "settingsSchema": {
@@ -1449,6 +1449,49 @@ async fn tier0_declarative_root_plugin_json_inspects_and_emits_declarative_runti
             .unwrap_or_default()
             .contains(".catppuccin-badge")
     );
+    assert_eq!(
+        runtime_source
+            .pointer("/spec/themes/0/colors/background")
+            .and_then(serde_json::Value::as_str),
+        Some("#1e1e2e")
+    );
+}
+
+#[test]
+fn theme_contributions_are_rejected_with_every_issue_listed() {
+    let root = tempfile::tempdir().expect("theme root");
+    write(
+        &root.path().join("plugin.json"),
+        r##"{
+          "apiVersion": "2.0",
+          "id": "community.broken-theme",
+          "name": "Broken Theme",
+          "version": "1.0.0",
+          "themes": [
+            {
+              "id": "mocha",
+              "label": "Mocha",
+              "appearance": "dark",
+              "variables": { "--bg-primary": "#1e1e2e" }
+            }
+          ]
+        }"##,
+    );
+
+    let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
+        .expect_err("legacy theme shape is rejected");
+    let message = error.to_string();
+    for expected in [
+        "themes[0].appearance is not a theme field",
+        "themes[0].variables is not a theme field",
+        "themes[0].scheme must be light or dark",
+        "themes[0].colors must be an object",
+    ] {
+        assert!(
+            message.contains(expected),
+            "{expected} missing from {message}"
+        );
+    }
 }
 
 #[tokio::test]

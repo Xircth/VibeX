@@ -81,7 +81,7 @@ function TunnelConnectivityStatus({
       className={cn(
         'flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs',
         result.connected
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          ? 'border-success/30 bg-success/10 text-success'
           : 'border-destructive/30 bg-destructive/10 text-destructive'
       )}
     >
@@ -130,16 +130,14 @@ function TunnelUsageBadge({
       className={cn(
         'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium',
         active
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          ? 'border-success/30 bg-success/10 text-success'
           : 'border-border/70 bg-muted/60 text-muted-foreground'
       )}
     >
       <span
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
-          active
-            ? 'bg-emerald-500 dark:bg-emerald-400'
-            : 'bg-muted-foreground/50'
+          active ? 'bg-success' : 'bg-muted-foreground/50'
         )}
         aria-hidden="true"
       />

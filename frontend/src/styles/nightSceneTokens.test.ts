@@ -90,18 +90,20 @@ describe('dark night scene tokens', () => {
     expect(isOpaqueColor(dark.get('--surface-card-strong'))).toBe(true);
     expect(isOpaqueColor(dark.get('--surface-dialog'))).toBe(true);
     expect(light.get('--surface-content')).toBe('#ffffff');
-    expect(light.get('--surface-dialog')).toBe('#ffffff');
+    expect(light.get('--surface-popover')).toBe('#ffffff');
     expect(dark.get('--surface-content')).toBe('#262626');
-    expect(dark.get('--surface-card-strong')).toBe('#262626');
-    expect(dark.get('--surface-dialog')).toBe('#262626');
+    expect(dark.get('--surface-popover')).toBe('#262626');
+    expect(dark.get('--surface-card-strong')).toBe('var(--surface-content)');
+    expect(light.get('--surface-dialog')).toBe('var(--surface-popover)');
+    expect(dark.get('--surface-dialog')).toBe('var(--surface-popover)');
   });
 
   it('paints the settings nav with a gray-white-gray wash', () => {
     expect(light.get('--surface-wash')?.replace(/\s+/g, ' ')).toBe(
-      'linear-gradient( 180deg, #e6e6e6 0%, #f3f3f3 24%, #ffffff 50%, #f3f3f3 76%, #e6e6e6 100% )'
+      'linear-gradient( 180deg, color-mix(in srgb, var(--surface-topbar) 95%, var(--text-strong)) 0%, var(--surface-topbar) 24%, var(--surface-shell) 50%, var(--surface-topbar) 76%, color-mix(in srgb, var(--surface-topbar) 95%, var(--text-strong)) 100% )'
     );
     expect(dark.get('--surface-wash')?.replace(/\s+/g, ' ')).toBe(
-      'linear-gradient( 180deg, #262626 0%, #1b1b1b 28%, #1b1b1b 72%, #262626 100% )'
+      'linear-gradient( 180deg, var(--surface-content) 0%, var(--surface-shell) 28%, var(--surface-shell) 72%, var(--surface-content) 100% )'
     );
     expect(css).toContain(
       'background: var(--surface-wash), var(--surface-sidebar);'
@@ -134,7 +136,7 @@ describe('dark night scene tokens', () => {
   });
 
   it('paints user bubbles gray on the white page', () => {
-    expect(conv).toContain('--conv-user-bg: #f1f1f1;');
+    expect(conv).toContain('--conv-user-bg: var(--surface-topbar);');
     expect(conv).toContain('--conv-user-bg: var(--surface-raised-control);');
     expect(conv).toContain('--conv-user-text: var(--text-strong);');
   });
@@ -185,26 +187,39 @@ describe('dark night scene tokens', () => {
     );
   });
 
-  it('collapses reduced-transparency popovers to the dialog token instead of hard-coded paper', () => {
+  it('keeps popovers on the opaque popover role instead of hard-coded paper', () => {
     expect(css).not.toContain('--surface-popover: #fafafa;');
-    expect(css).toContain('--surface-popover: var(--surface-dialog);');
+    expect(css).not.toContain('--surface-popover: var(--surface-dialog);');
     expect(css).not.toContain('--project-rail-glass: #202126;');
     expect(css).toContain('--project-rail-glass: var(--surface-glass-solid);');
   });
 
-  it('maps Astryx dark chrome onto the neutral body and the live accent', () => {
-    expect(dark.get('--color-background-body')).toBe('#1b1b1b');
-    expect(dark.get('--color-background-card')).toBe('#262626');
-    expect(dark.get('--color-background-surface')).toBe('#262626');
-    expect(dark.get('--color-background-popover')).toBe('#262626');
-    expect(dark.get('--color-accent')).toBe('hsl(var(--primary))');
-    expect(dark.get('--color-accent-muted')).toBe('hsl(var(--primary) / 0.12)');
-    expect(dark.get('--color-on-accent')).toBe(
+  it('derives Astryx chrome from the neutral surfaces and the live accent in both schemes', () => {
+    const astryx = declarationsFor(
+      (selector) => selector === '.legacy-design [data-astryx-theme]'
+    );
+    expect(astryx.get('--color-background-body')).toBe('var(--surface-shell)');
+    expect(astryx.get('--color-background-card')).toBe(
+      'var(--surface-content)'
+    );
+    expect(astryx.get('--color-background-surface')).toBe(
+      'var(--surface-content)'
+    );
+    expect(astryx.get('--color-background-popover')).toBe(
+      'var(--surface-popover)'
+    );
+    expect(astryx.get('--color-accent')).toBe('hsl(var(--primary))');
+    expect(astryx.get('--color-accent-muted')).toBe(
+      'hsl(var(--primary) / 0.12)'
+    );
+    expect(astryx.get('--color-on-accent')).toBe(
       'hsl(var(--primary-foreground))'
     );
-    expect(dark.get('--color-text-accent')).toBe('hsl(var(--primary))');
-    expect(dark.get('--color-icon-accent')).toBe('hsl(var(--primary))');
-    expect(dark.get('--color-text-primary')).toBe('#fafafa');
+    expect(astryx.get('--color-text-accent')).toBe('hsl(var(--primary))');
+    expect(astryx.get('--color-icon-accent')).toBe('hsl(var(--primary))');
+    expect(astryx.get('--color-text-primary')).toBe('var(--text-strong)');
+    expect(dark.get('--color-background-body')).toBeUndefined();
+    expect(dark.get('--color-text-primary')).toBeUndefined();
   });
 
   it('keeps the composer usage ring as a ring, not a pearl pie', () => {
@@ -250,13 +265,15 @@ describe('night scene component islands', () => {
   it('gives the effort thumb a Pearl metal recipe in dark', () => {
     expect(effort).toContain('--effort-thumb-fill:');
     expect(effort).toContain('.dark .vx-effort-track');
-    expect(effort).toContain('#e7ebef');
+    expect(effort).toMatch(
+      /\.dark \.vx-effort-track \{\s+--effort-thumb-fill: linear-gradient\(\s+170deg,\s+var\(--text-strong\)/
+    );
     expect(effort).toContain('var(--effort-thumb-fill)');
   });
 
-  it('selects terminal text with Pearl Ink, matching Monaco', () => {
-    expect(terminal).toContain("selectionBackground: '#E7EBEF4D'");
-    expect(terminal).not.toContain("selectionBackground: '#3d4966'");
+  it('selects terminal text with the accent, matching Monaco', () => {
+    expect(terminal).toContain('selectionBackground: selection,');
+    expect(terminal).toContain("getAccentColor(isDark ? 'dark' : 'light')");
   });
 });
 

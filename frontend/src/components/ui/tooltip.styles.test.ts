@@ -44,6 +44,15 @@ describe('inverted hover tooltip and icon button chrome', () => {
     expect(arrow.fill?.value).toBe('hsl(var(--foreground))');
   });
 
+  it('does not fade or slide the native title tooltip while it is being centered', () => {
+    const rules = declarationsFor(
+      ".app-hover-tooltip[data-native-title-tooltip='true']"
+    );
+
+    expect(rules.animation?.value).toBe('none');
+    expect(rules.transition?.value).toBe('none');
+  });
+
   it('restyles Astryx tooltips to the same inverted chrome', () => {
     const rules = declarationsFor('.astryx-tooltip');
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
@@ -17,27 +17,32 @@ type TooltipState = {
   left: number;
   side: 'bottom' | 'top';
   arrowLeft: number;
+  placed: boolean;
 };
 
 function isMousePointer(event: PointerEvent): boolean {
   return event.pointerType === 'mouse' || event.pointerType === '';
 }
 
-function estimateTooltipWidth(text: string): number {
-  let width = 24;
-  for (const ch of text) {
-    width += ch.charCodeAt(0) > 0x7f ? 12.5 : 7.2;
-  }
-  return Math.min(352, Math.max(48, Math.ceil(width)));
+function unplacedTooltip(text: string): TooltipState {
+  return {
+    text,
+    top: 0,
+    left: 0,
+    side: 'bottom',
+    arrowLeft: 0,
+    placed: false,
+  };
 }
 
 export function NativeTitleTooltipHost() {
   const container = usePortalContainer();
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<Element | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   useEffect(() => {
     let showTimer: number | null = null;
-    let rafId: number | null = null;
     let active: Element | null = null;
     let observer: MutationObserver | null = null;
     const suppressed = new Set<Element>();
@@ -46,10 +51,6 @@ export function NativeTitleTooltipHost() {
       if (showTimer != null) {
         window.clearTimeout(showTimer);
         showTimer = null;
-      }
-      if (rafId != null) {
-        window.cancelAnimationFrame(rafId);
-        rafId = null;
       }
     };
 
@@ -63,26 +64,16 @@ export function NativeTitleTooltipHost() {
       observer?.disconnect();
       observer = null;
       active = null;
+      anchorRef.current = null;
       setTooltip(null);
     };
 
     const place = (element: Element, text: string) => {
-      const node = document.querySelector<HTMLElement>(
-        `.${NATIVE_TITLE_TOOLTIP_CLASS}[data-native-title-tooltip='true']`
-      );
-      const tooltipSize =
-        node && node.offsetWidth > 0 && node.offsetHeight > 0
-          ? { width: node.offsetWidth, height: node.offsetHeight }
-          : {
-              width: estimateTooltipWidth(text),
-              height: 28,
-            };
-      const next = positionHoverTooltip(
-        element.getBoundingClientRect(),
-        tooltipSize,
-        { width: window.innerWidth, height: window.innerHeight }
-      );
-      setTooltip({ text, ...next });
+      anchorRef.current = element;
+      // Publish text only. The measured width is not known until the capsule
+      // is in the layout, and an estimate for CJK session titles is too wide,
+      // so centering it would paint left of the tab and then jump.
+      setTooltip(unplacedTooltip(text));
     };
 
     const watchTitle = (element: Element) => {
@@ -113,10 +104,6 @@ export function NativeTitleTooltipHost() {
       active = element;
       watchTitle(element);
       place(element, text);
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        if (active === element) place(element, text);
-      });
     };
 
     const onPointerOver = (event: PointerEvent) => {
@@ -176,12 +163,29 @@ export function NativeTitleTooltipHost() {
     };
   }, []);
 
+  useLayoutEffect(() => {
+    if (!tooltip || tooltip.placed) return;
+    const node = tooltipRef.current;
+    const anchor = anchorRef.current;
+    if (!node || !anchor || node.offsetWidth <= 0 || node.offsetHeight <= 0) {
+      return;
+    }
+    const next = positionHoverTooltip(
+      anchor.getBoundingClientRect(),
+      { width: node.offsetWidth, height: node.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight }
+    );
+    setTooltip({ text: tooltip.text, ...next, placed: true });
+  }, [tooltip]);
+
   if (!tooltip) return null;
 
   const node = (
     <div
+      ref={tooltipRef}
       role="tooltip"
       data-native-title-tooltip="true"
+      data-placed={tooltip.placed ? 'true' : undefined}
       data-side={tooltip.side}
       className={NATIVE_TITLE_TOOLTIP_CLASS}
       style={{
@@ -189,6 +193,7 @@ export function NativeTitleTooltipHost() {
         top: tooltip.top,
         left: tooltip.left,
         zIndex: 10000,
+        visibility: tooltip.placed ? 'visible' : 'hidden',
         pointerEvents: 'none',
       }}
     >

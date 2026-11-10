@@ -32,60 +32,65 @@ function renderToolbar(
 }
 
 describe('WorkspaceSessionListToolbar', () => {
-  it('renders right-aligned action buttons with a bottom divider and without a session list title', () => {
-    const { container } = renderToolbar();
+  it('renders an always-visible search input, utility buttons, and 3 vertical quick-action rows', () => {
+    const onCreateSession = vi.fn();
+    const onToggleViewMode = vi.fn();
+    const { container } = renderToolbar({
+      viewMode: 'workspace',
+      onCreateSession,
+      onToggleViewMode,
+    });
 
     expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
     expect(screen.queryByText('归档区')).not.toBeInTheDocument();
     const root = container.firstElementChild;
     expect(root).toHaveClass('border-b', 'border-border/60');
 
-    const newSessionButton = screen.getByRole('button', { name: '新建会话' });
-    expect(newSessionButton).toBeInTheDocument();
-    expect(newSessionButton.parentElement).toHaveClass('justify-end');
+    expect(
+      screen.getByRole('textbox', { name: '搜索会话' })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: '打开归档区' })
     ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '排序' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: '批量删除' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '排序' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: '搜索会话' })
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('textbox', { name: '搜索会话' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen
-        .getAllByRole('button')
-        .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['搜索会话', '新建会话', '打开归档区', '排序', '批量删除']);
+
+    const newSessionBtn = screen.getByRole('button', { name: '新建会话' });
+    const switchViewBtn = screen.getByRole('button', {
+      name: '切换视图（工作区/状态视图）',
+    });
+    const mobileAppBtn = screen.getByRole('button', { name: '移动端APP' });
+
+    expect(newSessionBtn).toHaveTextContent('新会话');
+    expect(switchViewBtn).toHaveTextContent('切换视图');
+    expect(switchViewBtn).toHaveTextContent('工作区');
+    expect(mobileAppBtn).toHaveTextContent('移动端APP');
+    expect(mobileAppBtn).toHaveTextContent('Beta');
+
+    fireEvent.click(newSessionBtn);
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(switchViewBtn);
+    expect(onToggleViewMode).toHaveBeenCalledTimes(1);
   });
 
-  it('expands the search button into a field and hides other actions', () => {
-    renderToolbar();
+  it('updates the search query and reveals the clear button when text is entered', () => {
+    const onSearchQueryChange = vi.fn();
+    renderToolbar({
+      searchQuery: 'login',
+      onSearchQueryChange,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }));
     const search = screen.getByRole('textbox', { name: '搜索会话' });
-    expect(search).toHaveAttribute('aria-expanded', 'true');
-    expect(
-      screen.queryByRole('button', { name: '搜索会话' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '新建会话' })
-    ).not.toBeInTheDocument();
+    expect(search).toHaveValue('login');
 
-    fireEvent.blur(search);
-    expect(
-      screen.getByRole('button', { name: '搜索会话' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: '新建会话' })
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(onSearchQueryChange).toHaveBeenCalledWith('');
   });
 
-  it('replaces the action row with the delete area', () => {
+  it('replaces the search and quick-action area with the delete confirmation bar in delete mode', () => {
     const onDeleteSelected = vi.fn();
     const onCancelDeleteMode = vi.fn();
     renderToolbar({
@@ -97,13 +102,10 @@ describe('WorkspaceSessionListToolbar', () => {
 
     expect(screen.getByText('选择会话')).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: '搜索会话' })
+      screen.queryByRole('textbox', { name: '搜索会话' })
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: '批量删除' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '新建会话' })
+      screen.queryByTestId('session-list-quick-actions')
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -123,3 +125,4 @@ describe('WorkspaceSessionListToolbar', () => {
     expect(onDeleteSelected).toHaveBeenCalledTimes(1);
   });
 });
+

@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BriefcaseBusiness, ChevronUp, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   deriveProjectVisualState,
-  ProjectRecentSessionsPopover,
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
 import { useProject } from '@/contexts/ProjectContext';
@@ -31,10 +29,6 @@ export function ProjectRailToggleButton({
     (state) => state.projectSnapshots
   );
   const projectAlerts = useWindowProjectsStore((state) => state.projectAlerts);
-  const [hoveredPopoverRect, setHoveredPopoverRect] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
 
   const label = railVisible ? t('railToggle.hide') : t('railToggle.show');
   const projectCount = projects.length;
@@ -58,27 +52,11 @@ export function ProjectRailToggleButton({
 
   if (variant === 'capsule') {
     return (
-      <div className="relative flex items-center">
+      <div className="relative flex w-full items-center">
         <button
           type="button"
           onClick={() => {
-            setHoveredPopoverRect(null);
             setRailVisible(!railVisible);
-          }}
-          onMouseEnter={(event) => {
-            if (railVisible || !activeProjectName) return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            const popoverWidth = 288;
-            setHoveredPopoverRect({
-              top: rect.top - 8,
-              left: Math.max(
-                8,
-                Math.min(rect.left, window.innerWidth - popoverWidth - 8)
-              ),
-            });
-          }}
-          onMouseLeave={() => {
-            setHoveredPopoverRect(null);
           }}
           data-project-rail-toggle="true"
           data-testid="bottom-left-project-selector"
@@ -86,16 +64,16 @@ export function ProjectRailToggleButton({
           aria-pressed={railVisible}
           title={label}
           className={cn(
-            'workspace-toolbar-button flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
-            'hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            railVisible && 'bg-foreground/[0.08]'
+            'workspace-toolbar-button flex h-8 w-full shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-border/50 bg-foreground/[0.04] px-2.5 text-xs font-medium transition-colors',
+            'hover:bg-foreground/[0.08] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            railVisible && 'border-border bg-foreground/[0.1]'
           )}
         >
           <BriefcaseBusiness
             className="h-3.5 w-3.5 shrink-0 text-primary"
             aria-hidden="true"
           />
-          <span className="max-w-36 truncate">
+          <span className="min-w-0 flex-1 truncate text-left">
             {activeProjectName ?? t('railToggle.show', 'Select Project')}
           </span>
           {resolvedProjectId ? (
@@ -115,29 +93,17 @@ export function ProjectRailToggleButton({
               />
             )
           ) : null}
-          <span className="rounded bg-foreground/[0.07] px-1 text-[10px] tabular-nums opacity-75">
+          <span className="rounded bg-foreground/[0.07] px-1.5 py-0.5 text-[10px] tabular-nums opacity-75">
             {projectCount}
           </span>
           <ChevronUp
             className={cn(
-              'h-3 w-3 shrink-0 opacity-60 transition-transform',
+              'h-3.5 w-3.5 shrink-0 opacity-60 transition-transform',
               railVisible && 'rotate-180'
             )}
             aria-hidden="true"
           />
         </button>
-        {!railVisible && hoveredPopoverRect && activeProjectName ? (
-          <ProjectRecentSessionsPopover
-            projectName={activeProjectName}
-            recentSessions={activeSnapshot?.recentSessions ?? []}
-            align="top"
-            style={{
-              top: hoveredPopoverRect.top,
-              left: hoveredPopoverRect.left,
-              transform: 'translateY(-100%)',
-            }}
-          />
-        ) : null}
       </div>
     );
   }

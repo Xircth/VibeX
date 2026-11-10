@@ -6,7 +6,7 @@ export type ProjectRailPosition = {
 export const PROJECT_RAIL_WIDTH = 248;
 export const PROJECT_RAIL_EDGE_MARGIN = 8;
 export const PROJECT_RAIL_DEFAULT_LEFT = 8;
-export const PROJECT_RAIL_BOTTOM_OFFSET = 40;
+export const PROJECT_RAIL_BOTTOM_OFFSET = 80;
 
 export function clampProjectRailPosition(
   x: number,

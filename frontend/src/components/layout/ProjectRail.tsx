@@ -32,7 +32,6 @@ import { toast } from '@/components/ui/toast';
 import { useAppContextMenu } from '@/components/context-menu';
 import {
   deriveProjectVisualState,
-  ProjectRecentSessionsPopover,
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
 import {
@@ -43,7 +42,6 @@ import {
 import {
   defaultProjectRailPosition,
   PROJECT_RAIL_WIDTH,
-  projectRailHoverPopoverPosition,
   readViewportSize,
 } from '@/components/layout/projectRailPosition';
 import {
@@ -76,13 +74,7 @@ export function ProjectRail({
   const setRailVisible = useWindowProjectsStore(
     (state) => state.setRailVisible
   );
-  const [hoveredProjectState, setHoveredProjectState] = useState<{
-    projectId: string;
-    top: number;
-    left: number;
-  } | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const glassStageRef = useRef<HTMLDivElement | null>(null);
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
@@ -133,14 +125,6 @@ export function ProjectRail({
       window.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, [railVisible, setRailVisible]);
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current) {
-        clearTimeout(hoverTimerRef.current);
-      }
-    };
-  }, []);
 
   useLayoutEffect(() => {
     const syncViewport = () => {
@@ -210,47 +194,6 @@ export function ProjectRail({
     setRailVisible(false);
   };
 
-  const handleProjectMouseEnter = (
-    nextProjectId: string,
-    event: React.MouseEvent<HTMLDivElement>
-  ) => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-
-    const itemRect = event.currentTarget.getBoundingClientRect();
-    const railRect = railRef.current?.getBoundingClientRect();
-    const next = {
-      projectId: nextProjectId,
-      ...projectRailHoverPopoverPosition(
-        itemRect,
-        railRect,
-        readViewportSize()
-      ),
-    };
-    setHoveredProjectState((current) =>
-      current?.projectId === next.projectId &&
-      current.top === next.top &&
-      current.left === next.left
-        ? current
-        : next
-    );
-  };
-
-  const handleProjectMouseLeave = (nextProjectId: string) => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-    }
-
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredProjectState((current) =>
-        current?.projectId === nextProjectId ? null : current
-      );
-      hoverTimerRef.current = null;
-    }, 160);
-  };
-
   const handleDeleteProject = async (
     targetProject: { id: string; name: string },
     event?: React.MouseEvent
@@ -281,12 +224,6 @@ export function ProjectRail({
       toast.error(t('projectRail.deleteFailed'));
     }
   };
-
-  const hoveredProject = hoveredProjectState
-    ? visibleProjects.find(
-        (project) => project.id === hoveredProjectState.projectId
-      )
-    : undefined;
 
   if (!railVisible) {
     return null;
@@ -368,6 +305,8 @@ export function ProjectRail({
 
       <div
         className="project-rail-projects"
+        role="tree"
+        aria-label={t('projectRail.title')}
         onContextMenu={(event) => {
           openSurfaceMenu(event, [
             {
@@ -404,8 +343,14 @@ export function ProjectRail({
           return (
             <div
               key={project.id}
-              className="project-rail-project-slot group"
-              style={{ paddingLeft: `${project.depth * 14}px` }}
+              role="treeitem"
+              aria-selected={isActive}
+              aria-level={project.depth + 1}
+              className={cn(
+                'project-rail-project-slot group',
+                project.depth > 0 && 'is-nested'
+              )}
+              style={{ paddingLeft: `${project.depth * 16}px` }}
               draggable
               onDragStart={(event) => {
                 event.dataTransfer.setData('text/project-id', project.id);
@@ -436,11 +381,14 @@ export function ProjectRail({
                   toast.error(t('projectRail.deleteFailed'));
                 });
               }}
-              onMouseEnter={(event) =>
-                handleProjectMouseEnter(project.id, event)
-              }
-              onMouseLeave={() => handleProjectMouseLeave(project.id)}
             >
+              {project.depth > 0 ? (
+                <span
+                  className="project-rail-tree-branch"
+                  style={{ left: `${(project.depth - 1) * 16 + 10}px` }}
+                  aria-hidden="true"
+                />
+              ) : null}
               <button
                 type="button"
                 onPointerDown={(event) => {
@@ -556,64 +504,45 @@ export function ProjectRail({
   );
 
   return (
-    <>
+    <div
+      className="project-rail-inline-host"
+      style={{
+        position: 'fixed',
+        left: railPosition.x,
+        top: railPosition.y,
+      }}
+    >
       <div
-        className="project-rail-inline-host"
-        style={{
-          position: 'fixed',
-          left: railPosition.x,
-          top: railPosition.y,
-        }}
+        ref={glassStageRef}
+        className="project-rail-inline-stage"
+        style={{ height: `${projectRailHeight}px` }}
       >
-        <div
-          ref={glassStageRef}
-          className="project-rail-inline-stage"
-          style={{ height: `${projectRailHeight}px` }}
-        >
-          <HostGlass
-            className="project-rail-liquid-glass"
-            padding="0"
-            cornerRadius={20}
-            displacementScale={64}
-            blurAmount={0.1}
-            saturation={130}
-            aberrationIntensity={2}
-            elasticity={prefersReducedMotion ? 0 : 0.15}
-            mouseContainer={mouseContainerRef ?? glassStageRef}
-            globalMousePos={
-              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-            }
-            mouseOffset={
-              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-            }
-            mode="standard"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              width: '100%',
-              height: '100%',
-            }}
-          >
-            {shell}
-          </HostGlass>
-        </div>
-      </div>
-      {hoveredProject && hoveredProjectState ? (
-        <ProjectRecentSessionsPopover
-          projectName={importedProjectName(hoveredProject, (key) =>
-            t(key, { ns: 'app' })
-          )}
-          recentSessions={
-            projectSnapshots[hoveredProject.id]?.recentSessions ?? []
+        <HostGlass
+          className="project-rail-liquid-glass"
+          padding="0"
+          cornerRadius={20}
+          displacementScale={64}
+          blurAmount={0.1}
+          saturation={130}
+          aberrationIntensity={2}
+          elasticity={prefersReducedMotion ? 0 : 0.15}
+          mouseContainer={mouseContainerRef ?? glassStageRef}
+          globalMousePos={
+            prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
           }
-          align="right"
+          mouseOffset={prefersReducedMotion ? STATIC_GLASS_POINTER : undefined}
+          mode="standard"
           style={{
-            top: hoveredProjectState.top,
-            left: hoveredProjectState.left,
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            width: '100%',
+            height: '100%',
           }}
-        />
-      ) : null}
-    </>
+        >
+          {shell}
+        </HostGlass>
+      </div>
+    </div>
   );
 }

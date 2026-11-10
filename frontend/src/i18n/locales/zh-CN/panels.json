@@ -352,8 +352,14 @@
     "sortAgent": "Agent",
     "sortClear": "清除排序",
     "search": "搜索会话",
-    "searchPlaceholder": "搜索名称或用户消息",
-    "searchEmpty": "没有匹配的会话"
+    "searchShort": "搜索",
+    "searchPlaceholder": "搜索",
+    "searchEmpty": "没有匹配的会话",
+    "quickNewSession": "新会话",
+    "switchView": "切换视图（工作区/状态视图）",
+    "viewWorkspaceShort": "工作区",
+    "viewStatusShort": "状态",
+    "mobileApp": "移动端APP"
   },
   "worktreeSelector": {
     "modeLabel": "工作区列表",

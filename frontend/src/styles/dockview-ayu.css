@@ -287,6 +287,23 @@
   display: none !important;
 }
 
+/* Reserve bottom slot inside Left Dock (Zone A) for the elevated Project Selector */
+[class*='dockview-theme-ayu']
+  .dv-groupview:is([data-left-dock='true'], #group-left, [id^='group-left-'])
+  > .dv-content-container {
+  padding-bottom: 44px !important;
+  box-sizing: border-box !important;
+}
+
+.workspace-shell .workspace-project-selector-slot {
+  position: absolute;
+  left: 42px;
+  bottom: calc(100% + 4px);
+  width: 188px;
+  padding-right: 0;
+  z-index: 30;
+}
+
 /* Zone B: Editor / Stage groups form a unified rounded inset stage against Zone A.
    When a single Zone B group is visible (or on outer left/right edges of split groups),
    the top-left and bottom-left corners where Zone A meets Zone B are rounded (14px),

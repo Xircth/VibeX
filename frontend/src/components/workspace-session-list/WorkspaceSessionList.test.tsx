@@ -850,4 +850,33 @@ describe('WorkspaceSessionList', () => {
       );
     });
   });
+
+  it('groups sessions by status when viewMode is status', () => {
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 's-running',
+            firstPrompt: 'Running task',
+            status: 'inprogress',
+            isRunning: true,
+          }),
+          session({
+            id: 's-done',
+            firstPrompt: 'Finished task',
+            status: 'done',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        viewMode="status"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: '进行中' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '已完成' })).toBeInTheDocument();
+  });
 });
+

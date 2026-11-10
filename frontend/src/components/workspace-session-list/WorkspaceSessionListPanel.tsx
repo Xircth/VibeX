@@ -40,6 +40,10 @@ import {
   sessionListAgentKey,
   toggleStringValue,
 } from '@/components/kanban/session-hub/utils';
+import {
+  setKanbanSessionListView,
+  useKanbanSessionListView,
+} from '@/lib/kanbanSessionListView';
 import { useWorkspaceOpenSessionIds } from '@/lib/workspaceSessionTabSlots';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
@@ -435,6 +439,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     );
   };
 
+  const listView = useKanbanSessionListView();
   const emptyMessage = searchQuery.trim()
     ? t('workspaceSessionList.searchEmpty')
     : isArchiveView
@@ -454,6 +459,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
           isDeletingSessions={isDeletingSessions}
           searchQuery={searchQuery}
           sortSpecs={sortSpecs}
+          viewMode={listView}
           onArchiveViewChange={handleArchiveViewChange}
           onToggleDeleteMode={handleToggleDeleteMode}
           onCancelDeleteMode={handleCancelDeleteMode}
@@ -466,6 +472,11 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             setSortSpecs((current) => toggleSessionListSort(current, key));
           }}
           onClearSort={() => setSortSpecs([])}
+          onToggleViewMode={() => {
+            setKanbanSessionListView(
+              listView === 'workspace' ? 'status' : 'workspace'
+            );
+          }}
         />
         <div
           className="min-h-0 flex-1 overflow-y-auto px-0 pb-2 pt-0.5"
@@ -479,6 +490,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             <WorkspaceSessionList
               sessions={visibleSessions}
               sortSpecs={sortSpecs}
+              viewMode={listView}
               isLoading={isLoading}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorktreeId}

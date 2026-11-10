@@ -113,8 +113,8 @@ describe('ProjectWindowStatusSummary', () => {
     expect(buttons[0]).toHaveTextContent('2');
     expect(buttons[0]).toHaveClass(
       'workspace-toolbar-button',
-      'h-7',
-      'rounded-md'
+      'h-8',
+      'rounded-lg'
     );
     expect(
       screen.getByTestId('project-selector-status-dot')
@@ -132,57 +132,14 @@ describe('ProjectWindowStatusSummary', () => {
     expect(screen.getByText('Alpha')).toBeInTheDocument();
   });
 
-  it('opens the active project session status popover on hover when the selector menu is closed', () => {
+  it('does not open a session status popover when hovering the project selector', () => {
     render(<ProjectWindowStatusSummary />);
 
     const selectorBtn = screen.getByTestId('bottom-left-project-selector');
     fireEvent.mouseEnter(selectorBtn);
 
-    expect(screen.getByText('Fix navigation')).toBeInTheDocument();
-    expect(screen.getByText('Completed')).toBeInTheDocument();
-  });
-
-  it('truncates long recent session titles to 20 characters and constrains popover width', () => {
-    useWindowProjectsStore.setState({
-      railVisible: false,
-      openProjectIds: ['project-alpha', 'project-beta'],
-      projectSnapshots: {
-        ...useWindowProjectsStore.getState().projectSnapshots,
-        'project-alpha': snapshot({
-          recentSessions: [
-            {
-              sessionId: 'session-long',
-              workspaceId: 'ws-long',
-              taskId: 'task-long',
-              title:
-                '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示',
-              statusLabel: 'Running',
-              visualState: 'loading',
-              subtitle: 'Claude · just now',
-              updatedAt: '2026-03-31T08:00:00Z',
-            },
-          ],
-        }),
-      },
-    });
-
-    render(<ProjectWindowStatusSummary />);
-
-    const selectorBtn = screen.getByTestId('bottom-left-project-selector');
-    fireEvent.mouseEnter(selectorBtn);
-
-    const truncatedTitle = screen.getByText(
-      '一二三四五六七八九十一二三四五六七八九十...'
-    );
-    expect(truncatedTitle).toBeInTheDocument();
-    expect(
-      screen.queryByText(
-        '一二三四五六七八九十一二三四五六七八九十超出的部分不应显示'
-      )
-    ).not.toBeInTheDocument();
-    const popoverContainer = truncatedTitle.closest('.w-72');
-    expect(popoverContainer).not.toBeNull();
-    expect(popoverContainer).toHaveClass('max-w-[calc(100vw-1rem)]');
+    expect(screen.queryByText('Fix navigation')).not.toBeInTheDocument();
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
   });
 
   it('toggles the project selector menu when clicked', () => {
@@ -193,3 +150,4 @@ describe('ProjectWindowStatusSummary', () => {
     expect(useWindowProjectsStore.getState().railVisible).toBe(true);
   });
 });
+

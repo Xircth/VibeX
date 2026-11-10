@@ -75,10 +75,12 @@ import {
   sessionListDragOverlaySizeStyle,
 } from '@/components/kanban/session-hub/sessionListDrag';
 import { SessionListDragOverlay } from '@/components/kanban/session-hub/SessionListDragOverlay';
+import type { KanbanSessionListView } from '@/lib/kanbanSessionListView';
 import {
   PINNED_SESSION_GROUP_ID,
   formatCompactSessionAge,
   groupWorkspaceSessions,
+  groupWorkspaceSessionsByStatus,
   moveSessionInOrder,
   pinnedWorkspaceSessions,
   readCollapsedWorkspaceIds,
@@ -117,6 +119,7 @@ interface WorkspaceSessionListProps {
   monitorPlacements?: Array<{ sessionId: string }>;
   currentExecutionPlacement?: { sessionId: string } | null;
   sortSpecs?: SessionListSortSpec[];
+  viewMode?: KanbanSessionListView;
 }
 
 const STATUS_LABEL_KEY: Record<WorkspaceSessionStatusTone, string> = {
@@ -146,6 +149,7 @@ export function WorkspaceSessionList({
   monitorPlacements = [],
   currentExecutionPlacement = null,
   sortSpecs = [],
+  viewMode = 'workspace',
 }: WorkspaceSessionListProps) {
   const { t } = useTranslation(['panels', 'common']);
   const hideBotSessions = useHideBotSessions();
@@ -156,15 +160,25 @@ export function WorkspaceSessionList({
   const [orderByWorkspace, setOrderByWorkspace] = useState(
     readWorkspaceSessionOrders
   );
-  const groups = useMemo(
-    () =>
-      groupWorkspaceSessions(sessions, {
-        activeWorkspaceId,
-        sessionOrderByWorkspace: orderByWorkspace,
+  const groups = useMemo(() => {
+    if (viewMode === 'status') {
+      return groupWorkspaceSessionsByStatus(sessions, {
+        statusLabels: {
+          todo: t(STATUS_LABEL_KEY.todo),
+          inprogress: t(STATUS_LABEL_KEY.inprogress),
+          inreview: t(STATUS_LABEL_KEY.inreview),
+          done: t(STATUS_LABEL_KEY.done),
+        },
+        sessionOrderByGroup: orderByWorkspace,
         sortSpecs,
-      }),
-    [activeWorkspaceId, orderByWorkspace, sessions, sortSpecs]
-  );
+      });
+    }
+    return groupWorkspaceSessions(sessions, {
+      activeWorkspaceId,
+      sessionOrderByWorkspace: orderByWorkspace,
+      sortSpecs,
+    });
+  }, [activeWorkspaceId, orderByWorkspace, sessions, sortSpecs, t, viewMode]);
   const pinnedSessions = useMemo(
     () =>
       showPinnedSection ? pinnedWorkspaceSessions(sessions, sortSpecs) : [],

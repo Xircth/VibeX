@@ -5287,23 +5287,23 @@ html.dark {
   }
 
   .project-rail-shell--inline {
-    --project-rail-project-size: 31px;
+    --project-rail-project-size: 32px;
     --project-rail-action-size: 30px;
-    --project-rail-control-radius: var(--radius);
-    --project-rail-action-radius: var(--radius);
-    --project-rail-project-gap: 6px;
+    --project-rail-control-radius: 8px;
+    --project-rail-action-radius: 8px;
+    --project-rail-project-gap: 2px;
     --project-rail-action-gap: 6px;
     --project-rail-monogram-size: 10px;
     --project-rail-action-icon-size: 13px;
-    --project-rail-status-size: 8px;
-    --project-rail-status-border: 1.5px;
-    --project-rail-status-offset: -1px;
-    --project-rail-spinner-size: 5px;
-    --project-rail-delete-size: 13px;
-    --project-rail-delete-icon-size: 7px;
-    --project-rail-delete-offset: -2px;
+    --project-rail-status-size: 7px;
+    --project-rail-status-border: 0px;
+    --project-rail-status-offset: 0px;
+    --project-rail-spinner-size: 6px;
+    --project-rail-delete-size: 22px;
+    --project-rail-delete-icon-size: 12px;
+    --project-rail-delete-offset: 6px;
     --project-rail-empty-height: 67px;
-    --project-rail-empty-font-size: 8px;
+    --project-rail-empty-font-size: 11px;
     --project-rail-divider-width: 25px;
     --project-rail-divider-margin: 6px auto 7px;
     width: 100%;
@@ -5324,7 +5324,7 @@ html.dark {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 0 2px 6px;
+    padding: 0 4px 6px;
     cursor: default;
   }
 
@@ -5333,48 +5333,55 @@ html.dark {
   }
 
   .project-rail-quick-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 5px;
-    padding: 0 8px 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 6px 6px 0;
     margin-bottom: 4px;
     border-bottom: 1px solid var(--project-rail-divider);
   }
 
   .project-rail-quick-action-btn {
     display: flex;
+    width: 100%;
     min-width: 0;
-    height: 28px;
+    height: 32px;
     align-items: center;
-    gap: 6px;
-    padding: 0 8px;
-    border: 1px solid var(--project-rail-control-border);
-    border-radius: var(--radius);
-    background: var(--project-rail-control);
+    gap: 10px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
     color: var(--project-rail-ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
     transition:
       background 140ms ease-out,
-      border-color 140ms ease-out;
+      color 140ms ease-out;
   }
 
   .project-rail-quick-action-btn:hover {
-    background: var(--project-rail-control-hover);
+    background: hsl(var(--foreground) / 0.06);
+  }
+
+  .project-rail-quick-action-btn:active {
+    background: hsl(var(--foreground) / 0.09);
   }
 
   .project-rail-quick-action-btn span {
     min-width: 0;
+    flex: 1;
+    text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .project-rail-quick-action-icon {
-    width: 13px;
-    height: 13px;
+    width: 16px;
+    height: 16px;
     flex: 0 0 auto;
     color: var(--project-rail-muted);
   }
@@ -5401,7 +5408,7 @@ html.dark {
     width: 100%;
     min-height: 0;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     gap: var(--project-rail-project-gap);
     padding: 4px 0 5px;
     overflow-x: hidden;
@@ -5411,7 +5418,7 @@ html.dark {
   /* The shell's right padding is 4px, so the thumb sits near the rail edge.
      This inset keeps the project rows clear of that thumb. */
   .project-rail-shell--inline .project-rail-projects {
-    padding-right: 12px;
+    padding-right: 8px;
   }
 
   .project-rail-projects::-webkit-scrollbar {
@@ -5430,9 +5437,21 @@ html.dark {
 
   .project-rail-project-slot {
     position: relative;
+    box-sizing: border-box;
     width: 100%;
     min-height: var(--project-rail-project-size);
     flex: 0 0 auto;
+  }
+
+  .project-rail-tree-branch {
+    position: absolute;
+    top: 0;
+    bottom: 50%;
+    width: 8px;
+    border-left: 1.5px solid hsl(var(--border) / 0.85);
+    border-bottom: 1.5px solid hsl(var(--border) / 0.85);
+    border-bottom-left-radius: 5px;
+    pointer-events: none;
   }
 
   .project-rail-project-button,
@@ -5452,45 +5471,62 @@ html.dark {
   }
 
   .project-rail-project-button {
+    position: relative;
     display: flex;
     box-sizing: border-box;
     width: 100%;
     min-height: var(--project-rail-project-size);
     align-items: center;
     gap: 8px;
-    padding: 0 8px;
-    border: 1px solid var(--project-rail-control-border);
-    border-radius: var(--radius);
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
     background: transparent;
+    color: hsl(var(--foreground) / 0.82);
     transition:
       background 140ms ease-out,
-      border-color 140ms ease-out,
       color 140ms ease-out;
   }
 
   .project-rail-project-button:hover {
-    background: var(--project-rail-control-hover);
+    background: hsl(var(--foreground) / 0.05);
+    color: hsl(var(--foreground));
+  }
+
+  .project-rail-project-slot:hover .project-rail-project-button {
+    padding-right: 30px;
   }
 
   .project-rail-project-button.is-active {
-    border-color: transparent;
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    background: hsl(var(--foreground) / 0.08);
+    color: hsl(var(--foreground));
+  }
+
+  .project-rail-project-button.is-active::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 999px;
+    background: hsl(var(--foreground) / 0.65);
   }
 
   .project-rail-project-button.is-active:hover {
-    background: hsl(var(--primary));
+    background: hsl(var(--foreground) / 0.11);
   }
 
   .project-rail-project-icon {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     flex: 0 0 auto;
     color: var(--project-rail-muted);
+    transition: color 140ms ease-out;
   }
 
   .project-rail-project-button.is-active .project-rail-project-icon {
-    color: inherit;
+    color: hsl(var(--foreground));
   }
 
   .project-rail-project-name {
@@ -5501,8 +5537,12 @@ html.dark {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.2;
+  }
+
+  .project-rail-project-button.is-active .project-rail-project-name {
+    font-weight: 600;
   }
 
   .project-rail-action-button {
@@ -5538,14 +5578,14 @@ html.dark {
     width: var(--project-rail-status-size);
     height: var(--project-rail-status-size);
     flex: 0 0 auto;
-    border: var(--project-rail-status-border) solid var(--project-rail-control);
+    border: 0;
     border-radius: 999px;
   }
 
   .project-rail-status-dot-shell {
     display: grid;
     place-items: center;
-    background: var(--project-rail-control);
+    background: transparent;
   }
 
   .project-rail-status-spinner {
@@ -5559,24 +5599,25 @@ html.dark {
 
   .project-rail-delete-button {
     position: absolute;
-    top: var(--project-rail-delete-offset);
+    top: 50%;
     right: var(--project-rail-delete-offset);
+    transform: translateY(-50%);
     display: grid;
     width: var(--project-rail-delete-size);
     height: var(--project-rail-delete-size);
     place-items: center;
     padding: 0;
     color: var(--project-rail-muted);
-    border: 1px solid var(--project-rail-control-border);
-    border-radius: 999px;
-    background: var(--project-rail-control);
-    box-shadow: 0 2px 7px var(--project-rail-control-shadow);
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
     opacity: 0;
     cursor: pointer;
     transition:
+      background 120ms ease-out,
       color 120ms ease-out,
-      opacity 120ms ease-out,
-      transform 120ms ease-out;
+      opacity 120ms ease-out;
   }
 
   .project-rail-delete-button svg {
@@ -5590,8 +5631,8 @@ html.dark {
   }
 
   .project-rail-delete-button:hover {
+    background: hsl(var(--destructive) / 0.12);
     color: hsl(var(--destructive));
-    transform: scale(1.06);
   }
 
   .project-rail-empty-state {

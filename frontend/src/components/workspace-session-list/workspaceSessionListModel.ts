@@ -100,6 +100,60 @@ export function groupWorkspaceSessions(
   });
 }
 
+const STATUS_GROUP_ORDER: WorkspaceSessionStatusTone[] = [
+  'inprogress',
+  'inreview',
+  'todo',
+  'done',
+];
+
+export function groupWorkspaceSessionsByStatus(
+  sessions: KanbanProjectSessionRecord[],
+  options: {
+    statusLabels: Record<WorkspaceSessionStatusTone, string>;
+    sessionOrderByGroup?: Record<string, string[]>;
+    sortSpecs?: SessionListSortSpec[];
+  }
+): WorkspaceSessionGroup[] {
+  const buckets = new Map<
+    WorkspaceSessionStatusTone,
+    KanbanProjectSessionRecord[]
+  >();
+  for (const tone of STATUS_GROUP_ORDER) {
+    buckets.set(tone, []);
+  }
+
+  for (const session of sessions) {
+    const tone = workspaceSessionStatusTone(session);
+    buckets.get(tone)?.push(session);
+  }
+
+  const sessionOrderByGroup = options.sessionOrderByGroup ?? {};
+  const result: WorkspaceSessionGroup[] = [];
+
+  for (const tone of STATUS_GROUP_ORDER) {
+    const groupSessions = buckets.get(tone) ?? [];
+    if (groupSessions.length === 0) continue;
+    const groupId = `status:${tone}`;
+    result.push({
+      workspaceId: groupId,
+      label: options.statusLabels[tone],
+      branch: '',
+      useWorktree: false,
+      pinned: false,
+      sessions:
+        options.sortSpecs && options.sortSpecs.length > 0
+          ? sortWorkspaceSessions(groupSessions, options.sortSpecs)
+          : applyWorkspaceSessionOrder(
+              groupSessions,
+              sessionOrderByGroup[groupId]
+            ),
+    });
+  }
+
+  return result;
+}
+
 export function resolveWorkspaceListActiveSessionId(
   executionSessionId: string | null | undefined,
   routeSessionId: string | null | undefined

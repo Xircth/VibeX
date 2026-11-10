@@ -352,8 +352,14 @@
     "sortAgent": "Agent",
     "sortClear": "Clear sort",
     "search": "Search sessions",
-    "searchPlaceholder": "Search names or user messages",
-    "searchEmpty": "No matching sessions"
+    "searchShort": "Search",
+    "searchPlaceholder": "Search",
+    "searchEmpty": "No matching sessions",
+    "quickNewSession": "New session",
+    "switchView": "Switch view (Workspace / Status)",
+    "viewWorkspaceShort": "Workspace",
+    "viewStatusShort": "Status",
+    "mobileApp": "Mobile App"
   },
   "worktreeSelector": {
     "modeLabel": "Workspace list",

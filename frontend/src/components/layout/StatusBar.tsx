@@ -22,11 +22,11 @@ export function StatusBar() {
 
   return (
     <div className="workspace-chrome relative z-20 flex h-9 shrink-0 select-none items-center justify-between overflow-visible px-1.5 text-xs text-secondary-foreground">
-      <div className="min-w-0 overflow-visible pr-2">
+      <div className="workspace-project-selector-slot min-w-0 overflow-visible pr-2">
         <ProjectWindowStatusSummary />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2">
         <PluginStatusItems />
         <AttentionInboxBadge />
         <StatusBarMcp />

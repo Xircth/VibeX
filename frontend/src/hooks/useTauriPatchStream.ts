@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Operation } from 'rfc6902';
-import { applyUpsertPatch } from '@/utils/jsonPatch';
+import { cloneAndApplyUpsertPatch } from '@/utils/jsonPatch';
 import { getBackendTransport } from '@/lib/transport/transportRegistry';
 import type { RemoteEvent } from '@/lib/transport/backendTransport';
 import { randomUUID } from '@/utils/randomUUID';
@@ -97,6 +97,32 @@ export const usePatchStream = <T extends object>(
     isInitializedRef.current = false;
 
     let cancelled = false;
+    let pendingOps: Operation[] = [];
+    let flushScheduled = false;
+
+    const flushPendingPatches = () => {
+      flushScheduled = false;
+      if (cancelled || !pendingOps.length) {
+        pendingOps = [];
+        return;
+      }
+      const opsToApply = pendingOps;
+      pendingOps = [];
+      const current = dataRef.current;
+      if (!current) return;
+      try {
+        const filtered = deduplicatePatches
+          ? deduplicatePatches(opsToApply)
+          : opsToApply;
+        if (!filtered.length) return;
+        const next = cloneAndApplyUpsertPatch(current, filtered);
+        dataRef.current = next;
+        setData(next);
+      } catch (err) {
+        console.error('Failed to process patch stream message:', err);
+        setError('Failed to process stream update');
+      }
+    };
 
     const applyMessage = (payload: unknown) => {
       if (cancelled || finishedRef.current) return;
@@ -112,15 +138,16 @@ export const usePatchStream = <T extends object>(
             isInitializedRef.current = true;
             setIsInitialized(true);
           }
-          const current = dataRef.current;
-          if (!filtered.length || !current) return;
-          const next = structuredClone(current);
-          applyUpsertPatch(next, filtered);
-          dataRef.current = next;
-          setData(next);
+          if (!filtered.length || !dataRef.current) return;
+          pendingOps.push(...filtered);
+          if (!flushScheduled) {
+            flushScheduled = true;
+            queueMicrotask(flushPendingPatches);
+          }
           return;
         }
         if (msg === 'Ready') {
+          flushPendingPatches();
           if (!isInitializedRef.current) {
             isInitializedRef.current = true;
             setIsInitialized(true);
@@ -128,6 +155,7 @@ export const usePatchStream = <T extends object>(
           return;
         }
         if (msg === 'Finished') {
+          flushPendingPatches();
           finishedRef.current = true;
           if (!isInitializedRef.current) {
             isInitializedRef.current = true;

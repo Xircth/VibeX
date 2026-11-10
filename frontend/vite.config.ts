@@ -123,6 +123,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
     ],
   },
   server: {
+    host: '0.0.0.0',
     port: parseInt(process.env.FRONTEND_PORT || '3000', 10),
     proxy: (() => {
       const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);

@@ -2446,7 +2446,7 @@ describe('CollaborationSpacePage', () => {
     ).toHaveTextContent('小A');
     expect(
       within(collectionPanel).getByTestId('collection-item-creator-col-2')
-    ).toHaveTextContent('你');
+    ).toHaveTextContent('User');
     expect(
       within(collectionPanel).queryByTestId('collaboration-collection-path')
     ).toBeNull();
@@ -2650,7 +2650,7 @@ describe('CollaborationSpacePage', () => {
     expect(headerDelete.className).toContain(
       'collaboration-collection-delete-btn'
     );
-    expect(headerDelete).toBeDisabled();
+    expect(headerDelete).not.toBeDisabled();
 
     const textDelete = within(collectionPanel).getByTestId(
       'collection-item-delete-col-text'
@@ -2679,8 +2679,11 @@ describe('CollaborationSpacePage', () => {
       ).toBeNull();
     });
 
-    await user.click(imageKind);
-    expect(headerDelete).not.toBeDisabled();
+    await user.click(headerDelete);
+    const imageSelect = await within(collectionPanel).findByTestId(
+      'collection-item-select-col-image'
+    );
+    await user.click(imageSelect);
     await user.click(headerDelete);
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',

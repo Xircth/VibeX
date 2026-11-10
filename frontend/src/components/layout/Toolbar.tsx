@@ -946,6 +946,7 @@ function WorkspaceTabSwitcher() {
 
 export function Toolbar() {
   const { t } = useTranslation(['panels', 'common']);
+  const navigate = useNavigate();
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -1149,6 +1150,16 @@ export function Toolbar() {
                 <ToolbarDivider />
               </>
             )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="workspace-toolbar-button h-7 px-2 text-xs font-medium text-blue-500 hover:text-blue-600"
+              onClick={() => navigate('/prototype/unified-shell')}
+              title="打开 A/B 分区一体式 Shell Nav 原型 Demo"
+            >
+              Shell原型Demo
+            </Button>
 
             <Tooltip>
               <TooltipTrigger asChild>

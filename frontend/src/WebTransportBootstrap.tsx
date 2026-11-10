@@ -86,6 +86,13 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith('/prototype')
+  ) {
+    return <>{children}</>;
+  }
+
   const connect = async (event: SyntheticEvent) => {
     event.preventDefault();
     const host = baseUrl.trim();

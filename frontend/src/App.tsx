@@ -368,13 +368,33 @@ function PluginContributionBridge() {
   return null;
 }
 
+const UnifiedShellPrototype = lazy(() =>
+  import('@/pages/UnifiedShellPrototype').then((module) => ({
+    default: module.UnifiedShellPrototype,
+  }))
+);
+
+function AppRouterSwitch() {
+  const location = useLocation();
+  if (location.pathname.startsWith('/prototype/unified-shell')) {
+    return (
+      <Suspense fallback={null}>
+        <UnifiedShellPrototype />
+      </Suspense>
+    );
+  }
+  return (
+    <UserSystemProvider>
+      <AppContent />
+    </UserSystemProvider>
+  );
+}
+
 function App() {
   return (
     <AppErrorBoundary>
       <BrowserRouter>
-        <UserSystemProvider>
-          <AppContent />
-        </UserSystemProvider>
+        <AppRouterSwitch />
       </BrowserRouter>
     </AppErrorBoundary>
   );

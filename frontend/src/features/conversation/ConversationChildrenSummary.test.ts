@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationRelationView } from 'shared/types';
 
-import { summarizeConversationChildren } from './ConversationChildrenSummary';
+import {
+  areConversationRelationsEqual,
+  summarizeConversationChildren,
+} from './ConversationChildrenSummary';
 
 function relation(
   id: string,
@@ -54,4 +57,14 @@ describe('summarizeConversationChildren', () => {
 
     expect(summarizeConversationChildren([child]).budget).toBeNull();
   });
+
+  it('compares relation snapshots structurally to avoid redundant state updates', () => {
+    const left = [relation('one', 'running')];
+    const identical = [relation('one', 'running')];
+    const changed = [relation('one', null)];
+
+    expect(areConversationRelationsEqual(left, identical)).toBe(true);
+    expect(areConversationRelationsEqual(left, changed)).toBe(false);
+  });
 });
+

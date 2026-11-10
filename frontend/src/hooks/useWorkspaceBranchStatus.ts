@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
 import type { RepoBranchStatus } from 'shared/types';
 
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 30_000;
 
 /**
  * Polls workspace branch status on a background interval.
@@ -14,8 +14,11 @@ export function useWorkspaceBranchStatus(workspaceId?: string) {
     queryKey: ['branchStatus', workspaceId],
     queryFn: () => attemptsApi.getBranchStatus(workspaceId!),
     enabled: !!workspaceId,
+    staleTime: 15_000,
     refetchInterval: POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
     // Keep previous data while refetching to avoid UI flicker
     placeholderData: (prev) => prev,
   });
 }
+

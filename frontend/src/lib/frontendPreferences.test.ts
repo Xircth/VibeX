@@ -5,20 +5,26 @@ const api = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-import { syncFrontendPreferences } from './frontendPreferences';
+import {
+  isSelfTriggeredSettingsChange,
+  resetSelfTriggeredSettingsStateForTests,
+  syncFrontendPreferences,
+} from './frontendPreferences';
 
 describe('syncFrontendPreferences', () => {
   beforeEach(() => {
     localStorage.clear();
     api.get.mockReset();
     api.update.mockReset();
+    resetSelfTriggeredSettingsStateForTests();
   });
 
   it('applies values edited in settings.json to browser preferences', async () => {
     api.get.mockResolvedValue({ ui_zoom: 1.25, language: 'en' });
 
-    await syncFrontendPreferences(api);
+    const changed = await syncFrontendPreferences(api);
 
+    expect(changed).toBe(true);
     expect(localStorage.getItem('vibex:ui-zoom')).toBe('1.25');
     expect(localStorage.getItem('vibex:ui-language')).toBe('en');
     expect(api.update).not.toHaveBeenCalled();
@@ -32,6 +38,7 @@ describe('syncFrontendPreferences', () => {
     await syncFrontendPreferences(api);
 
     expect(api.update).toHaveBeenCalledWith({ mono_font: 'menlo' });
+    expect(isSelfTriggeredSettingsChange()).toBe(true);
   });
 
   it('does not rewrite identical browser preferences', async () => {
@@ -39,8 +46,9 @@ describe('syncFrontendPreferences', () => {
     api.get.mockResolvedValue({ ui_zoom: 1.25 });
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
-    await syncFrontendPreferences(api);
+    const changed = await syncFrontendPreferences(api);
 
+    expect(changed).toBe(false);
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
   });
@@ -56,3 +64,4 @@ describe('syncFrontendPreferences', () => {
     expect(localStorage.getItem('vibex:kanban-board-style')).toBe('canvas');
   });
 });
+

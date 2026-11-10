@@ -5,8 +5,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
 } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  replaceEqualDeep,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { type Config, type Environment } from 'shared/types';
 import type { ExecutorConfig } from 'shared/types';
 import {
@@ -16,6 +21,7 @@ import {
 } from '../lib/api';
 import {
   SETTINGS_CHANGED_EVENT,
+  isSelfTriggeredSettingsChange,
   syncFrontendPreferences,
 } from '@/lib/frontendPreferences';
 import { initUiZoom } from '@/lib/uiZoom';
@@ -79,15 +85,18 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     let unlisten: () => void = () => undefined;
     let unlistenSessions: () => void = () => undefined;
     let disposed = false;
+    let hasInitializedPreferences = false;
     const sync = async () => {
       try {
+        const isFirstSync = !hasInitializedPreferences;
+        hasInitializedPreferences = true;
+        const changed = await syncFrontendPreferences();
+        if (!isFirstSync && !changed) return;
+        initUiZoom();
+        initAccentColor();
+        initMonoFont();
         const language = getUiLanguage();
         await Promise.all([
-          syncFrontendPreferences().then(() => {
-            initUiZoom();
-            initAccentColor();
-            initMonoFont();
-          }),
           language === i18n.language
             ? Promise.resolve()
             : i18n.changeLanguage(language),
@@ -99,6 +108,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
       }
     };
     const handleSettingsChanged = () => {
+      if (isSelfTriggeredSettingsChange()) return;
       void sync();
       void queryClient.invalidateQueries({ queryKey: ['user-system'] });
       window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
@@ -133,19 +143,48 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     queryKey: ['user-system'],
     queryFn: configApi.getConfig,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: 'always',
   });
 
-  const config = userSystemInfo?.config || null;
-  const environment = userSystemInfo?.environment || null;
-  const profiles =
-    (userSystemInfo?.executors as Record<string, ExecutorConfig> | null) ||
-    null;
-  const capabilities =
-    (userSystemInfo?.capabilities as Record<
-      string,
-      AgentCapability[]
-    > | null) || null;
+  const configRef = useRef<Config | null>(null);
+  const environmentRef = useRef<Environment | null>(null);
+  const profilesRef = useRef<Record<string, ExecutorConfig> | null>(null);
+  const capabilitiesRef = useRef<Record<string, AgentCapability[]> | null>(
+    null
+  );
+
+  const config = useMemo(() => {
+    const next = userSystemInfo?.config || null;
+    const stabilized = replaceEqualDeep(configRef.current, next);
+    configRef.current = stabilized;
+    return stabilized;
+  }, [userSystemInfo?.config]);
+
+  const environment = useMemo(() => {
+    const next = userSystemInfo?.environment || null;
+    const stabilized = replaceEqualDeep(environmentRef.current, next);
+    environmentRef.current = stabilized;
+    return stabilized;
+  }, [userSystemInfo?.environment]);
+
+  const profiles = useMemo(() => {
+    const next =
+      (userSystemInfo?.executors as Record<string, ExecutorConfig> | null) ||
+      null;
+    const stabilized = replaceEqualDeep(profilesRef.current, next);
+    profilesRef.current = stabilized;
+    return stabilized;
+  }, [userSystemInfo?.executors]);
+
+  const capabilities = useMemo(() => {
+    const next =
+      (userSystemInfo?.capabilities as Record<
+        string,
+        AgentCapability[]
+      > | null) || null;
+    const stabilized = replaceEqualDeep(capabilitiesRef.current, next);
+    capabilitiesRef.current = stabilized;
+    return stabilized;
+  }, [userSystemInfo?.capabilities]);
 
   const updateConfig = useCallback(
     (updates: Partial<Config>) => {

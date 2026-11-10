@@ -3577,6 +3577,17 @@ body.is-dragging-collaboration-member * {
   color: var(--text-strong);
 }
 
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .collaboration-collection-list {
   display: flex;
   flex: 1 1 0%;
@@ -3587,29 +3598,92 @@ body.is-dragging-collaboration-member * {
   padding: 0.375rem 0.75rem 0.625rem;
 }
 
+.collaboration-collection-item-entry {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
 .collaboration-collection-card {
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.625rem 0.75rem;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-control);
-  box-shadow: var(--shadow-inset);
+  border-radius: 10px;
+  background: var(--surface-card, var(--surface-control));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    var(--shadow-inset);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.collaboration-collection-card[data-selected='true'] {
+  border-color: var(--border-strong);
 }
 
 .collaboration-collection-card.is-collapsed {
   gap: 0;
-  padding: 0.4375rem 0.75rem;
+  padding: 0;
 }
 
 .collaboration-collection-card-header {
   display: flex;
+  min-height: 2.25rem;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   user-select: none;
+}
+
+.collaboration-collection-card.is-collapsed
+  .collaboration-collection-card-header {
+  border-bottom: none;
+}
+
+.collaboration-collection-card-header-left {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.collaboration-collection-select-checkbox {
+  display: inline-flex;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1.5px solid var(--border-strong, var(--text-muted));
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--surface-card, #ffffff);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.collaboration-collection-select-checkbox:hover {
+  border-color: var(--text-strong);
+}
+
+.collaboration-collection-select-checkbox.is-checked {
+  border-color: var(--text-strong);
+  background: var(--text-strong);
+  color: var(--surface-card, #ffffff);
 }
 
 .collaboration-collection-card-header-right {
@@ -3617,6 +3691,15 @@ body.is-dragging-collaboration-member * {
   flex-shrink: 0;
   align-items: center;
   gap: 0.375rem;
+}
+
+.collaboration-collection-metric {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .collaboration-collection-collapse-btn {
@@ -3631,13 +3714,11 @@ body.is-dragging-collaboration-member * {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition:
-    background-color 140ms ease,
-    color 140ms ease;
+  transition: color 140ms ease;
 }
 
 .collaboration-collection-collapse-btn:hover {
-  background: var(--surface-control-hover);
+  background: transparent;
   color: var(--text-strong);
 }
 
@@ -3646,20 +3727,22 @@ body.is-dragging-collaboration-member * {
   min-width: 0;
   align-items: center;
   gap: 0.375rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
   color: var(--text-strong);
 }
 
 .collaboration-collection-kind-badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.0625rem 0.375rem;
+  padding: 0.125rem 0.375rem;
   border-radius: 999px;
   background: var(--surface-right-panel);
   color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 500;
+  line-height: 1.2;
 }
 
 .collaboration-collection-open-tab-btn,
@@ -3708,10 +3791,26 @@ body.is-dragging-collaboration-member * {
   color: hsl(var(--destructive) / 0.72);
 }
 
-.collaboration-collection-delete-btn:hover:not(:disabled) {
+.collaboration-collection-delete-btn:hover:not(:disabled),
+.collaboration-collection-delete-btn.is-active:not(:disabled) {
   color: hsl(var(--destructive));
   background: transparent;
   background-color: transparent;
+}
+
+.collaboration-collection-card .collaboration-collection-delete-btn {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    color 140ms ease;
+}
+
+.collaboration-collection-card:hover .collaboration-collection-delete-btn,
+.collaboration-collection-card:focus-within
+  .collaboration-collection-delete-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .collaboration-collection-open-tab-btn:disabled,
@@ -3765,6 +3864,13 @@ body.is-dragging-collaboration-member * {
   color: var(--text-strong);
 }
 
+.collaboration-collection-card-content {
+  padding: 0.5rem 0.75rem 0.25rem;
+  color: var(--text-strong);
+  font-size: 0.78125rem;
+  line-height: 1.55;
+}
+
 .collaboration-collection-text-content {
   max-height: 11rem;
   overflow-y: auto;
@@ -3779,8 +3885,28 @@ body.is-dragging-collaboration-member * {
   word-break: break-word;
 }
 
+.collaboration-collection-card .collaboration-collection-text-content {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.78125rem;
+  line-height: 1.55;
+}
+
 .collaboration-collection-text-content.collaboration-collection-markdown-preview {
   white-space: normal;
+}
+
+.collaboration-collection-source-pill {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-right-panel);
+  color: var(--text-strong);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.collaboration-collection-source-pill:hover {
+  background: var(--surface-control-hover);
 }
 
 .collaboration-collection-image-wrap {
@@ -3811,23 +3937,23 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-collection-note {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.75rem 0.5rem;
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.35;
-  word-break: break-word;
 }
 
 .collaboration-collection-note-display {
   display: flex;
+  flex: 1 1 0%;
   width: 100%;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.375rem;
   padding: 0.125rem 0.375rem;
-  margin-left: -0.25rem;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
@@ -3835,9 +3961,9 @@ body.is-dragging-collaboration-member * {
   font-size: 0.75rem;
   line-height: 1.35;
   text-align: left;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition:
     background-color 140ms ease,
@@ -3867,6 +3993,7 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-collection-note-editor {
   display: flex;
+  flex: 1 1 0%;
   width: 100%;
   min-width: 0;
   align-items: center;
@@ -3884,10 +4011,21 @@ body.is-dragging-collaboration-member * {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding-top: 0.25rem;
+  padding: 0.4375rem 0.75rem;
   border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-right-panel) 45%, transparent);
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+.collaboration-collection-outer-time {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  color: var(--text-faint, var(--text-muted));
+  font-variant-numeric: tabular-nums;
 }
 
 .collaboration-collection-reads-toggle {
@@ -3913,6 +4051,7 @@ body.is-dragging-collaboration-member * {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  margin: 0 0.75rem 0.625rem;
   padding: 0.375rem 0.5rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -3970,11 +4109,22 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-assets-segmented {
   flex-shrink: 0;
+  height: 1.625rem !important;
+  min-height: 1.625rem !important;
+  padding: 1.5px !important;
+}
+
+.collaboration-assets-segmented [role='radio'],
+.collaboration-assets-segmented button {
+  height: calc(1.625rem - 3px) !important;
+  min-height: calc(1.625rem - 3px) !important;
+  padding: 0 0.4375rem !important;
+  font-size: 0.75rem !important;
 }
 
 .collaboration-assets-segmented svg {
-  width: 0.8125rem;
-  height: 0.8125rem;
+  width: 0.75rem;
+  height: 0.75rem;
   flex-shrink: 0;
 }
 

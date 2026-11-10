@@ -439,9 +439,20 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "artifact.preview"
                 | "artifact"
                 | "storage"
+                | "storage.kv"
                 | "secrets"
+                | "secret"
+                | "secret.keep"
                 | "files"
+                | "fs"
+                | "fs.read"
+                | "fs.write"
                 | "network"
+                | "net"
+                | "net.fetch"
+                | "net.websocket"
+                | "env"
+                | "env.read"
                 | "log"
                 | "events"
                 | "agent"
@@ -500,7 +511,9 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 self.call_plugin_self(plugin_id, generation, operation, input)
                     .await
             }
-            "storage" | "secrets" | "files" | "network" | "events" | "agent" | "app" => {
+            "storage" | "storage.kv" | "secrets" | "secret" | "secret.keep" | "files" | "fs"
+            | "fs.read" | "fs.write" | "network" | "net" | "net.fetch" | "net.websocket"
+            | "env" | "env.read" | "events" | "agent" | "app" => {
                 self.call_plugin_data(plugin_id, generation, capability, operation, input)
                     .await
             }
@@ -1192,12 +1205,35 @@ impl HostCapabilityBroker {
                 }
                 Ok(input)
             }
-            "secrets.get" | "secrets.put" | "secrets.delete" => {
-                self.call_secrets(plugin_id, &key, input).await
+            "secrets.get" | "secret.get" | "secret.keep.get" => {
+                self.call_secrets(plugin_id, "secrets.get", input).await
             }
-            "network.fetch" => execute_network_fetch(&self.http_client, input).await,
-            "files.read" | "files.write" | "files.stat" | "files.list" => {
-                self.call_files(plugin_id, &key, input).await
+            "secrets.put" | "secret.put" | "secret.keep" | "secret.keep.put" => {
+                self.call_secrets(plugin_id, "secrets.put", input).await
+            }
+            "secrets.delete" | "secret.delete" | "secret.keep.delete" => {
+                self.call_secrets(plugin_id, "secrets.delete", input).await
+            }
+            "network.fetch" | "net.fetch" | "net.fetch.request" => {
+                self.call_network_fetch(plugin_id, input).await
+            }
+            "network.websocket" | "net.websocket" | "net.websocket.connect" => {
+                self.call_network_websocket(plugin_id, input).await
+            }
+            "files.read" | "fs.read" | "fs.read.file" => {
+                self.call_files(plugin_id, "files.read", input).await
+            }
+            "files.write" | "fs.write" | "fs.write.file" => {
+                self.call_files(plugin_id, "files.write", input).await
+            }
+            "files.stat" | "fs.stat" | "fs.read.stat" => {
+                self.call_files(plugin_id, "files.stat", input).await
+            }
+            "files.list" | "fs.list" | "fs.read.list" => {
+                self.call_files(plugin_id, "files.list", input).await
+            }
+            "env.read" | "env.get" | "env.snapshot" | "env.read.get" | "env.read.snapshot" => {
+                self.call_env(plugin_id, operation, input).await
             }
             "events.subscribe" | "events.ack" | "events.publish" => {
                 self.call_events(plugin_id, &key, input).await
@@ -2297,6 +2333,167 @@ impl HostCapabilityBroker {
             format!("Cross-plugin handler `{handler_id}` is not registered or not visible"),
         ))
     }
+
+    async fn call_network_fetch(
+        &self,
+        plugin_id: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let url = input
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| broker_error("network_invalid_url", "url is required"))?;
+        let parsed_url = crate::grants::validate_network_url(url, false)?;
+
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let net_grants: Vec<&crate::HostCapabilityGrant> = grants
+            .iter()
+            .filter(|grant| capability_matches(&grant.capability, "network.fetch", "network"))
+            .collect();
+        let mut patterns = Vec::new();
+        let mut max_bytes = NETWORK_RESPONSE_MAX_BYTES;
+        for grant in &net_grants {
+            crate::grants::collect_network_grant_patterns(&grant.scope, &mut patterns);
+            let limit = grant.effective_limits().max_request_bytes;
+            if limit > 0 && grant.effective_limits() != crate::GrantLimits::default() {
+                max_bytes = max_bytes.min(limit);
+            }
+        }
+        if !patterns.is_empty()
+            && !patterns
+                .iter()
+                .any(|pattern| crate::grants::url_matches_grant_pattern(&parsed_url, pattern))
+        {
+            return Err(broker_error(
+                "network_url_denied",
+                format!(
+                    "URL `{}` is not permitted by plugin `{plugin_id}` `net.fetch` allowlist",
+                    parsed_url
+                ),
+            ));
+        }
+
+        execute_network_fetch_limited(&self.http_client, input, max_bytes).await
+    }
+
+    async fn call_network_websocket(
+        &self,
+        plugin_id: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let url = input
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| broker_error("network_invalid_url", "url is required"))?;
+        let parsed_url = crate::grants::validate_network_url(url, true)?;
+
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let ws_grants: Vec<&crate::HostCapabilityGrant> = grants
+            .iter()
+            .filter(|grant| {
+                capability_matches(&grant.capability, "network.websocket", "network")
+            })
+            .collect();
+        if ws_grants.is_empty() {
+            return Err(broker_error(
+                "network_url_denied",
+                format!(
+                    "Plugin `{plugin_id}` is not granted `net.websocket` capability"
+                ),
+            ));
+        }
+        let mut patterns = Vec::new();
+        for grant in &ws_grants {
+            crate::grants::collect_network_grant_patterns(&grant.scope, &mut patterns);
+        }
+        if !patterns.is_empty()
+            && !patterns
+                .iter()
+                .any(|pattern| crate::grants::url_matches_grant_pattern(&parsed_url, pattern))
+        {
+            return Err(broker_error(
+                "network_url_denied",
+                format!(
+                    "WebSocket URL `{}` is not permitted by plugin `{plugin_id}` `net.websocket` allowlist",
+                    parsed_url
+                ),
+            ));
+        }
+
+        Ok(json!({
+            "allowed": true,
+            "url": parsed_url.as_str(),
+            "scheme": parsed_url.scheme(),
+            "host": parsed_url.host_str(),
+        }))
+    }
+
+    async fn call_env(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let allowed_vars = crate::grants::collect_allowed_env_vars(&grants);
+        if allowed_vars.is_empty() {
+            return Err(broker_error(
+                "env_denied",
+                format!("Plugin `{plugin_id}` has no `env.read` capability grant"),
+            ));
+        }
+
+        let current_env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+        let snapshot = crate::grants::build_isolated_env_snapshot(&grants, &current_env);
+
+        if let Some(requested_key) = input
+            .get("key")
+            .or_else(|| input.get("name"))
+            .or_else(|| input.get("variable"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let is_allowed = allowed_vars.contains("*")
+                || allowed_vars.contains(requested_key)
+                || (cfg!(windows)
+                    && allowed_vars
+                        .iter()
+                        .any(|item| item.eq_ignore_ascii_case(requested_key)));
+            if !is_allowed {
+                return Err(broker_error(
+                    "env_denied",
+                    format!(
+                        "Environment variable `{requested_key}` is not in plugin `{plugin_id}` `env.read` allowlist"
+                    ),
+                ));
+            }
+            let value = snapshot.get(requested_key).cloned().or_else(|| {
+                if cfg!(windows) {
+                    snapshot
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(requested_key))
+                        .map(|(_, v)| v.clone())
+                } else {
+                    None
+                }
+            });
+            return Ok(json!({
+                "key": requested_key,
+                "present": value.is_some(),
+                "value": value,
+            }));
+        }
+
+        let _ = operation;
+        Ok(json!({
+            "env": snapshot,
+        }))
+    }
 }
 
 fn capability_matches(granted: &str, requested_key: &str, domain: &str) -> bool {
@@ -2308,11 +2505,32 @@ fn capability_matches(granted: &str, requested_key: &str, domain: &str) -> bool 
         || (domain == "files"
             && matches!(
                 granted,
-                "files.rw" | "files.readwrite" | "workspace.files" | "storage.files"
+                "fs.*" | "files.rw" | "files.readwrite" | "workspace.files" | "storage.files"
             ))
         || (domain == "files"
+            && requested_key == "files.write"
+            && matches!(granted, "fs.write" | "files.write"))
+        || (domain == "files"
             && requested_key != "files.write"
-            && matches!(granted, "files.read" | "files.ro" | "files.readonly"))
+            && matches!(
+                granted,
+                "fs.read" | "files.read" | "files.ro" | "files.readonly" | "fs.write" | "files.write"
+            ))
+        || (domain == "network"
+            && requested_key == "network.fetch"
+            && matches!(granted, "net.*" | "net" | "net.fetch" | "network.fetch"))
+        || (domain == "network"
+            && requested_key == "network.websocket"
+            && matches!(
+                granted,
+                "net.*" | "net" | "net.websocket" | "network.websocket"
+            ))
+        || (domain == "secrets"
+            && matches!(granted, "secret.*" | "secret" | "secret.keep" | "secrets.keep"))
+        || (domain == "storage"
+            && requested_key.starts_with("storage.kv")
+            && matches!(granted, "storage.kv" | "storage.kv.*"))
+        || (domain == "env" && matches!(granted, "env.read" | "env.*" | "env"))
 }
 
 fn grant_allows_agent_handler(scope: &Value, handler_id: &str) -> bool {
@@ -2339,6 +2557,12 @@ fn grant_allows_agent_handler(scope: &Value, handler_id: &str) -> bool {
     true
 }
 
+fn push_safe_grant_root(out: &mut Vec<std::path::PathBuf>, candidate: std::path::PathBuf) {
+    if !crate::grants::contains_parent_dir_component(&candidate) {
+        out.push(candidate);
+    }
+}
+
 fn collect_grant_roots(
     plugin_id: &str,
     scope: &Value,
@@ -2351,16 +2575,16 @@ fn collect_grant_roots(
             let trimmed = path_str.trim();
             if trimmed == "workspace" || trimmed == "workspace_root" {
                 if let Some(ws) = default_workspace_root {
-                    out.push(ws.to_path_buf());
+                    push_safe_grant_root(out, ws.to_path_buf());
                 }
             } else if trimmed == "plugin_data" || trimmed == "plugin_data_dir" {
                 if let Some(data_root) = default_plugin_data_root {
                     let plugin_dir = data_root.join(plugin_id);
                     let _ = std::fs::create_dir_all(&plugin_dir);
-                    out.push(plugin_dir);
+                    push_safe_grant_root(out, plugin_dir);
                 }
             } else if !trimmed.is_empty() {
-                out.push(std::path::PathBuf::from(trimmed));
+                push_safe_grant_root(out, std::path::PathBuf::from(trimmed));
             }
         }
         Value::Array(items) => {
@@ -2378,11 +2602,11 @@ fn collect_grant_roots(
             for key in ["workspace_root", "workspaceRoot", "workspace"] {
                 match map.get(key) {
                     Some(Value::String(path)) if !path.trim().is_empty() => {
-                        out.push(std::path::PathBuf::from(path.trim()));
+                        push_safe_grant_root(out, std::path::PathBuf::from(path.trim()));
                     }
                     Some(Value::Bool(true)) => {
                         if let Some(ws) = default_workspace_root {
-                            out.push(ws.to_path_buf());
+                            push_safe_grant_root(out, ws.to_path_buf());
                         }
                     }
                     _ => {}
@@ -2392,14 +2616,16 @@ fn collect_grant_roots(
                 match map.get(key) {
                     Some(Value::String(path)) if !path.trim().is_empty() => {
                         let dir = std::path::PathBuf::from(path.trim());
-                        let _ = std::fs::create_dir_all(&dir);
-                        out.push(dir);
+                        if !crate::grants::contains_parent_dir_component(&dir) {
+                            let _ = std::fs::create_dir_all(&dir);
+                            out.push(dir);
+                        }
                     }
                     Some(Value::Bool(true)) => {
                         if let Some(data_root) = default_plugin_data_root {
                             let plugin_dir = data_root.join(plugin_id);
                             let _ = std::fs::create_dir_all(&plugin_dir);
-                            out.push(plugin_dir);
+                            push_safe_grant_root(out, plugin_dir);
                         }
                     }
                     _ => {}
@@ -2408,13 +2634,13 @@ fn collect_grant_roots(
             if let Some(Value::String(root)) = map.get("root")
                 && !root.trim().is_empty()
             {
-                out.push(std::path::PathBuf::from(root.trim()));
+                push_safe_grant_root(out, std::path::PathBuf::from(root.trim()));
             }
             for key in ["roots", "allowed_roots", "allowedRoots", "paths"] {
                 if let Some(Value::Array(roots)) = map.get(key) {
                     for item in roots {
                         if let Some(path) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
-                            out.push(std::path::PathBuf::from(path));
+                            push_safe_grant_root(out, std::path::PathBuf::from(path));
                         }
                     }
                 }
@@ -2446,10 +2672,16 @@ fn select_preferred_root(
         }
         other => Some(std::path::PathBuf::from(other)),
     }?;
+    if crate::grants::contains_parent_dir_component(&candidate) {
+        return None;
+    }
     let canonical = std::fs::canonicalize(candidate).ok()?;
     authorized_roots
         .iter()
-        .find(|authorized| canonical.starts_with(*authorized))
+        .find(|authorized| {
+            canonical.starts_with(*authorized)
+                && crate::grants::path_has_component_prefix(&canonical, authorized)
+        })
         .map(|_| canonical)
 }
 
@@ -2460,22 +2692,23 @@ fn resolve_authorized_file_path(
     for_write: bool,
     create_dirs: bool,
 ) -> Result<std::path::PathBuf, crate::WorkerHostError> {
-    use std::path::{Component, Path};
+    use std::path::Path;
 
     let raw_path = Path::new(requested_path);
-    for component in raw_path.components() {
-        if matches!(component, Component::ParentDir) {
-            return Err(broker_error(
-                "files_root_denied",
-                "Path traversal (`..`) is not permitted outside authorized roots",
-            ));
-        }
+    if crate::grants::contains_parent_dir_component(raw_path) {
+        return Err(broker_error(
+            "files_root_denied",
+            "Path traversal (`..`) is not permitted outside authorized roots",
+        ));
     }
 
     let roots_to_try: Vec<&std::path::PathBuf> = if let Some(preferred) = preferred_root {
         authorized_roots
             .iter()
-            .filter(|root| preferred.starts_with(*root))
+            .filter(|root| {
+                preferred.starts_with(*root)
+                    && crate::grants::path_has_component_prefix(preferred, root)
+            })
             .collect()
     } else {
         authorized_roots.iter().collect()
@@ -2501,6 +2734,15 @@ fn resolve_authorized_file_path(
     verify_candidate_under_roots(&joined, &roots_to_try, for_write, create_dirs)
 }
 
+fn is_path_under_authorized_roots(
+    candidate: &std::path::Path,
+    authorized_roots: &[&std::path::PathBuf],
+) -> bool {
+    authorized_roots.iter().any(|root| {
+        candidate.starts_with(root) && crate::grants::path_has_component_prefix(candidate, root)
+    })
+}
+
 fn verify_candidate_under_roots(
     candidate: &std::path::Path,
     authorized_roots: &[&std::path::PathBuf],
@@ -2515,10 +2757,7 @@ fn verify_candidate_under_roots(
     }
     let canonical_ancestor = std::fs::canonicalize(existing_ancestor)
         .map_err(|error| broker_error("files_root_denied", error))?;
-    if !authorized_roots
-        .iter()
-        .any(|root| canonical_ancestor.starts_with(root))
-    {
+    if !is_path_under_authorized_roots(&canonical_ancestor, authorized_roots) {
         return Err(broker_error(
             "files_root_denied",
             "Target path escapes the plugin's authorized file roots",
@@ -2545,10 +2784,7 @@ fn verify_candidate_under_roots(
         }
         let canonical_parent = std::fs::canonicalize(parent)
             .map_err(|error| broker_error("files_root_denied", error))?;
-        if !authorized_roots
-            .iter()
-            .any(|root| canonical_parent.starts_with(root))
-        {
+        if !is_path_under_authorized_roots(&canonical_parent, authorized_roots) {
             return Err(broker_error(
                 "files_root_denied",
                 "Target parent directory escapes the plugin's authorized file roots",
@@ -2564,10 +2800,7 @@ fn verify_candidate_under_roots(
         if resolved.exists() {
             let canonical_existing = std::fs::canonicalize(&resolved)
                 .map_err(|error| broker_error("files_root_denied", error))?;
-            if !authorized_roots
-                .iter()
-                .any(|root| canonical_existing.starts_with(root))
-            {
+            if !is_path_under_authorized_roots(&canonical_existing, authorized_roots) {
                 return Err(broker_error(
                     "files_root_denied",
                     "Target symlink escapes the plugin's authorized file roots",
@@ -2585,10 +2818,7 @@ fn verify_candidate_under_roots(
         }
         let canonical_target = std::fs::canonicalize(candidate)
             .map_err(|error| broker_error("files_root_denied", error))?;
-        if !authorized_roots
-            .iter()
-            .any(|root| canonical_target.starts_with(root))
-        {
+        if !is_path_under_authorized_roots(&canonical_target, authorized_roots) {
             return Err(broker_error(
                 "files_root_denied",
                 "Target path escapes the plugin's authorized file roots",
@@ -2619,13 +2849,6 @@ fn include_network_body_base64(explicit: bool, valid_utf8: bool, byte_len: usize
     byte_len < NETWORK_BODY_BASE64_ALWAYS_BELOW
 }
 
-async fn execute_network_fetch(
-    client: &reqwest::Client,
-    input: Value,
-) -> Result<Value, crate::WorkerHostError> {
-    execute_network_fetch_limited(client, input, NETWORK_RESPONSE_MAX_BYTES).await
-}
-
 async fn execute_network_fetch_limited(
     client: &reqwest::Client,
     input: Value,
@@ -2638,14 +2861,7 @@ async fn execute_network_fetch_limited(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| broker_error("network_invalid_url", "url is required"))?;
-    let parsed_url =
-        url::Url::parse(url).map_err(|error| broker_error("network_invalid_url", error))?;
-    if !matches!(parsed_url.scheme(), "http" | "https") {
-        return Err(broker_error(
-            "network_invalid_url",
-            "only http and https URLs are supported",
-        ));
-    }
+    let parsed_url = crate::grants::validate_network_url(url, false)?;
     let method_str = input
         .get("method")
         .and_then(Value::as_str)
@@ -3811,4 +4027,158 @@ mod tests {
             .await
             .expect("deactivate worker");
     }
+
+    #[tokio::test]
+    async fn broker_enforces_fine_grained_grants_env_isolation_and_url_path_boundaries() {
+        let broker = sqlite_broker().await;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let allowed_dir = temp.path().join("user");
+        let sibling_dir = temp.path().join("user2");
+        std::fs::create_dir_all(&allowed_dir).expect("create allowed dir");
+        std::fs::create_dir_all(&sibling_dir).expect("create sibling dir");
+        std::fs::write(allowed_dir.join("hello.txt"), "allowed-content").expect("write allowed");
+        std::fs::write(sibling_dir.join("secret.txt"), "sibling-secret").expect("write sibling");
+
+        let manifest = crate::PermissionManifest {
+            net_fetch: vec!["https://api.example.com".to_owned()],
+            net_websocket: vec!["wss://realtime.example.com".to_owned()],
+            fs_read: vec![allowed_dir.clone()],
+            fs_write: Vec::new(),
+            env_read: vec!["PATH".to_owned()],
+            secret_keep: Vec::new(),
+            storage_kv: true,
+        };
+        for grant in manifest.to_capability_grants() {
+            broker
+                .grant_capability("vibex.grants-guard", grant)
+                .await;
+        }
+
+        // 1. fs.read allows reading inside `allowed_dir`, denies writing, denies sibling `user2`, and denies `..`
+        let read_ok = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "files",
+                "read",
+                json!({ "path": allowed_dir.join("hello.txt").to_string_lossy() }),
+            )
+            .await
+            .expect("fs.read inside allowed_dir");
+        assert_eq!(read_ok["content"], "allowed-content");
+
+        let write_denied = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "files",
+                "write",
+                json!({
+                    "path": allowed_dir.join("out.txt").to_string_lossy(),
+                    "content": "nope"
+                }),
+            )
+            .await
+            .expect_err("fs.read must not grant fs.write");
+        assert_eq!(write_denied.code(), "files_root_denied");
+
+        let sibling_denied = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "files",
+                "read",
+                json!({ "path": sibling_dir.join("secret.txt").to_string_lossy() }),
+            )
+            .await
+            .expect_err("sibling dir /user2 must not match /user");
+        assert_eq!(sibling_denied.code(), "files_root_denied");
+
+        let traversal_denied = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "files",
+                "read",
+                json!({
+                    "path": format!("{}/../user2/secret.txt", allowed_dir.to_string_lossy())
+                }),
+            )
+            .await
+            .expect_err("parent traversal `..` must be rejected immediately");
+        assert_eq!(traversal_denied.code(), "files_root_denied");
+        assert!(traversal_denied.message().contains("`..`"));
+
+        // 2. net.fetch rejects `@` userinfo, blocks SSRF metadata IPs, and enforces host allowlist
+        let deceptive_err = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "network",
+                "fetch",
+                json!({ "url": "https://api.example.com@evil.com/steal" }),
+            )
+            .await
+            .expect_err("deceptive @ url must fail");
+        assert_eq!(deceptive_err.code(), "network_invalid_url");
+
+        let ssrf_err = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "network",
+                "fetch",
+                json!({ "url": "http://169.254.169.254/latest/meta-data/" }),
+            )
+            .await
+            .expect_err("metadata SSRF IP must be blocked");
+        assert_eq!(ssrf_err.code(), "network_url_blocked");
+
+        let unlisted_host_err = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "network",
+                "fetch",
+                json!({ "url": "https://unlisted.example.org/data" }),
+            )
+            .await
+            .expect_err("unlisted host must be denied by net.fetch allowlist");
+        assert_eq!(unlisted_host_err.code(), "network_url_denied");
+
+        // 3. net.websocket validates allowlist and rejects unlisted or SSRF hosts
+        let ws_ok = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "network",
+                "websocket",
+                json!({ "url": "wss://realtime.example.com/stream" }),
+            )
+            .await
+            .expect("allowed websocket URL");
+        assert_eq!(ws_ok["allowed"], true);
+
+        // 4. env.read returns only explicitly granted environment variables
+        let env_denied = broker
+            .call(
+                "vibex.grants-guard",
+                1,
+                "env",
+                "read",
+                json!({ "key": "UNGRANTED_SECRET_TOKEN" }),
+            )
+            .await
+            .expect_err("ungranted env var must be denied");
+        assert_eq!(env_denied.code(), "env_denied");
+
+        let env_snapshot = broker
+            .call("vibex.grants-guard", 1, "env", "read", json!({}))
+            .await
+            .expect("env snapshot");
+        let env_obj = env_snapshot["env"].as_object().expect("env object");
+        assert!(env_obj.len() <= 1);
+    }
 }
+

@@ -1371,7 +1371,7 @@ impl PluginPackage {
             ));
         }
         let entrypoints = parse_entrypoints(root, object, &mut warnings);
-        let permissions = parse_permissions(object, &mut warnings);
+        let mut permissions = parse_permissions(object, &mut warnings);
         let app = parse_app_contributions(root, object, &mut warnings);
         if manifest_version >= 4 {
             validate_v4_contract(V4Contract {
@@ -1384,6 +1384,25 @@ impl PluginPackage {
                 runtimes: &runtimes,
                 warnings: &warnings,
             })?;
+        }
+        let grants_file = root.join(".grants");
+        if grants_file.is_file() {
+            let grants_text = fs::read_to_string(&grants_file)
+                .map_err(|error| PluginError::io("read plugin .grants file", error))?;
+            let parsed_grants = crate::PermissionManifest::parse_grants_str(&grants_text)
+                .map_err(|error| PluginError::invalid_manifest(format!("invalid .grants: {error}")))?;
+            for grant in parsed_grants.to_capability_grants() {
+                if !permissions.iter().any(|p| p.capability == grant.capability) {
+                    permissions.push(CapabilityRequest {
+                        id: grant.capability.replace('.', "-"),
+                        capability: grant.capability,
+                        scope: grant.scope,
+                        reason: String::new(),
+                        optional: false,
+                        trust_tier: grant.trust_tier,
+                    });
+                }
+            }
         }
         let mcp = canonical_contribution(object, "agent.mcp")
             .or_else(|| agent_contribution(object, "mcp"))
@@ -3579,7 +3598,18 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             }
         }
     }
-    const CAPABILITIES: &[&str] = &["runtime.execute", "runtime.lock", "artifact.preview"];
+    const CAPABILITIES: &[&str] = &[
+        "runtime.execute",
+        "runtime.lock",
+        "artifact.preview",
+        "net.fetch",
+        "net.websocket",
+        "fs.read",
+        "fs.write",
+        "env.read",
+        "secret.keep",
+        "storage.kv",
+    ];
     if let Some(permission) = permissions
         .iter()
         .find(|permission| !CAPABILITIES.contains(&permission.capability.as_str()))

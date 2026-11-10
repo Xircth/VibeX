@@ -193,7 +193,7 @@ function* walkFiles(root, extensions) {
   }
 }
 
-export function collectOfficialPlugins(rootDir) {
+export function collectOfficialPlugins(rootDir, violations = []) {
   const pluginsRoot = join(rootDir, "assets", "plugins");
   if (!existsSync(pluginsRoot)) return [];
   const plugins = [];
@@ -202,19 +202,49 @@ export function collectOfficialPlugins(rootDir) {
     const dir = join(pluginsRoot, entry.name);
     const manifestPath = join(dir, ".vibex-plugin", "plugin.json");
     if (!existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (typeof manifest.id !== "string" || manifest.id.length === 0) {
-      throw new Error(`插件 manifest 缺少 id：${manifestPath}`);
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    } catch (error) {
+      violations.push({
+        rule: "A",
+        plugin: entry.name,
+        file: manifestPath,
+        reason: `插件 manifest 不是合法 JSON：${error.message}`,
+      });
+      plugins.push({ id: entry.name, dir });
+      continue;
+    }
+    if (typeof manifest?.id !== "string" || manifest.id.length === 0) {
+      violations.push({
+        rule: "A",
+        plugin: entry.name,
+        file: manifestPath,
+        reason: `插件 manifest 缺少 id：${manifestPath}`,
+      });
+      plugins.push({ id: entry.name, dir });
+      continue;
     }
     plugins.push({ id: manifest.id, dir });
   }
   return plugins;
 }
 
-function declaredDependencies(pluginDir) {
+function declaredDependencies(pluginDir, pluginId, violations = []) {
   const packageJsonPath = join(pluginDir, "package.json");
   if (!existsSync(packageJsonPath)) return new Set();
-  const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  } catch (error) {
+    violations.push({
+      rule: "A",
+      plugin: pluginId,
+      file: packageJsonPath,
+      reason: `插件 package.json 不是合法 JSON：${error.message}`,
+    });
+    return new Set();
+  }
   return new Set(
     ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].flatMap(
       (field) => Object.keys(manifest[field] ?? {})
@@ -224,7 +254,7 @@ function declaredDependencies(pluginDir) {
 
 export function checkOfficialPluginImports(plugin) {
   const violations = [];
-  const declaredDeps = declaredDependencies(plugin.dir);
+  const declaredDeps = declaredDependencies(plugin.dir, plugin.id, violations);
   for (const filePath of walkFiles(plugin.dir, PLUGIN_CODE_EXTENSIONS)) {
     const source = readFileSync(filePath, "utf8");
     for (const specifier of extractImports(source)) {
@@ -268,10 +298,20 @@ export function checkHostIdBranches(rootDir, ids) {
   return violations;
 }
 
-export function officialIdsFromCatalog(rootDir) {
+export function officialIdsFromCatalog(rootDir, violations = []) {
   const catalogPath = join(rootDir, "vibex-plugin.json");
   if (!existsSync(catalogPath)) return [];
-  const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  let catalog;
+  try {
+    catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  } catch (error) {
+    violations.push({
+      rule: "B",
+      file: "vibex-plugin.json",
+      reason: `vibex-plugin.json 不是合法 JSON：${error.message}`,
+    });
+    return [];
+  }
   const official = Array.isArray(catalog.official) ? catalog.official : [];
   return official
     .map((plugin) => plugin?.id)
@@ -279,14 +319,17 @@ export function officialIdsFromCatalog(rootDir) {
 }
 
 export function runChecks(rootDir) {
-  const plugins = collectOfficialPlugins(rootDir);
+  const manifestViolations = [];
+  const plugins = collectOfficialPlugins(rootDir, manifestViolations);
+  const catalogIds = officialIdsFromCatalog(rootDir, manifestViolations);
   const ids = [
     ...new Set([
       ...plugins.map((plugin) => plugin.id),
-      ...officialIdsFromCatalog(rootDir),
+      ...catalogIds,
     ]),
   ];
   const violations = [
+    ...manifestViolations,
     ...plugins.flatMap((plugin) => checkOfficialPluginImports(plugin)),
     ...checkHostIdBranches(rootDir, ids),
   ];

@@ -1193,6 +1193,7 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         ("notes", "vibex.notes"),
         ("prompt-enhancer", "vibex.prompt-enhancer"),
         ("code-completion", "vibex.code-completion"),
+        ("ayu-theme", "vibex.ayu-theme"),
     ] {
         let plugin_dir = repo_root.join("plugins").join(dir_name);
         let package = PluginPackage::inspect(&plugin_dir, PluginSourceKind::Snapshot)

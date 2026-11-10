@@ -71,8 +71,9 @@ jobs:
           # resolved dependency graph for every target (`cargo tree --target all`).
           # `zip` advisories affect `ZipArchive::extract` / `ZipStreamReader::extract`
           # symlink handling; VibeX does not call `extract` and `tauri-plugin-updater`
-          # pins `zip ^4`.
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369,RUSTSEC-2026-0429
+          # `sqlx 0.8.6` pins `libsqlite3-sys ^0.30.1` (<0.39.0), which has no
+          # upstream sqlx 0.8 release bumping it yet (RUSTSEC-2026-0459).
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369,RUSTSEC-2026-0429,RUSTSEC-2026-0459
 
       - name: Check JavaScript advisories
         run: pnpm audit --prod --audit-level high

@@ -1,3 +1,7 @@
+import { createElement, useContext, useMemo } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAppContextMenu } from '@/components/context-menu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
@@ -5,31 +9,47 @@ import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDi
 import { toast } from '@/components/ui/toast';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
+import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
+import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceContext';
 import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
+import { requestCreateAgentSessionInExecutionArea } from '@/lib/requestCreateSession';
 import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
 } from '@/lib/terminalPreferences';
+import { tabIdFromEditorTerminalPanelId } from '@/lib/workspaceTerminalTabs';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { useTerminalStore } from '@/stores/useTerminalStore';
 import {
   isEditorGroup,
   isLeftGroup,
   isSessionGroup,
 } from '@/utils/dockviewGroupPolicy';
-import { useContext } from 'react';
-import { QueryClientContext } from '@tanstack/react-query';
 import { terminalHostPlatform } from '@/utils/platform';
 import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
-import { useTranslation } from 'react-i18next';
 import { openWorkspaceTerminal } from './openWorkspaceTerminal';
 
+export type WorkspaceTabContextMenuKind =
+  | 'default'
+  | 'session'
+  | 'terminal'
+  | 'space';
+
 export interface WorkspaceTabMenuLabels {
+  basicGroup?: string;
+  newGroup?: string;
   refresh?: string;
+  duplicateTerminal?: string;
+  spaceDetails?: string;
+  newAssistant?: string;
+  newGroupChat?: string;
+  session?: string;
   sessionDetails?: string;
   processes?: string;
   close: string;
@@ -43,13 +63,26 @@ export interface WorkspaceTabMenuLabels {
   note: string;
   review: string;
   terminal: string;
-  browser: string;
+  browser?: string;
   sort: string;
   sortByName: string;
 }
 
+export interface WorkspaceTabMenuAgentOption {
+  id: string;
+  label: string;
+  iconNode?: React.ReactNode;
+}
+
 export interface WorkspaceTabMenuActions {
+  tabKind?: WorkspaceTabContextMenuKind;
   refresh?: () => void;
+  duplicateTerminal?: () => void;
+  openSpaceDetails?: () => void;
+  openNewAssistant?: () => void;
+  openNewGroupChat?: () => void;
+  openSession?: (agentId?: string) => void;
+  agents?: ReadonlyArray<WorkspaceTabMenuAgentOption>;
   isSessionTab?: boolean;
   openSessionDetails?: () => void;
   openProcesses?: () => void;
@@ -76,6 +109,206 @@ export function buildWorkspaceTabContextMenu(
   labels: WorkspaceTabMenuLabels,
   actions: WorkspaceTabMenuActions
 ): ProductContextMenuItem[] {
+  const closeSubmenu: ProductContextMenuItem = {
+    type: 'submenu',
+    id: 'close',
+    label: labels.close,
+    children: [
+      {
+        id: 'close-current',
+        label: labels.closeCurrent,
+        onSelect: actions.closeCurrent,
+      },
+      {
+        id: 'close-others',
+        label: labels.closeOthers,
+        onSelect: actions.closeOthers,
+      },
+    ],
+  };
+
+  const splitSubmenu: ProductContextMenuItem = {
+    type: 'submenu',
+    id: 'split',
+    label: labels.split,
+    disabled: !actions.canSplit,
+    children: [
+      {
+        id: 'split-down',
+        label: labels.splitDown,
+        disabled: !actions.canSplit,
+        onSelect: actions.splitDown,
+      },
+      {
+        id: 'split-left',
+        label: labels.splitLeft,
+        disabled: !actions.canSplit,
+        onSelect: actions.splitLeft,
+      },
+      {
+        id: 'split-right',
+        label: labels.splitRight,
+        disabled: !actions.canSplit,
+        onSelect: actions.splitRight,
+      },
+    ],
+  };
+
+  const terminalSubmenu: ProductContextMenuItem = {
+    type: 'submenu',
+    id: 'new-terminal',
+    label: labels.terminal,
+    onSelect: () => actions.openTerminal(),
+    children: actions.shells.map((shell) => ({
+      id: `shell-${shell.value}`,
+      label: shell.label,
+      onSelect: () => actions.openTerminal(shell.value),
+    })),
+  };
+
+  const resolvedKind: WorkspaceTabContextMenuKind =
+    actions.tabKind ?? (actions.isSessionTab ? 'session' : 'default');
+
+  if (
+    resolvedKind === 'session' ||
+    resolvedKind === 'terminal' ||
+    resolvedKind === 'space'
+  ) {
+    const basicHeader: ProductContextMenuItem = {
+      type: 'label',
+      id: 'group-basic',
+      label: labels.basicGroup ?? '基础',
+    };
+    const newHeader: ProductContextMenuItem = {
+      type: 'label',
+      id: 'group-new',
+      label: labels.newGroup ?? labels.new ?? '新建',
+    };
+    const newSeparator: ProductContextMenuItem = {
+      type: 'separator',
+      id: 'sep-new',
+    };
+
+    const agentList = actions.agents ?? [];
+    const newSessionSubmenu: ProductContextMenuItem = {
+      type: 'submenu',
+      id: 'new-session',
+      label: labels.session ?? '会话',
+      onSelect: actions.openSession
+        ? () => actions.openSession?.(agentList[0]?.id)
+        : undefined,
+      children: agentList.map((agent) => ({
+        id: `agent-${agent.id}`,
+        label: agent.label,
+        iconNode: agent.iconNode,
+        onSelect: () => actions.openSession?.(agent.id),
+      })),
+    };
+
+    if (resolvedKind === 'session') {
+      const items: ProductContextMenuItem[] = [
+        basicHeader,
+        closeSubmenu,
+        splitSubmenu,
+        newSeparator,
+        newHeader,
+        newSessionSubmenu,
+      ];
+      if (actions.openProcesses) {
+        items.push({
+          id: 'new-processes',
+          label: labels.processes ?? '执行进程',
+          onSelect: actions.openProcesses,
+        });
+      }
+      if (actions.openSessionDetails) {
+        items.push({
+          id: 'new-session-details',
+          label: labels.sessionDetails ?? '会话详情',
+          onSelect: actions.openSessionDetails,
+        });
+      }
+      items.push(
+        terminalSubmenu,
+        {
+          id: 'new-note',
+          label: labels.note,
+          onSelect: actions.openNote,
+        },
+        {
+          id: 'new-review',
+          label: labels.review,
+          onSelect: actions.openReview,
+        }
+      );
+      return items;
+    }
+
+    if (resolvedKind === 'terminal') {
+      return [
+        basicHeader,
+        {
+          id: 'refresh',
+          label: labels.refresh ?? '刷新',
+          onSelect: () => actions.refresh?.(),
+        },
+        closeSubmenu,
+        splitSubmenu,
+        {
+          id: 'duplicate-terminal',
+          label: labels.duplicateTerminal ?? '复制Terminal',
+          onSelect: () => actions.duplicateTerminal?.(),
+        },
+        newSeparator,
+        newHeader,
+        newSessionSubmenu,
+        terminalSubmenu,
+        {
+          id: 'new-note',
+          label: labels.note,
+          onSelect: actions.openNote,
+        },
+      ];
+    }
+
+    // resolvedKind === 'space'
+    return [
+      basicHeader,
+      {
+        id: 'space-details',
+        label: labels.spaceDetails ?? '详情信息',
+        onSelect: () => actions.openSpaceDetails?.(),
+      },
+      closeSubmenu,
+      splitSubmenu,
+      newSeparator,
+      newHeader,
+      {
+        id: 'new-assistant',
+        label: labels.newAssistant ?? '新助手',
+        onSelect: () => actions.openNewAssistant?.(),
+      },
+      {
+        id: 'new-group-chat',
+        label: labels.newGroupChat ?? '新群聊',
+        onSelect: () => actions.openNewGroupChat?.(),
+      },
+      newSessionSubmenu,
+      terminalSubmenu,
+      {
+        id: 'new-note',
+        label: labels.note,
+        onSelect: actions.openNote,
+      },
+      {
+        id: 'new-review',
+        label: labels.review,
+        onSelect: actions.openReview,
+      },
+    ];
+  }
+
+  // Default tab menu (unchanged for all other tabs)
   const newItems: ProductContextMenuItem[] = [
     {
       id: 'new-note',
@@ -105,19 +338,9 @@ export function buildWorkspaceTabContextMenu(
     });
   }
 
-  newItems.push({
-    type: 'submenu',
-    id: 'new-terminal',
-    label: labels.terminal,
-    onSelect: () => actions.openTerminal(),
-    children: actions.shells.map((shell) => ({
-      id: `shell-${shell.value}`,
-      label: shell.label,
-      onSelect: () => actions.openTerminal(shell.value),
-    })),
-  });
+  newItems.push(terminalSubmenu);
 
-  if (actions.openBrowser) {
+  if (actions.openBrowser && labels.browser) {
     newItems.push({
       id: 'new-browser',
       label: labels.browser,
@@ -135,66 +358,14 @@ export function buildWorkspaceTabContextMenu(
     }
   }
 
-  const topLevelItems: ProductContextMenuItem[] = [
+  return [
     {
       id: 'refresh',
       label: labels.refresh ?? '刷新',
       onSelect: () => actions.refresh?.(),
     },
-  ];
-
-  if (actions.isSessionTab && actions.openSessionDetails) {
-    topLevelItems.push({
-      id: 'session-details',
-      label: labels.sessionDetails ?? '会话详情',
-      onSelect: actions.openSessionDetails,
-    });
-  }
-
-  topLevelItems.push(
-    {
-      type: 'submenu',
-      id: 'close',
-      label: labels.close,
-      children: [
-        {
-          id: 'close-current',
-          label: labels.closeCurrent,
-          onSelect: actions.closeCurrent,
-        },
-        {
-          id: 'close-others',
-          label: labels.closeOthers,
-          onSelect: actions.closeOthers,
-        },
-      ],
-    },
-    {
-      type: 'submenu',
-      id: 'split',
-      label: labels.split,
-      disabled: !actions.canSplit,
-      children: [
-        {
-          id: 'split-down',
-          label: labels.splitDown,
-          disabled: !actions.canSplit,
-          onSelect: actions.splitDown,
-        },
-        {
-          id: 'split-left',
-          label: labels.splitLeft,
-          disabled: !actions.canSplit,
-          onSelect: actions.splitLeft,
-        },
-        {
-          id: 'split-right',
-          label: labels.splitRight,
-          disabled: !actions.canSplit,
-          onSelect: actions.splitRight,
-        },
-      ],
-    },
+    closeSubmenu,
+    splitSubmenu,
     {
       type: 'submenu',
       id: 'new',
@@ -212,14 +383,14 @@ export function buildWorkspaceTabContextMenu(
           onSelect: actions.sortByName,
         },
       ],
-    }
-  );
-
-  return topLevelItems;
+    },
+  ];
 }
 
 interface EditorTabApi {
   id: string;
+  component?: string;
+  setActive?: () => void;
   group?: {
     id: string;
     panels: ReadonlyArray<{
@@ -230,9 +401,13 @@ interface EditorTabApi {
 }
 
 export interface WorkspaceTabSessionContext {
+  tabKind?: WorkspaceTabContextMenuKind;
   sessionId?: string | null;
   workspaceId?: string | null;
   isSessionTab?: boolean;
+  terminalTabId?: string | null;
+  terminalShell?: string | null;
+  terminalCwd?: string | null;
 }
 
 export function useWorkspaceEditorTabMenu(
@@ -258,6 +433,30 @@ export function useWorkspaceEditorTabMenu(
   const pluginPanels = usePluginHostContributions('app_panel');
   const system = useOptionalUserSystem();
   const { activeWorktreeId } = useWorktree();
+  const collabStore = useOptionalCollaborationSpaceStore();
+  const selectableAgents = useSelectableAgents();
+  const enabledAgents = useMemo<WorkspaceTabMenuAgentOption[]>(() => {
+    const installedEnabled = selectableAgents.filter(isEnabledInstalledAgent);
+    const list =
+      installedEnabled.length > 0
+        ? installedEnabled.map((agent) => ({
+            id: agent.agentId,
+            label: agent.displayName || getAgentName(agent.agentId),
+          }))
+        : Object.keys(system?.profiles ?? {}).map((agentId) => ({
+            id: agentId,
+            label: getAgentName(agentId),
+          }));
+    return list.map((agent) => ({
+      id: agent.id,
+      label: agent.label,
+      iconNode: createElement(AgentIcon, {
+        agent: agent.id,
+        className: 'h-3.5 w-3.5 shrink-0',
+      }),
+    }));
+  }, [selectableAgents, system?.profiles]);
+
   const hostPlatform = terminalHostPlatform(system?.environment?.os_type);
   const shells = getTerminalShellOptions(hostPlatform);
   const defaultShell = getDefaultTerminalShell(
@@ -275,9 +474,16 @@ export function useWorkspaceEditorTabMenu(
   }
 
   const labels: WorkspaceTabMenuLabels = {
+    basicGroup: t('tabCreation.basicGroup', '基础'),
+    newGroup: t('tabCreation.new', '新建'),
     refresh: t('tabCreation.refresh', '刷新'),
+    duplicateTerminal: t('tabCreation.duplicateTerminal', '复制Terminal'),
+    spaceDetails: t('tabCreation.spaceDetails', '详情信息'),
+    newAssistant: t('tabCreation.newAssistant', '新助手'),
+    newGroupChat: t('tabCreation.newGroupChat', '新群聊'),
+    session: t('tabCreation.session', '会话'),
     sessionDetails: t('tabCreation.sessionDetails', '会话详情'),
-    processes: t('tabCreation.processes', '进程'),
+    processes: t('tabCreation.processes', '执行进程'),
     close: t('tabCreation.close'),
     closeCurrent: t('tabCreation.closeCurrent'),
     closeOthers: t('tabCreation.closeOthers'),
@@ -334,6 +540,79 @@ export function useWorkspaceEditorTabMenu(
         });
       };
 
+      const duplicateTerminal = () => {
+        const termWsKey = getTerminalWorkspaceKey(activeWorktreeId);
+        const termState = useTerminalStore.getState();
+        const wsSessions = termWsKey
+          ? (termState.sessionsByWorkspace[termWsKey] ?? [])
+          : [];
+        const targetTabId =
+          sessionContext?.terminalTabId ||
+          tabIdFromEditorTerminalPanelId(api.id) ||
+          (termWsKey ? termState.activeTabByWorkspace[termWsKey] : null);
+        const sourceSession = wsSessions.find((s) => s.tabId === targetTabId);
+        const shellToUse =
+          sourceSession?.shell ||
+          sessionContext?.terminalShell ||
+          defaultShell;
+        const cwdToUse =
+          sourceSession?.cwd || sessionContext?.terminalCwd || null;
+        runInEditorGroup(current.id, () => {
+          openTerminalEditorTab(shellToUse, { cwd: cwdToUse });
+        });
+      };
+
+      const openSpaceDetails = () => {
+        const runtime = collabStore?.getSnapshot();
+        if (!runtime) return;
+        runInEditorGroup(current.id, () => {
+          if (runtime.activeDirectThreadId) {
+            runtime.openAssistantDetailsTab();
+          } else if (runtime.selected) {
+            runtime.openSpaceCollectionTab(
+              runtime.selected.space_id,
+              runtime.selected.name
+            );
+          }
+        });
+      };
+
+      const openNewAssistant = () => {
+        const runtime = collabStore?.getSnapshot();
+        if (!runtime) return;
+        api.setActive?.();
+        if (api.component !== PANEL_IDS.COLLABORATION_SPACE) {
+          runInEditorGroup(current.id, () => {
+            openOrFocusPanel(
+              PANEL_IDS.COLLABORATION_SPACE,
+              runtime.selected?.name ?? '协作空间'
+            );
+          });
+        }
+        runtime.openCreateMemberDialog();
+      };
+
+      const openNewGroupChat = () => {
+        const runtime = collabStore?.getSnapshot();
+        if (!runtime) return;
+        api.setActive?.();
+        if (api.component !== PANEL_IDS.COLLABORATION_SPACE) {
+          runInEditorGroup(current.id, () => {
+            openOrFocusPanel(
+              PANEL_IDS.COLLABORATION_SPACE,
+              runtime.selected?.name ?? '协作空间'
+            );
+          });
+        }
+        runtime.openCreateSpaceDialog();
+      };
+
+      const openSession = (agentId?: string) => {
+        const chosenAgentId = agentId || enabledAgents[0]?.id;
+        if (!chosenAgentId) return;
+        requestCreateAgentSessionInExecutionArea(chosenAgentId, current.id);
+      };
+
       const nonBrowserPlugins = pluginPanels.filter(
         (item) =>
           !browser ||
@@ -344,6 +623,7 @@ export function useWorkspaceEditorTabMenu(
       openSurfaceMenu(
         event,
         buildWorkspaceTabContextMenu(labels, {
+          tabKind: sessionContext?.tabKind,
           refresh:
             refreshCurrent ??
             (() =>
@@ -351,6 +631,12 @@ export function useWorkspaceEditorTabMenu(
                 panelId: api.id,
                 queryClient,
               })),
+          duplicateTerminal,
+          openSpaceDetails,
+          openNewAssistant,
+          openNewGroupChat,
+          openSession,
+          agents: enabledAgents,
           isSessionTab: Boolean(sessionContext?.isSessionTab),
           openSessionDetails: () =>
             runInEditorGroup(current.id, () =>
@@ -368,7 +654,7 @@ export function useWorkspaceEditorTabMenu(
             runInEditorGroup(current.id, () =>
               openOrFocusPanel(
                 PANEL_IDS.PROCESSES,
-                t('tabCreation.processes', '进程')
+                t('tabCreation.processes', '执行进程')
               )
             ),
           closeCurrent,

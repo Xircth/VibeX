@@ -267,6 +267,7 @@ function MenuItems({
   const reserveIconSpace = items.some(
     (item) =>
       item.type !== 'separator' &&
+      item.type !== 'label' &&
       item.type !== 'emoji-row' &&
       Boolean(
         item.iconNode ||
@@ -284,6 +285,17 @@ function MenuItems({
               className="mx-1 my-1 border-t border-border/60"
               role="separator"
             />
+          );
+        }
+        if (item.type === 'label') {
+          return (
+            <div
+              key={item.id}
+              className="px-2 py-1 text-[11px] font-medium text-muted-foreground select-none"
+              role="presentation"
+            >
+              {item.label}
+            </div>
           );
         }
         if (item.type === 'emoji-row') {

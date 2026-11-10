@@ -69,10 +69,12 @@ import {
   formatCompactSessionAge,
   workspaceSessionStatusTone,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useOptionalProject } from '@/contexts/ProjectContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { imagesApi, sessionsApi } from '@/lib/api';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { backendListen } from '@/lib/backendTransport';
 import { requestComposerTokenInsert } from '@/lib/composerInsert';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
@@ -2038,8 +2040,44 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     showPreview,
   ]);
 
+  const hostPanelActions = useOptionalPanelActionsContext();
+
   const openPreviewItem = useCallback(
     (item: PreviewTabItem) => {
+      if (hostPanelActions) {
+        setActivePreviewTabId(item.id);
+        if (item.kind === 'member') {
+          if (item.conversationId) {
+            markMemberConversationViewed(item.conversationId);
+          }
+          hostPanelActions.openOrFocusPanel(item.id, item.title, {
+            workspaceId: item.workspaceId,
+            conversationId: item.conversationId,
+            nickname: item.title,
+            ...(item.agentId ? { agentId: item.agentId } : {}),
+            ...(item.threadKind ? { threadKind: item.threadKind } : {}),
+            ...(item.memberName ? { memberName: item.memberName } : {}),
+            ...(item.memberAvatar ? { memberAvatar: item.memberAvatar } : {}),
+            ...(item.groupAvatars ? { groupAvatars: item.groupAvatars } : {}),
+            ...(item.tagHue ? { tagHue: item.tagHue } : {}),
+            __component: 'member-session',
+          });
+          return;
+        }
+        if (item.kind === 'file') {
+          hostPanelActions.openOrFocusPanel(item.id, item.title, {
+            ...item.fileParams,
+            __component: PANEL_IDS.PREVIEW,
+          });
+          return;
+        }
+        hostPanelActions.openOrFocusPanel(item.id, item.title, {
+          ...(item.params ?? {}),
+          __component: item.component,
+        });
+        return;
+      }
+
       setPreviewTabs((current) => {
         const index = current.findIndex((existing) => existing.id === item.id);
         if (index >= 0) {
@@ -2059,7 +2097,12 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         addOrFocusDockviewTab(api, item, true);
       }
     },
-    [addOrFocusDockviewTab, markMemberConversationViewed, setPreviewVisible]
+    [
+      addOrFocusDockviewTab,
+      hostPanelActions,
+      markMemberConversationViewed,
+      setPreviewVisible,
+    ]
   );
 
   const inFlightRolesAndAgentsRef = useRef<Promise<{

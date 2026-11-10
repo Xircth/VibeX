@@ -357,10 +357,12 @@ export function CollaborationSpaceLayout({
   } = useCollaborationSpacePick(LAYOUT_PICK_KEYS);
 
   const effectiveShowSpaces = hideSpacesPane ? false : showSpaces;
+  const effectiveShowPreview = hideSpacesPane ? false : showPreview;
+  const effectiveHasMountedPreviewTabs = hideSpacesPane
+    ? false
+    : hasMountedPreviewTabs;
   const effectiveGridTemplateColumns = hideSpacesPane
-    ? showPreview && hasThread
-      ? 'minmax(0, 1fr) var(--collaboration-preview-width, minmax(0, 1fr))'
-      : 'minmax(0, 1fr)'
+    ? 'minmax(0, 1fr)'
     : shellGridTemplateColumns;
 
   if (!workspace) {
@@ -390,126 +392,132 @@ export function CollaborationSpaceLayout({
     );
   }
 
+  const shellContent = (
+    <div
+      className={cn(
+        'collaboration-shell session-hub-shell',
+        isResizingPane && 'is-resizing'
+      )}
+      data-spaces={effectiveShowSpaces ? 'true' : 'false'}
+      data-thread={hasThread ? 'true' : 'false'}
+      data-preview={effectiveShowPreview ? 'true' : 'false'}
+      data-layout-order={orderedZones.join('-')}
+      style={
+        {
+          gridTemplateColumns: effectiveGridTemplateColumns,
+          ...(spacesPaneWidth !== null
+            ? { '--collaboration-spaces-width': `${spacesPaneWidth}px` }
+            : {}),
+          ...(previewPaneWidth !== null
+            ? { '--collaboration-preview-width': `${previewPaneWidth}px` }
+            : {}),
+        } as CSSProperties
+      }
+    >
+      {effectiveShowSpaces ? <GroupListPanel /> : null}
+
+      {hasThread ? (
+        <section
+          style={
+            {
+              order: threadOrder,
+              '--collaboration-list-avatar': `${listAvatarPx / 16}rem`,
+            } as CSSProperties
+          }
+          className="collaboration-thread"
+          aria-label={
+            selected?.name ??
+            (isDefaultVirtualSpaceSelected
+              ? virtualDefaultSpaceName
+              : t('collaborationSpace.title', '协作空间'))
+          }
+          onPointerDownCapture={() => {
+            if (selected) {
+              markSpaceInReviewMembersViewed(selected.space_id);
+            }
+          }}
+          onWheelCapture={() => {
+            if (selected) {
+              markSpaceInReviewMembersViewed(selected.space_id);
+            }
+          }}
+          onKeyDownCapture={() => {
+            if (selected) {
+              markSpaceInReviewMembersViewed(selected.space_id);
+            }
+          }}
+        >
+          <div className="collaboration-thread-body">
+            <MemberPanel />
+            <MessageStream />
+          </div>
+
+          <CollaborationBackToBottomButton />
+
+          {error ? <p className="collaboration-error">{error}</p> : null}
+          <ComposerDock />
+          <CollaborationMessageAreaOverlay />
+        </section>
+      ) : null}
+
+      {effectiveHasMountedPreviewTabs ? (
+        <aside
+          ref={previewPaneRef}
+          style={{ order: previewOrder }}
+          hidden={!effectiveShowPreview}
+          className={cn(
+            'collaboration-pane collaboration-preview',
+            !effectiveShowPreview && 'hidden'
+          )}
+          aria-label={t('collaborationSpace.previewTitle', '预览')}
+          onPointerDownCapture={markActivePreviewMemberViewed}
+          onWheelCapture={markActivePreviewMemberViewed}
+          onKeyDownCapture={markActivePreviewMemberViewed}
+        >
+          {effectiveShowPreview && hasThread ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={i18n.t('panels:ui.collabPage.resizePreview')}
+              data-testid="collaboration-preview-resizer"
+              data-side={previewResizerSide}
+              className="workspace-resize-handle collaboration-preview-resizer"
+              onPointerDown={handlePreviewResizePointerDown}
+            />
+          ) : null}
+          <div className="collaboration-preview-body">
+            <DockviewReact
+              components={COLLABORATION_PREVIEW_COMPONENTS}
+              defaultTabComponent={CollaborationPreviewDockviewTab}
+              leftHeaderActionsComponent={WorkspaceTabAddMenu}
+              rightHeaderActionsComponent={CollaborationPreviewHeaderActions}
+              onReady={handlePreviewDockviewReady}
+              className="dockview-theme-light dockview-theme-ayu h-full w-full"
+              disableFloatingGroups={true}
+            />
+          </div>
+        </aside>
+      ) : null}
+      <CollaborationDragGhost />
+      <CollaborationGlobalSearchOverlay />
+    </div>
+  );
+
   return (
     <CollaborationMemberMentionContext.Provider
       value={memberMentionContextValue}
     >
-      <CollaborationPreviewScope
-        onOpenFile={openFilePreview}
-        onOpenWorkspacePanel={openWorkspacePanel}
-        onRunInEditorGroup={runInCollaborationEditorGroup}
-      >
-        <div
-          className={cn(
-            'collaboration-shell session-hub-shell',
-            isResizingPane && 'is-resizing'
-          )}
-          data-spaces={effectiveShowSpaces ? 'true' : 'false'}
-          data-thread={hasThread ? 'true' : 'false'}
-          data-preview={showPreview ? 'true' : 'false'}
-          data-layout-order={orderedZones.join('-')}
-          style={
-            {
-              gridTemplateColumns: effectiveGridTemplateColumns,
-              ...(spacesPaneWidth !== null
-                ? { '--collaboration-spaces-width': `${spacesPaneWidth}px` }
-                : {}),
-              ...(previewPaneWidth !== null
-                ? { '--collaboration-preview-width': `${previewPaneWidth}px` }
-                : {}),
-            } as CSSProperties
-          }
+      {hideSpacesPane ? (
+        shellContent
+      ) : (
+        <CollaborationPreviewScope
+          onOpenFile={openFilePreview}
+          onOpenWorkspacePanel={openWorkspacePanel}
+          onRunInEditorGroup={runInCollaborationEditorGroup}
         >
-          {effectiveShowSpaces ? <GroupListPanel /> : null}
-
-          {hasThread ? (
-            <section
-              style={
-                {
-                  order: threadOrder,
-                  '--collaboration-list-avatar': `${listAvatarPx / 16}rem`,
-                } as CSSProperties
-              }
-              className="collaboration-thread"
-              aria-label={
-                selected?.name ??
-                (isDefaultVirtualSpaceSelected
-                  ? virtualDefaultSpaceName
-                  : t('collaborationSpace.title', '协作空间'))
-              }
-              onPointerDownCapture={() => {
-                if (selected) {
-                  markSpaceInReviewMembersViewed(selected.space_id);
-                }
-              }}
-              onWheelCapture={() => {
-                if (selected) {
-                  markSpaceInReviewMembersViewed(selected.space_id);
-                }
-              }}
-              onKeyDownCapture={() => {
-                if (selected) {
-                  markSpaceInReviewMembersViewed(selected.space_id);
-                }
-              }}
-            >
-              <div className="collaboration-thread-body">
-                <MemberPanel />
-                <MessageStream />
-              </div>
-
-              <CollaborationBackToBottomButton />
-
-              {error ? <p className="collaboration-error">{error}</p> : null}
-              <ComposerDock />
-              <CollaborationMessageAreaOverlay />
-            </section>
-          ) : null}
-
-          {hasMountedPreviewTabs ? (
-            <aside
-              ref={previewPaneRef}
-              style={{ order: previewOrder }}
-              hidden={!showPreview}
-              className={cn(
-                'collaboration-pane collaboration-preview',
-                !showPreview && 'hidden'
-              )}
-              aria-label={t('collaborationSpace.previewTitle', '预览')}
-              onPointerDownCapture={markActivePreviewMemberViewed}
-              onWheelCapture={markActivePreviewMemberViewed}
-              onKeyDownCapture={markActivePreviewMemberViewed}
-            >
-              {showPreview && hasThread ? (
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={i18n.t('panels:ui.collabPage.resizePreview')}
-                  data-testid="collaboration-preview-resizer"
-                  data-side={previewResizerSide}
-                  className="workspace-resize-handle collaboration-preview-resizer"
-                  onPointerDown={handlePreviewResizePointerDown}
-                />
-              ) : null}
-              <div className="collaboration-preview-body">
-                <DockviewReact
-                  components={COLLABORATION_PREVIEW_COMPONENTS}
-                  defaultTabComponent={CollaborationPreviewDockviewTab}
-                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                  rightHeaderActionsComponent={
-                    CollaborationPreviewHeaderActions
-                  }
-                  onReady={handlePreviewDockviewReady}
-                  className="dockview-theme-light dockview-theme-ayu h-full w-full"
-                  disableFloatingGroups={true}
-                />
-              </div>
-            </aside>
-          ) : null}
-          <CollaborationDragGhost />
-          <CollaborationGlobalSearchOverlay />
-        </div>
-      </CollaborationPreviewScope>
+          {shellContent}
+        </CollaborationPreviewScope>
+      )}
     </CollaborationMemberMentionContext.Provider>
   );
 }

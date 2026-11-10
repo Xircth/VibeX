@@ -243,7 +243,10 @@ export interface PanelActions {
   }) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
-  openTerminalEditorTab: (shell?: string) => void;
+  openTerminalEditorTab: (
+    shell?: string,
+    options?: { cwd?: string | null }
+  ) => void;
   showTerminal: () => void;
   toggleEditorArea: () => void;
   runInEditorGroup: (groupId: string, action: () => void) => void;
@@ -1153,8 +1156,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openTerminalEditorTab = useCallback(
-    (shell?: string) => {
+    (shell?: string, options?: { cwd?: string | null }) => {
       const tabId = generateTerminalTabId();
+      const cwd = options?.cwd?.trim() || undefined;
       const panel = addPanelToActiveEditorGroup(
         {
           id: editorTerminalPanelId(tabId),
@@ -1164,6 +1168,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             surface: 'editor',
             tabId,
             ...(shell ? { shell } : {}),
+            ...(cwd ? { cwd } : {}),
           },
         },
         'active'
@@ -2002,9 +2007,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const component =
+        typeof params?.__component === 'string' &&
+        params.__component.trim().length > 0
+          ? params.__component.trim()
+          : panelId;
+
       const panel = addPanelToActiveEditorGroup({
         id: panelId,
-        component: panelId,
+        component,
         title,
         ...(params ? { params } : {}),
       });

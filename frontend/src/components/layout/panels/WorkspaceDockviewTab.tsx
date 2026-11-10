@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { resolveBuiltinPanelTitle } from '@/lib/builtinPanelTitles';
 import { type IDockviewPanelHeaderProps } from 'dockview-react';
 import {
+  Bot,
   ClipboardList,
   Columns3,
   File,
@@ -13,6 +14,7 @@ import {
   GitMerge,
   House,
   Image as ImageIcon,
+  LayoutGrid,
   List,
   MessageSquare,
   MessagesSquare,
@@ -33,12 +35,16 @@ import {
   resolveSessionTabMarker,
   useWorkspaceOpenSessionIds,
 } from '@/lib/workspaceSessionTabSlots';
+import { isEditorTerminalPanelId } from '@/lib/workspaceTerminalTabs';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { isSessionPanelId } from '@/utils/dockviewGroupPolicy';
 import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useAppContextMenu } from '@/components/context-menu';
-import { useWorkspaceEditorTabMenu } from '@/components/layout/panels/workspaceTabContextMenu';
+import {
+  useWorkspaceEditorTabMenu,
+  type WorkspaceTabContextMenuKind,
+} from '@/components/layout/panels/workspaceTabContextMenu';
 import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
 
 const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
@@ -58,10 +64,14 @@ export interface WorkspaceTabParams {
   sessionId?: string | null;
   workspaceId?: string | null;
   agentId?: string | null;
+  tabId?: string | null;
+  shell?: string | null;
+  cwd?: string | null;
 }
 
-const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
+const PANEL_TAB_ICONS: Partial<Record<string, [LucideIcon, string]>> = {
   [PANEL_IDS.AI_CHAT]: [MessageSquare, 'chat'],
+  [PANEL_IDS.COLLABORATION_SPACE]: [MessagesSquare, 'collaboration-space'],
   [PANEL_IDS.DIFFS]: [FileDiff, 'diff'],
   [PANEL_IDS.FILE_TREE]: [FolderTree, 'file-tree'],
   [PANEL_IDS.EXTERNAL_DIRECTORY]: [FolderOpen, 'external-directory'],
@@ -76,6 +86,8 @@ const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
   [PANEL_IDS.SESSION_LIST]: [MessagesSquare, 'session-list'],
   [PANEL_IDS.TERMINAL]: [SquareTerminal, 'terminal'],
   [PANEL_IDS.WELCOME]: [House, 'welcome'],
+  'space-collection': [LayoutGrid, 'space-collection'],
+  'member-session': [Bot, 'member-session'],
 };
 
 function WorkspaceTabIcon({
@@ -139,7 +151,10 @@ function WorkspaceTabIcon({
     );
   }
 
-  if (component === PANEL_IDS.PREVIEW && params.filePath) {
+  if (
+    (component === PANEL_IDS.PREVIEW || component === 'file-preview') &&
+    params.filePath
+  ) {
     if (params.mode === 'diff') {
       return (
         <FileDiff
@@ -249,10 +264,24 @@ export function WorkspaceDockviewTab({
 
   const sessionId =
     tabParams.sessionId?.trim() || extractSessionIdFromPanelId(api.id);
+  const isSpaceTab =
+    api.component === PANEL_IDS.COLLABORATION_SPACE ||
+    api.component === 'member-session';
+  const isTerminalTab =
+    api.component === PANEL_IDS.TERMINAL || isEditorTerminalPanelId(api.id);
   const isSessionTab =
-    Boolean(sessionId) ||
-    isSessionPanelId(api.id) ||
-    api.component === PANEL_IDS.AI_CHAT;
+    !isSpaceTab &&
+    !isTerminalTab &&
+    (Boolean(sessionId) ||
+      isSessionPanelId(api.id) ||
+      api.component === PANEL_IDS.AI_CHAT);
+  const tabKind: WorkspaceTabContextMenuKind = isSpaceTab
+    ? 'space'
+    : isTerminalTab
+      ? 'terminal'
+      : isSessionTab
+        ? 'session'
+        : 'default';
   const isBoundSessionTab = Boolean(sessionId);
   const sessionMarker = React.useMemo(
     () =>
@@ -294,9 +323,13 @@ export function WorkspaceDockviewTab({
     [closeTab]
   );
   const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab, refreshTab, {
+    tabKind,
     sessionId,
     workspaceId: tabParams.workspaceId ?? null,
     isSessionTab,
+    terminalTabId: tabParams.tabId ?? null,
+    terminalShell: tabParams.shell ?? null,
+    terminalCwd: tabParams.cwd ?? null,
   });
 
   return (

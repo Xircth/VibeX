@@ -33,6 +33,11 @@ export type ProductContextMenuItem =
       id: string;
     }
   | {
+      type: 'label';
+      id: string;
+      label: string;
+    }
+  | {
       type: 'submenu';
       id: string;
       label: string;

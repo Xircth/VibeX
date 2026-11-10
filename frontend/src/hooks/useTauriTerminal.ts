@@ -87,6 +87,47 @@ function decodeBase64ToBytes(base64: string): Uint8Array {
   return Uint8Array.from(binString, (char) => char.codePointAt(0)!);
 }
 
+function extractTerminalCwd(rawText: string): string | null {
+  const osc9Match = rawText.match(/\x1b\]9;9;([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+  if (osc9Match?.[1]) {
+    return osc9Match[1].trim();
+  }
+  const osc7Match = rawText.match(
+    /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]+)(?:\x07|\x1b\\)/
+  );
+  if (osc7Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(osc7Match[1]);
+      if (/^\/[A-Za-z]:\//.test(decoded)) {
+        return decoded.slice(1).replace(/\//g, '\\');
+      }
+      return decoded;
+    } catch {
+      return osc7Match[1];
+    }
+  }
+  const stripped = rawText.replace(
+    // eslint-disable-next-line no-control-regex
+    /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,
+    ''
+  );
+  const psMatches = [
+    ...stripped.matchAll(/(?:^|[\r\n])\s*PS\s+([A-Za-z]:\\[^\r\n>]+)>/g),
+  ];
+  if (psMatches.length > 0) {
+    const last = psMatches[psMatches.length - 1]?.[1]?.trim();
+    if (last) return last;
+  }
+  const cmdMatches = [
+    ...stripped.matchAll(/(?:^|[\r\n])\s*([A-Za-z]:\\[^\r\n>]+)>/g),
+  ];
+  if (cmdMatches.length > 0) {
+    const last = cmdMatches[cmdMatches.length - 1]?.[1]?.trim();
+    if (last) return last;
+  }
+  return null;
+}
+
 interface UseTauriTerminalOptions {
   /** Workspace UUID to create the PTY in */
   workspaceId: string | undefined;
@@ -98,6 +139,8 @@ interface UseTauriTerminalOptions {
   enabled?: boolean;
   /** Shell type override (e.g. 'powershell.exe', 'cmd.exe') */
   shell?: string;
+  /** Initial working directory override */
+  cwd?: string;
   /** Called whenever a PTY session id is attached or created */
   onSessionId?: (sessionId: string) => void;
   /** Called when a terminal link is activated */
@@ -106,6 +149,8 @@ interface UseTauriTerminalOptions {
   readOnly?: boolean;
   /** Terminal input/output for tab busy detection */
   onIo?: (event: TerminalBusyEvent) => void;
+  /** Called when terminal output reports a working directory change */
+  onCwdChange?: (cwd: string) => void;
 }
 
 interface UseTauriTerminalResult {
@@ -263,14 +308,17 @@ export function useTauriTerminal({
   sessionId,
   enabled = true,
   shell,
+  cwd,
   onSessionId,
   onLinkActivated,
   onIo,
+  onCwdChange,
   readOnly = false,
 }: UseTauriTerminalOptions): UseTauriTerminalResult {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(sessionId ?? null);
+  const cwdRef = useRef<string | undefined>(cwd);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const themeUnlistenRef = useRef<UnlistenFn | null>(null);
   const themeObserverRef = useRef<MutationObserver | null>(null);
@@ -279,6 +327,7 @@ export function useTauriTerminal({
   const onSessionIdRef = useRef(onSessionId);
   const onLinkActivatedRef = useRef(onLinkActivated);
   const onIoRef = useRef(onIo);
+  const onCwdChangeRef = useRef(onCwdChange);
   const errorRef = useRef<string | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -304,6 +353,16 @@ export function useTauriTerminal({
   useEffect(() => {
     onIoRef.current = onIo;
   }, [onIo]);
+
+  useEffect(() => {
+    onCwdChangeRef.current = onCwdChange;
+  }, [onCwdChange]);
+
+  useEffect(() => {
+    if (cwd) {
+      cwdRef.current = cwd;
+    }
+  }, [cwd]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId ?? null;
@@ -551,10 +610,16 @@ export function useTauriTerminal({
         const bytes = decodeBase64ToBytes(base64);
         try {
           terminal.write(bytes);
+          const decodedText = new TextDecoder().decode(bytes);
           onIoRef.current?.({
             type: 'output',
-            data: new TextDecoder().decode(bytes),
+            data: decodedText,
           });
+          const detectedCwd = extractTerminalCwd(decodedText);
+          if (detectedCwd && detectedCwd !== cwdRef.current) {
+            cwdRef.current = detectedCwd;
+            onCwdChangeRef.current?.(detectedCwd);
+          }
         } catch (error) {
           console.warn('Failed to write terminal output:', error);
         }
@@ -637,6 +702,7 @@ export function useTauriTerminal({
           rows: terminal.rows,
           shell: shell || null,
           sessionId,
+          cwd: cwdRef.current || null,
         });
       };
 

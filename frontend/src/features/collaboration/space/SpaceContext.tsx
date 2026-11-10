@@ -65,6 +65,10 @@ export function useHasCollaborationSpaceProvider(): boolean {
   return useContext(CollaborationSpaceStoreContext) !== null;
 }
 
+export function useOptionalCollaborationSpaceStore(): CollaborationSpaceStore | null {
+  return useContext(CollaborationSpaceStoreContext);
+}
+
 function useCollaborationSpaceStore(): CollaborationSpaceStore {
   const store = useContext(CollaborationSpaceStoreContext);
   if (!store) {

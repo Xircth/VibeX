@@ -88,18 +88,26 @@ describe('buildWorkspaceTabContextMenu', () => {
     expect(created.children.map((item) => item.id)).toContain('new-browser');
   });
 
-  it('surfaces Session Details at top level for session tabs and under New for all tabs', () => {
+  it('builds grouped Basic and New sections for session tabs without refresh or sort', () => {
     const openSessionDetails = vi.fn();
     const openProcesses = vi.fn();
+    const openSession = vi.fn();
     const items = buildWorkspaceTabContextMenu(
       {
         ...labels,
+        basicGroup: '基础',
+        newGroup: '新建',
+        session: '会话',
         sessionDetails: '会话详情',
-        processes: '进程',
+        processes: '执行进程',
       },
       {
-        refresh: vi.fn(),
-        isSessionTab: true,
+        tabKind: 'session',
+        openSession,
+        agents: [
+          { id: 'CLAUDE_CODE', label: 'Claude Code' },
+          { id: 'CODEX', label: 'Codex' },
+        ],
         openSessionDetails,
         openProcesses,
         closeCurrent: vi.fn(),
@@ -117,28 +125,136 @@ describe('buildWorkspaceTabContextMenu', () => {
     );
 
     expect(items.map((item) => item.id)).toEqual([
-      'refresh',
-      'session-details',
+      'group-basic',
       'close',
       'split',
-      'new',
-      'sort',
+      'sep-new',
+      'group-new',
+      'new-session',
+      'new-processes',
+      'new-session-details',
+      'new-terminal',
+      'new-note',
+      'new-review',
     ]);
-    const topSessionDetails = items.find(
-      (item) => item.id === 'session-details'
-    );
-    if (topSessionDetails && 'onSelect' in topSessionDetails) {
-      topSessionDetails.onSelect?.();
+    const newSessionItem = items.find((item) => item.id === 'new-session');
+    expect(newSessionItem?.type).toBe('submenu');
+    if (newSessionItem?.type === 'submenu') {
+      expect(newSessionItem.children.map((c) => c.id)).toEqual([
+        'agent-CLAUDE_CODE',
+        'agent-CODEX',
+      ]);
+      const firstChild = newSessionItem.children[0];
+      if (firstChild && 'onSelect' in firstChild) {
+        firstChild.onSelect?.();
+      }
+      expect(openSession).toHaveBeenCalledWith('CLAUDE_CODE');
     }
-    expect(openSessionDetails).toHaveBeenCalledTimes(1);
+  });
 
-    const created = items.find((item) => item.id === 'new');
-    if (created?.type !== 'submenu') {
-      throw new Error('expected new submenu');
-    }
-    expect(created.children.map((item) => item.id)).toContain(
-      'new-session-details'
+  it('builds terminal tab menu with refresh and duplicate-terminal in Basic and omits processes/session-details/review in New', () => {
+    const refresh = vi.fn();
+    const duplicateTerminal = vi.fn();
+    const items = buildWorkspaceTabContextMenu(
+      {
+        ...labels,
+        basicGroup: '基础',
+        newGroup: '新建',
+        duplicateTerminal: '复制Terminal',
+        session: '会话',
+      },
+      {
+        tabKind: 'terminal',
+        refresh,
+        duplicateTerminal,
+        openSession: vi.fn(),
+        agents: [{ id: 'CLAUDE_CODE', label: 'Claude Code' }],
+        closeCurrent: vi.fn(),
+        closeOthers: vi.fn(),
+        canSplit: true,
+        splitDown: vi.fn(),
+        splitLeft: vi.fn(),
+        splitRight: vi.fn(),
+        openNote: vi.fn(),
+        openReview: vi.fn(),
+        openTerminal: vi.fn(),
+        shells: [{ value: 'powershell.exe', label: 'PowerShell' }],
+        sortByName: vi.fn(),
+      }
     );
-    expect(created.children.map((item) => item.id)).toContain('new-processes');
+
+    expect(items.map((item) => item.id)).toEqual([
+      'group-basic',
+      'refresh',
+      'close',
+      'split',
+      'duplicate-terminal',
+      'sep-new',
+      'group-new',
+      'new-session',
+      'new-terminal',
+      'new-note',
+    ]);
+    const dupItem = items.find((item) => item.id === 'duplicate-terminal');
+    if (dupItem && 'onSelect' in dupItem) {
+      dupItem.onSelect?.();
+    }
+    expect(duplicateTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds space tab menu with space-details in Basic and new-assistant / new-group-chat in New while omitting processes and session-details', () => {
+    const openSpaceDetails = vi.fn();
+    const openNewAssistant = vi.fn();
+    const openNewGroupChat = vi.fn();
+    const items = buildWorkspaceTabContextMenu(
+      {
+        ...labels,
+        basicGroup: '基础',
+        newGroup: '新建',
+        spaceDetails: '详情信息',
+        newAssistant: '新助手',
+        newGroupChat: '新群聊',
+        session: '会话',
+      },
+      {
+        tabKind: 'space',
+        openSpaceDetails,
+        openNewAssistant,
+        openNewGroupChat,
+        openSession: vi.fn(),
+        agents: [{ id: 'CLAUDE_CODE', label: 'Claude Code' }],
+        closeCurrent: vi.fn(),
+        closeOthers: vi.fn(),
+        canSplit: true,
+        splitDown: vi.fn(),
+        splitLeft: vi.fn(),
+        splitRight: vi.fn(),
+        openNote: vi.fn(),
+        openReview: vi.fn(),
+        openTerminal: vi.fn(),
+        shells: [{ value: 'powershell.exe', label: 'PowerShell' }],
+        sortByName: vi.fn(),
+      }
+    );
+
+    expect(items.map((item) => item.id)).toEqual([
+      'group-basic',
+      'space-details',
+      'close',
+      'split',
+      'sep-new',
+      'group-new',
+      'new-assistant',
+      'new-group-chat',
+      'new-session',
+      'new-terminal',
+      'new-note',
+      'new-review',
+    ]);
+    const detailsItem = items.find((item) => item.id === 'space-details');
+    if (detailsItem && 'onSelect' in detailsItem) {
+      detailsItem.onSelect?.();
+    }
+    expect(openSpaceDetails).toHaveBeenCalledTimes(1);
   });
 });

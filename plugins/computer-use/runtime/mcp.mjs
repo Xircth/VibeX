@@ -37,12 +37,23 @@ const FALLBACK_TOOLS = [
   },
   {
     name: 'computer_screenshot',
-    description: 'Capture a PNG screenshot of a shared window or screen.',
+    description:
+      'Capture a PNG screenshot (or a multi-frame contact sheet when overMs and everyMs are set) of a shared window or screen.',
     inputSchema: {
       type: 'object',
       properties: {
         targetId: { type: 'string' },
         maxDimension: { type: 'integer' },
+        overMs: {
+          type: 'integer',
+          description:
+            'Optional contact-sheet burst window in milliseconds (up to 10000).',
+        },
+        everyMs: {
+          type: 'integer',
+          description:
+            'Optional frame sampling interval in milliseconds (minimum 50) for contact-sheet burst capture.',
+        },
       },
       required: ['targetId'],
       additionalProperties: false,

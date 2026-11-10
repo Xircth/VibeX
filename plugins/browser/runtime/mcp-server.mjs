@@ -139,7 +139,7 @@ const allTools = [
     name: 'browser_screenshot',
     operation: 'screenshot',
     description:
-      'Capture the visible viewport of a shared tab, or crop to one snapshot ref.',
+      'Capture the visible viewport of a shared tab, or crop to one snapshot ref. Optionally sample a contact sheet over a time window or apply deterministic rendering preferences.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -165,6 +165,59 @@ const allTools = [
           type: 'string',
           enum: ['png', 'jpeg'],
           description: 'Output image format (default png).',
+        },
+        overMs: {
+          type: 'integer',
+          description:
+            'Optional contact-sheet burst window in milliseconds (up to 10000). When paired with everyMs, samples frames across the window and composes a single contact sheet.',
+        },
+        everyMs: {
+          type: 'integer',
+          description:
+            'Optional frame sampling interval in milliseconds (minimum 50) for contact-sheet burst capture.',
+        },
+        reducedMotion: {
+          type: 'boolean',
+          description:
+            'When true, disables CSS transitions/animations and finishes active web animations before capturing.',
+        },
+        colorScheme: {
+          type: 'string',
+          enum: ['light', 'dark', 'no-preference'],
+          description:
+            'Optional deterministic color scheme override applied before capturing.',
+        },
+      },
+    },
+  },
+  {
+    name: 'browser_prefer',
+    operation: 'prefer',
+    description:
+      'Apply deterministic rendering preferences (prefers-reduced-motion, prefers-color-scheme) on a shared tab and wait for two animation frames to settle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'string',
+          description:
+            'Target tab ID. Optional when only one browser tab is open.',
+        },
+        reducedMotion: {
+          type: 'boolean',
+          description:
+            'When true, forces prefers-reduced-motion: reduce, zeroes CSS transition/animation durations, and finishes active animations.',
+        },
+        colorScheme: {
+          type: 'string',
+          enum: ['light', 'dark', 'no-preference'],
+          description:
+            'Override prefers-color-scheme and document color-scheme ("light", "dark", or "no-preference").',
+        },
+        settle: {
+          type: 'boolean',
+          description:
+            'Wait two requestAnimationFrame ticks for styles and layout to settle (default: true).',
         },
       },
     },
@@ -512,10 +565,34 @@ function renderConsoleResult(result) {
 
 function renderCaptureResult(result) {
   const scope = result.target ? `ref=${result.target}` : 'viewport';
-  const summary = [
+  const timestamps = Array.isArray(result.timestampsMs)
+    ? result.timestampsMs
+    : Array.isArray(result.timestamps_ms)
+      ? result.timestamps_ms
+      : null;
+  const framesCount =
+    Number(
+      result.framesCount ??
+        result.frames_count ??
+        (timestamps ? timestamps.length : 1)
+    ) || 1;
+  const lines = [
     `### Screenshot (${scope}, ${result.width}x${result.height}, ${result.mime})`,
     `- URL: ${result.url}`,
-  ].join('\n');
+  ];
+  if (framesCount > 1 || (timestamps && timestamps.length > 0)) {
+    const overMs = result.overMs ?? result.over_ms ?? 0;
+    const everyMs = result.everyMs ?? result.every_ms ?? 0;
+    const tsFormatted = (timestamps ?? []).map((t) => `${t}ms`).join(', ');
+    const grid =
+      result.columns && result.rows
+        ? `, grid=${result.columns}x${result.rows}`
+        : '';
+    lines.push(
+      `- Contact sheet: frames=${framesCount}, over=${overMs}ms, every=${everyMs}ms, timestamps=[${tsFormatted}]${grid}`
+    );
+  }
+  const summary = lines.join('\n');
   const blocks = [{ type: 'text', text: summary }];
   if (result.data && result.mime) {
     blocks.push({
@@ -525,6 +602,22 @@ function renderCaptureResult(result) {
     });
   }
   return blocks;
+}
+
+function renderPreferResult(result) {
+  const lines = [
+    '### Browser preferences applied',
+    `- Tab: \`${result?.tabId ?? ''}\``,
+    `- URL: ${result?.url ?? ''}`,
+    `- Reduced motion: \`${Boolean(result?.reducedMotion)}\``,
+    `- Color scheme: \`${result?.colorScheme ?? 'no-preference'}\``,
+    `- Settled: \`${result?.settled !== false}\``,
+    '',
+    '```json',
+    JSON.stringify(result),
+    '```',
+  ];
+  return [{ type: 'text', text: lines.join('\n') }];
 }
 
 function renderActResult(verb, result) {
@@ -572,6 +665,8 @@ function formatToolOutput(toolName, result) {
       return renderConsoleResult(result);
     case 'browser_screenshot':
       return renderCaptureResult(result);
+    case 'browser_prefer':
+      return renderPreferResult(result);
     case 'browser_click':
       return renderActResult('click', result);
     case 'browser_hover':
@@ -657,6 +752,119 @@ async function resolveFallbackTab(explicitTabId) {
   );
 }
 
+function buildPreferEvalScript(args) {
+  const reducedMotion =
+    typeof args.reducedMotion === 'boolean' ? args.reducedMotion : null;
+  const colorScheme =
+    args.colorScheme === 'light' ||
+    args.colorScheme === 'dark' ||
+    args.colorScheme === 'no-preference'
+      ? args.colorScheme
+      : null;
+  const settle = args.settle !== false;
+  return `(function(){
+    var rm = ${JSON.stringify(reducedMotion)};
+    var cs = ${JSON.stringify(colorScheme)};
+    var styleId = '__vibex_prefer_reduced_motion';
+    if (rm === true) {
+      var el = document.getElementById(styleId);
+      if (!el) {
+        el = document.createElement('style');
+        el.id = styleId;
+        (document.head || document.documentElement).appendChild(el);
+      }
+      el.textContent = '*, *::before, *::after { transition-duration: 0s !important; transition-delay: 0s !important; animation-duration: 0s !important; animation-delay: 0s !important; scroll-behavior: auto !important; }';
+      if (typeof document.getAnimations === 'function') {
+        document.getAnimations().forEach(function(a) {
+          try { a.finish(); } catch (e) {}
+        });
+      }
+      document.documentElement.setAttribute('data-reduced-motion', 'reduce');
+    } else if (rm === false) {
+      var existing = document.getElementById(styleId);
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      document.documentElement.removeAttribute('data-reduced-motion');
+    }
+    if (cs) {
+      if (cs === 'no-preference') {
+        document.documentElement.style.colorScheme = '';
+        document.documentElement.removeAttribute('data-theme');
+        document.documentElement.classList.remove('dark', 'light');
+      } else {
+        document.documentElement.style.colorScheme = cs;
+        document.documentElement.setAttribute('data-theme', cs);
+        document.documentElement.classList.remove('dark', 'light');
+        document.documentElement.classList.add(cs);
+      }
+    }
+    window.__vibexPreferences = Object.assign({}, window.__vibexPreferences || {}, {
+      reducedMotion: rm !== null ? rm : (window.__vibexPreferences && window.__vibexPreferences.reducedMotion),
+      colorScheme: cs !== null ? cs : (window.__vibexPreferences && window.__vibexPreferences.colorScheme)
+    });
+    if (!window.__vibexMatchMediaPatched && typeof window.matchMedia === 'function') {
+      var origMatchMedia = window.matchMedia.bind(window);
+      window.matchMedia = function(query) {
+        var mql = origMatchMedia(query);
+        var q = String(query || '').toLowerCase();
+        var prefs = window.__vibexPreferences || {};
+        var override = null;
+        if (typeof prefs.reducedMotion === 'boolean' && q.indexOf('prefers-reduced-motion') !== -1) {
+          if (q.indexOf('reduce') !== -1) override = prefs.reducedMotion;
+          else if (q.indexOf('no-preference') !== -1) override = !prefs.reducedMotion;
+        }
+        if (typeof prefs.colorScheme === 'string' && prefs.colorScheme !== 'no-preference' && q.indexOf('prefers-color-scheme') !== -1) {
+          if (q.indexOf('dark') !== -1) override = prefs.colorScheme === 'dark';
+          else if (q.indexOf('light') !== -1) override = prefs.colorScheme === 'light';
+        }
+        if (override === null) return mql;
+        return Object.assign({}, mql, { matches: override, media: mql.media });
+      };
+      window.__vibexMatchMediaPatched = true;
+    }
+    if (${JSON.stringify(settle)} && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(function() {
+        window.requestAnimationFrame(function() {});
+      });
+    }
+    return JSON.stringify({
+      ok: true,
+      url: location.href,
+      reducedMotion: Boolean(window.__vibexPreferences && window.__vibexPreferences.reducedMotion),
+      colorScheme: (window.__vibexPreferences && window.__vibexPreferences.colorScheme) || 'no-preference',
+      settled: ${JSON.stringify(settle)}
+    });
+  })()`;
+}
+
+async function applyFallbackPrefer(tab, args) {
+  const settle = args.settle !== false;
+  const evalRes = await callHost('browser', 'eval.run', {
+    tabId: tab.tabId,
+    evalApproval: 'silent',
+    code: buildPreferEvalScript(args),
+  });
+  if (settle) {
+    await new Promise((r) => setTimeout(r, 34));
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(evalRes?.value ?? '{}'));
+  } catch {
+    parsed = null;
+  }
+  return {
+    ok: true,
+    tabId: tab.tabId,
+    url: parsed?.url || tab.url,
+    reducedMotion:
+      typeof parsed?.reducedMotion === 'boolean'
+        ? parsed.reducedMotion
+        : Boolean(args.reducedMotion),
+    colorScheme: parsed?.colorScheme || args.colorScheme || 'no-preference',
+    settled: settle,
+  };
+}
+
 async function executeBrowserTool(tool, args) {
   try {
     const result = await callHost('browser', tool.operation, args);
@@ -688,6 +896,10 @@ async function executeBrowserTool(tool, args) {
   } catch (error) {
     if (!isUnimplementedHostError(error)) {
       throw error;
+    }
+    if (tool.operation === 'prefer') {
+      const tab = await resolveFallbackTab(args.tabId);
+      return await applyFallbackPrefer(tab, args);
     }
     if (tool.operation === 'console.read') {
       const tab = await resolveFallbackTab(args.tabId);
@@ -740,6 +952,19 @@ async function executeBrowserTool(tool, args) {
     }
     if (tool.operation === 'screenshot') {
       const tab = await resolveFallbackTab(args.tabId);
+      if (args.reducedMotion != null || args.colorScheme != null) {
+        await applyFallbackPrefer(tab, args).catch(() => null);
+      }
+      const overMs = Number(args.overMs ?? 0) || 0;
+      const everyMs = Number(args.everyMs ?? 0) || 0;
+      const isBurst = overMs > 0 && everyMs >= 50 && overMs >= everyMs;
+      const timestampsMs = [];
+      if (isBurst) {
+        const clampedOver = Math.min(10000, overMs);
+        for (let t = 0; t <= clampedOver; t += everyMs) {
+          timestampsMs.push(t);
+        }
+      }
       const frame = await callHost('browser', 'surface.freeze', {
         tabId: tab.tabId,
       }).catch(() => null);
@@ -751,6 +976,14 @@ async function executeBrowserTool(tool, args) {
         data: frame?.data || '',
         width: Number(args.maxWidth) || 1280,
         height: 800,
+        ...(timestampsMs.length > 1
+          ? {
+              framesCount: timestampsMs.length,
+              overMs: Math.min(10000, overMs),
+              everyMs,
+              timestampsMs,
+            }
+          : {}),
       };
     }
     throw error;
@@ -825,6 +1058,10 @@ function handleMessage(message) {
     } else if (tool.name === 'browser_navigate') {
       if (args.waitForLoad == null) {
         args.waitForLoad = true;
+      }
+    } else if (tool.name === 'browser_prefer') {
+      if (args.settle == null) {
+        args.settle = true;
       }
     } else if (tool.name === 'browser_eval') {
       args.evalApproval = config.evalApproval;

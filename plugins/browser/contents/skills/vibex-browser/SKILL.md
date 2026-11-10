@@ -30,7 +30,7 @@ Levels:
 | --- | --- | --- |
 | 停止共享 / empty | missing / `none` | `browser_list_tabs` only (title, URL, tabId) |
 | 可读 | `read` | `browser_snapshot`, `browser_console_messages`, `browser_screenshot` |
-| 可读可操作 | `control` | all read tools + `browser_click`, `browser_hover`, `browser_type`, `browser_press_key`, `browser_select_option`, `browser_eval` (if enabled) |
+| 可读可操作 | `control` | all read tools + `browser_prefer`, `browser_click`, `browser_hover`, `browser_type`, `browser_press_key`, `browser_select_option`, `browser_eval` (if enabled) |
 
 If a tool returns `browser_grant_required`, tell the user to share that tab from the address-bar chip. If it returns `browser_control_required`, they shared read-only; ask them to switch to 可读可操作.
 
@@ -81,9 +81,20 @@ Reads console messages (`console.log/info/warn/error/debug`), uncaught `error` e
 
 ### `browser_screenshot`
 
-Arguments: `{ "tabId"?, "generation"?, "ref"?, "maxWidth"?: 1280, "format"?: "png" | "jpeg" }`.
+Arguments: `{ "tabId"?, "generation"?, "ref"?, "maxWidth"?: 1280, "format"?: "png" | "jpeg", "overMs"?, "everyMs"?, "reducedMotion"?, "colorScheme"?: "light" | "dark" | "no-preference" }`.
 
 Captures the visible viewport of a shared tab, or scrolls `ref` into view and crops to its bounding box when both `generation` and `ref` are provided. Returns an image block alongside dimensions. Requires at least **read** grant.
+
+- **Contact-sheet burst mode (`overMs` + `everyMs`)**: Pass `overMs` (up to `10000` ms) and `everyMs` (minimum `50` ms, e.g. `{ "overMs": 500, "everyMs": 100 }`) to sample frames across a time window and composite them into a single grid contact sheet with frame timestamps (`frames=6, over=500ms, every=100ms, timestamps=[0ms, 100ms, ...]`). Use this to inspect animations, skeleton-to-content transitions, or layout shifts in one visual turn.
+- **Deterministic snapshot (`reducedMotion` / `colorScheme`)**: Pass `"reducedMotion": true` to zero CSS transition/animation durations and finish active animations before capturing, or `"colorScheme": "dark" | "light"` to verify theme states deterministically.
+
+### `browser_prefer`
+
+Arguments: `{ "tabId"?, "reducedMotion"?: boolean, "colorScheme"?: "light" | "dark" | "no-preference", "settle"?: true }`.
+
+Applies deterministic rendering preferences on a shared tab:
+- `"reducedMotion": true` forces `prefers-reduced-motion: reduce`, injects zero-duration CSS transition/animation rules, and finishes running `document.getAnimations()` so subsequent snapshots and screenshots never catch mid-transition states.
+- `"colorScheme": "light" | "dark" | "no-preference"` updates `document.documentElement.style.colorScheme`, `data-theme`, and `window.matchMedia('(prefers-color-scheme: ...)')` and waits two `requestAnimationFrame` ticks (`settle: true` by default).
 
 ### `browser_click`
 

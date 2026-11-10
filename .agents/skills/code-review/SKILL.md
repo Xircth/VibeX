@@ -55,27 +55,35 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
-### 4. Spawn both sub-agents in parallel
+### 4. Spawn both sub-agents in parallel (mutually blind)
+
+Launch both sub-agents in a single turn so they run concurrently and mutually blind (neither reads the other's transcript or output). For high-stakes architectural forks, RFCs, or 3+ seat multi-model reviews, use [panel](../panel/SKILL.md).
 
 **Standards sub-agent prompt** should include:
 
 - The full diff command and commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
-- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
+- The brief: "Operate mutually blind. Report at most **5 fundamental findings** ordered by severity, per file/hunk (`file:line`): (a) where the diff violates a documented standard: cite the standard (file + the rule); and (b) any high-impact baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** should include:
 
 - The diff command and commit list.
 - The path or fetched contents of the spec.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+- The brief: "Operate mutually blind. Report at most **5 fundamental findings** ordered by severity (`file:line`): (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
-### 5. Aggregate
+### 5. Verify Hypotheses & Aggregate
 
-Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
+Before presenting the findings, apply the blind-panel verification rule:
 
-End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
+- **Cross-axis agreement = Strong Signal**: Any defect flagged independently by both sub-agents is confirmed immediately.
+- **Single-seat claim = Hypothesis (Verify in Source)**: Inspect the cited `file:line` in the working tree for each single-seat finding. Keep confirmed findings and discard false positives that the actual code already handles (noting the disproven claim briefly).
+- **Standard vs Spec conflict = Escalate to User**: If a documented standard contradicts an explicit spec requirement, surface both sides for the user to decide.
+
+Present the two verified reports under `## Standards` and `## Spec` headings. Do **not** merge or rerank findings across the two axes, because the two axes are deliberately separate (see _Why two axes_).
+
+End with a one-line summary: countable verified findings per axis (e.g., `Standards: 2 verified (1 discarded false positive) | Spec: 1 verified`), and the highest-severity issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
 
 ## Why two axes
 

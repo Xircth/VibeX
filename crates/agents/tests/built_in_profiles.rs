@@ -418,6 +418,38 @@ fn acp_launch_args_have_one_answer_per_profile() {
             }
         }
 
+        if profile.topology == agents::ProfileTopology::NativeAcp {
+            for source in &profile.install_sources {
+                let (component, pinned_args) = match source {
+                    ProfileInstallSource::Npx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Uvx {
+                        component, args, ..
+                    }
+                    | ProfileInstallSource::Binary {
+                        component, args, ..
+                    } => (*component, *args),
+                };
+                if pinned_args.is_empty() {
+                    continue;
+                }
+                let matching_candidate = profile
+                    .external_candidates
+                    .iter()
+                    .find(|candidate| {
+                        candidate.component == component && !candidate.acp_args.is_empty()
+                    });
+                assert!(
+                    matching_candidate.is_some_and(|candidate| candidate.acp_args == pinned_args),
+                    "{}: NativeAcp install source for {:?} pins non-empty args {:?}, so external_candidates must also declare matching acp_args",
+                    profile.agent_id.as_str(),
+                    component,
+                    pinned_args
+                );
+            }
+        }
+
         let acp_candidate = profile.external_candidates.iter().find(|candidate| {
             matches!(
                 candidate.component,
@@ -632,6 +664,49 @@ fn native_acp_cli_agents_launch_with_the_documented_server_args() {
         assert!(profile.authentication_required_by_default);
         assert!(profile.account_evidence.is_none());
     }
+
+    for (agent_id, expected_executable, expected_args) in [
+        ("codebuddy", "codebuddy", &["--acp"][..]),
+        ("opencode", "opencode", &["acp"][..]),
+        ("openclaw", "openclaw", &["acp"][..]),
+        ("cline", "cline", &["--acp"][..]),
+        ("kimi_code", "kimi", &["acp"][..]),
+        ("grok", "grok", &["agent", "stdio"][..]),
+        ("cursor", "cursor-agent", &["acp"][..]),
+    ] {
+        let profile = catalog
+            .profile(&AgentId::parse(agent_id).unwrap())
+            .unwrap();
+        assert_eq!(
+            profile
+                .external_candidates
+                .iter()
+                .map(|candidate| (candidate.executable, candidate.acp_args))
+                .collect::<Vec<_>>(),
+            [(expected_executable, expected_args)],
+            "{agent_id}"
+        );
+        assert_eq!(
+            agents::acp_launch_args(profile, ProfileComponent::CombinedRuntime),
+            expected_args
+                .iter()
+                .map(|argument| (*argument).to_string())
+                .collect::<Vec<_>>(),
+            "{agent_id}"
+        );
+    }
+}
+
+#[test]
+fn apply_built_in_launch_policy_backfills_codebuddy_acp_args_when_empty() {
+    let mut env = std::collections::HashMap::new();
+    let mut args = Vec::new();
+    agents::apply_built_in_launch_policy(
+        &AgentId::parse("codebuddy").unwrap(),
+        &mut env,
+        &mut args,
+    );
+    assert_eq!(args, vec!["--acp".to_string()]);
 }
 
 #[test]
@@ -1057,6 +1132,8 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         codebuddy.native_config[0].directory_override_env,
         Some("CODEBUDDY_CONFIG_DIR")
     );
+    assert!(!codebuddy.authentication_required_by_default);
+    assert!(codebuddy.account_evidence.is_none());
     assert!(
         profile("cursor").account_evidence.is_none(),
         "Cursor account login is stored in the platform secret store, not a config file"

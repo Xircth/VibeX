@@ -38,7 +38,7 @@ export function getDraftExecutorProfile(
   data: LegacyDraftFollowUpData | undefined
 ): ExecutorProfileId | null {
   const raw = data?.executor_config ?? data?.executor_profile_id;
-  if (typeof raw?.executor !== 'string') return null;
+  if (typeof raw?.executor !== 'string' || !raw.executor.trim()) return null;
 
   const model =
     typeof raw.model === 'string'
@@ -81,8 +81,8 @@ export function getDefaultExecutorProfile({
   configExecutorProfile: ExecutorProfileId | null | undefined;
   profiles: ExecutorConfigs['executors'] | null | undefined;
 }): ExecutorProfileId | null {
-  if (scratchExecutorProfile) return scratchExecutorProfile;
-  if (latestProfileId) return latestProfileId;
+  if (scratchExecutorProfile?.executor) return scratchExecutorProfile;
+  if (latestProfileId?.executor) return latestProfileId;
 
   const createdSessionProfile = sessionId
     ? createdSessionProfiles[sessionId]
@@ -93,7 +93,7 @@ export function getDefaultExecutorProfile({
     return { executor: sessionExecutor, variant: null };
   }
 
-  if (configExecutorProfile) return configExecutorProfile;
+  if (configExecutorProfile?.executor) return configExecutorProfile;
 
   return getFirstAvailableProfile(profiles);
 }
@@ -111,7 +111,7 @@ export function shouldPersistDraftFollowUp({
 }): boolean {
   if (!executorProfileId?.executor) return false;
   return Boolean(
-    message.trim() ||
+    (message ?? '').trim() ||
       images.length > 0 ||
       executorProfileId.variant ||
       executorProfileId.model ||
@@ -166,7 +166,9 @@ export function hasComposerDraftContent(
   draft: Pick<DraftFollowUpData, 'message' | 'images'> | undefined
 ): boolean {
   if (!draft) return false;
-  return Boolean(draft.message.trim() || draft.images.length > 0);
+  return Boolean(
+    (draft.message ?? '').trim() || (draft.images?.length ?? 0) > 0
+  );
 }
 
 export function shouldRaiseDraftConflict({
@@ -321,7 +323,7 @@ export function getDraftScratchHydrationDecision({
     };
   }
   // Composer is usable before the draft stream connects. Don't clobber typing.
-  if (localMessage.trim()) {
+  if ((localMessage ?? '').trim()) {
     return {
       hydratedScratchId: scratchId,
       shouldHydrate: false,
@@ -335,7 +337,7 @@ export function getDraftScratchHydrationDecision({
   return {
     hydratedScratchId: scratchId,
     shouldHydrate: true,
-    message: scratchData?.message ?? '',
+    message: typeof scratchData?.message === 'string' ? scratchData.message : '',
     imagePaths: [...(scratchData?.images ?? [])],
     // Create-form session-control presets ride the draft into the composer's
     // pending state and go out as the first turn's overrides.

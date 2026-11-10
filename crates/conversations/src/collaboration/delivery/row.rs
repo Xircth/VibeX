@@ -227,7 +227,12 @@ impl StoredSpaceOperation {
         sqlx::query(
             r#"INSERT INTO collaboration_space_operations
                (operation_id, space_id, request_json, result_json, created_at)
-               VALUES (?, ?, ?, ?, ?)"#,
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(operation_id) DO UPDATE SET
+                   space_id = excluded.space_id,
+                   request_json = excluded.request_json,
+                   result_json = excluded.result_json,
+                   created_at = excluded.created_at"#,
         )
         .bind(operation_id)
         .bind(space_id)

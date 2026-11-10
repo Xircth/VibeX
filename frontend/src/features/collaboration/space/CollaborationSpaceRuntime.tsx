@@ -815,6 +815,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         sidebarItemsRef.current = items;
         setSidebarItems(items);
         if (
+          sidebarPage.supervisorMemberId !== null ||
           items?.some((item) => typeof item.member?.is_supervisor === 'boolean')
         ) {
           setSupervisorOverride((current) =>
@@ -5607,9 +5608,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         window.clearTimeout(pinScrollTimerRef.current);
         pinScrollTimerRef.current = null;
       }
-      ignoreThreadScrollRef.current = true;
-      scrollCollabThreadLogToBottom(el, behavior);
       if (behavior === 'smooth') {
+        ignoreThreadScrollRef.current = true;
+        scrollCollabThreadLogToBottom(el, 'smooth');
         requestAnimationFrame(() => {
           const currentEl = threadLogRef.current;
           if (
@@ -5634,16 +5635,18 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         }, 320);
         return;
       }
+      ignoreThreadScrollRef.current = true;
+      scrollCollabThreadLogToBottom(el, 'auto');
+      ignoreThreadScrollRef.current = false;
       requestAnimationFrame(() => {
         const currentEl = threadLogRef.current;
         if (
           currentEl &&
-          ignoreThreadScrollRef.current &&
-          followThreadBottomRef.current
+          followThreadBottomRef.current &&
+          pinScrollTimerRef.current === null
         ) {
+          ignoreThreadScrollRef.current = true;
           scrollCollabThreadLogToBottom(currentEl, 'auto');
-        }
-        if (pinScrollTimerRef.current === null) {
           ignoreThreadScrollRef.current = false;
         }
       });
@@ -6003,6 +6006,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         active: true,
         memberRef: backendMemberRef,
       });
+      setSidebarSupervisorId(backendMemberRef);
 
       setSidebarItems((current) =>
         current
@@ -6057,11 +6061,15 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       }
 
       try {
-        await setWorkspaceSupervisor(
+        const persistedSupervisorId = await setWorkspaceSupervisor(
           collaborationCall,
           workspace,
           backendMemberRef
         );
+        if (persistedSupervisorId || backendMemberRef === null) {
+          setSidebarSupervisorId(persistedSupervisorId);
+        }
+        inFlightSidebarRef.current = null;
         await refreshSidebar();
       } catch (cause) {
         setSupervisorOverride({
@@ -6069,6 +6077,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           active: false,
           memberRef: null,
         });
+        inFlightSidebarRef.current = null;
         void refreshSidebar();
         setError(surfaceErrorCopy(cause));
       }
@@ -8256,11 +8265,6 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     openSectionContactMenu
   );
   const stableRenameGroup = useStableCallback(renameGroup);
-  const stableRenderMessageAreaOverlay = useStableCallback(
-    renderMessageAreaOverlay
-  );
-  const stableRenderSectionEntry = useStableCallback(renderSectionEntry);
-  const stableRenderSupervisorSlot = useStableCallback(renderSupervisorSlot);
   const stableScrollToMessage = useStableCallback(scrollToMessage);
   const stableSelectMemberForPreview = useStableCallback(
     selectMemberForPreview
@@ -8497,10 +8501,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     renderChatMeta,
     renderDirectChatRow,
     renderMemberRow,
-    renderMessageAreaOverlay: stableRenderMessageAreaOverlay,
-    renderSectionEntry: stableRenderSectionEntry,
+    renderMessageAreaOverlay,
+    renderSectionEntry,
     renderSpaceGroup,
-    renderSupervisorSlot: stableRenderSupervisorSlot,
+    renderSupervisorSlot,
     replaceDraftRef,
     replyingTo,
     repoIds,

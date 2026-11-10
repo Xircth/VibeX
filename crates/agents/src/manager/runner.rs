@@ -155,6 +155,10 @@ pub(in crate::manager) struct SessionControlState {
     /// `default` and `plan`; selecting `yolo` runs OMP in `default` while the
     /// host auto-approves all `session/request_permission` prompts).
     pub(in crate::manager) omp_yolo_mode: bool,
+    /// Latest in-flight `ask_user_question` tool call input for this session,
+    /// used to enrich `elicitation/create` schemas from adapters (such as
+    /// `deepseek-acp`) that omit full `question` prompts when `header` is set.
+    pub(in crate::manager) in_flight_question_input: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]

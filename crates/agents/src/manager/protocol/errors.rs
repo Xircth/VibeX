@@ -89,39 +89,126 @@ pub(in crate::manager) struct AirSessionFailure {
     pub retry_after_ms: Option<u64>,
 }
 
+pub(in crate::manager) fn normalize_error_kind_code(raw: &str) -> Option<String> {
+    let kind = raw.trim();
+    if kind.is_empty() {
+        return None;
+    }
+    let mut normalized = String::with_capacity(kind.len());
+    let mut prev_sep = false;
+    for ch in kind.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() && !normalized.is_empty() && !prev_sep {
+                normalized.push('_');
+            }
+            normalized.push(ch.to_ascii_lowercase());
+            prev_sep = false;
+        } else if !normalized.is_empty() && !prev_sep {
+            normalized.push('_');
+            prev_sep = true;
+        }
+    }
+    let trimmed = normalized.trim_matches('_');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+pub(in crate::manager) fn extract_acp_error_kind(
+    data: Option<&serde_json::Value>,
+) -> Option<String> {
+    let data = data?;
+    let raw = data
+        .get("errorKind")
+        .or_else(|| data.get("error_kind"))
+        .and_then(serde_json::Value::as_str)?;
+    normalize_error_kind_code(raw)
+}
+
+pub(in crate::manager) fn is_incomplete_tool_call_message(text: &str) -> bool {
+    text.contains("ended the turn without returning results for tool calls")
+}
+
+pub(in crate::manager) fn is_incomplete_tool_call_failure(failure: &AirSessionFailure) -> bool {
+    failure
+        .kind
+        .as_deref()
+        .and_then(normalize_error_kind_code)
+        .as_deref()
+        == Some("incomplete_tool_call")
+        || failure
+            .title
+            .as_deref()
+            .is_some_and(is_incomplete_tool_call_message)
+        || failure
+            .message
+            .as_deref()
+            .is_some_and(is_incomplete_tool_call_message)
+}
+
+pub(in crate::manager) fn is_incomplete_tool_call_acp_error(error: &acp::Error) -> bool {
+    extract_acp_error_kind(error.data.as_ref()).as_deref() == Some("incomplete_tool_call")
+        || is_incomplete_tool_call_message(&error.message)
+        || error
+            .data
+            .as_ref()
+            .and_then(extract_session_failure)
+            .is_some_and(|failure| is_incomplete_tool_call_failure(&failure))
+}
+
+pub(in crate::manager) fn format_incomplete_tool_call_message(raw_message: &str) -> String {
+    const MARKER: &str = "ended the turn without returning results for tool calls:";
+    let trimmed = raw_message.trim();
+    let Some(idx) = trimmed.find(MARKER) else {
+        return sanitize_diagnostic(trimmed);
+    };
+    let prefix = trimmed[..idx + MARKER.len()].trim_end_matches(':').trim();
+    let rest = trimmed[idx + MARKER.len()..].trim();
+    // Strip any trailing `: { "errorKind": ... }` JSON object if present.
+    let ids_part = match rest.find(": {") {
+        Some(json_idx) => &rest[..json_idx],
+        None => rest,
+    };
+    let ids: Vec<&str> = ids_part
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if ids.len() > 3 {
+        let preview = ids[..3].join(", ");
+        sanitize_diagnostic(&format!(
+            "{prefix} ({} tool calls: {preview}, ...)",
+            ids.len()
+        ))
+    } else if !ids.is_empty() {
+        sanitize_diagnostic(&format!("{prefix}: {}", ids.join(", ")))
+    } else {
+        sanitize_diagnostic(prefix)
+    }
+}
+
 impl AirSessionFailure {
     pub(in crate::manager) fn error_code(&self) -> String {
-        let Some(kind) = self
-            .kind
+        if is_incomplete_tool_call_failure(self) {
+            return "incomplete_tool_call".to_string();
+        }
+        self.kind
             .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            return "session_failure".to_string();
-        };
-        let mut normalized = String::with_capacity(kind.len());
-        let mut prev_sep = false;
-        for ch in kind.chars() {
-            if ch.is_ascii_alphanumeric() {
-                if ch.is_ascii_uppercase() && !normalized.is_empty() && !prev_sep {
-                    normalized.push('_');
-                }
-                normalized.push(ch.to_ascii_lowercase());
-                prev_sep = false;
-            } else if !normalized.is_empty() && !prev_sep {
-                normalized.push('_');
-                prev_sep = true;
-            }
-        }
-        let trimmed = normalized.trim_matches('_');
-        if trimmed.is_empty() {
-            "session_failure".to_string()
-        } else {
-            trimmed.to_string()
-        }
+            .and_then(normalize_error_kind_code)
+            .unwrap_or_else(|| "session_failure".to_string())
     }
 
     pub(in crate::manager) fn format_message(&self) -> String {
+        if is_incomplete_tool_call_failure(self) {
+            let raw = self
+                .message
+                .as_deref()
+                .or(self.title.as_deref())
+                .unwrap_or("Claude ended the turn without returning results for tool calls");
+            return format_incomplete_tool_call_message(raw);
+        }
         let title = self
             .title
             .as_deref()
@@ -265,6 +352,12 @@ pub(in crate::manager) fn format_adapter_turn_error(message: &str) -> String {
     }
 }
 
+pub(in crate::manager) fn is_graceful_adapter_turn_close(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("agent connection was lost")
+        && (lower.contains("received 1000 (ok)") || lower.contains("sent 1000 (ok)"))
+}
+
 pub(in crate::manager) fn turn_failure_error_event(
     response: &acp::schema::v1::PromptResponse,
     probe: &TurnOutputProbe,
@@ -272,14 +365,16 @@ pub(in crate::manager) fn turn_failure_error_event(
     stderr_mark: u64,
 ) -> Option<AgentErrorEvent> {
     if let Some(adapter_error) = probe.adapter_turn_error() {
-        return Some(AgentErrorEvent {
-            message: format_adapter_turn_error(&adapter_error),
-            code: Some(classify_adapter_turn_error_code(&adapter_error).to_string()),
-            raw: Some(serde_json::json!({
-                "cause": "adapter_turn_error",
-                "adapterError": adapter_error,
-            })),
-        });
+        if !(is_graceful_adapter_turn_close(&adapter_error) && probe.has_output()) {
+            return Some(AgentErrorEvent {
+                message: format_adapter_turn_error(&adapter_error),
+                code: Some(classify_adapter_turn_error_code(&adapter_error).to_string()),
+                raw: Some(serde_json::json!({
+                    "cause": "adapter_turn_error",
+                    "adapterError": adapter_error,
+                })),
+            });
+        }
     }
     let meta = response.meta.as_ref();
     let finish_reason = finish_turn_reason(&response.stop_reason, probe.has_output(), false);
@@ -362,11 +457,13 @@ pub(in crate::manager) fn turn_failure_error_event(
                 raw: meta.map(|m| serde_json::Value::Object(m.clone())),
             })
         }
-        _ => air_failure.map(|failure| AgentErrorEvent {
-            message: failure.format_message(),
-            code: Some(failure.error_code()),
-            raw: meta.map(|m| serde_json::Value::Object(m.clone())),
-        }),
+        _ => air_failure
+            .filter(|failure| !is_incomplete_tool_call_failure(failure))
+            .map(|failure| AgentErrorEvent {
+                message: failure.format_message(),
+                code: Some(failure.error_code()),
+                raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+            }),
     }
 }
 
@@ -377,6 +474,42 @@ pub(in crate::manager) fn is_prompt_session_lost_error_message(message: &str) ->
         "session has ended",
     ];
     MARKERS.iter().any(|marker| message.contains(marker))
+}
+
+fn format_acp_error_base_message(error: &acp::Error) -> String {
+    if is_incomplete_tool_call_acp_error(error) {
+        return format_incomplete_tool_call_message(&error.message);
+    }
+    let mut base = error.message.trim().to_string();
+    if let Some(data) = error.data.as_ref() {
+        if let Some(text) = data.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            if !base.contains(text) {
+                base = format!("{base}: {text}");
+            }
+        } else if let Some(obj) = data.as_object() {
+            let detail = [
+                "userMessage",
+                "user_message",
+                "details",
+                "detail",
+                "reason",
+                "description",
+            ]
+            .iter()
+            .find_map(|key| {
+                obj.get(*key)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            });
+            if let Some(detail) = detail
+                && !base.contains(detail)
+            {
+                base = format!("{base}: {detail}");
+            }
+        }
+    }
+    sanitize_diagnostic(&base)
 }
 
 pub(in crate::manager) fn format_acp_prompt_error(
@@ -391,8 +524,8 @@ pub(in crate::manager) fn format_acp_prompt_error(
             raw: error.data.clone(),
         };
     }
-    let mut message = sanitize_diagnostic(&error.to_string());
-    if i32::from(error.code) == -32603 {
+    let mut message = format_acp_error_base_message(error);
+    if i32::from(error.code) == -32603 && !is_incomplete_tool_call_acp_error(error) {
         let recent_stderr = stderr_tail.since(stderr_mark);
         let trimmed = recent_stderr.trim();
         if !trimmed.is_empty() && !message.contains(trimmed) {
@@ -401,6 +534,10 @@ pub(in crate::manager) fn format_acp_prompt_error(
     }
     let code = if is_prompt_session_lost_error_message(&message) {
         Some("agent_connection_lost".to_string())
+    } else if is_incomplete_tool_call_acp_error(error) {
+        Some("incomplete_tool_call".to_string())
+    } else if i32::from(error.code) == -32603 {
+        extract_acp_error_kind(error.data.as_ref()).or_else(|| acp_error_code_str(error))
     } else {
         acp_error_code_str(error)
     };

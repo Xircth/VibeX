@@ -81,6 +81,23 @@ describe('session controls query cache', () => {
       client.getQueryData(sessionControlsSchemaQueryKey('claude_code'))
     ).toBeUndefined();
   });
+
+  it('normalizes null or undefined agentType without throwing during disabled query key evaluation', () => {
+    expect(sessionControlsQueryKey(null, null)).toEqual([
+      'agent-session-controls-catalog',
+      '',
+      null,
+    ]);
+    expect(sessionControlsQueryKey(undefined, 'workspace-1')).toEqual([
+      'agent-session-controls-catalog',
+      '',
+      'workspace-1',
+    ]);
+    expect(sessionControlsSchemaQueryKey(null)).toEqual([
+      'agent-session-controls-schema',
+      '',
+    ]);
+  });
 });
 
 describe('composerSessionControlDisplay', () => {

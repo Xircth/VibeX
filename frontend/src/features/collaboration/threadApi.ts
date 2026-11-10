@@ -39,10 +39,12 @@ export async function loadSidebarPage(
     const page = await collab<{
       items?: SidebarItem[];
       supervisor_member_id?: string | null;
+      supervisorMemberId?: string | null;
     }>('collaboration', 'thread.listSidebar', { workspaceId });
     return {
       items: Array.isArray(page?.items) ? page.items : null,
-      supervisorMemberId: page?.supervisor_member_id ?? null,
+      supervisorMemberId:
+        page?.supervisor_member_id ?? page?.supervisorMemberId ?? null,
     };
   } catch {
     return { items: null, supervisorMemberId: null };
@@ -278,10 +280,9 @@ export async function setWorkspaceSupervisor(
   workspaceId: string,
   memberId: string | null
 ): Promise<string | null> {
-  const result = await collab<{ supervisor_member_id?: string | null } | null>(
-    'collaboration',
-    'member.setSupervisor',
-    { workspaceId, memberId }
-  );
-  return result?.supervisor_member_id ?? null;
+  const result = await collab<{
+    supervisor_member_id?: string | null;
+    supervisorMemberId?: string | null;
+  } | null>('collaboration', 'member.setSupervisor', { workspaceId, memberId });
+  return result?.supervisor_member_id ?? result?.supervisorMemberId ?? null;
 }

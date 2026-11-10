@@ -1589,28 +1589,41 @@ impl ServerApplicationDomains {
                 "pluginId and handler are required",
             ));
         }
-        let lease = self
-            .plugin_control_plane()
-            .await?
+        let plane = self.plugin_control_plane().await?;
+        let lease = plane
             .activation_lease(plugin_id)
             .await
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("plugin `{plugin_id}` is not active"))
             })?;
-        let result = match args
+        let timeout = args
             .timeout_seconds
             .filter(|value| (5..=600).contains(value))
-        {
-            Some(seconds) => {
+            .map(Duration::from_secs);
+        let mut result = match timeout {
+            Some(duration) => {
                 lease
-                    .invoke_with_timeout(handler, args.input, Duration::from_secs(seconds))
+                    .invoke_with_timeout(handler, args.input.clone(), duration)
                     .await
             }
-            None => lease.invoke(handler, args.input).await,
+            None => lease.invoke(handler, args.input.clone()).await,
         };
+        if let Err(ref error) = result
+            && error.code() == "worker_terminal"
+            && let Some(fresh_lease) = plane.activation_lease(plugin_id).await
+        {
+            result = match timeout {
+                Some(duration) => {
+                    fresh_lease
+                        .invoke_with_timeout(handler, args.input, duration)
+                        .await
+                }
+                None => fresh_lease.invoke(handler, args.input).await,
+            };
+        }
         let value = result.map_err(|error| ApplicationError::internal(error.to_string()))?;
         if handler == "runtime.restart"
-            && let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(plugin_id).await
+            && let Ok(Some(plugin)) = plane.plugin(plugin_id).await
         {
             let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
         }

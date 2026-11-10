@@ -551,7 +551,7 @@ export function TaskFollowUpSection({
   const handleEditQueuedMessage = useCallback(
     (queuedMessage: QueuedMessage) => {
       beginEditQueue(queuedMessage);
-      setLocalMessage(queuedMessage.data.message);
+      setLocalMessage(queuedMessage.data.message ?? '');
       setAttachedImages(queuedMessage.data.images.map(imageAttachmentFromPath));
     },
     [beginEditQueue, setAttachedImages, setLocalMessage]
@@ -601,8 +601,8 @@ export function TaskFollowUpSection({
   const executor =
     resolvedSessionExecutor ?? effectiveExecutorProfile?.executor ?? null;
   const catalogQuery = useQuery({
-    queryKey: sessionControlsQueryKey(executor!, null),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    queryKey: sessionControlsQueryKey(executor ?? '', null),
+    queryFn: () => loadAgentSessionControlsCatalog(executor),
     enabled: Boolean(executor),
     staleTime: 60_000,
     gcTime: Infinity,
@@ -1199,7 +1199,7 @@ export function TaskFollowUpSection({
                     onKeepServer={() => {
                       const server = keepServerDraft();
                       if (!server) return;
-                      setLocalMessage(server.message);
+                      setLocalMessage(server.message ?? '');
                       setAttachedImages((prev) => {
                         prev.forEach(revokeComposerImagePreviewUrl);
                         return server.images.map(imageAttachmentFromPath);
@@ -1270,14 +1270,14 @@ export function TaskFollowUpSection({
           <LiveFeedbackNotes
             notes={liveFeedbackNotes}
             conversationId={sessionId}
-            onResend={(text) => setLocalMessage(text)}
+            onResend={(text) => setLocalMessage(text ?? '')}
           />
           <AgentMentionProvider
             transport={configuredBackendTransport}
             conversationId={sessionId}
           >
             <SessionComposerInput
-              value={localMessage}
+              value={localMessage ?? ''}
               onChange={handleEditorChange}
               replaceValueRef={composerReplaceValueRef}
               disabled={!isEditable}

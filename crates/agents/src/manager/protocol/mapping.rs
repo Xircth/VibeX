@@ -439,7 +439,7 @@ pub(in crate::manager) fn elicitation_response_action(
         AgentElicitationResponse::Accept { content } => {
             // The wire type only admits primitive values; anything else the UI
             // slipped in is dropped rather than failing the whole answer.
-            let validated = content
+            let mut validated = content
                 .as_object()
                 .map(|map| {
                     map.iter()
@@ -451,6 +451,69 @@ pub(in crate::manager) fn elicitation_response_action(
                         .collect::<std::collections::BTreeMap<_, _>>()
                 })
                 .unwrap_or_default();
+            if let Some(items) = content
+                .get("answers")
+                .and_then(serde_json::Value::as_array)
+            {
+                for item in items {
+                    let Some(obj) = item.as_object() else {
+                        continue;
+                    };
+                    let Some(qid) = obj
+                        .get("questionId")
+                        .or_else(|| obj.get("question_id"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    else {
+                        continue;
+                    };
+                    if let Some(custom_field) = obj
+                        .get("customFieldName")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        && let Some(custom_text) = obj
+                            .get("customText")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                        && !validated.contains_key(custom_field)
+                        && let Ok(val) = serde_json::from_value::<ElicitationContentValue>(
+                            serde_json::Value::String(custom_text.to_string()),
+                        )
+                    {
+                        validated.insert(custom_field.to_string(), val);
+                    }
+                    if validated.contains_key(qid) {
+                        continue;
+                    }
+                    let multi_select = obj
+                        .get("multiSelect")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let candidate = obj
+                        .get("selected")
+                        .and_then(serde_json::Value::as_array)
+                        .filter(|arr| !arr.is_empty())
+                        .or_else(|| {
+                            obj.get("labels")
+                                .and_then(serde_json::Value::as_array)
+                                .filter(|arr| !arr.is_empty())
+                        });
+                    if let Some(values) = candidate {
+                        let wire_val = if multi_select {
+                            serde_json::Value::Array(values.clone())
+                        } else {
+                            values.first().cloned().unwrap_or(serde_json::Value::Null)
+                        };
+                        if let Ok(val) = serde_json::from_value::<ElicitationContentValue>(wire_val)
+                        {
+                            validated.insert(qid.to_string(), val);
+                        }
+                    }
+                }
+            }
             ElicitationAction::Accept(ElicitationAcceptAction::new().content(validated))
         }
         AgentElicitationResponse::Decline => ElicitationAction::Decline,

@@ -590,7 +590,21 @@ fn resolve_working_dir(root: &Path, requested: Option<&str>) -> Result<PathBuf, 
     if !candidate.starts_with(&root) {
         return Err("working directory escapes token root".to_string());
     }
-    Ok(candidate)
+    Ok(strip_windows_verbatim_prefix(candidate))
+}
+
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    if let Some(rest) = raw.strip_prefix(r"\?\") {
+        return PathBuf::from(rest);
+    }
+    path
 }
 
 fn normalize_absolute(path: &Path) -> Option<PathBuf> {
@@ -1371,5 +1385,24 @@ mod tests {
         let response = ask_task.await.unwrap();
         assert_eq!(response["declined"], false);
         assert_eq!(response["answers"][0]["labels"][0], "Option A");
+    }
+
+    #[test]
+    fn resolve_working_dir_strips_windows_verbatim_prefix() {
+        let temp = tempfile::tempdir().unwrap();
+        let resolved = resolve_working_dir(temp.path(), None).expect("resolve temp dir");
+        assert!(
+            !resolved.to_string_lossy().starts_with(r"\\?\"),
+            "resolved working dir must not retain Windows verbatim prefix: {}",
+            resolved.display()
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\dev\VibeX")),
+            PathBuf::from(r"C:\Users\dev\VibeX")
+        );
+        assert_eq!(
+            strip_windows_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\VibeX")),
+            PathBuf::from(r"\\server\share\VibeX")
+        );
     }
 }

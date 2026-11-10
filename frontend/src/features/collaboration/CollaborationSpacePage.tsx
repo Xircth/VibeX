@@ -20,7 +20,6 @@ import { CollaborationMemberMentionContext } from './MemberMentionChip';
 import './collaboration.css';
 import {
   CollaborationSpaceProvider,
-  useCollaborationSpace,
   useCollaborationSpacePick,
 } from './space/SpaceContext';
 import { GroupListPanel } from './space/GroupListPanel';
@@ -87,11 +86,44 @@ const CollaborationBackToBottomButton = memo(
   }
 );
 
+const MESSAGE_AREA_OVERLAY_PICK_KEYS = [
+  'agentSelectOptions',
+  'chooseConversationLabel',
+  'conversationById',
+  'conversationSelectOptions',
+  'createError',
+  'createGroupBots',
+  'createMemberError',
+  'createMemberOpen',
+  'createOpen',
+  'draftMemberMetaByConvId',
+  'hasActiveOverlay',
+  'memberAvatars',
+  'memberNicknameByConversationId',
+  'memberSourceOptions',
+  'newMemberAgentId',
+  'newMemberAvatar',
+  'newMemberConfigValues',
+  'newMemberModeId',
+  'newMemberName',
+  'newMemberPersonaPrompt',
+  'newMemberRoleId',
+  'newMemberSessionId',
+  'newMemberSource',
+  'renderMessageAreaOverlay',
+  'roleSelectOptions',
+  'roles',
+  'selectedSpaceMemberConvIds',
+  'spaceName',
+  'spaceTagColorId',
+  't',
+] as const;
+
 const CollaborationMessageAreaOverlay = memo(
   function CollaborationMessageAreaOverlay() {
-    // Subscribe to the whole runtime: the overlay must appear the moment an
-    // overlay flag flips, including through the stable callback bridge.
-    const { renderMessageAreaOverlay } = useCollaborationSpace();
+    const { renderMessageAreaOverlay } = useCollaborationSpacePick(
+      MESSAGE_AREA_OVERLAY_PICK_KEYS
+    );
     return <>{renderMessageAreaOverlay()}</>;
   }
 );

@@ -481,14 +481,16 @@ pub(super) fn agent_blocks_with_display_text(
     blocks: &[AgentContentBlock],
     display_text: &str,
 ) -> Vec<AgentContentBlock> {
+    let has_display_text = !display_text.trim().is_empty();
     let mut visible = Vec::with_capacity(blocks.len());
-    if !display_text.trim().is_empty() {
+    if has_display_text {
         visible.push(AgentContentBlock::Text {
             text: display_text.to_string(),
         });
     }
     visible.extend(blocks.iter().filter_map(|block| match block {
         AgentContentBlock::Text { .. } => None,
+        AgentContentBlock::Resource { .. } if has_display_text => None,
         other => Some(other.clone()),
     }));
     visible
@@ -805,3 +807,49 @@ pub(crate) fn spawn_turn_end_collaboration_cleanup(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use agents::AgentContentBlock;
+
+    use super::agent_blocks_with_display_text;
+
+    #[test]
+    fn agent_blocks_with_display_text_omits_redundant_resource_blocks() {
+        let blocks = vec![
+            AgentContentBlock::Text {
+                text: "/cy-cover-designer xxx.srt".to_string(),
+            },
+            AgentContentBlock::Resource {
+                uri: "file:///C:/project/xxx.srt".to_string(),
+                title: Some("xxx.srt".to_string()),
+            },
+            AgentContentBlock::Image {
+                data: "abc".to_string(),
+                mime_type: "image/png".to_string(),
+                uri: Some("image.png".to_string()),
+            },
+        ];
+
+        let display_blocks = agent_blocks_with_display_text(
+            &blocks,
+            "[/:cy-cover-designer](/cy-cover-designer) [@:xxx.srt](xxx.srt)",
+        );
+
+        assert_eq!(
+            display_blocks,
+            vec![
+                AgentContentBlock::Text {
+                    text: "[/:cy-cover-designer](/cy-cover-designer) [@:xxx.srt](xxx.srt)"
+                        .to_string(),
+                },
+                AgentContentBlock::Image {
+                    data: "abc".to_string(),
+                    mime_type: "image/png".to_string(),
+                    uri: Some("image.png".to_string()),
+                },
+            ]
+        );
+    }
+}
+

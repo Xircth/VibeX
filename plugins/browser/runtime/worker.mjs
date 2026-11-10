@@ -242,7 +242,13 @@ function isUnimplementedError(error) {
 }
 
 export default definePluginWorker((registrar, environment) => {
-  let cachedSettings = normalizeBrowserSettings(DEFAULT_BROWSER_SETTINGS);
+  let cachedSettings = normalizeBrowserSettings(
+    environment?.context?.config ?? DEFAULT_BROWSER_SETTINGS,
+    DEFAULT_BROWSER_SETTINGS
+  );
+  let settingsLoaded = false;
+  let settingsLoadPromise = null;
+  let hostSynced = false;
   const tabGrants = new Map();
   const tabOrigins = new Map();
   const tabVisibility = new Map();
@@ -295,7 +301,7 @@ export default definePluginWorker((registrar, environment) => {
     };
   };
 
-  const loadSettings = async () => {
+  const fetchSettingsFromHost = async () => {
     let fileConfig = {};
     let kvConfig = {};
     let hostConfig = {};
@@ -342,13 +348,36 @@ export default definePluginWorker((registrar, environment) => {
       cachedSettings
     );
     cachedSettings = merged;
+    settingsLoaded = true;
+    if (!hostSynced) {
+      hostSynced = true;
+      try {
+        await environment.host.call('browser', 'settings.set', merged);
+      } catch {
+        // Host browser or storage may not be ready in unit-test harnesses.
+      }
+    }
     return merged;
+  };
+
+  const loadSettings = async (force = false) => {
+    if (settingsLoaded && !force) {
+      return cachedSettings;
+    }
+    if (!settingsLoadPromise) {
+      settingsLoadPromise = fetchSettingsFromHost().finally(() => {
+        settingsLoadPromise = null;
+      });
+    }
+    return await settingsLoadPromise;
   };
 
   const persistSettings = async (nextRaw) => {
     const prevSignInUa = cachedSettings.signInUserAgent;
     const normalized = normalizeBrowserSettings(nextRaw, cachedSettings);
     cachedSettings = normalized;
+    settingsLoaded = true;
+    hostSynced = true;
 
     try {
       await environment.host.call('storage', 'kv.put', {
@@ -402,14 +431,12 @@ export default definePluginWorker((registrar, environment) => {
 
   const syncHostSettings = async () => {
     try {
-      const loaded = await loadSettings();
-      await environment.host.call('browser', 'settings.set', loaded);
+      hostSynced = false;
+      await loadSettings(true);
     } catch {
       // Host browser or storage may not be ready in unit-test harnesses.
     }
   };
-
-  void syncHostSettings();
 
   const handleBrowserDispatch = async (input) => {
     const body = input && typeof input === 'object' ? input : {};
@@ -419,7 +446,7 @@ export default definePluginWorker((registrar, environment) => {
       body.input && typeof body.input === 'object' ? body.input : {};
 
     if (operation === 'bootstrap') {
-      const settings = await loadSettings();
+      const settings = await loadSettings(true);
       let capabilities = null;
       let tabs = [];
       try {
@@ -459,7 +486,7 @@ export default definePluginWorker((registrar, environment) => {
     }
 
     if (operation === 'settings.get') {
-      return await loadSettings();
+      return await loadSettings(true);
     }
 
     if (operation === 'settings.set') {

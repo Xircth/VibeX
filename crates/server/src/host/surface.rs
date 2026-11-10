@@ -1683,6 +1683,9 @@ impl ServerApplicationDomains {
                 let repository = InstallationOperationRepository::new(pool.clone());
                 match result {
                     Ok(()) => {
+                        let _ =
+                            super::management::persist_observed_authentication(&pool, &agent_id)
+                                .await;
                         let _ = repository.finish(operation.id, "succeeded").await;
                         emit_host_agent_operation(
                             &events,

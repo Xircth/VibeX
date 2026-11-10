@@ -145,7 +145,10 @@ fn bad(message: impl Into<String>) -> CollaborationError {
 }
 
 fn escape(text: &str) -> String {
-    text.trim().replace('<', "&lt;").replace('>', "&gt;")
+    text.trim()
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Text body of the card message. The frontend parses this markup into a
@@ -333,7 +336,15 @@ pub async fn post_blocking_user_question(
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| item.get("label").and_then(Value::as_str))
+                .filter_map(|item| {
+                    item.as_str().or_else(|| {
+                        item.get("label")
+                            .or_else(|| item.get("title"))
+                            .or_else(|| item.get("value"))
+                            .or_else(|| item.get("const"))
+                            .and_then(Value::as_str)
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -371,18 +382,31 @@ pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -
         .and_then(Value::as_object)
         .filter(|props| !props.is_empty())
     {
-        let required_names: std::collections::HashSet<&str> = schema
+        let required_order: Vec<&str> = schema
             .and_then(|schema| schema.get("required"))
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
             .collect();
-        let companions = custom_answer_companions_from_schema_properties(properties, &required_names);
-        let names: Vec<&String> = properties
-            .keys()
-            .filter(|name| !companions.contains_key(name.as_str()))
-            .collect();
+        let required_names: std::collections::HashSet<&str> =
+            required_order.iter().copied().collect();
+        let companions =
+            custom_answer_companions_from_schema_properties(properties, &required_names);
+        let mut names: Vec<&String> = Vec::with_capacity(properties.len());
+        for req_name in &required_order {
+            if let Some((key, _)) = properties.get_key_value(*req_name)
+                && !companions.contains_key(key.as_str())
+                && !names.contains(&key)
+            {
+                names.push(key);
+            }
+        }
+        for key in properties.keys() {
+            if !companions.contains_key(key.as_str()) && !names.contains(&key) {
+                names.push(key);
+            }
+        }
         let companion_by_question: std::collections::HashMap<&str, &str> = companions
             .iter()
             .map(|(&companion, &question)| (question, companion))

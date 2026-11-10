@@ -28,6 +28,49 @@ export interface JsonSchemaProperty {
   readonly minimum?: number;
   readonly maximum?: number;
   readonly placeholder?: string;
+  readonly 'x-visible-when'?: Readonly<Record<string, unknown>>;
+  readonly visibleWhen?: Readonly<Record<string, unknown>>;
+}
+
+function isPropertyVisible(
+  key: string,
+  prop: JsonSchemaProperty,
+  values: Record<string, unknown>,
+  properties: Readonly<Record<string, JsonSchemaProperty>>
+): boolean {
+  const resolveVal = (depKey: string) =>
+    values[depKey] !== undefined && values[depKey] !== null
+      ? values[depKey]
+      : properties[depKey]?.default;
+
+  const visibleWhen = prop['x-visible-when'] ?? prop.visibleWhen;
+  if (visibleWhen && typeof visibleWhen === 'object') {
+    for (const [depKey, allowed] of Object.entries(visibleWhen)) {
+      const actual = resolveVal(depKey);
+      if (Array.isArray(allowed)) {
+        if (!allowed.includes(actual)) return false;
+      } else if (actual !== allowed) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if ('providerProtocol' in properties || 'providerProtocol' in values) {
+    const protocol = String(resolveVal('providerProtocol') ?? 'hybrid');
+    if (protocol === 'browser-speech') {
+      if (
+        key === 'baseUrl' ||
+        key === 'apiKey' ||
+        key === 'model' ||
+        key === 'cleanupModel'
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 export interface PluginSettingsJsonSchema {
@@ -208,7 +251,11 @@ export function PluginSchemaSettingsForm({
         </div>
       ) : (
         <div className="space-y-3">
-          {Object.entries(properties).map(([key, prop]) => {
+          {Object.entries(properties)
+            .filter(([key, prop]) =>
+              isPropertyVisible(key, prop, values, properties)
+            )
+            .map(([key, prop]) => {
             const fieldId = `plugin-setting-${pluginId}-${key}`;
             const label = prop.title ?? key;
             const currentValue = values[key] ?? prop.default ?? '';

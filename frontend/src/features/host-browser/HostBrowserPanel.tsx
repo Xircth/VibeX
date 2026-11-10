@@ -761,10 +761,6 @@ export function HostBrowserPanel({
           tabId: created.tabId,
           factor: DEFAULT_ZOOM,
         });
-        void dispatch('tab.device', {
-          tabId: created.tabId,
-          device: DEFAULT_DEVICE,
-        });
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => resolve());
         });
@@ -1323,25 +1319,24 @@ export function HostBrowserPanel({
     const tabId = tabIdRef.current;
     if (!tabId) return undefined;
     let stopped = false;
-    let busy = false;
     let timer = 0;
+    let attempts = 0;
+    const maxAttempts = 6;
     const pull = () => {
-      if (stopped || busy) return;
-      busy = true;
+      if (stopped) return;
+      attempts += 1;
       void refreshChrome(tabId).then((done) => {
-        if (stopped) return;
-        busy = false;
-        if (done) {
+        if (stopped || done || attempts >= maxAttempts) {
           stopped = true;
-          window.clearInterval(timer);
+          return;
         }
+        timer = window.setTimeout(pull, 450);
       });
     };
     pull();
-    timer = window.setInterval(pull, 120);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [loading, refreshChrome, tab?.tabId, tab?.url]);
 

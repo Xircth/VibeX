@@ -222,6 +222,62 @@ describe('buildWorkspaceBranchOptions', () => {
       })
     );
   });
+
+  it('tolerates null or blank branch names on workspaces and repoBranches without throwing', () => {
+    const options = buildWorkspaceBranchOptions({
+      workspaces: [
+        createWorkspace({
+          id: 'ws-null-branch',
+          branch: null as unknown as string,
+          use_worktree: false,
+        }),
+        createWorkspace({
+          id: 'ws-blank-branch',
+          branch: '   ',
+          use_worktree: false,
+        }),
+        createWorkspace({
+          id: 'root-main',
+          branch: 'main',
+          use_worktree: false,
+        }),
+      ],
+      repoBranches: [
+        createBranch({
+          name: null as unknown as string,
+          is_current: true,
+        }),
+        createBranch({
+          name: 'main',
+          is_current: true,
+        }),
+      ],
+    });
+
+    expect(options).toEqual([
+      expect.objectContaining({
+        value: 'branch:main',
+        branch: 'main',
+        existingWorkspaceId: 'root-main',
+        isCurrentProjectBranch: true,
+      }),
+    ]);
+
+    expect(
+      resolveWorkspaceBranchSelection({
+        value: 'branch:',
+        branch: null as unknown as string,
+        workspace: null,
+        existingWorkspaceId: null,
+        directWorkspaceId: null,
+        useWorktree: false,
+        isCurrentProjectBranch: false,
+      })
+    ).toEqual({
+      workspaceId: null,
+      branch: null,
+    });
+  });
 });
 
 describe('resolveCreateWorkspaceDefault', () => {

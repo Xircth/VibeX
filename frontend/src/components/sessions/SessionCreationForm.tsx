@@ -161,8 +161,8 @@ export function SessionCreationForm({
       ? (selectedWorkspaceOption?.existingWorkspaceId ?? null)
       : null;
   const catalogQuery = useQuery({
-    queryKey: sessionControlsQueryKey(executor!, null),
-    queryFn: () => loadAgentSessionControlsCatalog(executor!),
+    queryKey: sessionControlsQueryKey(executor ?? '', null),
+    queryFn: () => loadAgentSessionControlsCatalog(executor),
     enabled: Boolean(executor),
     staleTime: 60_000,
     gcTime: Infinity,

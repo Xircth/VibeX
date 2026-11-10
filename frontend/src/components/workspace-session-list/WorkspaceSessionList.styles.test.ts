@@ -24,15 +24,18 @@ function declarationsFor(selector: string) {
 }
 
 describe('workspace session group layout', () => {
-  it('wraps workspace chrome in the header hover and indents session rows', () => {
+  it('wraps workspace chrome in the header hover and indents session rows without a nested scrollport', () => {
     const header = declarationsFor('.workspace-session-group-header');
     const rail = declarationsFor('.workspace-session-rail');
     const railLine = declarationsFor('.workspace-session-rail::before');
 
-    expect(header.get('padding')).toBe('0.25rem 0.5rem');
+    expect(header.get('padding')).toBe('0.25rem 0.375rem');
     expect(header.get('overflow')).toBeUndefined();
-    expect(rail.get('padding-left')).toBe('0.75rem');
-    expect(rail.get('padding-right')).toBe('0.5rem');
+    expect(rail.get('padding-left')).toBe('0.375rem');
+    expect(rail.get('padding-right')).toBe('0.25rem');
+    expect(rail.get('overflow')).toBeUndefined();
+    expect(rail.get('overflow-y')).toBeUndefined();
+    expect(rail.get('max-height')).toBeUndefined();
     expect(railLine.size).toBe(0);
   });
 
@@ -82,10 +85,10 @@ describe('session list title and hover chrome', () => {
 });
 
 describe('workspace session row surface', () => {
-  it('keeps a 1px hairline at rest so rows stay distinct from the list', () => {
+  it('keeps borderless rows at rest with border-box sizing', () => {
     const row = declarationsFor('.workspace-session-row');
 
-    expect(row.get('border')).toBe('1px solid var(--border-subtle)');
+    expect(row.get('border')).toBe('0');
     expect(row.get('box-sizing')).toBe('border-box');
   });
 

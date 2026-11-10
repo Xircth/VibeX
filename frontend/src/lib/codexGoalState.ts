@@ -29,8 +29,8 @@ type GoalTransition =
 
 const GOAL_COMMAND_RE = /^\/goal(?:\s+([\s\S]+))?$/i;
 
-function normalizeContent(content: string): string {
-  return content.replace(/\r\n/g, '\n').trim();
+function normalizeContent(content: string | null | undefined): string {
+  return (content ?? '').replace(/\r\n/g, '\n').trim();
 }
 
 function parseUserGoalCommand(content: string): GoalTransition {

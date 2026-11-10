@@ -6,6 +6,7 @@ import {
   answerStateFromToolResult,
   firstQuestionTitle,
   isAskQuestionTool,
+  mergeQuestionRequestWithToolUse,
   questionRequestFromToolUse,
   questionTabsFromRequest,
   responseContent,
@@ -421,5 +422,61 @@ describe('agentQuestionModel', () => {
         },
       ],
     });
+  });
+
+  it('restores deepseek-acp multi-question order and full question prompts from ask_user_question tool use', () => {
+    const request: ConversationQuestionRequest = {
+      question_id: 'elicitation-1',
+      prompt: '需要你回答 2 个问题',
+      options: [],
+      schema: {
+        type: 'object',
+        properties: {
+          create: {
+            type: 'string',
+            title: '建群与分组',
+            oneOf: [{ const: '报错', title: '报错', description: '无响应' }],
+          },
+          supervisor: {
+            type: 'string',
+            title: '主管表现',
+            oneOf: [{ const: '消失', title: '消失', description: '不见了' }],
+          },
+        },
+        required: ['supervisor', 'create'],
+      },
+    };
+    const use: ToolUseBlock = {
+      type: 'tool_use',
+      tool_use_id: 'call_00_1',
+      tool_name: 'ask_user_question',
+      input_preview: JSON.stringify({
+        questions: [
+          {
+            id: 'supervisor',
+            header: '主管表现',
+            question: '「主管 Bot 不见了」具体是哪种表现？',
+            multi_select: false,
+            options: [{ label: '消失', description: '不见了' }],
+          },
+          {
+            id: 'create',
+            header: '建群与分组',
+            question: '「没法建群和建分组」时界面发生了什么？',
+            multi_select: false,
+            options: [{ label: '报错', description: '无响应' }],
+          },
+        ],
+      }),
+    };
+
+    const merged = mergeQuestionRequestWithToolUse(request, use);
+    const tabs = questionTabsFromRequest(merged);
+    expect(tabs.map((tab) => tab.id)).toEqual(['supervisor', 'create']);
+    expect(tabs.map((tab) => tab.header)).toEqual(['主管表现', '建群与分组']);
+    expect(tabs.map((tab) => tab.question)).toEqual([
+      '「主管 Bot 不见了」具体是哪种表现？',
+      '「没法建群和建分组」时界面发生了什么？',
+    ]);
   });
 });

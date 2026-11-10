@@ -56,7 +56,7 @@ export function useSessionComposerDraftHydration({
     hydratedScratchIdRef.current = hydration.hydratedScratchId;
     if (!hydration.shouldHydrate) return;
 
-    setLocalMessage(hydration.message);
+    setLocalMessage(hydration.message ?? '');
     setAttachedImages((prev) => {
       prev.forEach(revokeComposerImagePreviewUrl);
       return hydration.imagePaths.map(imageAttachmentFromPath);

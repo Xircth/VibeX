@@ -235,8 +235,19 @@ impl AcpClientBridge {
             return Err(acp::Error::invalid_params());
         };
 
-        let requested_schema = serde_json::to_value(&form.requested_schema)
+        let mut requested_schema = serde_json::to_value(&form.requested_schema)
             .map_err(acp::Error::into_internal_error)?;
+        let in_flight_question_input = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .and_then(|state| state.in_flight_question_input.clone());
+        enrich_elicitation_schema(
+            &args.message,
+            &mut requested_schema,
+            in_flight_question_input.as_ref(),
+        );
         let response = self
             .wait_for_question(session_id, args.message, requested_schema)
             .await;
@@ -332,12 +343,279 @@ pub(in crate::manager) fn acp_request_must_run_off_dispatch_loop(request: &Agent
     )
 }
 
+pub(in crate::manager) fn enrich_elicitation_schema(
+    message: &str,
+    requested_schema: &mut serde_json::Value,
+    tool_input: Option<&serde_json::Value>,
+) {
+    let tool_questions = tool_input.and_then(session_update::extract_question_items_from_tool_input);
+    let Some(schema_obj) = requested_schema.as_object_mut() else {
+        return;
+    };
+
+    let has_properties = schema_obj
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|props| !props.is_empty());
+
+    if !has_properties {
+        let has_explicit = schema_obj
+            .get("x-vibex-questions")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|items| !items.is_empty());
+        if !has_explicit
+            && let Some(questions) = tool_questions
+        {
+            schema_obj.insert(
+                "x-vibex-questions".to_string(),
+                serde_json::Value::Array(questions.clone()),
+            );
+        }
+        return;
+    }
+
+    let mut ordered_keys: Vec<String> = schema_obj
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect();
+
+    if let Some(props) = schema_obj
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    {
+        ordered_keys.retain(|key| props.contains_key(key) && !key.ends_with("_custom"));
+        if ordered_keys.is_empty()
+            && let Some(questions) = tool_questions
+        {
+            for item in questions {
+                if let Some(id) = item
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty() && props.contains_key(*id))
+                    && !ordered_keys.iter().any(|existing| existing == id)
+                {
+                    ordered_keys.push(id.to_string());
+                }
+            }
+        }
+        for key in props.keys() {
+            if !key.ends_with("_custom") && !ordered_keys.contains(key) {
+                ordered_keys.push(key.clone());
+            }
+        }
+    }
+
+    if schema_obj
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .is_none_or(|items| items.is_empty())
+        && !ordered_keys.is_empty()
+    {
+        schema_obj.insert(
+            "required".to_string(),
+            serde_json::Value::Array(
+                ordered_keys
+                    .iter()
+                    .cloned()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
+    }
+
+    let Some(props) = schema_obj
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+
+    let single_question = ordered_keys.len() == 1;
+    let fallback_message = message.trim();
+
+    for (idx, key) in ordered_keys.iter().enumerate() {
+        let Some(prop_obj) = props.get_mut(key).and_then(serde_json::Value::as_object_mut) else {
+            continue;
+        };
+        let prop_title = prop_obj
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let matched_tool_question = tool_questions.and_then(|questions| {
+            questions
+                .iter()
+                .find(|q| {
+                    q.get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        == Some(key.as_str())
+                })
+                .or_else(|| {
+                    prop_title.as_deref().and_then(|title| {
+                        questions.iter().find(|q| {
+                            q.get("header")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::trim)
+                                == Some(title)
+                        })
+                    })
+                })
+                .or_else(|| {
+                    (questions.len() == ordered_keys.len())
+                        .then(|| questions.get(idx))
+                        .flatten()
+                })
+        });
+
+        let has_description = prop_obj
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty());
+
+        if !has_description {
+            let tool_question_text = matched_tool_question
+                .and_then(|q| q.get("question"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            if let Some(question_text) = tool_question_text {
+                prop_obj.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(question_text.to_string()),
+                );
+            } else if single_question && !fallback_message.is_empty() {
+                prop_obj.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(fallback_message.to_string()),
+                );
+            }
+        }
+
+        if prop_title.is_none()
+            && let Some(header) = matched_tool_question
+                .and_then(|q| q.get("header"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            prop_obj.insert(
+                "title".to_string(),
+                serde_json::Value::String(header.to_string()),
+            );
+        }
+
+        if !property_has_schema_choices(prop_obj)
+            && let Some(tool_options) = matched_tool_question
+                .and_then(|q| q.get("options"))
+                .and_then(serde_json::Value::as_array)
+        {
+            let const_options: Vec<serde_json::Value> = tool_options
+                .iter()
+                .filter_map(|opt| {
+                    if let Some(label) = opt.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                        return Some(serde_json::json!({
+                            "const": label,
+                            "title": label,
+                        }));
+                    }
+                    let obj = opt.as_object()?;
+                    let label = obj
+                        .get("label")
+                        .or_else(|| obj.get("title"))
+                        .or_else(|| obj.get("value"))
+                        .or_else(|| obj.get("const"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())?;
+                    let description = obj
+                        .get("description")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    let mut entry = serde_json::json!({
+                        "const": label,
+                        "title": label,
+                    });
+                    if let Some(desc) = description
+                        && let Some(entry_obj) = entry.as_object_mut()
+                    {
+                        entry_obj.insert(
+                            "description".to_string(),
+                            serde_json::Value::String(desc.to_string()),
+                        );
+                    }
+                    Some(entry)
+                })
+                .collect();
+
+            if !const_options.is_empty() {
+                if prop_obj.get("type").and_then(serde_json::Value::as_str) == Some("array") {
+                    let items = prop_obj
+                        .entry("items".to_string())
+                        .or_insert_with(|| serde_json::json!({ "type": "string" }));
+                    if let Some(items_obj) = items.as_object_mut() {
+                        items_obj.insert(
+                            "anyOf".to_string(),
+                            serde_json::Value::Array(const_options),
+                        );
+                    }
+                } else {
+                    prop_obj.insert(
+                        "oneOf".to_string(),
+                        serde_json::Value::Array(const_options),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn property_has_schema_choices(prop_obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    for key in ["oneOf", "anyOf", "enum"] {
+        if prop_obj
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|arr| !arr.is_empty())
+        {
+            return true;
+        }
+    }
+    if let Some(items_obj) = prop_obj.get("items").and_then(serde_json::Value::as_object) {
+        for key in ["oneOf", "anyOf", "enum"] {
+            if items_obj
+                .get(key)
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|arr| !arr.is_empty())
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub(in crate::manager) fn interaction_question_from_permission(
     args: &RequestPermissionRequest,
     title: &str,
 ) -> Option<serde_json::Value> {
     let call_id = args.tool_call.tool_call_id.0.as_ref().trim();
-    if !call_id.starts_with("interaction_") || args.options.is_empty() {
+    let is_deepseek_opt_question = !args.options.is_empty()
+        && args.options.iter().all(|opt| {
+            opt.option_id.0.as_ref().starts_with("opt-")
+                && opt.kind == PermissionOptionKind::AllowOnce
+        });
+    if (!call_id.starts_with("interaction_") && !is_deepseek_opt_question)
+        || args.options.is_empty()
+    {
         return None;
     }
     let prompt = {
@@ -638,6 +916,63 @@ mod tests {
         assert_eq!(
             decide_companion_mcp_permission_response(&request),
             Some(AgentPermissionResponse::selected("approve"))
+        );
+    }
+
+    #[test]
+    fn enrich_elicitation_schema_recovers_dropped_question_prompts_and_order_from_tool_input() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "create": {
+                    "type": "string",
+                    "title": "建群与分组",
+                    "oneOf": [
+                        { "const": "两个入口都报错", "title": "两个入口都报错" }
+                    ]
+                },
+                "supervisor": {
+                    "type": "string",
+                    "title": "主管表现",
+                    "oneOf": [
+                        { "const": "左侧会话列表里没有", "title": "左侧会话列表里没有" }
+                    ]
+                }
+            },
+            "required": ["supervisor", "create"]
+        });
+        let tool_input = serde_json::json!({
+            "questions": [
+                {
+                    "id": "supervisor",
+                    "header": "主管表现",
+                    "question": "「主管 Bot 不见了」具体是哪种表现？",
+                    "multi_select": false,
+                    "options": [
+                        { "label": "左侧会话列表里没有", "description": "消失了" }
+                    ]
+                },
+                {
+                    "id": "create",
+                    "header": "建群与分组",
+                    "question": "「没法建群和建分组」时界面发生了什么？",
+                    "multi_select": false,
+                    "options": [
+                        { "label": "两个入口都报错", "description": "无响应" }
+                    ]
+                }
+            ]
+        });
+
+        enrich_elicitation_schema("需要你回答 2 个问题", &mut schema, Some(&tool_input));
+
+        assert_eq!(
+            schema["properties"]["supervisor"]["description"],
+            "「主管 Bot 不见了」具体是哪种表现？"
+        );
+        assert_eq!(
+            schema["properties"]["create"]["description"],
+            "「没法建群和建分组」时界面发生了什么？"
         );
     }
 }

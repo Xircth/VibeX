@@ -322,7 +322,8 @@
   line-height: 1.4;
 }
 
-.conv-plain-notice .conv-markdown > * + * {
+.conv-plain-notice .conv-markdown > * + *,
+.conv-plain-notice .conv-markdown > [role='document'] > * + * {
   margin-top: 4px;
 }
 

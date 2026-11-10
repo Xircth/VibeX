@@ -12,8 +12,8 @@ export interface WorkspaceBranchOption {
   isCurrentProjectBranch: boolean;
 }
 
-function normalizeBranchName(branch: string): string {
-  return branch.trim().toLowerCase();
+function normalizeBranchName(branch: string | null | undefined): string {
+  return branch?.trim().toLowerCase() ?? '';
 }
 
 function compareWorkspacePriority(
@@ -52,18 +52,23 @@ export function buildWorkspaceBranchOptions({
   workspaces: Workspace[];
   repoBranches: GitBranch[];
 }): WorkspaceBranchOption[] {
-  const localBranches = repoBranches.filter((branch) => !branch.is_remote);
+  const localBranches = repoBranches.filter(
+    (branch) => !branch.is_remote && Boolean(branch.name?.trim())
+  );
   const currentProjectBranch =
     localBranches.find((branch) => branch.is_current)?.name ?? null;
   const workspaceByBranch = new Map<string, Workspace>();
   const branchByName = new Map<string, GitBranch>();
 
   localBranches.forEach((branch) => {
-    branchByName.set(normalizeBranchName(branch.name), branch);
+    const key = normalizeBranchName(branch.name);
+    if (!key) return;
+    branchByName.set(key, branch);
   });
 
   workspaces.forEach((workspace) => {
     const key = normalizeBranchName(workspace.branch);
+    if (!key) return;
     workspaceByBranch.set(
       key,
       compareWorkspacePriority(workspaceByBranch.get(key) ?? null, workspace)
@@ -73,9 +78,13 @@ export function buildWorkspaceBranchOptions({
   const options: WorkspaceBranchOption[] = [];
   const seenBranches = new Set<string>();
 
-  const pushOption = (branch: string, workspace: Workspace | null) => {
-    const key = normalizeBranchName(branch);
-    if (seenBranches.has(key)) {
+  const pushOption = (
+    branch: string | null | undefined,
+    workspace: Workspace | null
+  ) => {
+    const safeBranch = branch?.trim() ?? '';
+    const key = normalizeBranchName(safeBranch);
+    if (!key || seenBranches.has(key)) {
       return;
     }
 
@@ -84,8 +93,8 @@ export function buildWorkspaceBranchOptions({
     const isWorktree =
       workspace?.use_worktree ?? branchMeta?.is_worktree ?? false;
     options.push({
-      value: createOptionValue(workspace, branch),
-      branch,
+      value: createOptionValue(workspace, safeBranch),
+      branch: safeBranch,
       workspace,
       existingWorkspaceId: workspace?.id ?? null,
       directWorkspaceId: workspace?.use_worktree ? workspace.id : null,
@@ -98,6 +107,7 @@ export function buildWorkspaceBranchOptions({
 
   localBranches.forEach((branch) => {
     const key = normalizeBranchName(branch.name);
+    if (!key) return;
     pushOption(branch.name, workspaceByBranch.get(key) ?? null);
   });
 
@@ -227,6 +237,6 @@ export function resolveWorkspaceBranchSelection(
 
   return {
     workspaceId: null,
-    branch: option.branch,
+    branch: option.branch?.trim() || null,
   };
 }

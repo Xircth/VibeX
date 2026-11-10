@@ -567,4 +567,80 @@ describe('PluginConfigForm', () => {
       });
     });
   });
+
+  it('hides cloud API URL, Key, and Model fields when providerProtocol is browser-speech', () => {
+    const detail: PluginProductDetail = {
+      summary: 'Voice Input',
+      readme: '# Voice Input',
+      contents: [],
+      config: {
+        enabled: true,
+        providerProtocol: 'browser-speech',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'gpt-4o-mini-transcribe',
+        cleanupModel: 'gpt-4o-mini',
+        language: 'auto',
+      },
+      configSchema: {
+        type: 'object',
+        properties: {
+          enabled: { type: 'boolean', title: '启用语音输入', default: true },
+          providerProtocol: {
+            type: 'string',
+            enum: ['hybrid', 'openai-whisper', 'browser-speech'],
+            title: '识别引擎协议',
+            default: 'hybrid',
+          },
+          baseUrl: {
+            type: 'string',
+            title: 'API 基础地址',
+            default: 'https://api.openai.com/v1',
+            'x-visible-when': {
+              providerProtocol: ['hybrid', 'openai-whisper'],
+            },
+          },
+          apiKey: {
+            type: 'string',
+            title: 'API 密钥',
+            default: '',
+            'x-visible-when': {
+              providerProtocol: ['hybrid', 'openai-whisper'],
+            },
+          },
+          model: {
+            type: 'string',
+            title: '语音识别模型',
+            default: 'gpt-4o-mini-transcribe',
+            'x-visible-when': {
+              providerProtocol: ['hybrid', 'openai-whisper'],
+            },
+          },
+          cleanupModel: {
+            type: 'string',
+            title: '润色模型',
+            default: 'gpt-4o-mini',
+            'x-visible-when': {
+              providerProtocol: ['hybrid', 'openai-whisper'],
+            },
+          },
+          language: {
+            type: 'string',
+            enum: ['auto', 'zh', 'en'],
+            title: '识别语言',
+            default: 'auto',
+          },
+        },
+      },
+    };
+
+    renderForm(detail, 'vibex.voice-input');
+
+    expect(screen.getByLabelText('识别引擎协议')).toBeInTheDocument();
+    expect(screen.getByLabelText('识别语言')).toBeInTheDocument();
+    expect(screen.queryByLabelText('API 基础地址')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('API 密钥')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('语音识别模型')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('润色模型')).not.toBeInTheDocument();
+  });
 });

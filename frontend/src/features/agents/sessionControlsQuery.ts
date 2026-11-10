@@ -6,12 +6,12 @@ import type {
 
 import { agentsApi } from './api';
 
-function normalizeAgentType(agentType: string): string {
-  return agentType.trim().toLowerCase();
+function normalizeAgentType(agentType: string | null | undefined): string {
+  return typeof agentType === 'string' ? agentType.trim().toLowerCase() : '';
 }
 
 export function sessionControlsQueryKey(
-  agentType: string,
+  agentType: string | null | undefined,
   workspaceId: string | null
 ) {
   return [
@@ -21,7 +21,9 @@ export function sessionControlsQueryKey(
   ] as const;
 }
 
-export function sessionControlsSchemaQueryKey(agentType: string) {
+export function sessionControlsSchemaQueryKey(
+  agentType: string | null | undefined
+) {
   return [
     'agent-session-controls-schema',
     normalizeAgentType(agentType),
@@ -29,9 +31,12 @@ export function sessionControlsSchemaQueryKey(agentType: string) {
 }
 
 export async function loadAgentSessionControlsCatalog(
-  agentType: string
+  agentType: string | null | undefined
 ): Promise<AgentSessionControlsSnapshot> {
   const normalized = normalizeAgentType(agentType);
+  if (!normalized) {
+    throw new Error('Agent session controls catalog is unavailable');
+  }
   const cached = await agentsApi.capabilityCatalog(normalized);
   if (cached) return cached;
 

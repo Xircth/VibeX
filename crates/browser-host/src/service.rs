@@ -993,10 +993,10 @@ pub async fn dispatch(
         }
         "tab.chrome" => {
             let tab_id = required_string(&input, "tabId")?;
-            let _ = service.tab(&tab_id)?;
-            let raw = service
-                .native
-                .eval(
+            let existing = service.tab(&tab_id)?;
+            let raw = tokio::time::timeout(
+                Duration::from_millis(600),
+                service.native.eval(
                     &tab_id,
                     r#"(function(){
   var icon = document.querySelector('link[rel="icon"]')
@@ -1005,10 +1005,39 @@ pub async fn dispatch(
   var favicon = icon && icon.href ? icon.href : (location.origin + '/favicon.ico');
   return { favicon: favicon, url: location.href, title: document.title || '' };
 })()"#,
-                )
-                .await
-                .unwrap_or_else(|_| "{}".into());
-            let value: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+                ),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_else(|| "{}".into());
+            let mut value: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+            if let Some(obj) = value.as_object_mut() {
+                if obj
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .is_none_or(|s| s.trim().is_empty())
+                    && !existing.url.trim().is_empty()
+                {
+                    obj.insert("url".into(), Value::String(existing.url));
+                }
+                if obj
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .is_none_or(|s| s.trim().is_empty())
+                    && !existing.title.trim().is_empty()
+                {
+                    obj.insert("title".into(), Value::String(existing.title));
+                }
+                if obj
+                    .get("favicon")
+                    .and_then(Value::as_str)
+                    .is_none_or(|s| s.trim().is_empty())
+                    && let Some(favicon) = existing.favicon.filter(|s| !s.trim().is_empty())
+                {
+                    obj.insert("favicon".into(), Value::String(favicon));
+                }
+            }
             service.update_chrome(
                 &tab_id,
                 value.get("url").and_then(Value::as_str),
@@ -1019,13 +1048,21 @@ pub async fn dispatch(
         }
         "tab.title" => {
             let tab_id = required_string(&input, "tabId")?;
-            let _ = service.tab(&tab_id)?;
-            let raw = service
-                .native
-                .eval(&tab_id, "document.title || ''")
-                .await
-                .unwrap_or_default();
-            let title = crate::agent::decode_eval_result(&raw).trim().to_owned();
+            let existing = service.tab(&tab_id)?;
+            let raw = tokio::time::timeout(
+                Duration::from_millis(600),
+                service.native.eval(&tab_id, "document.title || ''"),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+            let eval_title = crate::agent::decode_eval_result(&raw).trim().to_owned();
+            let title = if eval_title.is_empty() {
+                existing.title
+            } else {
+                eval_title
+            };
             service.update_chrome(&tab_id, None, Some(&title), None);
             Ok(json!({ "title": title }))
         }

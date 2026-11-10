@@ -59,11 +59,15 @@
   max-width: 100%;
 }
 
-.conv-markdown > * {
+.conv-markdown > *,
+.conv-markdown > [role='document'] > *,
+.conv-markdown blockquote > * {
   margin: 0;
 }
 
-.conv-markdown > * + * {
+.conv-markdown > * + *,
+.conv-markdown > [role='document'] > * + *,
+.conv-markdown blockquote > * + * {
   margin-top: 8px;
 }
 
@@ -456,16 +460,18 @@
   overflow-wrap: break-word;
 }
 
-.conv-markdown hr {
+.conv-markdown hr,
+.conv-markdown > [role='document'] > hr {
   margin-top: 12px;
   margin-bottom: 20px;
 }
 
-.conv-markdown hr + * {
+.conv-markdown hr + *,
+.conv-markdown > [role='document'] > hr + * {
   margin-top: 16px;
 }
 
-.conv-markdown li p {
+.conv-markdown li :where(p, [role='paragraph']) {
   margin: 0;
 }
 
@@ -491,7 +497,7 @@
 /* ── Blockquote ── */
 
 .conv-markdown :where(blockquote) {
-  margin: 0;
+  margin-inline: 0;
   padding: 6px 10px;
   border: 1px solid var(--conv-border-subtle);
   background: var(--conv-surface-control);

@@ -8,6 +8,7 @@ import appModule, {
   PLUGIN_ID,
   VoiceSessionController,
   doesEventMatchShortcut,
+  encodeMonoWavBase64,
   formatDuration,
   formatKeyboardEventToShortcut,
   normalizeVoiceConfig,
@@ -370,5 +371,75 @@ describe('vibex.voice-input plugin', () => {
     assert.equal(draftCalls[0].op, 'draft.insert');
 
     activated.dispose();
+  });
+
+  it('declares x-visible-when on cloud-only config fields so browser-speech hides API URL/Key/Model', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(pluginRoot, '.vibex-plugin', 'plugin.json'), 'utf8'),
+    );
+    const props = manifest.config.schema.properties;
+    for (const cloudKey of ['baseUrl', 'apiKey', 'model', 'cleanupModel']) {
+      const visibleWhen = props[cloudKey]?.['x-visible-when']?.providerProtocol;
+      assert.ok(Array.isArray(visibleWhen), `${cloudKey} should have x-visible-when.providerProtocol`);
+      assert.ok(!visibleWhen.includes('browser-speech'), `${cloudKey} should be hidden for browser-speech`);
+      assert.ok(visibleWhen.includes('hybrid'), `${cloudKey} should be visible for hybrid`);
+    }
+  });
+
+  it('falls back to native OS speech recognition when browser-speech Web Speech API returns empty transcript', async () => {
+    const wavBase64 = encodeMonoWavBase64(new Float32Array(1600), 16000);
+    assert.ok(wavBase64.length > 44);
+
+    let osCalledWithWav = null;
+    const engine = new VoiceInputEngine({
+      config: {
+        ...DEFAULT_VOICE_CONFIG,
+        providerProtocol: 'browser-speech',
+        cleanupMode: 'auto-clean',
+      },
+      nativeOsTranscribeImpl: async (wav, lang) => {
+        osCalledWithWav = { wav, lang };
+        return '嗯 请帮我打开 vibe x 的语音设置';
+      },
+    });
+
+    const res = await engine.transcribe({
+      wavBase64,
+      mimeType: 'audio/wav',
+      liveTranscript: '',
+    });
+
+    assert.ok(osCalledWithWav);
+    assert.equal(res.provider, 'os-speech');
+    assert.match(res.text, /请帮我打开 VibeX 的语音设置/);
+  });
+
+  it('cancels recording cleanly via cancelRecording without inserting text', async () => {
+    let inserted = false;
+    const controller = new VoiceSessionController({
+      config: normalizeVoiceConfig({
+        enabled: true,
+        providerProtocol: 'browser-speech',
+      }),
+      speechRecognitionFactory: () => ({
+        continuous: false,
+        interimResults: false,
+        lang: '',
+        start() {},
+        stop() {},
+      }),
+      getUserMedia: async () => null,
+      insertIntoComposer: async () => {
+        inserted = true;
+        return true;
+      },
+    });
+
+    await controller.startRecording();
+    assert.equal(controller.state, 'recording');
+    const cancelRes = controller.cancelRecording();
+    assert.equal(cancelRes.cancelled, true);
+    assert.equal(controller.state, 'idle');
+    assert.equal(inserted, false);
   });
 });

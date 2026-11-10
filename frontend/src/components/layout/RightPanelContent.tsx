@@ -68,15 +68,18 @@ const CREATE_SESSION_ERROR_FALLBACK =
 const EMPTY_REPOS: Repo[] = [];
 const EMPTY_REPO_BRANCHES: GitBranch[] = [];
 
-function matchesBranch(branch: string, expectedBranch: string) {
-  const normalized = branch.trim().toLowerCase();
+function matchesBranch(
+  branch: string | null | undefined,
+  expectedBranch: string
+) {
+  const normalized = (branch ?? '').trim().toLowerCase();
   return (
     normalized === expectedBranch || normalized.endsWith(`/${expectedBranch}`)
   );
 }
 
-function isMainlineBranch(branch: string) {
-  const normalized = branch.trim().toLowerCase();
+function isMainlineBranch(branch: string | null | undefined) {
+  const normalized = (branch ?? '').trim().toLowerCase();
   return (
     MAINLINE_BRANCH_NAMES.has(normalized) ||
     normalized.endsWith('/main') ||

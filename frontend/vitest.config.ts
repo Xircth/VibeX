@@ -1,11 +1,34 @@
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 
 export default defineConfig({
   envDir: path.resolve(__dirname, '..'),
   envPrefix: ['VITE_', 'VIBEX_'],
-  plugins: [astryxRichtextCoreAlias()],
+  plugins: [
+    astryxRichtextCoreAlias(),
+    react({
+      babel: {
+        compact: false,
+        plugins: [
+          [
+            'babel-plugin-react-compiler',
+            {
+              target: '18',
+              sources: (filename: string) => {
+                const normalized = path.normalize(filename);
+                return (
+                  normalized.startsWith(path.resolve(__dirname, 'src')) &&
+                  !/\.(test|spec)\.[cm]?[jt]sx?$/.test(normalized)
+                );
+              },
+            },
+          ],
+        ],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

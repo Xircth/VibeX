@@ -70,6 +70,24 @@ impl AgentConnectionRunner {
         {
             self.record_turn_end(&acp_session_id, session_id, "error", 0, None)
                 .await;
+            let error_msg = error.to_string();
+            if is_prompt_session_lost_error_message(&error_msg) {
+                let error_event = format_acp_prompt_error(&error, &self.stderr_tail, 0);
+                self.session_map.write().await.remove(&session_id);
+                self.session_controls.write().await.remove(&session_id);
+                self.emit_connection_status(
+                    AgentConnectionStatus::Failed,
+                    Some(error_event.message.clone()),
+                    None,
+                );
+                self.emit(
+                    Some(session_id),
+                    Some(prompt_id),
+                    AgentEvent::Error { error: error_event },
+                );
+                *self.active_prompt.lock().await = None;
+                return Ok(RunPromptOutcome::Closed);
+            }
             self.fail_active_turn(
                 session_id,
                 prompt_id,
@@ -129,13 +147,20 @@ impl AgentConnectionRunner {
                                 .get(&session_id)
                                 .and_then(|state| state.last_turn_usage.clone())
                                 .or_else(|| usage.clone());
+                            let graceful_adapter_close = turn_probe
+                                .adapter_turn_error()
+                                .filter(|err| {
+                                    is_graceful_adapter_turn_close(err) && turn_probe.has_output()
+                                });
                             let turn_failure = turn_failure_error_event(
                                 &response,
                                 &turn_probe,
                                 &self.stderr_tail,
                                 stderr_mark,
                             );
-                            let stop_label = if turn_probe.adapter_turn_error().is_some() {
+                            let stop_label = if turn_probe.adapter_turn_error().is_some()
+                                && graceful_adapter_close.is_none()
+                            {
                                 "error".to_string()
                             } else if turn_failure.is_some() {
                                 finish_turn_reason(
@@ -176,6 +201,32 @@ impl AgentConnectionRunner {
                                     Some(prompt_id),
                                     AgentEvent::Error { error },
                                 );
+                            } else if let Some(adapter_error) = graceful_adapter_close {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::RawAcpDiagnostic {
+                                        raw: serde_json::json!({
+                                            "type": "graceful_adapter_turn_close",
+                                            "message": format_adapter_turn_error(&adapter_error),
+                                        }),
+                                    },
+                                );
+                            } else if let Some(failure) =
+                                extract_session_failure_from_meta(response.meta.as_ref())
+                                    .filter(is_incomplete_tool_call_failure)
+                            {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::RawAcpDiagnostic {
+                                        raw: serde_json::json!({
+                                            "type": "incomplete_tool_call",
+                                            "message": failure.format_message(),
+                                            "meta": response.meta,
+                                        }),
+                                    },
+                                );
                             }
                             self.emit(
                                 Some(session_id),
@@ -211,6 +262,41 @@ impl AgentConnectionRunner {
                                 .get(&session_id)
                                 .and_then(|state| state.last_turn_usage.clone())
                                 .or(err_usage);
+                            if is_incomplete_tool_call_acp_error(&error) && turn_probe.has_output()
+                            {
+                                self.record_turn_end(
+                                    &acp_session_id,
+                                    session_id,
+                                    "end_turn",
+                                    turn_started.elapsed().as_millis() as u64,
+                                    recorded_err_usage.as_ref(),
+                                )
+                                .await;
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::RawAcpDiagnostic {
+                                        raw: serde_json::json!({
+                                            "type": "incomplete_tool_call",
+                                            "message": format_incomplete_tool_call_message(&error.message),
+                                            "data": error.data,
+                                        }),
+                                    },
+                                );
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::PromptFinished {
+                                        finished: AgentPromptFinished {
+                                            prompt_id,
+                                            stop_reason: Some("EndTurn".to_string()),
+                                            usage: recorded_err_usage,
+                                        },
+                                    },
+                                );
+                                *self.active_prompt.lock().await = None;
+                                return Ok(RunPromptOutcome::Settled);
+                            }
                             self.record_turn_end(
                                 &acp_session_id,
                                 session_id,

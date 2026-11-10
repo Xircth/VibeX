@@ -79,6 +79,7 @@ export function parseCard(text: string): ParsedCard | null {
       .split('|')
       .map((item) => item.trim())
       .filter(Boolean);
+    const questionsMatch = inner.match(/<questions>([\s\S]*?)<\/questions>/);
     const questionsRaw = cardField(inner, 'questions');
     let questions: unknown[] | undefined;
     if (questionsRaw) {
@@ -86,7 +87,19 @@ export function parseCard(text: string): ParsedCard | null {
         const parsed = JSON.parse(questionsRaw) as unknown;
         if (Array.isArray(parsed)) questions = parsed;
       } catch {
-        questions = undefined;
+        if (questionsMatch?.[1]) {
+          try {
+            const minimalUnescaped = questionsMatch[1]
+              .trim()
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&amp;/g, '&');
+            const parsed = JSON.parse(minimalUnescaped) as unknown;
+            if (Array.isArray(parsed)) questions = parsed;
+          } catch {
+            questions = undefined;
+          }
+        }
       }
     }
     return {
@@ -421,14 +434,42 @@ export function SpaceCardActions({
         : i18n.t('panels:ui.spaceMessage.handled')
     );
   };
-  if (card.kind === 'ask' && card.questions && card.questions.length > 0) {
+  const payloadObj =
+    cardRecord?.payload &&
+    typeof cardRecord.payload === 'object' &&
+    !Array.isArray(cardRecord.payload)
+      ? (cardRecord.payload as Record<string, unknown>)
+      : null;
+  const payloadQuestions = Array.isArray(payloadObj?.questions)
+    ? payloadObj.questions
+    : undefined;
+  const hasQuestionOptions = (items: unknown[] | undefined) =>
+    Boolean(
+      items?.some(
+        (q) =>
+          q &&
+          typeof q === 'object' &&
+          Array.isArray((q as Record<string, unknown>).options) &&
+          ((q as Record<string, unknown>).options as unknown[]).length > 0
+      )
+    );
+  const resolvedQuestions =
+    hasQuestionOptions(card.questions) || !payloadQuestions
+      ? card.questions ?? payloadQuestions
+      : payloadQuestions;
+  const payloadOptions = Array.isArray(payloadObj?.options)
+    ? payloadObj.options.filter((opt): opt is string => typeof opt === 'string')
+    : [];
+  const resolvedOptions =
+    card.options.length > 0 ? card.options : payloadOptions;
+  if (card.kind === 'ask' && resolvedQuestions && resolvedQuestions.length > 0) {
     const request = {
       question_id: card.id,
       prompt: card.body,
-      options: card.options,
+      options: resolvedOptions,
       schema: {
         type: 'object',
-        'x-vibex-questions': card.questions as unknown as JsonValue,
+        'x-vibex-questions': resolvedQuestions as unknown as JsonValue,
       },
     };
     if (resolvedText) {

@@ -12,6 +12,7 @@ import {
   answerStateFromResponse,
   answerStateFromToolResult,
   firstQuestionTitle,
+  mergeQuestionRequestWithToolUse,
   questionRequestFromToolUse,
   questionTabsFromRequest,
 } from '@/components/tasks/follow-up/agentQuestionModel';
@@ -38,7 +39,12 @@ export function AskQuestionToolCard({
   const titleRef = useRef<HTMLSpanElement | null>(null);
   const [titleOverflows, setTitleOverflows] = useState(false);
   const resolvedRequest = useMemo(
-    () => request ?? (use ? questionRequestFromToolUse(use) : null),
+    () =>
+      request
+        ? mergeQuestionRequestWithToolUse(request, use)
+        : use
+          ? questionRequestFromToolUse(use)
+          : null,
     [request, use]
   );
   const questions = useMemo(

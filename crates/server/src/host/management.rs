@@ -1817,9 +1817,11 @@ async fn auth_mode_preflight_item(
         .as_deref()
         .and_then(|key| env.get(key))
         .is_some_and(|value| !value.trim().is_empty());
-    let auth_required = BuiltInProfileCatalog::management()
-        .profile(agent_id)
-        .is_some_and(|profile| profile.authentication_required_by_default);
+    let catalog = BuiltInProfileCatalog::management();
+    let profile = catalog.profile(agent_id);
+    let auth_required = profile.is_some_and(|profile| profile.authentication_required_by_default);
+    let account_evidence_untracked =
+        profile.is_some_and(|profile| profile.account_evidence.is_none());
     let ready = match auth_mode_kind(agent_id, &view.mode) {
         AgentAuthModeKind::OfficialApi | AgentAuthModeKind::Provider => view.credential_present,
         AgentAuthModeKind::Subscription => {
@@ -1827,7 +1829,8 @@ async fn auth_mode_preflight_item(
                 || headless_token_present
                 || (agent_id.as_str() == "opencode" && view.credential_present)
                 || (!auth_required
-                    && matches!(authentication, AgentAuthenticationStatus::NotRequired))
+                    && (matches!(authentication, AgentAuthenticationStatus::NotRequired)
+                        || account_evidence_untracked))
         }
     };
     Ok(Some(preflight_auth_item(
@@ -2956,6 +2959,67 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(row, ("ready".into(), "api_key".into(), false));
+    }
+
+    #[tokio::test]
+    async fn codebuddy_subscription_preflight_and_probe_do_not_require_static_account_evidence() {
+        let pool = probe_pool("codebuddy", "needs_auth", "not_logged_in", 1).await;
+        let agent_id = AgentId::parse("codebuddy").unwrap();
+        persist_authentication_probe(&pool, &agent_id, AgentAuthenticationStatus::NotLoggedIn)
+            .await
+            .unwrap();
+        let row = sqlx::query_as::<_, (String, String, bool)>(
+            "SELECT lifecycle, authentication, authentication_required FROM agent_probe WHERE agent_id = ?",
+        )
+        .bind(agent_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row, ("ready".into(), "not_logged_in".into(), false));
+
+        let temp = tempfile::tempdir().unwrap();
+        let env = HashMap::from([
+            (
+                "CODEBUDDY_CONFIG_DIR".to_string(),
+                temp.path().display().to_string(),
+            ),
+            (
+                "CODEBUDDY_AUTH_MODE".to_string(),
+                "official_subscription".to_string(),
+            ),
+        ]);
+        let item = auth_mode_preflight_item(
+            &pool,
+            &agent_id,
+            &env,
+            AgentAuthenticationStatus::NotLoggedIn,
+        )
+        .await
+        .unwrap()
+        .expect("codebuddy auth mode preflight item");
+        assert_eq!(item.status, "pass");
+        assert_eq!(item.version.as_deref(), Some("official_subscription"));
+
+        let api_env = HashMap::from([
+            (
+                "CODEBUDDY_CONFIG_DIR".to_string(),
+                temp.path().display().to_string(),
+            ),
+            (
+                "CODEBUDDY_AUTH_MODE".to_string(),
+                "official_api".to_string(),
+            ),
+        ]);
+        let api_item = auth_mode_preflight_item(
+            &pool,
+            &agent_id,
+            &api_env,
+            AgentAuthenticationStatus::NotLoggedIn,
+        )
+        .await
+        .unwrap()
+        .expect("codebuddy official_api preflight item");
+        assert_eq!(api_item.status, "fail");
     }
 
     #[test]

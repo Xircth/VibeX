@@ -37,15 +37,15 @@ export interface DisplayChoice {
 
 const HIDDEN_SESSION_CONFIG_OPTION_KEYS = new Set(['collaboration_mode']);
 
-function normalizedConfigOptionKey(key: string): string {
-  return key.trim().toLowerCase().replaceAll('-', '_');
+function normalizedConfigOptionKey(key: string | null | undefined): string {
+  return (key ?? '').trim().toLowerCase().replaceAll('-', '_');
 }
 
 function isModeConfigOption(option: AgentSessionConfigOption): boolean {
   return (
     normalizedConfigOptionKey(option.category ?? '') === 'mode' ||
     normalizedConfigOptionKey(option.key) === 'mode' ||
-    option.label.trim().toLowerCase() === 'mode'
+    (option.label ?? '').trim().toLowerCase() === 'mode'
   );
 }
 

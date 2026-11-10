@@ -76,16 +76,30 @@ pub(crate) async fn post_to_space_inner(
             (ENVELOPE_USER_ACTOR.to_string(), None)
         }
     };
+    let base_operation_id = input.operation_id;
     let mut message_id = input.operation_id.to_string();
     let request = post_fingerprint(&input, content, &actor);
+    let mut targets = resolve_targets(pool, &input.space_id, sender, &input.to, content).await?;
+    if targets
+        .iter()
+        .any(|target| target.conversation_id.is_none())
+    {
+        let _ = ensure_user_member(pool, &input.space_id).await;
+    }
+    let origin = if sender.is_some() { "agent" } else { "user" };
+    let dests = unique_cross_chat_dests(&input.space_id, &targets);
+    let mut should_derive = false;
     if let Some(head) = load_message_head(pool, &message_id).await? {
         if head.space_id != input.space_id {
-            return Err(CollaborationError::new(
-                "not_found",
-                "message was not found",
-            ));
-        }
-        if same_post_request(
+            if input.caller_id.is_some() {
+                should_derive = true;
+            } else {
+                return Err(CollaborationError::new(
+                    "not_found",
+                    "message was not found",
+                ));
+            }
+        } else if same_post_request(
             pool,
             &message_id,
             &input.space_id,
@@ -94,49 +108,97 @@ pub(crate) async fn post_to_space_inner(
         )
         .await?
         {
-            return deliver_pending(pool, &input.space_id, &message_id, turn_delivery).await;
-        }
-        let head_parsed = parse_space_envelope_str(&head.envelope_json);
-        if input.caller_id.is_some()
-            && head_parsed.sender == envelope_member_name(&actor)
-            && head_parsed.content != content
-        {
-            let derived_op_id = Uuid::new_v5(
-                &Uuid::NAMESPACE_OID,
-                format!("{}:{}:{}", input.operation_id, actor, digest_text(content)).as_bytes(),
-            );
-            input.operation_id = derived_op_id;
-            message_id = derived_op_id.to_string();
-            if let Some(derived_head) = load_message_head(pool, &message_id).await? {
-                if derived_head.space_id != input.space_id {
-                    return Err(CollaborationError::new(
-                        "not_found",
-                        "message was not found",
-                    ));
-                }
-                if !same_post_request(
-                    pool,
-                    &message_id,
-                    &input.space_id,
-                    &request,
-                    &derived_head.envelope_json,
-                )
-                .await?
-                {
-                    return Err(operation_conflict());
-                }
-                return deliver_pending(pool, &input.space_id, &message_id, turn_delivery).await;
+            return replay_existing_space_post(
+                pool,
+                &input.space_id,
+                &message_id,
+                &request,
+                &head.envelope_json,
+                &actor,
+                sender,
+                sender_nickname.as_deref(),
+                sender_member_id.as_deref(),
+                origin,
+                &dests,
+                turn_delivery,
+            )
+            .await;
+        } else {
+            let head_parsed = parse_space_envelope_str(&head.envelope_json);
+            if input.caller_id.is_some()
+                && (head_parsed.sender != envelope_member_name(&actor)
+                    || head_parsed.content != content)
+            {
+                should_derive = true;
+            } else {
+                return Err(operation_conflict());
             }
+        }
+    } else if load_stored_operation(pool, &message_id).await?.is_some() {
+        if input.caller_id.is_some() {
+            should_derive = true;
         } else {
             return Err(operation_conflict());
         }
     }
-    let mut targets = resolve_targets(pool, &input.space_id, sender, &input.to, content).await?;
-    if targets
-        .iter()
-        .any(|target| target.conversation_id.is_none())
-    {
-        let _ = ensure_user_member(pool, &input.space_id).await;
+    if should_derive {
+        let content_digest = digest_text(content);
+        let mut selected = None;
+        for attempt in 0..64_u32 {
+            let seed = if attempt == 0 {
+                format!("{base_operation_id}:{actor}:{content_digest}")
+            } else {
+                format!(
+                    "{base_operation_id}:{}:{actor}:{content_digest}:{attempt}",
+                    input.space_id
+                )
+            };
+            let derived_op_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, seed.as_bytes());
+            let derived_message_id = derived_op_id.to_string();
+            if let Some(derived_head) = load_message_head(pool, &derived_message_id).await? {
+                if derived_head.space_id == input.space_id
+                    && same_post_request(
+                        pool,
+                        &derived_message_id,
+                        &input.space_id,
+                        &request,
+                        &derived_head.envelope_json,
+                    )
+                    .await?
+                {
+                    return replay_existing_space_post(
+                        pool,
+                        &input.space_id,
+                        &derived_message_id,
+                        &request,
+                        &derived_head.envelope_json,
+                        &actor,
+                        sender,
+                        sender_nickname.as_deref(),
+                        sender_member_id.as_deref(),
+                        origin,
+                        &dests,
+                        turn_delivery,
+                    )
+                    .await;
+                }
+                continue;
+            }
+            if load_stored_operation(pool, &derived_message_id)
+                .await?
+                .is_some()
+            {
+                continue;
+            }
+            selected = Some((derived_op_id, derived_message_id));
+            break;
+        }
+        let (derived_op_id, derived_message_id) = selected.unwrap_or_else(|| {
+            let fresh = Uuid::new_v4();
+            (fresh, fresh.to_string())
+        });
+        input.operation_id = derived_op_id;
+        message_id = derived_message_id;
     }
     let wakes_agents = targets
         .iter()
@@ -274,7 +336,6 @@ pub(crate) async fn post_to_space_inner(
         conversation_id: sender,
         extra,
     });
-    let origin = if sender.is_some() { "agent" } else { "user" };
     let mut conn = pool.acquire().await.map_err(db)?;
     sqlx::query("BEGIN IMMEDIATE")
         .execute(&mut *conn)
@@ -531,7 +592,6 @@ pub(crate) async fn post_to_space_inner(
         &json!({ "message_id": message_id }),
     )
     .await?;
-    let dests = unique_cross_chat_dests(&input.space_id, &targets);
     if !dests.is_empty() {
         let received_from = sender_received_from_peer(
             pool,
@@ -582,6 +642,57 @@ pub(crate) async fn post_to_space_inner(
         advance_open_rounds_for_space(pool, &input.space_id, turn_delivery).await?;
     }
     Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn replay_existing_space_post(
+    pool: &SqlitePool,
+    space_id: &str,
+    message_id: &str,
+    request: &Value,
+    envelope_json: &str,
+    actor: &str,
+    sender: Option<Uuid>,
+    sender_nickname: Option<&str>,
+    sender_member_id: Option<&str>,
+    origin: &str,
+    dests: &[String],
+    turn_delivery: &DeliveryContext,
+) -> Result<SpacePostResult, CollaborationError> {
+    store_operation(
+        pool,
+        message_id,
+        Some(space_id),
+        request,
+        &json!({ "message_id": message_id }),
+    )
+    .await?;
+    if !dests.is_empty() {
+        let published = serde_json::from_str::<Value>(envelope_json)
+            .ok()
+            .and_then(|env| {
+                env.get("published")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(now_stamp);
+        let received_from =
+            sender_received_from_peer(pool, space_id, sender, sender_nickname, sender_member_id)
+                .await?;
+        project_cross_chat_receipts(
+            pool,
+            message_id,
+            actor,
+            sender,
+            &published,
+            origin,
+            &received_from,
+            dests,
+            turn_delivery,
+        )
+        .await?;
+    }
+    deliver_pending(pool, space_id, message_id, turn_delivery).await
 }
 
 pub(crate) fn bare_message_id(raw: &str) -> &str {

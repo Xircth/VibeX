@@ -622,6 +622,18 @@ pub fn apply_built_in_launch_argument_policy(
     env: &HashMap<String, String>,
     args: &mut Vec<String>,
 ) {
+    if args.is_empty()
+        && let Some(profile) = crate::profiles::BuiltInProfileCatalog::management().profile(agent_id)
+        && profile.topology == crate::profiles::ProfileTopology::NativeAcp
+    {
+        let default_args = crate::profiles::acp_launch_args(
+            profile,
+            crate::profiles::ProfileComponent::CombinedRuntime,
+        );
+        if !default_args.is_empty() {
+            *args = default_args;
+        }
+    }
     let mut prefix = Vec::new();
     match agent_id.as_str() {
         "cursor" => {

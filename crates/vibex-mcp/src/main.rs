@@ -209,6 +209,7 @@ fn collaboration_needs_operation_id(name: &str, arguments: &Value) -> bool {
     )
 }
 
+#[cfg(test)]
 fn ensure_operation_id(arguments: &mut Value, meta: Option<&Value>, request_id: Option<&Value>) {
     if arguments
         .get("operation_id")
@@ -347,6 +348,8 @@ struct Companion {
     server_token: Option<String>,
     conversation_id: Option<String>,
     product: String,
+    instance_id: Uuid,
+    operation_seq: AtomicU64,
 }
 
 impl Companion {
@@ -362,6 +365,43 @@ impl Companion {
             server_token: args.server_token,
             conversation_id: args.conversation_id,
             product: args.product,
+            instance_id: Uuid::new_v4(),
+            operation_seq: AtomicU64::new(0),
+        }
+    }
+
+    fn ensure_call_operation_id(
+        &self,
+        name: &str,
+        arguments: &mut Value,
+        meta: Option<&Value>,
+        request_id: Option<&Value>,
+    ) {
+        if arguments
+            .get("operation_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        {
+            return;
+        }
+        let seq = self.operation_seq.fetch_add(1, Ordering::Relaxed);
+        let tool_seed = parent_tool_use_id(meta);
+        let request_seed = request_id_seed(request_id);
+        let scope = if !self.token.trim().is_empty() {
+            self.token.as_str()
+        } else if !self.parent_connection_id.trim().is_empty() {
+            self.parent_connection_id.as_str()
+        } else {
+            self.conversation_id.as_deref().unwrap_or("")
+        };
+        let composite = format!(
+            "{}:{}:{}:{}:{}:{}",
+            self.instance_id, scope, name, seq, tool_seed, request_seed
+        );
+        let derived = Uuid::new_v5(&Uuid::NAMESPACE_URL, composite.as_bytes());
+        if let Some(object) = arguments.as_object_mut() {
+            object.insert("operation_id".into(), json!(derived.to_string()));
         }
     }
 
@@ -456,7 +496,7 @@ impl Companion {
         }
         let mut arguments = arguments;
         if collaboration_needs_operation_id(&name, &arguments) {
-            ensure_operation_id(&mut arguments, meta.as_ref(), id.as_ref());
+            self.ensure_call_operation_id(&name, &mut arguments, meta.as_ref(), id.as_ref());
         }
         let message = match self.build_message(&name, &arguments, meta.as_ref()) {
             Ok(message) => message,
@@ -1594,6 +1634,41 @@ mod tests {
             Some(&json!(1)),
         );
         assert_eq!(args["operation_id"], "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn companion_scopes_operation_id_per_call_and_instance() {
+        let c1 = companion("collaboration,space");
+        let c2 = companion("collaboration,space");
+        let mut first = json!({"space_id": "space-1", "content": "msg 1"});
+        let mut second = json!({"space_id": "space-1", "content": "msg 2"});
+        let mut other_bot = json!({"space_id": "space-1", "content": "msg 1"});
+
+        c1.ensure_call_operation_id(
+            "post_space_message",
+            &mut first,
+            Some(&json!({"progressToken": 1})),
+            Some(&json!(1)),
+        );
+        c1.ensure_call_operation_id(
+            "post_space_message",
+            &mut second,
+            Some(&json!({"progressToken": 1})),
+            Some(&json!(1)),
+        );
+        c2.ensure_call_operation_id(
+            "post_space_message",
+            &mut other_bot,
+            Some(&json!({"progressToken": 1})),
+            Some(&json!(1)),
+        );
+
+        let op1 = first["operation_id"].as_str().unwrap();
+        let op2 = second["operation_id"].as_str().unwrap();
+        let op3 = other_bot["operation_id"].as_str().unwrap();
+        assert_ne!(op1, op2);
+        assert_ne!(op1, op3);
+        assert_ne!(op2, op3);
     }
 
     #[test]

@@ -67,6 +67,66 @@ function schemaProperties(schema: JsonSchema): Array<[string, JsonSchema]> {
   return Object.entries(properties as Record<string, JsonSchema>);
 }
 
+export function isSchemaFieldVisible(
+  fieldName: string,
+  fieldSchema: JsonSchema,
+  currentConfig: Record<string, unknown>,
+  rootSchema?: JsonSchema
+): boolean {
+  const resolveEffectiveValue = (key: string): unknown => {
+    if (currentConfig[key] !== undefined && currentConfig[key] !== null) {
+      return currentConfig[key];
+    }
+    const props = rootSchema ? schemaProperties(rootSchema) : [];
+    const found = props.find(([k]) => k === key)?.[1];
+    return found?.default;
+  };
+
+  const visibleWhen =
+    fieldSchema['x-visible-when'] ?? fieldSchema.visibleWhen ?? null;
+  if (
+    visibleWhen &&
+    typeof visibleWhen === 'object' &&
+    !Array.isArray(visibleWhen)
+  ) {
+    for (const [depKey, allowed] of Object.entries(
+      visibleWhen as Record<string, unknown>
+    )) {
+      const actual = resolveEffectiveValue(depKey);
+      if (Array.isArray(allowed)) {
+        if (!allowed.includes(actual)) return false;
+      } else if (actual !== allowed) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Built-in protocol-aware filtering for voice-input providerProtocol
+  const hasProviderProtocol =
+    'providerProtocol' in currentConfig ||
+    (rootSchema
+      ? schemaProperties(rootSchema).some(([k]) => k === 'providerProtocol')
+      : false);
+  if (hasProviderProtocol) {
+    const protocol = String(
+      resolveEffectiveValue('providerProtocol') ?? 'hybrid'
+    );
+    if (protocol === 'browser-speech') {
+      if (
+        fieldName === 'baseUrl' ||
+        fieldName === 'apiKey' ||
+        fieldName === 'model' ||
+        fieldName === 'cleanupModel'
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 function BooleanSchemaField({
   label,
   description,
@@ -1087,6 +1147,14 @@ export function PluginConfigForm({
     }
   };
 
+  const visibleProperties = useMemo(
+    () =>
+      properties.filter(([key, schema]) =>
+        isSchemaFieldVisible(key, schema, draft, detail.configSchema)
+      ),
+    [properties, draft, detail.configSchema]
+  );
+
   if (detail.configSchema['x-vibex-config-surface'] === 'settings') {
     const pageId =
       typeof detail.configSchema['x-vibex-settings-page'] === 'string'
@@ -1095,7 +1163,7 @@ export function PluginConfigForm({
     return (
       <div className="settings-surface product-plugin-config-shell">
         <dl className="settings-card grid gap-2 p-3 text-sm">
-          {properties.map(([key, schema]) => (
+          {visibleProperties.map(([key, schema]) => (
             <div
               key={key}
               className="flex items-baseline justify-between gap-4"
@@ -1126,7 +1194,7 @@ export function PluginConfigForm({
   }
   if (
     detail.configSchema['x-vibex-config-form'] === false ||
-    properties.length === 0
+    visibleProperties.length === 0
   ) {
     return <p className="product-plugin-muted">{t('plugins.noConfig')}</p>;
   }
@@ -1138,7 +1206,7 @@ export function PluginConfigForm({
       onSubmit={(event) => event.preventDefault()}
     >
       <div className="product-plugin-config settings-card">
-        {properties.map(([key, schema]) => (
+        {visibleProperties.map(([key, schema]) => (
           <SchemaField
             key={key}
             pluginId={pluginId}

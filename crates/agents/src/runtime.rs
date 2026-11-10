@@ -2615,6 +2615,7 @@ impl AgentRuntime {
                     && let Some(session) = state.sessions.get_mut(&session_id)
                 {
                     let _ = session.queue.complete(finished.prompt_id);
+                    session.turn_recovery_attempts = 0;
                     session.snapshot.active_prompt_id = session.queue.active();
                     session.snapshot.queued_prompt_ids = session.queue.queued();
                     session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
@@ -2954,17 +2955,36 @@ fn prompt_has_turn_output(
     {
         return false;
     }
-    state.recent_events.iter().any(|envelope| {
-        envelope.session_id == Some(session_id)
-            && matches!(
-                envelope.event,
-                AgentEvent::MessageChunk { .. }
-                    | AgentEvent::ToolCall { .. }
-                    | AgentEvent::ToolCallUpdate { .. }
-                    | AgentEvent::Plan { .. }
-                    | AgentEvent::PermissionRequested { .. }
-            )
-    })
+    for envelope in state
+        .recent_events
+        .iter()
+        .rev()
+        .filter(|envelope| envelope.session_id == Some(session_id))
+    {
+        match &envelope.event {
+            AgentEvent::PromptStarted { snapshot } if snapshot.id == prompt_id => break,
+            AgentEvent::PromptFinished { .. } | AgentEvent::Error { .. } => break,
+            AgentEvent::ConnectionStatusChanged { snapshot }
+                if matches!(
+                    snapshot.status,
+                    AgentConnectionStatus::Recovering | AgentConnectionStatus::Connecting
+                ) =>
+            {
+                break;
+            }
+            AgentEvent::MessageChunk { content } => {
+                if !matches!(content, AgentContentBlock::Text { text } if text.is_empty()) {
+                    return true;
+                }
+            }
+            AgentEvent::ToolCall { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::Plan { .. }
+            | AgentEvent::PermissionRequested { .. } => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -3961,6 +3981,74 @@ mod tests {
             matches!(recovered_prompt.status, AgentPromptStatus::Running),
             "recovery must keep the original prompt running"
         );
+    }
+
+    #[tokio::test]
+    async fn silent_agent_connection_lost_after_completed_prior_turn_is_auto_recovered() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, first_prompt, second_prompt) =
+            create_running_prompt_pair(&runtime).await;
+        {
+            let mut state = runtime.state.write().await;
+            AgentRuntime::queue_envelope_locked(
+                &mut state,
+                connection.id,
+                Some(session.id),
+                AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text {
+                        text: "turn 1 output".to_string(),
+                    },
+                },
+            );
+            AgentRuntime::apply_manager_event_locked(
+                &mut state,
+                &AgentConnectionManagerEvent {
+                    connection_id: connection.id,
+                    session_id: Some(session.id),
+                    prompt_id: Some(first_prompt.id),
+                    event: AgentEvent::PromptFinished {
+                        finished: crate::AgentPromptFinished {
+                            prompt_id: first_prompt.id,
+                            stop_reason: Some("end_turn".to_string()),
+                            usage: None,
+                        },
+                    },
+                },
+            );
+            if let Some(session_entry) = state.sessions.get_mut(&session.id) {
+                session_entry.snapshot.active_prompt_id = Some(second_prompt.id);
+            }
+            if let Some(prompt_entry) = state.prompts.get_mut(&second_prompt.id) {
+                prompt_entry.status = AgentPromptStatus::Running;
+            }
+            let second_snapshot = state.prompts.get(&second_prompt.id).unwrap().clone();
+            AgentRuntime::queue_envelope_locked(
+                &mut state,
+                connection.id,
+                Some(session.id),
+                AgentEvent::PromptStarted {
+                    snapshot: second_snapshot,
+                },
+            );
+        }
+
+        let error_event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: Some(second_prompt.id),
+            event: AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: "Agent connection was lost and could not be re-established: Failed to rebuild agent: received 1000 (OK); then sent 1000 (OK)".to_string(),
+                    code: Some("agent_connection_lost".to_string()),
+                    raw: None,
+                },
+            },
+        };
+        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &error_event)
+            .await
+            .expect("prior turn output must not block SilentTurnRecovery on a new turn");
+        assert_eq!(recovery.prompt_id, second_prompt.id);
+        assert_eq!(recovery.attempt, 1);
     }
 
     #[tokio::test]

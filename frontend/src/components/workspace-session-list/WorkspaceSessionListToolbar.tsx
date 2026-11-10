@@ -63,8 +63,8 @@ export function WorkspaceSessionListToolbar({
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
 
   return (
-    <div className="px-1.5 pb-1 pt-1.5">
-      <div className="flex w-full items-center justify-start gap-1">
+    <div className="border-b border-border/60 px-1.5 pb-1 pt-1.5">
+      <div className="flex w-full items-center justify-end gap-1">
         {isDeleteMode ? (
           <SessionListDeleteControl
             selectedCount={selectedCount}
@@ -80,7 +80,7 @@ export function WorkspaceSessionListToolbar({
             onCancel={onCancelDeleteMode}
           />
         ) : (
-          <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
             <SessionListSearchControl
               searchQuery={searchQuery}
               isExpanded={isSearchExpanded}

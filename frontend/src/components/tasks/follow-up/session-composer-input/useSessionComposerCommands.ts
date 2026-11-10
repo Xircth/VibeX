@@ -90,12 +90,15 @@ export function useSessionComposerCommands({
   );
   const localSkills = useMemo<AgentLocalSkill[]>(
     () =>
-      (agentSkills?.skills ?? []).map((skill) => ({
-        name: skill.id,
-        description: skill.description,
-        path: skill.path,
-        invocation: executor === 'codex' ? `$${skill.id}` : `/${skill.id}`,
-      })),
+      (agentSkills?.skills ?? []).map((skill) => {
+        const id = (skill.id ?? '').trim();
+        return {
+          name: id,
+          description: skill.description,
+          path: skill.path,
+          invocation: executor === 'codex' ? `$${id}` : `/${id}`,
+        };
+      }),
     [agentSkills, executor]
   );
   const allSlashCommands = useMemo(

@@ -62,8 +62,8 @@ function isModelOption(option: AgentSessionConfigOption) {
 function isModeOption(option: AgentSessionConfigOption) {
   return (
     option.category === 'mode' ||
-    option.key.toLowerCase() === 'mode' ||
-    option.label.trim().toLowerCase() === 'mode'
+    (option.key ?? '').toLowerCase() === 'mode' ||
+    (option.label ?? '').trim().toLowerCase() === 'mode'
   );
 }
 
@@ -93,7 +93,7 @@ function toggleValuesForOption(
   const findChoiceValue = (values: Set<string>) =>
     choices.find((choice) => {
       const value = jsonValueToString(choice.value).trim().toLowerCase();
-      const label = choice.label.trim().toLowerCase();
+      const label = (choice.label ?? '').trim().toLowerCase();
       return values.has(value) || values.has(label);
     });
   const offChoice = findChoiceValue(new Set(['false', 'off', 'disabled']));

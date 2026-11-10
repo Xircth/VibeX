@@ -242,6 +242,54 @@ export function formatKeyboardEventToShortcut(event) {
   return parts.join('+');
 }
 
+export function encodeMonoWavBase64(float32Samples, sampleRate = 16000) {
+  if (!float32Samples || float32Samples.length === 0) return '';
+  const targetRate = 16000;
+  const ratio = sampleRate > targetRate ? sampleRate / targetRate : 1;
+  const outLength = Math.max(1, Math.floor(float32Samples.length / ratio));
+  const buffer = new ArrayBuffer(44 + outLength * 2);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i += 1) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  const effectiveRate = ratio === 1 ? Math.round(sampleRate) : targetRate;
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + outLength * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format = 1
+  view.setUint16(22, 1, true); // Mono = 1 channel
+  view.setUint32(24, effectiveRate, true);
+  view.setUint32(28, effectiveRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, outLength * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < outLength; i += 1) {
+    const srcIdx = Math.min(float32Samples.length - 1, Math.floor(i * ratio));
+    const s = Math.max(-1, Math.min(1, float32Samples[srcIdx] || 0));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(buffer).toString('base64');
+  }
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return typeof btoa === 'function' ? btoa(binary) : '';
+}
+
 function blobToBase64(blob) {
   if (!blob) return Promise.resolve('');
   if (typeof blob.arrayBuffer === 'function') {
@@ -309,7 +357,7 @@ export class VoiceSessionController {
     this.elapsedMs = 0;
     this.liveInterimText = '';
     this.liveFinalSegments = [];
-    this.audioLevels = [0.18, 0.25, 0.2, 0.15];
+    this.audioLevels = [0.16, 0.22, 0.28, 0.35, 0.26, 0.18, 0.24, 0.32, 0.22, 0.16];
     this.lastResult = null;
     this.previewDraft = null;
     this.lastError = null;
@@ -320,7 +368,11 @@ export class VoiceSessionController {
     this._mediaStream = null;
     this._mediaRecorder = null;
     this._recordedChunks = [];
+    this._pcmChunks = [];
+    this._pcmSampleRate = 16000;
+    this._scriptProcessor = null;
     this._recognition = null;
+    this._recognitionStopping = false;
     this._audioContext = null;
     this._analyserTimer = null;
   }
@@ -390,6 +442,8 @@ export class VoiceSessionController {
     this.liveInterimText = '';
     this.liveFinalSegments = [];
     this._recordedChunks = [];
+    this._pcmChunks = [];
+    this._recognitionStopping = false;
     this.recordingStartedAt = Date.now();
     this.elapsedMs = 0;
     this.state = 'recording';
@@ -407,43 +461,10 @@ export class VoiceSessionController {
       this.config.providerProtocol === 'hybrid' ||
       this.config.providerProtocol === 'browser-speech'
     ) {
-      try {
-        const recognition = this.speechRecognitionFactory();
-        if (recognition) {
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = resolveBcp47Language(this.config.language);
-          recognition.onresult = (event) => {
-            let interim = '';
-            const finals = [...this.liveFinalSegments];
-            const startIdx = typeof event.resultIndex === 'number' ? event.resultIndex : 0;
-            const results = event.results || [];
-            for (let i = startIdx; i < results.length; i += 1) {
-              const res = results[i];
-              const transcript = String(res?.[0]?.transcript || '').trim();
-              if (!transcript) continue;
-              if (res.isFinal) {
-                finals.push(transcript);
-              } else {
-                interim += `${interim ? ' ' : ''}${transcript}`;
-              }
-            }
-            this.liveFinalSegments = finals;
-            this.liveInterimText = interim;
-            this.notify();
-          };
-          recognition.onerror = () => {
-            // Keep recording via MediaRecorder even if Web Speech API emits a non-fatal warning
-          };
-          recognition.start();
-          this._recognition = recognition;
-        }
-      } catch {
-        // Ignore if SpeechRecognition is unsupported in current WebView
-      }
+      this._startWebSpeechRecognition();
     }
 
-    // 2. Start MediaRecorder + AudioContext waveform analyser if available
+    // 2. Start MediaRecorder + AudioContext waveform analyser + PCM WAV capture
     try {
       const audioConstraint =
         this.config.audioDeviceId && this.config.audioDeviceId !== 'default'
@@ -477,6 +498,73 @@ export class VoiceSessionController {
     return { started: true };
   }
 
+  _startWebSpeechRecognition() {
+    try {
+      const recognition = this.speechRecognitionFactory();
+      if (!recognition) return;
+
+      let committedFromSession = [];
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = resolveBcp47Language(this.config.language);
+
+      recognition.onresult = (event) => {
+        const results = event?.results;
+        if (!results) return;
+        const sessionFinals = [];
+        let interim = '';
+        for (let i = 0; i < results.length; i += 1) {
+          const res = results[i];
+          const alt = res?.[0] ?? (typeof res?.item === 'function' ? res.item(0) : null);
+          const transcript = String(alt?.transcript || '').trim();
+          if (!transcript) continue;
+          if (res.isFinal) {
+            sessionFinals.push(transcript);
+          } else {
+            interim += `${interim ? ' ' : ''}${transcript}`;
+          }
+        }
+        committedFromSession = sessionFinals;
+        this.liveFinalSegments = [
+          ...(this._priorRecognitionSegments || []),
+          ...sessionFinals,
+        ];
+        this.liveInterimText = interim;
+        this.notify();
+      };
+
+      recognition.onerror = () => {
+        // Keep recording via MediaRecorder/PCM even if Web Speech API emits a warning
+      };
+
+      recognition.onend = () => {
+        if (this.liveInterimText) {
+          committedFromSession.push(this.liveInterimText);
+          this.liveFinalSegments = [
+            ...(this._priorRecognitionSegments || []),
+            ...committedFromSession,
+          ];
+          this.liveInterimText = '';
+        }
+        this._priorRecognitionSegments = [...this.liveFinalSegments];
+        if (this.state === 'recording' && !this._recognitionStopping) {
+          try {
+            recognition.start();
+          } catch {
+            // ignore restart errors
+          }
+        }
+      };
+
+      this._priorRecognitionSegments = [];
+      recognition.start();
+      this._recognition = recognition;
+    } catch {
+      // Ignore if SpeechRecognition is unsupported in current WebView
+    }
+  }
+
   _startWaveformAnalyser(stream) {
     try {
       const AudioCtx =
@@ -484,28 +572,71 @@ export class VoiceSessionController {
         (globalThis.AudioContext || globalThis.webkitAudioContext);
       if (typeof AudioCtx !== 'function') return;
       const audioCtx = new AudioCtx();
+      if (typeof audioCtx.resume === 'function' && audioCtx.state === 'suspended') {
+        void audioCtx.resume().catch(() => {});
+      }
+      this._pcmSampleRate = audioCtx.sampleRate || 16000;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.65;
       source.connect(analyser);
+
+      // Capture raw mono PCM for native OS speech recognition fallback (WAV)
+      if (typeof audioCtx.createScriptProcessor === 'function') {
+        try {
+          const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+          processor.onaudioprocess = (event) => {
+            if (this.state !== 'recording') return;
+            const input = event?.inputBuffer?.getChannelData?.(0);
+            if (input && input.length > 0) {
+              this._pcmChunks.push(new Float32Array(input));
+            }
+          };
+          source.connect(processor);
+          processor.connect(audioCtx.destination);
+          this._scriptProcessor = processor;
+        } catch {
+          // ignore if createScriptProcessor is unavailable
+        }
+      }
+
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       this._audioContext = audioCtx;
+      const barCount = 10;
       this._analyserTimer = setInterval(() => {
         if (this.state !== 'recording') return;
         analyser.getByteFrequencyData(dataArray);
-        const step = Math.max(1, Math.floor(dataArray.length / 4));
-        this.audioLevels = [0, 1, 2, 3].map((idx) => {
+        const step = Math.max(1, Math.floor(dataArray.length / barCount));
+        this.audioLevels = Array.from({ length: barCount }, (_, idx) => {
           const val = dataArray[idx * step] || 0;
           return Math.max(0.15, Math.min(1, Number((val / 255).toFixed(2))));
         });
         this.notify();
-      }, 100);
+      }, 80);
     } catch {
       // Fallback animated pulse levels
     }
   }
 
+  _buildCapturedWavBase64() {
+    if (!this._pcmChunks || this._pcmChunks.length === 0) return '';
+    let totalLen = 0;
+    for (const chunk of this._pcmChunks) {
+      totalLen += chunk.length;
+    }
+    if (totalLen === 0) return '';
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const chunk of this._pcmChunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return encodeMonoWavBase64(merged, this._pcmSampleRate || 16000);
+  }
+
   _cleanupMediaResources() {
+    this._recognitionStopping = true;
     if (this._durationTimer) {
       clearInterval(this._durationTimer);
       this._durationTimer = null;
@@ -513,6 +644,14 @@ export class VoiceSessionController {
     if (this._analyserTimer) {
       clearInterval(this._analyserTimer);
       this._analyserTimer = null;
+    }
+    if (this._scriptProcessor) {
+      try {
+        this._scriptProcessor.disconnect();
+      } catch {
+        // ignore
+      }
+      this._scriptProcessor = null;
     }
     if (this._recognition) {
       try {
@@ -536,12 +675,45 @@ export class VoiceSessionController {
       void this._audioContext.close().catch(() => {});
     }
     this._audioContext = null;
-    this.audioLevels = [0.18, 0.25, 0.2, 0.15];
+    this.audioLevels = [0.16, 0.22, 0.28, 0.35, 0.26, 0.18, 0.24, 0.32, 0.22, 0.16];
   }
 
   async stopRecording(overrideOptions = {}) {
     if (this.state !== 'recording') {
       return { stopped: false, reason: 'not-recording' };
+    }
+
+    this._recognitionStopping = true;
+    if (this._recognition) {
+      const rec = this._recognition;
+      await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        const timer = setTimeout(finish, 180);
+        const prevOnEnd = rec.onend;
+        rec.onend = (ev) => {
+          clearTimeout(timer);
+          if (typeof prevOnEnd === 'function') {
+            try {
+              prevOnEnd(ev);
+            } catch {
+              // ignore
+            }
+          }
+          finish();
+        };
+        try {
+          rec.stop();
+        } catch {
+          clearTimeout(timer);
+          finish();
+        }
+      });
+      this._recognition = null;
     }
 
     const liveCaptured = [
@@ -572,6 +744,7 @@ export class VoiceSessionController {
     if (this._recordedChunks.length > 0 && typeof Blob === 'function') {
       recordedBlob = new Blob(this._recordedChunks, { type: mimeType });
     }
+    const wavBase64 = this._buildCapturedWavBase64();
     this._mediaRecorder = null;
     this._cleanupMediaResources();
 
@@ -579,9 +752,19 @@ export class VoiceSessionController {
     this.notify();
 
     try {
-      const audioBase64 =
+      let audioBase64 =
         overrideOptions.audioBase64 ??
         (recordedBlob ? await blobToBase64(recordedBlob) : '');
+      if (
+        (this.config.providerProtocol === 'browser-speech' ||
+          this.config.providerProtocol === 'openai-chat-audio' ||
+          !audioBase64) &&
+        wavBase64
+      ) {
+        audioBase64 = wavBase64;
+        mimeType = 'audio/wav';
+      }
+
       const effectiveLiveText =
         typeof overrideOptions.liveTranscript === 'string'
           ? overrideOptions.liveTranscript
@@ -591,6 +774,7 @@ export class VoiceSessionController {
       try {
         result = await this.invokeWorker('voice.transcribe', {
           audioBase64,
+          wavBase64,
           mimeType,
           liveTranscript: effectiveLiveText,
           config: this.config,
@@ -662,6 +846,27 @@ export class VoiceSessionController {
     }
   }
 
+  cancelRecording() {
+    this.previewDraft = null;
+    this.liveInterimText = '';
+    this.liveFinalSegments = [];
+    this._recordedChunks = [];
+    this._pcmChunks = [];
+    if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+      try {
+        this._mediaRecorder.stop();
+      } catch {
+        // ignore
+      }
+    }
+    this._mediaRecorder = null;
+    this._cleanupMediaResources();
+    void this.invokeWorker('voice.cancel', {}).catch(() => {});
+    this.state = 'idle';
+    this.notify();
+    return { cancelled: true };
+  }
+
   async toggleRecording() {
     if (this.state === 'recording') {
       return await this.stopRecording();
@@ -682,12 +887,7 @@ export class VoiceSessionController {
   }
 
   cancelPreview() {
-    this.previewDraft = null;
-    if (this.state === 'recording') {
-      this._cleanupMediaResources();
-    }
-    this.state = 'idle';
-    this.notify();
+    return this.cancelRecording();
   }
 
   async insertTranscriptIntoTarget(text) {
@@ -955,25 +1155,8 @@ export default {
               'aria-label': '停止语音输入',
               'data-testid': 'voice-composer-recording-button',
               className:
-                'inline-flex h-7 items-center gap-1.5 rounded-full bg-destructive/15 px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/25',
+                'inline-flex h-7 items-center justify-center rounded-md bg-primary/15 px-2 text-xs font-medium tabular-nums text-primary transition-colors hover:bg-primary/25',
             },
-            h('span', {
-              className: 'h-2 w-2 rounded-full bg-destructive animate-pulse',
-            }),
-            h(
-              'span',
-              { className: 'inline-flex items-end gap-0.5 h-3' },
-              ...snap.audioLevels.map((lvl, idx) =>
-                h('span', {
-                  key: idx,
-                  style: {
-                    height: `${Math.max(3, Math.round(lvl * 12))}px`,
-                    width: '2px',
-                  },
-                  className: 'rounded-full bg-destructive transition-all duration-75',
-                }),
-              ),
-            ),
             h('span', { className: 'tabular-nums' }, snap.durationLabel),
           );
         }
@@ -988,16 +1171,12 @@ export default {
               'aria-label': '正在识别语音',
               'data-testid': 'voice-composer-transcribing-button',
               className:
-                'inline-flex h-7 items-center gap-1.5 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary',
+                'inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary',
             },
-            h(
-              'span',
-              {
-                className:
-                  'h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin',
-              },
-            ),
-            h('span', null, '识别中…'),
+            h('span', {
+              className:
+                'h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin',
+            }),
           );
         }
 
@@ -1015,7 +1194,7 @@ export default {
             'aria-label': 'AI 语音输入',
             'data-testid': 'voice-composer-mic-button',
             className:
-              'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled: opacity-50',
+              'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50',
           },
           h(
             'svg',
@@ -1188,7 +1367,7 @@ export default {
                 onClick: () => void controller.toggleRecording(),
                 disabled: !enabled || isTranscribing,
                 className: isRecording
-                  ? 'inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90'
+                  ? 'inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary/15 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/25'
                   : 'inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50',
               },
               isRecording
@@ -1392,7 +1571,7 @@ export default {
       }
     }
 
-    // 3. Floating Live Caption & Preview HUD in DOM when recording / previewing
+    // 3. Compact Translucent Frosted Glass Capsule HUD in DOM
     let hudRoot = null;
     const renderDomHud = (snap) => {
       if (typeof document === 'undefined' || !document.body) return;
@@ -1411,60 +1590,130 @@ export default {
         return;
       }
 
+      const accentColor = 'var(--color-accent, hsl(var(--primary)))';
+
       if (!hudRoot) {
         hudRoot = document.createElement('div');
         hudRoot.setAttribute('data-vibex-voice-hud', 'true');
-        hudRoot.style.cssText =
-          'position:fixed;left:50%;bottom:72px;transform:translateX(-50%);z-index:2147483000;min-width:280px;max-width:560px;padding:10px 16px;border-radius:999px;background:var(--surface-popover,rgba(24,24,27,0.94));color:var(--text-strong,#fafafa);border:1px solid rgba(255,255,255,0.14);box-shadow:0 12px 32px rgba(0,0,0,0.28);display:flex;align-items:center;gap:12px;font-size:13px;backdrop-filter:blur(10px);';
+        hudRoot.style.cssText = [
+          'position:fixed',
+          'left:50%',
+          'bottom:72px',
+          'transform:translateX(-50%)',
+          'z-index:2147483000',
+          'height:34px',
+          'padding:0 8px',
+          'border-radius:999px',
+          'background:color-mix(in srgb, var(--surface-popover, rgba(24,24,27,0.72)) 68%, transparent)',
+          'color:var(--text-strong, #fafafa)',
+          'border:1px solid color-mix(in srgb, var(--color-accent, hsl(var(--primary))) 28%, rgba(255,255,255,0.16))',
+          'box-shadow:0 8px 24px rgba(0,0,0,0.22)',
+          'display:inline-flex',
+          'align-items:center',
+          'justify-content:center',
+          'gap:8px',
+          'backdrop-filter:blur(16px) saturate(160%)',
+          '-webkit-backdrop-filter:blur(16px) saturate(160%)',
+          'user-select:none',
+        ].join(';');
         document.body.appendChild(hudRoot);
       }
 
       hudRoot.innerHTML = '';
-      if (snap.state === 'recording') {
-        const dot = document.createElement('span');
-        dot.style.cssText =
-          'width:10px;height:10px;border-radius:999px;background:#ef4444;flex-shrink:0;';
-        const text = document.createElement('span');
-        text.style.cssText =
-          'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        text.textContent =
-          snap.liveTranscript || `正在聆听 (${snap.durationLabel}) · 按 ${snap.config.shortcut} 结束`;
-        const stopBtn = document.createElement('button');
-        stopBtn.type = 'button';
-        stopBtn.textContent = '完成';
-        stopBtn.style.cssText =
-          'padding:3px 10px;border-radius:999px;background:#ef4444;color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:500;';
-        stopBtn.onclick = () => void controller.stopRecording();
-        hudRoot.append(dot, text, stopBtn);
-      } else if (snap.state === 'transcribing') {
-        const label = document.createElement('span');
-        label.textContent = '正在通过 AI 转写并清理口水词…';
-        hudRoot.append(label);
-      } else if (snap.state === 'preview' && snap.previewDraft) {
-        const text = document.createElement('span');
-        text.style.cssText =
-          'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        text.textContent = snap.previewDraft.cleanedText;
-        const insertBtn = document.createElement('button');
-        insertBtn.type = 'button';
-        insertBtn.textContent = '插入润色';
-        insertBtn.style.cssText =
-          'padding:3px 10px;border-radius:999px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:12px;';
-        insertBtn.onclick = () => void controller.commitPreview(false);
-        const rawBtn = document.createElement('button');
-        rawBtn.type = 'button';
-        rawBtn.textContent = '插入原文';
-        rawBtn.style.cssText =
-          'padding:3px 10px;border-radius:999px;background:rgba(255,255,255,0.12);color:inherit;border:none;cursor:pointer;font-size:12px;';
-        rawBtn.onclick = () => void controller.commitPreview(true);
-        const cancelBtn = document.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.textContent = '取消';
-        cancelBtn.style.cssText =
-          'padding:3px 8px;border-radius:999px;background:transparent;color:inherit;border:none;cursor:pointer;font-size:12px;opacity:0.75;';
-        cancelBtn.onclick = () => controller.cancelPreview();
-        hudRoot.append(text, insertBtn, rawBtn, cancelBtn);
-      }
+
+      // Left button: X (Cancel)
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.setAttribute('aria-label', '取消语音输入');
+      cancelBtn.setAttribute('data-testid', 'voice-hud-cancel');
+      cancelBtn.style.cssText = [
+        'width:22px',
+        'height:22px',
+        'border-radius:999px',
+        'border:none',
+        'background:rgba(255,255,255,0.08)',
+        'color:var(--text-muted, rgba(255,255,255,0.75))',
+        'display:inline-flex',
+        'align-items:center',
+        'justify-content:center',
+        'cursor:pointer',
+        'padding:0',
+        'flex-shrink:0',
+        'transition:background 0.15s ease, color 0.15s ease',
+      ].join(';');
+      cancelBtn.innerHTML =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+      cancelBtn.onclick = () => {
+        controller.cancelRecording();
+      };
+
+      // Middle: Audio waveform bars in user accent color
+      const waveContainer = document.createElement('div');
+      waveContainer.setAttribute('data-testid', 'voice-hud-waveform');
+      waveContainer.style.cssText = [
+        'display:inline-flex',
+        'align-items:center',
+        'justify-content:center',
+        'gap:2.5px',
+        'height:18px',
+        'padding:0 4px',
+      ].join(';');
+
+      const levels =
+        Array.isArray(snap.audioLevels) && snap.audioLevels.length > 0
+          ? snap.audioLevels
+          : [0.18, 0.28, 0.4, 0.55, 0.35, 0.25, 0.45, 0.3, 0.2, 0.16];
+      levels.forEach((lvl, idx) => {
+        const bar = document.createElement('span');
+        const effectiveLvl =
+          snap.state === 'transcribing'
+            ? 0.25 + 0.35 * Math.abs(Math.sin((Date.now() / 180) + idx * 0.6))
+            : snap.state === 'preview'
+              ? 0.45
+              : lvl;
+        const heightPx = Math.max(3, Math.min(16, Math.round(effectiveLvl * 16)));
+        bar.style.cssText = [
+          'width:2.5px',
+          `height:${heightPx}px`,
+          'border-radius:999px',
+          `background:${accentColor}`,
+          'transition:height 75ms ease',
+        ].join(';');
+        waveContainer.appendChild(bar);
+      });
+
+      // Right button: Checkmark (Confirm / Complete)
+      const confirmBtn = document.createElement('button');
+      confirmBtn.type = 'button';
+      confirmBtn.setAttribute('aria-label', '完成语音输入');
+      confirmBtn.setAttribute('data-testid', 'voice-hud-confirm');
+      confirmBtn.disabled = snap.state === 'transcribing';
+      confirmBtn.style.cssText = [
+        'width:22px',
+        'height:22px',
+        'border-radius:999px',
+        'border:none',
+        `background:${accentColor}`,
+        'color:var(--primary-foreground, #ffffff)',
+        'display:inline-flex',
+        'align-items:center',
+        'justify-content:center',
+        snap.state === 'transcribing' ? 'cursor:wait;opacity:0.6' : 'cursor:pointer',
+        'padding:0',
+        'flex-shrink:0',
+        'transition:opacity 0.15s ease, transform 0.15s ease',
+      ].join(';');
+      confirmBtn.innerHTML =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+      confirmBtn.onclick = () => {
+        if (snap.state === 'recording') {
+          void controller.stopRecording();
+        } else if (snap.state === 'preview') {
+          void controller.commitPreview(false);
+        }
+      };
+
+      hudRoot.append(cancelBtn, waveContainer, confirmBtn);
     };
 
     disposers.push(controller.subscribe(renderDomHud));

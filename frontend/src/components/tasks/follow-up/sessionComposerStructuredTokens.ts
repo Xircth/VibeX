@@ -299,11 +299,14 @@ function parseSpaceMemberMentionAt(
   if (members.length === 0) return null;
 
   const sorted = [...members]
-    .filter((m) => m.nickname.trim().length > 0)
-    .sort((a, b) => b.nickname.trim().length - a.nickname.trim().length);
+    .filter((m) => (m.nickname ?? '').trim().length > 0)
+    .sort(
+      (a, b) =>
+        (b.nickname ?? '').trim().length - (a.nickname ?? '').trim().length
+    );
 
   for (const member of sorted) {
-    const nick = member.nickname.trim();
+    const nick = (member.nickname ?? '').trim();
     const candidateEnd = start + 1 + nick.length;
     if (source.slice(start + 1, candidateEnd) !== nick) continue;
     const nextChar = source.charAt(candidateEnd);

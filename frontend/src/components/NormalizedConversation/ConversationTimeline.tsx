@@ -55,7 +55,11 @@ import { QuestionRequestCard } from '@/components/NormalizedConversation/convers
 import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
 import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import { isGoalToolUse } from '@/components/NormalizedConversation/tools/GoalToolCall';
-import { hasMatchingAskQuestionTool } from '@/components/NormalizedConversation/TurnActivity';
+import {
+  findMatchingAskQuestionTool,
+  hasMatchingAskQuestionTool,
+} from '@/components/NormalizedConversation/TurnActivity';
+import { mergeQuestionRequestWithToolUse } from '@/components/tasks/follow-up/agentQuestionModel';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import {
   appendChildConversationStack,
@@ -847,8 +851,15 @@ const AgentTimelineConversation = forwardRef<
     ) {
       return null;
     }
+    const matchedUse = findMatchingAskQuestionTool(
+      pendingQuestionRow.row.request,
+      timeline
+    );
     return {
-      request: pendingQuestionRow.row.request,
+      request: mergeQuestionRequestWithToolUse(
+        pendingQuestionRow.row.request,
+        matchedUse
+      ),
       responding:
         respondingQuestionId === pendingQuestionRow.row.request.question_id,
       onRespond: handleRespondQuestion,
@@ -857,6 +868,7 @@ const AgentTimelineConversation = forwardRef<
     handleRespondQuestion,
     pendingQuestionRow,
     respondingQuestionId,
+    timeline,
     usesComposerStatusDock,
   ]);
   const isEditorAreaVisible = useLayoutStore(

@@ -50,7 +50,7 @@ import { useSessionComposerInsert } from './useSessionComposerInsert';
 import { buildSessionComposerTriggers } from './SessionComposerTriggers';
 
 export function SessionComposerInput({
-  value,
+  value: rawValue,
   disabled = false,
   className,
   placeholder = '',
@@ -65,6 +65,7 @@ export function SessionComposerInput({
   onSubmit,
   onAttachImages,
 }: SessionComposerInputProps) {
+  const value = rawValue ?? '';
   const { t } = useTranslation('tasks');
   useBasicGuideHelloSeed(value, onChange);
   const sendShortcut =

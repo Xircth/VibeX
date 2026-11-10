@@ -1,3 +1,7 @@
+import { execFile } from 'node:child_process';
+import { unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
@@ -422,6 +426,96 @@ export function buildCleanupChatRequest({
   };
 }
 
+export async function transcribeWithNativeOsSpeech(
+  wavBase64,
+  language = 'auto',
+  signal = undefined,
+) {
+  const bytes = decodeAudioPayload(wavBase64);
+  if (bytes.length < 44) return '';
+  if (typeof process === 'undefined' || process.platform !== 'win32') {
+    return '';
+  }
+
+  const tempWavPath = join(
+    tmpdir(),
+    `vibex-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
+  );
+  try {
+    await writeFile(tempWavPath, bytes);
+    const bcp47 = resolveBcp47Language(language);
+    const psScript = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Speech
+$wavPath = $env:VIBEX_VOICE_WAV_PATH
+$cultureName = $env:VIBEX_VOICE_CULTURE
+$recognizers = [System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()
+if (-not $recognizers -or $recognizers.Count -eq 0) { exit 0 }
+$selected = $recognizers | Where-Object { $_.Culture.Name -eq $cultureName } | Select-Object -First 1
+if (-not $selected) {
+  $langPrefix = ($cultureName -split '-')[0]
+  $selected = $recognizers | Where-Object { $_.Culture.TwoLetterISOLanguageName -eq $langPrefix } | Select-Object -First 1
+}
+if (-not $selected) { $selected = $recognizers | Select-Object -First 1 }
+$engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine($selected.Id)
+$engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+$engine.SetInputToWaveFile($wavPath)
+$segments = New-Object System.Collections.Generic.List[string]
+for ($i = 0; $i -lt 30; $i++) {
+  try {
+    $res = $engine.Recognize()
+    if ($null -eq $res) { break }
+    if (-not [string]::IsNullOrWhiteSpace($res.Text)) {
+      $segments.Add($res.Text.Trim())
+    }
+  } catch {
+    break
+  }
+}
+$engine.Dispose()
+Write-Output ($segments -join ' ')
+`;
+    const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
+    const output = await new Promise((resolve) => {
+      execFile(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-EncodedCommand',
+          encodedCommand,
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 12000,
+          windowsHide: true,
+          signal,
+          env: {
+            ...process.env,
+            VIBEX_VOICE_WAV_PATH: tempWavPath,
+            VIBEX_VOICE_CULTURE: bcp47,
+          },
+        },
+        (err, stdout) => {
+          if (err) {
+            resolve('');
+            return;
+          }
+          resolve(String(stdout || '').trim());
+        },
+      );
+    });
+    return output;
+  } catch {
+    return '';
+  } finally {
+    await unlink(tempWavPath).catch(() => {});
+  }
+}
+
 export class VoiceInputEngine {
   constructor(options = {}) {
     this.config = {
@@ -429,6 +523,8 @@ export class VoiceInputEngine {
       ...(options.config && typeof options.config === 'object' ? options.config : {}),
     };
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
+    this.nativeOsTranscribeImpl =
+      options.nativeOsTranscribeImpl || transcribeWithNativeOsSpeech;
     this.activeControllers = new Map();
     this.history = [];
     this.metrics = {
@@ -642,6 +738,9 @@ export class VoiceInputEngine {
       const protocol = effectiveConfig.providerProtocol || 'hybrid';
       const apiKey = this.resolveEffectiveApiKey(effectiveConfig);
       const audioBase64 = String(params.audioBase64 || '').trim();
+      const wavBase64 = String(
+        params.wavBase64 || (params.mimeType === 'audio/wav' ? audioBase64 : ''),
+      ).trim();
       const mimeType = String(params.mimeType || 'audio/webm').trim();
       const liveTranscript = String(
         params.liveTranscript ?? params.rawText ?? params.text ?? '',
@@ -662,8 +761,8 @@ export class VoiceInputEngine {
             baseUrl: effectiveConfig.baseUrl,
             apiKey,
             model: effectiveConfig.model || 'gpt-4o-audio-preview',
-            audioBase64,
-            mimeType,
+            audioBase64: wavBase64 || audioBase64,
+            mimeType: wavBase64 ? 'audio/wav' : mimeType,
             language: effectiveConfig.language,
             vocabulary: effectiveConfig.vocabulary,
             cleanupMode: effectiveConfig.cleanupMode,
@@ -724,6 +823,23 @@ export class VoiceInputEngine {
         rawTranscript = liveTranscript;
         providerUsed =
           protocol === 'hybrid' ? 'hybrid-browser-speech' : 'browser-speech';
+
+        if (
+          !rawTranscript &&
+          wavBase64 &&
+          typeof this.nativeOsTranscribeImpl === 'function'
+        ) {
+          const osTranscript = await this.nativeOsTranscribeImpl(
+            wavBase64,
+            effectiveConfig.language,
+            controller.signal,
+          );
+          if (osTranscript) {
+            rawTranscript = osTranscript;
+            providerUsed =
+              protocol === 'hybrid' ? 'hybrid-os-speech' : 'os-speech';
+          }
+        }
       }
 
       const cleanupResult = await this.cleanup({

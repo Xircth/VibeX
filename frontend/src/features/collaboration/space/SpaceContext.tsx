@@ -80,6 +80,17 @@ export function useCollaborationSpace(): CollaborationSpaceRuntime {
   );
 }
 
+const RENDER_CLOSURE_KEYS = new Set<keyof CollaborationSpaceRuntime>([
+  'renderChatEntry',
+  'renderChatMeta',
+  'renderDirectChatRow',
+  'renderMemberRow',
+  'renderMessageAreaOverlay',
+  'renderSectionEntry',
+  'renderSpaceGroup',
+  'renderSupervisorSlot',
+]);
+
 export function useCollaborationSpacePick<
   K extends keyof CollaborationSpaceRuntime,
 >(keys: readonly K[]): Pick<CollaborationSpaceRuntime, K> {
@@ -96,6 +107,9 @@ export function useCollaborationSpacePick<
       let unchanged = true;
       for (let i = 0; i < currentKeys.length; i += 1) {
         const key = currentKeys[i]!;
+        if (RENDER_CLOSURE_KEYS.has(key)) {
+          continue;
+        }
         if (!Object.is(prev[key], runtime[key])) {
           unchanged = false;
           break;
@@ -108,7 +122,15 @@ export function useCollaborationSpacePick<
     const next = {} as Pick<CollaborationSpaceRuntime, K>;
     for (let i = 0; i < currentKeys.length; i += 1) {
       const key = currentKeys[i]!;
-      next[key] = runtime[key];
+      const val = runtime[key];
+      if (RENDER_CLOSURE_KEYS.has(key) && typeof val === 'function') {
+        next[key] = ((...args: unknown[]) =>
+          (val as (...a: unknown[]) => unknown)(
+            ...args
+          )) as CollaborationSpaceRuntime[K];
+      } else {
+        next[key] = val;
+      }
     }
     cacheRef.current = next;
     return next;

@@ -750,8 +750,19 @@ pub async fn post_direct_message_with(
         {
             return Err(operation_conflict());
         }
+        store_operation(
+            pool,
+            &message_id,
+            Some(&input.thread_id),
+            &request,
+            &json!({ "message_id": message_id }),
+        )
+        .await?;
         let result = deliver_pending(pool, &input.thread_id, &message_id, turn_delivery).await?;
         return Ok((result, workspace_id, member));
+    }
+    if load_stored_operation(pool, &message_id).await?.is_some() {
+        return Err(operation_conflict());
     }
     let summary = input
         .summary

@@ -32,14 +32,17 @@ function renderToolbar(
 }
 
 describe('WorkspaceSessionListToolbar', () => {
-  it('renders action buttons without a session list title', () => {
-    renderToolbar();
+  it('renders right-aligned action buttons with a bottom divider and without a session list title', () => {
+    const { container } = renderToolbar();
 
     expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
     expect(screen.queryByText('归档区')).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: '新建会话' })
-    ).toBeInTheDocument();
+    const root = container.firstElementChild;
+    expect(root).toHaveClass('border-b', 'border-border/60');
+
+    const newSessionButton = screen.getByRole('button', { name: '新建会话' });
+    expect(newSessionButton).toBeInTheDocument();
+    expect(newSessionButton.parentElement).toHaveClass('justify-end');
     expect(
       screen.getByRole('button', { name: '打开归档区' })
     ).toBeInTheDocument();

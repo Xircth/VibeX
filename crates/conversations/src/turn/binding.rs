@@ -411,7 +411,11 @@ impl ConversationSessionService {
             .await?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = working_dir_override
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(|path| {
+                utils::path::normalize_windows_extended_path_prefix(path)
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .or_else(|| {
                 self.ctx
                     .host

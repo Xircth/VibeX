@@ -217,6 +217,15 @@ impl AcpClientBridge {
                     tool_call.raw_input.as_ref(),
                     tool_call.raw_output.as_ref(),
                 );
+                if let Some(session_id) = session_id {
+                    self.note_in_flight_question_tool_input(
+                        session_id,
+                        Some(peeled.title.as_str()),
+                        peeled.raw_input.as_ref().or(tool_call.raw_input.as_ref()),
+                        status.as_deref(),
+                    )
+                    .await;
+                }
                 let input_preview = if peeled.peeled_input {
                     json_preview(peeled.raw_input.as_ref())
                 } else {
@@ -292,6 +301,18 @@ impl AcpClientBridge {
                     update.fields.raw_input.as_ref(),
                     update.fields.raw_output.as_ref(),
                 );
+                if let Some(session_id) = session_id {
+                    self.note_in_flight_question_tool_input(
+                        session_id,
+                        Some(peeled.title.as_str()).or(update.fields.title.as_deref()),
+                        peeled
+                            .raw_input
+                            .as_ref()
+                            .or(update.fields.raw_input.as_ref()),
+                        status.as_deref(),
+                    )
+                    .await;
+                }
                 let input_preview = if peeled.peeled_input {
                     json_preview(peeled.raw_input.as_ref())
                 } else {
@@ -579,4 +600,65 @@ impl AcpClientBridge {
         }
         Ok(())
     }
+
+    async fn note_in_flight_question_tool_input(
+        &self,
+        session_id: AgentSessionId,
+        title: Option<&str>,
+        raw_input: Option<&serde_json::Value>,
+        status: Option<&str>,
+    ) {
+        if matches!(status, Some("completed" | "failed" | "cancelled")) {
+            return;
+        }
+        let Some(raw_input) = raw_input else {
+            return;
+        };
+        if extract_question_items_from_tool_input(raw_input).is_some()
+            || title.is_some_and(is_question_tool_title)
+        {
+            self.session_controls
+                .write()
+                .await
+                .entry(session_id)
+                .or_default()
+                .in_flight_question_input = Some(raw_input.clone());
+        }
+    }
+}
+
+pub(in crate::manager) fn is_question_tool_title(title: &str) -> bool {
+    let lower = title.trim().to_ascii_lowercase();
+    lower == "ask_user_question"
+        || lower == "askuserquestion"
+        || lower == "ask_question"
+        || lower == "askquestion"
+        || lower == "request_user_input"
+        || lower.ends_with("_ask_user_question")
+        || lower.ends_with("/ask_user_question")
+        || lower.ends_with("_ask_question")
+        || lower.ends_with("/ask_question")
+}
+
+pub(in crate::manager) fn extract_question_items_from_tool_input(
+    value: &serde_json::Value,
+) -> Option<&Vec<serde_json::Value>> {
+    let mut current = value;
+    for _ in 0..4 {
+        let obj = current.as_object()?;
+        if let Some(questions) = obj
+            .get("questions")
+            .and_then(serde_json::Value::as_array)
+            .filter(|items| !items.is_empty())
+        {
+            return Some(questions);
+        }
+        current = obj
+            .get("arguments")
+            .or_else(|| obj.get("Arguments"))
+            .or_else(|| obj.get("tool_input"))
+            .or_else(|| obj.get("input"))
+            .or_else(|| obj.get("params"))?;
+    }
+    None
 }

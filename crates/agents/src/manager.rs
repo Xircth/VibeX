@@ -5135,6 +5135,177 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_prompt_completes_cleanly_when_antigravity_emits_websocket_1000_ok_after_output() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let session_id = AgentSessionId::new();
+        let prompt_id = AgentPromptId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("antigravity", event_tx.clone());
+        runner
+            .session_map
+            .write()
+            .await
+            .insert(session_id, "acp-agy-1000".to_string());
+        runner
+            .session_controls
+            .write()
+            .await
+            .insert(session_id, SessionControlState::default());
+        *runner.active_prompt.lock().await = Some((session_id, prompt_id));
+
+        let (client_to_agent, agent_from_client) = tokio::io::duplex(64 * 1024);
+        let (agent_to_client, client_from_agent) = tokio::io::duplex(64 * 1024);
+
+        let agent_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(agent_from_client);
+            let mut writer = agent_to_client;
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let req_id = req["id"].clone();
+
+            // 1. Stream visible output (e.g., background task launch notice).
+            let partial_chunk = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-agy-1000",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {
+                            "type": "text",
+                            "text": "task-20 has been launched in the background. I will wait for it to complete before proceeding."
+                        }
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{partial_chunk}\n").as_bytes())
+                .await
+                .unwrap();
+
+            // 2. Stream Antigravity's WebSocket 1000 (OK) close chunk on turn suspension.
+            let close_chunk = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-agy-1000",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {
+                            "type": "text",
+                            "text": "Agent connection was lost and could not be re-established: Failed to rebuild agent: received 1000 (OK); then sent 1000 (OK)"
+                        }
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{close_chunk}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            // 3. Complete prompt with StopReason::EndTurn.
+            let resp = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "stopReason": "end_turn"
+                }
+            });
+            writer
+                .write_all(format!("{resp}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+        });
+
+        let transport =
+            acp::ByteStreams::new(client_to_agent.compat_write(), client_from_agent.compat());
+        let bridge = AcpClientBridge::new(
+            runner.snapshot.connection_id,
+            runner.snapshot.agent_id.clone(),
+            event_tx,
+            Arc::clone(&runner.session_map),
+            Arc::clone(&runner.session_controls),
+            Arc::clone(&runner.pending_permissions),
+            Arc::clone(&runner.pending_elicitations),
+            Arc::clone(&runner.auto_approve_mode),
+            Arc::clone(&runner.stream_dedup),
+            Arc::clone(&runner.last_activity),
+            Arc::clone(&runner.grok_subagent),
+            Arc::clone(&runner.grok_mcp),
+            Arc::clone(&runner.pending_session_id),
+            runner.snapshot.working_dir.clone(),
+            runner.snapshot.env.clone(),
+            runner.clone(),
+        );
+        let runner_for_conn = runner.clone();
+        let outcome = acp::Client
+            .builder()
+            .name("VibeX")
+            .on_receive_notification(
+                async move |notification: AgentNotification, _cx| {
+                    bridge.handle_agent_notification(notification).await
+                },
+                acp::on_receive_notification!(),
+            )
+            .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
+                let (_cmd_tx, mut cmd_rx) = mpsc::channel(4);
+                let outcome = runner_for_conn
+                    .run_prompt(
+                        &conn,
+                        RunPromptRequest {
+                            acp_session_id: "acp-agy-1000".to_string(),
+                            session_id,
+                            prompt_id,
+                            blocks: vec![AgentContentBlock::Text {
+                                text: "run tests".to_string(),
+                            }],
+                            display_blocks: None,
+                            mode_override: None,
+                            config_overrides: Vec::new(),
+                        },
+                        &mut cmd_rx,
+                    )
+                    .await
+                    .expect("run_prompt should settle cleanly");
+                assert_eq!(outcome, RunPromptOutcome::Settled);
+                Ok(())
+            })
+            .await;
+        assert!(outcome.is_ok());
+        agent_task.await.unwrap();
+
+        let mut collected = Vec::new();
+        while let Ok(ev) = event_rx.try_recv() {
+            collected.push(ev.event);
+        }
+        assert!(
+            !collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::Error { .. })),
+            "graceful 1000 (OK) close after output must not emit AgentEvent::Error"
+        );
+        assert!(
+            collected.iter().any(|ev| matches!(
+                ev,
+                AgentEvent::RawAcpDiagnostic { raw }
+                    if raw.get("type").and_then(|v| v.as_str()) == Some("graceful_adapter_turn_close")
+            )),
+            "must emit RawAcpDiagnostic(graceful_adapter_turn_close)"
+        );
+        assert!(
+            collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::PromptFinished { .. })),
+            "must emit PromptFinished so the turn completes normally"
+        );
+    }
+
+    #[tokio::test]
     async fn omp_session_controls_advertise_yolo_mode_and_toggle_effective_auto_approve() {
         let session_id = AgentSessionId::new();
         let raw_modes = SessionModeState::new(
@@ -5218,4 +5389,235 @@ mod tests {
             AgentAutoApproveMode::Off
         );
     }
+
+    #[test]
+    fn incomplete_tool_call_formatting_and_turn_failure_suppression_work() {
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        let raw_msg = "Internal error: Claude ended the turn without returning results for tool calls: tooluse_mygBCfuc2U8iANHpNMfmRK, tooluse_uGitQMhAOQezabRxhXRUqs, tooluse_Um59yWcVD5YOaWgUGIbzkH, tooluse_qKfD5DJrnLyIHn0z2Ve5g7, tooluse_uBuqsoJLwmtTQYSL36fnOc";
+        let rpc_err = acp::Error::new(-32603, raw_msg).data(serde_json::json!({
+            "errorKind": "incomplete_tool_call"
+        }));
+
+        let formatted = format_acp_prompt_error(&rpc_err, &tail, mark);
+        assert_eq!(formatted.code.as_deref(), Some("incomplete_tool_call"));
+        assert!(
+            !formatted.message.contains("errorKind"),
+            "must not dump raw JSON errorKind into user-facing message: {}",
+            formatted.message
+        );
+        assert!(
+            formatted.message.contains("5 tool calls:"),
+            "must summarize large tool call id lists concisely: {}",
+            formatted.message
+        );
+
+        let mut response_meta = serde_json::Map::new();
+        response_meta.insert(
+            "jetbrains.air".to_string(),
+            serde_json::json!({
+                "sessionFailure": {
+                    "kind": "internal_error",
+                    "title": raw_msg,
+                    "message": raw_msg
+                }
+            }),
+        );
+        let response = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::EndTurn)
+            .meta(response_meta);
+
+        // When the turn already rendered output (e.g. tool calls closed by closeUnfinished),
+        // incomplete_tool_call must not fail the whole turn.
+        let rendered_probe = TurnOutputProbe::default();
+        rendered_probe.note_rendered();
+        assert!(
+            turn_failure_error_event(&response, &rendered_probe, &tail, mark).is_none(),
+            "incomplete_tool_call after rendered output must not emit a fatal TurnFailed error"
+        );
+
+        // When the turn had zero output at all, it still surfaces turn_failed_empty.
+        let empty_probe = TurnOutputProbe::default();
+        let empty_err = turn_failure_error_event(&response, &empty_probe, &tail, mark)
+            .expect("empty turn with incomplete_tool_call must surface turn_failed_empty");
+        assert_eq!(empty_err.code.as_deref(), Some("turn_failed_empty"));
+        assert!(empty_err.message.contains("5 tool calls:"));
+    }
+
+    #[tokio::test]
+    async fn run_prompt_settles_cleanly_on_incomplete_tool_call_error_after_output() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let session_id = AgentSessionId::new();
+        let prompt_id = AgentPromptId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner_for_agent("claude_code", event_tx.clone());
+        runner
+            .session_map
+            .write()
+            .await
+            .insert(session_id, "acp-claude-live".to_string());
+        runner
+            .session_controls
+            .write()
+            .await
+            .insert(session_id, SessionControlState::default());
+        *runner.active_prompt.lock().await = Some((session_id, prompt_id));
+
+        let (client_to_agent, agent_from_client) = tokio::io::duplex(64 * 1024);
+        let (agent_to_client, client_from_agent) = tokio::io::duplex(64 * 1024);
+
+        let agent_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(agent_from_client);
+            let mut writer = agent_to_client;
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let req_id = req["id"].clone();
+
+            // 1. Stream a tool_call and its closeUnfinished(failed) update, plus assistant text.
+            let tool_call = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-claude-live",
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "tooluse_mygBCfuc2U8iANHpNMfmRK",
+                        "title": "Read file",
+                        "kind": "read",
+                        "status": "in_progress"
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{tool_call}\n").as_bytes())
+                .await
+                .unwrap();
+
+            let tool_update = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "acp-claude-live",
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "tooluse_mygBCfuc2U8iANHpNMfmRK",
+                        "status": "failed",
+                        "content": [{
+                            "type": "content",
+                            "content": {
+                                "type": "text",
+                                "text": "Claude ended the turn without returning a result for this tool."
+                            }
+                        }]
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{tool_update}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            // 2. Return -32603 incomplete_tool_call error from claude-agent-acp.
+            let err_resp = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32603,
+                    "message": "Internal error: Claude ended the turn without returning results for tool calls: tooluse_mygBCfuc2U8iANHpNMfmRK",
+                    "data": {
+                        "errorKind": "incomplete_tool_call"
+                    }
+                }
+            });
+            writer
+                .write_all(format!("{err_resp}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+        });
+
+        let transport =
+            acp::ByteStreams::new(client_to_agent.compat_write(), client_from_agent.compat());
+        let bridge = AcpClientBridge::new(
+            runner.snapshot.connection_id,
+            runner.snapshot.agent_id.clone(),
+            event_tx,
+            Arc::clone(&runner.session_map),
+            Arc::clone(&runner.session_controls),
+            Arc::clone(&runner.pending_permissions),
+            Arc::clone(&runner.pending_elicitations),
+            Arc::clone(&runner.auto_approve_mode),
+            Arc::clone(&runner.stream_dedup),
+            Arc::clone(&runner.last_activity),
+            Arc::clone(&runner.grok_subagent),
+            Arc::clone(&runner.grok_mcp),
+            Arc::clone(&runner.pending_session_id),
+            runner.snapshot.working_dir.clone(),
+            runner.snapshot.env.clone(),
+            runner.clone(),
+        );
+        let runner_for_conn = runner.clone();
+        let outcome = acp::Client
+            .builder()
+            .name("VibeX")
+            .on_receive_notification(
+                async move |notification: AgentNotification, _cx| {
+                    bridge.handle_agent_notification(notification).await
+                },
+                acp::on_receive_notification!(),
+            )
+            .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
+                let (_cmd_tx, mut cmd_rx) = mpsc::channel(4);
+                let outcome = runner_for_conn
+                    .run_prompt(
+                        &conn,
+                        RunPromptRequest {
+                            acp_session_id: "acp-claude-live".to_string(),
+                            session_id,
+                            prompt_id,
+                            blocks: vec![AgentContentBlock::Text {
+                                text: "check files".to_string(),
+                            }],
+                            display_blocks: None,
+                            mode_override: None,
+                            config_overrides: Vec::new(),
+                        },
+                        &mut cmd_rx,
+                    )
+                    .await
+                    .expect("run_prompt should settle cleanly");
+                assert_eq!(outcome, RunPromptOutcome::Settled);
+                Ok(())
+            })
+            .await;
+        assert!(outcome.is_ok());
+        agent_task.await.unwrap();
+
+        let mut collected = Vec::new();
+        while let Ok(ev) = event_rx.try_recv() {
+            collected.push(ev.event);
+        }
+        assert!(
+            !collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::Error { .. })),
+            "must NOT emit AgentEvent::Error when incomplete_tool_call occurs after output; got {collected:?}"
+        );
+        assert!(
+            collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::RawAcpDiagnostic { .. })),
+            "must record RawAcpDiagnostic for observability"
+        );
+        assert!(
+            collected
+                .iter()
+                .any(|ev| matches!(ev, AgentEvent::PromptFinished { .. })),
+            "must emit PromptFinished so the turn settles cleanly"
+        );
+    }
 }
+

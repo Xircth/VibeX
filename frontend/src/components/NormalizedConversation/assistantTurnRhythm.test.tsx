@@ -55,9 +55,7 @@ describe('assistant turn vertical rhythm', () => {
     const toolCalls = container.querySelector('.astryx-chat-tool-calls');
 
     expect(getComputedStyle(header as Element).fontSize).toBe('13px');
-    expect(getComputedStyle(header as Element).fontSize).toBe(
-      getComputedStyle(markdown as Element).fontSize
-    );
+    expect(getComputedStyle(markdown as Element).fontSize).toBe('14px');
     expect(getComputedStyle(body as Element).gap).toBe('10px');
     expect(getComputedStyle(thinking as Element).paddingTop).toBe('0px');
     expect(getComputedStyle(thinking as Element).paddingBottom).toBe('0px');
@@ -217,6 +215,44 @@ describe('assistant turn vertical rhythm', () => {
       '-4px'
     );
     expect(getComputedStyle(expandedInner as Element).overflow).toBe('visible');
+  });
+
+  it('maintains an 8px vertical rhythm across headings, blockquotes, and paragraphs inside Astryx document wrapper', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{conversationStyles}</style>
+        <div className="conv-markdown">
+          <div role="document" className="astryx-markdown">
+            <h2 className="astryx-markdown-heading">Section</h2>
+            <h3 className="astryx-markdown-heading">Question 1</h3>
+            <blockquote className="astryx-blockquote astryx-markdown-blockquote">
+              <div role="paragraph" className="astryx-markdown-paragraph">
+                Quote paragraph 1
+              </div>
+              <div role="paragraph" className="astryx-markdown-paragraph">
+                Quote paragraph 2
+              </div>
+            </blockquote>
+            <h3 className="astryx-markdown-heading">Question 2</h3>
+          </div>
+        </div>
+      </div>
+    );
+
+    const h2 = container.querySelector('h2') as Element;
+    const [q1, q2] = container.querySelectorAll('h3');
+    const blockquote = container.querySelector('blockquote') as Element;
+    const [quoteP1, quoteP2] = blockquote.querySelectorAll('[role="paragraph"]');
+
+    expect(getComputedStyle(h2).marginTop).toBe('0px');
+    expect(getComputedStyle(h2).marginBottom).toBe('0px');
+    expect(getComputedStyle(q1).marginTop).toBe('8px');
+    expect(getComputedStyle(q1).marginBottom).toBe('0px');
+    expect(getComputedStyle(blockquote).marginTop).toBe('8px');
+    expect(getComputedStyle(blockquote).marginBottom).toBe('0px');
+    expect(getComputedStyle(quoteP1).marginTop).toBe('0px');
+    expect(getComputedStyle(quoteP2).marginTop).toBe('8px');
+    expect(getComputedStyle(q2).marginTop).toBe('8px');
   });
 });
 

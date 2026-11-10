@@ -113,8 +113,8 @@ import {
 type SessionStatusKey = ActiveSessionStatus;
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 
-function isMainlineBranch(branch: string) {
-  const normalized = branch.trim().toLowerCase();
+function isMainlineBranch(branch: string | null | undefined) {
+  const normalized = (branch ?? '').trim().toLowerCase();
   return (
     MAINLINE_BRANCH_NAMES.has(normalized) ||
     normalized.endsWith('/main') ||
@@ -122,8 +122,11 @@ function isMainlineBranch(branch: string) {
   );
 }
 
-function matchesBranch(branch: string, expectedBranch: string) {
-  const normalized = branch.trim().toLowerCase();
+function matchesBranch(
+  branch: string | null | undefined,
+  expectedBranch: string
+) {
+  const normalized = (branch ?? '').trim().toLowerCase();
   return (
     normalized === expectedBranch || normalized.endsWith(`/${expectedBranch}`)
   );
@@ -133,10 +136,11 @@ function resolveRestoredSessionName(
   session: KanbanProjectSessionRecord,
   activeSessions: KanbanProjectSessionRecord[]
 ) {
-  const baseName = session.fullName.trim() || session.name?.trim() || 'session';
+  const baseName =
+    (session.fullName ?? '').trim() || (session.name ?? '').trim() || 'session';
   const activeNames = new Set(
     activeSessions
-      .map((candidate) => candidate.fullName.trim())
+      .map((candidate) => (candidate.fullName ?? '').trim())
       .filter((name) => name.length > 0)
   );
 

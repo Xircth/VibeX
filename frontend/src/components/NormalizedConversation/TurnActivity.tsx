@@ -1162,19 +1162,42 @@ export function doesToolUseMatchQuestionRequest(
   ) {
     return true;
   }
-  const title = firstQuestionTitle(
-    questionTabsFromRequest(questionRequestFromToolUse(use))
+  const useTabs = questionTabsFromRequest(questionRequestFromToolUse(use));
+  const isCustomQuestionId = (id: string) =>
+    Boolean(id) && id !== 'answer' && !/^question-\d+$/.test(id);
+  const useIds = new Set(
+    useTabs.map((question) => question.id).filter(isCustomQuestionId)
   );
-  if (!title) return false;
+  if (
+    useIds.size > 0 &&
+    requestTabs.some(
+      (question) =>
+        useIds.has(question.id) ||
+        (question.fieldName ? useIds.has(question.fieldName) : false)
+    )
+  ) {
+    return true;
+  }
+  const title = firstQuestionTitle(useTabs);
+  const firstHeader = useTabs[0]?.header?.trim() ?? '';
+  if (!title && !firstHeader) return false;
   const prompt = request.prompt;
-  const headers = requestTabs.map((question) => question.question);
-  return prompt.includes(title) || headers.includes(title);
+  const requestTexts = requestTabs.flatMap((question) => [
+    question.question,
+    question.header,
+  ]);
+  return Boolean(
+    (title && (prompt.includes(title) || requestTexts.includes(title))) ||
+      (firstHeader &&
+        !isQuestionToolName(firstHeader) &&
+        requestTexts.includes(firstHeader))
+  );
 }
 
-export function hasMatchingAskQuestionTool(
+export function findMatchingAskQuestionTool(
   request: ConversationQuestionRequest,
   turns: readonly { turn: MessageTurn }[]
-): boolean {
+): ToolUseBlock | null {
   const askToolUses: ToolUseBlock[] = [];
   for (const { turn } of turns) {
     if (turn.role !== 'assistant') continue;
@@ -1184,18 +1207,28 @@ export function hasMatchingAskQuestionTool(
       }
     }
   }
-  if (askToolUses.length === 0) return false;
-  if (
-    askToolUses.some((use) => doesToolUseMatchQuestionRequest(use, request))
-  ) {
-    return true;
-  }
-  return askToolUses.some(
-    (use) =>
-      !firstQuestionTitle(
-        questionTabsFromRequest(questionRequestFromToolUse(use))
-      )
+  if (askToolUses.length === 0) return null;
+  const exact = [...askToolUses]
+    .reverse()
+    .find((use) => doesToolUseMatchQuestionRequest(use, request));
+  if (exact) return exact;
+  return (
+    [...askToolUses]
+      .reverse()
+      .find(
+        (use) =>
+          !firstQuestionTitle(
+            questionTabsFromRequest(questionRequestFromToolUse(use))
+          )
+      ) ?? null
   );
+}
+
+export function hasMatchingAskQuestionTool(
+  request: ConversationQuestionRequest,
+  turns: readonly { turn: MessageTurn }[]
+): boolean {
+  return findMatchingAskQuestionTool(request, turns) !== null;
 }
 
 function matchTimelineQuestion(

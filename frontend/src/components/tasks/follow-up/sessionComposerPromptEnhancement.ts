@@ -30,10 +30,10 @@ export function getPromptEnhancementClickAction({
   draftPrompt,
 }: {
   isEnhancingPrompt: boolean;
-  draftPrompt: string;
+  draftPrompt: string | null | undefined;
 }): PromptEnhancementClickAction {
   if (isEnhancingPrompt) return 'cancel';
-  if (draftPrompt.trim()) return 'start';
+  if ((draftPrompt ?? '').trim()) return 'start';
   return 'ignore';
 }
 
@@ -42,9 +42,9 @@ export function canEnhancePrompt({
   draftPrompt,
 }: {
   canTypeFollowUp: boolean;
-  draftPrompt: string;
+  draftPrompt: string | null | undefined;
 }): boolean {
-  return canTypeFollowUp && Boolean(draftPrompt.trim());
+  return canTypeFollowUp && Boolean((draftPrompt ?? '').trim());
 }
 
 export function isPromptEnhancementCancelledError(error: unknown): boolean {

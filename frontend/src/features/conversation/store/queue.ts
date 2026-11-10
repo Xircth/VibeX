@@ -325,6 +325,18 @@ export function windowBlocksCoverLiveBlocks(
   return true;
 }
 
+const STANDALONE_RESOURCE_LINK_PATTERN = /\[[^\]]*\]\(<file:\/\/[^>\n]+>\)/g;
+
+export function normalizePromptMatchText(text: string): string {
+  const withoutResourceLinks = text
+    .replace(STANDALONE_RESOURCE_LINK_PATTERN, '')
+    .trim();
+  if (!hasPotentialStructuredToken(withoutResourceLinks)) {
+    return withoutResourceLinks;
+  }
+  return serializeSessionComposerBackendMessage(withoutResourceLinks).trim();
+}
+
 export function promptsMatch(left: string, right: string): boolean {
   const leftTrimmed = left.trim();
   const rightTrimmed = right.trim();
@@ -336,8 +348,8 @@ export function promptsMatch(left: string, right: string): boolean {
     return false;
   }
   return (
-    serializeSessionComposerBackendMessage(leftTrimmed).trim() ===
-    serializeSessionComposerBackendMessage(rightTrimmed).trim()
+    normalizePromptMatchText(leftTrimmed) ===
+    normalizePromptMatchText(rightTrimmed)
   );
 }
 
@@ -1055,18 +1067,13 @@ export function reconcileOptimisticTurnAgainstUserRow(
   );
 
   if (optimisticIndex < 0) {
-    const authoritativeBackendText = hasPotentialStructuredToken(
-      authoritativeText
-    )
-      ? serializeSessionComposerBackendMessage(authoritativeText).trim()
-      : authoritativeText.trim();
-    optimisticIndex = optimisticTurns.findIndex((turn) => {
-      const candidateText = userTurnText(turn);
-      const candidateBackendText = hasPotentialStructuredToken(candidateText)
-        ? serializeSessionComposerBackendMessage(candidateText).trim()
-        : candidateText.trim();
-      return candidateBackendText === authoritativeBackendText;
-    });
+    const authoritativeBackendText =
+      normalizePromptMatchText(authoritativeText);
+    optimisticIndex = optimisticTurns.findIndex(
+      (turn) =>
+        normalizePromptMatchText(userTurnText(turn)) ===
+        authoritativeBackendText
+    );
   }
 
   if (optimisticIndex < 0) return { row, optimisticTurns };
@@ -1154,7 +1161,7 @@ export function dropSeededInitialPrompt(
       row.row_id !== seedId &&
       row.row.kind === 'message_turn' &&
       row.row.turn.role === 'user' &&
-      userTurnText(row.row.turn) === seedText
+      promptsMatch(userTurnText(row.row.turn), seedText)
   );
   if (!duplicated) return rows;
   return rows.filter((row) => row.row_id !== seedId);

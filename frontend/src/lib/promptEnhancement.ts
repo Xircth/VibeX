@@ -39,7 +39,7 @@ function summarizeToolEntry(entry: PatchTypeWithKey): string | null {
     parts.push(`Status: ${entryType.status.status}`);
   }
 
-  const content = entry.content.content.trim();
+  const content = (entry.content.content ?? '').trim();
   if (content) {
     parts.push(`Note: ${truncateText(content, TOOL_CONTENT_CHAR_LIMIT)}`);
   }
@@ -53,7 +53,7 @@ function toContextMessage(
   if (entry.type !== 'NORMALIZED_ENTRY') return null;
 
   const { entry_type: entryType, content, timestamp } = entry.content;
-  const trimmedContent = content.trim();
+  const trimmedContent = (content ?? '').trim();
 
   switch (entryType.type) {
     case 'user_message':

@@ -40,12 +40,13 @@ export interface WorkspaceSessionGroup {
 export function workspaceGroupLabel(
   session: KanbanProjectSessionRecord
 ): string {
+  const named = (session.workspaceName ?? '').trim();
+  const branch = (session.branch ?? '').trim();
   if (session.workspace.use_worktree) {
-    const named = session.workspaceName.trim();
-    return named || session.branch;
+    return named || branch;
   }
 
-  return session.branch || session.workspaceName;
+  return branch || named;
 }
 
 export function groupWorkspaceSessions(

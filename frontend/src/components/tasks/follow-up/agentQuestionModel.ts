@@ -91,7 +91,13 @@ export function questionTabsFromRequest(
     const parsed = vibexQuestions.flatMap((rawQuestion, index) => {
       const question = asObject(rawQuestion);
       if (!question) return [];
-      const choices = parseObjectChoices(question.options);
+      const explicitChoices = parseObjectChoices(question.options);
+      const choices =
+        explicitChoices.length > 0
+          ? explicitChoices
+          : vibexQuestions.length === 1 && request.options.length > 0
+            ? request.options.map((label) => choiceFromLabel(label, label, ''))
+            : [];
       const prompt = readString(question.question) || `Question ${index + 1}`;
       const id = readString(question.id) || `question-${index + 1}`;
       const fieldName = readString(question.fieldName) || null;
@@ -121,9 +127,18 @@ export function questionTabsFromRequest(
   const properties = asObject(root?.properties);
   if (properties && Object.keys(properties).length > 0) {
     const companions = customAnswerCompanions(properties, root?.required);
-    const names = Object.keys(properties).filter(
+    const propertyNames = Object.keys(properties).filter(
       (name) => !companions.has(name)
     );
+    const requiredOrder = stringList(root?.required).filter(
+      (name) =>
+        Object.prototype.hasOwnProperty.call(properties, name) &&
+        !companions.has(name)
+    );
+    const names =
+      requiredOrder.length === propertyNames.length && requiredOrder.length > 1
+        ? requiredOrder
+        : propertyNames;
     const companionByQuestion = new Map(
       [...companions].map(([companion, question]) => [question, companion])
     );
@@ -259,6 +274,133 @@ export function questionRequestFromToolUse(
       parsedQuestions.length > 0
         ? { type: 'object', 'x-vibex-questions': parsedQuestions }
         : null,
+  };
+}
+
+export function mergeQuestionRequestWithToolUse(
+  request: ConversationQuestionRequest,
+  use?: ToolUseBlock | null
+): ConversationQuestionRequest {
+  if (!use) return request;
+  const fromUse = questionRequestFromToolUse(use);
+  const useRoot = asObject(fromUse.schema);
+  const rawUseQuestions = useRoot?.['x-vibex-questions'];
+  if (!Array.isArray(rawUseQuestions) || rawUseQuestions.length === 0) {
+    return request;
+  }
+  const useQuestions = rawUseQuestions
+    .map((item) => asObject(item))
+    .filter((item): item is Record<string, unknown> => item !== null);
+  if (useQuestions.length === 0) return request;
+
+  const root = asObject(request.schema);
+  const properties = asObject(root?.properties);
+  if (root && properties && Object.keys(properties).length > 0) {
+    const companions = customAnswerCompanions(properties, root.required);
+    const existingRequired = stringList(root.required).filter(
+      (name) =>
+        Object.prototype.hasOwnProperty.call(properties, name) &&
+        !companions.has(name)
+    );
+    const useIdOrder = useQuestions
+      .map((q) => readString(q.id))
+      .filter(
+        (id) =>
+          id &&
+          Object.prototype.hasOwnProperty.call(properties, id) &&
+          !companions.has(id)
+      );
+    const baseOrder =
+      existingRequired.length > 0 ? existingRequired : useIdOrder;
+    const remaining = Object.keys(properties).filter(
+      (name) => !companions.has(name) && !baseOrder.includes(name)
+    );
+    const orderedKeys = [...baseOrder, ...remaining];
+
+    let changed = existingRequired.length === 0 && orderedKeys.length > 0;
+    const nextProperties: Record<string, unknown> = { ...properties };
+
+    orderedKeys.forEach((key, idx) => {
+      const prop = asObject(properties[key]);
+      if (!prop) return;
+      const propTitle = readString(prop.title);
+      const matched =
+        useQuestions.find((q) => readString(q.id) === key) ??
+        (propTitle
+          ? useQuestions.find((q) => readString(q.header) === propTitle)
+          : undefined) ??
+        (useQuestions.length === orderedKeys.length
+          ? useQuestions[idx]
+          : undefined);
+      if (!matched) return;
+
+      const nextProp: Record<string, unknown> = { ...prop };
+      let propChanged = false;
+
+      if (!readString(nextProp.description) && readString(matched.question)) {
+        nextProp.description = readString(matched.question);
+        propChanged = true;
+      }
+      if (!readString(nextProp.title) && readString(matched.header)) {
+        nextProp.title = readString(matched.header);
+        propChanged = true;
+      }
+      const rawType = readString(nextProp.type);
+      if (
+        schemaPropertyChoices(nextProp, rawType).length === 0 &&
+        Array.isArray(matched.options) &&
+        matched.options.length > 0
+      ) {
+        const choices = parseObjectChoices(matched.options);
+        if (choices.length > 0) {
+          const constItems = choices.map((c) => ({
+            const: c.value,
+            title: c.label,
+            ...(c.description ? { description: c.description } : {}),
+          }));
+          if (rawType === 'array') {
+            nextProp.items = {
+              ...(asObject(nextProp.items) ?? { type: 'string' }),
+              anyOf: constItems,
+            };
+          } else {
+            nextProp.oneOf = constItems;
+          }
+          propChanged = true;
+        }
+      }
+      if (propChanged) {
+        nextProperties[key] = nextProp;
+        changed = true;
+      }
+    });
+
+    if (!changed) return request;
+    return {
+      ...request,
+      schema: {
+        ...root,
+        properties: nextProperties,
+        ...(existingRequired.length === 0 && orderedKeys.length > 0
+          ? { required: orderedKeys }
+          : {}),
+      } as ConversationQuestionRequest['schema'],
+    };
+  }
+
+  const existingTabs = questionTabsFromRequest(request);
+  const existingHasChoices = existingTabs.some((t) => t.choices.length > 0);
+  if (existingTabs.length >= useQuestions.length && existingHasChoices) {
+    return request;
+  }
+
+  return {
+    ...request,
+    prompt: request.prompt || fromUse.prompt,
+    schema: {
+      ...(root ?? { type: 'object' }),
+      'x-vibex-questions': rawUseQuestions,
+    } as ConversationQuestionRequest['schema'],
   };
 }
 

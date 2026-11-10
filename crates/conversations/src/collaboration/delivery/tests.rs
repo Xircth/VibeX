@@ -4843,3 +4843,124 @@ async fn multiple_running_turns_for_same_bot_emit_single_streaming_draft() {
 
     reset_space_turn_streaming_step(bot);
 }
+
+#[tokio::test]
+async fn consecutive_post_to_space_reusing_operation_id_succeeds_and_projects_cross_chat() {
+    let pool = setup_pool().await;
+    let workspace = Uuid::new_v4();
+    let pm = Uuid::new_v4();
+    let lead = Uuid::new_v4();
+    create_session(&pool, pm, workspace, Some("产品经理")).await;
+    create_session(&pool, lead, workspace, Some("技术总监")).await;
+    let space = space_of(&pool, pm).await;
+    add_space_member(&pool, pm, &space, lead, "技术总监", Uuid::new_v4())
+        .await
+        .unwrap();
+
+    // 1. Pre-populate collaboration_space_operations with an existing non-message operation
+    //    using the same operation_id (simulating request_id=1 collision with an earlier tool call).
+    let shared_op_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"1");
+    store_operation(
+        &pool,
+        &shared_op_id.to_string(),
+        Some(&space),
+        &json!({"action": "prior_non_message_op"}),
+        &json!({"ok": true}),
+    )
+    .await
+    .unwrap();
+
+    // 2. PM posts first message into the group, reusing shared_op_id.
+    let first = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(pm),
+            space_id: space.clone(),
+            content: "@技术总监 第一条阶段汇报".to_string(),
+            summary: None,
+            to: vec!["技术总监".to_string()],
+            in_reply_to: None,
+            operation_id: shared_op_id,
+        },
+    )
+    .await
+    .expect("first post must succeed even if operation_id was already in collaboration_space_operations");
+    assert_ne!(first.message_id, shared_op_id.to_string());
+
+    // 3. In the same turn, PM consecutively posts a second and third message reusing the same shared_op_id.
+    let second = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(pm),
+            space_id: space.clone(),
+            content: "@技术总监 第二条补充说明".to_string(),
+            summary: None,
+            to: vec!["技术总监".to_string()],
+            in_reply_to: None,
+            operation_id: shared_op_id,
+        },
+    )
+    .await
+    .expect("second consecutive post reusing operation_id must succeed");
+    assert_ne!(second.message_id, first.message_id);
+
+    let third = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(pm),
+            space_id: space.clone(),
+            content: "@技术总监 第三条验收结论".to_string(),
+            summary: None,
+            to: vec!["技术总监".to_string()],
+            in_reply_to: None,
+            operation_id: shared_op_id,
+        },
+    )
+    .await
+    .expect("third consecutive post reusing operation_id must succeed");
+    assert_ne!(third.message_id, second.message_id);
+
+    // 4. Another bot (lead) also reuses the same shared_op_id (e.g. request_id=1 in its own MCP companion).
+    let lead_reply = post_to_space(
+        &pool,
+        PostToSpace {
+            caller_id: Some(lead),
+            space_id: space.clone(),
+            content: "@产品经理 收到，已排期 T110".to_string(),
+            summary: None,
+            to: vec!["产品经理".to_string()],
+            in_reply_to: Some(third.message_id.clone()),
+            operation_id: shared_op_id,
+        },
+    )
+    .await
+    .expect("another bot reusing the same operation_id must not collide");
+    assert_ne!(lead_reply.message_id, third.message_id);
+
+    let group_msgs = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+        .await
+        .unwrap();
+    let contents: Vec<&str> = group_msgs
+        .iter()
+        .filter_map(|m| m.envelope.get("content").and_then(Value::as_str))
+        .filter(|c| !c.is_empty())
+        .collect();
+    assert!(
+        contents.iter().any(|c| c.contains("第一条阶段汇报")),
+        "first message must be in group: {contents:?}"
+    );
+    assert!(
+        contents.iter().any(|c| c.contains("第二条补充说明")),
+        "second message must be in group: {contents:?}"
+    );
+    assert!(
+        contents.iter().any(|c| c.contains("第三条验收结论")),
+        "third message must be in group: {contents:?}"
+    );
+    assert!(
+        contents.iter().any(|c| c.contains("收到，已排期 T110")),
+        "lead reply must be in group: {contents:?}"
+    );
+}
+
+

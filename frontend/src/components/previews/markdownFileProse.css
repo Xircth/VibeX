@@ -34,7 +34,14 @@
     pre,
     table,
     hr,
-    [role='paragraph']
+    [role='paragraph'],
+    .astryx-markdown-list,
+    .astryx-markdown-table,
+    .astryx-markdown-codeblock,
+    .conv-md-codeblock,
+    .conv-md-codeblock-single,
+    .conv-md-mermaid,
+    .conv-md-html-preview
   ):not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#) {
   margin-block: 0;
   max-width: none;
@@ -55,7 +62,14 @@
     pre,
     table,
     hr,
-    [role='paragraph']
+    [role='paragraph'],
+    .astryx-markdown-list,
+    .astryx-markdown-table,
+    .astryx-markdown-codeblock,
+    .conv-md-codeblock,
+    .conv-md-codeblock-single,
+    .conv-md-mermaid,
+    .conv-md-html-preview
   )
   + :is(
     p,
@@ -71,7 +85,14 @@
     pre,
     table,
     hr,
-    [role='paragraph']
+    [role='paragraph'],
+    .astryx-markdown-list,
+    .astryx-markdown-table,
+    .astryx-markdown-codeblock,
+    .conv-md-codeblock,
+    .conv-md-codeblock-single,
+    .conv-md-mermaid,
+    .conv-md-html-preview
   ):not(#\#):not(#\#):not(#\#):not(#\#) {
   margin-top: 8px;
 }
@@ -128,7 +149,7 @@
   border: 1px solid var(--conv-border-subtle, var(--border-content));
   border-radius: var(--radius);
   color: var(--conv-text-secondary, var(--text-muted));
-  margin: 0;
+  margin-inline: 0;
   padding: 6px 10px;
 }
 

@@ -47,25 +47,57 @@
           "type": "string",
           "default": "https://api.openai.com/v1",
           "title": "API 基础地址",
-          "description": "OpenAI / Groq / 兼容语音识别与润色接口的基础 URL。"
+          "description": "OpenAI / Groq / 兼容语音识别与润色接口的基础 URL。",
+          "x-visible-when": {
+            "providerProtocol": [
+              "hybrid",
+              "openai-whisper",
+              "groq-whisper",
+              "openai-chat-audio"
+            ]
+          }
         },
         "apiKey": {
           "type": "string",
           "default": "",
           "title": "API 密钥",
-          "description": "用于调用云端 Whisper 转写与 AI 文本润色的 API Key（留空时自动尝试本机环境变量或回退实时流式识别）。"
+          "description": "用于调用云端 Whisper 转写与 AI 文本润色的 API Key（留空时自动尝试本机环境变量或回退实时流式识别）。",
+          "x-visible-when": {
+            "providerProtocol": [
+              "hybrid",
+              "openai-whisper",
+              "groq-whisper",
+              "openai-chat-audio"
+            ]
+          }
         },
         "model": {
           "type": "string",
           "default": "gpt-4o-mini-transcribe",
           "title": "语音识别模型",
-          "description": "转写模型名称（如 whisper-1、gpt-4o-mini-transcribe、gpt-4o-transcribe、whisper-large-v3-turbo）。"
+          "description": "转写模型名称（如 whisper-1、gpt-4o-mini-transcribe、gpt-4o-transcribe、whisper-large-v3-turbo）。",
+          "x-visible-when": {
+            "providerProtocol": [
+              "hybrid",
+              "openai-whisper",
+              "groq-whisper",
+              "openai-chat-audio"
+            ]
+          }
         },
         "cleanupModel": {
           "type": "string",
           "default": "gpt-4o-mini",
           "title": "润色模型",
-          "description": "用于听写后去口水词、修正技术术语的轻量级 LLM 模型。"
+          "description": "用于听写后去口水词、修正技术术语的轻量级 LLM 模型。",
+          "x-visible-when": {
+            "providerProtocol": [
+              "hybrid",
+              "openai-whisper",
+              "groq-whisper",
+              "openai-chat-audio"
+            ]
+          }
         },
         "language": {
           "type": "string",

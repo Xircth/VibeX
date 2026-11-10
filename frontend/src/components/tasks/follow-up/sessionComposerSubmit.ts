@@ -28,13 +28,16 @@ export function hasFollowUpContent({
   reviewMarkdown,
   imageCount,
 }: {
-  message: string;
+  message: string | null | undefined;
   conflictMarkdown: string | null | undefined;
   reviewMarkdown: string | null | undefined;
   imageCount: number;
 }): boolean {
   return Boolean(
-    message.trim() || conflictMarkdown || reviewMarkdown || imageCount > 0
+    (message ?? '').trim() ||
+      conflictMarkdown ||
+      reviewMarkdown ||
+      imageCount > 0
   );
 }
 

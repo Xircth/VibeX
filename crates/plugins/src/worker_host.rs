@@ -1241,21 +1241,22 @@ impl WorkerHost {
                     return Err(WorkerHostError::new("worker_terminal", reason));
                 }
                 let mut guard = host.inner.lock().await;
+                if let Some(reason) = terminal_error.lock().await.as_ref() {
+                    return Err(WorkerHostError::new("worker_terminal", reason));
+                }
                 let Some(process) = guard.as_mut() else {
-                    return Err(WorkerHostError::new(
-                        "worker_terminal",
-                        "Shared Node worker process is not running",
-                    ));
+                    let msg = "Shared Node worker process is not running";
+                    *terminal_error.lock().await = Some(msg.to_owned());
+                    return Err(WorkerHostError::new("worker_terminal", msg));
                 };
                 let slot_key = (
                     self.activation.plugin_id.clone(),
                     self.activation.generation,
                 );
                 if !process.mounted_slots.contains(&slot_key) {
-                    return Err(WorkerHostError::new(
-                        "worker_terminal",
-                        "Shared Node worker slot is no longer mounted",
-                    ));
+                    let msg = "Shared Node worker slot is no longer mounted";
+                    *terminal_error.lock().await = Some(msg.to_owned());
+                    return Err(WorkerHostError::new("worker_terminal", msg));
                 }
                 let result = exchange_muxed(
                     process,

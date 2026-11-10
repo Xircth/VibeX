@@ -2367,15 +2367,15 @@ pub async fn set_workspace_supervisor(
             let resolved = match direct_match {
                 Some(id) => Some(id),
                 None => {
-                    let fallback_conv: Option<(Option<String>, String)> = sqlx::query_as(
-                        r#"SELECT sm.conversation_id, sm.nickname
+                    let fallback_conv: Option<(String, Option<String>, String)> = sqlx::query_as(
+                        r#"SELECT sm.space_id, sm.conversation_id, sm.nickname
                            FROM collaboration_space_members sm
                            JOIN collaboration_spaces s ON s.id = sm.space_id
                            WHERE s.workspace_id = ?1
                              AND sm.kind = 'agent'
-                             AND (sm.id = ?2 OR sm.conversation_id = ?2 OR LOWER(TRIM(sm.nickname)) = LOWER(?2))
+                             AND (sm.member_id = ?2 OR sm.conversation_id = ?2 OR LOWER(TRIM(sm.nickname)) = LOWER(?2))
                            ORDER BY CASE
-                             WHEN sm.id = ?2 THEN 0
+                             WHEN sm.member_id = ?2 THEN 0
                              WHEN sm.conversation_id = ?2 THEN 1
                              ELSE 2
                            END
@@ -2386,23 +2386,19 @@ pub async fn set_workspace_supervisor(
                     .fetch_optional(pool)
                     .await
                     .map_err(db_err)?;
-                    if let Some((Some(conv_raw), nickname)) = fallback_conv
+                    if let Some((space_id, Some(conv_raw), nickname)) = fallback_conv
                         && let Ok(conv_id) = Uuid::parse_str(conv_raw.trim())
                     {
-                        Some(
-                            identity::ensure_member_for_conversation(
-                                pool,
-                                conv_id,
-                                Some(&nickname),
-                            )
-                            .await
-                            .map_err(|e| {
-                                CollaborationError::new(
-                                    "conversation_control_failed",
-                                    e.to_string(),
-                                )
-                            })?,
-                        )
+                        let (member_id, _, _) =
+                            identity::bind_seat(pool, &space_id, conv_id, Some(&nickname))
+                                .await
+                                .map_err(|e| {
+                                    CollaborationError::new(
+                                        "conversation_control_failed",
+                                        e.to_string(),
+                                    )
+                                })?;
+                        Some(member_id)
                     } else {
                         None
                     }
@@ -2796,7 +2792,17 @@ pub async fn execute_sidebar_op(
         "thread.listSidebar" => {
             let workspace_id = input_required_uuid(input, &["workspaceId", "workspace_id"])?;
             let items = list_sidebar(pool, workspace_id).await?;
-            Ok((serde_json::json!({ "items": items }), None))
+            let supervisor_member_id = workspace_supervisor_member(pool, workspace_id)
+                .await?
+                .map(|(id, _)| id);
+            Ok((
+                serde_json::json!({
+                    "items": items,
+                    "supervisorMemberId": supervisor_member_id,
+                    "supervisor_member_id": supervisor_member_id,
+                }),
+                None,
+            ))
         }
         "thread.markRead" => {
             let thread_id =
@@ -3374,4 +3380,74 @@ mod tests {
         assert_eq!(tail_six[2].text, "post msg 1");
         assert_eq!(tail_six[5].text, "post msg 4");
     }
+
+    #[tokio::test]
+    async fn list_sidebar_op_returns_supervisor_member_id_and_promotes_space_member() {
+        let pool = setup_test_pool().await;
+        let workspace = Uuid::new_v4();
+        let space_id = Uuid::new_v4().to_string();
+        let seat_member_id = Uuid::new_v4().to_string();
+        let conversation = Uuid::new_v4();
+
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, task_id, branch) VALUES (?, ?, 'main')")
+            .bind(workspace)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_spaces (id, workspace_id, name, created_at) VALUES (?, ?, 'Team', '2026-10-24T00:00:00.000Z')",
+        )
+        .bind(&space_id)
+        .bind(workspace.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO collaboration_space_members
+               (space_id, member_id, conversation_id, nickname, kind, visible_to_agents)
+               VALUES (?, ?, ?, 'LeadBot', 'agent', 1)"#,
+        )
+        .bind(&space_id)
+        .bind(&seat_member_id)
+        .bind(conversation.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let supervisor_id = set_workspace_supervisor(&pool, workspace, Some(&seat_member_id))
+            .await
+            .unwrap()
+            .expect("supervisor_member_id returned");
+
+        let (sidebar_res, _) = execute_sidebar_op(
+            &pool,
+            "thread.listSidebar",
+            &json!({ "workspaceId": workspace.to_string() }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sidebar_res
+                .get("supervisor_member_id")
+                .and_then(|v| v.as_str()),
+            Some(supervisor_id.as_str())
+        );
+        assert_eq!(
+            sidebar_res
+                .get("supervisorMemberId")
+                .and_then(|v| v.as_str()),
+            Some(supervisor_id.as_str())
+        );
+    }
 }
+

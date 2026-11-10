@@ -616,12 +616,9 @@ const CODEX_CANDIDATES: &[ProfileExternalCandidate] = &[
         acp_args: &[],
     },
 ];
-const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] = &[ProfileExternalCandidate {
-    component: ProfileComponent::CombinedRuntime,
-    executable: "opencode",
-    version_args: &["--version"],
-    acp_args: &[],
-}];
+const OPENCODE_ACP_ARGS: &[&str] = &["acp"];
+const OPENCODE_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("opencode", OPENCODE_ACP_ARGS)];
 const MIMO_ACP_ARGS: &[&str] = &["acp"];
 const MIMO_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("mimo", MIMO_ACP_ARGS)];
 const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
@@ -665,17 +662,26 @@ const ANTIGRAVITY_LAUNCH_ARGS: &[&str] = if cfg!(target_os = "linux") {
 } else {
     &[]
 };
-const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] = &[external("openclaw")];
-const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external("cline")];
+const OPENCLAW_ACP_ARGS: &[&str] = &["acp"];
+const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("openclaw", OPENCLAW_ACP_ARGS)];
+const CLINE_ACP_ARGS: &[&str] = &["--acp"];
+const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("cline", CLINE_ACP_ARGS)];
 const HERMES_ACP_ARGS: &[&str] = &["acp"];
 const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[
     external_acp("hermes", HERMES_ACP_ARGS),
     external("hermes-acp"),
 ];
-const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] = &[external("codebuddy")];
-const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
-const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
-const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
+const CODEBUDDY_ACP_ARGS: &[&str] = &["--acp"];
+const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("codebuddy", CODEBUDDY_ACP_ARGS)];
+const KIMI_ACP_ARGS: &[&str] = &["acp"];
+const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("kimi", KIMI_ACP_ARGS)];
+const GROK_ACP_ARGS: &[&str] = &["agent", "stdio"];
+const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("grok", GROK_ACP_ARGS)];
+const CURSOR_ACP_ARGS: &[&str] = &["acp"];
+const CURSOR_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("cursor-agent", CURSOR_ACP_ARGS)];
 const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
 /// `omp` without `acp` is the interactive TUI. The subcommand is the stdio server.
 const OMP_ACP_ARGS: &[&str] = &["acp"];
@@ -2908,7 +2914,7 @@ fn openclaw_profile() -> BuiltInProfile {
             "openclaw",
             "2026.9.8",
             "openclaw",
-            &["acp"],
+            OPENCLAW_ACP_ARGS,
             ">=24.16.0",
             "sha512-G+JkNUhtpDE3cXR4AEi2NyyG9fqI/T2WUSl8ZnR8AATH8Dh1kC3qYFL7wwPoZtgHiP/cszA86PEiE0PDysxb9Q==",
         )],
@@ -2946,7 +2952,7 @@ fn opencode_profile() -> BuiltInProfile {
             component: ProfileComponent::CombinedRuntime,
             version: "1.19.3",
             command: "opencode",
-            args: &["acp"],
+            args: OPENCODE_ACP_ARGS,
             artifacts: vec![
                 artifact(
                     "darwin-aarch64",
@@ -3017,7 +3023,7 @@ fn cline_profile() -> BuiltInProfile {
             "cline",
             "3.0.73",
             "cline",
-            &["--acp"],
+            CLINE_ACP_ARGS,
             ">=22",
             "sha512-4lx7qC8X2neX7k3RIshwkFw0zuzSFQ7Tua+8v/6MgLDcAI/hjUWiR7GVUmbyFtH1oOazaoAD/xR1GQeX1f2NNQ==",
         )],
@@ -3101,7 +3107,7 @@ fn codebuddy_profile() -> BuiltInProfile {
             "@tencent-ai/codebuddy-code",
             "2.168.2",
             "codebuddy",
-            &["--acp"],
+            CODEBUDDY_ACP_ARGS,
             ">=22",
             "sha512-3E4/YB1S5+wQabbXCR2DBb5GDs3fo6XxVf+sA05Kj7gXGCTzcaaJ10MBNbb9A69uVx/S2PAOunVS10QBjG+Wow==",
         )],
@@ -3117,7 +3123,7 @@ fn codebuddy_profile() -> BuiltInProfile {
             AgentSettingsFeature::NativeSkills,
         ],
         authentication_precedence: AuthenticationPrecedence::SingleSource,
-        authentication_required_by_default: true,
+        authentication_required_by_default: false,
         account_evidence: None,
     }
 }
@@ -3140,7 +3146,7 @@ fn kimi_code_profile() -> BuiltInProfile {
             "@moonshot-ai/kimi-code",
             "2.2.0",
             "kimi",
-            &["acp"],
+            KIMI_ACP_ARGS,
             ">=22.19",
             "sha512-I1w2l6JGYEUSwA1DTvYrw/kDJYjJQKHFON+RON61epDeTITvwpXoDn4Kgl4atA82RfwcsMp3KG6k8Yaoj6LT0A==",
         )],
@@ -3262,7 +3268,7 @@ fn grok_profile() -> BuiltInProfile {
             "@xai-official/grok",
             "1.0.62",
             "grok",
-            &["agent", "stdio"],
+            GROK_ACP_ARGS,
             ">=20",
             "sha512-MYDKmYYv4CiYdvgWe575fIko5s1KnvShvHXbobkEusR7rVG0B61t6fOgTFZ8BoIloqkfrC0EBQDB9F0r3P7L6w==",
         )],
@@ -3303,7 +3309,7 @@ fn cursor_profile() -> BuiltInProfile {
             component: ProfileComponent::CombinedRuntime,
             version: VERSION,
             command: "cursor-agent",
-            args: &["acp"],
+            args: CURSOR_ACP_ARGS,
             artifacts: vec![
                 binary_artifact(
                     "darwin-aarch64",

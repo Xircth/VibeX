@@ -186,7 +186,7 @@ export function fileToAtReference(file: {
 export function projectToAtReference(
   project: AtReferenceProject
 ): AtReferenceItem {
-  const name = project.name.trim() || project.path;
+  const name = (project.name ?? '').trim() || project.path;
   return {
     id: `project:${project.id}`,
     tab: 'project',
@@ -259,7 +259,7 @@ export function hostToAtReference(host: AtReferenceHost): AtReferenceItem {
 export function memberToAtReference(
   member: AtReferenceMember
 ): AtReferenceItem {
-  const nickname = member.nickname.trim();
+  const nickname = (member.nickname ?? '').trim();
   return {
     id: `member:${member.id || nickname}`,
     tab: 'member',
@@ -279,7 +279,7 @@ export function buildAtReferenceGroups(
   query: string,
   sources: AtReferenceSources
 ): AtReferenceGroup[] {
-  const q = query.trim().toLowerCase();
+  const q = (query ?? '').trim().toLowerCase();
   const currentId = sources.currentConversationId ?? null;
 
   const files = (sources.files ?? [])

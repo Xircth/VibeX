@@ -109,7 +109,7 @@ function GroupMemberSpaceSender({
     const stored = readMemberBotAvatars();
     const convKey = origin.senderConversationId?.trim() ?? '';
     const memberKey = origin.senderMemberId?.trim() ?? '';
-    const nickKey = origin.senderNickname.trim();
+    const nickKey = (origin.senderNickname ?? '').trim();
     return (
       (convKey ? stored[convKey] : undefined) ||
       (memberKey ? stored[memberKey] : undefined) ||

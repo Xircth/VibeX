@@ -745,7 +745,13 @@ pub(crate) async fn same_post_request(
     request: &Value,
     envelope_json: &str,
 ) -> Result<bool, CollaborationError> {
-    if let Some(stored) = load_stored_operation(pool, message_id).await? {
+    if let Some(stored) = load_stored_operation(pool, message_id).await?
+        && stored
+            .result
+            .get("message_id")
+            .and_then(Value::as_str)
+            .is_some_and(|stored_message_id| stored_message_id == message_id)
+    {
         if stored
             .space_id
             .as_deref()

@@ -10,7 +10,7 @@
 .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
   --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 55%, #ffffff);
-  --dv-theme-surface: var(--dv-tabbar-bg);
+  --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
@@ -64,7 +64,7 @@
   --dv-activegroup-hiddenpanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-visiblepanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--dv-theme-subtle);
-  --dv-background-color: var(--dv-theme-surface);
+  --dv-background-color: var(--surface-topbar);
   --dv-paneview-header-border-color: var(--dv-theme-border);
   --dv-tabs-and-actions-container-background-color: var(--dv-tabbar-bg);
   --dv-group-view-background-color: var(--dv-theme-bg);
@@ -72,14 +72,18 @@
 }
 
 .workspace-shell {
-  background-color: var(--surface-topbar);
+  background: var(--surface-topbar) !important;
   --workspace-divider-color: transparent;
   --workspace-divider-subtle: hsl(var(--border) / 0.55);
   --workspace-divider-hover: hsl(var(--primary) / 0.52);
 }
 
+.workspace-stage-host {
+  background: var(--surface-topbar) !important;
+}
+
 .workspace-divider-bottom {
-  border-bottom: 1px solid var(--workspace-divider-color);
+  border-bottom: 0 !important;
 }
 
 .workspace-divider-top {
@@ -166,20 +170,49 @@
   [class*='dockview-theme-ayu']
   .dv-groupview[data-left-dock='true']
   .bg-background {
-  background-color: var(--surface-topbar) !important;
+  background: var(--surface-topbar) !important;
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-/* Zone B: Editor / Stage groups have non-rounded top corners so adjacent tab bars
-   join flush with zero gap, while keeping rounded bottom corners */
+/* Zone B: Editor / Stage groups form a unified rounded inset stage against Zone A.
+   When a single Zone B group is visible (or on outer left/right edges of split groups),
+   the top-left and bottom-left corners where Zone A meets Zone B are rounded (14px),
+   while inner split boundaries stay square and flush with zero gap. */
 [class*='dockview-theme-ayu'] .dv-groupview:not([data-left-dock='true']) {
   box-sizing: border-box;
-  border-radius: 0 0 14px 14px;
-  border: 1px solid var(--border-subtle);
+  border-radius: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 0;
+  border-right: 1px solid var(--border-subtle);
   overflow: hidden;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not([data-left-dock='true'])[data-stage-leftmost='true'] {
+  border-top-left-radius: 14px;
+  border-bottom-left-radius: 14px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not([data-left-dock='true'])[data-stage-rightmost='true'] {
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+/* Fallback before JS layout measurement runs: if neither attribute is present,
+   round all 4 corners of the Zone B group so it never flashes square corners. */
+[class*='dockview-theme-ayu']
+  .dv-groupview:not([data-left-dock='true']):not([data-stage-leftmost]):not(
+    [data-stage-rightmost]
+  ) {
+  border-radius: 14px;
+  border-left: 1px solid var(--border-subtle);
 }
 
 .workspace-stage-host > .kanban-overlay {
@@ -192,9 +225,19 @@
 
 [class*='dockview-theme-ayu'].dv-dockview,
 .dv-dockview[class*='dockview-theme-ayu'],
+[class*='dockview-theme-ayu'] .dv-grid-view,
+[class*='dockview-theme-ayu'] .dv-branch-node,
+[class*='dockview-theme-ayu'] .dv-split-view-container,
+[class*='dockview-theme-ayu'] .dv-view-container,
+[class*='dockview-theme-ayu'] .dv-view,
 .dark [class*='dockview-theme-ayu'].dv-dockview,
-.dark .dv-dockview[class*='dockview-theme-ayu'] {
-  background-color: var(--surface-topbar) !important;
+.dark .dv-dockview[class*='dockview-theme-ayu'],
+.dark [class*='dockview-theme-ayu'] .dv-grid-view,
+.dark [class*='dockview-theme-ayu'] .dv-branch-node,
+.dark [class*='dockview-theme-ayu'] .dv-split-view-container,
+.dark [class*='dockview-theme-ayu'] .dv-view-container,
+.dark [class*='dockview-theme-ayu'] .dv-view {
+  background: var(--surface-topbar) !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
@@ -216,7 +259,7 @@
 .dark .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
   --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 78%, #ffffff);
-  --dv-theme-surface: var(--dv-tabbar-bg);
+  --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
@@ -251,7 +294,7 @@
   --dv-activegroup-hiddenpanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-visiblepanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--dv-theme-subtle);
-  --dv-background-color: var(--dv-tabbar-bg);
+  --dv-background-color: var(--surface-topbar);
   --dv-paneview-header-border-color: var(--dv-theme-border);
   --dv-tabs-and-actions-container-background-color: var(--dv-tabbar-bg);
   --dv-tabs-container-scrollbar-color: color-mix(
@@ -268,10 +311,14 @@
 }
 
 .dark .workspace-shell {
-  background-color: var(--surface-topbar);
+  background: var(--surface-topbar) !important;
   --workspace-divider-color: transparent;
   --workspace-divider-subtle: hsl(var(--border) / 0.65);
   --workspace-divider-hover: hsl(var(--primary) / 0.62);
+}
+
+.dark .workspace-stage-host {
+  background: var(--surface-topbar) !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container {
@@ -289,7 +336,7 @@
 
 .dark [class*='dockview-theme-ayu'].dv-dockview,
 .dark .dv-dockview[class*='dockview-theme-ayu'] {
-  background-color: var(--surface-topbar) !important;
+  background: var(--surface-topbar) !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {

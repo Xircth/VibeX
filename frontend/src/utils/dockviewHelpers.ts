@@ -72,6 +72,51 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
       group.element?.setAttribute('data-session-dock', 'true');
     }
   }
+
+  const stageGroups = api.groups.filter(
+    (group) =>
+      !leftGroups.has(group) &&
+      !isBottomGroup(group) &&
+      group.api.isVisible &&
+      Boolean(group.element)
+  );
+
+  for (const group of api.groups) {
+    group.element?.removeAttribute('data-stage-leftmost');
+    group.element?.removeAttribute('data-stage-rightmost');
+  }
+
+  if (stageGroups.length === 1) {
+    stageGroups[0]?.element?.setAttribute('data-stage-leftmost', 'true');
+    stageGroups[0]?.element?.setAttribute('data-stage-rightmost', 'true');
+    return;
+  }
+
+  if (stageGroups.length > 1) {
+    const rects = stageGroups.flatMap((group) => {
+      const rect = group.element?.getBoundingClientRect();
+      return rect && rect.width > 0 ? [{ group, rect }] : [];
+    });
+
+    if (rects.length > 0) {
+      const minLeft = Math.min(...rects.map((item) => item.rect.left));
+      const maxRight = Math.max(...rects.map((item) => item.rect.right));
+      for (const { group, rect } of rects) {
+        if (Math.abs(rect.left - minLeft) <= 2) {
+          group.element?.setAttribute('data-stage-leftmost', 'true');
+        }
+        if (Math.abs(rect.right - maxRight) <= 2) {
+          group.element?.setAttribute('data-stage-rightmost', 'true');
+        }
+      }
+    } else {
+      stageGroups[0]?.element?.setAttribute('data-stage-leftmost', 'true');
+      stageGroups[stageGroups.length - 1]?.element?.setAttribute(
+        'data-stage-rightmost',
+        'true'
+      );
+    }
+  }
 }
 
 /**

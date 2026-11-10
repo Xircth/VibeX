@@ -56,7 +56,7 @@
   height: var(--dv-tabs-and-actions-container-height, 36px);
   min-height: var(--dv-tabs-and-actions-container-height, 36px);
   box-sizing: border-box;
-  border-bottom: 1px solid hsl(var(--border) / 0.65);
+  border-bottom: 0;
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;

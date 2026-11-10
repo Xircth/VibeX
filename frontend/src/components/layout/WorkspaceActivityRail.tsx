@@ -20,15 +20,20 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  BarChart3,
+  Bot,
   Code2,
   FolderOpen,
   GitBranch,
+  GitFork,
+  KanbanSquare,
   MessagesSquare,
   Search,
   Combine,
   type LucideIcon,
 } from 'lucide-react';
 
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { cn } from '@/lib/utils';
 import {
@@ -52,21 +57,54 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
   [PANEL_IDS.GIT]: GitBranch,
   [PANEL_IDS.SEARCH]: Search,
   [PANEL_IDS.SESSION_LIST]: MessagesSquare,
+  [PANEL_IDS.BOTS]: Bot,
 };
+
+const KANBAN_RAIL_VIEWS: Array<{
+  id: 'builtin:columns' | 'builtin:repos' | 'builtin:usage';
+  titleKey: string;
+  fallback: string;
+  Icon: LucideIcon;
+}> = [
+  {
+    id: 'builtin:columns',
+    titleKey: 'kanbanViews.columns',
+    fallback: '任务面板',
+    Icon: KanbanSquare,
+  },
+  {
+    id: 'builtin:repos',
+    titleKey: 'kanbanViews.repos',
+    fallback: '仓库面板',
+    Icon: GitFork,
+  },
+  {
+    id: 'builtin:usage',
+    titleKey: 'kanbanViews.usage',
+    fallback: '计量统计',
+    Icon: BarChart3,
+  },
+];
 
 export function WorkspaceActivityRail({
   isEditorAreaVisible,
   onToggleEditorArea,
+  mode = 'workspace',
 }: {
   isEditorAreaVisible: boolean;
   onToggleEditorArea: () => void;
+  mode?: 'workspace' | 'kanban';
 }) {
   const { t } = useTranslation('panels');
+  const kanbanContext = useOptionalKanbanSessionContext();
+  const activeViewId = kanbanContext?.activeViewId ?? 'builtin:columns';
+  const setActiveViewId = kanbanContext?.setActiveViewId;
   const {
     toggleFileTree,
     toggleGitPanel,
     toggleSearchPanel,
     toggleSessionList,
+    toggleBotsPanel,
     isPanelOpen,
     placeLeftDockPanel,
     measureLeftDock,
@@ -103,6 +141,7 @@ export function WorkspaceActivityRail({
         [PANEL_IDS.GIT]: t('ideLayout.git'),
         [PANEL_IDS.SEARCH]: t('ideLayout.search'),
         [PANEL_IDS.SESSION_LIST]: t('panelRegistry.sessionList'),
+        [PANEL_IDS.BOTS]: t('panelRegistry.bots', 'Bot 助手'),
       }) satisfies Record<ActivityRailItemId, string>,
     [t]
   );
@@ -114,8 +153,15 @@ export function WorkspaceActivityRail({
         [PANEL_IDS.GIT]: toggleGitPanel,
         [PANEL_IDS.SEARCH]: toggleSearchPanel,
         [PANEL_IDS.SESSION_LIST]: toggleSessionList,
+        [PANEL_IDS.BOTS]: toggleBotsPanel,
       }) satisfies Record<ActivityRailItemId, () => void>,
-    [toggleFileTree, toggleGitPanel, toggleSearchPanel, toggleSessionList]
+    [
+      toggleBotsPanel,
+      toggleFileTree,
+      toggleGitPanel,
+      toggleSearchPanel,
+      toggleSessionList,
+    ]
   );
 
   const persistOrder = useCallback((next: ActivityRailItemId[] | null) => {
@@ -215,11 +261,44 @@ export function WorkspaceActivityRail({
     [order, persistOrder]
   );
 
+  if (mode === 'kanban') {
+    return (
+      <nav
+        ref={railRef}
+        aria-label={t('ideLayout.activityRailAria')}
+        className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
+      >
+        {KANBAN_RAIL_VIEWS.map((view) => {
+          const label = t(view.titleKey, view.fallback);
+          const isActive = activeViewId === view.id;
+          const Icon = view.Icon;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              data-testid={`kanban-rail-${view.id}`}
+              aria-label={label}
+              aria-pressed={isActive}
+              title={label}
+              onClick={() => setActiveViewId?.(view.id)}
+              className={cn(
+                'workspace-side-rail-button flex h-7 w-7 items-center justify-center',
+                isActive && 'is-active'
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          );
+        })}
+      </nav>
+    );
+  }
+
   return (
     <nav
       ref={railRef}
       aria-label={t('ideLayout.activityRailAria')}
-      className="workspace-activity-rail workspace-chrome workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
+      className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
     >
       <DndContext
         sensors={sensors}

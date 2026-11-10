@@ -596,6 +596,8 @@
     "processes": "Processes",
     "search": "Search",
     "sessionList": "Sessions",
+    "bots": "Bots",
+    "collaborationSpace": "Collaboration Space",
     "loadFailed": "Couldn't load this panel",
     "retry": "Retry",
     "kanban": "Kanban",
@@ -676,7 +678,8 @@
     "createFolderFailed": "Failed to create folder"
   },
   "kanbanViews": {
-    "columns": "Columns",
+    "columns": "Tasks",
+    "repos": "Repositories",
     "sessions": "Sessions",
     "canvas": "Canvas",
     "usage": "Usage"

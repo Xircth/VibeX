@@ -21,7 +21,7 @@ export function StatusBar() {
   const updatableAgentIds = useAgentAcpUpdates(agentManagementState.agents);
 
   return (
-    <div className="workspace-chrome workspace-divider-top relative z-20 flex h-6 shrink-0 select-none items-center justify-between overflow-visible px-2 text-xs text-secondary-foreground">
+    <div className="workspace-chrome relative z-20 flex h-9 shrink-0 select-none items-center justify-between overflow-visible px-1.5 text-xs text-secondary-foreground">
       <div className="min-w-0 overflow-visible pr-2">
         <ProjectWindowStatusSummary />
       </div>

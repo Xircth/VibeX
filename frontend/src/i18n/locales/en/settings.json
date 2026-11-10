@@ -145,9 +145,15 @@
     },
     "kanbanBoardStyle": {
       "title": "Session board style",
-      "description": "Kanban session list and board layout type.",
+      "description": "Kanban session list and workspace stage presentation.",
       "label": "Board layout type",
       "fixed": "Fixed layout",
+      "canvas": "Infinite canvas"
+    },
+    "workspaceStageStyle": {
+      "label": "Workspace stage (Zone B) mode",
+      "hint": "Switch the workspace main stage between multi-tab Dockview and infinite canvas.",
+      "tabs": "Free tabs",
       "canvas": "Infinite canvas"
     },
     "layout": {

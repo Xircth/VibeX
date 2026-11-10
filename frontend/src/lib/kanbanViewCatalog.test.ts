@@ -56,7 +56,7 @@ describe('kanbanViewCatalog', () => {
     ).toBe(false);
   });
 
-  it('appends one plugin view after the four built-ins registered by vibex.webui.kanban', () => {
+  it('appends one plugin view after the five built-ins registered by vibex.webui.kanban', () => {
     const views = kanbanViewsFromCatalog([
       {
         pluginId: 'vibex.host-surface',
@@ -75,14 +75,15 @@ describe('kanbanViewCatalog', () => {
         metadata: { slot: 'app.kanban.view' },
       },
     ]);
-    expect(views).toHaveLength(5);
-    expect(views.slice(0, 4).map((v) => v.id)).toEqual([
+    expect(views).toHaveLength(6);
+    expect(views.slice(0, 5).map((v) => v.id)).toEqual([
       'builtin:columns',
+      'builtin:repos',
       'builtin:sessions',
       'builtin:canvas',
       'builtin:usage',
     ]);
-    expect(views[4]).toMatchObject({
+    expect(views[5]).toMatchObject({
       id: 'plugin:vibex.host-surface/sample-view',
       titleKey: '示例视图',
       builtin: false,
@@ -92,6 +93,7 @@ describe('kanbanViewCatalog', () => {
   it('uses kanbanViewRegistry as the single source of truth and removes built-in views when vibex.webui.kanban is unloaded', async () => {
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
       'builtin:columns',
+      'builtin:repos',
       'builtin:sessions',
       'builtin:canvas',
       'builtin:usage',
@@ -120,6 +122,7 @@ describe('kanbanViewCatalog', () => {
     );
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
       'builtin:columns',
+      'builtin:repos',
       'builtin:sessions',
       'builtin:canvas',
       'builtin:usage',

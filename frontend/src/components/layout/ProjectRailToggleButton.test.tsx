@@ -69,11 +69,11 @@ describe('ProjectRailToggleButton', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders a capsule with the total project count', () => {
+  it('renders a bottom-left project selector matching HostSelector size with the total project count', () => {
     render(<ProjectRailToggleButton variant="capsule" />);
 
     const toggle = screen.getByRole('button', { name: 'railToggle.show' });
-    expect(toggle).toHaveClass('rounded-full');
+    expect(toggle).toHaveClass('workspace-toolbar-button', 'h-7', 'rounded-md');
     expect(toggle).toHaveTextContent('3');
   });
 });

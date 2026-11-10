@@ -249,6 +249,7 @@ export interface PanelActions {
   toggleGitPanel: () => void;
   toggleSearchPanel: () => void;
   toggleSessionList: () => void;
+  toggleBotsPanel: () => void;
   placeLeftDockPanel: (
     panelId: ActivityRailItemId,
     zone: LeftPanelDropZone
@@ -325,6 +326,7 @@ export const NOOP_PANEL_ACTIONS: PanelActions = {
   toggleGitPanel: noopPanelAction,
   toggleSearchPanel: noopPanelAction,
   toggleSessionList: noopPanelAction,
+  toggleBotsPanel: noopPanelAction,
   placeLeftDockPanel: noopPanelAction,
   measureLeftDock: () => null,
   isLeftDockSplit: noopFalsePanelAction,
@@ -1511,6 +1513,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     toggleLeftDockPanel(PANEL_IDS.SESSION_LIST);
   }, [toggleLeftDockPanel]);
 
+  const toggleBotsPanel = useCallback(() => {
+    toggleLeftDockPanel(PANEL_IDS.BOTS);
+  }, [toggleLeftDockPanel]);
+
   const showFileTree = useCallback(() => {
     setFileTreeVisible(true);
     showOnlyLeftDockPanel(PANEL_IDS.FILE_TREE);
@@ -1577,6 +1583,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           toggleSessionList();
           return;
         }
+
+        if (panelId === PANEL_IDS.BOTS) {
+          toggleBotsPanel();
+          return;
+        }
       }
 
       const existingPanel = dockviewApi.getPanel(panelId);
@@ -1612,6 +1623,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [
       addPanelToActiveEditorGroup,
       openNewTerminal,
+      toggleBotsPanel,
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,
@@ -2128,6 +2140,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,
+      toggleBotsPanel,
       placeLeftDockPanel,
       measureLeftDock,
       isLeftDockSplit,
@@ -2175,6 +2188,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     toggleGitPanel,
     toggleSearchPanel,
     toggleSessionList,
+    toggleBotsPanel,
     placeLeftDockPanel,
     measureLeftDock,
     isLeftDockSplit,

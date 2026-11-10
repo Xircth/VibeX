@@ -9,8 +9,9 @@
 .dockview-theme-ayu.dockview-theme-light,
 .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
-  --dv-theme-surface: var(--surface-topbar);
-  --dv-theme-surface-muted: var(--surface-topbar);
+  --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 55%, #ffffff);
+  --dv-theme-surface: var(--dv-tabbar-bg);
+  --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);
@@ -65,14 +66,15 @@
   --dv-inactivegroup-hiddenpanel-tab-color: var(--dv-theme-subtle);
   --dv-background-color: var(--dv-theme-surface);
   --dv-paneview-header-border-color: var(--dv-theme-border);
-  --dv-tabs-and-actions-container-background-color: var(--dv-theme-surface);
+  --dv-tabs-and-actions-container-background-color: var(--dv-tabbar-bg);
   --dv-group-view-background-color: var(--dv-theme-bg);
   --dv-separator-border: transparent;
 }
 
 .workspace-shell {
-  --workspace-divider-color: hsl(var(--border) / 0.88);
-  --workspace-divider-subtle: hsl(var(--border) / 0.74);
+  background-color: var(--surface-topbar);
+  --workspace-divider-color: transparent;
+  --workspace-divider-subtle: hsl(var(--border) / 0.55);
   --workspace-divider-hover: hsl(var(--primary) / 0.52);
 }
 
@@ -93,12 +95,12 @@
 }
 
 /*
- * Hard override: force light backgrounds on ALL dockview structural elements.
- * The [class*="dockview-theme"] selector matches any element with a theme class,
- * ensuring we catch the root regardless of which theme classes are present.
+ * Hard override: force lighter gray backgrounds on ALL dockview tab bars,
+ * with square corners so adjacent tab bars meet seamlessly without gaps.
  */
 [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container {
-  background-color: var(--dv-theme-surface) !important;
+  background-color: var(--dv-tabbar-bg) !important;
+  border-radius: 0 !important;
   backdrop-filter: blur(18px) saturate(1.2);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
 }
@@ -111,9 +113,88 @@
   background-color: var(--dv-theme-bg) !important;
 }
 
+/* Zone A: Left Dock and all its inner panels (FileTree, Git, Search, Sessions, Bots)
+   use the shell gray background (--surface-topbar) and blend seamlessly into Zone A */
+[class*='dockview-theme-ayu'] .dv-groupview[data-left-dock='true'],
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .dv-content-container,
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .file-tree-panel,
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='file-tree'],
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='git'],
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='search'],
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .collaboration-bots-dock,
+[class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .bg-background,
+.dark [class*='dockview-theme-ayu'] .dv-groupview[data-left-dock='true'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .dv-content-container,
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .file-tree-panel,
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='file-tree'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='git'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  [data-panel='search'],
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .collaboration-bots-dock,
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-groupview[data-left-dock='true']
+  .bg-background {
+  background-color: var(--surface-topbar) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Zone B: Editor / Stage groups have non-rounded top corners so adjacent tab bars
+   join flush with zero gap, while keeping rounded bottom corners */
+[class*='dockview-theme-ayu'] .dv-groupview:not([data-left-dock='true']) {
+  box-sizing: border-box;
+  border-radius: 0 0 14px 14px;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.workspace-stage-host > .kanban-overlay {
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  background-color: var(--surface-card-strong);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
 [class*='dockview-theme-ayu'].dv-dockview,
-.dv-dockview[class*='dockview-theme-ayu'] {
-  background-color: var(--dv-theme-bg) !important;
+.dv-dockview[class*='dockview-theme-ayu'],
+.dark [class*='dockview-theme-ayu'].dv-dockview,
+.dark .dv-dockview[class*='dockview-theme-ayu'] {
+  background-color: var(--surface-topbar) !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
@@ -126,7 +207,7 @@
 
 /* Void container (empty space in tab bar next to tabs) */
 [class*='dockview-theme-ayu'] .dv-void-container {
-  background-color: var(--dv-theme-surface) !important;
+  background-color: var(--dv-tabbar-bg) !important;
 }
 
 /* Ayu Mirage dockview theme (dark mode) */
@@ -134,8 +215,9 @@
 .dark .dockview-theme-ayu.dockview-theme-light,
 .dark .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
-  --dv-theme-surface: var(--surface-topbar);
-  --dv-theme-surface-muted: var(--surface-topbar);
+  --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 78%, #ffffff);
+  --dv-theme-surface: var(--dv-tabbar-bg);
+  --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);
@@ -161,17 +243,17 @@
   --dv-activegroup-visiblepanel-tab-background-color: var(
     --dv-connected-chrome
   );
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--dv-theme-surface);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-tabbar-bg);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--dv-tabbar-bg);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--dv-tabbar-bg);
   --dv-tab-divider-color: var(--dv-theme-border);
   --dv-activegroup-visiblepanel-tab-color: var(--dv-theme-text);
   --dv-activegroup-hiddenpanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-visiblepanel-tab-color: var(--dv-theme-muted);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--dv-theme-subtle);
-  --dv-background-color: var(--dv-theme-surface);
+  --dv-background-color: var(--dv-tabbar-bg);
   --dv-paneview-header-border-color: var(--dv-theme-border);
-  --dv-tabs-and-actions-container-background-color: var(--dv-theme-surface);
+  --dv-tabs-and-actions-container-background-color: var(--dv-tabbar-bg);
   --dv-tabs-container-scrollbar-color: color-mix(
     in srgb,
     var(--text-subtle) 48%,
@@ -186,13 +268,15 @@
 }
 
 .dark .workspace-shell {
-  --workspace-divider-color: hsl(var(--border) / 0.9);
-  --workspace-divider-subtle: hsl(var(--border) / 0.76);
+  background-color: var(--surface-topbar);
+  --workspace-divider-color: transparent;
+  --workspace-divider-subtle: hsl(var(--border) / 0.65);
   --workspace-divider-hover: hsl(var(--primary) / 0.62);
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container {
-  background-color: var(--dv-theme-surface) !important;
+  background-color: var(--dv-tabbar-bg) !important;
+  border-radius: 0 !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-content-container {
@@ -205,7 +289,7 @@
 
 .dark [class*='dockview-theme-ayu'].dv-dockview,
 .dark .dv-dockview[class*='dockview-theme-ayu'] {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: var(--surface-topbar) !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
@@ -219,7 +303,7 @@
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-void-container {
-  background-color: var(--dv-theme-surface) !important;
+  background-color: var(--dv-tabbar-bg) !important;
 }
 
 /* Selected tab joins the panel body. Keep the strip above the panel so

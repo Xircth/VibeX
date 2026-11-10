@@ -76,6 +76,12 @@ const LazyKanbanUsageDashboard = lazy(() =>
   }))
 );
 
+const LazyGitPanel = lazy(() =>
+  import('@/components/panels/git/GitPanel').then((module) => ({
+    default: module.GitPanel,
+  }))
+);
+
 const KANBAN_CAROUSEL_TRANSITION_MS = 320;
 
 const KANBAN_COLUMNS = [
@@ -347,6 +353,18 @@ function KanbanRegisteredView({
 }) {
   if (view.id === 'builtin:columns') {
     return <SessionKanbanBoard />;
+  }
+  if (view.id === 'builtin:repos') {
+    return (
+      <Suspense fallback={null}>
+        <div
+          className="h-full w-full overflow-auto"
+          data-testid="kanban-repos-view"
+        >
+          <LazyGitPanel />
+        </div>
+      </Suspense>
+    );
   }
   if (view.id === 'builtin:sessions') {
     return (

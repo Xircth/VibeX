@@ -53,6 +53,7 @@ describe('activityRailOrder', () => {
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.BOTS,
     ];
     setActivityRailOrder(next);
 
@@ -74,6 +75,7 @@ describe('activityRailOrder', () => {
       PANEL_IDS.GIT,
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.BOTS,
     ]);
   });
 
@@ -94,6 +96,7 @@ describe('activityRailOrder', () => {
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.BOTS,
     ]);
   });
 
@@ -115,6 +118,7 @@ describe('activityRailOrder', () => {
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.SEARCH,
       PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.BOTS,
     ]);
     expect(
       nudgeActivityRailItem(
@@ -130,6 +134,7 @@ describe('activityRailOrder', () => {
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.BOTS,
     ]);
   });
 

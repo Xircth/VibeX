@@ -320,7 +320,11 @@ const LAYOUT_PICK_KEYS = [
   'workspace',
 ] as const;
 
-function CollaborationSpaceLayout() {
+export function CollaborationSpaceLayout({
+  hideSpacesPane = false,
+}: {
+  hideSpacesPane?: boolean;
+} = {}) {
   const {
     error,
     handlePreviewDockviewReady,
@@ -351,6 +355,13 @@ function CollaborationSpaceLayout() {
     virtualDefaultSpaceName,
     workspace,
   } = useCollaborationSpacePick(LAYOUT_PICK_KEYS);
+
+  const effectiveShowSpaces = hideSpacesPane ? false : showSpaces;
+  const effectiveGridTemplateColumns = hideSpacesPane
+    ? showPreview && hasThread
+      ? 'minmax(0, 1fr) var(--collaboration-preview-width, minmax(0, 1fr))'
+      : 'minmax(0, 1fr)'
+    : shellGridTemplateColumns;
 
   if (!workspace) {
     return (
@@ -393,13 +404,13 @@ function CollaborationSpaceLayout() {
             'collaboration-shell session-hub-shell',
             isResizingPane && 'is-resizing'
           )}
-          data-spaces={showSpaces ? 'true' : 'false'}
+          data-spaces={effectiveShowSpaces ? 'true' : 'false'}
           data-thread={hasThread ? 'true' : 'false'}
           data-preview={showPreview ? 'true' : 'false'}
           data-layout-order={orderedZones.join('-')}
           style={
             {
-              gridTemplateColumns: shellGridTemplateColumns,
+              gridTemplateColumns: effectiveGridTemplateColumns,
               ...(spacesPaneWidth !== null
                 ? { '--collaboration-spaces-width': `${spacesPaneWidth}px` }
                 : {}),
@@ -409,7 +420,7 @@ function CollaborationSpaceLayout() {
             } as CSSProperties
           }
         >
-          {showSpaces ? <GroupListPanel /> : null}
+          {effectiveShowSpaces ? <GroupListPanel /> : null}
 
           {hasThread ? (
             <section

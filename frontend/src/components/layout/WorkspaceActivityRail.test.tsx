@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   toggleGitPanel: vi.fn(),
   toggleSearchPanel: vi.fn(),
   toggleSessionList: vi.fn(),
+  toggleBotsPanel: vi.fn(),
   persistFrontendPreference: vi.fn(),
 }));
 
@@ -25,6 +26,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     toggleGitPanel: mocks.toggleGitPanel,
     toggleSearchPanel: mocks.toggleSearchPanel,
     toggleSessionList: mocks.toggleSessionList,
+    toggleBotsPanel: mocks.toggleBotsPanel,
     placeLeftDockPanel: vi.fn(),
     measureLeftDock: () => null,
     isLeftDockSplit: () => false,
@@ -40,6 +42,7 @@ describe('WorkspaceActivityRail', () => {
     mocks.toggleGitPanel.mockReset();
     mocks.toggleSearchPanel.mockReset();
     mocks.toggleSessionList.mockReset();
+    mocks.toggleBotsPanel.mockReset();
     mocks.persistFrontendPreference.mockReset();
   });
 
@@ -54,7 +57,7 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['文件', 'Git', '会话列表']);
+    ).toEqual(['文件', 'Git', '会话列表', 'Bot 助手']);
     expect(
       screen.queryByRole('button', { name: '取消分割' })
     ).not.toBeInTheDocument();
@@ -92,7 +95,24 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['会话列表', '文件', 'Git']);
+    ).toEqual(['会话列表', '文件', 'Git', 'Bot 助手']);
     expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
+  });
+
+  it('renders the kanban view switchers when mode is kanban', () => {
+    render(
+      <WorkspaceActivityRail
+        isEditorAreaVisible={false}
+        onToggleEditorArea={vi.fn()}
+        mode="kanban"
+      />
+    );
+
+    expect(
+      screen
+        .getAllByRole('button')
+        .filter((button) => button.getAttribute('aria-label'))
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual(['任务面板', '仓库面板', '计量统计']);
   });
 });

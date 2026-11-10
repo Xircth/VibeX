@@ -145,9 +145,15 @@
     },
     "kanbanBoardStyle": {
       "title": "会话看板样式",
-      "description": "看板会话列表与看板布局类型。",
+      "description": "看板会话列表与工作区舞台展示模式。",
       "label": "看板布局类型",
       "fixed": "固定布局",
+      "canvas": "无限画布"
+    },
+    "workspaceStageStyle": {
+      "label": "工作区舞台（B 区）展示模式",
+      "hint": "切换工作区主舞台使用多栏自由标签（Dockview）或无限画布。",
+      "tabs": "自由标签",
       "canvas": "无限画布"
     },
     "layout": {

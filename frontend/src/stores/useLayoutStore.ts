@@ -23,6 +23,8 @@ export const PANEL_IDS = {
   PROCESSES: 'processes',
   SEARCH: 'search',
   SESSION_LIST: 'session-list',
+  BOTS: 'bots',
+  COLLABORATION_SPACE: 'collaboration-space',
   EXTERNAL_DIRECTORY: 'external-directory',
 } as const;
 

@@ -43,7 +43,7 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
-  background: var(--surface-shell);
+  background: var(--surface-sidebar);
 }
 
 .file-tree-top-zone {

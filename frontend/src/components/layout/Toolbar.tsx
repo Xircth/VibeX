@@ -35,7 +35,6 @@ import {
   MessagesSquare,
   Monitor,
   Puzzle,
-  Users,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -87,7 +86,7 @@ import {
   resolveDefaultProjectWorkspace,
   shouldBindDefaultGitWorkspace,
 } from '@/lib/workspaceDefault';
-import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
+import { HostSelector } from '@/components/layout/HostSelector';
 import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
 import { collectPluginToolbarTabs } from './toolbarTabs';
 import {
@@ -562,29 +561,23 @@ export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
 
 export function WorkspaceBranchControls({
   isWorkspaceTab,
-  workspaceId,
 }: {
   isWorkspaceTab: boolean;
   workspaceId?: string;
 }) {
-  const { project } = useProject();
   const boardStyle = useKanbanBoardStyle();
   const showCanvasListToggle = !isWorkspaceTab && boardStyle === 'canvas';
-  const isGitProject = Boolean(project?.is_git);
 
   return (
     <div
-      className="flex min-w-0 shrink-0 items-center gap-2"
+      className="flex min-w-0 shrink-0 items-center gap-1.5"
       role="group"
       aria-label={i18n.t('panels:shellA11y.workspaceBranches', {
-        defaultValue: 'Workspace and target branches',
+        defaultValue: 'Host and workspace controls',
       })}
     >
+      <HostSelector />
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
-      {isWorkspaceTab && isGitProject ? <WorktreeSelector /> : null}
-      {workspaceId && isGitProject ? (
-        <BranchStatusBadge workspaceId={workspaceId} />
-      ) : null}
     </div>
   );
 }
@@ -616,8 +609,6 @@ function WorkspaceTabSwitcher() {
       setActiveTab: state.setActiveTab,
     }))
   );
-  const { config } = useUserSystem();
-  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
   const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
   const sdkViews = useViews();
@@ -650,6 +641,11 @@ function WorkspaceTabSwitcher() {
       ),
     }));
     return [
+      {
+        key: 'workspace' as WorkspaceTab,
+        label: t('toolbar.workspace'),
+        icon: Monitor,
+      },
       ...(kanbanViews.length > 0
         ? [
             {
@@ -659,23 +655,9 @@ function WorkspaceTabSwitcher() {
             },
           ]
         : []),
-      {
-        key: 'workspace' as WorkspaceTab,
-        label: t('toolbar.workspace'),
-        icon: Monitor,
-      },
-      ...(collaborationEnabled
-        ? [
-            {
-              key: COLLABORATION_WORKSPACE_TAB,
-              label: t('toolbar.collaboration'),
-              icon: Users,
-            },
-          ]
-        : []),
       ...pluginTabItems,
     ];
-  }, [collaborationEnabled, kanbanViews.length, pluginTabs, sdkViews, t]);
+  }, [kanbanViews.length, pluginTabs, sdkViews, t]);
   const availableTabKeys = tabs.map((tab) => tab.key);
   const resolvedActiveTab = fallbackWorkspaceTab(activeTab, availableTabKeys);
   useEffect(() => {
@@ -686,7 +668,7 @@ function WorkspaceTabSwitcher() {
   const effectiveActiveTab = effectiveWorkspaceTab(
     routeTab,
     availableTabKeys.includes(activeTab) ? activeTab : resolvedActiveTab,
-    { collaborationEnabled }
+    { collaborationEnabled: false }
   );
   const preferredWorkspaceBranch = useMemo(() => {
     const repoBranch =
@@ -965,8 +947,7 @@ export function Toolbar() {
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
   const isCollaborationTab = effectiveActiveTab === COLLABORATION_WORKSPACE_TAB;
   const boardStyle = useKanbanBoardStyle();
-  const hasLeadingControls =
-    isWorkspaceTab || (!isCollaborationTab && boardStyle === 'canvas');
+  const hasLeadingControls = true;
   const showLayoutToggles =
     isWorkspaceTab || isCollaborationTab || boardStyle !== 'canvas';
   const logoLeads = logoLeadsWindowChrome();

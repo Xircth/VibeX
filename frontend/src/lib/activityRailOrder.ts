@@ -13,6 +13,7 @@ export const ACTIVITY_RAIL_ITEMS = [
   PANEL_IDS.GIT,
   PANEL_IDS.SEARCH,
   PANEL_IDS.SESSION_LIST,
+  PANEL_IDS.BOTS,
 ] as const;
 
 export type ActivityRailItemId = (typeof ACTIVITY_RAIL_ITEMS)[number];
@@ -25,6 +26,7 @@ export const ACTIVITY_RAIL_PANEL_TITLES: Record<ActivityRailItemId, string> = {
   [PANEL_IDS.GIT]: 'Git',
   [PANEL_IDS.SEARCH]: 'Search',
   [PANEL_IDS.SESSION_LIST]: 'Sessions',
+  [PANEL_IDS.BOTS]: 'Bots',
 };
 
 export const ACTIVITY_RAIL_ORDER_KEY = 'vibex:activity-rail-order' as const;

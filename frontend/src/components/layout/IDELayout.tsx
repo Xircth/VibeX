@@ -143,6 +143,8 @@ import {
   layoutDockviewPreservingGroupWidths,
   settleDockviewGroupWidths,
 } from '@/utils/dockviewStartupSizing';
+import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
+import { CollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
 
 const LAYOUT = {
   // A (dock) defaults to 10% of the full grid; C (session) uses the shared
@@ -178,6 +180,12 @@ interface IDELayoutProps {
 const LazyKanbanBoard = lazy(() =>
   import('@/components/panels/DockviewKanbanPanel').then((module) => ({
     default: module.KanbanBoard,
+  }))
+);
+
+const LazyWorkspaceCanvasStage = lazy(() =>
+  import('@/components/kanban/KanbanSessionHub').then((module) => ({
+    default: module.KanbanSessionHub,
   }))
 );
 
@@ -1355,6 +1363,116 @@ export function IDELayout({
     return () => setChromeOccluded(false);
   }, [setChromeOccluded]);
 
+  const workspaceStageStyle = useWorkspaceStageStyle();
+  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
+  const isWorkspaceCanvasMode =
+    effectiveActiveTab === 'workspace' && workspaceStageStyle === 'canvas';
+
+  const layoutBody = (
+    <div className="flex min-h-0 flex-1">
+      {effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban' ? (
+        <WorkspaceActivityRail
+          mode={effectiveActiveTab === 'kanban' ? 'kanban' : 'workspace'}
+          isEditorAreaVisible={isEditorAreaVisible}
+          onToggleEditorArea={toggleEditorArea}
+        />
+      ) : null}
+
+      <RightPanelSlotContext.Provider value={sessionPlacement}>
+        <div
+          className="workspace-stage-host relative flex-1 min-w-0"
+          ref={dockviewRootRef}
+        >
+          <MobileDeviceConnectBanner />
+          {isDockviewMounted ? (
+            <div
+              className="h-full"
+              style={
+                effectiveActiveTab === 'workspace' && !isWorkspaceCanvasMode
+                  ? undefined
+                  : { display: 'none' }
+              }
+              aria-hidden={
+                effectiveActiveTab !== 'workspace' || isWorkspaceCanvasMode
+              }
+            >
+              <DockviewReact
+                components={panelComponents}
+                defaultTabComponent={WorkspaceDockviewTab}
+                leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                onReady={handleReady}
+                className="dockview-theme-light dockview-theme-ayu"
+                disableAutoResizing={true}
+                disableFloatingGroups={true}
+                dndEdges={false}
+              />
+            </div>
+          ) : null}
+
+          {isWorkspaceCanvasMode ? (
+            <div
+              className="kanban-overlay absolute inset-0 z-10"
+              data-testid="workspace-canvas-stage"
+            >
+              <Suspense fallback={null}>
+                <LazyWorkspaceCanvasStage
+                  presentation="canvas"
+                  zoneOrder={['list', 'monitor', 'session']}
+                />
+              </Suspense>
+            </div>
+          ) : null}
+
+          <KeepAliveSurface
+            active={effectiveActiveTab === 'kanban'}
+            evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+            className="kanban-overlay absolute inset-0 z-10"
+          >
+            <Suspense
+              fallback={
+                <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                  <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                    <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                    <span>Loading Kanban...</span>
+                  </div>
+                </div>
+              }
+            >
+              <LazyKanbanBoard />
+            </Suspense>
+          </KeepAliveSurface>
+
+          {ActiveSdkTabComponent ? (
+            <div className="kanban-overlay absolute inset-0 z-10">
+              <ActiveSdkTabComponent
+                workspaceId={surfaceWorkspaceId}
+                projectId={projectId ?? null}
+              />
+            </div>
+          ) : null}
+
+          {activePluginTab ? (
+            <div className="kanban-overlay absolute inset-0 z-10">
+              <PluginRemoteView
+                item={activePluginTab}
+                slot="app.tab"
+                enabled
+                workspaceId={surfaceWorkspaceId}
+                projectId={projectId ?? null}
+              />
+            </div>
+          ) : null}
+        </div>
+      </RightPanelSlotContext.Provider>
+
+      {effectiveActiveTab === 'workspace' &&
+      !isWorkspaceCanvasMode &&
+      rightPanelContent ? (
+        <RightPanelSidebar />
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="workspace-shell relative flex h-full w-full flex-col">
       <SearchPalette />
@@ -1372,86 +1490,13 @@ export function IDELayout({
       )}
 
       <ProjectLayoutScope>
-        <div className="flex min-h-0 flex-1">
-          {effectiveActiveTab === 'workspace' ? (
-            <WorkspaceActivityRail
-              isEditorAreaVisible={isEditorAreaVisible}
-              onToggleEditorArea={toggleEditorArea}
-            />
-          ) : null}
-
-          <RightPanelSlotContext.Provider value={sessionPlacement}>
-            <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
-              <MobileDeviceConnectBanner />
-              {isDockviewMounted ? (
-                <div
-                  className="h-full"
-                  style={
-                    effectiveActiveTab === 'workspace'
-                      ? undefined
-                      : { display: 'none' }
-                  }
-                  aria-hidden={effectiveActiveTab !== 'workspace'}
-                >
-                  <DockviewReact
-                    components={panelComponents}
-                    defaultTabComponent={WorkspaceDockviewTab}
-                    leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                    onReady={handleReady}
-                    className="dockview-theme-light dockview-theme-ayu"
-                    disableAutoResizing={true}
-                    disableFloatingGroups={true}
-                    dndEdges={false}
-                  />
-                </div>
-              ) : null}
-
-              <KeepAliveSurface
-                active={effectiveActiveTab === 'kanban'}
-                evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
-                className="kanban-overlay absolute inset-0 z-10"
-              >
-                <Suspense
-                  fallback={
-                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                        <span>Loading Kanban...</span>
-                      </div>
-                    </div>
-                  }
-                >
-                  <LazyKanbanBoard />
-                </Suspense>
-              </KeepAliveSurface>
-
-              {ActiveSdkTabComponent ? (
-                <div className="kanban-overlay absolute inset-0 z-10">
-                  <ActiveSdkTabComponent
-                    workspaceId={surfaceWorkspaceId}
-                    projectId={projectId ?? null}
-                  />
-                </div>
-              ) : null}
-
-              {activePluginTab ? (
-                <div className="kanban-overlay absolute inset-0 z-10">
-                  <PluginRemoteView
-                    item={activePluginTab}
-                    slot="app.tab"
-                    enabled
-                    workspaceId={surfaceWorkspaceId}
-                    projectId={projectId ?? null}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </RightPanelSlotContext.Provider>
-
-          {effectiveActiveTab === 'workspace' && rightPanelContent ? (
-            <RightPanelSidebar />
-          ) : null}
-        </div>
+        {collaborationEnabled ? (
+          <CollaborationSpaceProvider workspaceId={surfaceWorkspaceId}>
+            {layoutBody}
+          </CollaborationSpaceProvider>
+        ) : (
+          layoutBody
+        )}
       </ProjectLayoutScope>
 
       {rightPanelContent && sessionContentHost

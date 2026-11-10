@@ -55,31 +55,6 @@ vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
   }),
 }));
 
-describe('BranchStatusBadge', () => {
-  beforeEach(() => {
-    projectMocks.isGit = true;
-  });
-
-  it('matches the neighboring workspace selector geometry and spacing', () => {
-    render(
-      <TooltipProvider>
-        <WorkspaceBranchControls
-          isWorkspaceTab={true}
-          workspaceId="workspace-1"
-        />
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole('group', { name: '工作区与目标分支' })).toHaveClass(
-      'gap-2'
-    );
-    const badge = screen.getByText('main').closest('div');
-    expect(badge).toHaveClass('raised-control', 'h-7', 'gap-1', 'rounded-lg');
-    expect(badge).not.toHaveClass('ml-2');
-    expect(badge).not.toHaveClass('border');
-  });
-});
-
 describe('KanbanLayoutToggles', () => {
   beforeEach(() => {
     useLayoutStore.getState().resetLayout();
@@ -143,14 +118,14 @@ describe('KanbanLayoutToggles', () => {
   });
 });
 
-describe('WorkspaceBranchControls canvas list toggle', () => {
+describe('WorkspaceBranchControls host selector & canvas list toggle', () => {
   beforeEach(() => {
     projectMocks.isGit = true;
     resetKanbanBoardStyle();
     resetKanbanCanvasListVisible();
   });
 
-  it('places the session-list button first in canvas mode', async () => {
+  it('renders the top-left HostSelector and places the session-list button next to it in canvas mode', async () => {
     const user = userEvent.setup();
     setKanbanBoardStyle('canvas');
 
@@ -163,14 +138,15 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     const group = screen.getByRole('group', {
       name: '工作区与目标分支',
     });
-    const buttons = group.querySelectorAll('button');
-    expect(buttons[0]).toHaveAttribute('aria-label', '隐藏会话列表');
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    const listToggle = screen.getByRole('button', { name: '隐藏会话列表' });
+    expect(group).toContainElement(listToggle);
     expect(screen.queryByText('Projects')).not.toBeInTheDocument();
 
-    await user.click(buttons[0]);
-    expect(screen.getByRole('button', { name: '显示会话列表' })).toBe(
-      buttons[0]
-    );
+    await user.click(listToggle);
+    expect(
+      screen.getByRole('button', { name: '显示会话列表' })
+    ).toBeInTheDocument();
   });
 
   it('keeps kanban layout toggles out of the leading cluster', () => {
@@ -186,7 +162,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps workspace layout toggles out of the leading cluster', () => {
+  it('keeps workspace layout toggles and global worktree selector out of the leading cluster', () => {
     render(
       <TooltipProvider>
         <WorkspaceBranchControls isWorkspaceTab={true} />
@@ -196,7 +172,8 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     expect(
       screen.queryByRole('button', { name: '显示/隐藏文件树' })
     ).not.toBeInTheDocument();
-    expect(screen.getByText('Select workspace')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
   });
 
   it('does not show the canvas list toggle on the workspace tab', () => {
@@ -215,7 +192,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('hides workspace and branch controls on a non-git project', () => {
+  it('keeps HostSelector visible and hides global worktree/branch controls on any project', () => {
     projectMocks.isGit = false;
 
     render(
@@ -227,6 +204,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
       </TooltipProvider>
     );
 
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
     expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
     expect(screen.queryByText('main')).not.toBeInTheDocument();
   });

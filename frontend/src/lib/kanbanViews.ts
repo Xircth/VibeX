@@ -1,5 +1,6 @@
 export const BUILTIN_KANBAN_VIEW_IDS = [
   'builtin:columns',
+  'builtin:repos',
   'builtin:sessions',
   'builtin:canvas',
   'builtin:usage',
@@ -26,6 +27,12 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
     builtin: true,
   },
   {
+    id: 'builtin:repos',
+    titleKey: 'kanbanViews.repos',
+    hidesBottomDock: true,
+    builtin: true,
+  },
+  {
     id: 'builtin:sessions',
     titleKey: 'kanbanViews.sessions',
     hidesBottomDock: true,
@@ -45,7 +52,7 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
   },
 ];
 
-export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:canvas';
+export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:columns';
 
 export function migrateKanbanViewId(
   panelView?: LegacyKanbanPanelView | string | null,
@@ -70,13 +77,18 @@ export function migrateKanbanViewId(
     case 'usageDashboard':
       return 'builtin:usage';
     case 'sessionHub':
+      return 'builtin:canvas';
     default:
       return DEFAULT_KANBAN_VIEW_ID;
   }
 }
 
 export function kanbanViewHidesSessionSlot(viewId: string): boolean {
-  return viewId === 'builtin:canvas' || viewId === 'builtin:usage';
+  return (
+    viewId === 'builtin:canvas' ||
+    viewId === 'builtin:usage' ||
+    viewId === 'builtin:repos'
+  );
 }
 
 /**

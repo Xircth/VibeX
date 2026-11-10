@@ -47,6 +47,12 @@ import {
   type KanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
 import {
+  WORKSPACE_STAGE_STYLES,
+  setWorkspaceStageStyle,
+  useWorkspaceStageStyle,
+  type WorkspaceStageStyle,
+} from '@/lib/workspaceStageStyle';
+import {
   getSettingsNavFloat,
   setSettingsNavFloat,
 } from '@/lib/settingsNavFloat';
@@ -193,6 +199,7 @@ export function AppearanceSettings() {
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
+  const workspaceStageStyle = useWorkspaceStageStyle();
   const [settingsNavFloat, setSettingsNavFloatState] = useState<boolean>(() =>
     getSettingsNavFloat()
   );
@@ -381,6 +388,35 @@ export function AppearanceSettings() {
           description={t('appearance.kanbanBoardStyle.description')}
         >
           <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.workspaceStageStyle.label')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.workspaceStageStyle.hint')}
+                </p>
+              </div>
+              <Select
+                value={workspaceStageStyle}
+                onValueChange={(value) => {
+                  setWorkspaceStageStyle(value as WorkspaceStageStyle);
+                }}
+              >
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.workspaceStageStyle.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {WORKSPACE_STAGE_STYLES.map((style) => (
+                    <SelectItem key={style} value={style}>
+                      {t(`appearance.workspaceStageStyle.${style}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="settings-row">
               <div>
                 <Label>{t('appearance.kanbanSessionList.label')}</Label>

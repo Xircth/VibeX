@@ -596,6 +596,8 @@
     "processes": "执行进程",
     "search": "搜索",
     "sessionList": "会话列表",
+    "bots": "Bot 助手",
+    "collaborationSpace": "协作空间",
     "loadFailed": "面板无法加载",
     "retry": "重试",
     "kanban": "看板",
@@ -676,10 +678,11 @@
     "createFolderFailed": "创建文件夹失败"
   },
   "kanbanViews": {
-    "columns": "四栏",
+    "columns": "任务面板",
+    "repos": "仓库面板",
     "sessions": "会话",
     "canvas": "画布",
-    "usage": "计量"
+    "usage": "计量统计"
   },
   "surface": {
     "placeholder": {

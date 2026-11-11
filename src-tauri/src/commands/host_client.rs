@@ -158,6 +158,115 @@ pub async fn host_client_delete(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSyncAccountRequest {
+    #[serde(default)]
+    pub account_user_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn host_client_set_sync_account(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: SetSyncAccountRequest,
+) -> Result<bool, AppError> {
+    runtime().set_local_host_id(local_host_id().await).await;
+    let result = runtime()
+        .set_sync_account(&state.remote_desktop, request.account_user_id.as_deref())
+        .await?;
+    for label in result.closed_windows {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.close();
+        }
+    }
+    if result.changed {
+        let _ = app.emit(HOST_CLIENT_CHANGED, ());
+    }
+    Ok(result.changed)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSyncProfilesRequest {
+    pub account_user_id: String,
+}
+
+#[tauri::command]
+pub async fn host_client_export_sync_profiles(
+    request: ExportSyncProfilesRequest,
+) -> Result<crate::host_client_sync::ExportSyncBundle, AppError> {
+    runtime().set_local_host_id(local_host_id().await).await;
+    runtime().export_sync_bundle(&request.account_user_id).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeSyncProfilesRequest {
+    pub account_user_id: String,
+    #[serde(default)]
+    pub profiles: Vec<crate::host_client_sync::SyncableHostProfile>,
+    #[serde(default)]
+    pub authoritative: bool,
+}
+
+#[tauri::command]
+pub async fn host_client_merge_sync_profiles(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: MergeSyncProfilesRequest,
+) -> Result<bool, AppError> {
+    runtime().set_local_host_id(local_host_id().await).await;
+    let result = runtime()
+        .merge_sync_profiles(
+            &state.remote_desktop,
+            &request.account_user_id,
+            request.profiles,
+            request.authoritative,
+        )
+        .await?;
+    for label in result.closed_windows {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.close();
+        }
+    }
+    if result.changed {
+        let _ = app.emit(HOST_CLIENT_CHANGED, ());
+    }
+    Ok(result.changed)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkSyncPushedRequest {
+    pub account_user_id: String,
+    #[serde(default)]
+    pub profile_ids: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn host_client_mark_sync_pushed(
+    request: MarkSyncPushedRequest,
+) -> Result<(), AppError> {
+    runtime()
+        .mark_sync_pushed(&request.account_user_id, &request.profile_ids)
+        .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AckSyncDeletesRequest {
+    #[serde(default)]
+    pub delete_ids: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn host_client_ack_sync_deletes(
+    request: AckSyncDeletesRequest,
+) -> Result<(), AppError> {
+    runtime().ack_sync_deletes(&request.delete_ids).await
+}
+
 async fn local_host_id() -> Option<String> {
     tokio::task::spawn_blocking(|| {
         utils::assets::load_or_create_host_id(&utils::assets::asset_dir()).ok()

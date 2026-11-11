@@ -525,6 +525,38 @@ export interface ApplyHostUpdateResult {
   toVersion: string;
 }
 
+export interface SyncableHostCredential {
+  deviceId?: string | null;
+  accessToken: string;
+}
+
+export interface SyncableHostProfile {
+  syncKey?: string | null;
+  profileId: string;
+  hostId?: string | null;
+  name: string;
+  origin: string;
+  provisionKind?: string | null;
+  provision?: Record<string, unknown> | null;
+  credential?: SyncableHostCredential | null;
+  lastConnectedAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PendingCloudDelete {
+  id: string;
+  accountUserId: string;
+  profileId: string;
+  hostId?: string | null;
+  origin?: string | null;
+  sshTarget?: string | null;
+}
+
+export interface ExportSyncBundle {
+  profiles: SyncableHostProfile[];
+  pendingDeletes: PendingCloudDelete[];
+}
+
 export const hostClientApi = {
   status: async (): Promise<HostClientStatus> => {
     return desktopShellCall<HostClientStatus>('host_client_status');
@@ -559,6 +591,41 @@ export const hostClientApi = {
       'host_client_apply_host_update',
       { request: { profile_id: profileId } }
     );
+  },
+  setSyncAccount: async (accountUserId: string | null): Promise<boolean> => {
+    return desktopShellCall<boolean>('host_client_set_sync_account', {
+      request: { accountUserId },
+    });
+  },
+  exportSyncProfiles: async (
+    accountUserId: string
+  ): Promise<ExportSyncBundle> => {
+    return desktopShellCall<ExportSyncBundle>(
+      'host_client_export_sync_profiles',
+      { request: { accountUserId } }
+    );
+  },
+  mergeSyncProfiles: async (request: {
+    accountUserId: string;
+    profiles: SyncableHostProfile[];
+    authoritative: boolean;
+  }): Promise<boolean> => {
+    return desktopShellCall<boolean>('host_client_merge_sync_profiles', {
+      request,
+    });
+  },
+  markSyncPushed: async (
+    accountUserId: string,
+    profileIds: string[]
+  ): Promise<void> => {
+    await desktopShellCall('host_client_mark_sync_pushed', {
+      request: { accountUserId, profileIds },
+    });
+  },
+  ackSyncDeletes: async (deleteIds: string[]): Promise<void> => {
+    await desktopShellCall('host_client_ack_sync_deletes', {
+      request: { deleteIds },
+    });
   },
 };
 

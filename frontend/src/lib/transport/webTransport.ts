@@ -126,6 +126,10 @@ export class WebTransport implements BackendTransport {
     this.token = options.token;
   }
 
+  get origin(): string {
+    return this.baseUrl;
+  }
+
   async call(
     command: string,
     args?: Record<string, unknown>,

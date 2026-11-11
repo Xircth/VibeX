@@ -6,11 +6,7 @@ import {
   useState,
   type RefObject,
 } from 'react';
-import type {
-  DraftFollowUpData,
-  ExecutorProfileId,
-  Scratch,
-} from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import { ScratchType } from 'shared/types';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
@@ -19,7 +15,6 @@ import {
   extractDraftFollowUpData,
   getDraftExecutorProfile,
   shouldPersistDraftFollowUp,
-  shouldRaiseDraftConflict,
 } from './sessionComposerDraft';
 
 export function useSessionComposerDraftScratch({
@@ -28,14 +23,13 @@ export function useSessionComposerDraftScratch({
   attachedImagePaths,
   executorProfile,
   executorProfileRef,
-  localMessage,
 }: {
   scratchId: string | undefined;
   workspaceId: string | null | undefined;
   attachedImagePaths: string[];
   executorProfile?: ExecutorProfileId | null;
   executorProfileRef?: RefObject<ExecutorProfileId | null>;
-  localMessage: string;
+  localMessage?: string;
 }) {
   const {
     scratch,
@@ -68,17 +62,14 @@ export function useSessionComposerDraftScratch({
   }, [scratch]);
 
   const lastSavedRevisionRef = useRef<number | null>(scratch?.revision ?? null);
-  const lastSeenRevisionRef = useRef<number | null>(scratch?.revision ?? null);
   const saveGenerationRef = useRef(0);
   const cancelDebouncedSaveRef = useRef(() => {});
   const [lastSavedRevision, setLastSavedRevision] = useState<number | null>(
     scratch?.revision ?? null
   );
-  const [conflict, setConflict] = useState<Scratch | null>(null);
 
   const rememberRevision = (revision: number) => {
     lastSavedRevisionRef.current = revision;
-    lastSeenRevisionRef.current = revision;
     setLastSavedRevision(revision);
   };
 
@@ -94,36 +85,22 @@ export function useSessionComposerDraftScratch({
     saveGenerationRef.current += 1;
     cancelDebouncedSaveRef.current();
     lastSavedRevisionRef.current = null;
-    lastSeenRevisionRef.current = null;
     setLastSavedRevision(null);
-    setConflict(null);
   }, [scratchId]);
 
   useEffect(() => {
     if (!scratch) {
-      lastSeenRevisionRef.current = null;
       lastSavedRevisionRef.current = null;
       setLastSavedRevision(null);
       return;
     }
-    if (lastSeenRevisionRef.current == null) {
-      rememberRevision(scratch.revision);
-      return;
-    }
-    if (scratch.revision <= lastSeenRevisionRef.current) return;
-    lastSeenRevisionRef.current = scratch.revision;
     if (
-      shouldRaiseDraftConflict({
-        local: {
-          message: localMessage,
-          images: attachedImagePathsRef.current,
-        },
-        server: extractDraftFollowUpData(scratch),
-      })
+      lastSavedRevisionRef.current == null ||
+      scratch.revision > lastSavedRevisionRef.current
     ) {
-      setConflict(scratch);
+      rememberRevision(scratch.revision);
     }
-  }, [localMessage, scratch, scratchId]);
+  }, [scratch]);
 
   const saveToScratch = useCallback(
     async (
@@ -153,79 +130,23 @@ export function useSessionComposerDraftScratch({
 
       const generation = saveGenerationRef.current;
       try {
-        const outcome = await updateScratch(
-          {
-            ...update,
-            expected_revision:
-              lastSavedRevisionRef.current ?? scratchRef.current?.revision ?? 0,
-          },
-          { overwriteOnConflict: false }
-        );
+        const outcome = await updateScratch({
+          ...update,
+          expected_revision:
+            lastSavedRevisionRef.current ?? scratchRef.current?.revision ?? 0,
+        });
         if (generation !== saveGenerationRef.current) return;
-        if (outcome.kind === 'conflict') {
-          if (
-            shouldRaiseDraftConflict({
-              local: {
-                message: localMessage,
-                images: attachedImagePathsRef.current,
-              },
-              server: extractDraftFollowUpData(outcome.server),
-            })
-          ) {
-            setConflict(outcome.server);
-          }
-          return;
+        if (outcome.kind === 'saved') {
+          rememberRevision(outcome.scratch.revision);
+        } else {
+          rememberRevision(outcome.server.revision);
         }
-        rememberRevision(outcome.scratch.revision);
-        setConflict(null);
       } catch (e) {
         console.error('Failed to save follow-up draft', e);
       }
     },
-    [localMessage, scratchData, updateScratch, workspaceId]
+    [scratchData, updateScratch, workspaceId]
   );
-
-  const keepServerDraft = useCallback((): DraftFollowUpData | null => {
-    if (!conflict) return null;
-    discardInFlightSaves();
-    const source =
-      scratchRef.current && scratchRef.current.revision >= conflict.revision
-        ? scratchRef.current
-        : conflict;
-    rememberRevision(source.revision);
-    const data = extractDraftFollowUpData(source);
-    setConflict(null);
-    return data ?? null;
-  }, [conflict]);
-
-  const keepLocalDraft = useCallback(async () => {
-    if (!conflict) return;
-    discardInFlightSaves();
-    const generation = saveGenerationRef.current;
-    const executorProfileId =
-      executorProfileRef?.current ?? latestExecutorProfileRef.current;
-    const update = buildDraftFollowUpScratchUpdate(
-      localMessage,
-      attachedImagePathsRef.current,
-      executorProfileId,
-      scratchData
-    );
-    if (!update) return;
-    const outcome = await updateScratch(
-      {
-        ...update,
-        expected_revision: conflict.revision,
-      },
-      { overwriteOnConflict: false }
-    );
-    if (generation !== saveGenerationRef.current) return;
-    if (outcome.kind === 'conflict') {
-      setConflict(outcome.server);
-      return;
-    }
-    rememberRevision(outcome.scratch.revision);
-    setConflict(null);
-  }, [conflict, executorProfileRef, localMessage, scratchData, updateScratch]);
 
   const { debounced: setFollowUpMessage, cancel: cancelDebouncedSave } =
     useDebouncedCallback(
@@ -241,7 +162,6 @@ export function useSessionComposerDraftScratch({
     );
   const cancelPendingDraftWrites = useCallback(() => {
     discardInFlightSaves();
-    setConflict(null);
   }, []);
   cancelDebouncedSaveRef.current = cancelDebouncedSave;
 
@@ -254,10 +174,8 @@ export function useSessionComposerDraftScratch({
     saveToScratch,
     setFollowUpMessage,
     cancelDebouncedSave: cancelPendingDraftWrites,
-    draftConflict: conflict,
-    keepServerDraft,
-    keepLocalDraft,
     lastSavedRevision,
     scratchRevision: scratch?.revision ?? null,
   };
 }
+

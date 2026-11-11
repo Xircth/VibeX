@@ -221,7 +221,7 @@ const BranchGroupSection = memo(function BranchGroupSection({
           <ChevronRight className="h-3 w-3 shrink-0" />
         )}
         <span>{group.label}</span>
-        <span className="ml-auto rounded-full bg-foreground/10 px-1.5 py-0 font-mono text-[9px] text-muted-foreground/70">
+        <span className="ml-auto rounded-full bg-foreground/10 px-1.5 py-0 font-mono text-[10px] text-muted-foreground/70">
           {group.items.length}
         </span>
       </button>

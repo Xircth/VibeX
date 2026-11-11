@@ -117,7 +117,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   color: hsl(var(--muted-foreground));
   margin-bottom: 5px;
   letter-spacing: 0.04em;

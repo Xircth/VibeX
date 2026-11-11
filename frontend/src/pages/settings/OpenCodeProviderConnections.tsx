@@ -39,6 +39,11 @@ import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
+import {
+  ModelRouterEntry,
+  openCodeConnectRequest,
+  type RouterProvision,
+} from '@/features/model-router';
 
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
 import { useProviderCatalogList } from './useProviderCatalogList';
@@ -540,8 +545,25 @@ export function OpenCodeProviderConnections({
 
   const busy = saving || disconnecting !== null || toggling !== null;
 
+  const applyModelRouter = async (provision: RouterProvision) => {
+    setView(
+      await agentManagementApi.connectOpenCodeProvider(
+        openCodeConnectRequest(provision),
+        agentId
+      )
+    );
+    await onChanged?.();
+  };
+
   const toolbar = (
     <div className="agent-model-provider-toolbar">
+      {allowImport ? (
+        <ModelRouterEntry
+          agentId={agentId}
+          disabled={busy}
+          onApply={applyModelRouter}
+        />
+      ) : null}
       {allowCreate ? (
         <Button size="sm" className="h-8" disabled={busy} onClick={openCreate}>
           <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />

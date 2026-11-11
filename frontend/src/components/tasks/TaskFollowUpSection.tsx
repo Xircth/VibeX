@@ -78,7 +78,6 @@ import {
   SessionComposerInput,
 } from './follow-up/SessionComposerInput';
 import { SessionComposerFrame } from './follow-up/SessionComposerFrame';
-import { DraftConflictBanner } from './follow-up/DraftConflictBanner';
 import { AgentMentionProvider } from './follow-up/AgentMention';
 import { LiveFeedbackNotes } from './follow-up/LiveFeedbackBar';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
@@ -426,9 +425,6 @@ export function TaskFollowUpSection({
     saveToScratch,
     setFollowUpMessage,
     cancelDebouncedSave,
-    draftConflict,
-    keepServerDraft,
-    keepLocalDraft,
     lastSavedRevision,
     scratchRevision,
   } = useSessionComposerDraftScratch({
@@ -1190,26 +1186,8 @@ export function TaskFollowUpSection({
             />
           }
           overlay={
-            pendingPermissions.length > 0 ||
-            pendingAgentQuestion ||
-            draftConflict ? (
+            pendingPermissions.length > 0 || pendingAgentQuestion ? (
               <div className="space-y-2">
-                {draftConflict ? (
-                  <DraftConflictBanner
-                    onKeepServer={() => {
-                      const server = keepServerDraft();
-                      if (!server) return;
-                      setLocalMessage(server.message ?? '');
-                      setAttachedImages((prev) => {
-                        prev.forEach(revokeComposerImagePreviewUrl);
-                        return server.images.map(imageAttachmentFromPath);
-                      });
-                    }}
-                    onKeepLocal={() => {
-                      void keepLocalDraft();
-                    }}
-                  />
-                ) : null}
                 {pendingPermissions.map((permission) => (
                   <PermissionRequestCard
                     key={permission.request.permission_id}

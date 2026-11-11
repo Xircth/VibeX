@@ -304,14 +304,21 @@ pub async fn update_web_service_config(
             .await
             .map_err(|error| AppError::Internal(error.to_string()))?;
     }
-    let saved = save_config(&normalized).await?;
+    let mut saved = save_config(&normalized).await?;
     let running = WEB_SERVICE_RUNTIME.lock().await.is_some();
     if running && (previous.allow_lan != saved.allow_lan || previous.port != saved.port) {
         stop_web_server_with_config(saved.clone()).await;
-        if let Err(error) = start_web_server(app.clone()).await {
-            let _ = save_config(&previous).await;
-            let _ = start_web_server(app).await;
-            return Err(error);
+        match start_web_server(app.clone()).await {
+            Ok(status) => {
+                if status.running && status.port != saved.port {
+                    saved.port = status.port;
+                }
+            }
+            Err(error) => {
+                let _ = save_config(&previous).await;
+                let _ = start_web_server(app).await;
+                return Err(error);
+            }
         }
     }
     Ok(saved)
@@ -354,16 +361,24 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
     if WEB_SERVICE_RUNTIME.lock().await.is_some() {
         stop_web_server_with_config(config.clone()).await;
     }
+    validate_port(config.port)?;
+    let (listeners, local_addr) =
+        bind_web_service_listeners_with_fallback(config.port, config.allow_lan).await?;
+    let bound_port = local_addr.port();
+    if bound_port != config.port {
+        config.port = bound_port;
+        config = save_config(&config).await?;
+    }
     let listen = std::net::SocketAddr::from((
         if config.allow_lan {
             std::net::Ipv4Addr::UNSPECIFIED
         } else {
             std::net::Ipv4Addr::LOCALHOST
         },
-        config.port,
+        bound_port,
     ));
     let host_id = load_or_create_host_id().await?;
-    let advertised = advertised_addresses(config.port, config.allow_lan);
+    let advertised = advertised_addresses(bound_port, config.allow_lan);
     let mut server_config = server::ServerConfig::default()
         .with_listen_addr(listen, config.allow_lan)
         .map_err(|error| AppError::BadRequest(error.to_string()))?
@@ -395,7 +410,52 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         state.host.clone(),
         state.local_deployment.pty().clone(),
     );
-    start_web_server_with_router(config, runtime.router(), serves_web_ui).await
+    start_web_server_with_bound_listeners(
+        config,
+        listeners,
+        local_addr,
+        runtime.router(),
+        serves_web_ui,
+    )
+    .await
+}
+
+const MAX_PORT_FALLBACK_ATTEMPTS: u16 = 100;
+
+async fn bind_web_service_listeners_with_fallback(
+    start_port: u16,
+    allow_lan: bool,
+) -> Result<(Vec<TcpListener>, SocketAddr), AppError> {
+    let mut last_conflict = None;
+    for offset in 0..MAX_PORT_FALLBACK_ATTEMPTS {
+        let Some(candidate_port) = start_port.checked_add(offset) else {
+            break;
+        };
+        if candidate_port == 0 {
+            continue;
+        }
+        match bind_web_service_listeners(candidate_port, allow_lan).await {
+            Ok((listeners, local_addr)) => {
+                if candidate_port != start_port {
+                    tracing::info!(
+                        "Web service port {} is in use, automatically fell back to port {}",
+                        start_port,
+                        local_addr.port()
+                    );
+                }
+                return Ok((listeners, local_addr));
+            }
+            Err(error @ AppError::Conflict(_)) => {
+                last_conflict = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_conflict.unwrap_or_else(|| {
+        AppError::Conflict(format!(
+            "Failed to bind web service starting from port {start_port}"
+        ))
+    }))
 }
 
 async fn bind_web_service_listeners(
@@ -446,8 +506,9 @@ async fn bind_web_service_listeners(
     }
 }
 
+#[cfg(test)]
 async fn start_web_server_with_router(
-    config: WebServiceConfig,
+    mut config: WebServiceConfig,
     service_router: Router,
     serves_web_ui: bool,
 ) -> Result<WebServerStatus, AppError> {
@@ -461,7 +522,26 @@ async fn start_web_server_with_router(
         }
     }
 
-    let (listeners, local_addr) = bind_web_service_listeners(config.port, config.allow_lan).await?;
+    let (listeners, local_addr) =
+        bind_web_service_listeners_with_fallback(config.port, config.allow_lan).await?;
+    config.port = local_addr.port();
+    start_web_server_with_bound_listeners(
+        config,
+        listeners,
+        local_addr,
+        service_router,
+        serves_web_ui,
+    )
+    .await
+}
+
+async fn start_web_server_with_bound_listeners(
+    config: WebServiceConfig,
+    listeners: Vec<TcpListener>,
+    local_addr: SocketAddr,
+    service_router: Router,
+    serves_web_ui: bool,
+) -> Result<WebServerStatus, AppError> {
     let listen_addresses = advertised_listen_addresses(local_addr.port(), config.allow_lan);
     let addresses = listen_addresses
         .iter()
@@ -840,4 +920,40 @@ mod tests {
 
         let _ = stop_web_server_with_config(loopback_config).await;
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn starting_web_service_automatically_falls_back_to_next_available_port_when_occupied() {
+        let _guard = TEST_RUNTIME_LOCK.lock().await;
+        let occupied_first =
+            StdTcpListener::bind(("127.0.0.1", 0)).expect("first occupied port should bind");
+        let base_port = occupied_first
+            .local_addr()
+            .expect("first occupied listener should expose address")
+            .port();
+        let _occupied_second = StdTcpListener::bind(("127.0.0.1", base_port.saturating_add(1))).ok();
+
+        let config = WebServiceConfig {
+            port: base_port,
+            token: None,
+            auto_start: false,
+            allow_lan: false,
+        };
+
+        let status = start_web_server_with_router(config.clone(), Router::new(), true)
+            .await
+            .expect("web service should fall back to a subsequent free port instead of failing");
+        let _ = stop_web_server_with_config(config).await;
+
+        assert!(status.running);
+        assert!(
+            status.port > base_port,
+            "expected fallback port > {base_port}, got {}",
+            status.port
+        );
+        assert_eq!(
+            status.address.as_deref(),
+            Some(format!("http://127.0.0.1:{}", status.port).as_str())
+        );
+    }
 }
+

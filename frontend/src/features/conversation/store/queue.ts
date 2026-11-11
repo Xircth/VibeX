@@ -158,12 +158,24 @@ export function isLiveTurnConvergedInWindow(
     for (let index = windowRows.length - 1; index >= 0; index -= 1) {
       const candidate = windowRows[index];
       if (
-        candidate &&
-        candidate.row.kind === 'message_turn' &&
-        candidate.row.turn.role === 'user' &&
-        !candidate.row_id.includes(':steer:') &&
-        (candidate.row_id === liveUser.row_id ||
-          promptsMatch(userTurnText(candidate.row.turn), targetPrompt))
+        !candidate ||
+        candidate.row.kind !== 'message_turn' ||
+        candidate.row.turn.role !== 'user' ||
+        candidate.row_id.includes(':steer:')
+      ) {
+        continue;
+      }
+      const candidateKey = nonAcpTurnKey(candidate.row_id);
+      if (
+        candidateKey !== null &&
+        !turnKey.startsWith('acp-') &&
+        candidateKey !== turnKey
+      ) {
+        continue;
+      }
+      if (
+        candidate.row_id === liveUser.row_id ||
+        promptsMatch(userTurnText(candidate.row.turn), targetPrompt)
       ) {
         matchedUserIndex = index;
         break;
@@ -184,6 +196,14 @@ export function isLiveTurnConvergedInWindow(
         candidate.row.turn.role === 'user' &&
         !candidate.row_id.includes(':steer:')
       ) {
+        const candidateKey = nonAcpTurnKey(candidate.row_id);
+        if (
+          candidateKey !== null &&
+          !turnKey.startsWith('acp-') &&
+          candidateKey !== turnKey
+        ) {
+          continue;
+        }
         matchedUserIndex = index;
         break;
       }
@@ -368,14 +388,23 @@ function isRoundStartUser(row: TimelineRow): boolean {
   );
 }
 
+const ABORTED_USER_ROW_PHASES = new Set(['failed', 'cancelled', 'interrupted']);
+
 function isStreamingOrOpenRound(
   userRow: TimelineRow | null,
-  assistantRows: TimelineRow[]
+  assistantRows: TimelineRow[],
+  isTailRound = true
 ): boolean {
+  if (
+    userRow?.row.kind === 'message_turn' &&
+    ABORTED_USER_ROW_PHASES.has(userRow.row.phase)
+  ) {
+    return false;
+  }
   return (
     (userRow?.row.kind === 'message_turn' &&
       userRow.row.phase === 'streaming') ||
-    assistantRows.length === 0 ||
+    (isTailRound && assistantRows.length === 0) ||
     assistantRows.some(
       (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
     )
@@ -403,21 +432,25 @@ function partitionMessageRounds(rows: TimelineRow[]): {
       ? [first]
       : [];
 
-  const flush = (end: number) => {
+  const flush = (end: number, isTailRound: boolean) => {
     const slice = rows.slice(start, end);
     if (slice.length === 0) return;
     rounds.push({
       userRow,
       assistantRows,
       rows: slice,
-      isStreamingOrOpen: isStreamingOrOpenRound(userRow, assistantRows),
+      isStreamingOrOpen: isStreamingOrOpenRound(
+        userRow,
+        assistantRows,
+        isTailRound
+      ),
     });
   };
 
   for (let index = firstMessageIndex + 1; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (isRoundStartUser(row)) {
-      flush(index);
+      flush(index, false);
       start = index;
       userRow = row;
       assistantRows = [];
@@ -427,7 +460,7 @@ function partitionMessageRounds(rows: TimelineRow[]): {
       assistantRows.push(row);
     }
   }
-  flush(rows.length);
+  flush(rows.length, true);
   return { prefix, rounds: splitTrailingOrphanAssistant(rounds) };
 }
 
@@ -463,7 +496,11 @@ function splitTrailingOrphanAssistant(rounds: MessageRound[]): MessageRound[] {
     userRow: last.userRow,
     assistantRows: keptAssistants,
     rows: keptRows,
-    isStreamingOrOpen: isStreamingOrOpenRound(last.userRow, keptAssistants),
+    isStreamingOrOpen: isStreamingOrOpenRound(
+      last.userRow,
+      keptAssistants,
+      false
+    ),
   };
   const orphan: MessageRound = {
     userRow: null,
@@ -484,6 +521,7 @@ function liveBlocksExtendWindowBlocks(
   windowBlocks: ContentBlock[],
   liveBlocks: ContentBlock[]
 ): boolean {
+  if (windowBlocks.length === 0) return false;
   const windowText = windowBlocks
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join('')
@@ -510,14 +548,31 @@ function liveBlocksExtendWindowBlocks(
   return textExtends && thinkingExtends;
 }
 
+function nonAcpTurnKey(rowId: string): string | null {
+  const key = messageTurnPairKey(rowId);
+  return key && !key.startsWith('acp-') ? key : null;
+}
+
 function roundsAlign(
   windowRound: MessageRound,
-  liveRound: MessageRound
+  liveRound: MessageRound,
+  isTailWindowRound = true
 ): boolean {
+  const windowTurnKey = nonAcpTurnKey(
+    (windowRound.userRow ?? windowRound.assistantRows[0])?.row_id ?? ''
+  );
+  const liveTurnKey = nonAcpTurnKey(
+    (liveRound.userRow ?? liveRound.assistantRows[0])?.row_id ?? ''
+  );
+  if (windowTurnKey !== null && liveTurnKey !== null) {
+    return windowTurnKey === liveTurnKey;
+  }
+
   const firstLiveUser = liveRound.userRow;
   const firstLiveAssistant = liveRound.assistantRows[0] ?? null;
 
   if (
+    isTailWindowRound &&
     windowRound.userRow === null &&
     windowRound.isStreamingOrOpen &&
     Boolean(firstLiveUser || firstLiveAssistant)
@@ -525,6 +580,7 @@ function roundsAlign(
     return true;
   }
   if (
+    isTailWindowRound &&
     windowRound.userRow !== null &&
     windowRound.isStreamingOrOpen &&
     !firstLiveUser &&
@@ -748,17 +804,35 @@ export function combineWindowAndLiveRows(
     }
   }
 
+  // Match each unconsumed live round against window rounds searching from the
+  // tail (most recent round first) so repeated prompts never hijack an older
+  // historical round.
+  const alignedLiveByWindowIndex = new Map<number, number>();
+  for (const [liveIndex, liveRound] of liveParts.rounds.entries()) {
+    if (consumedLive.has(liveIndex)) continue;
+    for (
+      let windowIndex = windowParts.rounds.length - 1;
+      windowIndex >= 0;
+      windowIndex -= 1
+    ) {
+      if (alignedLiveByWindowIndex.has(windowIndex)) continue;
+      const windowRound = windowParts.rounds[windowIndex]!;
+      const isTailWindowRound = windowIndex === windowParts.rounds.length - 1;
+      if (roundsAlign(windowRound, liveRound, isTailWindowRound)) {
+        alignedLiveByWindowIndex.set(windowIndex, liveIndex);
+        consumedLive.add(liveIndex);
+        break;
+      }
+    }
+  }
+
   const combined: TimelineRow[] = [...windowParts.prefix];
-  for (const windowRound of windowParts.rounds) {
-    const liveIndex = liveParts.rounds.findIndex(
-      (liveRound, index) =>
-        !consumedLive.has(index) && roundsAlign(windowRound, liveRound)
-    );
-    if (liveIndex < 0) {
+  for (const [windowIndex, windowRound] of windowParts.rounds.entries()) {
+    const liveIndex = alignedLiveByWindowIndex.get(windowIndex);
+    if (liveIndex === undefined) {
       combined.push(...windowRound.rows);
       continue;
     }
-    consumedLive.add(liveIndex);
     combined.push(
       ...spliceLiveRoundIntoWindow(
         windowRound,
@@ -1019,15 +1093,8 @@ export function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
   timeline: ConversationTimeline
 ): MessageTurn[] {
-  let remaining = [...optimisticTurns];
-  for (const row of timeline.rows) {
-    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
-      continue;
-    }
-    const reconciled = reconcileOptimisticTurnAgainstUserRow(remaining, row);
-    remaining = reconciled.optimisticTurns;
-  }
-  return remaining;
+  return reconcileOptimisticTurnsAgainstRows(optimisticTurns, timeline.rows)
+    .optimisticTurns;
 }
 
 export function reconcileOptimisticTurnsAgainstRows(
@@ -1049,6 +1116,17 @@ export function reconcileOptimisticTurnsAgainstRows(
   };
 }
 
+function optimisticStartsAfterUserRow(
+  optimisticTurn: MessageTurn,
+  userRow: TimelineRow
+): boolean {
+  if (userRow.row.kind !== 'message_turn') return false;
+  const optimisticMs = plausibleTurnStartMs(optimisticTurn.timestamp);
+  const rowMs = plausibleTurnStartMs(userRow.row.turn.timestamp);
+  if (optimisticMs === null || rowMs === null) return false;
+  return optimisticMs > rowMs + SAME_TURN_STAMP_SKEW_MS;
+}
+
 export function reconcileOptimisticTurnAgainstUserRow(
   optimisticTurns: MessageTurn[],
   row: TimelineRow
@@ -1063,7 +1141,9 @@ export function reconcileOptimisticTurnAgainstUserRow(
 
   const authoritativeText = userTurnText(row.row.turn);
   let optimisticIndex = optimisticTurns.findIndex(
-    (turn) => userTurnText(turn) === authoritativeText
+    (turn) =>
+      !optimisticStartsAfterUserRow(turn, row) &&
+      userTurnText(turn) === authoritativeText
   );
 
   if (optimisticIndex < 0) {
@@ -1071,8 +1151,9 @@ export function reconcileOptimisticTurnAgainstUserRow(
       normalizePromptMatchText(authoritativeText);
     optimisticIndex = optimisticTurns.findIndex(
       (turn) =>
+        !optimisticStartsAfterUserRow(turn, row) &&
         normalizePromptMatchText(userTurnText(turn)) ===
-        authoritativeBackendText
+          authoritativeBackendText
     );
   }
 
@@ -1390,8 +1471,10 @@ function hasPairedUser(
 }
 
 /**
- * Optimistic user ids are temporary (`optimistic-*`). If the matching assistant
- * row already landed, keep that user in front of it instead of appending after.
+ * Optimistic user ids are temporary (`optimistic-*`). If the matching streaming
+ * assistant row at the tail of the timeline already landed before its `:user`
+ * row, keep the optimistic user in front of that tail streaming assistant
+ * without ever splicing before earlier historical turns.
  */
 export function mergeOptimisticUsersBeforeOrphanAssistants(
   persisted: ConversationTimelineTurn[],
@@ -1401,21 +1484,35 @@ export function mergeOptimisticUsersBeforeOrphanAssistants(
   const result = [...persisted];
   const filledKeys = new Set<string>();
   for (const turn of optimistic) {
-    const orphan = result.find((candidate) => {
-      if (candidate.turn.role !== 'assistant') return false;
+    let tailStartIndex = result.length;
+    while (tailStartIndex > 0) {
+      const candidate = result[tailStartIndex - 1]!;
+      if (
+        candidate.turn.role !== 'assistant' ||
+        candidate.phase !== 'streaming'
+      ) {
+        break;
+      }
+      tailStartIndex -= 1;
+    }
+    let orphanIndex = -1;
+    for (let index = tailStartIndex; index < result.length; index += 1) {
+      const candidate = result[index]!;
+      if (candidate.turn.role !== 'assistant') continue;
       const key = messageTurnPairKey(candidate.turn.id);
-      if (!key || filledKeys.has(key)) return false;
-      if (hasPairedUser(result, candidate.turn.id)) return false;
-      return true;
-    });
-    if (!orphan) {
+      if (!key || filledKeys.has(key)) continue;
+      if (hasPairedUser(result, candidate.turn.id)) continue;
+      orphanIndex = index;
+      break;
+    }
+    if (orphanIndex < 0) {
       result.push(turn);
       continue;
     }
+    const orphan = result[orphanIndex]!;
     const key = messageTurnPairKey(orphan.turn.id);
     if (key) filledKeys.add(key);
-    const index = result.indexOf(orphan);
-    result.splice(index < 0 ? result.length : index, 0, turn);
+    result.splice(orphanIndex, 0, turn);
   }
   return result;
 }
@@ -1448,20 +1545,40 @@ export function insertTimelineRow(
       }
     }
   }
-  if (!foundSibling) {
+  if (!foundSibling && ABORTED_USER_ROW_PHASES.has(incoming.row.phase)) {
     const incomingStartMs = plausibleTurnStartMs(incoming.row.turn.timestamp);
     if (incomingStartMs !== null) {
-      const newerIndex = rows.findIndex((candidate) => {
-        if (candidate.row.kind !== 'message_turn') return false;
+      let tailStreamingStart = rows.length;
+      while (tailStreamingStart > 0) {
+        const candidate = rows[tailStreamingStart - 1]!;
+        if (
+          candidate.row.kind === 'message_turn' &&
+          candidate.row.phase !== 'streaming'
+        ) {
+          break;
+        }
+        tailStreamingStart -= 1;
+      }
+      for (let index = tailStreamingStart; index < rows.length; index += 1) {
+        const candidate = rows[index]!;
+        if (
+          candidate.row.kind !== 'message_turn' ||
+          candidate.row.phase !== 'streaming'
+        ) {
+          continue;
+        }
         const candidateKey = messageTurnPairKey(candidate.row_id);
-        if (!candidateKey || candidateKey === key) return false;
+        if (!candidateKey || candidateKey === key) continue;
         const candidateStartMs = plausibleTurnStartMs(
           candidate.row.turn.timestamp
         );
-        return candidateStartMs !== null && candidateStartMs > incomingStartMs;
-      });
-      if (newerIndex >= 0) {
-        insertAt = newerIndex;
+        if (
+          candidateStartMs !== null &&
+          candidateStartMs > incomingStartMs + SAME_TURN_STAMP_SKEW_MS
+        ) {
+          insertAt = index;
+          break;
+        }
       }
     }
   }

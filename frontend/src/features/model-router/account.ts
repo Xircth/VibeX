@@ -1,5 +1,9 @@
 import { getSiteUrl } from '@/lib/branding';
 import type { SyncableHostProfile } from '@/lib/api';
+import {
+  readDesktopSharedPreferenceSection,
+  writeDesktopSharedPreferenceSection,
+} from '@/lib/frontendPreferences';
 
 import { openExternal } from './openExternal';
 
@@ -143,14 +147,49 @@ export class AccountError extends Error {
 }
 
 export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
+const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
+let sharedTokenHydrationStarted = false;
+
+function hydrateSharedAccountTokenOnce(): void {
+  if (sharedTokenHydrationStarted || typeof window === 'undefined') return;
+  sharedTokenHydrationStarted = true;
+  const existingLocal = window.localStorage.getItem(TOKEN_KEY);
+  if (existingLocal && existingLocal.trim()) {
+    void writeDesktopSharedPreferenceSection(
+      DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+      existingLocal.trim()
+    );
+    return;
+  }
+  void readDesktopSharedPreferenceSection<string | { token?: string }>(
+    DESKTOP_SHARED_ACCOUNT_TOKEN_KEY
+  ).then((shared) => {
+    const candidate =
+      typeof shared === 'string'
+        ? shared.trim()
+        : typeof shared?.token === 'string'
+          ? shared.token.trim()
+          : '';
+    if (!candidate) return;
+    if (!window.localStorage.getItem(TOKEN_KEY)) {
+      window.localStorage.setItem(TOKEN_KEY, candidate);
+      window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
+    }
+  });
+}
 
 export function accountToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  const current = window.localStorage.getItem(TOKEN_KEY);
+  if (!current) {
+    hydrateSharedAccountTokenOnce();
+  }
+  return current;
 }
 
 export function subscribeAccountToken(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
+  hydrateSharedAccountTokenOnce();
   const onStorage = (event: StorageEvent) => {
     if (event.key === null || event.key === TOKEN_KEY) listener();
   };
@@ -165,6 +204,10 @@ export function subscribeAccountToken(listener: () => void): () => void {
 function storeToken(token: string | null) {
   if (token) window.localStorage.setItem(TOKEN_KEY, token);
   else window.localStorage.removeItem(TOKEN_KEY);
+  void writeDesktopSharedPreferenceSection(
+    DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+    token ?? ''
+  );
   window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
 }
 
@@ -344,6 +387,21 @@ export const accountApi = {
     deleted?: number;
     savedHosts?: SyncableHostProfile[];
   }> => authed('/api/account/desktop/saved-hosts', 'DELETE', selector),
+
+  issueRelayLease: (input: {
+    hostId: string;
+    hostName?: string;
+    osType?: string;
+    osArch?: string;
+  }): Promise<{
+    leaseToken: string;
+    expiresAt: number;
+    relayHost: string;
+    relayPort: number;
+    tenantOrigin: string;
+    hostId: string;
+    leaseVersion: number;
+  }> => authed('/api/account/relay/lease', 'POST', input),
 };
 
 export function modelMarketplacePath(

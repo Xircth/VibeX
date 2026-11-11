@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 
 pub const DEFAULT_TUNNEL_PORT: u16 = 17891;
-pub const DEFAULT_OFFICIAL_RELAY_HOST: &str = "";
+pub const DEFAULT_OFFICIAL_RELAY_HOST: &str = "vibex.xforever.xin";
 pub const DEFAULT_OFFICIAL_RELAY_PORT: u16 = 443;
 pub const RELAY_HEARTBEAT_INTERVAL_MS: u64 = 15_000;
 pub const RELAY_CONTROL_TIMEOUT_MS: u64 = 45_000;

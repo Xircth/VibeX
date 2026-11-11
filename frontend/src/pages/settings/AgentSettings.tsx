@@ -36,8 +36,10 @@ import {
 import { consumeAgentSettingsFocus } from '@/features/agent-management/agentSettingsFocus';
 import { agentHasAcpUpdate } from '@/features/agent-management/agentVersion';
 import {
+  ROUTER_OPENCODE_PROVIDER_ID,
   ROUTER_PROVIDER_NAME,
   accountApi,
+  dshProviderSaveRequest,
   openCodeConnectRequest,
   providerSaveRequest,
   type RouterProvision,
@@ -876,6 +878,16 @@ export function AgentSettings() {
             openCodeConnectRequest(provision, true),
             targetAgentId
           );
+        } else if (targetAgentId === 'deepseek_harness') {
+          await agentManagementApi.saveDshProvider(
+            dshProviderSaveRequest(provision, true)
+          );
+          await agentManagementApi.setAuthMode(
+            'deepseek_harness',
+            'custom',
+            null
+          );
+          clearAgentSettingsDraft('dsh-auth');
         } else {
           const agent = agentsListRef.current.find(
             (item) => item.agent_id === targetAgentId
@@ -943,10 +955,14 @@ export function AgentSettings() {
         setFocusDiagnostics(false);
         setRegistryOpen(false);
         rememberAgentAuthKindTab(targetAgentId, 'provider');
-        retainAgentSettingsDraft(`auth-mode:${targetAgentId}`, {
-          mode: 'model_provider',
-          apiKey: '',
-        });
+        if (targetAgentId === 'deepseek_harness') {
+          clearAgentSettingsDraft('dsh-auth');
+        } else {
+          retainAgentSettingsDraft(`auth-mode:${targetAgentId}`, {
+            mode: 'model_provider',
+            apiKey: '',
+          });
+        }
 
         let savedProviderId: string | null = null;
         if (targetAgentId === 'opencode' || targetAgentId === 'mimo_code') {
@@ -954,6 +970,11 @@ export function AgentSettings() {
             openCodeConnectRequest(provision, false),
             targetAgentId
           );
+        } else if (targetAgentId === 'deepseek_harness') {
+          await agentManagementApi.saveDshProvider(
+            dshProviderSaveRequest(provision, false)
+          );
+          savedProviderId = ROUTER_OPENCODE_PROVIDER_ID;
         } else {
           const existing =
             await agentManagementApi.modelProviders(targetAgentId);
@@ -1806,6 +1827,7 @@ export function AgentSettings() {
     selectedAgent?.agent_id === 'deepseek_harness' ? (
       <AgentLockedSurface locked={agentLocked}>
         <DshAuthPanel
+          key={`deepseek_harness:${providerRefreshKey}`}
           locked={agentLocked}
           onDirtyChange={setDshProviderDirty}
           onChanged={notifyAuthenticationChanged}

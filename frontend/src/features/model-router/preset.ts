@@ -1,5 +1,6 @@
 import type {
   AgentModelProviderSaveRequest,
+  DshProviderSaveRequest,
   OpenCodeProviderConnectRequest,
 } from 'shared/types';
 
@@ -7,17 +8,31 @@ import type { RouterProvision } from './account';
 
 /**
  * Agents whose provider settings offer ModelRouter. Kept in step with the
- * site's ROUTER_AGENTS: the site only sells for agents listed here, and the
- * desktop only offers the entry where it can write a working preset.
+ * site's ROUTER_AGENTS / MARKET_AGENTS: the site offers one-click setup for
+ * agents listed here, and the desktop offers the entry where it can write a
+ * working preset.
  */
 export const MODEL_ROUTER_AGENTS = [
   'claude_code',
   'codex',
+  'gemini',
+  'antigravity',
   'kimi_code',
-  'pi',
-  'opencode',
+  'deepseek_harness',
   'grok',
   'zcode',
+  'qoder',
+  'opencode',
+  'pi',
+  'omp',
+  'cline',
+  'openclaw',
+  'hermes',
+  'codebuddy',
+  'trae',
+  'auggie',
+  'command_code',
+  'mimo_code',
 ] as const;
 
 export function supportsModelRouter(agentId: string) {
@@ -37,18 +52,25 @@ function orderedModels(provision: RouterProvision) {
 }
 
 /**
- * The `model` field is agent-specific: most agents take a bare model id, Pi
- * and Grok take a JSON spec that also names the wire protocol.
+ * The `model` field is agent-specific: most agents take a bare model id, Pi /
+ * OMP / OpenClaw and Grok take a JSON spec that also names the wire protocol
+ * or model list.
  */
 function modelField(provision: RouterProvision) {
   const ids = orderedModels(provision).map((model) => model.id);
-  if (provision.agentId === 'pi') {
+  if (provision.agentId === 'pi' || provision.agentId === 'omp') {
     return JSON.stringify({
       id: provision.model.id,
       api:
         provision.protocol === 'anthropic'
           ? 'anthropic-messages'
           : 'openai-completions',
+      models: ids,
+    });
+  }
+  if (provision.agentId === 'openclaw') {
+    return JSON.stringify({
+      id: provision.model.id,
       models: ids,
     });
   }
@@ -98,3 +120,24 @@ export function openCodeConnectRequest(
     enabled,
   };
 }
+
+export function dshProviderSaveRequest(
+  provision: RouterProvision,
+  setDefault = true
+): DshProviderSaveRequest {
+  return {
+    id: ROUTER_OPENCODE_PROVIDER_ID,
+    display_name: ROUTER_PROVIDER_NAME,
+    notes: null,
+    api: 'openai-completions',
+    base_url: provision.baseUrl,
+    api_key: provision.apiKey,
+    models: orderedModels(provision).map((model) => ({
+      id: model.id,
+      name: model.name,
+    })),
+    set_default: setDefault,
+    default_model: provision.model.id,
+  };
+}
+

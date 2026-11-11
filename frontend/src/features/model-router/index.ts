@@ -27,6 +27,7 @@ export { openExternal } from './openExternal';
 export {
   ROUTER_OPENCODE_PROVIDER_ID,
   ROUTER_PROVIDER_NAME,
+  dshProviderSaveRequest,
   openCodeConnectRequest,
   providerSaveRequest,
   supportsModelRouter,

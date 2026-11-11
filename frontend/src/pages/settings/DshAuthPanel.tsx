@@ -26,7 +26,12 @@ import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
+import { ModelRouterEntry } from '@/features/model-router';
 
+import {
+  peekAgentAuthKindTab,
+  rememberAgentAuthKindTab,
+} from './agentAuthKindTab';
 import {
   clearAgentSettingsDraft,
   peekAgentSettingsDraft,
@@ -185,8 +190,16 @@ export function DshAuthPanel({
       ]);
       setView(next);
       setSavedMode(auth.mode);
+      const remembered = peekAgentAuthKindTab('deepseek_harness');
+      const preferredMode =
+        remembered === 'provider'
+          ? 'custom'
+          : remembered === 'official_api'
+            ? 'deepseek'
+            : auth.mode;
       const initialDraft =
-        peekAgentSettingsDraft<Draft>(DRAFT_KEY) ?? hydrate(next, auth.mode);
+        peekAgentSettingsDraft<Draft>(DRAFT_KEY) ??
+        hydrate(next, preferredMode);
       draftRef.current = initialDraft;
       setDraft(initialDraft);
       setAvailableModels(initialDraft.models);
@@ -422,6 +435,10 @@ export function DshAuthPanel({
     }));
 
   const selectMode = (mode: string) => {
+    rememberAgentAuthKindTab(
+      'deepseek_harness',
+      mode === 'custom' ? 'provider' : 'official_api'
+    );
     setCustomSurface('list');
     setEditingId(null);
     setApiKeyRevealed(false);
@@ -955,6 +972,10 @@ export function DshAuthPanel({
                       {t('settings:agents.providerTitle')}
                     </h4>
                     <div className="agent-model-provider-toolbar">
+                      <ModelRouterEntry
+                        agentId="deepseek_harness"
+                        disabled={saving || locked}
+                      />
                       <Button
                         size="sm"
                         className="h-8"

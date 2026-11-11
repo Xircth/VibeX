@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { RouterProvision } from './account';
 import {
+  ROUTER_OPENCODE_PROVIDER_ID,
   ROUTER_PROVIDER_NAME,
+  dshProviderSaveRequest,
   openCodeConnectRequest,
   providerSaveRequest,
   supportsModelRouter,
@@ -39,7 +41,7 @@ describe('providerSaveRequest', () => {
     expect(providerSaveRequest(provision({}), 'preset-1').id).toBe('preset-1');
   });
 
-  it('names the wire protocol in the Pi spec and lists the chosen model first', () => {
+  it('names the wire protocol in the Pi and OMP spec and lists the chosen model first', () => {
     const anthropic = providerSaveRequest(provision({ agentId: 'pi' }), null);
     expect(JSON.parse(anthropic.model)).toEqual({
       id: 'sonnet',
@@ -47,10 +49,25 @@ describe('providerSaveRequest', () => {
       models: ['sonnet', 'opus'],
     });
     const openai = providerSaveRequest(
-      provision({ agentId: 'pi', protocol: 'openai' }),
+      provision({ agentId: 'omp', protocol: 'openai' }),
       null
     );
-    expect(JSON.parse(openai.model).api).toBe('openai-completions');
+    expect(JSON.parse(openai.model)).toEqual({
+      id: 'sonnet',
+      api: 'openai-completions',
+      models: ['sonnet', 'opus'],
+    });
+  });
+
+  it('writes the full model list into the OpenClaw spec', () => {
+    const request = providerSaveRequest(
+      provision({ agentId: 'openclaw', protocol: 'openai' }),
+      null
+    );
+    expect(JSON.parse(request.model)).toEqual({
+      id: 'sonnet',
+      models: ['sonnet', 'opus'],
+    });
   });
 
   it('writes every reachable model into the Grok spec', () => {
@@ -97,10 +114,51 @@ describe('openCodeConnectRequest', () => {
   });
 });
 
-describe('supportsModelRouter', () => {
-  it('offers the entry only where a preset can be written', () => {
-    expect(supportsModelRouter('codex')).toBe(true);
-    expect(supportsModelRouter('deepseek_harness')).toBe(false);
-    expect(supportsModelRouter('antigravity')).toBe(false);
+describe('dshProviderSaveRequest', () => {
+  it('builds a custom gateway provider payload for DeepSeek Harness', () => {
+    const request = dshProviderSaveRequest(
+      provision({
+        agentId: 'deepseek_harness',
+        protocol: 'openai',
+        baseUrl: 'https://site.test/api/router/v1',
+      }),
+      false
+    );
+    expect(request).toEqual({
+      id: ROUTER_OPENCODE_PROVIDER_ID,
+      display_name: ROUTER_PROVIDER_NAME,
+      notes: null,
+      api: 'openai-completions',
+      base_url: 'https://site.test/api/router/v1',
+      api_key: 'vxr-test',
+      models: [
+        { id: 'sonnet', name: 'Sonnet' },
+        { id: 'opus', name: 'Opus' },
+      ],
+      set_default: false,
+      default_model: 'sonnet',
+    });
   });
 });
+
+describe('supportsModelRouter', () => {
+  it('offers the entry for all agents that support custom model gateways', () => {
+    expect(supportsModelRouter('codex')).toBe(true);
+    expect(supportsModelRouter('cline')).toBe(true);
+    expect(supportsModelRouter('openclaw')).toBe(true);
+    expect(supportsModelRouter('hermes')).toBe(true);
+    expect(supportsModelRouter('omp')).toBe(true);
+    expect(supportsModelRouter('codebuddy')).toBe(true);
+    expect(supportsModelRouter('qoder')).toBe(true);
+    expect(supportsModelRouter('auggie')).toBe(true);
+    expect(supportsModelRouter('trae')).toBe(true);
+    expect(supportsModelRouter('command_code')).toBe(true);
+    expect(supportsModelRouter('mimo_code')).toBe(true);
+    expect(supportsModelRouter('deepseek_harness')).toBe(true);
+    expect(supportsModelRouter('gemini')).toBe(true);
+    expect(supportsModelRouter('antigravity')).toBe(true);
+    expect(supportsModelRouter('cursor')).toBe(false);
+    expect(supportsModelRouter('kiro')).toBe(false);
+  });
+});
+

@@ -9,17 +9,30 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 
 export const ACTIVITY_RAIL_ITEMS = [
+  PANEL_IDS.SESSION_LIST,
+  PANEL_IDS.BOTS,
   PANEL_IDS.FILE_TREE,
   PANEL_IDS.GIT,
   PANEL_IDS.SEARCH,
-  PANEL_IDS.SESSION_LIST,
-  PANEL_IDS.BOTS,
 ] as const;
 
 export type ActivityRailItemId = (typeof ACTIVITY_RAIL_ITEMS)[number];
 
 export const DEFAULT_ACTIVITY_RAIL_ORDER: readonly ActivityRailItemId[] =
   ACTIVITY_RAIL_ITEMS;
+
+const LEGACY_DEFAULT_ACTIVITY_RAIL_KEYS = new Set([
+  `${PANEL_IDS.FILE_TREE}|${PANEL_IDS.GIT}|${PANEL_IDS.SEARCH}|${PANEL_IDS.SESSION_LIST}|${PANEL_IDS.BOTS}`,
+  `${PANEL_IDS.FILE_TREE}|${PANEL_IDS.GIT}|${PANEL_IDS.SEARCH}|${PANEL_IDS.SESSION_LIST}`,
+]);
+
+export function isLegacyDefaultActivityRailOrder(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === 'string') &&
+    LEGACY_DEFAULT_ACTIVITY_RAIL_KEYS.has(value.join('|'))
+  );
+}
 
 export const ACTIVITY_RAIL_PANEL_TITLES: Record<ActivityRailItemId, string> = {
   [PANEL_IDS.FILE_TREE]: 'Files',
@@ -102,7 +115,11 @@ export function otherActivityRailPanels(
 function parseStoredOrder(raw: string | null): ActivityRailItemId[] {
   if (raw == null) return [...DEFAULT_ACTIVITY_RAIL_ORDER];
   try {
-    return sanitizeActivityRailOrder(JSON.parse(raw));
+    const parsed: unknown = JSON.parse(raw);
+    if (isLegacyDefaultActivityRailOrder(parsed)) {
+      return [...DEFAULT_ACTIVITY_RAIL_ORDER];
+    }
+    return sanitizeActivityRailOrder(parsed);
   } catch {
     return [...DEFAULT_ACTIVITY_RAIL_ORDER];
   }
@@ -162,7 +179,7 @@ export function getActivityRailOrder(): ActivityRailItemId[] {
 }
 
 export function getDefaultActivityRailPanelId(): ActivityRailItemId {
-  return read()[0] ?? PANEL_IDS.FILE_TREE;
+  return read()[0] ?? PANEL_IDS.SESSION_LIST;
 }
 
 export function setActivityRailOrder(order: ActivityRailItemId[]): void {

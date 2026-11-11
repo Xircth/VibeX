@@ -106,3 +106,85 @@ export function projectRailPanelHeight(visibleSlotCount: number): number {
     Math.max(0, slots - 1) * PROJECT_RAIL_ITEM_GAP
   );
 }
+
+export function formatCompactProjectPath(rawPath?: string | null): string {
+  const normalized = (rawPath ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized) {
+    return '';
+  }
+
+  const homeNormalized = normalized
+    .replace(/^\/Users\/[^/]+/, '~')
+    .replace(/^\/home\/[^/]+/, '~')
+    .replace(/^[A-Za-z]:\/Users\/[^/]+/i, '~');
+
+  const segments = homeNormalized.split('/').filter(Boolean);
+  if (segments.length <= 3) {
+    return homeNormalized;
+  }
+
+  const prefix = homeNormalized.startsWith('~')
+    ? '~'
+    : homeNormalized.startsWith('/')
+      ? ''
+      : segments[0];
+  const tail = segments.slice(-2).join('/');
+  return prefix ? `${prefix}/.../${tail}` : `/.../${tail}`;
+}
+
+export function filterProjectsByQuery<
+  T extends {
+    id: string;
+    displayName: string;
+    root_path?: string | null;
+  },
+>(items: T[], rawQuery: string): T[] {
+  const query = rawQuery.trim().toLowerCase().replace(/\\/g, '/');
+  if (!query) {
+    return items;
+  }
+
+  const scored: Array<{ item: T; score: number }> = [];
+  for (const item of items) {
+    const nameLower = item.displayName.toLowerCase();
+    const pathLower = (item.root_path ?? '').toLowerCase().replace(/\\/g, '/');
+    if (nameLower === query) {
+      scored.push({ item, score: 0 });
+    } else if (nameLower.startsWith(query)) {
+      scored.push({ item, score: 1 });
+    } else if (nameLower.includes(query)) {
+      scored.push({ item, score: 2 });
+    } else if (pathLower.includes(query)) {
+      scored.push({ item, score: 3 });
+    }
+  }
+
+  scored.sort((left, right) => left.score - right.score);
+  return scored.map((entry) => entry.item);
+}
+
+export function pickDefaultProjectTarget<
+  T extends {
+    id: string;
+    is_home?: boolean;
+  },
+>(input: {
+  projects: T[];
+  projectsById: Record<string, T | undefined>;
+  openProjectIds: string[];
+  excludeProjectId?: string | null;
+}): string | null {
+  const excluded = input.excludeProjectId ?? null;
+  const fromOpen = input.openProjectIds.find(
+    (projectId) => projectId !== excluded && Boolean(input.projectsById[projectId])
+  );
+  if (fromOpen) {
+    return fromOpen;
+  }
+
+  const firstImported = input.projects.find(
+    (project) => project.id !== excluded && !project.is_home
+  );
+  return firstImported?.id ?? null;
+}
+

@@ -9,7 +9,7 @@
 .dockview-theme-ayu.dockview-theme-light,
 .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
-  --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 55%, #ffffff);
+  --dv-tabbar-bg: var(--surface-tabbar);
   --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);
@@ -401,9 +401,9 @@
 }
 
 /* Zone B: Editor / Stage groups form a unified rounded inset stage against Zone A.
-   When a single Zone B group is visible (or on outer left/right edges of split groups),
-   the top-left and bottom-left corners where Zone A meets Zone B are rounded (14px),
-   while inner split boundaries stay square and flush with zero gap. */
+   Only the 4 outer corners of Zone B are rounded (14px), with zero outer shadow
+   so the corner pockets outside the border stay pure --surface-topbar (#F1F1F1)
+   identical to Zone A, while inner split boundaries stay square and flush. */
 [class*='dockview-theme-ayu']
   .dv-groupview:not(
     :is(
@@ -415,12 +415,24 @@
   ) {
   box-sizing: border-box;
   border-radius: 0;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 0;
   border-bottom: 1px solid var(--border-subtle);
   border-left: 0;
   border-right: 1px solid var(--border-subtle);
   overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-topmost='true'] {
+  border-top: 1px solid var(--border-subtle);
 }
 
 [class*='dockview-theme-ayu']
@@ -432,8 +444,6 @@
       [id^='group-left-']
     )
   )[data-stage-leftmost='true'] {
-  border-top-left-radius: 14px;
-  border-bottom-left-radius: 14px;
   border-left: 1px solid var(--border-subtle);
 }
 
@@ -446,12 +456,58 @@
       [id^='group-left-']
     )
   )[data-stage-rightmost='true'] {
-  border-top-right-radius: 14px;
-  border-bottom-right-radius: 14px;
   border-right: 1px solid var(--border-subtle);
 }
 
-/* Fallback before JS layout measurement runs: if neither attribute is present,
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-leftmost='true'][data-stage-topmost='true'] {
+  border-top-left-radius: 14px;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-leftmost='true'][data-stage-bottommost='true'] {
+  border-bottom-left-radius: 14px;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-rightmost='true'][data-stage-topmost='true'] {
+  border-top-right-radius: 14px;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  )[data-stage-rightmost='true'][data-stage-bottommost='true'] {
+  border-bottom-right-radius: 14px;
+}
+
+/* Fallback before JS layout measurement runs: if no stage edge attribute is present,
    round all 4 corners of the Zone B group so it never flashes square corners. */
 [class*='dockview-theme-ayu']
   .dv-groupview:not(
@@ -461,9 +517,26 @@
       #group-left,
       [id^='group-left-']
     )
-  ):not([data-stage-leftmost]):not([data-stage-rightmost]) {
+  ):not([data-stage-leftmost]):not([data-stage-rightmost]):not(
+    [data-stage-topmost]
+  ):not([data-stage-bottommost]) {
   border-radius: 14px;
+  border-top: 1px solid var(--border-subtle);
   border-left: 1px solid var(--border-subtle);
+}
+
+.workspace-stage-host[data-canvas-stage-active='true']
+  [class*='dockview-theme-ayu']
+  .dv-groupview:not(
+    :is(
+      [data-left-dock='true'],
+      .dv-header-hidden,
+      #group-left,
+      [id^='group-left-']
+    )
+  ) {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .workspace-stage-host > .kanban-overlay {
@@ -471,7 +544,7 @@
   border: 1px solid var(--border-subtle);
   overflow: hidden;
   background-color: var(--surface-card-strong);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
 }
 
 [class*='dockview-theme-ayu'].dv-dockview,
@@ -509,7 +582,7 @@
 .dark .dockview-theme-ayu.dockview-theme-light,
 .dark .dockview-theme-ayu {
   --dv-theme-bg: var(--surface-card-strong);
-  --dv-tabbar-bg: color-mix(in srgb, var(--surface-topbar) 78%, #ffffff);
+  --dv-tabbar-bg: var(--surface-tabbar);
   --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--dv-tabbar-bg);
   --dv-theme-border: var(--border-subtle);

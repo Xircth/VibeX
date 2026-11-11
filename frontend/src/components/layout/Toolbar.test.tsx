@@ -34,6 +34,14 @@ vi.mock('@/components/layout/WorktreeSelector', () => ({
   WorktreeSelector: () => <button type="button">Select workspace</button>,
 }));
 
+vi.mock('@/components/layout/ProjectQuickSwitcher', () => ({
+  ProjectQuickSwitcher: () => (
+    <button type="button" data-testid="toolbar-project-switcher">
+      Demo
+    </button>
+  ),
+}));
+
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({
     projectId: 'project-1',
@@ -280,6 +288,24 @@ describe('WorkspaceBranchControls host selector & canvas list toggle', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps HostSelector and ProjectQuickSwitcher visible while hiding project sidebar toggles when no project is active', () => {
+    setKanbanBoardStyle('canvas');
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls isWorkspaceTab={true} hasProject={false} />
+      </TooltipProvider>
+    );
+
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-project-switcher')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('toolbar-toggle-left-sidebar')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '隐藏会话列表' })
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps HostSelector visible and hides global worktree/branch controls on any project', () => {
     projectMocks.isGit = false;
 
@@ -293,27 +319,30 @@ describe('WorkspaceBranchControls host selector & canvas list toggle', () => {
     );
 
     expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-project-switcher')).toBeInTheDocument();
     expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
     expect(screen.queryByText('main')).not.toBeInTheDocument();
   });
 });
 
 describe('Toolbar chrome layout', () => {
-  it('centers the workspace tabs on the window and keeps layout toggles trailing', () => {
+  it('centers the workspace tabs on the window, anchors ProjectQuickSwitcher top-left, and keeps layout toggles trailing', () => {
     const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
     expect(source).toContain(
       'absolute inset-0 z-20 flex items-center justify-center'
     );
     expect(source).toContain('WindowChromeLeadingRule');
+    expect(source).toContain('<ProjectQuickSwitcher />');
 
+    const leading = source.slice(0, source.indexOf('ml-auto'));
     const trailing = source.slice(source.indexOf('ml-auto'));
+    expect(leading).toContain('<WorkspaceBranchControls');
     expect(trailing).toContain('<KanbanLayoutToggles');
     expect(trailing).toContain('<WorkspaceLayoutToggles');
+    expect(trailing).not.toMatch(/<ProjectQuickSwitcher/);
     expect(trailing).not.toMatch(/<ProjectRailToggleButton/);
     expect(source).not.toMatch(/<ProjectRailToggleButton/);
-    expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
-      /<KanbanLayoutToggles/
-    );
+    expect(leading).not.toMatch(/<KanbanLayoutToggles/);
   });
 
   it('places the app logo on the leading edge on Windows and Linux, trailing on macOS', () => {
@@ -329,5 +358,16 @@ describe('Toolbar chrome layout', () => {
     expect(source).not.toMatch(
       /<HomeLogoMenu align="start" \/>\s*<ToolbarDivider \/>/
     );
+  });
+
+  it('uses the standard SegmentedControl and SegmentedControlItem with Astryx Icon for the topbar workspace/kanban switcher', () => {
+    const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
+    expect(source).toContain("from '@astryxdesign/core/SegmentedControl'");
+    expect(source).toContain("from '@astryxdesign/core/Icon'");
+    expect(source).toContain('<SegmentedControl');
+    expect(source).toContain('<SegmentedControlItem');
+    expect(source).toContain('<Icon icon={tab.icon}');
+    expect(source).not.toContain('workspace-tab-switcher');
+    expect(source).not.toContain('workspace-tab-button');
   });
 });

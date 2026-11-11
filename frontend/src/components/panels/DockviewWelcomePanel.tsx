@@ -455,6 +455,7 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
     setIsDeletingProject(true);
     try {
       await projectsApi.delete(targetProject.id);
+      useWindowProjectsStore.getState().removeProjectState(targetProject.id);
       toast.success(
         t('app:welcomePage.projectDeleted', { name: targetProject.name })
       );

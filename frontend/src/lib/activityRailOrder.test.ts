@@ -28,32 +28,33 @@ describe('activityRailOrder', () => {
     persistFrontendPreference.mockReset();
   });
 
-  it('defaults to files, git, search, then sessions', () => {
+  it('defaults to sessions, bots, files, git, then search', () => {
     expect(getActivityRailOrder()).toEqual([...DEFAULT_ACTIVITY_RAIL_ORDER]);
-    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
+    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
   });
 
   it('uses the first item as the default left panel', () => {
     setActivityRailOrder([
-      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.FILE_TREE,
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.BOTS,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
     ]);
 
-    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
+    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
     expect(ACTIVITY_RAIL_PANEL_TITLES[getDefaultActivityRailPanelId()]).toBe(
-      'Sessions'
+      'Files'
     );
   });
 
   it('persists a reordered rail', () => {
     const next = [
-      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.FILE_TREE,
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.BOTS,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
-      PANEL_IDS.BOTS,
     ];
     setActivityRailOrder(next);
 
@@ -69,14 +70,28 @@ describe('activityRailOrder', () => {
 
   it('fills in missing items and drops unknown ids', () => {
     expect(
-      sanitizeActivityRailOrder([PANEL_IDS.SESSION_LIST, 'logs', PANEL_IDS.GIT])
+      sanitizeActivityRailOrder([PANEL_IDS.FILE_TREE, 'logs', PANEL_IDS.GIT])
     ).toEqual([
-      PANEL_IDS.SESSION_LIST,
-      PANEL_IDS.GIT,
       PANEL_IDS.FILE_TREE,
-      PANEL_IDS.SEARCH,
+      PANEL_IDS.GIT,
+      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.BOTS,
+      PANEL_IDS.SEARCH,
     ]);
+  });
+
+  it('migrates untouched legacy default persisted order to the new default', () => {
+    localStorage.setItem(
+      ACTIVITY_RAIL_ORDER_KEY,
+      JSON.stringify([
+        PANEL_IDS.FILE_TREE,
+        PANEL_IDS.GIT,
+        PANEL_IDS.SEARCH,
+        PANEL_IDS.SESSION_LIST,
+        PANEL_IDS.BOTS,
+      ])
+    );
+    expect(getActivityRailOrder()).toEqual([...DEFAULT_ACTIVITY_RAIL_ORDER]);
   });
 
   it('ignores invalid persisted values', () => {
@@ -88,15 +103,15 @@ describe('activityRailOrder', () => {
     expect(
       moveActivityRailItem(
         [...DEFAULT_ACTIVITY_RAIL_ORDER],
-        PANEL_IDS.SESSION_LIST,
-        PANEL_IDS.FILE_TREE
+        PANEL_IDS.FILE_TREE,
+        PANEL_IDS.SESSION_LIST
       )
     ).toEqual([
-      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.FILE_TREE,
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.BOTS,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
-      PANEL_IDS.BOTS,
     ]);
   });
 
@@ -104,26 +119,26 @@ describe('activityRailOrder', () => {
     expect(
       moveActivityRailItem(
         [...DEFAULT_ACTIVITY_RAIL_ORDER],
-        PANEL_IDS.FILE_TREE,
-        PANEL_IDS.FILE_TREE
+        PANEL_IDS.SESSION_LIST,
+        PANEL_IDS.SESSION_LIST
       )
     ).toBe(null);
   });
 
   it('nudges an item one slot earlier or later', () => {
     expect(
-      nudgeActivityRailItem([...DEFAULT_ACTIVITY_RAIL_ORDER], PANEL_IDS.GIT, -1)
+      nudgeActivityRailItem([...DEFAULT_ACTIVITY_RAIL_ORDER], PANEL_IDS.BOTS, -1)
     ).toEqual([
-      PANEL_IDS.GIT,
-      PANEL_IDS.FILE_TREE,
-      PANEL_IDS.SEARCH,
-      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.BOTS,
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.FILE_TREE,
+      PANEL_IDS.GIT,
+      PANEL_IDS.SEARCH,
     ]);
     expect(
       nudgeActivityRailItem(
         [...DEFAULT_ACTIVITY_RAIL_ORDER],
-        PANEL_IDS.FILE_TREE,
+        PANEL_IDS.SESSION_LIST,
         -1
       )
     ).toBe(null);
@@ -131,10 +146,10 @@ describe('activityRailOrder', () => {
 
   it('lists the other left dock panels for a target', () => {
     expect(otherActivityRailPanels(PANEL_IDS.SESSION_LIST)).toEqual([
+      PANEL_IDS.BOTS,
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
-      PANEL_IDS.BOTS,
     ]);
   });
 
@@ -145,8 +160,9 @@ describe('activityRailOrder', () => {
     });
 
     setActivityRailOrder([
-      PANEL_IDS.SESSION_LIST,
       PANEL_IDS.FILE_TREE,
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.BOTS,
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
     ]);

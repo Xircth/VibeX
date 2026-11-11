@@ -71,7 +71,7 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['文件', 'Git', '会话列表', 'Bot 助手']);
+    ).toEqual(['会话列表', 'Bot 助手', '文件', 'Git']);
     expect(
       screen.queryByRole('button', { name: '取消分割' })
     ).not.toBeInTheDocument();
@@ -91,15 +91,11 @@ describe('WorkspaceActivityRail', () => {
       <WorkspaceActivityRail isEditorAreaVisible onToggleEditorArea={vi.fn()} />
     );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: '文件' }), {
       key: 'ArrowUp',
       altKey: true,
     });
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
-      key: 'ArrowUp',
-      altKey: true,
-    });
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: '文件' }), {
       key: 'ArrowUp',
       altKey: true,
     });
@@ -109,8 +105,8 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['会话列表', '文件', 'Git', 'Bot 助手']);
-    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
+    ).toEqual(['文件', '会话列表', 'Bot 助手', 'Git']);
+    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
   });
 
   it('renders only the usage view switcher when mode is kanban', () => {

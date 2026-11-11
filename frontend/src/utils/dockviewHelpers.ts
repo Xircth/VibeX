@@ -75,15 +75,14 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
 
   const stageGroups = api.groups.filter(
     (group) =>
-      !leftGroups.has(group) &&
-      !isBottomGroup(group) &&
-      group.api.isVisible &&
-      Boolean(group.element)
+      !leftGroups.has(group) && group.api.isVisible && Boolean(group.element)
   );
 
   for (const group of api.groups) {
     group.element?.removeAttribute('data-stage-leftmost');
     group.element?.removeAttribute('data-stage-rightmost');
+    group.element?.removeAttribute('data-stage-topmost');
+    group.element?.removeAttribute('data-stage-bottommost');
     group.element?.removeAttribute('data-left-dock-split-left');
     group.element?.removeAttribute('data-left-dock-split-top');
     group.element?.removeAttribute('data-left-dock-split-bottom');
@@ -138,20 +137,25 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
   }
 
   if (stageGroups.length === 1) {
-    stageGroups[0]?.element?.setAttribute('data-stage-leftmost', 'true');
-    stageGroups[0]?.element?.setAttribute('data-stage-rightmost', 'true');
+    const onlyGroup = stageGroups[0]?.element;
+    onlyGroup?.setAttribute('data-stage-leftmost', 'true');
+    onlyGroup?.setAttribute('data-stage-rightmost', 'true');
+    onlyGroup?.setAttribute('data-stage-topmost', 'true');
+    onlyGroup?.setAttribute('data-stage-bottommost', 'true');
     return;
   }
 
   if (stageGroups.length > 1) {
     const rects = stageGroups.flatMap((group) => {
       const rect = group.element?.getBoundingClientRect();
-      return rect && rect.width > 0 ? [{ group, rect }] : [];
+      return rect && rect.width > 0 && rect.height > 0 ? [{ group, rect }] : [];
     });
 
     if (rects.length > 0) {
       const minLeft = Math.min(...rects.map((item) => item.rect.left));
       const maxRight = Math.max(...rects.map((item) => item.rect.right));
+      const minTop = Math.min(...rects.map((item) => item.rect.top));
+      const maxBottom = Math.max(...rects.map((item) => item.rect.bottom));
       for (const { group, rect } of rects) {
         if (Math.abs(rect.left - minLeft) <= 2) {
           group.element?.setAttribute('data-stage-leftmost', 'true');
@@ -159,13 +163,44 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
         if (Math.abs(rect.right - maxRight) <= 2) {
           group.element?.setAttribute('data-stage-rightmost', 'true');
         }
+        if (Math.abs(rect.top - minTop) <= 2) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+        }
+        if (Math.abs(rect.bottom - maxBottom) <= 2) {
+          group.element?.setAttribute('data-stage-bottommost', 'true');
+        }
       }
     } else {
-      stageGroups[0]?.element?.setAttribute('data-stage-leftmost', 'true');
-      stageGroups[stageGroups.length - 1]?.element?.setAttribute(
-        'data-stage-rightmost',
-        'true'
+      const bottomStageGroups = stageGroups.filter((group) =>
+        isBottomGroup(group)
       );
+      const upperStageGroups = stageGroups.filter(
+        (group) => !isBottomGroup(group)
+      );
+      if (upperStageGroups.length > 0) {
+        upperStageGroups[0]?.element?.setAttribute(
+          'data-stage-leftmost',
+          'true'
+        );
+        upperStageGroups[upperStageGroups.length - 1]?.element?.setAttribute(
+          'data-stage-rightmost',
+          'true'
+        );
+        for (const group of upperStageGroups) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+          if (bottomStageGroups.length === 0) {
+            group.element?.setAttribute('data-stage-bottommost', 'true');
+          }
+        }
+      }
+      for (const group of bottomStageGroups) {
+        group.element?.setAttribute('data-stage-leftmost', 'true');
+        group.element?.setAttribute('data-stage-rightmost', 'true');
+        group.element?.setAttribute('data-stage-bottommost', 'true');
+        if (upperStageGroups.length === 0) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+        }
+      }
     }
   }
 }

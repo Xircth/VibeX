@@ -39,6 +39,7 @@ import {
 } from '@/lib/hostSurfaceIds';
 import { MobileDeviceConnectBanner } from '@/components/layout/MobileDeviceConnectBanner';
 import { StatusBar } from '@/components/layout/StatusBar';
+import { WorkspaceZeroProjectStage } from '@/components/layout/WorkspaceZeroProjectStage';
 import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
 import {
   EDITOR_GROUP_PREFIX,
@@ -136,8 +137,6 @@ import {
   LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
   listLeftDockGroups,
-  listLeftShellNavGroups,
-  listRightShellNavGroups,
   listSessionGroups,
   RIGHT_GROUP_PREFIX,
 } from '@/utils/dockviewGroupPolicy';
@@ -151,6 +150,11 @@ import {
 } from '@/utils/dockviewStartupSizing';
 import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
 import { CollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
+import {
+  findCanvasBoundarySash,
+  measureCanvasStageInsets,
+  type CanvasStageInsets,
+} from '@/components/layout/canvasStageInsets';
 
 const LAYOUT = {
   // A (dock) defaults to 10% of the full grid; C (session) uses the shared
@@ -373,23 +377,28 @@ function buildDefaultLayout(api: DockviewApi) {
     },
   });
 
-  const rightGroup = api.addGroup({
-    id: GROUP_IDS.RIGHT,
-    referencePanel: welcomePanel,
-    direction: 'right',
-    constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
-    initialWidth: defaultSessionWidth(api.width),
-  });
+  if (useLayoutStore.getState().isRightPanelVisible) {
+    const rightGroup = api.addGroup({
+      id: GROUP_IDS.RIGHT,
+      referencePanel: welcomePanel,
+      direction: 'right',
+      constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
+      initialWidth: defaultSessionWidth(api.width),
+    });
 
-  addSessionPanelWithoutStealingFocus(api, rightGroup);
-  if (!useLayoutStore.getState().isRightPanelVisible) {
-    rightGroup.api.setVisible(false);
+    addSessionPanelWithoutStealingFocus(api, rightGroup);
+
+    normalizeGroupIds(api);
+    settleDockviewGroupWidths([
+      { group: leftGroup, width: defaultDockWidth(api.width) },
+      { group: rightGroup, width: defaultSessionWidth(api.width) },
+    ]);
+    return;
   }
 
   normalizeGroupIds(api);
   settleDockviewGroupWidths([
     { group: leftGroup, width: defaultDockWidth(api.width) },
-    { group: rightGroup, width: defaultSessionWidth(api.width) },
   ]);
 }
 
@@ -466,14 +475,20 @@ export function IDELayout({
   const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
     collaborationEnabled: Boolean(config?.multi_agent_enabled),
   });
+  const hasProject = Boolean(projectId);
   const [isDockviewMounted, setIsDockviewMounted] = useState(
-    () => effectiveActiveTab === 'workspace'
+    () => hasProject && effectiveActiveTab === 'workspace'
   );
   useEffect(() => {
+    if (!hasProject) {
+      apiRef.current = null;
+      setIsDockviewMounted(false);
+      return;
+    }
     if (effectiveActiveTab === 'workspace') {
       setIsDockviewMounted(true);
     }
-  }, [effectiveActiveTab]);
+  }, [effectiveActiveTab, hasProject]);
   const hidesBottomDock = useActiveSurfaceHidesBottomDock(effectiveActiveTab);
   const pluginTabs = usePluginHostContributions('app_tab');
   const sdkViews = useViews();
@@ -550,6 +565,9 @@ export function IDELayout({
   });
 
   const { setDockviewApi } = usePanelActionsContext();
+  const [readyDockviewApi, setReadyDockviewApi] = useState<DockviewApi | null>(
+    null
+  );
   if (!isLayoutScopeReady && apiRef.current !== null) {
     apiRef.current = null;
   }
@@ -988,6 +1006,7 @@ export function IDELayout({
       }
 
       enforceTabVisibilityRef.current(api);
+      setReadyDockviewApi(api);
 
       let resizeFrame: number | null = null;
       const dockviewResizeObserver = new ResizeObserver((entries) => {
@@ -1278,7 +1297,6 @@ export function IDELayout({
       applyArrangement,
       applyDefaultSizes,
       buildArrangeOptions,
-      ensureSessionPanel,
       rebuildDefaultLayout,
       registerDndGuard,
       setDockviewApi,
@@ -1290,6 +1308,7 @@ export function IDELayout({
   useLayoutEffect(() => {
     if (!isLayoutScopeReady) {
       apiRef.current = null;
+      setReadyDockviewApi(null);
       setDockviewApi(null);
     }
   }, [isLayoutScopeReady, setDockviewApi]);
@@ -1297,6 +1316,7 @@ export function IDELayout({
   useEffect(() => {
     return () => {
       apiRef.current = null;
+      setReadyDockviewApi(null);
       setDockviewApi(null);
     };
   }, [setDockviewApi]);
@@ -1366,6 +1386,13 @@ export function IDELayout({
     applyArrangement(api, arrangement);
   }, [arrangement, applyArrangement]);
 
+  const workspaceStageStyle = useWorkspaceStageStyle();
+  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
+  const isWorkspaceCanvasMode =
+    hasProject &&
+    effectiveActiveTab === 'workspace' &&
+    workspaceStageStyle === 'canvas';
+
   // Session zone visibility follows the store flag and content availability.
   // Layout-phase so the native browser host measures the destination split
   // before the HWND is allowed to paint.
@@ -1373,14 +1400,20 @@ export function IDELayout({
     const api = apiRef.current;
     if (!api) return;
 
-    const shouldShow = isRightPanelVisible && !!rightPanelContent;
+    const shouldShow =
+      isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
     const rightGroup = shouldShow
       ? (ensureSessionPanel(api) ?? getRightGroup(api))
       : getRightGroup(api);
     if (!rightGroup) return;
 
     setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
-  }, [ensureSessionPanel, isRightPanelVisible, rightPanelContent]);
+  }, [
+    ensureSessionPanel,
+    isRightPanelVisible,
+    isWorkspaceCanvasMode,
+    rightPanelContent,
+  ]);
 
   // Collapsed editor area: hide the editor column and terminal strip. The
   // file-tree dock stays; the session column takes the leftover width.
@@ -1452,7 +1485,8 @@ export function IDELayout({
       } catch {
         // HostBrowserPanel still waits for a stable destination slot.
       }
-      const shouldShow = isRightPanelVisible && !!rightPanelContent;
+      const shouldShow =
+        isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
       const rightGroup = shouldShow
         ? (ensureSessionPanel(api) ?? getRightGroup(api))
         : getRightGroup(api);
@@ -1466,6 +1500,7 @@ export function IDELayout({
     ensureSessionPanel,
     ensureWorkspacePanelsVisible,
     isRightPanelVisible,
+    isWorkspaceCanvasMode,
     isWorkspaceEditorAreaCollapsed,
     rightPanelContent,
     setChromeOccluded,
@@ -1474,90 +1509,158 @@ export function IDELayout({
     return () => setChromeOccluded(false);
   }, [setChromeOccluded]);
 
-  const workspaceStageStyle = useWorkspaceStageStyle();
-  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
-  const isWorkspaceCanvasMode =
-    effectiveActiveTab === 'workspace' && workspaceStageStyle === 'canvas';
-
-  const [canvasStageInsets, setCanvasStageInsets] = useState<{
-    left: number;
-    right: number;
-  }>({ left: 0, right: 0 });
+  const [canvasStageInsets, setCanvasStageInsets] = useState<CanvasStageInsets>(
+    { left: 0, right: 0 }
+  );
 
   useLayoutEffect(() => {
     if (!isWorkspaceCanvasMode) return;
     const measureInsets = () => {
-      const api = apiRef.current;
-      const host = dockviewRootRef.current;
-      if (!api || !host) {
-        setCanvasStageInsets((prev) =>
-          prev.left === 0 && prev.right === 0 ? prev : { left: 0, right: 0 }
-        );
-        return;
-      }
-      const hostRect = host.getBoundingClientRect();
-      let left = 0;
-      let right = 0;
-      for (const group of listLeftShellNavGroups(api.groups)) {
-        if (!group.api.isVisible || group.panels.length === 0) continue;
-        const el = getGroupElement(group);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0) {
-            left = Math.max(left, Math.round(rect.right - hostRect.left));
-          } else if (typeof group.width === 'number' && group.width > 0) {
-            left += Math.round(group.width);
-          }
-        } else if (typeof group.width === 'number' && group.width > 0) {
-          left += Math.round(group.width);
-        }
-      }
-      for (const group of listRightShellNavGroups(api.groups)) {
-        if (!group.api.isVisible || group.panels.length === 0) continue;
-        const el = getGroupElement(group);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0) {
-            right = Math.max(right, Math.round(hostRect.right - rect.left));
-          } else if (typeof group.width === 'number' && group.width > 0) {
-            right += Math.round(group.width);
-          }
-        } else if (typeof group.width === 'number' && group.width > 0) {
-          right += Math.round(group.width);
-        }
-      }
+      const next = measureCanvasStageInsets(
+        apiRef.current ?? readyDockviewApi,
+        dockviewRootRef.current,
+        arrangement
+      );
       setCanvasStageInsets((prev) =>
-        prev.left === left && prev.right === right ? prev : { left, right }
+        prev.left === next.left && prev.right === next.right ? prev : next
       );
     };
 
-    measureInsets();
-    const api = apiRef.current;
-    const layoutDisp = api?.onDidLayoutChange(() => {
-      measureInsets();
-    });
+    const api = apiRef.current ?? readyDockviewApi;
     const resizeObserver =
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => measureInsets())
         : null;
-    if (resizeObserver && dockviewRootRef.current) {
-      resizeObserver.observe(dockviewRootRef.current);
-      if (api) {
-        for (const group of listLeftDockGroups(api.groups)) {
-          const el = getGroupElement(group);
-          if (el) resizeObserver.observe(el);
-        }
+    const groupDisposables: Array<{ dispose: () => void }> = [];
+    const clearGroupObservers = () => {
+      while (groupDisposables.length > 0) {
+        groupDisposables.pop()?.dispose();
       }
-    }
-    return () => {
-      layoutDisp?.dispose();
       resizeObserver?.disconnect();
     };
-  }, [isDockviewMounted, isWorkspaceCanvasMode]);
+
+    const syncGroupObservers = () => {
+      clearGroupObservers();
+      const host = dockviewRootRef.current;
+      if (resizeObserver && host) {
+        resizeObserver.observe(host);
+      }
+      const currentApi = apiRef.current ?? readyDockviewApi;
+      if (!currentApi) return;
+      for (const group of currentApi.groups) {
+        if (group.api?.onDidDimensionsChange) {
+          groupDisposables.push(
+            group.api.onDidDimensionsChange(() => measureInsets())
+          );
+        }
+        if (group.api?.onDidVisibilityChange) {
+          groupDisposables.push(
+            group.api.onDidVisibilityChange(() => measureInsets())
+          );
+        }
+        if (resizeObserver) {
+          const el = getGroupElement(group);
+          if (el) {
+            resizeObserver.observe(el);
+            if (el.parentElement) {
+              resizeObserver.observe(el.parentElement);
+            }
+          }
+        }
+      }
+    };
+
+    syncGroupObservers();
+    measureInsets();
+
+    const handleStructureChange = () => {
+      syncGroupObservers();
+      measureInsets();
+    };
+    const apiDisposables = [
+      api?.onDidLayoutChange(handleStructureChange),
+      api?.onDidAddGroup(handleStructureChange),
+      api?.onDidRemoveGroup(handleStructureChange),
+      api?.onDidMovePanel(handleStructureChange),
+    ];
+
+    let removeSashMoveListeners: (() => void) | null = null;
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      const target = event.target;
+      const host = dockviewRootRef.current;
+      if (!(target instanceof Element) || !host || !host.contains(target)) {
+        return;
+      }
+      if (!target.closest('.dv-sash')) return;
+      removeSashMoveListeners?.();
+      const onMove = () => measureInsets();
+      const onEnd = () => {
+        measureInsets();
+        removeSashMoveListeners?.();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onEnd);
+      document.addEventListener('pointercancel', onEnd);
+      removeSashMoveListeners = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onEnd);
+        document.removeEventListener('pointercancel', onEnd);
+        removeSashMoveListeners = null;
+      };
+    };
+    document.addEventListener('pointerdown', handlePointerDownCapture, true);
+
+    return () => {
+      document.removeEventListener(
+        'pointerdown',
+        handlePointerDownCapture,
+        true
+      );
+      removeSashMoveListeners?.();
+      for (const disp of apiDisposables) {
+        disp?.dispose();
+      }
+      clearGroupObservers();
+    };
+  }, [
+    arrangement,
+    isDockviewMounted,
+    isWorkspaceCanvasMode,
+    readyDockviewApi,
+    serializedLayout,
+  ]);
+
+  const forwardCanvasBoundarySashPointerDown = useCallback(
+    (side: 'left' | 'right', event: React.PointerEvent<HTMLDivElement>) => {
+      const host = dockviewRootRef.current;
+      if (!host || event.button !== 0) return;
+      const bestSash = findCanvasBoundarySash(host, canvasStageInsets, side);
+      if (!bestSash) return;
+      event.preventDefault();
+      event.stopPropagation();
+      bestSash.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          pointerId: event.pointerId,
+          pointerType: event.pointerType,
+          button: event.button,
+          buttons: event.buttons || 1,
+        })
+      );
+    },
+    [canvasStageInsets]
+  );
+
+  const showZeroProjectStage =
+    !hasProject && !ActiveSdkTabComponent && !activePluginTab;
 
   const layoutBody = (
     <div className="flex min-h-0 flex-1">
-      {effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban' ? (
+      {hasProject &&
+      (effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban') ? (
         <WorkspaceActivityRail
           mode={effectiveActiveTab === 'kanban' ? 'kanban' : 'workspace'}
           isEditorAreaVisible={isEditorAreaVisible}
@@ -1567,13 +1670,16 @@ export function IDELayout({
 
       <RightPanelSlotContext.Provider value={sessionPlacement}>
         <div
-          className="workspace-stage-host relative flex-1 min-w-0"
+          className="workspace-stage-host relative flex flex-1 min-w-0 flex-col"
+          data-canvas-stage-active={isWorkspaceCanvasMode ? 'true' : undefined}
           ref={dockviewRootRef}
         >
           <MobileDeviceConnectBanner />
-          {isDockviewMounted ? (
+          {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
+
+          {hasProject && isDockviewMounted ? (
             <div
-              className="h-full"
+              className="min-h-0 flex-1"
               style={
                 effectiveActiveTab === 'workspace'
                   ? undefined
@@ -1596,13 +1702,34 @@ export function IDELayout({
 
           {isWorkspaceCanvasMode ? (
             <div
-              className="kanban-overlay absolute top-0 bottom-0 z-10"
+              className="kanban-overlay absolute top-0 bottom-0 z-10 min-w-0"
               style={{
                 left: canvasStageInsets.left,
                 right: canvasStageInsets.right,
+                width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
               }}
               data-testid="workspace-canvas-stage"
             >
+              {canvasStageInsets.left > 0 ? (
+                <div
+                  aria-hidden="true"
+                  data-testid="workspace-canvas-sash-proxy-left"
+                  className="absolute top-0 bottom-0 -left-1 z-30 w-2 cursor-ew-resize"
+                  onPointerDown={(event) =>
+                    forwardCanvasBoundarySashPointerDown('left', event)
+                  }
+                />
+              ) : null}
+              {canvasStageInsets.right > 0 ? (
+                <div
+                  aria-hidden="true"
+                  data-testid="workspace-canvas-sash-proxy-right"
+                  className="absolute top-0 bottom-0 -right-1 z-30 w-2 cursor-ew-resize"
+                  onPointerDown={(event) =>
+                    forwardCanvasBoundarySashPointerDown('right', event)
+                  }
+                />
+              ) : null}
               <Suspense fallback={null}>
                 <LazyWorkspaceCanvasStage
                   presentation="canvas"
@@ -1613,24 +1740,26 @@ export function IDELayout({
             </div>
           ) : null}
 
-          <KeepAliveSurface
-            active={effectiveActiveTab === 'kanban'}
-            evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
-            className="kanban-overlay absolute inset-0 z-10"
-          >
-            <Suspense
-              fallback={
-                <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                  <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                    <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                    <span>Loading Kanban...</span>
-                  </div>
-                </div>
-              }
+          {hasProject ? (
+            <KeepAliveSurface
+              active={effectiveActiveTab === 'kanban'}
+              evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+              className="kanban-overlay absolute inset-0 z-10"
             >
-              <LazyKanbanBoard />
-            </Suspense>
-          </KeepAliveSurface>
+              <Suspense
+                fallback={
+                  <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                    <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                      <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                      <span>Loading Kanban...</span>
+                    </div>
+                  </div>
+                }
+              >
+                <LazyKanbanBoard />
+              </Suspense>
+            </KeepAliveSurface>
+          ) : null}
 
           {ActiveSdkTabComponent ? (
             <div className="kanban-overlay absolute inset-0 z-10">
@@ -1683,7 +1812,7 @@ export function IDELayout({
         )}
       </ProjectLayoutScope>
 
-      {rightPanelContent && sessionContentHost
+      {hasProject && rightPanelContent && sessionContentHost
         ? createPortal(rightPanelContent, sessionContentHost)
         : null}
 

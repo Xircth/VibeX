@@ -1,7 +1,7 @@
 import { useUserSystem } from '@/components/ConfigProvider';
 import { APP_NAME } from '@/lib/branding';
-import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
 import { AttentionInboxBadge } from '@/components/layout/AttentionInboxBadge';
+import { AccountStatusMenu } from '@/components/layout/AccountStatusMenu';
 import { StatusBarMcp } from '@/components/layout/StatusBarMcp';
 import { StatusBarConnectorButton } from '@/components/connectors/ConnectorMarketplace';
 import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
@@ -21,11 +21,10 @@ export function StatusBar() {
   const updatableAgentIds = useAgentAcpUpdates(agentManagementState.agents);
 
   return (
-    <div className="workspace-chrome relative z-20 flex h-9 shrink-0 select-none items-center justify-between overflow-visible px-1.5 text-xs text-secondary-foreground">
-      <div className="workspace-project-selector-slot min-w-0 overflow-visible pr-2">
-        <ProjectWindowStatusSummary />
+    <div className="workspace-chrome relative z-20 flex h-9 shrink-0 select-none items-center justify-between overflow-visible px-2 text-xs text-secondary-foreground">
+      <div className="flex items-center gap-2">
+        <AccountStatusMenu />
       </div>
-
       <div className="ml-auto flex items-center gap-2">
         <PluginStatusItems />
         <AttentionInboxBadge />

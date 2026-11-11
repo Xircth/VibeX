@@ -9,6 +9,11 @@ import {
   useRef,
   startTransition,
 } from 'react';
+import { Icon } from '@astryxdesign/core/Icon';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -76,7 +81,6 @@ import {
   toggleKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
 } from '@/lib/kanbanCanvasListVisible';
-import { cn } from '@/lib/utils';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import {
@@ -84,6 +88,7 @@ import {
   shouldBindDefaultGitWorkspace,
 } from '@/lib/workspaceDefault';
 import { HostSelector } from '@/components/layout/HostSelector';
+import { ProjectQuickSwitcher } from '@/components/layout/ProjectQuickSwitcher';
 import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
 import { collectPluginToolbarTabs } from './toolbarTabs';
 import {
@@ -534,29 +539,48 @@ function LeftSidebarToggleButton() {
 
 export function WorkspaceBranchControls({
   isWorkspaceTab,
+  isCollaborationTab = false,
+  hasProject,
 }: {
   isWorkspaceTab: boolean;
+  isCollaborationTab?: boolean;
+  hasProject?: boolean;
   workspaceId?: string;
 }) {
+  const { projectId } = useProject();
+  const resolvedHasProject = hasProject ?? Boolean(projectId);
   const boardStyle = useKanbanBoardStyle();
-  const showCanvasListToggle = !isWorkspaceTab && boardStyle === 'canvas';
+  const showCanvasListToggle =
+    resolvedHasProject &&
+    !isWorkspaceTab &&
+    !isCollaborationTab &&
+    boardStyle === 'canvas';
 
   return (
     <div
-      className="flex min-w-0 shrink-0 items-center gap-1.5"
+      className="flex min-w-0 shrink-0 items-center gap-1"
       role="group"
       aria-label={i18n.t('panels:shellA11y.workspaceBranches', {
         defaultValue: 'Host and workspace controls',
       })}
     >
       <HostSelector />
-      {isWorkspaceTab ? <LeftSidebarToggleButton /> : null}
+      <span
+        aria-hidden="true"
+        className="select-none px-0.5 text-xs text-muted-foreground/45"
+      >
+        /
+      </span>
+      <ProjectQuickSwitcher />
+      {resolvedHasProject && isWorkspaceTab ? (
+        <LeftSidebarToggleButton />
+      ) : null}
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
     </div>
   );
 }
 
-function WorkspaceTabSwitcher() {
+export function WorkspaceTabSwitcher() {
   const { t } = useTranslation('panels');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -756,6 +780,9 @@ function WorkspaceTabSwitcher() {
 
   const defaultGitWorkspaceBindRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!projectId) {
+      return;
+    }
     if (
       !shouldBindDefaultGitWorkspace({
         isWorkspaceSurface: effectiveActiveTab === 'workspace',
@@ -871,38 +898,35 @@ function WorkspaceTabSwitcher() {
   );
 
   return (
-    <div className="workspace-tab-switcher flex h-7 items-center gap-0.5 rounded-md p-0.5">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = effectiveActiveTab === tab.key;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => handleTabSelect(tab.key)}
-            data-basic-guide={
-              tab.key === 'kanban'
-                ? 'toolbar-kanban'
-                : tab.key === 'workspace'
-                  ? 'toolbar-workspace'
-                  : undefined
-            }
-            className={cn(
-              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition-colors',
-              isActive && 'is-active'
-            )}
-          >
-            <Icon className="h-3 w-3" />
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl
+      className="shrink-0"
+      value={effectiveActiveTab}
+      onChange={(nextValue) => handleTabSelect(nextValue as WorkspaceTab)}
+      label={`${t('toolbar.workspace')} / ${t('toolbar.kanban')}`}
+      size="sm"
+      layout="hug"
+    >
+      {tabs.map((tab) => (
+        <SegmentedControlItem
+          key={tab.key}
+          value={tab.key}
+          label={tab.label}
+          icon={<Icon icon={tab.icon} size="sm" />}
+          data-basic-guide={
+            tab.key === 'kanban'
+              ? 'toolbar-kanban'
+              : tab.key === 'workspace'
+                ? 'toolbar-workspace'
+                : undefined
+          }
+        />
+      ))}
+    </SegmentedControl>
   );
 }
 
 export function Toolbar() {
   const { t } = useTranslation(['panels', 'common']);
-  const navigate = useNavigate();
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -922,9 +946,11 @@ export function Toolbar() {
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
   const isCollaborationTab = effectiveActiveTab === COLLABORATION_WORKSPACE_TAB;
   const boardStyle = useKanbanBoardStyle();
+  const hasProject = Boolean(projectId);
   const hasLeadingControls = true;
   const showLayoutToggles =
-    isWorkspaceTab || isCollaborationTab || boardStyle !== 'canvas';
+    isCollaborationTab ||
+    (hasProject && (isWorkspaceTab || boardStyle !== 'canvas'));
   const logoLeads = logoLeadsWindowChrome();
 
   const toolbarItems = usePluginHostContributions('toolbar');
@@ -999,32 +1025,36 @@ export function Toolbar() {
     <TooltipProvider delayDuration={300}>
       <div className="workspace-topbar window-chrome relative w-full px-1.5">
         <div data-tauri-drag-region className="absolute inset-0" />
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <div className="pointer-events-auto">
-            <WorkspaceTabSwitcher />
+        {hasProject || isCollaborationTab ? (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+            <div className="pointer-events-auto">
+              <WorkspaceTabSwitcher />
+            </div>
           </div>
-        </div>
+        ) : null}
         <div
           data-tauri-drag-region
           className="relative z-10 flex h-9 items-center gap-0.5"
         >
           {logoLeads ? <HomeLogoMenu align="start" /> : null}
           {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
-          {!isCollaborationTab ? (
-            <WorkspaceBranchControls
-              isWorkspaceTab={isWorkspaceTab}
-              workspaceId={workspaceId}
-            />
-          ) : null}
+          <WorkspaceBranchControls
+            isWorkspaceTab={isWorkspaceTab}
+            isCollaborationTab={isCollaborationTab}
+            hasProject={hasProject}
+            workspaceId={workspaceId}
+          />
 
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
-            {isWorkspaceTab ? (
-              <WorkspaceLayoutToggles />
-            ) : isCollaborationTab ? (
+            {isCollaborationTab ? (
               <CollaborationLayoutToggles />
-            ) : (
-              <KanbanLayoutToggles />
-            )}
+            ) : hasProject ? (
+              isWorkspaceTab ? (
+                <WorkspaceLayoutToggles />
+              ) : (
+                <KanbanLayoutToggles />
+              )
+            ) : null}
             {showLayoutToggles ? <ToolbarDivider /> : null}
             <Slot name="toolbar.actions" />
             {visibleToolbar.map((item) => {
@@ -1110,16 +1140,6 @@ export function Toolbar() {
                 )}
               </>
             )}
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className="workspace-toolbar-button h-7 px-2 text-xs font-medium text-info hover:text-info/80"
-              onClick={() => navigate('/prototype/unified-shell')}
-              title="打开 A/B 分区一体式 Shell Nav 原型 Demo"
-            >
-              Shell原型Demo
-            </Button>
 
             <Tooltip>
               <TooltipTrigger asChild>

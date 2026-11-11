@@ -47,6 +47,10 @@ import { useRemoteHostReleaseUpdateToast } from '@/hooks/useRemoteHostReleaseUpd
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
 import {
+  AccountHostConfigSyncBridge,
+  AccountSavedHostsSyncBridge,
+} from '@/features/model-router';
+import {
   SequenceIndicator,
   SequenceTrackerProvider,
   SHORTCUT_ACTION_EVENT,
@@ -365,28 +369,11 @@ function GlobalShortcutActionBridge() {
 function PluginContributionBridge() {
   usePluginContributionCatalogSync();
   useProviderBindConfirmations();
-  return null;
-}
-
-const UnifiedShellPrototype = lazy(() =>
-  import('@/pages/UnifiedShellPrototype').then((module) => ({
-    default: module.UnifiedShellPrototype,
-  }))
-);
-
-function AppRouterSwitch() {
-  const location = useLocation();
-  if (location.pathname.startsWith('/prototype/unified-shell')) {
-    return (
-      <Suspense fallback={null}>
-        <UnifiedShellPrototype />
-      </Suspense>
-    );
-  }
   return (
-    <UserSystemProvider>
-      <AppContent />
-    </UserSystemProvider>
+    <>
+      <AccountHostConfigSyncBridge />
+      <AccountSavedHostsSyncBridge />
+    </>
   );
 }
 
@@ -394,7 +381,9 @@ function App() {
   return (
     <AppErrorBoundary>
       <BrowserRouter>
-        <AppRouterSwitch />
+        <UserSystemProvider>
+          <AppContent />
+        </UserSystemProvider>
       </BrowserRouter>
     </AppErrorBoundary>
   );

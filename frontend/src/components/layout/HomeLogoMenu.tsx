@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AppWindow, FolderOpen } from 'lucide-react';
 import {
@@ -19,14 +18,17 @@ import {
   importedProjectName,
   orderImportedProjects,
 } from '@/lib/importedProject';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 const RECENT_PROJECT_MENU_LIMIT = 6;
 
 export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
   const { t } = useTranslation(['panels', 'common', 'app']);
-  const navigate = useNavigate();
   const { projects } = useProjects();
   const switchProject = useProjectSwitcher();
+  const setRailVisible = useWindowProjectsStore(
+    (state) => state.setRailVisible
+  );
   const tauriClient = useTauriClient();
   const recentProjects = useMemo(
     () =>
@@ -39,9 +41,9 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
     [projects, t]
   );
 
-  const onOpenHome = useCallback(() => {
-    navigate(paths.projects());
-  }, [navigate]);
+  const onOpenProjectSwitcher = useCallback(() => {
+    setRailVisible(true);
+  }, [setRailVisible]);
 
   const onSwitchProject = useCallback(
     (projectId: string) => {
@@ -72,10 +74,11 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
             <DropdownMenuSeparator />
           </>
         ) : null}
-        <DropdownMenuItem onSelect={onOpenHome}>
+        <DropdownMenuItem onSelect={onOpenProjectSwitcher}>
           <FolderOpen className="mr-2 h-4 w-4" />
-          {t('toolbar.backToHome')}
+          {t('toolbar.switchProject', '切换项目…')}
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <div className="px-2 py-1 text-xs text-muted-foreground">
           {t('toolbar.recentProjects')}
         </div>
@@ -95,13 +98,8 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
             {t('toolbar.noRecentProjects')}
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem asChild>
-          <Link to={paths.projects()}>
-            <FolderOpen className="mr-2 h-4 w-4" />
-            Projects
-          </Link>
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+

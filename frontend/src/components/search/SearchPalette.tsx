@@ -34,6 +34,7 @@ import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { Command, type LucideIcon } from 'lucide-react';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 type PaletteResultKind = 'file' | 'directory' | 'conversation' | 'command';
 
@@ -60,6 +61,17 @@ function dispatchHostEvent(name: string, detail?: Record<string, unknown>) {
 }
 
 export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
+  {
+    id: 'builtin.project.switch',
+    pluginId: 'vibex.core.projects',
+    title: 'Switch Project',
+    category: 'Projects',
+    icon: 'folder-open',
+    order: 90,
+    handler: () => {
+      useWindowProjectsStore.getState().setRailVisible(true);
+    },
+  },
   {
     id: 'builtin.open-settings',
     pluginId: 'vibex.core.settings',

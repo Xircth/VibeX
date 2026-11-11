@@ -282,6 +282,11 @@
     --switch-checked-thumb: var(--surface-raised-control);
     --surface-shell: #ffffff;
     --surface-topbar: #f1f1f1;
+    --surface-tabbar: color-mix(
+      in srgb,
+      var(--surface-topbar) 55%,
+      var(--surface-shell)
+    );
     --surface-sidebar: var(--surface-topbar);
     --surface-right-panel: var(--surface-shell);
     --surface-composer: var(--surface-content);
@@ -452,6 +457,11 @@
     --text-faint: #525252;
     --surface-shell: #1b1b1b;
     --surface-topbar: var(--surface-shell);
+    --surface-tabbar: color-mix(
+      in srgb,
+      var(--surface-topbar) 78%,
+      #ffffff
+    );
     --surface-sidebar: var(--surface-topbar);
     --surface-right-panel: var(--surface-topbar);
     --surface-composer: var(--surface-content);
@@ -1375,31 +1385,201 @@ html.dark {
   outline: none !important;
 }
 
-.legacy-design .astryx-segmented-control {
+/* Official Astryx SegmentedControl & SegmentedControlItem restoration.
+   @astryxdesign/core compiles StyleX into `@layer astryx-base`, whereas
+   Tailwind v3 `@tailwind base` emits unlayered `button` resets (`padding: 0`,
+   `font-size: 100%`, `font-weight: inherit`, `color: inherit`,
+   `background-color: transparent`) that otherwise override `@layer astryx-base`. */
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  ) {
   --color-neutral: var(--surface-track);
-  --radius-element: 999px;
-  --_segmented-control-radius: 999px;
-  background-color: var(--surface-track) !important;
-  border-radius: 999px;
+  --color-background-surface: var(--surface-thumb);
+  --_segmented-control-padding: 3px;
+  --_segmented-control-radius: var(--radius-element, 0.625rem);
+  align-items: center;
+  gap: var(--spacing-0-5, 2px);
+  padding: var(--_segmented-control-padding);
+  border-radius: var(--_segmented-control-radius);
+  background-color: var(--color-neutral);
+  box-sizing: border-box;
 }
 
-.legacy-design .astryx-segmented-control-item {
+.legacy-design
+  .astryx-segmented-control[data-size='md']:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  ),
+.legacy-design
+  .astryx-segmented-control[data-size='lg']:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  ) {
+  --_segmented-control-padding: var(--spacing-1, 4px);
+  --_segmented-control-radius: var(--radius-container, 0.75rem);
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item {
   appearance: none;
   -webkit-appearance: none;
-  background-color: transparent !important;
-  background-image: none !important;
-  border: none;
-  height: 20px !important;
-  min-height: 20px !important;
+  background-image: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-1-5, 6px);
+  height: calc(var(--size-element-md, 32px) - 8px);
+  min-height: 0;
+  margin: 0;
   padding-block: 0;
-  padding-inline: 12px !important;
-  border-radius: 999px;
+  padding-inline: var(--spacing-3, 12px);
+  border: 0;
+  border-radius: max(
+    0px,
+    calc(
+      var(--_segmented-control-radius, var(--radius-container, 0.75rem)) -
+        var(--_segmented-control-padding, 4px)
+    )
+  );
+  background-color: transparent;
+  color: var(--color-text-secondary, var(--text-muted));
+  font-family: inherit;
+  font-size: var(--text-label-size, 0.875rem);
+  font-weight: var(--font-weight-medium, 500);
   line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    color var(--duration-fast, 125ms) var(--ease-standard, ease),
+    background-color var(--duration-fast, 125ms) var(--ease-standard, ease),
+    box-shadow var(--duration-fast, 125ms) var(--ease-standard, ease);
 }
 
-.legacy-design .astryx-segmented-control-item[aria-checked='true'] {
-  background-color: var(--surface-thumb) !important;
-  box-shadow: var(--shadow-low);
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='sm'] {
+  height: calc(var(--size-element-sm, 28px) - 6px);
+  padding-inline: 10px;
+  gap: 5px;
+  font-size: var(--text-supporting-size, 0.75rem);
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='lg'] {
+  height: calc(var(--size-element-lg, 36px) - 8px);
+  padding-inline: 14px;
+  font-size: var(--text-label-size, 0.875rem);
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item
+  > span:has(> svg) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item
+  > span:has(> svg)
+  > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='sm']
+  > span:has(> svg),
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='sm']
+  > span:has(> svg)
+  > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='lg']
+  > span:has(> svg),
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item[data-size='lg']
+  > span:has(> svg)
+  > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item:hover:not([aria-checked='true']):not(
+    [aria-disabled='true']
+  ):not(:disabled) {
+  background-color: var(--color-overlay-hover, var(--surface-control));
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item:is(
+    [aria-checked='true'],
+    [data-selected='selected']
+  ) {
+  background-color: var(--color-background-surface, var(--surface-thumb));
+  color: var(--color-text-primary, var(--text-strong));
+  font-weight: var(--font-weight-semibold, 600);
+  box-shadow: none;
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item:is([aria-disabled='true'], :disabled) {
+  cursor: default;
+  color: var(--color-text-disabled, var(--text-faint));
+}
+
+.legacy-design
+  .astryx-segmented-control:not(.agent-auth-mode-tabs):not(
+    .agent-auth-mode-submodes
+  )
+  .astryx-segmented-control-item:focus-visible {
+  outline: 2px solid var(--color-accent, hsl(var(--primary)));
+  outline-offset: 2px;
 }
 
 .legacy-design
@@ -1408,7 +1588,7 @@ html.dark {
     [aria-pressed='true'],
     .is-active
   ) {
-  background-color: var(--surface-thumb) !important;
+  background-color: var(--surface-thumb);
   color: var(--text-strong);
   box-shadow: var(--shadow-low);
 }
@@ -4821,30 +5001,6 @@ html.dark {
     color: var(--text-strong);
     border-color: transparent;
     background: transparent;
-  }
-
-  .workspace-tab-switcher {
-    border: 1px solid var(--border-subtle);
-    background: var(--surface-control);
-    box-shadow: var(--shadow-inset);
-  }
-
-  .workspace-tab-button {
-    color: var(--text-muted);
-    border: 1px solid transparent;
-    font-weight: 700;
-  }
-
-  .workspace-tab-button:hover {
-    color: var(--text-strong);
-    background: var(--surface-hover);
-  }
-
-  .workspace-tab-button.is-active {
-    color: var(--text-strong);
-    border-color: var(--border-subtle);
-    background: var(--surface-content);
-    box-shadow: var(--shadow-card);
   }
 
   .workspace-branch-ahead {
@@ -9434,7 +9590,9 @@ html.tauri-desktop.host-windows .window-chrome {
 .window-chrome a,
 .window-chrome input,
 .window-chrome [role='button'],
-.window-chrome [role='combobox'] {
+.window-chrome [role='combobox'],
+.window-chrome [role='radiogroup'],
+.window-chrome [role='radio'] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -16450,7 +16608,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   will-change: transform;
 }
 
-.canvas-surface[data-canvas-panning] .canvas-session-card .session-hub-card,
+.canvas-surface[data-canvas-panning]
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  ),
 .canvas-surface[data-canvas-panning] .canvas-session-group,
 .canvas-surface[data-canvas-panning] .canvas-session-window {
   animation: none !important;
@@ -16479,18 +16641,58 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: none;
 }
 
-.canvas-surface .canvas-session-card .session-hub-card {
+.canvas-surface
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  ) {
   height: 100%;
   align-items: center;
   padding: 0.375rem 0.625rem;
-  background: var(--surface-content);
+  background: var(--surface-tabbar);
+  border-style: solid;
+  border-width: 1.5px;
   border-color: color-mix(
     in oklab,
-    var(--text-muted) 55%,
+    var(--text-strong) 42%,
     var(--border-strong)
   );
-  border-width: 1.5px;
-  box-shadow: none;
+  box-shadow:
+    inset 0 1px 0 var(--highlight-edge),
+    0 1px 3px hsl(var(--shadow-ink) / 0.1),
+    0 4px 12px -2px hsl(var(--shadow-ink) / 0.08);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.canvas-surface
+  :is(
+    .canvas-session-card .session-hub-card:hover,
+    .canvas-session-card.session-hub-card:hover
+  ) {
+  background: color-mix(
+    in srgb,
+    var(--surface-tabbar) 94%,
+    var(--text-strong)
+  );
+  border-color: color-mix(
+    in oklab,
+    var(--text-strong) 68%,
+    var(--border-strong)
+  );
+  box-shadow:
+    inset 0 1px 0 var(--highlight-edge),
+    0 2px 5px hsl(var(--shadow-ink) / 0.12),
+    0 8px 18px -4px hsl(var(--shadow-ink) / 0.12);
+}
+
+.canvas-surface .canvas-session-card-missing {
+  background: var(--surface-tabbar);
+  border: 1.5px dashed
+    color-mix(in oklab, var(--text-strong) 36%, var(--border-strong));
+  box-shadow: 0 1px 3px hsl(var(--shadow-ink) / 0.08);
 }
 
 .canvas-surface .canvas-session-window {
@@ -16518,7 +16720,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-color: hsl(var(--canvas-window-slot) / 0.7);
 }
 
-.canvas-surface .canvas-session-card.is-running .session-hub-card,
+.canvas-surface
+  :is(
+    .canvas-session-card.is-running .session-hub-card,
+    .canvas-session-card.session-hub-card.is-running
+  ),
 .canvas-surface .canvas-session-group.is-running,
 .canvas-surface .canvas-session-window.is-running {
   box-sizing: border-box;
@@ -16532,7 +16738,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     color-mix(in srgb, var(--session-status-inprogress) 45%, transparent);
 }
 
-.canvas-surface .canvas-session-card.is-reviewing .session-hub-card,
+.canvas-surface
+  :is(
+    .canvas-session-card.is-reviewing .session-hub-card,
+    .canvas-session-card.session-hub-card.is-reviewing
+  ),
 .canvas-surface .canvas-session-group.is-reviewing,
 .canvas-surface .canvas-session-window.is-reviewing {
   box-sizing: border-box;
@@ -16557,20 +16767,46 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     animation: canvas-reviewing-breathe 1.5s ease-in-out infinite;
   }
 
-  .canvas-surface .canvas-session-card.is-running .session-hub-card {
+  .canvas-surface
+    :is(
+      .canvas-session-card.is-running .session-hub-card,
+      .canvas-session-card.session-hub-card.is-running
+    ) {
     animation: canvas-card-running-breathe 1.35s ease-in-out infinite;
   }
 
-  .canvas-surface .canvas-session-card.is-reviewing .session-hub-card {
+  .canvas-surface
+    :is(
+      .canvas-session-card.is-reviewing .session-hub-card,
+      .canvas-session-card.session-hub-card.is-reviewing
+    ) {
     animation: canvas-card-reviewing-breathe 1.35s ease-in-out infinite;
   }
 }
 
-.canvas-surface .canvas-session-card.is-selected .session-hub-card,
 .canvas-surface
-  .react-flow__node.selected
-  .canvas-session-card
-  .session-hub-card,
+  :is(
+    .canvas-session-card.is-selected .session-hub-card,
+    .canvas-session-card.session-hub-card.is-selected,
+    .react-flow__node.selected .canvas-session-card .session-hub-card,
+    .react-flow__node.selected .canvas-session-card.session-hub-card
+  ),
+.canvas-surface
+  :is(
+    .canvas-session-card.is-selected .session-hub-card:hover,
+    .canvas-session-card.session-hub-card.is-selected:hover,
+    .react-flow__node.selected .canvas-session-card .session-hub-card:hover,
+    .react-flow__node.selected .canvas-session-card.session-hub-card:hover
+  ) {
+  background: var(--surface-tabbar);
+  border-width: 2px;
+  border-color: var(--text-strong);
+  animation: none;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--text-strong) 10%, transparent),
+    0 4px 14px -2px hsl(var(--shadow-ink) / 0.14);
+}
+
 .canvas-surface .canvas-session-group.is-selected,
 .canvas-surface .react-flow__node.selected .canvas-session-group,
 .canvas-surface .canvas-session-window.is-selected {
@@ -16707,6 +16943,32 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   );
 }
 
+.canvas-surface .canvas-session-group.is-collapsed {
+  background: var(--surface-tabbar);
+  border-color: color-mix(
+    in oklab,
+    var(--text-strong) 42%,
+    var(--border-strong)
+  );
+  box-shadow:
+    inset 0 1px 0 var(--highlight-edge),
+    0 1px 3px hsl(var(--shadow-ink) / 0.1),
+    0 4px 12px -2px hsl(var(--shadow-ink) / 0.08);
+}
+
+.canvas-surface .canvas-session-group.is-collapsed:not(.is-selected):hover {
+  background: color-mix(
+    in srgb,
+    var(--surface-tabbar) 94%,
+    var(--text-strong)
+  );
+  border-color: color-mix(
+    in oklab,
+    var(--text-strong) 68%,
+    var(--border-strong)
+  );
+}
+
 .canvas-surface .canvas-group-name-input,
 .canvas-surface .canvas-group-name-input:focus,
 .canvas-surface .canvas-group-name-input:focus-visible {
@@ -16719,8 +16981,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .canvas-surface
   .react-flow__node.canvas-drop-target
-  .canvas-session-card
-  .session-hub-card,
+  :is(
+    .canvas-session-card .session-hub-card,
+    .canvas-session-card.session-hub-card
+  ),
 .canvas-surface .react-flow__node.canvas-drop-target .canvas-session-group {
   border-width: 2px;
   border-color: hsl(var(--primary));
@@ -16731,8 +16995,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 @media (prefers-reduced-motion: no-preference) {
   .canvas-surface
     .react-flow__node.canvas-drop-target
-    .canvas-session-card
-    .session-hub-card,
+    :is(
+      .canvas-session-card .session-hub-card,
+      .canvas-session-card.session-hub-card
+    ),
   .canvas-surface .react-flow__node.canvas-drop-target .canvas-session-group {
     animation: canvas-drop-pulse 720ms ease-out infinite;
   }

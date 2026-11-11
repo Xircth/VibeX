@@ -19,7 +19,7 @@
 }
 
 .workflow-studio-floating-controls {
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: var(--surface-popover);
   box-shadow: var(--shadow-card);
@@ -38,7 +38,7 @@
 }
 
 .workflow-confirmation-waiting {
-  border-color: color-mix(in srgb, hsl(var(--warning)) 72%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--warning)) 72%, hsl(var(--border)));
   color: hsl(var(--warning));
   animation: workflow-confirmation-pulse 1.45s ease-in-out infinite;
 }
@@ -50,32 +50,36 @@
 }
 
 .workflow-studio-node:hover {
-  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--primary)) 55%, hsl(var(--border)));
 }
 
 .workflow-node-selected {
   border-color: hsl(var(--primary));
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent),
+    0 0 0 2px color-mix(in srgb, hsl(var(--primary)) 20%, transparent),
     var(--shadow-control);
   transform: translateY(-1px);
 }
 
 .workflow-node-running {
-  border-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--primary)) 68%, hsl(var(--border)));
   animation: workflow-node-pulse 1.8s ease-in-out infinite;
 }
 
 .workflow-node-completed {
-  border-color: color-mix(in srgb, hsl(var(--success)) 55%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--success)) 55%, hsl(var(--border)));
 }
 
 .workflow-node-failed {
-  border-color: color-mix(in srgb, var(--destructive) 70%, var(--border));
+  border-color: color-mix(
+    in srgb,
+    hsl(var(--destructive)) 70%,
+    hsl(var(--border))
+  );
 }
 
 .workflow-node-waiting {
-  border-color: color-mix(in srgb, hsl(var(--warning)) 65%, var(--border));
+  border-color: color-mix(in srgb, hsl(var(--warning)) 65%, hsl(var(--border)));
 }
 
 .workflow-node-status-dot {
@@ -108,7 +112,7 @@
 }
 
 .workflow-node-log {
-  border-color: var(--border);
+  border-color: hsl(var(--border));
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
   animation: workflow-panel-reveal 160ms ease-out;
@@ -133,7 +137,7 @@
 }
 
 .workflow-studio-edge.react-flow__edge.animated path {
-  stroke: var(--primary);
+  stroke: hsl(var(--primary));
   stroke-width: 2;
 }
 
@@ -174,17 +178,18 @@
 .workflow-studio .react-flow__minimap {
   overflow: hidden;
   border-radius: var(--radius);
-  border-color: var(--border);
+  border-color: hsl(var(--border));
   box-shadow: var(--shadow-card);
 }
 
 @keyframes workflow-node-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 18%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, hsl(var(--primary)) 18%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 0%, transparent);
+    box-shadow: 0 0 0 5px
+      color-mix(in srgb, hsl(var(--primary)) 0%, transparent);
   }
 }
 

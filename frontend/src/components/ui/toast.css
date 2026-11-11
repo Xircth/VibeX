@@ -42,7 +42,7 @@
 .vu-toast-surface {
   width: 100%;
   overflow: hidden;
-  color: var(--text-primary, hsl(213 10% 30%));
+  color: var(--text-primary);
   background: var(--surface-dialog);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius);
@@ -64,8 +64,8 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  color: var(--text-muted, hsl(213 8% 45%));
-  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  color: var(--text-muted);
+  background: var(--surface-control);
 }
 
 .vu-toast-status-icon {
@@ -74,20 +74,23 @@
 }
 
 .vu-toast-surface[data-kind='success'] .vu-toast-icon-tile {
-  color: hsl(var(--success, 78 100% 35%));
+  color: var(--status-success-text);
 }
 
-.vu-toast-surface[data-kind='info'] .vu-toast-icon-tile,
+.vu-toast-surface[data-kind='info'] .vu-toast-icon-tile {
+  color: var(--status-info-text);
+}
+
 .vu-toast-surface[data-kind='loading'] .vu-toast-icon-tile {
-  color: hsl(var(--primary, 0 0% 9.02%));
+  color: hsl(var(--primary));
 }
 
 .vu-toast-surface[data-kind='warning'] .vu-toast-icon-tile {
-  color: hsl(var(--warning, 38 92% 50%));
+  color: var(--status-warning-text);
 }
 
 .vu-toast-surface[data-kind='error'] .vu-toast-icon-tile {
-  color: hsl(var(--destructive, 0 96% 53%));
+  color: var(--status-danger-text);
 }
 
 .vu-toast-status-icon-loading {
@@ -100,7 +103,7 @@
 }
 
 .vu-toast-title {
-  color: var(--text-strong, hsl(222 30% 16%));
+  color: var(--text-strong);
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
@@ -108,7 +111,7 @@
 
 .vu-toast-summary {
   margin-top: 4px;
-  color: var(--text-muted, hsl(213 8% 45%));
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -124,7 +127,7 @@
   justify-content: center;
   margin: 0;
   padding: 0;
-  color: var(--text-muted, hsl(213 8% 45%));
+  color: var(--text-muted);
   background: transparent;
   border: 0;
   border-radius: var(--radius);
@@ -132,8 +135,8 @@
 }
 
 .vu-toast-close:hover {
-  color: var(--text-strong, hsl(222 30% 16%));
-  background: var(--surface-control-hover, hsl(220 20% 20% / 0.1));
+  color: var(--text-strong);
+  background: var(--surface-control-hover);
 }
 
 .vu-toast-close svg {
@@ -158,7 +161,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 0;
-  color: var(--text-primary, hsl(213 10% 30%));
+  color: var(--text-primary);
   background: transparent;
   border: 0;
   font-size: 12px;
@@ -199,8 +202,8 @@
   margin-top: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--surface-control, hsl(220 20% 20% / 0.06));
-  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
 }
 
@@ -216,11 +219,11 @@
 }
 
 .vu-toast-detail-row + .vu-toast-detail-row {
-  border-top: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-top: 1px solid var(--border-subtle);
 }
 
 .vu-toast-detail-title {
-  color: var(--text-strong, hsl(222 30% 16%));
+  color: var(--text-strong);
   font-size: 12px;
   font-weight: 600;
   line-height: 16px;
@@ -228,7 +231,7 @@
 
 .vu-toast-detail-copy {
   margin-top: 2px;
-  color: var(--text-muted, hsl(213 8% 45%));
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -258,14 +261,14 @@
 }
 
 .vu-toast-action-secondary {
-  color: var(--text-primary, hsl(213 10% 30%));
-  background: var(--surface-control, hsl(220 20% 20% / 0.06));
-  border-color: var(--border-subtle, hsl(220 16% 28% / 0.09));
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
 }
 
 .vu-toast-action-primary {
-  color: hsl(var(--primary-foreground, 0 0% 100%));
-  background: hsl(var(--primary, 0 0% 9.02%));
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
 }
 
 .vu-desktop-toast-copy {
@@ -315,8 +318,8 @@
 .vu-desktop-toast-reply {
   margin: -2px 14px 14px 50px;
   padding: 10px;
-  background: var(--surface-control, hsl(220 20% 20% / 0.06));
-  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
 }
 
@@ -325,9 +328,9 @@
   height: 32px;
   flex: 1;
   padding: 0 10px;
-  color: var(--text-strong, hsl(222 30% 16%));
+  color: var(--text-strong);
   background: var(--surface-content);
-  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   outline: none;
   font-family: inherit;
@@ -336,7 +339,7 @@
 }
 
 .vu-desktop-toast-input:focus {
-  border-color: hsl(var(--primary, 0 0% 9.02%) / 0.5);
+  border-color: hsl(var(--primary) / 0.5);
 }
 
 .vu-desktop-toast-input:disabled {
@@ -351,8 +354,8 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  color: hsl(var(--primary-foreground, 0 0% 100%));
-  background: hsl(var(--primary, 0 0% 9.02%));
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
   border: 0;
   border-radius: var(--radius);
   cursor: pointer;
@@ -373,14 +376,14 @@
 .vu-desktop-toast-hint,
 .vu-desktop-toast-sent {
   margin-top: 6px;
-  color: var(--text-muted, hsl(213 8% 45%));
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 400;
   line-height: 16px;
 }
 
 .vu-desktop-toast-error {
-  color: hsl(var(--destructive, 0 96% 53%));
+  color: var(--status-danger-text);
 }
 
 .vu-desktop-toast-sent {
@@ -388,7 +391,7 @@
   align-items: center;
   gap: 6px;
   margin-top: 0;
-  color: hsl(var(--success, 78 100% 35%));
+  color: var(--status-success-text);
   font-weight: 500;
 }
 
@@ -404,7 +407,7 @@
 .vu-desktop-toast-copy:focus-visible,
 .vu-desktop-toast-input:focus-visible,
 .vu-desktop-toast-send:focus-visible {
-  outline: 2px solid hsl(var(--primary, 0 0% 9.02%) / 0.48);
+  outline: 2px solid hsl(var(--primary) / 0.48);
   outline-offset: 2px;
 }
 
@@ -474,25 +477,39 @@
 }
 
 .vu-toast-viewport {
-  --vu-toast-ring: hsl(0 0% 0% / 0.12);
   --toast-shadow:
-    0 0 0 0.5px hsl(0 0% 0% / 0.12), 0 1px 2px hsl(220 36% 8% / 0.06),
-    0 8px 20px -6px hsl(220 36% 8% / 0.15),
-    0 24px 48px -16px hsl(220 36% 8% / 0.18);
-  --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.9);
-  --vu-toast-peek-1: #ededf0;
-  --vu-toast-peek-2: #e0e0e4;
+    0 0 0 0.5px var(--border-subtle), 0 1px 2px hsl(var(--shadow-ink) / 0.06),
+    0 8px 20px -6px hsl(var(--shadow-ink) / 0.15),
+    0 24px 48px -16px hsl(var(--shadow-ink) / 0.18);
+  --vu-toast-inner: inset 0 1px 0 var(--highlight-edge);
+  --vu-toast-peek-1: color-mix(
+    in srgb,
+    var(--surface-dialog) 92%,
+    var(--text-strong)
+  );
+  --vu-toast-peek-2: color-mix(
+    in srgb,
+    var(--surface-dialog) 87%,
+    var(--text-strong)
+  );
   --vu-toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Older peeks recede: darker in light, closer to the dialog fill in dark. */
 .dark .vu-toast-viewport {
-  --vu-toast-ring: hsl(0 0% 100% / 0.14);
   --toast-shadow:
-    0 0 0 0.5px hsl(0 0% 100% / 0.14), 0 1px 2px hsl(0 0% 0% / 0.4),
-    0 12px 32px -8px hsl(0 0% 0% / 0.7);
-  --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.12);
-  --vu-toast-peek-1: #3a3a3d;
-  --vu-toast-peek-2: #303033;
+    0 0 0 0.5px var(--border-subtle), 0 1px 2px hsl(var(--shadow-ink) / 0.4),
+    0 12px 32px -8px hsl(var(--shadow-ink) / 0.7);
+  --vu-toast-peek-1: color-mix(
+    in srgb,
+    var(--surface-dialog) 91%,
+    var(--text-strong)
+  );
+  --vu-toast-peek-2: color-mix(
+    in srgb,
+    var(--surface-dialog) 95%,
+    var(--text-strong)
+  );
 }
 
 .vu-toast-viewport .vu-toast-host {
@@ -629,7 +646,7 @@
 }
 
 .vu-toast-countdown-track {
-  stroke: var(--vu-toast-ring);
+  stroke: var(--surface-control-hover);
 }
 
 .vu-toast-countdown-ring {
@@ -813,17 +830,17 @@
 .vu-desktop-toast {
   --vu-dt-fill: var(--surface-dialog);
   --vu-dt-shadow:
-    0 0 0 0.5px hsl(220 20% 10% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.9),
-    0 1px 1px hsl(220 30% 10% / 0.04), 0 2px 6px -1px hsl(220 30% 10% / 0.06),
-    0 10px 24px -8px hsl(220 30% 10% / 0.16),
-    0 28px 56px -20px hsl(220 30% 10% / 0.22);
-  --vu-dt-orb: hsl(0 0% 11% / 0.05);
-  --vu-dt-control: hsl(220 14% 20% / 0.045);
-  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(220 14% 10% / 0.14);
+    0 0 0 0.5px var(--border-subtle), inset 0 1px 0 var(--highlight-edge),
+    0 1px 1px hsl(var(--shadow-ink) / 0.04),
+    0 2px 6px -1px hsl(var(--shadow-ink) / 0.06),
+    0 10px 24px -8px hsl(var(--shadow-ink) / 0.16),
+    0 28px 56px -20px hsl(var(--shadow-ink) / 0.22);
+  --vu-dt-orb: var(--surface-control);
+  --vu-dt-control: var(--surface-control);
+  --vu-dt-control-edge: inset 0 0 0 0.5px var(--border-subtle);
   --vu-dt-control-focus:
-    inset 0 0 0 1px hsl(var(--primary, 0 0% 9.02%) / 0.4),
-    0 0 0 3px hsl(var(--primary, 0 0% 9.02%) / 0.08);
-  --vu-dt-ring-track: hsl(0 0% 0% / 0.12);
+    inset 0 0 0 1px hsl(var(--primary) / 0.4),
+    0 0 0 3px hsl(var(--primary) / 0.08);
   --vu-dt-badge-edge: var(--surface-dialog);
   --vu-toast-tone: hsl(var(--success));
   width: 400px;
@@ -841,16 +858,10 @@
 
 .dark .vu-desktop-toast {
   --vu-dt-shadow:
-    0 0 0 0.5px hsl(0 0% 100% / 0.16), inset 0 1px 0 hsl(0 0% 100% / 0.07),
-    0 1px 2px hsl(0 0% 0% / 0.35), 0 10px 28px -8px hsl(0 0% 0% / 0.6),
-    0 28px 56px -20px hsl(0 0% 0% / 0.55);
-  --vu-dt-orb: hsl(0 0% 100% / 0.07);
-  --vu-dt-control: hsl(0 0% 100% / 0.06);
-  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(0 0% 100% / 0.14);
-  --vu-dt-control-focus:
-    inset 0 0 0 1px hsl(var(--primary) / 0.45),
-    0 0 0 3px hsl(var(--primary) / 0.1);
-  --vu-dt-ring-track: hsl(0 0% 100% / 0.14);
+    0 0 0 0.5px var(--border-subtle), inset 0 1px 0 var(--highlight-edge),
+    0 1px 2px hsl(var(--shadow-ink) / 0.35),
+    0 10px 28px -8px hsl(var(--shadow-ink) / 0.6),
+    0 28px 56px -20px hsl(var(--shadow-ink) / 0.55);
 }
 
 .vu-desktop-toast[data-kind='error'] {
@@ -887,7 +898,7 @@
   height: 16px;
   padding: 0;
   place-items: center;
-  color: #fff;
+  color: var(--vu-dt-badge-edge);
   background: var(--vu-toast-tone);
   border-radius: 999px;
   box-shadow: 0 0 0 2px var(--vu-dt-badge-edge);
@@ -940,10 +951,6 @@
   height: 28px;
   transform: rotate(-90deg);
   pointer-events: none;
-}
-
-.vu-desktop-toast .vu-toast-countdown-track {
-  stroke: var(--vu-dt-ring-track);
 }
 
 .vu-desktop-toast .vu-toast-actions {
@@ -1014,8 +1021,8 @@
   .vu-desktop-toast-reply
   input.vu-desktop-toast-input:focus-visible {
   /* Beat the legacy *:focus ring and the base focus-visible outline. */
-  --tw-ring-shadow: 0 0 #0000;
-  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 transparent;
+  --tw-ring-offset-shadow: 0 0 transparent;
   border: 0 !important;
   outline: none !important;
   box-shadow: none !important;

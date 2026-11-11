@@ -20,6 +20,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  BarChart3,
+  Bot,
   Code2,
   FolderOpen,
   GitBranch,
@@ -29,6 +31,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { cn } from '@/lib/utils';
 import {
@@ -52,23 +55,45 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
   [PANEL_IDS.GIT]: GitBranch,
   [PANEL_IDS.SEARCH]: Search,
   [PANEL_IDS.SESSION_LIST]: MessagesSquare,
+  [PANEL_IDS.BOTS]: Bot,
 };
+
+const KANBAN_RAIL_VIEWS: Array<{
+  id: 'builtin:usage';
+  titleKey: string;
+  fallback: string;
+  Icon: LucideIcon;
+}> = [
+  {
+    id: 'builtin:usage',
+    titleKey: 'kanbanViews.usage',
+    fallback: '计量统计',
+    Icon: BarChart3,
+  },
+];
 
 export function WorkspaceActivityRail({
   isEditorAreaVisible,
   onToggleEditorArea,
+  mode = 'workspace',
 }: {
   isEditorAreaVisible: boolean;
   onToggleEditorArea: () => void;
+  mode?: 'workspace' | 'kanban';
 }) {
   const { t } = useTranslation('panels');
+  const kanbanContext = useOptionalKanbanSessionContext();
+  const activeViewId = kanbanContext?.activeViewId ?? 'builtin:usage';
+  const setActiveViewId = kanbanContext?.setActiveViewId;
   const {
     toggleFileTree,
     toggleGitPanel,
     toggleSearchPanel,
     toggleSessionList,
+    toggleBotsPanel,
     isPanelOpen,
     placeLeftDockPanel,
+    resolveShellNavDropTarget,
     measureLeftDock,
     isLeftDockSplit,
     unsplitLeftDock,
@@ -86,6 +111,8 @@ export function WorkspaceActivityRail({
   const railRef = useRef<HTMLElement | null>(null);
   const dropZoneRef = useRef<LeftPanelDropZone | null>(null);
   const dockBoxRef = useRef<Box | null>(null);
+  const dropSideRef = useRef<'left' | 'right'>('left');
+  const dropTargetPanelRef = useRef<ActivityRailItemId | undefined>(undefined);
   orderRef.current = order;
   dropZoneRef.current = dropZone;
   dockBoxRef.current = dockBox;
@@ -103,6 +130,7 @@ export function WorkspaceActivityRail({
         [PANEL_IDS.GIT]: t('ideLayout.git'),
         [PANEL_IDS.SEARCH]: t('ideLayout.search'),
         [PANEL_IDS.SESSION_LIST]: t('panelRegistry.sessionList'),
+        [PANEL_IDS.BOTS]: t('panelRegistry.bots', 'Bot 助手'),
       }) satisfies Record<ActivityRailItemId, string>,
     [t]
   );
@@ -114,8 +142,15 @@ export function WorkspaceActivityRail({
         [PANEL_IDS.GIT]: toggleGitPanel,
         [PANEL_IDS.SEARCH]: toggleSearchPanel,
         [PANEL_IDS.SESSION_LIST]: toggleSessionList,
+        [PANEL_IDS.BOTS]: toggleBotsPanel,
       }) satisfies Record<ActivityRailItemId, () => void>,
-    [toggleFileTree, toggleGitPanel, toggleSearchPanel, toggleSessionList]
+    [
+      toggleBotsPanel,
+      toggleFileTree,
+      toggleGitPanel,
+      toggleSearchPanel,
+      toggleSessionList,
+    ]
   );
 
   const persistOrder = useCallback((next: ActivityRailItemId[] | null) => {
@@ -132,6 +167,8 @@ export function WorkspaceActivityRail({
       dockBoxRef.current = box;
       setDockBox(box);
       dropZoneRef.current = null;
+      dropSideRef.current = 'left';
+      dropTargetPanelRef.current = undefined;
       setDropZone(null);
     },
     [measureLeftDock]
@@ -142,6 +179,8 @@ export function WorkspaceActivityRail({
     originRef.current = null;
     setActiveId(null);
     dropZoneRef.current = null;
+    dropSideRef.current = 'left';
+    dropTargetPanelRef.current = undefined;
     setDropZone(null);
     dockBoxRef.current = null;
     setDockBox(null);
@@ -158,34 +197,74 @@ export function WorkspaceActivityRail({
   const collisionDetection = useCallback<CollisionDetection>((args) => {
     const pointer = args.pointerCoordinates;
     const box = dockBoxRef.current;
-    if (pointer && box && boxContains(box, pointer)) {
+    if (pointer && (dropZoneRef.current || (box && boxContains(box, pointer)))) {
       return [];
     }
     return closestCenter(args);
   }, []);
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const pointer = pointerFromDrag(event);
-    const box = dockBoxRef.current;
-    const railBox = boxFromElement(railRef.current);
-    let next: LeftPanelDropZone | null = null;
-    if (pointer && box && !(railBox && boxContains(railBox, pointer))) {
-      next = resolveLeftPanelDropZone(pointer, box);
-    }
-    if (next !== dropZoneRef.current) {
-      dropZoneRef.current = next;
-      setDropZone(next);
-    }
-  }, []);
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const pointer = pointerFromDrag(event);
+      const railBox = boxFromElement(railRef.current);
+      if (!pointer || (railBox && boxContains(railBox, pointer))) {
+        if (dropZoneRef.current !== null) {
+          dropZoneRef.current = null;
+          dropSideRef.current = 'left';
+          dropTargetPanelRef.current = undefined;
+          setDropZone(null);
+        }
+        return;
+      }
+
+      const target = resolveShellNavDropTarget(
+        pointer,
+        String(event.active.id) as ActivityRailItemId
+      );
+      if (target) {
+        dockBoxRef.current = target.containerBox;
+        setDockBox(target.containerBox);
+        dropSideRef.current = target.side;
+        dropTargetPanelRef.current = target.targetPanelId;
+        if (target.zone !== dropZoneRef.current) {
+          dropZoneRef.current = target.zone;
+          setDropZone(target.zone);
+        }
+        return;
+      }
+
+      const fallbackBox = measureLeftDock() ?? dockBoxRef.current;
+      const next = fallbackBox
+        ? resolveLeftPanelDropZone(pointer, fallbackBox)
+        : null;
+      if (next && fallbackBox) {
+        dockBoxRef.current = fallbackBox;
+        setDockBox(fallbackBox);
+      }
+      dropSideRef.current = 'left';
+      dropTargetPanelRef.current = undefined;
+      if (next !== dropZoneRef.current) {
+        dropZoneRef.current = next;
+        setDropZone(next);
+      }
+    },
+    [measureLeftDock, resolveShellNavDropTarget]
+  );
 
   const handleDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
       const origin = originRef.current ?? orderRef.current;
       const zone = dropZoneRef.current;
+      const side = dropSideRef.current;
+      const targetPanelId = dropTargetPanelRef.current;
       const panelId = String(active.id) as ActivityRailItemId;
       if (zone) {
         finishDrag(origin);
-        placeLeftDockPanel(panelId, zone);
+        if (side === 'right' || targetPanelId) {
+          placeLeftDockPanel(panelId, zone, { side, targetPanelId });
+        } else {
+          placeLeftDockPanel(panelId, zone);
+        }
         return;
       }
       if (!over) {
@@ -215,11 +294,44 @@ export function WorkspaceActivityRail({
     [order, persistOrder]
   );
 
+  if (mode === 'kanban') {
+    return (
+      <nav
+        ref={railRef}
+        aria-label={t('ideLayout.activityRailAria')}
+        className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
+      >
+        {KANBAN_RAIL_VIEWS.map((view) => {
+          const label = t(view.titleKey, view.fallback);
+          const isActive = activeViewId === view.id;
+          const Icon = view.Icon;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              data-testid={`kanban-rail-${view.id}`}
+              aria-label={label}
+              aria-pressed={isActive}
+              title={label}
+              onClick={() => setActiveViewId?.(view.id)}
+              className={cn(
+                'workspace-side-rail-button flex h-7 w-7 items-center justify-center',
+                isActive && 'is-active'
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          );
+        })}
+      </nav>
+    );
+  }
+
   return (
     <nav
       ref={railRef}
       aria-label={t('ideLayout.activityRailAria')}
-      className="workspace-activity-rail workspace-chrome workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
+      className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
     >
       <DndContext
         sensors={sensors}

@@ -7,6 +7,7 @@ vi.mock('@/lib/frontendPreferences', () => ({
 }));
 
 import { clearLocalStorageCache } from './safeStorage';
+import { contrastRatio } from './theme/colorMath';
 import {
   ACCENT_COLOR_CHANGED_EVENT,
   ACCENT_COLOR_KEY,
@@ -14,9 +15,9 @@ import {
   DEFAULT_DARK_ACCENT_COLOR,
   accentForegroundHsl,
   applyAccentColor,
-  contrastAgainstHangar,
+  followThemeAccent,
   getAccentColor,
-  hexToHslComponents,
+  getAccentOverride,
   hexToHsv,
   hsvToHex,
   initAccentColor,
@@ -25,42 +26,47 @@ import {
   setAccentColor,
 } from './uiAccent';
 
+const root = document.documentElement;
+
 describe('uiAccent', () => {
   beforeEach(() => {
     localStorage.clear();
-    clearLocalStorageCache(ACCENT_COLOR_KEY);
+    clearLocalStorageCache();
     persistFrontendPreference.mockReset();
-    document.documentElement.style.removeProperty('--accent-hsl');
-    document.documentElement.style.removeProperty('--accent-foreground-hsl');
+    root.style.removeProperty('--accent-hsl');
+    root.style.removeProperty('--accent-foreground-hsl');
   });
 
   afterEach(() => {
     localStorage.clear();
-    clearLocalStorageCache(ACCENT_COLOR_KEY);
-    document.documentElement.classList.remove('light', 'dark');
+    clearLocalStorageCache();
+    root.classList.remove('light', 'dark');
   });
 
-  it('defaults to ink #1b1b1b and ignores invalid stored values', () => {
-    expect(DEFAULT_ACCENT_COLOR).toBe('#1b1b1b');
-    expect(getAccentColor()).toBe(DEFAULT_ACCENT_COLOR);
+  it('parses hex overrides and treats anything else as no override', () => {
     expect(parseAccentColor('#1B1B1B')).toBe('#1b1b1b');
-    expect(parseAccentColor('#171717')).toBe('#171717');
     expect(parseAccentColor('#abc')).toBe('#aabbcc');
     expect(parseAccentColor('3F6CC4')).toBe('#3f6cc4');
-    expect(parseAccentColor('not-a-color')).toBe(DEFAULT_ACCENT_COLOR);
-    expect(parseAccentColor('')).toBe(DEFAULT_ACCENT_COLOR);
+    expect(parseAccentColor('not-a-color')).toBeNull();
+    expect(parseAccentColor('')).toBeNull();
 
     localStorage.setItem(ACCENT_COLOR_KEY, 'nope');
     clearLocalStorageCache(ACCENT_COLOR_KEY);
-    expect(getAccentColor()).toBe(DEFAULT_ACCENT_COLOR);
+    expect(getAccentOverride()).toBeNull();
   });
 
-  it('converts the default accent to HSL components and white foreground', () => {
-    expect(hexToHslComponents('#1b1b1b')).toBe('0 0% 10.59%');
+  it('follows the active theme accent when there is no override', () => {
+    expect(getAccentColor('light')).toBe(DEFAULT_ACCENT_COLOR);
+    expect(getAccentColor('dark')).toBe(DEFAULT_DARK_ACCENT_COLOR);
+
+    initAccentColor();
+    expect(root.style.getPropertyValue('--accent-hsl')).toBe('');
+  });
+
+  it('picks the readable foreground for an accent fill', () => {
     expect(accentForegroundHsl('#1b1b1b')).toBe('0 0% 100%');
-    expect(hexToHslComponents('#171717')).toBe('0 0% 9.02%');
-    expect(hexToHslComponents('#3F6CC4')).toBe('219.7 52.99% 50.78%');
     expect(accentForegroundHsl('#f5f5f5')).toBe('0 0% 9.02%');
+    expect(accentForegroundHsl(DEFAULT_DARK_ACCENT_COLOR)).toBe('0 0% 9.02%');
   });
 
   it('round-trips hex through HSV for saturated and gray colors', () => {
@@ -69,85 +75,69 @@ describe('uiAccent', () => {
     expect(hsvToHex(hexToHsv('#ff0000'))).toBe('#ff0000');
   });
 
-  it('persists a valid color, applies CSS variables, and notifies listeners', () => {
+  it('persists an override, applies CSS variables, and notifies listeners', () => {
     const listener = vi.fn();
     window.addEventListener(ACCENT_COLOR_CHANGED_EVENT, listener);
 
     setAccentColor('#3F6CC4');
 
-    expect(getAccentColor()).toBe('#3f6cc4');
+    expect(getAccentOverride()).toBe('#3f6cc4');
     expect(localStorage.getItem(ACCENT_COLOR_KEY)).toBe('#3f6cc4');
     expect(persistFrontendPreference).toHaveBeenCalledWith(
       ACCENT_COLOR_KEY,
       '#3f6cc4'
     );
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-hsl')
-    ).toBe('219.7 52.99% 50.78%');
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-foreground-hsl')
-    ).toBe('0 0% 100%');
+    expect(root.style.getPropertyValue('--accent-hsl')).toBe(
+      '219.7 52.99% 50.78%'
+    );
+    expect(root.style.getPropertyValue('--accent-foreground-hsl')).toBe(
+      '0 0% 100%'
+    );
     expect(listener).toHaveBeenCalledOnce();
 
     window.removeEventListener(ACCENT_COLOR_CHANGED_EVENT, listener);
   });
 
-  it('applies the stored accent on init and ignores invalid writes', () => {
-    localStorage.setItem(ACCENT_COLOR_KEY, '#aabbcc');
-    clearLocalStorageCache(ACCENT_COLOR_KEY);
-
-    initAccentColor();
-
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-hsl')
-    ).toBe(hexToHslComponents('#aabbcc'));
+  it('ignores invalid writes and drops the override on follow-theme', () => {
+    setAccentColor('#aabbcc');
+    persistFrontendPreference.mockReset();
 
     setAccentColor('nope');
-    expect(getAccentColor()).toBe('#aabbcc');
+    expect(getAccentOverride()).toBe('#aabbcc');
     expect(persistFrontendPreference).not.toHaveBeenCalled();
+
+    followThemeAccent();
+    expect(getAccentOverride()).toBeNull();
+    expect(persistFrontendPreference).toHaveBeenCalledWith(
+      ACCENT_COLOR_KEY,
+      ''
+    );
+    expect(root.style.getPropertyValue('--accent-hsl')).toBe('');
   });
 
-  it('applies a color without persisting when asked', () => {
-    applyAccentColor('#ffffff');
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-foreground-hsl')
-    ).toBe('0 0% 9.02%');
-    expect(localStorage.getItem(ACCENT_COLOR_KEY)).toBeNull();
-  });
-
-  it('maps the ink default to Pearl Ink in dark and keeps custom hues', () => {
+  it('maps an ink override to Pearl Ink in dark and keeps custom hues', () => {
     expect(resolveAccentForTheme('#1b1b1b', 'light')).toBe('#1b1b1b');
     expect(resolveAccentForTheme('#1b1b1b', 'dark')).toBe(
       DEFAULT_DARK_ACCENT_COLOR
     );
-    expect(resolveAccentForTheme('#171717', 'dark')).not.toBe(
-      DEFAULT_DARK_ACCENT_COLOR
-    );
     expect(resolveAccentForTheme('#3f6cc4', 'dark')).toBe('#3f6cc4');
-    expect(hexToHslComponents(DEFAULT_DARK_ACCENT_COLOR)).toBe(
-      '210 20% 92.16%'
+  });
+
+  it('lifts a dark override until it is visible on the dark background', () => {
+    const background = '#0b0e14';
+    const resolved = resolveAccentForTheme('#1a365d', 'dark', background);
+    expect(resolved).not.toBe('#1a365d');
+    expect(contrastRatio(resolved, background)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('applies the dark resolution when the document is dark', () => {
+    root.classList.add('dark');
+    setAccentColor(DEFAULT_ACCENT_COLOR);
+    applyAccentColor();
+
+    expect(root.style.getPropertyValue('--accent-hsl')).toBe('210 20% 92.16%');
+    expect(root.style.getPropertyValue('--accent-foreground-hsl')).toBe(
+      '0 0% 9.02%'
     );
-    expect(accentForegroundHsl(DEFAULT_DARK_ACCENT_COLOR)).toBe('0 0% 9.02%');
-  });
-
-  it('lifts a custom dark fill until it is visible on Hangar', () => {
-    const stored = '#1a365d';
-    const resolved = resolveAccentForTheme(stored, 'dark');
-    expect(resolved).not.toBe(stored);
-    expect(contrastAgainstHangar(resolved)).toBeGreaterThanOrEqual(3);
-  });
-
-  it('applies Pearl Ink CSS variables when the document is in dark mode', () => {
-    document.documentElement.classList.add('dark');
-    applyAccentColor(DEFAULT_ACCENT_COLOR);
-
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-hsl')
-    ).toBe('210 20% 92.16%');
-    expect(
-      document.documentElement.style.getPropertyValue('--accent-foreground-hsl')
-    ).toBe('0 0% 9.02%');
-
-    document.documentElement.classList.remove('dark');
   });
 });

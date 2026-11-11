@@ -155,4 +155,18 @@ describe('collaboration group details chrome', () => {
     expect(star.right?.value).toBe('-12%');
     expect(star.bottom?.value).toBe('-12%');
   });
+
+  it('switches the member bar to static layout and clears top thread log mask when portaled into a canvas node header', () => {
+    const headerBar = declarationsFor(
+      '.collaboration-top-member-bar.is-canvas-header'
+    );
+    expect(headerBar.position?.value).toBe('static');
+    expect(headerBar['max-width']?.value).toBe('100%');
+
+    const externalLog = declarationsFor(
+      ".collaboration-thread[data-header-member-bar='external'] .collaboration-thread-log"
+    );
+    expect(externalLog['padding-top']?.value).toBe('0.75rem');
+    expect(externalLog['mask-image']?.value).toBe('none');
+  });
 });

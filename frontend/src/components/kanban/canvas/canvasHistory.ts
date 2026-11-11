@@ -5,7 +5,10 @@ export const CANVAS_HISTORY_LIMIT = 50;
 export function snapshotCanvasNodes(
   nodes: readonly SessionCanvasNode[]
 ): SessionCanvasNode[] {
-  return nodes.map((node) => ({ ...node }));
+  return nodes.map((node) => ({
+    ...node,
+    ...(node.panelParams ? { panelParams: { ...node.panelParams } } : {}),
+  }));
 }
 
 export function canvasNodesMatch(
@@ -31,7 +34,11 @@ export function canvasNodesMatch(
       node.collapsed === other.collapsed &&
       node.manualColumns === other.manualColumns &&
       node.manualRows === other.manualRows &&
-      node.openedFromId === other.openedFromId
+      node.openedFromId === other.openedFromId &&
+      node.panelId === other.panelId &&
+      node.panelComponent === other.panelComponent &&
+      node.panelTitle === other.panelTitle
     );
   });
 }
+

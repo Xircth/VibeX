@@ -1,7 +1,27 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { createPortal } from 'react-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
+import { useCanvasPanelHeaderSlot } from './CanvasPanelHeaderSlotContext';
 import { SessionCanvasDetailNode } from './SessionCanvasDetailNode';
+
+vi.mock('./CanvasPanelNodeBody', () => ({
+  CanvasPanelNodeBody: () => {
+    const slot = useCanvasPanelHeaderSlot();
+    return (
+      <div data-testid="mock-panel-body">
+        {slot
+          ? createPortal(
+              <div data-testid="portaled-space-member-bar">member-bar</div>,
+              slot
+            )
+          : null}
+      </div>
+    );
+  },
+}));
 
 const resizeCard = vi.fn();
 const resetCardSize = vi.fn();
@@ -169,5 +189,41 @@ describe('SessionCanvasDetailNode', () => {
       />
     );
     expect(screen.getByTestId('window-selected')).toHaveTextContent('true');
+  });
+
+  it('renders a left-aligned header slot for Collaboration Space nodes instead of a static badge title', () => {
+    render(
+      <TooltipProvider>
+        <SessionCanvasDetailNode
+          id="panel-collab-1"
+          data={{
+            sessionId: '',
+            instanceId: 'collab-1',
+            panelId: 'collaboration-space:space-1',
+            panelComponent: 'collaboration-space',
+            panelTitle: '设计协作群',
+            panelParams: { targetType: 'group', spaceId: 'space-1' },
+          }}
+          selected
+          type="sessionDetail"
+          dragging={false}
+          draggable
+          selectable
+          deletable
+          zIndex={1}
+          isConnectable={false}
+          positionAbsoluteX={0}
+          positionAbsoluteY={0}
+        />
+      </TooltipProvider>
+    );
+
+    const header = screen.getByTestId('canvas-node-header');
+    const slot = screen.getByTestId('canvas-space-header-slot');
+    expect(header.firstElementChild).toBe(slot);
+    expect(slot).toContainElement(
+      screen.getByTestId('portaled-space-member-bar')
+    );
+    expect(screen.queryByText('设计协作群')).not.toBeInTheDocument();
   });
 });

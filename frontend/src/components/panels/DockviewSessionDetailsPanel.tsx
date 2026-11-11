@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -14,16 +14,42 @@ import { SessionDetailsView } from './session-details/SessionDetailsView';
 import { SessionQuota } from './session-details/SessionQuota';
 import { buildSessionDetails } from './session-details/sessionDetailsModel';
 
+export interface SessionDetailsPanelParams {
+  sessionId?: string | null;
+  workspaceId?: string | null;
+}
+
 export default function DockviewSessionDetailsPanel(
-  _props: IDockviewPanelProps
+  props: IDockviewPanelProps<SessionDetailsPanelParams>
 ) {
+  const [panelParams, setPanelParams] = useState<SessionDetailsPanelParams>(
+    () => props.params ?? {}
+  );
+
+  useEffect(() => {
+    setPanelParams(props.params ?? {});
+  }, [props.params]);
+
+  useEffect(() => {
+    const disposable = props.api.onDidParametersChange((nextParams) => {
+      setPanelParams((nextParams as SessionDetailsPanelParams) ?? {});
+    });
+    return () => disposable.dispose();
+  }, [props.api]);
+
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
   const workspaceId =
-    visibleRightSession?.workspaceId ?? activeWorktreeId ?? undefined;
+    panelParams.workspaceId ||
+    visibleRightSession?.workspaceId ||
+    activeWorktreeId ||
+    undefined;
   const { data: attempt } = useTaskAttemptWithSession(workspaceId);
   const sessionId =
-    visibleRightSession?.sessionId ?? attempt?.session?.id ?? null;
+    panelParams.sessionId ||
+    visibleRightSession?.sessionId ||
+    attempt?.session?.id ||
+    null;
   const conversation = useConversationTimeline(sessionId);
   const facts = useConversationSessionFacts(sessionId);
   const { openDiffPreview } = usePanelActionsContext();

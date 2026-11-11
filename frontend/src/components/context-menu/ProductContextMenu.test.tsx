@@ -180,7 +180,7 @@ describe('ProductContextMenu submenu', () => {
     unmountFirst();
   });
 
-  it('applies white background, border, no shadow, and increased font size', () => {
+  it('applies popover background, border, no shadow, and increased font size', () => {
     render(
       <ProductContextMenu
         x={50}
@@ -194,7 +194,7 @@ describe('ProductContextMenu submenu', () => {
 
     const menu = screen.getByRole('menu');
     expect(menu).toHaveClass(
-      'bg-white',
+      'bg-popover',
       'border',
       'border-border',
       'shadow-none',

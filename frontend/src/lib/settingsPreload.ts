@@ -2,6 +2,10 @@ export function isSettingsSurfacePath(pathname: string): boolean {
   return pathname.startsWith('/settings') || pathname.startsWith('/plugins');
 }
 
+export function loadAccountSettings() {
+  return import('@/pages/settings/AccountSettings');
+}
+
 export function loadAgentSettings() {
   return import('@/pages/settings/AgentSettings');
 }
@@ -75,6 +79,9 @@ export function loadPluginDetailPage() {
 }
 
 const SETTINGS_PATH_LOADERS: Record<string, () => Promise<unknown>> = {
+  '/settings/account': loadAccountSettings,
+  '/settings/subscription': loadAccountSettings,
+  '/settings/usage': loadAccountSettings,
   '/settings/agents': loadAgentSettings,
   '/settings/appearance': loadAppearanceSettings,
   '/settings/general': loadGeneralSettings,
@@ -88,6 +95,7 @@ const SETTINGS_PATH_LOADERS: Record<string, () => Promise<unknown>> = {
   '/settings/chat-channels': loadChatChannelSettings,
   '/settings/automations': loadAutomationCenter,
   '/settings/web-service': loadWebServiceSettings,
+  '/settings/remote-client': loadWebServiceSettings,
   '/settings/devices': loadWebServiceSettings,
   '/settings/logs': loadLogsSettings,
   '/settings/system': loadSystemSettings,
@@ -115,5 +123,6 @@ export function warmDefaultSettingsSurface(
 }
 
 export function preloadSettingsPath(path: string): void {
-  void SETTINGS_PATH_LOADERS[path]?.();
+  const normalized = path.split('?')[0] ?? path;
+  void SETTINGS_PATH_LOADERS[normalized]?.();
 }

@@ -32,62 +32,115 @@ describe('Astryx SegmentedControl chrome', () => {
     }
   });
 
-  it('paints the gray capsule track and pill radius', () => {
-    const decls: Record<string, string> = {};
+  it('restores official Astryx track, concentric radius, padding, typography, and flat selected surface above unlayered Tailwind preflight', () => {
+    const controlDecls: Record<string, string> = {};
+    const itemDecls: Record<string, string> = {};
+    const smItemDecls: Record<string, string> = {};
+    const selectedDecls: Record<string, string> = {};
+    const hoverDecls: Record<string, string> = {};
+
     parse(stylesheet).walkRules((rule) => {
-      if (selectorOf(rule) !== '.legacy-design .astryx-segmented-control') {
-        return;
+      const selector = selectorOf(rule);
+      if (
+        selector ===
+          '.legacy-design .astryx-segmented-control:not(.agent-auth-mode-tabs):not( .agent-auth-mode-submodes )' ||
+        selector ===
+          '.legacy-design .astryx-segmented-control:not(.agent-auth-mode-tabs):not(.agent-auth-mode-submodes)'
+      ) {
+        rule.walkDecls((declaration) => {
+          controlDecls[declaration.prop] = declaration.value;
+        });
+      } else if (
+        selector.endsWith(') .astryx-segmented-control-item') &&
+        selector.includes(':not(.agent-auth-mode-tabs)') &&
+        !selector.includes('[data-layout')
+      ) {
+        rule.walkDecls((declaration) => {
+          itemDecls[declaration.prop] = declaration.value;
+        });
+      } else if (
+        selector.endsWith(".astryx-segmented-control-item[data-size='sm']")
+      ) {
+        rule.walkDecls((declaration) => {
+          smItemDecls[declaration.prop] = declaration.value;
+        });
+      } else if (
+        selector.includes("[aria-checked='true']") &&
+        selector.includes("[data-selected='selected']")
+      ) {
+        rule.walkDecls((declaration) => {
+          selectedDecls[declaration.prop] = declaration.value;
+        });
+      } else if (
+        selector.includes(
+          ".astryx-segmented-control-item:hover:not([aria-checked='true'])"
+        )
+      ) {
+        rule.walkDecls((declaration) => {
+          hoverDecls[declaration.prop] = declaration.value;
+        });
       }
-      rule.walkDecls((declaration) => {
-        decls[declaration.prop] = declaration.value;
-      });
     });
 
-    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
+    expect(controlDecls['--color-neutral']).toBe('var(--surface-track)');
+    expect(controlDecls['--color-background-surface']).toBe(
+      'var(--surface-thumb)'
     );
-    expect(decls['border-radius']).toBe('999px');
-    expect(decls['--_segmented-control-radius']).toBe('999px');
-    expect(decls['--color-neutral']).not.toContain('surface-raised-control');
+    expect(controlDecls['border-radius']).toBe(
+      'var(--_segmented-control-radius)'
+    );
+    expect(controlDecls['border-radius']).not.toBe('999px');
+
+    expect(itemDecls.appearance).toBe('none');
+    expect(itemDecls['-webkit-appearance']).toBe('none');
+    expect(itemDecls['padding-inline']).toBe('var(--spacing-3, 12px)');
+    expect(itemDecls['font-size']).toBe('var(--text-label-size, 0.875rem)');
+    expect(itemDecls['font-weight']).toBe('var(--font-weight-medium, 500)');
+    expect(itemDecls.color).toBe(
+      'var(--color-text-secondary, var(--text-muted))'
+    );
+    expect(itemDecls['border-radius']).toContain(
+      '--_segmented-control-radius'
+    );
+    expect(itemDecls['box-shadow']).toBe('none');
+
+    expect(smItemDecls.height).toBe('calc(var(--size-element-sm, 28px) - 6px)');
+    expect(smItemDecls['padding-inline']).toBe('10px');
+    expect(smItemDecls['font-size']).toBe(
+      'var(--text-supporting-size, 0.75rem)'
+    );
+
+    expect(hoverDecls['background-color']).toBe(
+      'var(--color-overlay-hover, var(--surface-control))'
+    );
+
+    expect(selectedDecls['background-color']).toBe(
+      'var(--color-background-surface, var(--surface-thumb))'
+    );
+    expect(selectedDecls.color).toBe(
+      'var(--color-text-primary, var(--text-strong))'
+    );
+    expect(selectedDecls['font-weight']).toBe(
+      'var(--font-weight-semibold, 600)'
+    );
+    expect(selectedDecls['box-shadow']).toBe('none');
   });
 
-  it('widens items and keeps unselected segments transparent', () => {
-    const decls: Record<string, string> = {};
+  it('excludes SegmentedControl radiogroup and radio items from window-chrome drag regions', () => {
+    const dragExclusionSelectors: string[] = [];
     parse(stylesheet).walkRules((rule) => {
-      if (
-        selectorOf(rule) !== '.legacy-design .astryx-segmented-control-item'
-      ) {
-        return;
-      }
-      rule.walkDecls((declaration) => {
-        decls[declaration.prop] = declaration.value;
+      let isNoDrag = false;
+      rule.walkDecls('app-region', (declaration) => {
+        if (declaration.value === 'no-drag') isNoDrag = true;
       });
+      if (isNoDrag) {
+        dragExclusionSelectors.push(selectorOf(rule));
+      }
     });
 
-    expect(decls.appearance).toBe('none');
-    expect(decls['-webkit-appearance']).toBe('none');
-    expect(decls['background-color']).toBe('transparent');
-    expect(decls.height).toBe('20px');
-    expect(decls['padding-inline']).toBe('12px');
-  });
-
-  it('paints the selected segment white', () => {
-    const decls: Record<string, string> = {};
-    parse(stylesheet).walkRules((rule) => {
-      if (
-        selectorOf(rule) !==
-        ".legacy-design .astryx-segmented-control-item[aria-checked='true']"
-      ) {
-        return;
-      }
-      rule.walkDecls((declaration) => {
-        decls[declaration.prop] = declaration.value;
-      });
-    });
-
-    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#ffffff,#404040)'
-    );
+    const combined = dragExclusionSelectors.join(' ');
+    expect(combined).toContain(".window-chrome [role='radiogroup']");
+    expect(combined).toContain(".window-chrome [role='radio']");
   });
 
   it('styles Agent auth mode tabs and submodes as capsule segmented controls', () => {
@@ -124,9 +177,7 @@ describe('Astryx SegmentedControl chrome', () => {
 
     expect(tabTrack['border-radius']).toBe('999px');
     expect(tabTrack.padding).toBe('3px');
-    expect(tabTrack['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
-    );
+    expect(tabTrack['background-color']).toBe('var(--surface-track)');
     expect(tabButton['border-radius']).toBe('999px');
     expect(tabButton.height).toBe('26px');
     expect(tabButton.padding).toBe('0 14px');
@@ -135,9 +186,7 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(tabIcon.height).toBe('13px');
     expect(submodeTrack['border-radius']).toBe('999px');
     expect(submodeTrack.padding).toBe('3px');
-    expect(submodeTrack['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e5e5e5,#262626)'
-    );
+    expect(submodeTrack['background-color']).toBe('var(--surface-track)');
     expect(submodeButton['border-radius']).toBe('999px');
     expect(submodeButton.height).toBe('26px');
     expect(submodeButton.padding).toBe('0 14px');

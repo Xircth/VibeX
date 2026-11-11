@@ -934,11 +934,11 @@ export function ChatChannelSettings() {
                             <span
                               className={`inline-block h-2 w-2 shrink-0 rounded-full ${
                                 statuses[channel.id] === 'connected'
-                                  ? 'bg-green-500'
+                                  ? 'bg-success'
                                   : statuses[channel.id] === 'connecting'
-                                    ? 'bg-yellow-500'
+                                    ? 'bg-warning'
                                     : statuses[channel.id] === 'error'
-                                      ? 'bg-red-500'
+                                      ? 'bg-destructive'
                                       : 'bg-muted-foreground/40'
                               }`}
                               title={statuses[channel.id] ?? 'disconnected'}

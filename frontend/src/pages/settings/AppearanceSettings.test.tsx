@@ -3,6 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeMode, type Config } from 'shared/types';
 
+import {
+  getCanvasDockPosition,
+  getCanvasViewportPosition,
+  getWorkspaceStageStyle,
+  resetCanvasDockPosition,
+  resetCanvasViewportPosition,
+  resetWorkspaceStageStyle,
+} from '@/lib/workspaceStageStyle';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { AppearanceSettings } from './AppearanceSettings';
 
@@ -123,6 +131,9 @@ describe('AppearanceSettings', () => {
         value.mockReset();
       }
     }
+    resetWorkspaceStageStyle();
+    resetCanvasDockPosition();
+    resetCanvasViewportPosition();
     mocks.updateAndSaveConfig.mockResolvedValue(true);
     mocks.backendEmit.mockResolvedValue(undefined);
   });
@@ -339,5 +350,41 @@ describe('AppearanceSettings', () => {
     expect(
       screen.getByText('协作空间（A）、消息区（B）与预览区（C）的排列。')
     ).toBeInTheDocument();
+  });
+
+  it('renames workspace panel view and reveals toolbar/viewport position selectors when infinite canvas is selected', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByText('工作区面板视图')).toBeInTheDocument();
+    expect(
+      screen.queryByText('工作区舞台（B 区）展示模式')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('功能栏位置')).not.toBeInTheDocument();
+    expect(screen.queryByText('视图栏位置')).not.toBeInTheDocument();
+
+    const panelViewTrigger = screen.getByRole('combobox', {
+      name: '工作区面板视图',
+    });
+    expect(panelViewTrigger).toHaveTextContent('自由标签');
+
+    await user.click(panelViewTrigger);
+    await user.click(await screen.findByRole('option', { name: '无限画布' }));
+    expect(getWorkspaceStageStyle()).toBe('canvas');
+
+    const dockTrigger = screen.getByRole('combobox', { name: '功能栏位置' });
+    const viewportTrigger = screen.getByRole('combobox', {
+      name: '视图栏位置',
+    });
+    expect(dockTrigger).toHaveTextContent('底部');
+    expect(viewportTrigger).toHaveTextContent('右下角');
+
+    await user.click(dockTrigger);
+    await user.click(await screen.findByRole('option', { name: '左侧' }));
+    expect(getCanvasDockPosition()).toBe('left');
+
+    await user.click(viewportTrigger);
+    await user.click(await screen.findByRole('option', { name: '左下角' }));
+    expect(getCanvasViewportPosition()).toBe('bottom-left');
   });
 });

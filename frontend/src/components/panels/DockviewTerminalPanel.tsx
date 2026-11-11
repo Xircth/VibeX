@@ -45,6 +45,7 @@ import {
   tabIdFromEditorTerminalPanelId,
 } from '@/lib/workspaceTerminalTabs';
 import type { TerminalPanelParams } from '@/types/panels';
+import { subscribePreviewTabRefresh } from '@/utils/previewTabRefresh';
 import i18n from '@/i18n';
 
 type TerminalCloseEvent = Pick<React.SyntheticEvent, 'stopPropagation'>;
@@ -91,6 +92,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const setSessionId = useTerminalStore((state) => state.setSessionId);
   const setBusy = useTerminalStore((state) => state.setBusy);
+  const setCwd = useTerminalStore((state) => state.setCwd);
 
   const sessions = useMemo(() => {
     const allSessions = workspaceId
@@ -142,11 +144,17 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     const disposeActive = props.api.onDidActiveChange(() => {
       setPanelRefitVersion((value) => value + 1);
     });
+    const unsubscribeRefresh = subscribePreviewTabRefresh(({ panelId }) => {
+      if (panelId === props.api.id) {
+        setPanelRefitVersion((value) => value + 1);
+      }
+    });
 
     return () => {
       disposeVisibility.dispose();
       disposeDimensions.dispose();
       disposeActive.dispose();
+      unsubscribeRefresh();
     };
   }, [props.api]);
 
@@ -170,6 +178,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
       }
       addSession(workspaceId, editorTabId, editorShell, {
         surface: 'editor',
+        cwd: panelParams.cwd,
       });
       return;
     }
@@ -197,6 +206,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     editorTabId,
     isEditorSurface,
     isPanelVisible,
+    panelParams.cwd,
     workspaceId,
   ]);
 
@@ -396,12 +406,14 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
               sessionId={session.sessionId}
               isActive={activeTabId === session.tabId}
               shell={session.shell}
+              cwd={session.cwd ?? panelParams.cwd}
               readOnly={session.readOnly}
               isPanelVisible={isPanelVisible}
               refitSignal={panelRefitVersion + listPaneWidth}
               onSessionId={setSessionId}
               onOpenUrl={openPreviewUrl}
               onBusyChange={(busy) => setBusy(session.tabId, busy)}
+              onCwdChange={(cwd) => setCwd(session.tabId, cwd)}
             />
           )
         )}
@@ -520,24 +532,28 @@ function TerminalTabContent({
   sessionId,
   isActive,
   shell,
+  cwd,
   readOnly,
   isPanelVisible,
   refitSignal,
   onSessionId,
   onOpenUrl,
   onBusyChange,
+  onCwdChange,
 }: {
   workspaceId: string;
   tabId: string;
   sessionId: string | null;
   isActive: boolean;
   shell?: string;
+  cwd?: string;
   readOnly?: boolean;
   isPanelVisible: boolean;
   refitSignal: number;
   onSessionId: (tabId: string, sessionId: string) => void;
   onOpenUrl: (url: string) => void;
   onBusyChange: (busy: boolean) => void;
+  onCwdChange?: (cwd: string) => void;
 }) {
   // Latch the connection: once a tab has been shown, keep its terminal
   // mounted through visibility flaps (panel toggles, layout transforms).
@@ -556,6 +572,7 @@ function TerminalTabContent({
     sessionId,
     enabled: shouldConnectTerminal,
     shell,
+    cwd,
     readOnly,
     onSessionId: (resolvedSessionId) => onSessionId(tabId, resolvedSessionId),
     onLinkActivated: onOpenUrl,
@@ -563,6 +580,7 @@ function TerminalTabContent({
       busyRef.current = reduceTerminalBusy(busyRef.current, event);
       onBusyChange(busyRef.current);
     },
+    onCwdChange,
   });
 
   useEffect(() => {

@@ -33,8 +33,8 @@ export function BrowserNoticeBar({ tabId }: { tabId: string | null }) {
       ? t('browserPanel.popupDenied', { host })
       : t('browserPanel.navigationBlocked', { host });
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 text-xs">
-      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 text-xs">
+      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" />
       <span className="min-w-0 flex-1 truncate">{text}</span>
       {notice.kind === 'popup-denied' && notice.reason !== 'blocked-host' ? (
         <button
@@ -73,7 +73,7 @@ export function BrowserDownloadBar({ tabId }: { tabId: string | null }) {
       {items.map((item) => (
         <div key={item.id} className="flex h-8 items-center gap-2 px-3 text-xs">
           {item.state === 'completed' ? (
-            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
           ) : item.state === 'failed' ? (
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
           ) : (

@@ -49,10 +49,12 @@ export type AppEntrypointManifest = {
     readonly styles?: string;
     readonly protocol: '2.0';
 };
+export declare const PERMISSION_CAPABILITIES: readonly ["runtime.execute", "runtime.lock", "artifact.preview", "net.fetch", "net.websocket", "fs.read", "fs.write", "env.read", "secret.keep", "storage.kv"];
+export type PermissionCapability = (typeof PERMISSION_CAPABILITIES)[number];
 export interface PermissionManifest {
     /** @deprecated Full-trust packages do not require capability consent. */
     id: string;
-    capability: string;
+    capability: PermissionCapability | (string & {});
     scope: Record<string, unknown>;
     reason: string;
     optional?: boolean;
@@ -564,7 +566,7 @@ export declare const pluginManifestSchema: {
                         readonly pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
                     };
                     readonly capability: {
-                        readonly enum: readonly ["runtime.execute", "artifact.preview"];
+                        readonly enum: readonly ["runtime.execute", "runtime.lock", "artifact.preview", "net.fetch", "net.websocket", "fs.read", "fs.write", "env.read", "secret.keep", "storage.kv"];
                     };
                     readonly scope: {
                         readonly type: "object";
@@ -611,4 +613,32 @@ export declare const pluginManifestSchema: {
         };
     };
 };
+/**
+ * Checks whether `candidatePath` is inside `rootPath` using component-level
+ * prefix matching (`Path::components` parity) while rejecting any `..` parent
+ * directory traversal segment.
+ *
+ * Prevents naive string-prefix bypasses such as `/home/user2` matching `/home/user`.
+ */
+export declare function isPathWithinRoot(candidatePath: string, rootPath: string): boolean;
+export interface SafeFetchUrlValidationResult {
+    ok: boolean;
+    reason?: 'invalid_url' | 'unsupported_protocol' | 'userinfo_forbidden' | 'metadata_endpoint_blocked' | 'host_not_allowed';
+    url?: string;
+    hostname?: string;
+}
+/**
+ * Validates a network fetch URL against VibeX declarative grant security rules:
+ * - Only `http:` and `https:` protocols are permitted
+ * - Rejects deceptive URLs containing `@` (`username` / `password` userinfo, e.g. `https://api.example.com@evil.com`)
+ * - Blocks link-local / cloud metadata endpoints (`169.254.169.254`, `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `metadata.google.internal`)
+ * - Optionally enforces an allowlist of host/origin patterns (`net.fetch` scope)
+ */
+export declare function validateSafeFetchUrl(rawUrl: string, allowedHosts?: readonly string[]): SafeFetchUrlValidationResult;
+/**
+ * Builds an isolated, frozen environment snapshot containing only explicitly
+ * allowlisted keys (`env.read` scope `keys`), preventing full `process.env`
+ * leakage into plugin workers.
+ */
+export declare function createEnvSnapshot(sourceEnv: Readonly<Record<string, string | undefined>>, allowedKeys: Iterable<string>): Readonly<Record<string, string>>;
 export {};

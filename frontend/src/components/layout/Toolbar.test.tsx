@@ -11,12 +11,35 @@ import {
 } from '@/lib/kanbanBoardStyle';
 import { resetKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { useLayoutStore } from '@/stores/useLayoutStore';
-import { KanbanLayoutToggles, WorkspaceBranchControls } from './Toolbar';
+import {
+  KanbanLayoutToggles,
+  WorkspaceBranchControls,
+  WorkspaceLayoutToggles,
+} from './Toolbar';
 
 const projectMocks = vi.hoisted(() => ({ isGit: true }));
+const panelActionMocks = vi.hoisted(() => ({
+  toggleFileTree: vi.fn(),
+  openNewTerminal: vi.fn(),
+  isPanelOpen: () => false,
+  openWelcomeTab: vi.fn(),
+  toggleLeftSidebar: vi.fn(),
+  isLeftSidebarVisible: vi.fn(() => true),
+  toggleRightSidebar: vi.fn(),
+  isRightSidebarVisible: vi.fn(() => true),
+  hasRightSidebarPanels: vi.fn(() => false),
+}));
 
 vi.mock('@/components/layout/WorktreeSelector', () => ({
   WorktreeSelector: () => <button type="button">Select workspace</button>,
+}));
+
+vi.mock('@/components/layout/ProjectQuickSwitcher', () => ({
+  ProjectQuickSwitcher: () => (
+    <button type="button" data-testid="toolbar-project-switcher">
+      Demo
+    </button>
+  ),
 }));
 
 vi.mock('@/contexts/ProjectContext', () => ({
@@ -34,11 +57,7 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
 }));
 
 vi.mock('@/hooks/usePanelActions', () => ({
-  usePanelActions: () => ({
-    toggleFileTree: vi.fn(),
-    openNewTerminal: vi.fn(),
-    isPanelOpen: () => false,
-  }),
+  usePanelActions: () => panelActionMocks,
 }));
 
 vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
@@ -54,31 +73,6 @@ vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
     ],
   }),
 }));
-
-describe('BranchStatusBadge', () => {
-  beforeEach(() => {
-    projectMocks.isGit = true;
-  });
-
-  it('matches the neighboring workspace selector geometry and spacing', () => {
-    render(
-      <TooltipProvider>
-        <WorkspaceBranchControls
-          isWorkspaceTab={true}
-          workspaceId="workspace-1"
-        />
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole('group', { name: '工作区与目标分支' })).toHaveClass(
-      'gap-2'
-    );
-    const badge = screen.getByText('main').closest('div');
-    expect(badge).toHaveClass('raised-control', 'h-7', 'gap-1', 'rounded-lg');
-    expect(badge).not.toHaveClass('ml-2');
-    expect(badge).not.toHaveClass('border');
-  });
-});
 
 describe('KanbanLayoutToggles', () => {
   beforeEach(() => {
@@ -143,14 +137,80 @@ describe('KanbanLayoutToggles', () => {
   });
 });
 
-describe('WorkspaceBranchControls canvas list toggle', () => {
+describe('WorkspaceLayoutToggles', () => {
+  beforeEach(() => {
+    useLayoutStore.getState().resetLayout();
+    panelActionMocks.openWelcomeTab.mockReset();
+    panelActionMocks.toggleRightSidebar.mockReset();
+    panelActionMocks.hasRightSidebarPanels.mockReturnValue(false);
+    panelActionMocks.isRightSidebarVisible.mockReturnValue(true);
+  });
+
+  it('removes legacy workspace toggle buttons and renders only New Tab icon button and Reset Layout by default', async () => {
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <WorkspaceLayoutToggles />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏文件树' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '隐藏编辑区和终端区' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏终端' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '显示/隐藏 AI 面板' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('toolbar-toggle-right-sidebar')
+    ).not.toBeInTheDocument();
+
+    const newTabButton = screen.getByTestId('toolbar-new-tab-button');
+    expect(newTabButton).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '重置布局' })
+    ).toBeInTheDocument();
+
+    await user.click(newTabButton);
+    expect(panelActionMocks.openWelcomeTab).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders right sidebar toggle next to New Tab button when Zone A has panels on the right side', async () => {
+    const user = userEvent.setup();
+    panelActionMocks.hasRightSidebarPanels.mockReturnValue(true);
+    panelActionMocks.isRightSidebarVisible.mockReturnValue(true);
+
+    render(
+      <TooltipProvider>
+        <WorkspaceLayoutToggles />
+      </TooltipProvider>
+    );
+
+    const rightSidebarToggle = screen.getByTestId(
+      'toolbar-toggle-right-sidebar'
+    );
+    expect(rightSidebarToggle).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(rightSidebarToggle);
+    expect(panelActionMocks.toggleRightSidebar).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WorkspaceBranchControls host selector & canvas list toggle', () => {
   beforeEach(() => {
     projectMocks.isGit = true;
+    panelActionMocks.toggleLeftSidebar.mockReset();
+    panelActionMocks.isLeftSidebarVisible.mockReturnValue(true);
     resetKanbanBoardStyle();
     resetKanbanCanvasListVisible();
   });
 
-  it('places the session-list button first in canvas mode', async () => {
+  it('renders the top-left HostSelector and places the session-list button next to it in canvas mode', async () => {
     const user = userEvent.setup();
     setKanbanBoardStyle('canvas');
 
@@ -163,14 +223,15 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     const group = screen.getByRole('group', {
       name: '工作区与目标分支',
     });
-    const buttons = group.querySelectorAll('button');
-    expect(buttons[0]).toHaveAttribute('aria-label', '隐藏会话列表');
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    const listToggle = screen.getByRole('button', { name: '隐藏会话列表' });
+    expect(group).toContainElement(listToggle);
     expect(screen.queryByText('Projects')).not.toBeInTheDocument();
 
-    await user.click(buttons[0]);
-    expect(screen.getByRole('button', { name: '显示会话列表' })).toBe(
-      buttons[0]
-    );
+    await user.click(listToggle);
+    expect(
+      screen.getByRole('button', { name: '显示会话列表' })
+    ).toBeInTheDocument();
   });
 
   it('keeps kanban layout toggles out of the leading cluster', () => {
@@ -184,9 +245,13 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     expect(
       screen.queryByRole('button', { name: '显示/隐藏会话列表' })
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('toolbar-toggle-left-sidebar')
+    ).not.toBeInTheDocument();
   });
 
-  it('keeps workspace layout toggles out of the leading cluster', () => {
+  it('renders the left sidebar toggle button to the right of HostSelector on the workspace tab', async () => {
+    const user = userEvent.setup();
     render(
       <TooltipProvider>
         <WorkspaceBranchControls isWorkspaceTab={true} />
@@ -196,7 +261,15 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     expect(
       screen.queryByRole('button', { name: '显示/隐藏文件树' })
     ).not.toBeInTheDocument();
-    expect(screen.getByText('Select workspace')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    const leftSidebarToggle = screen.getByTestId(
+      'toolbar-toggle-left-sidebar'
+    );
+    expect(leftSidebarToggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
+
+    await user.click(leftSidebarToggle);
+    expect(panelActionMocks.toggleLeftSidebar).toHaveBeenCalledTimes(1);
   });
 
   it('does not show the canvas list toggle on the workspace tab', () => {
@@ -215,7 +288,25 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('hides workspace and branch controls on a non-git project', () => {
+  it('keeps HostSelector and ProjectQuickSwitcher visible while hiding project sidebar toggles when no project is active', () => {
+    setKanbanBoardStyle('canvas');
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls isWorkspaceTab={true} hasProject={false} />
+      </TooltipProvider>
+    );
+
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-project-switcher')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('toolbar-toggle-left-sidebar')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '隐藏会话列表' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps HostSelector visible and hides global worktree/branch controls on any project', () => {
     projectMocks.isGit = false;
 
     render(
@@ -227,27 +318,31 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
       </TooltipProvider>
     );
 
+    expect(screen.getByTestId('toolbar-host-selector')).toBeInTheDocument();
+    expect(screen.getByTestId('toolbar-project-switcher')).toBeInTheDocument();
     expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
     expect(screen.queryByText('main')).not.toBeInTheDocument();
   });
 });
 
 describe('Toolbar chrome layout', () => {
-  it('centers the workspace tabs on the window and keeps layout toggles trailing', () => {
+  it('centers the workspace tabs on the window, anchors ProjectQuickSwitcher top-left, and keeps layout toggles trailing', () => {
     const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
     expect(source).toContain(
       'absolute inset-0 z-20 flex items-center justify-center'
     );
     expect(source).toContain('WindowChromeLeadingRule');
+    expect(source).toContain('<ProjectQuickSwitcher />');
 
+    const leading = source.slice(0, source.indexOf('ml-auto'));
     const trailing = source.slice(source.indexOf('ml-auto'));
+    expect(leading).toContain('<WorkspaceBranchControls');
     expect(trailing).toContain('<KanbanLayoutToggles');
     expect(trailing).toContain('<WorkspaceLayoutToggles');
+    expect(trailing).not.toMatch(/<ProjectQuickSwitcher/);
     expect(trailing).not.toMatch(/<ProjectRailToggleButton/);
     expect(source).not.toMatch(/<ProjectRailToggleButton/);
-    expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
-      /<KanbanLayoutToggles/
-    );
+    expect(leading).not.toMatch(/<KanbanLayoutToggles/);
   });
 
   it('places the app logo on the leading edge on Windows and Linux, trailing on macOS', () => {
@@ -263,5 +358,16 @@ describe('Toolbar chrome layout', () => {
     expect(source).not.toMatch(
       /<HomeLogoMenu align="start" \/>\s*<ToolbarDivider \/>/
     );
+  });
+
+  it('uses the standard SegmentedControl and SegmentedControlItem with Astryx Icon for the topbar workspace/kanban switcher', () => {
+    const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
+    expect(source).toContain("from '@astryxdesign/core/SegmentedControl'");
+    expect(source).toContain("from '@astryxdesign/core/Icon'");
+    expect(source).toContain('<SegmentedControl');
+    expect(source).toContain('<SegmentedControlItem');
+    expect(source).toContain('<Icon icon={tab.icon}');
+    expect(source).not.toContain('workspace-tab-switcher');
+    expect(source).not.toContain('workspace-tab-button');
   });
 });

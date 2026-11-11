@@ -36,6 +36,7 @@ mod remote_profiles;
 mod resolver;
 mod runtime;
 mod service;
+mod theme;
 mod worker_host;
 mod worker_http;
 

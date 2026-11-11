@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FunctionComponent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -233,12 +234,31 @@ export function CollaborationFileDockviewPanel(
   );
 }
 
-export const COLLABORATION_PREVIEW_COMPONENTS = {
-  ...panelComponents,
-  'member-session': CollaborationMemberSessionDockviewPanel,
-  'file-preview': CollaborationFileDockviewPanel,
+const COLLABORATION_LOCAL_PREVIEW_COMPONENTS: Record<
+  string,
+  FunctionComponent<IDockviewPanelProps>
+> = {
+  'member-session':
+    CollaborationMemberSessionDockviewPanel as FunctionComponent<IDockviewPanelProps>,
+  'file-preview':
+    CollaborationFileDockviewPanel as FunctionComponent<IDockviewPanelProps>,
   'space-collection': CollaborationSpaceCollectionDockviewPanel,
 };
+
+export const COLLABORATION_PREVIEW_COMPONENTS: Record<
+  string,
+  FunctionComponent<IDockviewPanelProps>
+> = new Proxy(COLLABORATION_LOCAL_PREVIEW_COMPONENTS, {
+  get(target, prop, receiver) {
+    if (typeof prop === 'string' && prop in target) {
+      return Reflect.get(target, prop, receiver);
+    }
+    return Reflect.get(panelComponents, prop);
+  },
+  has(target, prop) {
+    return Reflect.has(target, prop) || Reflect.has(panelComponents, prop);
+  },
+});
 
 function asMemberAvatar(value: unknown): MemberBotAvatarConfig | null {
   if (!value || typeof value !== 'object') return null;

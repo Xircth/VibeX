@@ -245,7 +245,7 @@ export const WebviewContextMenu: React.FC = () => {
         zIndex: 99999,
         fontFamily: 'var(--font-ui)',
       }}
-      className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100 dark:bg-popover"
+      className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100"
       role="menu"
       onContextMenu={(e) => e.preventDefault()}
     >

@@ -55,7 +55,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
       <div
         className={cn(
           'canvas-board-units canvas-session-group flex h-full w-full cursor-grab flex-col overflow-hidden border bg-[var(--surface-card-strong)] active:cursor-grabbing',
-          collapsed ? 'rounded-full' : 'rounded-xl',
+          collapsed ? 'is-collapsed rounded-full' : 'rounded-xl',
           selected && 'is-selected',
           data.isRunning === true && 'is-running',
           data.isReviewing === true && 'is-reviewing'

@@ -27,7 +27,14 @@ import {
 import { EditorType } from 'shared/types';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
+import {
+  hitElementFromPoint,
+  isPointOverCanvasDrop,
+} from '@/components/kanban/session-hub/sessionListDrag';
 import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import FileIcon from '../FileIcon';
 import { desktopApi, fileTreeApi } from '../../lib/api';
 import { useBinaryAssetPreview } from '@/hooks/useFileContent';
@@ -1464,6 +1471,35 @@ export function FileTreePanel({
         return;
       }
 
+      if (payload.kind === 'file') {
+        const canvasController = getCanvasWorkspaceController();
+        if (canvasController) {
+          const hit = hitElementFromPoint(clientX, clientY);
+          if (isPointOverCanvasDrop(hit)) {
+            const absolutePath = workspacePath
+              ? resolveFileTreeAbsolutePath(workspacePath, payload.relativePath)
+              : payload.relativePath;
+            const title =
+              payload.fileName ||
+              absolutePath.split(/[/\\]/).pop() ||
+              absolutePath;
+            canvasController.dropPanelAt(
+              {
+                id: `file:${absolutePath}`,
+                component: PANEL_IDS.PREVIEW,
+                title,
+                params: { filePath: absolutePath },
+                expanded: true,
+              },
+              { x: clientX, y: clientY }
+            );
+            clearCurrentDraggedFileReference();
+            setDropTargetPath(null);
+            return;
+          }
+        }
+      }
+
       clearCurrentDraggedFileReference();
       setDropTargetPath(null);
     },
@@ -1472,6 +1508,7 @@ export function FileTreePanel({
       dispatchDropToExternalZone,
       moveDraggedNode,
       resolveDropTargetPathFromPoint,
+      workspacePath,
     ]
   );
 
@@ -2222,6 +2259,10 @@ export function FileTreePanel({
               >
                 <MoreHorizontal size={14} aria-hidden />
               </button>
+              <ShellNavPanelDragHandle
+                panelId={PANEL_IDS.FILE_TREE}
+                className="ghost icon-button file-tree-root-action"
+              />
             </div>
           </div>
         )}

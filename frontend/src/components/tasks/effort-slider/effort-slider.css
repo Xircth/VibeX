@@ -3,9 +3,8 @@
  * (claude-range-slider reference), scaled to composer-popover size and themed
  * with the app's design tokens so it follows light/dark automatically.
  *
- * Exception: the track stays a dark recessed well in both themes — the WebGL
- * flame composites with mix-blend-mode: screen and is only visible against a
- * dark background. The blue glow matches the flame colors baked into the shaders.
+ * Exception: the track stays a dark recessed well in both themes; its live-blue
+ * fill, shimmer, and glow are tuned for that dark ground.
  */
 
 .vx-effort-clip {
@@ -16,8 +15,8 @@
 }
 
 .vx-effort-shadow {
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.16))
-    drop-shadow(0 3px 8px rgba(0, 0, 0, 0.08));
+  filter: drop-shadow(0 8px 18px hsl(var(--shadow-ink) / 0.16))
+    drop-shadow(0 3px 8px hsl(var(--shadow-ink) / 0.08));
   transition: filter 0.2s ease;
 }
 
@@ -68,8 +67,8 @@
 }
 
 .vx-effort-status.vx-glowing {
-  color: #5f84ce;
-  text-shadow: 0 0 8px rgba(63, 108, 196, 0.6);
+  color: hsl(var(--live-blue));
+  text-shadow: 0 0 8px hsl(var(--live-blue) / 0.6);
   font-weight: 600;
 }
 
@@ -127,65 +126,46 @@
 .vx-effort-track {
   --effort-thumb-fill: linear-gradient(
     170deg,
-    #ffffff 0%,
-    #f0f0f2 40%,
-    #e4e4e6 100%
+    var(--surface-raised-control),
+    color-mix(in srgb, var(--surface-raised-control) 89%, var(--text-strong))
   );
-  --effort-thumb-border: hsl(220 16% 28% / 0.12);
+  --effort-thumb-border: var(--border-subtle);
   --effort-thumb-shadow:
-    0 0.5px 1px hsl(220 36% 8% / 0.18), 0 1.5px 4px hsl(220 36% 8% / 0.25),
-    0 4px 10px hsl(220 36% 8% / 0.12), inset 0 0.5px 0 hsl(0 0% 100% / 0.85),
-    inset 0 -0.5px 0 hsl(220 36% 8% / 0.06);
+    0 0.5px 1px hsl(var(--shadow-ink) / 0.18),
+    0 1.5px 4px hsl(var(--shadow-ink) / 0.25),
+    0 4px 10px hsl(var(--shadow-ink) / 0.12),
+    inset 0 0.5px 0 var(--highlight-edge),
+    inset 0 -0.5px 0 hsl(var(--shadow-ink) / 0.06);
   --effort-thumb-glow:
-    0 0 16px rgba(63, 108, 196, 0.5), 0 0 30px rgba(63, 108, 196, 0.25);
+    0 0 16px hsl(var(--live-blue) / 0.5), 0 0 30px hsl(var(--live-blue) / 0.25);
   position: relative;
   height: 18px;
   border-radius: var(--radius);
   overflow: hidden;
-  border: 1px solid #1a1a1e;
-  background: #0c0c0c;
+  border: 1px solid var(--effort-well-edge);
   isolation: isolate;
 }
 
+/* The well stays dark, so the night thumb switches to the light ink ramp. */
 .dark .vx-effort-track {
   --effort-thumb-fill: linear-gradient(
     170deg,
-    #e7ebef 0%,
-    #c5cdd6 52%,
-    #8b949e 100%
+    var(--text-strong),
+    var(--text-muted)
   );
-  --effort-thumb-border: hsl(210 30% 80% / 0.18);
   --effort-thumb-shadow:
-    0 0.5px 1px hsl(210 40% 2% / 0.4), 0 1.5px 4px hsl(210 40% 2% / 0.45),
-    0 4px 10px hsl(210 40% 2% / 0.28), inset 0 0.5px 0 hsl(210 30% 80% / 0.28),
-    inset 0 -0.5px 0 hsl(210 40% 2% / 0.35);
-  --effort-thumb-glow:
-    0 0 16px rgba(63, 108, 196, 0.5), 0 0 30px rgba(63, 108, 196, 0.25);
+    0 0.5px 1px hsl(var(--shadow-ink) / 0.4),
+    0 1.5px 4px hsl(var(--shadow-ink) / 0.45),
+    0 4px 10px hsl(var(--shadow-ink) / 0.28),
+    inset 0 0.5px 0 var(--highlight-edge),
+    inset 0 -0.5px 0 hsl(var(--shadow-ink) / 0.35);
 }
 
 .vx-effort-track-bg {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, #111113, #0a0a0b);
+  background: var(--effort-well);
   z-index: 0;
-}
-
-/* Keep the canvas laid out (opacity, not display) so it always has a size. */
-.vx-effort-track canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: 0;
-  mix-blend-mode: screen;
-  z-index: 2;
-  transition: opacity 0.3s;
-}
-
-.vx-effort-track.vx-active canvas {
-  opacity: 1;
-  z-index: 4;
 }
 
 /* ── drag effect: luminous fill trailing the thumb ── */
@@ -198,11 +178,11 @@
   z-index: 1;
   background: linear-gradient(
     90deg,
-    rgba(63, 108, 196, 0.04),
-    rgba(63, 108, 196, 0.22) 55%,
-    rgba(95, 132, 206, 0.5)
+    hsl(var(--live-blue) / 0.04),
+    hsl(var(--live-blue) / 0.22) 55%,
+    hsl(var(--live-blue) / 0.5)
   );
-  box-shadow: inset 0 0 6px rgba(63, 108, 196, 0.25);
+  box-shadow: inset 0 0 6px hsl(var(--live-blue) / 0.25);
   opacity: 0;
   transition: opacity 0.35s ease;
   overflow: hidden;
@@ -216,7 +196,7 @@
   background: linear-gradient(
     100deg,
     transparent 30%,
-    rgba(169, 189, 229, 0.35) 50%,
+    hsl(var(--live-blue-soft) / 0.35) 50%,
     transparent 70%
   );
   background-size: 200% 100%;
@@ -249,7 +229,7 @@
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #494950;
+  background: var(--effort-well-dot);
   top: 50%;
   transform: translate(-50%, -50%);
   transition: opacity 0.6s;

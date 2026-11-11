@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Popover,
@@ -8,8 +9,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useTheme } from '@/components/ThemeProvider';
+import { COLOR_THEME_CHANGED_EVENT } from '@/lib/theme/colorThemeStore';
 import {
+  ACCENT_COLOR_CHANGED_EVENT,
+  followThemeAccent,
   getAccentColor,
+  getAccentOverride,
   hexToHsv,
   hsvToHex,
   resolveAccentForTheme,
@@ -39,16 +44,26 @@ export function AccentColorField() {
   const { t } = useTranslation('settings');
   const { resolvedTheme } = useTheme();
   const hueLabelId = useId();
-  const [hexDraft, setHexDraft] = useState(() => getAccentColor());
-  const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(getAccentColor()));
+  const currentHex = useCallback(
+    () => getAccentOverride() ?? getAccentColor(resolvedTheme),
+    [resolvedTheme]
+  );
+  const [hexDraft, setHexDraft] = useState(currentHex);
+  const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(currentHex()));
   const [open, setOpen] = useState(false);
+  const [followsTheme, setFollowsTheme] = useState(
+    () => getAccentOverride() === null
+  );
 
-  const commit = useCallback((hex: string) => {
-    setAccentColor(hex);
-    const next = getAccentColor();
-    setHexDraft(next);
-    setHsv(hexToHsv(next));
-  }, []);
+  const commit = useCallback(
+    (hex: string) => {
+      setAccentColor(hex);
+      const next = currentHex();
+      setHexDraft(next);
+      setHsv(hexToHsv(next));
+    },
+    [currentHex]
+  );
 
   const commitHsv = useCallback((next: Hsv) => {
     setHsv(next);
@@ -58,11 +73,20 @@ export function AccentColorField() {
   }, []);
 
   useEffect(() => {
-    if (!open) {
-      setHexDraft(getAccentColor());
-      setHsv(hexToHsv(getAccentColor()));
-    }
-  }, [open]);
+    const sync = () => {
+      setFollowsTheme(getAccentOverride() === null);
+      if (open) return;
+      setHexDraft(currentHex());
+      setHsv(hexToHsv(currentHex()));
+    };
+    sync();
+    window.addEventListener(ACCENT_COLOR_CHANGED_EVENT, sync);
+    window.addEventListener(COLOR_THEME_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener(ACCENT_COLOR_CHANGED_EVENT, sync);
+      window.removeEventListener(COLOR_THEME_CHANGED_EVENT, sync);
+    };
+  }, [open, currentHex]);
 
   const handleHexChange = (value: string) => {
     setHexDraft(value);
@@ -172,6 +196,16 @@ export function AccentColorField() {
         autoComplete="off"
         className="w-[7.25rem] font-mono uppercase"
       />
+      {followsTheme ? null : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={followThemeAccent}
+        >
+          {t('appearance.accent.followTheme')}
+        </Button>
+      )}
     </div>
   );
 }

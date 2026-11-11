@@ -72,6 +72,137 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
       group.element?.setAttribute('data-session-dock', 'true');
     }
   }
+
+  const stageGroups = api.groups.filter(
+    (group) =>
+      !leftGroups.has(group) && group.api.isVisible && Boolean(group.element)
+  );
+
+  for (const group of api.groups) {
+    group.element?.removeAttribute('data-stage-leftmost');
+    group.element?.removeAttribute('data-stage-rightmost');
+    group.element?.removeAttribute('data-stage-topmost');
+    group.element?.removeAttribute('data-stage-bottommost');
+    group.element?.removeAttribute('data-left-dock-split-left');
+    group.element?.removeAttribute('data-left-dock-split-top');
+    group.element?.removeAttribute('data-left-dock-split-bottom');
+  }
+
+  for (const side of ['left', 'right'] as const) {
+    const visibleDockGroups = [...leftGroups].filter((group) => {
+      if (!group.api.isVisible || !group.element) return false;
+      const groupSide =
+        group.element.getAttribute('data-shell-nav-side') === 'right'
+          ? 'right'
+          : 'left';
+      return groupSide === side;
+    });
+    if (visibleDockGroups.length > 1) {
+      const dockRects = visibleDockGroups.flatMap((group) => {
+        const rect = group.element?.getBoundingClientRect();
+        return rect && rect.width > 0 && rect.height > 0
+          ? [{ group, rect }]
+          : [];
+      });
+      if (dockRects.length > 1) {
+        const minLeft = Math.min(...dockRects.map((item) => item.rect.left));
+        const minTop = Math.min(...dockRects.map((item) => item.rect.top));
+        const maxBottom = Math.max(
+          ...dockRects.map((item) => item.rect.bottom)
+        );
+        for (const { group, rect } of dockRects) {
+          if (rect.left > minLeft + 4) {
+            group.element?.setAttribute('data-left-dock-split-left', 'true');
+          }
+          if (rect.top > minTop + 4) {
+            group.element?.setAttribute('data-left-dock-split-top', 'true');
+          }
+          if (rect.bottom < maxBottom - 4) {
+            group.element?.setAttribute('data-left-dock-split-bottom', 'true');
+          }
+        }
+      } else {
+        for (const group of visibleDockGroups.slice(1)) {
+          const parentSplit = group.element?.closest(
+            '.dv-split-view-container'
+          );
+          if (parentSplit?.classList.contains('dv-vertical')) {
+            group.element?.setAttribute('data-left-dock-split-top', 'true');
+          } else {
+            group.element?.setAttribute('data-left-dock-split-left', 'true');
+          }
+        }
+      }
+    }
+  }
+
+  if (stageGroups.length === 1) {
+    const onlyGroup = stageGroups[0]?.element;
+    onlyGroup?.setAttribute('data-stage-leftmost', 'true');
+    onlyGroup?.setAttribute('data-stage-rightmost', 'true');
+    onlyGroup?.setAttribute('data-stage-topmost', 'true');
+    onlyGroup?.setAttribute('data-stage-bottommost', 'true');
+    return;
+  }
+
+  if (stageGroups.length > 1) {
+    const rects = stageGroups.flatMap((group) => {
+      const rect = group.element?.getBoundingClientRect();
+      return rect && rect.width > 0 && rect.height > 0 ? [{ group, rect }] : [];
+    });
+
+    if (rects.length > 0) {
+      const minLeft = Math.min(...rects.map((item) => item.rect.left));
+      const maxRight = Math.max(...rects.map((item) => item.rect.right));
+      const minTop = Math.min(...rects.map((item) => item.rect.top));
+      const maxBottom = Math.max(...rects.map((item) => item.rect.bottom));
+      for (const { group, rect } of rects) {
+        if (Math.abs(rect.left - minLeft) <= 2) {
+          group.element?.setAttribute('data-stage-leftmost', 'true');
+        }
+        if (Math.abs(rect.right - maxRight) <= 2) {
+          group.element?.setAttribute('data-stage-rightmost', 'true');
+        }
+        if (Math.abs(rect.top - minTop) <= 2) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+        }
+        if (Math.abs(rect.bottom - maxBottom) <= 2) {
+          group.element?.setAttribute('data-stage-bottommost', 'true');
+        }
+      }
+    } else {
+      const bottomStageGroups = stageGroups.filter((group) =>
+        isBottomGroup(group)
+      );
+      const upperStageGroups = stageGroups.filter(
+        (group) => !isBottomGroup(group)
+      );
+      if (upperStageGroups.length > 0) {
+        upperStageGroups[0]?.element?.setAttribute(
+          'data-stage-leftmost',
+          'true'
+        );
+        upperStageGroups[upperStageGroups.length - 1]?.element?.setAttribute(
+          'data-stage-rightmost',
+          'true'
+        );
+        for (const group of upperStageGroups) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+          if (bottomStageGroups.length === 0) {
+            group.element?.setAttribute('data-stage-bottommost', 'true');
+          }
+        }
+      }
+      for (const group of bottomStageGroups) {
+        group.element?.setAttribute('data-stage-leftmost', 'true');
+        group.element?.setAttribute('data-stage-rightmost', 'true');
+        group.element?.setAttribute('data-stage-bottommost', 'true');
+        if (upperStageGroups.length === 0) {
+          group.element?.setAttribute('data-stage-topmost', 'true');
+        }
+      }
+    }
+  }
 }
 
 /**

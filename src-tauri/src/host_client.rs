@@ -23,7 +23,7 @@ use crate::{
 pub const ACTIVE_PROFILE_ID: &str = "active-host-client";
 pub const HOST_CLIENT_CHANGED: &str = "host-client-changed";
 const STORE_FILE_NAME: &str = "host-client-profiles.json";
-const DEFAULT_PORT: u16 = 17891;
+pub(crate) const DEFAULT_PORT: u16 = 17891;
 const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(400);
 const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const HOST_UPGRADE_TIMEOUT: Duration = Duration::from_secs(180);
@@ -37,33 +37,45 @@ pub fn runtime() -> &'static HostClientRuntime {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct StoredState {
+pub(crate) struct StoredState {
     #[serde(default)]
-    active_profile_id: Option<String>,
+    pub(crate) active_profile_id: Option<String>,
     #[serde(default)]
-    profiles: Vec<StoredProfile>,
+    pub(crate) profiles: Vec<StoredProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) signed_in_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) archived_account_profiles: HashMap<String, Vec<StoredProfile>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) pending_cloud_deletes: Vec<crate::host_client_sync::PendingCloudDelete>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct StoredProfile {
-    id: String,
-    origin: String,
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(crate) struct StoredProfile {
+    pub(crate) id: String,
+    pub(crate) origin: String,
     #[serde(default)]
-    host_id: Option<String>,
+    pub(crate) host_id: Option<String>,
     #[serde(default)]
-    name: String,
+    pub(crate) name: String,
     #[serde(default)]
-    device_id: Option<String>,
+    pub(crate) device_id: Option<String>,
     #[serde(default)]
-    access_token: Option<String>,
+    pub(crate) access_token: Option<String>,
     #[serde(default)]
-    last_connected_at: Option<String>,
+    pub(crate) last_connected_at: Option<String>,
     #[serde(default)]
-    needs_token: bool,
+    pub(crate) needs_token: bool,
     #[serde(default)]
-    provision_kind: Option<String>,
+    pub(crate) provision_kind: Option<String>,
     #[serde(default)]
-    provision: Option<serde_json::Value>,
+    pub(crate) provision: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) account_user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) cloud_synced: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -560,6 +572,7 @@ impl HostClientRuntime {
             return Err(AppError::NotFound("saved Host was not found".to_string()));
         };
         let removed = state.profiles.remove(index);
+        crate::host_client_sync::record_pending_cloud_delete(&mut state, &removed);
         remove_saved_ssh_host_file(&self.path, profile_id);
         let bound_windows = self.windows_bound_to(profile_id).await;
         for window in &bound_windows {
@@ -592,6 +605,8 @@ impl HostClientRuntime {
             ));
         }
         let mut state = self.load().await?;
+        let now = Utc::now().to_rfc3339();
+        let account_owner = state.signed_in_account_id.clone();
         let named = name
             .as_deref()
             .map(str::trim)
@@ -627,6 +642,11 @@ impl HostClientRuntime {
             }
             profile.provision_kind = Some(kind.to_string());
             profile.provision = provision;
+            if profile.account_user_id.is_none() {
+                profile.account_user_id = account_owner;
+            }
+            profile.cloud_synced = false;
+            profile.updated_at = Some(now);
             profile.id.clone()
         } else {
             let id = Uuid::new_v4().to_string();
@@ -641,6 +661,9 @@ impl HostClientRuntime {
                 needs_token: true,
                 provision_kind: Some(kind.to_string()),
                 provision,
+                account_user_id: account_owner,
+                cloud_synced: false,
+                updated_at: Some(now),
             });
             id
         };
@@ -736,6 +759,43 @@ impl HostClientRuntime {
         if state.active_profile_id.as_deref() == Some(profile_id) {
             state.active_profile_id = None;
         }
+        self.save(state).await
+    }
+
+    pub(crate) fn store_path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) async fn local_host_id(&self) -> Option<String> {
+        self.local_host_id.lock().await.clone()
+    }
+
+    pub(crate) async fn active_bound_profile_ids(&self) -> HashSet<String> {
+        self.active.lock().await.values().cloned().collect()
+    }
+
+    pub(crate) async fn disconnect_bound_profiles(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        profile_ids: &[String],
+    ) -> Vec<String> {
+        let mut closed = Vec::new();
+        for profile_id in profile_ids {
+            let windows = self.windows_bound_to(profile_id).await;
+            for window in windows {
+                registry.disconnect_window(&window).await;
+                self.unbind_window(&window).await;
+                closed.push(window);
+            }
+        }
+        closed
+    }
+
+    pub(crate) async fn load_state(&self) -> Result<StoredState, AppError> {
+        self.load().await
+    }
+
+    pub(crate) async fn save_state(&self, state: &StoredState) -> Result<(), AppError> {
         self.save(state).await
     }
 
@@ -838,6 +898,7 @@ fn upsert_profile(
     credential: DeviceCredentialParts,
     now: String,
 ) -> String {
+    let account_owner = state.signed_in_account_id.clone();
     let existing_index = selected_id
         .and_then(|id| state.profiles.iter().position(|profile| profile.id == id))
         .or_else(|| {
@@ -855,8 +916,13 @@ fn upsert_profile(
         profile.name = name;
         profile.device_id = credential.device_id.or(profile.device_id.clone());
         profile.access_token = Some(credential.access_token);
-        profile.last_connected_at = Some(now);
+        profile.last_connected_at = Some(now.clone());
         profile.needs_token = false;
+        if profile.account_user_id.is_none() {
+            profile.account_user_id = account_owner;
+        }
+        profile.cloud_synced = false;
+        profile.updated_at = Some(now);
         return profile.id.clone();
     }
     let id = Uuid::new_v4().to_string();
@@ -867,10 +933,13 @@ fn upsert_profile(
         name,
         device_id: credential.device_id,
         access_token: Some(credential.access_token),
-        last_connected_at: Some(now),
+        last_connected_at: Some(now.clone()),
         needs_token: false,
         provision_kind: None,
         provision: None,
+        account_user_id: account_owner,
+        cloud_synced: false,
+        updated_at: Some(now),
     });
     id
 }
@@ -884,6 +953,8 @@ fn mark_needs_token(state: &mut StoredState, profile_id: &str) {
         profile.access_token = None;
         profile.device_id = None;
         profile.needs_token = true;
+        profile.cloud_synced = false;
+        profile.updated_at = Some(Utc::now().to_rfc3339());
     }
 }
 
@@ -943,7 +1014,7 @@ fn format_ssh_host_config(
     body
 }
 
-fn write_saved_ssh_host_file(store_path: &Path, profile: &StoredProfile) {
+pub(crate) fn write_saved_ssh_host_file(store_path: &Path, profile: &StoredProfile) {
     if profile.provision_kind.as_deref() != Some("ssh") {
         return;
     }
@@ -988,7 +1059,7 @@ fn write_saved_ssh_host_file(store_path: &Path, profile: &StoredProfile) {
     }
 }
 
-fn remove_saved_ssh_host_file(store_path: &Path, profile_id: &str) {
+pub(crate) fn remove_saved_ssh_host_file(store_path: &Path, profile_id: &str) {
     let path = hosts_dir(store_path).join(format!("{profile_id}.sshconfig"));
     let _ = std::fs::remove_file(path);
 }
@@ -1022,7 +1093,7 @@ fn local_ssh_target() -> Option<LocalSshTargetView> {
     })
 }
 
-fn provision_target_key(kind: &str, provision: Option<&serde_json::Value>) -> Option<String> {
+pub(crate) fn provision_target_key(kind: &str, provision: Option<&serde_json::Value>) -> Option<String> {
     let kind = kind.trim();
     if kind.is_empty() || kind == "manual" || kind == "discovered" {
         return None;
@@ -1117,7 +1188,7 @@ pub(crate) fn resolve_connect_origin(
     advertised_connect_origin(stored.unwrap_or(""), provision)
 }
 
-fn is_loopback_http_origin(origin: &str) -> bool {
+pub(crate) fn is_loopback_http_origin(origin: &str) -> bool {
     let candidate = if origin.contains("://") {
         origin.to_string()
     } else {
@@ -1163,7 +1234,7 @@ fn origin_from_provision(provision: Option<&serde_json::Value>) -> Option<String
     Some(format!("http://{host}:{port}"))
 }
 
-fn normalize_origin(value: &str) -> Result<String, AppError> {
+pub(crate) fn normalize_origin(value: &str) -> Result<String, AppError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(AppError::BadRequest("Host address is required".to_string()));
@@ -1526,6 +1597,7 @@ mod tests {
                     needs_token: false,
                     provision_kind: None,
                     provision: None,
+                    ..StoredProfile::default()
                 },
                 StoredProfile {
                     id: "b".into(),
@@ -1538,8 +1610,10 @@ mod tests {
                     needs_token: false,
                     provision_kind: None,
                     provision: None,
+                    ..StoredProfile::default()
                 },
             ],
+            ..StoredState::default()
         };
         let encoded = serde_json::to_string(&views(&state, Some("b"))).expect("json");
         assert!(!encoded.contains("secret-"));
@@ -1726,6 +1800,7 @@ mod tests {
                         "port": 22,
                         "user": "root"
                     })),
+                    ..StoredProfile::default()
                 },
                 StoredProfile {
                     id: "new".into(),
@@ -1742,8 +1817,10 @@ mod tests {
                         "port": 22,
                         "user": "root"
                     })),
+                    ..StoredProfile::default()
                 },
             ],
+            ..StoredState::default()
         };
         assert!(collapse_provisioned_duplicates(&mut state));
         assert_eq!(state.profiles.len(), 1);

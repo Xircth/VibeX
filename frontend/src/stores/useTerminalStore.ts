@@ -31,6 +31,8 @@ export interface TerminalSession {
   busy?: boolean;
   /** Where this session is shown: bottom terminal zone or an editor tab */
   surface?: TerminalSurface;
+  /** Last known or initial working directory of this terminal session */
+  cwd?: string;
 }
 
 interface TerminalState {
@@ -52,6 +54,7 @@ interface TerminalState {
       source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
       sessionId?: string | null;
       surface?: TerminalSurface;
+      cwd?: string;
     }
   ) => void;
   /** Set the PTY session ID once the backend creates it */
@@ -64,6 +67,8 @@ interface TerminalState {
   updateTitle: (tabId: string, title: string) => void;
   /** Mark whether a tab is running a command */
   setBusy: (tabId: string, busy: boolean) => void;
+  /** Update the current working directory of a terminal tab */
+  setCwd: (tabId: string, cwd: string) => void;
   /** Clear all sessions for a workspace */
   clearWorkspace: (workspaceId: string) => void;
   /** Get sessions for a specific workspace */
@@ -107,6 +112,7 @@ export const useTerminalStore = create<TerminalState>()(
             options?.source ??
             (options?.type === 'log-viewer' ? 'log-viewer' : 'workspace'),
           surface: options?.surface ?? 'panel',
+          cwd: options?.cwd,
         };
         set({
           sessionsByWorkspace: {
@@ -194,6 +200,19 @@ export const useTerminalStore = create<TerminalState>()(
         )) {
           updated[wsId] = sessions.map((session) =>
             session.tabId === tabId ? { ...session, busy } : session
+          );
+        }
+        set({ sessionsByWorkspace: updated });
+      },
+
+      setCwd: (tabId, cwd) => {
+        const state = get();
+        const updated: Record<string, TerminalSession[]> = {};
+        for (const [wsId, sessions] of Object.entries(
+          state.sessionsByWorkspace
+        )) {
+          updated[wsId] = sessions.map((session) =>
+            session.tabId === tabId ? { ...session, cwd } : session
           );
         }
         set({ sessionsByWorkspace: updated });

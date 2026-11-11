@@ -1,0 +1,118 @@
+{
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.ayu-theme",
+  "publisher": "vibex",
+  "name": "Ayu Theme",
+  "version": "1.0.0",
+  "description": "Ayu Light, Mirage, and Dark color themes for the whole VibeX window, editor, and terminal.",
+  "readme": "README.md",
+  "interface": {
+    "icon": "assets/icon.svg"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "engines": {
+    "vibex": ">=0.4.4 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "themes": [
+    {
+      "id": "ayu-light",
+      "label": "Ayu Light",
+      "scheme": "light",
+      "colors": {
+        "background": "#fcfcfc",
+        "foreground": "#5c6166",
+        "chrome": "#f8f9fa",
+        "surface": "#fafafa",
+        "popover": "#ffffff",
+        "faintForeground": "#828e9f",
+        "borderSubtle": "#8a919945",
+        "raisedControl": "#ffffff",
+        "accent": "#cf6610",
+        "success": "#6cbf43",
+        "warning": "#eba400",
+        "danger": "#e65050",
+        "info": "#478acc",
+        "terminalBackground": "#fcfcfc",
+        "terminalForeground": "#5c6166",
+        "syntaxKeyword": "#fa8532",
+        "syntaxFunction": "#eba400",
+        "syntaxConstant": "#a37acc",
+        "syntaxString": "#86b300",
+        "syntaxVariable": "#f2a191",
+        "syntaxComment": "#adaeb1",
+        "syntaxTag": "#55b4d4",
+        "syntaxPunctuation": "#5c6166",
+        "syntaxDeleted": "#ff7383"
+      }
+    },
+    {
+      "id": "ayu-mirage",
+      "label": "Ayu Mirage",
+      "scheme": "dark",
+      "colors": {
+        "background": "#242936",
+        "foreground": "#cccac2",
+        "chrome": "#1f2430",
+        "surface": "#282e3b",
+        "popover": "#1c212c",
+        "faintForeground": "#707a8c",
+        "borderSubtle": "#707a8c45",
+        "control": "#69758c1f",
+        "controlHover": "#63759926",
+        "accent": "#ffcc66",
+        "success": "#87d96c",
+        "warning": "#ffa659",
+        "danger": "#ff6666",
+        "info": "#80bfff",
+        "terminalBackground": "#242936",
+        "terminalForeground": "#cccac2",
+        "syntaxKeyword": "#ffa659",
+        "syntaxFunction": "#ffcd66",
+        "syntaxConstant": "#dfbfff",
+        "syntaxString": "#d5ff80",
+        "syntaxVariable": "#f29e74",
+        "syntaxComment": "#6e7c8f",
+        "syntaxTag": "#5ccfe6",
+        "syntaxPunctuation": "#cccac2",
+        "syntaxDeleted": "#f27983"
+      }
+    },
+    {
+      "id": "ayu-dark",
+      "label": "Ayu Dark",
+      "scheme": "dark",
+      "colors": {
+        "background": "#10141c",
+        "foreground": "#bfbdb6",
+        "chrome": "#0d1017",
+        "surface": "#141821",
+        "popover": "#0f131a",
+        "faintForeground": "#5a6378",
+        "borderSubtle": "#5a637845",
+        "control": "#47526633",
+        "controlHover": "#47526640",
+        "accent": "#e6b450",
+        "success": "#70bf56",
+        "warning": "#ff8f40",
+        "danger": "#d95757",
+        "info": "#73b8ff",
+        "terminalBackground": "#10141c",
+        "terminalForeground": "#bfbdb6",
+        "syntaxKeyword": "#ff8f40",
+        "syntaxFunction": "#ffb454",
+        "syntaxConstant": "#d2a6ff",
+        "syntaxString": "#aad94c",
+        "syntaxVariable": "#f29668",
+        "syntaxComment": "#5a6673",
+        "syntaxTag": "#39bae6",
+        "syntaxPunctuation": "#bfbdb6",
+        "syntaxDeleted": "#f26d78"
+      }
+    }
+  ]
+}

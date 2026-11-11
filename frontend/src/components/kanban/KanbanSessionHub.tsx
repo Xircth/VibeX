@@ -77,6 +77,7 @@ import {
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import type { SessionCanvasApi } from './canvas/SessionCanvasView';
+import { consumeCanvasParentNodeId } from './canvas/canvasWorkspaceBridge';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
 
@@ -165,12 +166,15 @@ interface KanbanSessionHubProps {
   sessionSlot?: ReactNode;
   /** Container-selected presentation. Overrides the global board-style overlay. */
   presentation?: 'fixed' | 'canvas';
+  /** True when mounted as the Zone B Workspace Infinite Canvas stage. */
+  workspaceStage?: boolean;
 }
 
 export function KanbanSessionHub({
   zoneOrder = ['list', 'monitor', 'session'],
   sessionSlot = null,
   presentation,
+  workspaceStage = false,
 }: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common', 'panels']);
   const queryClient = useQueryClient();
@@ -178,6 +182,7 @@ export function KanbanSessionHub({
   const boardStyle = presentation ?? storedBoardStyle;
   const canvasListVisible = useKanbanCanvasListVisible();
   const canvasApiRef = useRef<SessionCanvasApi | null>(null);
+  const pendingCreateParentNodeIdRef = useRef<string | null>(null);
   const [canvasWindowSessionIds, setCanvasWindowSessionIds] = useState<
     string[]
   >([]);
@@ -854,6 +859,9 @@ export function KanbanSessionHub({
     ) {
       return;
     }
+    const parentNodeId =
+      pendingCreateParentNodeIdRef.current ?? consumeCanvasParentNodeId();
+    pendingCreateParentNodeIdRef.current = null;
     createSessionMutation.mutate(
       {
         workspaceValue: createWorkspaceValueRef.current,
@@ -866,7 +874,10 @@ export function KanbanSessionHub({
         onSuccess: (session) => {
           if (boardStyle === 'canvas') {
             rememberCreatedCanvasSession(session);
-            canvasApiRef.current?.addSession(session.id);
+            canvasApiRef.current?.addSession(session.id, {
+              parentNodeId,
+              expanded: workspaceStage,
+            });
           }
         },
       }
@@ -874,12 +885,12 @@ export function KanbanSessionHub({
   };
 
   useEffect(() => {
-    if (!canvasListVisible && isCreatePopoverOpen) {
+    if (!workspaceStage && !canvasListVisible && isCreatePopoverOpen) {
       setIsCreatePopoverOpen(false);
       setCreatePopoverProjectId(null);
       createSessionMutation.reset();
     }
-  }, [canvasListVisible, createSessionMutation, isCreatePopoverOpen]);
+  }, [canvasListVisible, createSessionMutation, isCreatePopoverOpen, workspaceStage]);
 
   useEffect(() => {
     if (
@@ -1370,7 +1381,7 @@ export function KanbanSessionHub({
   if (boardStyle === 'canvas') {
     return (
       <TooltipProvider delayDuration={120}>
-        <div className="session-hub-shell h-full min-h-0">
+        <div className="session-hub-shell h-full w-full min-h-0 min-w-0">
           <Suspense fallback={null}>
             <LazySessionCanvasView
               projectId={projectId ?? ''}
@@ -1425,9 +1436,28 @@ export function KanbanSessionHub({
               }}
               onWindowSessionIdsChange={setCanvasWindowSessionIds}
               onSelectedSessionChange={replaceRightSession}
+              hideSessionList={workspaceStage}
+              registerWorkspaceController={workspaceStage}
               onCreateSession={() => {
-                setKanbanCanvasListVisible(true);
+                pendingCreateParentNodeIdRef.current =
+                  consumeCanvasParentNodeId();
+                if (!workspaceStage) {
+                  setKanbanCanvasListVisible(true);
+                }
                 handleCreatePopoverOpenChange(true);
+              }}
+              onCreateSessionWithExecutor={(executorName) => {
+                pendingCreateParentNodeIdRef.current =
+                  consumeCanvasParentNodeId();
+                if (!workspaceStage) {
+                  setKanbanCanvasListVisible(true);
+                }
+                handleCreatePopoverOpenChange(true);
+                updateSelectedExecutorProfile({
+                  executor:
+                    executorName as NonNullable<ExecutorProfileId>['executor'],
+                  variant: null,
+                });
               }}
             />
           </Suspense>

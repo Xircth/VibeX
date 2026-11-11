@@ -1347,7 +1347,17 @@ impl ServerApplicationDomains {
                 "Warp is an external terminal; use open_external_terminal".to_string(),
             ));
         }
-        let working_dir = self.resolve_terminal_working_dir(args.workspace_id).await?;
+        let working_dir = match args.cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(custom_cwd) => {
+                let candidate = std::path::PathBuf::from(custom_cwd);
+                if candidate.is_dir() {
+                    candidate
+                } else {
+                    self.resolve_terminal_working_dir(args.workspace_id).await?
+                }
+            }
+            None => self.resolve_terminal_working_dir(args.workspace_id).await?,
+        };
         let (session_id, output_rx) = self
             .deployment
             .pty()
@@ -2711,6 +2721,7 @@ struct CreateTerminalArgs {
     shell: Option<String>,
     session_id: Option<Uuid>,
     initial_command: Option<String>,
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]

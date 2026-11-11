@@ -258,7 +258,7 @@ export function PluginsSettings({
               <strong>{t('plugins.allAgentSkills')}</strong>
               <p>{t('plugins.allAgentSkillsDescription')}</p>
               {(capabilitySetup?.mcpCount ?? 0) > 0 ? (
-                <p className="mt-2 text-amber-600 dark:text-amber-400">
+                <p className="mt-2 text-warning">
                   {t('plugins.builtinMcpNotice')}
                 </p>
               ) : null}

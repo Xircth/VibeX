@@ -79,6 +79,29 @@ export function listLeftDockGroups<T extends DockviewGroupLike>(
   return groups.filter((group) => isLeftGroup(group));
 }
 
+export function isRightShellNavGroup(group: DockviewGroupLike): boolean {
+  return (
+    isLeftGroup(group) &&
+    group.element?.getAttribute('data-shell-nav-side') === 'right'
+  );
+}
+
+export function isLeftShellNavGroup(group: DockviewGroupLike): boolean {
+  return isLeftGroup(group) && !isRightShellNavGroup(group);
+}
+
+export function listLeftShellNavGroups<T extends DockviewGroupLike>(
+  groups: readonly T[]
+): T[] {
+  return groups.filter((group) => isLeftShellNavGroup(group));
+}
+
+export function listRightShellNavGroups<T extends DockviewGroupLike>(
+  groups: readonly T[]
+): T[] {
+  return groups.filter((group) => isRightShellNavGroup(group));
+}
+
 export function isBottomGroup(group: DockviewGroupLike): boolean {
   // Identity is the group id only. A terminal tab inside an editor group must
   // stay an editor group, or every split that holds a terminal is re-locked

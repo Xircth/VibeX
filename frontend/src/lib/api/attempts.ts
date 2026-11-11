@@ -47,6 +47,7 @@ import type {
   CommitGraphResult,
 } from './base';
 import { sessionsApi } from './sessions';
+import { isBotCollaborationSession } from '@/lib/hideBotSessions';
 import type {
   RedlineDocument,
   TauriInspectorStatus,
@@ -136,13 +137,27 @@ export const attemptsApi = {
     });
   },
 
-  /** Get workspace with latest session */
+  /** Get workspace with latest development session (excluding background Bot collaboration sessions) */
   getWithSession: async (attemptId: string): Promise<WorkspaceWithSession> => {
-    const [workspace, sessions] = await Promise.all([
+    const [workspace, sessions, summaries] = await Promise.all([
       attemptsApi.get(attemptId),
       sessionsApi.getByWorkspace(attemptId),
+      typeof sessionsApi.getSummariesByWorkspace === 'function'
+        ? sessionsApi.getSummariesByWorkspace(attemptId).catch(() => [])
+        : Promise.resolve([]),
     ]);
-    return createWorkspaceWithSession(workspace, sessions[0]);
+    const summaryById = new Map(
+      summaries.map((summary) => [summary.id, summary] as const)
+    );
+    const latestDevSession = sessions.find((session) => {
+      const summary = summaryById.get(session.id);
+      return !isBotCollaborationSession({
+        collaboration: summary?.collaboration,
+        initial_prompt: session.initial_prompt,
+        first_prompt: summary?.first_prompt,
+      });
+    });
+    return createWorkspaceWithSession(workspace, latestDevSession);
   },
 
   create: async (data: CreateTaskAttemptBody): Promise<Workspace> => {

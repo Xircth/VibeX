@@ -165,7 +165,7 @@ export function ArtifactTimelineCard({
                 : 'allow-scripts allow-popups allow-forms'
             }
             referrerPolicy="no-referrer"
-            className="aspect-video w-full border-0 bg-white"
+            className="aspect-video w-full border-0 bg-[var(--document-paper)]"
           />
         </div>
       ) : null}

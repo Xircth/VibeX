@@ -930,7 +930,7 @@ export function OpenCodeProviderConnections({
         ? createPortal(
             <div
               ref={catalogMenuRef}
-              className="agent-model-provider-catalog-menu product-context-menu opencode-provider-catalog-menu border border-border bg-white font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover"
+              className="agent-model-provider-catalog-menu product-context-menu opencode-provider-catalog-menu border border-border bg-popover font-sans text-[13px] leading-5 text-popover-foreground shadow-none"
               style={{
                 top: catalogMenuPosition.top,
                 left: catalogMenuPosition.left,

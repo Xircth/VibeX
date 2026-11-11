@@ -14,6 +14,8 @@ import { processesPanelManifest } from './processes';
 import { searchPanelManifest } from './search';
 import { sessionDetailsPanelManifest } from './sessionDetails';
 import { sessionListPanelManifest } from './sessionList';
+import { botsPanelManifest } from './bots';
+import { collaborationSpacePanelManifest } from './collaborationSpace';
 import { terminalPanelManifest } from './terminal';
 import { welcomePanelManifest } from './welcome';
 
@@ -38,6 +40,8 @@ const panelManifests = [
   processesPanelManifest,
   searchPanelManifest,
   sessionListPanelManifest,
+  botsPanelManifest,
+  collaborationSpacePanelManifest,
 ] as const;
 
 export type BuiltinPanelManifestId = (typeof panelManifests)[number]['id'];

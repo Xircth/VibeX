@@ -20,8 +20,8 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().isFileTreeVisible).toBe(true);
     });
 
-    it('should have right panel visible by default', () => {
-      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+    it('should have right panel hidden by default under Unified A/B Zone layout', () => {
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
     });
 
     it('should have every kanban zone visible by default', () => {
@@ -86,13 +86,13 @@ describe('useLayoutStore', () => {
 
   describe('toggleRightPanel', () => {
     it('should toggle right panel visibility', () => {
-      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
-
-      useLayoutStore.getState().toggleRightPanel();
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
       useLayoutStore.getState().toggleRightPanel();
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+
+      useLayoutStore.getState().toggleRightPanel();
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
     });
   });
 
@@ -113,7 +113,7 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().isKanbanListVisible).toBe(true);
       expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(true);
       expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
-      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
     });
   });
 
@@ -135,7 +135,7 @@ describe('useLayoutStore', () => {
       const store = useLayoutStore.getState();
       store.setFileTreeVisible(false);
       store.setRightPanelWidth(600);
-      store.setRightPanelVisible(false);
+      store.setRightPanelVisible(true);
       store.setActiveTab('workspace');
 
       store.resetLayout();
@@ -143,7 +143,7 @@ describe('useLayoutStore', () => {
       const reset = useLayoutStore.getState();
       expect(reset.isFileTreeVisible).toBe(true);
       expect(reset.rightPanelWidth).toBe(434);
-      expect(reset.isRightPanelVisible).toBe(true);
+      expect(reset.isRightPanelVisible).toBe(false);
       expect(reset.activeTab).toBe('workspace');
       expect(reset.serializedLayout).toBeNull();
     });
@@ -290,5 +290,47 @@ describe('persisted layout migration', () => {
         'plugin:vibex.host-surface/sample-panel'
       ]
     ).toMatchObject({ contentComponent: 'plugin-panel' });
+  });
+
+  it('heals untouched v28 3-column startup snapshots with unbound AI_CHAT to 2-column A/B layout', () => {
+    const legacyStartupLayout = {
+      grid: { root: {}, width: 1440, height: 900, orientation: 0 },
+      panels: {
+        bots: { id: 'bots', contentComponent: 'bots', title: 'Bots' },
+        welcome: {
+          id: 'welcome',
+          contentComponent: 'welcome',
+          title: 'Welcome',
+        },
+        'ai-chat': {
+          id: 'ai-chat',
+          contentComponent: 'ai-chat',
+          title: 'AI Chat',
+        },
+      },
+    } as unknown as SerializedDockview;
+
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'staller-lab',
+        projectLayouts: {
+          'staller-lab': {
+            serializedLayout: legacyStartupLayout,
+            isRightPanelVisible: true,
+            rightPanelWidth: 434,
+          },
+        },
+      },
+      28
+    );
+
+    expect(migrated.projectLayouts['staller-lab'].isRightPanelVisible).toBe(
+      false
+    );
+    expect(
+      migrated.projectLayouts['staller-lab'].serializedLayout
+    ).toBeNull();
+    expect(migrated.isRightPanelVisible).toBe(false);
+    expect(migrated.serializedLayout).toBeNull();
   });
 });

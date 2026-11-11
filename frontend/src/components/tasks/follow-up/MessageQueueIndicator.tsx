@@ -265,7 +265,7 @@ export function MessageQueueIndicator({
             onClick={() => setDelayedExpanded((value) => !value)}
             aria-expanded={delayedExpanded}
           >
-            <Clock className="h-3.5 w-3.5 flex-none text-sky-500" />
+            <Clock className="h-3.5 w-3.5 flex-none text-info" />
             <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
               {t('messageQueue.delayedDescriptionCount', {
                 count: delayedMessages.length,
@@ -300,7 +300,7 @@ export function MessageQueueIndicator({
                   ) : null}
                   <div className="flex flex-none items-center gap-1">
                     <span
-                      className="inline-flex items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 font-mono text-[11px] font-medium tabular-nums text-sky-600 dark:text-sky-400"
+                      className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-0.5 font-mono text-[11px] font-medium tabular-nums text-info"
                       data-testid={`delayed-countdown-${message.id}`}
                     >
                       <Clock className="h-3 w-3" />

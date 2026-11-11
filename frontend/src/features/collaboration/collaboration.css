@@ -15,6 +15,21 @@
   color: var(--text-primary);
 }
 
+.collaboration-bots-dock {
+  --collaboration-contact-avatar: 2.5rem;
+  --collaboration-assistant-avatar: 2.5rem;
+  --collaboration-cluster-radius: calc(var(--radius) / 2);
+  color: var(--text-primary);
+}
+
+.collaboration-bots-dock > .collaboration-pane {
+  flex: 1 1 0%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-right: 0;
+}
+
 .collaboration-shell.is-resizing,
 .collaboration-shell.is-resizing * {
   cursor: col-resize !important;
@@ -701,6 +716,27 @@
   color: var(--text-muted);
 }
 
+.collaboration-top-member-bar.is-canvas-header {
+  position: static;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.collaboration-top-member-collapsed-bar.is-canvas-header {
+  position: static;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  box-shadow: none;
+}
+
+.collaboration-top-member-bar.is-canvas-header .collaboration-top-member-chrome {
+  box-shadow: none;
+}
+
 .collaboration-thread-body {
   position: relative;
   display: flex;
@@ -726,6 +762,13 @@
     #000 100%
   );
   mask-image: linear-gradient(to bottom, transparent 0, #000 3.5rem, #000 100%);
+}
+
+.collaboration-thread[data-header-member-bar='external']
+  .collaboration-thread-log {
+  padding-top: 0.75rem;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .collaboration-message {
@@ -858,7 +901,7 @@
   justify-content: center;
   min-height: 1.25rem;
   padding: 0.05rem 0.28rem;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: 999px;
   background: var(--surface-dialog);
   color: var(--text-strong);
@@ -1019,13 +1062,13 @@
   height: 1.75rem;
   padding: 0 0.75rem;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   background: var(--surface-dialog);
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 4px 12px hsl(var(--shadow-ink) / 0.14);
   cursor: pointer;
   transition:
     transform 120ms ease,
@@ -1042,9 +1085,9 @@
 
 .collaboration-bubble-expand-pill:hover {
   background: var(--surface-hover);
-  border-color: var(--border-strong, var(--border));
+  border-color: var(--border-strong);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 6px 16px hsl(var(--shadow-ink) / 0.18);
 }
 
 .collaboration-bubble-expand-pill:active {
@@ -1075,15 +1118,10 @@
   flex-shrink: 0;
   align-self: flex-end;
   margin-bottom: 0.125rem;
-  color: #64748b;
+  color: var(--text-muted);
   line-height: 1;
   pointer-events: none;
   user-select: none;
-}
-
-.dark .collaboration-message-ticks,
-.dark .collaboration-message-status-ticks {
-  color: #94a3b8;
 }
 
 .collaboration-message-tick,
@@ -1510,7 +1548,8 @@
   flex-shrink: 0;
 }
 
-.collaboration-shell .workspace-session-row-main {
+.collaboration-shell .workspace-session-row-main,
+.collaboration-bots-dock .workspace-session-row-main {
   cursor: pointer;
 }
 
@@ -1542,7 +1581,8 @@
 
 /* Group-chat rows share the DM row chrome: no card border, background-only
    hover/selected states from .workspace-session-row. */
-.collaboration-shell .collaboration-space-row {
+.collaboration-shell .collaboration-space-row,
+.collaboration-bots-dock .collaboration-space-row {
   border: 0;
 }
 
@@ -1788,6 +1828,7 @@
 }
 
 .collaboration-shell .collaboration-edit-name-btn,
+.collaboration-bots-dock .collaboration-edit-name-btn,
 .collaboration-member-hover-actions .collaboration-edit-name-btn,
 .collaboration-space-hover-actions .collaboration-edit-name-btn {
   border-radius: 9999px !important;
@@ -1795,6 +1836,8 @@
 
 .collaboration-shell .collaboration-edit-name-btn:hover,
 .collaboration-shell .collaboration-edit-name-btn:focus-visible,
+.collaboration-bots-dock .collaboration-edit-name-btn:hover,
+.collaboration-bots-dock .collaboration-edit-name-btn:focus-visible,
 .collaboration-member-hover-actions .collaboration-edit-name-btn:hover,
 .collaboration-member-hover-actions .collaboration-edit-name-btn:focus-visible,
 .collaboration-space-hover-actions .collaboration-edit-name-btn:hover,
@@ -1805,6 +1848,8 @@
 
 .dark .collaboration-shell .collaboration-edit-name-btn:hover,
 .dark .collaboration-shell .collaboration-edit-name-btn:focus-visible,
+.dark .collaboration-bots-dock .collaboration-edit-name-btn:hover,
+.dark .collaboration-bots-dock .collaboration-edit-name-btn:focus-visible,
 .dark .collaboration-member-hover-actions .collaboration-edit-name-btn:hover,
 .dark
   .collaboration-member-hover-actions
@@ -1826,6 +1871,7 @@
 }
 
 .collaboration-shell .collaboration-member-row,
+.collaboration-bots-dock .collaboration-member-row,
 .collaboration-dialog-member-picker .collaboration-member-row {
   --workspace-session-row-bg: hsl(var(--background));
   background: transparent;
@@ -1836,6 +1882,14 @@
 
 .collaboration-shell .collaboration-member-row,
 .collaboration-shell .collaboration-space-row {
+  min-height: 0;
+  padding-block: 0;
+  overflow: visible;
+  border: 0;
+}
+
+.collaboration-bots-dock .collaboration-member-row,
+.collaboration-bots-dock .collaboration-space-row {
   min-height: 0;
   padding-block: 0;
   overflow: visible;
@@ -1857,6 +1911,15 @@
   box-shadow: none !important;
 }
 
+.collaboration-bots-dock .collaboration-member-row .workspace-session-icon {
+  position: relative;
+  width: var(--collaboration-contact-avatar, 2.5rem);
+  height: var(--collaboration-contact-avatar, 2.5rem);
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-icon {
@@ -1869,6 +1932,7 @@
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status,
+.collaboration-bots-dock .collaboration-member-row .workspace-session-status,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status {
@@ -1884,6 +1948,10 @@
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status--todo,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--todo,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--todo,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--todo {
@@ -1893,6 +1961,10 @@
 .collaboration-shell
   .collaboration-member-row
   .workspace-session-status--inprogress,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--inprogress,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--inprogress,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--inprogress {
@@ -1902,6 +1974,10 @@
 .collaboration-shell
   .collaboration-member-row
   .workspace-session-status--inreview,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--inreview,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--inreview,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--inreview {
@@ -1909,19 +1985,28 @@
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status--done,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--done,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--done,
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-status--done {
   background: var(--session-status-done);
 }
 
-.collaboration-shell .collaboration-member-row * {
+.collaboration-shell .collaboration-member-row *,
+.collaboration-bots-dock .collaboration-member-row * {
   user-select: none;
   -webkit-user-drag: none;
 }
 
 .collaboration-shell .collaboration-member-row.is-draggable,
 .collaboration-shell
+  .collaboration-member-row.is-draggable
+  .workspace-session-row-main,
+.collaboration-bots-dock .collaboration-member-row.is-draggable,
+.collaboration-bots-dock
   .collaboration-member-row.is-draggable
   .workspace-session-row-main {
   cursor: grab;
@@ -2000,6 +2085,8 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-shell .collaboration-member-row:hover,
 .collaboration-shell .collaboration-space-row:hover,
+.collaboration-bots-dock .collaboration-member-row:hover,
+.collaboration-bots-dock .collaboration-space-row:hover,
 .collaboration-dialog-member-picker .collaboration-member-row:hover {
   --workspace-session-row-bg: var(--surface-control-hover);
   background: var(--surface-control-hover);
@@ -2014,6 +2101,15 @@ body.is-dragging-collaboration-member * {
   .workspace-session-meta-idle,
 .collaboration-shell
   .collaboration-member-row.is-hovered
+  .workspace-session-meta-idle,
+.collaboration-bots-dock
+  .collaboration-member-row:hover
+  .workspace-session-meta-idle,
+.collaboration-bots-dock
+  .collaboration-member-row:focus-within
+  .workspace-session-meta-idle,
+.collaboration-bots-dock
+  .collaboration-member-row.is-hovered
   .workspace-session-meta-idle {
   display: inline-flex;
   visibility: hidden;
@@ -2021,6 +2117,8 @@ body.is-dragging-collaboration-member * {
 
 .collaboration-shell .collaboration-member-row.is-selected,
 .collaboration-shell .collaboration-member-row.is-selected:hover,
+.collaboration-bots-dock .collaboration-member-row.is-selected,
+.collaboration-bots-dock .collaboration-member-row.is-selected:hover,
 .collaboration-dialog-member-picker .collaboration-member-row.is-selected,
 .collaboration-dialog-member-picker
   .collaboration-member-row.is-selected:hover {
@@ -2052,6 +2150,9 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-shell
+  .collaboration-member-row.is-selected
+  .collaboration-member-name,
+.collaboration-bots-dock
   .collaboration-member-row.is-selected
   .collaboration-member-name {
   color: var(--text-strong);
@@ -3613,10 +3714,10 @@ body.is-dragging-collaboration-member * {
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-element);
   background: var(--surface-card, var(--surface-control));
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 1px 2px hsl(var(--shadow-ink) / 0.04),
     var(--shadow-inset);
   transition:
     border-color 150ms ease,
@@ -3668,7 +3769,7 @@ body.is-dragging-collaboration-member * {
   border: 1.5px solid var(--border-strong, var(--text-muted));
   border-radius: 9999px;
   background: transparent;
-  color: var(--surface-card, #ffffff);
+  color: var(--surface-card);
   cursor: pointer;
   transition:
     border-color 140ms ease,
@@ -3683,7 +3784,7 @@ body.is-dragging-collaboration-member * {
 .collaboration-collection-select-checkbox.is-checked {
   border-color: var(--text-strong);
   background: var(--text-strong);
-  color: var(--surface-card, #ffffff);
+  color: var(--surface-card);
 }
 
 .collaboration-collection-card-header-right {
@@ -3902,7 +4003,7 @@ body.is-dragging-collaboration-member * {
   border: 1px solid var(--border-subtle);
   background: var(--surface-right-panel);
   color: var(--text-strong);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.03);
 }
 
 .collaboration-collection-source-pill:hover {
@@ -4223,7 +4324,7 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-memory-budget-badge.is-warning {
-  color: #c87619;
+  color: var(--status-warning-text);
 }
 
 .collaboration-memory-summary-sections {
@@ -4418,26 +4519,20 @@ body.is-dragging-collaboration-member * {
   box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px) var(--group-avatar-tag);
 }
 
-/* Active group: tag ring breathes in and out; untagged groups fall back to green. */
+/* Active group: tag ring breathes in and out. */
 .collaboration-group-avatar.is-breathing {
-  box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
-    var(--group-avatar-tag, hsl(152 68% 42%));
+  box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px) var(--group-avatar-tag);
   animation: collaboration-group-tag-breathe 2s ease-in-out infinite;
 }
 
 @keyframes collaboration-group-tag-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
-      var(--group-avatar-tag, hsl(152 68% 42%));
+    box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px) var(--group-avatar-tag);
   }
   50% {
     box-shadow: 0 0 0 var(--group-avatar-ring, 1.5px)
-      color-mix(
-        in srgb,
-        var(--group-avatar-tag, hsl(152 68% 42%)) 10%,
-        transparent
-      );
+      color-mix(in srgb, var(--group-avatar-tag) 10%, transparent);
   }
 }
 
@@ -4776,7 +4871,8 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 
 /* Same outer box for both kinds so rows space evenly. */
 .collaboration-chat-direct .workspace-session-row,
-.collaboration-shell .collaboration-space-row {
+.collaboration-shell .collaboration-space-row,
+.collaboration-bots-dock .collaboration-space-row {
   padding-block: 0;
 }
 
@@ -4939,29 +5035,6 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   }
 }
 
-/*
- * Never color alone: in the collaboration lists the session status dot also
- * changes shape. "todo" is a neutral hollow ring (it is a ready state, not an
- * error), in-review is a half-filled dot, in-progress/done stay solid.
- */
-.collaboration-shell .workspace-session-status--todo {
-  background: var(--workspace-session-row-bg, var(--surface-content));
-  box-shadow:
-    inset 0 0 0 1.5px var(--session-status-todo),
-    0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
-}
-
-.collaboration-shell .workspace-session-status--inreview {
-  background: linear-gradient(
-    90deg,
-    var(--session-status-inreview) 50%,
-    var(--workspace-session-row-bg, var(--surface-content)) 50%
-  );
-  box-shadow:
-    inset 0 0 0 1.5px var(--session-status-inreview),
-    0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
-}
-
 /* #15 Single control border: the composer frame already draws the border,
    so the inner input surface must not paint a second tinted panel. */
 .collaboration-composer-wrap [data-testid='session-composer-input-surface'],
@@ -5023,12 +5096,15 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 }
 
 .collaboration-supervisor-card {
+  --workspace-session-row-bg: var(--surface-topbar);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
   width: 100%;
+  height: auto;
+  min-height: 0;
   padding: 0.5rem 0.625rem;
   border: 0;
   border-radius: var(--radius);
@@ -5041,18 +5117,20 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
 
 .collaboration-supervisor-card:hover,
 .collaboration-supervisor-card:focus-visible {
+  --workspace-session-row-bg: var(--surface-control-hover);
   background: var(--surface-control-hover);
   outline: none;
 }
 
 .collaboration-supervisor-slot.is-selected .collaboration-supervisor-card {
+  --workspace-session-row-bg: var(--surface-control);
   background: var(--surface-control);
 }
 
-.collaboration-shell
-  .collaboration-supervisor-avatar-wrap.workspace-session-icon {
+.collaboration-supervisor-avatar-wrap.workspace-session-icon {
   position: relative;
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: 3.5rem;
@@ -5062,13 +5140,29 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   box-shadow: none !important;
 }
 
+.collaboration-supervisor-avatar-wrap .workspace-session-status {
+  position: absolute;
+  right: 0.1875rem;
+  bottom: 0.1875rem;
+  z-index: 2;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px
+    var(--workspace-session-row-bg, var(--surface-topbar));
+}
+
 .collaboration-supervisor-avatar {
+  display: block;
+  flex: 0 0 auto;
   width: 3.5rem;
   height: 3.5rem;
   transform: rotate(-12deg);
 }
 
 .collaboration-supervisor-rename-avatar {
+  width: 100%;
+  height: 100%;
   transform: rotate(-12deg);
 }
 
@@ -5076,6 +5170,7 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   position: absolute;
   top: -0.125rem;
   right: -0.25rem;
+  z-index: 3;
 }
 
 .collaboration-supervisor-name {
@@ -5089,3 +5184,41 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   color: var(--text-strong);
   text-align: center;
 }
+
+/*
+ * Never color alone: in the collaboration lists the session status dot also
+ * changes shape. "todo" is a neutral hollow ring (it is a ready state, not an
+ * error), in-review is a half-filled dot, in-progress/done stay solid.
+ */
+.collaboration-shell .workspace-session-status--todo,
+.collaboration-bots-dock .workspace-session-status--todo,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--todo,
+.collaboration-shell .collaboration-member-row .workspace-session-status--todo,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--todo {
+  background: var(--workspace-session-row-bg, var(--surface-content));
+  box-shadow:
+    inset 0 0 0 1.5px var(--session-status-todo),
+    0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
+}
+
+.collaboration-shell .workspace-session-status--inreview,
+.collaboration-bots-dock .workspace-session-status--inreview,
+.collaboration-supervisor-avatar-wrap .workspace-session-status--inreview,
+.collaboration-shell
+  .collaboration-member-row
+  .workspace-session-status--inreview,
+.collaboration-bots-dock
+  .collaboration-member-row
+  .workspace-session-status--inreview {
+  background: linear-gradient(
+    90deg,
+    var(--session-status-inreview) 50%,
+    var(--workspace-session-row-bg, var(--surface-content)) 50%
+  );
+  box-shadow:
+    inset 0 0 0 1.5px var(--session-status-inreview),
+    0 0 0 1.5px var(--workspace-session-row-bg, var(--surface-content));
+}
+

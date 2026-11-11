@@ -7,12 +7,11 @@
 }
 
 .onboarding-experience {
-  --onboarding-void: #f4f5f7;
-  --onboarding-ink: #18181b;
-  --onboarding-ink-muted: #5b616b;
-  --onboarding-ink-inverse: #fafafa;
-  --onboarding-line: #18181b14;
-  --onboarding-shot-shadow: 0 24px 60px #18181b22;
+  --onboarding-void: var(--surface-topbar);
+  --onboarding-ink: var(--text-strong);
+  --onboarding-ink-muted: var(--text-muted);
+  --onboarding-line: var(--border-subtle);
+  --onboarding-shot-shadow: 0 24px 60px hsl(var(--shadow-ink) / 0.13);
   position: fixed;
   inset: 0;
   z-index: 12000;
@@ -32,12 +31,12 @@
 }
 
 .dark .onboarding-experience {
-  --onboarding-void: #0e1319;
-  --onboarding-ink: #e7ebef;
-  --onboarding-ink-muted: #8b949e;
-  --onboarding-ink-inverse: #0e1319;
-  --onboarding-line: hsl(210 30% 80% / 0.12);
-  --onboarding-shot-shadow: 0 24px 80px hsl(210 40% 2% / 0.55);
+  --onboarding-void: color-mix(
+    in srgb,
+    var(--surface-shell) 60%,
+    hsl(var(--shadow-ink))
+  );
+  --onboarding-shot-shadow: 0 24px 80px hsl(var(--shadow-ink) / 0.55);
 }
 
 .onboarding-hero-glow {
@@ -49,8 +48,8 @@
   transform: translateX(-50%);
   background: radial-gradient(
     ellipse 70% 58% at 50% 52%,
-    rgb(63 108 196 / 0.58) 0%,
-    rgb(63 108 196 / 0.22) 38%,
+    hsl(var(--scene-glow) / 0.58) 0%,
+    hsl(var(--scene-glow) / 0.22) 38%,
     transparent 70%
   );
 }
@@ -58,8 +57,8 @@
 .dark .onboarding-hero-glow {
   background: radial-gradient(
     ellipse 70% 58% at 50% 52%,
-    rgb(63 108 196 / 0.78) 0%,
-    rgb(63 108 196 / 0.32) 38%,
+    hsl(var(--scene-glow) / 0.78) 0%,
+    hsl(var(--scene-glow) / 0.32) 38%,
     transparent 70%
   );
 }
@@ -283,8 +282,8 @@
   border: 0;
   border-radius: var(--radius);
   padding: 0 20px;
-  color: var(--onboarding-ink-inverse);
-  background: var(--onboarding-ink);
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;

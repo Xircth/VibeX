@@ -1,8 +1,12 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
-import type { CanvasNodeGeometry } from './canvasModel';
+import type { CanvasHandleSide, CanvasNodeGeometry } from './canvasModel';
 import type { CanvasSessionStore } from './canvasSessionStore';
+import type {
+  OpenCanvasPanelRequest,
+  OpenCanvasSessionRequest,
+} from './canvasWorkspaceBridge';
 
 export interface SessionCanvasViewContextValue {
   sessionStore?: CanvasSessionStore;
@@ -31,6 +35,32 @@ export interface SessionCanvasViewContextValue {
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
+  beginHandleConnect?: (
+    sourceId: string,
+    sourceHandle: CanvasHandleSide,
+    clientX: number,
+    clientY: number
+  ) => void;
+  completeHandleConnect?: (
+    targetId: string,
+    targetHandle: CanvasHandleSide
+  ) => void;
+  hoverHandleTarget?: (
+    targetId: string | null,
+    targetHandle: CanvasHandleSide | null
+  ) => void;
+  isConnectingLink?: boolean;
+  openOrFocusPanelNode?: (request: OpenCanvasPanelRequest) => string;
+  openOrFocusSessionNode?: (request: OpenCanvasSessionRequest) => string;
+  duplicateCanvasNode?: (instanceId: string) => string | null;
+  closeOtherCanvasNodes?: (instanceId: string) => void;
+  sortCanvasNodes?: () => void;
+  onCreateSessionWithExecutor?: (executor: string, parentNodeId?: string) => void;
+  onNewSession?: (parentNodeId?: string) => void;
+  updatePanelNodeMeta?: (
+    instanceId: string,
+    patch: { title?: string; params?: Record<string, unknown> }
+  ) => void;
 }
 
 const SessionCanvasViewContext =

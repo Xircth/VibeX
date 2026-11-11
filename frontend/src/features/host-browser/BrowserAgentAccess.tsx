@@ -171,7 +171,7 @@ export function BrowserAgentActivityControl({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(FIELD_BTN, flagged && 'text-amber-600')}
+          className={cn(FIELD_BTN, flagged && 'text-warning')}
           title={activityLabel(t, shown)}
           aria-label={activityLabel(t, shown)}
         >
@@ -193,11 +193,11 @@ export function BrowserAgentActivityControl({
               className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
             >
               {entry.outcome === 'refused' ? (
-                <ShieldOff className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <ShieldOff className="h-3.5 w-3.5 shrink-0 text-warning" />
               ) : entry.outcome === 'failed' ? (
-                <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-warning" />
               ) : (
-                <Bot className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+                <Bot className="h-3.5 w-3.5 shrink-0 text-info" />
               )}
               <span className="min-w-0 flex-1 truncate">
                 {activityLabel(t, entry)}

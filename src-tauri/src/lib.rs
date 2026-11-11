@@ -17,6 +17,7 @@ mod error;
 mod events;
 mod host_bus;
 mod host_client;
+mod host_client_sync;
 mod host_windows;
 mod logging;
 mod managed_artifacts;
@@ -776,6 +777,11 @@ pub fn run() {
         commands::host_client::host_client_connect,
         commands::host_client::host_client_disconnect,
         commands::host_client::host_client_delete,
+        commands::host_client::host_client_set_sync_account,
+        commands::host_client::host_client_export_sync_profiles,
+        commands::host_client::host_client_merge_sync_profiles,
+        commands::host_client::host_client_mark_sync_pushed,
+        commands::host_client::host_client_ack_sync_deletes,
         commands::settings_window::open_settings_window,
         commands::app_window::open_app_window,
         plugin_dev_server::plugin_dev_connection,

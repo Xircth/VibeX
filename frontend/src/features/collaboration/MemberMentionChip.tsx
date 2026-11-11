@@ -111,7 +111,7 @@ export function MemberMentionChip({
   }
 
   const resolvedAvatar = avatar ?? ctx.resolveMemberAvatar(cleanName);
-  const color = resolvedAvatar.color || '#2563eb';
+  const color = resolvedAvatar.color || 'currentColor';
 
   return (
     <span

@@ -182,4 +182,24 @@ describe('workspace tab strip chrome', () => {
 
     expect(overflowTab['border-bottom']?.value).toMatch(/^none/);
   });
+
+  it('keeps Zone B outer corner pockets pure --surface-topbar (#F1F1F1) with no outer shadow or canvas underlay bleed', () => {
+    const stageHost = declarationsFor('.workspace-stage-host');
+    const stageGroup = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-groupview:not( :is( [data-left-dock='true'], .dv-header-hidden, #group-left, [id^='group-left-'] ) )"
+    );
+    const canvasOverlay = declarationsFor(
+      '.workspace-stage-host > .kanban-overlay'
+    );
+    const hiddenUnderlay = declarationsFor(
+      ".workspace-stage-host[data-canvas-stage-active='true'] [class*='dockview-theme-ayu'] .dv-groupview:not( :is( [data-left-dock='true'], .dv-header-hidden, #group-left, [id^='group-left-'] ) )"
+    );
+
+    expect(stageHost.background?.value).toBe('var(--surface-topbar)');
+    expect(stageGroup['box-shadow']?.value).toBe('none');
+    expect(canvasOverlay['box-shadow']?.value).toBe('none');
+    expect(canvasOverlay['border-radius']?.value).toBe('14px');
+    expect(hiddenUnderlay.visibility?.value).toBe('hidden');
+    expect(hiddenUnderlay['pointer-events']?.value).toBe('none');
+  });
 });

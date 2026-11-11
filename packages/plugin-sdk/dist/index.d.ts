@@ -5,6 +5,7 @@ export * from "./volatile.js";
 export * from "./stdio.js";
 export * from "./worker.js";
 export * from "./registry.js";
+export * from "./theme.js";
 export * from "./services.js";
 export * from "./context.js";
 export * from "./hooks.js";

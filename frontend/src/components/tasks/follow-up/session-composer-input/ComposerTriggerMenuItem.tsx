@@ -34,9 +34,9 @@ export function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
               kind === 'project' ||
               kind === 'element' ||
               kind === 'quote') &&
-              'bg-blue-500/10 text-blue-600 dark:text-blue-300',
+              'bg-info/10 text-info',
             kind === 'plugin_action' &&
-              'bg-pink-500/10 text-pink-700 dark:text-pink-300'
+              'bg-[var(--surface-control)] text-foreground'
           )}
         >
           <SessionComposerTokenIcon

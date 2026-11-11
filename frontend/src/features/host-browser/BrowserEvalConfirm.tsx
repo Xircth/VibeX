@@ -71,7 +71,7 @@ export function BrowserEvalConfirm() {
       <AlertDialogContent className="max-w-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600" />
+            <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
             {t('browserPanel.evalTitle', { site })}
           </AlertDialogTitle>
           <AlertDialogDescription>

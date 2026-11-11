@@ -357,7 +357,7 @@ export function BasicGuideSpotlight({
               key={`${line.copyKey}-${index}`}
               d={curvePath(line.from, line.to)}
               fill="none"
-              stroke="#111"
+              className="stroke-foreground"
               strokeWidth="1.5"
             />
           ))}

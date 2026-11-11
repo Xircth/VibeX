@@ -27,6 +27,7 @@ import {
 import { initUiZoom } from '@/lib/uiZoom';
 import { initAccentColor } from '@/lib/uiAccent';
 import { initMonoFont } from '@/lib/uiFont';
+import { initColorThemes } from '@/lib/theme/colorThemeStore';
 import { getUiLanguage } from '@/lib/uiLanguage';
 import i18n from '@/i18n';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
@@ -93,6 +94,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
         const changed = await syncFrontendPreferences();
         if (!isFirstSync && !changed) return;
         initUiZoom();
+        initColorThemes();
         initAccentColor();
         initMonoFont();
         const language = getUiLanguage();
